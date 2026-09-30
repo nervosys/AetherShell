@@ -8,6 +8,174 @@ struct FileFixture {
 }
 
 #[test]
+fn sqlite_table_export_is_typed_and_does_not_create_missing_databases() {
+    let fixture = FileFixture::new();
+    let mut env = Env::new();
+    let error = call(
+        "db_sqlite_to_json",
+        vec![fixture.path("missing.db"), Value::Str("example".into())],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_NOT_FOUND"), "{error}");
+    assert!(!fixture.directory.join("missing.db").exists());
+    let rows = call(
+        "db_sqlite_to_json",
+        vec![
+            Value::Str("tests/fixtures/sample.db".into()),
+            Value::Str("people".into()),
+        ],
+        &mut env,
+    )
+    .unwrap();
+    let Value::Array(rows) = rows else {
+        panic!("expected typed records")
+    };
+    assert_eq!(rows.len(), 2);
+    let Value::Record(first) = &rows[0] else {
+        panic!("expected record")
+    };
+    assert_eq!(first["age"], Value::Int(36));
+}
+
+#[test]
+fn sql_import_rejects_missing_files_and_dot_commands_before_creating_a_database() {
+    let fixture = FileFixture::new();
+    let mut env = Env::new();
+    let error = call(
+        "db_sqlite_import",
+        vec![fixture.path("absent.db"), fixture.path("missing.sql")],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_NOT_FOUND"), "{error}");
+    std::fs::write(
+        fixture.directory.join("unsafe.sql"),
+        ".shell echo should-not-run",
+    )
+    .unwrap();
+    let error = call(
+        "db_sqlite_import",
+        vec![fixture.path("absent.db"), fixture.path("unsafe.sql")],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    assert!(!fixture.directory.join("absent.db").exists());
+}
+
+#[test]
+fn sqlite_csv_export_validates_destinations_and_codes_tool_and_write_failures() {
+    let fixture = FileFixture::new();
+    let mut env = Env::new();
+    let source = Value::Str("tests/fixtures/sample.db".into());
+    for destination in [Value::Int(1), Value::Uri("file:///ignored".into())] {
+        let error = call(
+            "db_sqlite_to_csv",
+            vec![source.clone(), Value::Str("people".into()), destination],
+            &mut env,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    }
+    let csv = call(
+        "db_sqlite_to_csv",
+        vec![
+            source.clone(),
+            Value::Str("SELECT name, age FROM people ORDER BY name".into()),
+        ],
+        &mut env,
+    );
+    if let Err(error) = &csv {
+        assert!(error.to_string().contains("E_TOOL_MISSING"), "{error}");
+        return;
+    }
+    let Value::Str(csv) = csv.unwrap() else {
+        panic!("expected CSV text")
+    };
+    let mut reader = csv::Reader::from_reader(csv.as_bytes());
+    let rows = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(&rows[0][0], "ada");
+    let destination = fixture.path("people.csv");
+    assert_eq!(
+        call(
+            "db_sqlite_to_csv",
+            vec![
+                source.clone(),
+                Value::Str("people".into()),
+                destination.clone()
+            ],
+            &mut env
+        )
+        .unwrap(),
+        destination
+    );
+    assert!(fixture.directory.join("people.csv").is_file());
+    let error = call(
+        "db_sqlite_to_csv",
+        vec![source.clone(), Value::Str("missing_table".into())],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_TOOL_FAILED"), "{error}");
+    let error = call(
+        "db_sqlite_to_csv",
+        vec![
+            source,
+            Value::Str("people".into()),
+            fixture.path("missing/people.csv"),
+        ],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("E_NOT_FOUND") || error.to_string().contains("E_IO"),
+        "{error}"
+    );
+}
+
+#[test]
+fn sql_file_import_executes_statements_and_surplus_arguments_are_refused() {
+    let fixture = FileFixture::new();
+    std::fs::write(
+        fixture.directory.join("schema.sql"),
+        "CREATE TABLE example(value INTEGER); INSERT INTO example VALUES(42);",
+    )
+    .unwrap();
+    let mut env = Env::new();
+    let result = call(
+        "db_sqlite_import",
+        vec![fixture.path("imported.db"), fixture.path("schema.sql")],
+        &mut env,
+    );
+    if let Err(error) = &result {
+        assert!(error.to_string().contains("E_TOOL_MISSING"), "{error}");
+        return;
+    }
+    assert_eq!(result.unwrap(), Value::Bool(true));
+    let db = rusqlite::Connection::open(fixture.directory.join("imported.db")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT value FROM example", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        42
+    );
+    drop(db);
+    let error = call(
+        "db_sqlite_import",
+        vec![
+            fixture.path("absent.db"),
+            fixture.path("schema.sql"),
+            Value::Bool(true),
+        ],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    assert!(!fixture.directory.join("absent.db").exists());
+}
+
+#[test]
 fn sqlite_record_cells_refuse_unsupported_types_before_opening_a_database() {
     let fixture = FileFixture::new();
     let mut env = Env::new();

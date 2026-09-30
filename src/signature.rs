@@ -4884,6 +4884,24 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_drop"); let f = d + "/db"; file_copy("tests/fixtures/sample.db", f); let result = db_sqlite_drop_table(f, "people"); rmdir(d, true); result"#, "true")],
     },
     Signature {
+        name: "db_sqlite_import", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "SQLite database path"), req("sql_file", Ty::Str, "UTF-8 file of SQL statements")], returns: "Bool",
+        doc: "Read SQL from a file and execute it using sqlite3, snapshotting an active transaction. SQLite dot commands are refused; missing files and tool failures are coded errors.",
+        examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_import"); let f = d + "/schema.sql"; file_write(f, "CREATE TABLE example(value INTEGER); INSERT INTO example VALUES(42);"); let result = db_sqlite_import(d + "/db", f); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
+        name: "db_sqlite_to_csv", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "SQLite database path"), req("table_or_query", Ty::Str, "validated table identifier or caller-owned SQL starting with SELECT"), opt("destination", Ty::Str, "write CSV to this file and return its path; omitted returns CSV text")], returns: "String",
+        doc: "Export CSV with a header using sqlite3. Return text or the destination path; malformed destinations, tool failures and file-write failures are coded errors.",
+        examples: &[(r#"db_sqlite_to_csv("tests/fixtures/sample.db", "people")"#, "name,age\nada,36\nalan,41\n"), (r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_csv_out"); let result = db_sqlite_to_csv("tests/fixtures/sample.db", "people", d + "/people.csv"); let name = result | split("/") | last; rmdir(d, true); name"#, "people.csv")],
+    },
+    Signature {
+        name: "db_sqlite_to_json", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "existing SQLite database path"), req("table", Ty::Str, "validated table identifier")], returns: "Array",
+        doc: "Read a table in process as typed records, without creating a missing database. The result is an array, not serialized JSON text; use to_json for text.",
+        examples: &[(r#"db_sqlite_to_json("tests/fixtures/sample.db", "people") | len"#, "2")],
+    },
+    Signature {
         name: "db_sqlite_schema", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("db", Ty::Str, "existing SQLite database"), opt("table", Ty::Str, "literal table name")], returns: "Array",
         doc: "Read table definitions in name order, or column metadata for a literal table name. A missing table returns an empty array; a missing database is not created.",

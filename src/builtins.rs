@@ -32690,10 +32690,10 @@ fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             ))
         }
     };
-    let output_path = args.get(2).and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    });
+    let output_path = args
+        .get(2)
+        .map(|v| expect_string("db_sqlite_to_csv", v))
+        .transpose()?;
 
     // A leading SELECT means the caller passed a query and owns it, the same
     // contract as the WHERE clause in `db_sqlite_delete`. Anything else is a
@@ -32719,12 +32719,18 @@ fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
     if output.status.success() {
         let csv = String::from_utf8_lossy(&output.stdout).to_string();
         if let Some(path) = output_path {
-            std::fs::write(&path, &csv)?;
-            return Ok(Value::Str(path));
+            std::fs::write(path, &csv)
+                .map_err(|e| crate::safety::fs_error("db_sqlite_to_csv", path, &e))?;
+            return Ok(Value::Str(path.to_string()));
         }
         return Ok(Value::Str(csv));
     }
-    Ok(Value::Null)
+    Err(crate::safety::tool_failed(
+        "db_sqlite_to_csv",
+        "sqlite3",
+        output.status.code(),
+        &String::from_utf8_lossy(&output.stderr),
+    ))
 }
 
 fn bi_db_kv_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
