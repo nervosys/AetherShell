@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Further evaluator latency and throughput improvements**: module field
+  access borrows its record, collection lambdas reuse parameter slots, and
+  `reduce` moves its inputs and selects lambda arity before execution. Four
+  paired Windows release rounds measured 3.65x module-call throughput, 2.27x
+  two-argument reduce throughput, 1.2–1.3x map/filter throughput, and 1.63–1.79x
+  warm module-request latency improvements against `570bff8`. Full results,
+  including workloads without gains, are in
+  `benches/agentic/results/perf-2026-09-29-followup.md`.
 - **`ae -b` runs POSIX shell in-process** (`src/posix.rs`): pipelines, `&&`/`||`,
   variables, `$(…)`, redirections, `if`/`for`/`while`, `test`, and GNU-compatible
   text utilities. Other commands run as the real program through `guard_exec`,

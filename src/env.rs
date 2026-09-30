@@ -181,6 +181,24 @@ impl Env {
         }
     }
 
+    /// Replace a live parameter without reallocating its key. Collection
+    /// builtins keep these slots alive for the duration of their loop.
+    pub(crate) fn replace_param(&mut self, name: &str, value: Value) -> Option<Value> {
+        if let Some(slot) = self.vars.get_mut(name) {
+            Some(std::mem::replace(slot, value))
+        } else {
+            self.bind_param(name, value);
+            None
+        }
+    }
+
+    pub(crate) fn restore_param(&mut self, name: &str, previous: Option<Value>) -> Option<Value> {
+        match previous {
+            Some(value) => self.replace_param(name, value),
+            None => self.take_var(name),
+        }
+    }
+
     pub(crate) fn set_var_unchecked<S: Into<String>>(&mut self, name: S, value: Value) {
         let name_str = name.into();
         self.vars.insert(name_str.clone(), value);

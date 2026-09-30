@@ -4537,13 +4537,9 @@ pub(crate) fn call_lambda_one(
         return Err(anyhow!("lambda expected {} args, got 1", lam.params.len()));
     };
     let saved_pipe = env.take_input();
-    let prev = env.take_var(p);
-    env.bind_param(p, arg);
+    let prev = env.replace_param(p, arg);
     let result = eval_expr(&lam.body, env);
-    let cur = env.take_var(p);
-    if let Some(v) = prev {
-        env.bind_param(p, v);
-    }
+    let cur = env.restore_param(p, prev);
     env.set_input(saved_pipe);
     result.map(|r| (r, if give_back { cur } else { None }))
 }
@@ -4559,22 +4555,37 @@ fn bind_eval_unbind(
 ) -> (Result<Value>, Vec<Value>) {
     let mut saved: Vec<Option<Value>> = Vec::with_capacity(args.len());
     for (p, a) in lam.params.iter().zip(args) {
-        saved.push(env.take_var(p));
-        env.bind_param(p, a);
+        saved.push(env.replace_param(p, a));
     }
     let result = eval_expr(&lam.body, env);
     let mut back = Vec::new();
     for (p, prev) in lam.params.iter().zip(saved).rev() {
-        let cur = env.take_var(p);
+        let cur = env.restore_param(p, prev);
         if give_back {
             back.push(cur.unwrap_or(Value::Null));
-        }
-        if let Some(v) = prev {
-            env.bind_param(p, v);
         }
     }
     back.reverse();
     (result, back)
+}
+
+/// Allocate parameter names once for a collection, not once per element.
+/// Restore shadowed values on success and on errors, including nested calls.
+fn with_param_slots<T>(
+    lam: &Lambda,
+    env: &mut Env,
+    run: impl FnOnce(&mut Env) -> Result<T>,
+) -> Result<T> {
+    let saved: Vec<_> = lam
+        .params
+        .iter()
+        .map(|name| env.replace_param(name, Value::Null))
+        .collect();
+    let result = run(env);
+    for (name, old) in lam.params.iter().zip(saved).rev() {
+        env.restore_param(name, old);
+    }
+    result
 }
 
 // --------------- General builtins ---------------
@@ -4897,15 +4908,20 @@ fn bi_map(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value
     // arity, so ask it once.
     let two_arg = lam.params.len() == 2;
     let mut out = Vec::with_capacity(items.len());
-    for (i, v) in items.into_iter().enumerate() {
-        let y = if two_arg {
-            call_lambda_owned(lam, vec![v, Value::Int(i as i64)], env, false)?.0
-        } else {
-            call_lambda_one(lam, v, env, false)?.0
-        };
-        out.push(y);
+    if items.is_empty() {
+        return Ok(Value::Array(out));
     }
-    Ok(Value::Array(out))
+    with_param_slots(lam, env, |env| {
+        for (i, v) in items.into_iter().enumerate() {
+            let y = if two_arg {
+                call_lambda_owned(lam, vec![v, Value::Int(i as i64)], env, false)?.0
+            } else {
+                call_lambda_one(lam, v, env, false)?.0
+            };
+            out.push(y);
+        }
+        Ok(Value::Array(out))
+    })
 }
 
 fn bi_where(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
@@ -4933,21 +4949,27 @@ fn bi_where(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
     // keeping three copies of each element alive to make the retry possible.
     let two_arg = lam.params.len() == 2;
     let mut out = Vec::new();
-    for (i, v) in items.into_iter().enumerate() {
-        let (keep_val, v) = if two_arg {
-            let (k, mut back) = call_lambda_owned(lam, vec![v, Value::Int(i as i64)], env, true)?;
-            (k, back.swap_remove(0))
-        } else {
-            let (k, back) = call_lambda_one(lam, v, env, true)?;
-            (k, back.unwrap_or(Value::Null))
-        };
-        match keep_val {
-            Value::Bool(true) => out.push(v),
-            Value::Bool(false) => {}
-            other => return Err(anyhow!("where predicate must return Bool, got {:?}", other)),
-        }
+    if items.is_empty() {
+        return Ok(Value::Array(out));
     }
-    Ok(Value::Array(out))
+    with_param_slots(lam, env, |env| {
+        for (i, v) in items.into_iter().enumerate() {
+            let (keep_val, v) = if two_arg {
+                let (k, mut back) =
+                    call_lambda_owned(lam, vec![v, Value::Int(i as i64)], env, true)?;
+                (k, back.swap_remove(0))
+            } else {
+                let (k, back) = call_lambda_one(lam, v, env, true)?;
+                (k, back.unwrap_or(Value::Null))
+            };
+            match keep_val {
+                Value::Bool(true) => out.push(v),
+                Value::Bool(false) => {}
+                other => return Err(anyhow!("where predicate must return Bool, got {:?}", other)),
+            }
+        }
+        Ok(Value::Array(out))
+    })
 }
 
 fn bi_reduce(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
@@ -4955,19 +4977,15 @@ fn bi_reduce(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Va
     //  - piping:  [1,2,3] | reduce fn(a,b)=>... 0
     //  - direct:  reduce [1,2,3] fn(a,b)=>... 0
     // Determine arr, lambda index and init index without moving `input`
-    let arr_val = if let Some(ref v) = input {
-        v.clone()
-    } else {
-        if args.len() < 3 {
-            return Err(crate::safety::bad_arg(
-                "reduce",
-                "<array> <fn(acc,x)> <init>",
-                "nothing",
-            ));
-        }
-        args[0].clone()
-    };
-    let (lam_idx, init_idx) = if input.is_some() {
+    let piped = input.is_some();
+    if !piped && args.len() < 3 {
+        return Err(crate::safety::bad_arg(
+            "reduce",
+            "<array> <fn(acc,x)> <init>",
+            "nothing",
+        ));
+    }
+    let (lam_idx, init_idx) = if piped {
         (0usize, 1usize)
     } else {
         (1usize, 2usize)
@@ -4975,17 +4993,29 @@ fn bi_reduce(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Va
 
     let lam = need_lambda(arg("reduce", &args, lam_idx, "a lambda")?, "reduce")?;
     let init = arg("reduce", &args, init_idx, "an initial value")?.clone();
+    // Select arity before running the body. Retrying on any error copied the
+    // accumulator and hid an indexed lambda's body error behind an arity error.
+    let indexed = lam.params.len() == 3;
+    let arr_val = input.unwrap_or_else(|| args[0].clone());
+    expect_array("reduce", &arr_val)?;
+    let Value::Array(arr) = arr_val else {
+        unreachable!("expect_array accepted it")
+    };
 
-    let arr = expect_array("reduce", &arr_val)?;
     let mut acc = init;
-    for (i, v) in arr.iter().cloned().enumerate() {
-        // try fn(a,b,i) then fallback to fn(a,b); clone acc before trying fallbacks
-        let acc1 = acc.clone();
-        let acc2 = acc.clone();
-        acc = call_lambda(lam, &[acc1, v.clone(), Value::Int(i as i64)], env)
-            .or_else(|_| call_lambda(lam, &[acc2, v], env))?;
+    if arr.is_empty() {
+        return Ok(acc);
     }
-    Ok(acc)
+    with_param_slots(lam, env, |env| {
+        for (i, v) in arr.into_iter().enumerate() {
+            let mut values = vec![acc, v];
+            if indexed {
+                values.push(Value::Int(i as i64));
+            }
+            acc = call_lambda_owned(lam, values, env, false)?.0;
+        }
+        Ok(acc)
+    })
 }
 
 fn bi_take(args: Vec<Value>, input: Option<Value>) -> Result<Value> {

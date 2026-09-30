@@ -856,12 +856,18 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
 
         // ---------- member access: record.field ----------
         Expr::MemberAccess { object, field } => {
+            // Borrow a chain rooted in a variable. Cloning the object here
+            // copied an entire module (or a row's unused payload) to read one
+            // field. Only the selected value needs to become owned.
+            if let Some(value) = borrowed_member(expr, env) {
+                return value.cloned();
+            }
             let obj = eval_expr(object, env)?;
             match obj {
                 // A missing field is how a misspelled *module function* presents
                 // (`file.raed` — modules are records in the env), so suggest from
                 // the record's own keys rather than dead-ending on prose.
-                Value::Record(map) => map.get(field).cloned().ok_or_else(|| {
+                Value::Record(mut map) => map.remove(field).ok_or_else(|| {
                     crate::safety::unknown_field(
                         field,
                         crate::builtins::nearest_names(field, map.keys().map(|k| k.as_str())),
@@ -918,6 +924,39 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
                 "a value no arm matches",
             ))
         }
+    }
+}
+
+/// Resolve only identifiers and field chains, which cannot mutate the env.
+/// Other expressions keep the normal evaluator path and its evaluation order.
+fn borrowed_member<'a>(expr: &Expr, env: &'a Env) -> Option<Result<&'a Value>> {
+    match expr {
+        Expr::Ident(name) => Some(
+            crate::safety::check_deadline().map(|()| env.get_var(name).unwrap_or(&Value::Null)),
+        ),
+        Expr::MemberAccess { object, field } => {
+            let value = borrowed_member(object, env)?;
+            Some(value.and_then(|value| {
+                crate::safety::check_deadline()?;
+                match value {
+                    Value::Record(map) => map.get(field).ok_or_else(|| {
+                        crate::safety::unknown_field(
+                            field,
+                            crate::builtins::nearest_names(field, map.keys().map(|k| k.as_str())),
+                        )
+                    }),
+                    other => Err(crate::safety::bad_arg(
+                        &match object.as_ref() {
+                            Expr::Ident(name) => format!("{name}.{field}"),
+                            _ => format!(".{field}"),
+                        },
+                        "a Record (or a module)",
+                        other.type_name(),
+                    )),
+                }
+            }))
+        }
+        _ => None,
     }
 }
 
