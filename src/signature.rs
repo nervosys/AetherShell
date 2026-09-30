@@ -4830,6 +4830,30 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "db_csv_query", category: None, subject_required: false, aliases: &["db_csv_to_json"],
+        subject: None, params: &[req("path", Ty::Str, "CSV file with a header row")], returns: "Array",
+        doc: "Load CSV into records with string cells, trimming headers and fields. Handle quoted commas and multiline fields; refuse unequal row lengths. This loader does not accept a SQL query.",
+        examples: &[(r#"let d = fs_tempdir("ae_csv"); let f = d + "/rows.csv"; file_write(f, "name,age\nAda,42\n"); let rows = db_csv_query(f); rmdir(d, true); rows | map(fn(r) => r.name) | first"#, "Ada"), (r#"let d = fs_tempdir("ae_csv"); let f = d + "/rows.csv"; file_write(f, "name,age\nAda,42\n"); let rows = db_csv_to_json(f); rmdir(d, true); rows | map(fn(r) => r.age) | first"#, "42")],
+    },
+    Signature {
+        name: "db_sqlite_exec", category: None, subject_required: false, aliases: &["sqlite_exec"],
+        subject: None, params: &[req("db", Ty::Str, "SQLite database path"), req("sql", Ty::Str, "SQL statements; no SQLite dot commands")], returns: "Bool",
+        doc: "Execute SQL through the sqlite3 CLI, snapshotting the database for an active transaction. Return true on success or a coded tool error. SQL query output is discarded; use sql for results.",
+        examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_exec"); let result = db_sqlite_exec(d + "/example.db", "CREATE TABLE example(value INTEGER)"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
+        name: "db_kv_set", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("store", Ty::Str, "SQLite key-value store path"), req("key", Ty::Str, "literal key"), req("value", Ty::Any, "strings are stored verbatim; other values use Rust debug text")], returns: "Bool",
+        doc: "Create the kv table if needed and insert or replace a key. Validate SQL literals before writing; propagate table-creation errors. Requires the sqlite3 CLI.",
+        examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_kv"); let result = db_kv_set(d + "/store.db", "greeting", "hello"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
+        name: "db_kv_delete", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("store", Ty::Str, "SQLite key-value store path"), req("key", Ty::Str, "literal key")], returns: "Bool",
+        doc: "Delete a key through the effect gate using the sqlite3 CLI. Return true when SQL succeeds, including when no matching key exists; tool failures are coded errors.",
+        examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_kv"); let f = d + "/store.db"; db_kv_set(f, "greeting", "hello"); let result = db_kv_delete(f, "greeting"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
         name: "db_sqlite_schema", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("db", Ty::Str, "existing SQLite database"), opt("table", Ty::Str, "literal table name")], returns: "Array",
         doc: "Read table definitions in name order, or column metadata for a literal table name. A missing table returns an empty array; a missing database is not created.",

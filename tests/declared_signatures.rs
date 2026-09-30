@@ -43,6 +43,9 @@ fn ok(name: &str, args: Vec<Value>) -> Value {
 ///
 /// Every entry says what it depends on.
 const MACHINE_DEPENDENT: &[(&str, &str)] = &[
+    ("db_sqlite_exec", "the sqlite3 CLI; example uses a disposable database"),
+    ("db_kv_set", "the sqlite3 CLI; example uses a disposable store"),
+    ("db_kv_delete", "the sqlite3 CLI; example uses a disposable store"),
     ("db_sqlite_backup", "the sqlite3 CLI; examples use disposable destinations"),
     (
         "pkg_info",

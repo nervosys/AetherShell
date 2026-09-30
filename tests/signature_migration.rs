@@ -8,6 +8,172 @@ struct FileFixture {
 }
 
 #[test]
+fn sqlite_mutations_refuse_extra_arguments_before_creating_a_database() {
+    let fixture = FileFixture::new();
+    let mut env = Env::new();
+    for name in ["db_sqlite_exec", "sqlite_exec", "db_kv_set", "db_kv_delete"] {
+        let args = match name {
+            "db_sqlite_exec" | "sqlite_exec" => vec![
+                fixture.path("absent.db"),
+                Value::Str("CREATE TABLE example(value TEXT)".into()),
+                Value::Bool(true),
+            ],
+            "db_kv_set" => vec![
+                fixture.path("absent.db"),
+                Value::Str("key".into()),
+                Value::Str("value".into()),
+                Value::Bool(true),
+            ],
+            _ => vec![
+                fixture.path("absent.db"),
+                Value::Str("key".into()),
+                Value::Bool(true),
+            ],
+        };
+        let error = call(name, args, &mut env).unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{name}: {error}");
+        assert!(!fixture.directory.join("absent.db").exists());
+    }
+}
+
+#[test]
+fn csv_loading_preserves_quoted_fields_and_refuses_ragged_rows() {
+    let fixture = FileFixture::new();
+    let path = fixture.directory.join("quoted.csv");
+    std::fs::write(
+        &path,
+        "name,note,age\nAda,\"hello, world\",42\nGrace,\"two\nlines\",85\n",
+    )
+    .unwrap();
+    let mut env = Env::new();
+    for name in ["db_csv_query", "db_csv_to_json"] {
+        let Value::Array(rows) = call(name, vec![fixture.path("quoted.csv")], &mut env).unwrap()
+        else {
+            panic!("expected records")
+        };
+        let Value::Record(first) = &rows[0] else {
+            panic!("expected record")
+        };
+        assert_eq!(first["note"], Value::Str("hello, world".into()));
+        assert_eq!(first["age"], Value::Str("42".into()));
+        let Value::Record(second) = &rows[1] else {
+            panic!("expected record")
+        };
+        assert_eq!(second["note"], Value::Str("two\nlines".into()));
+        let error = call(
+            name,
+            vec![fixture.path("quoted.csv"), Value::Str("SELECT *".into())],
+            &mut env,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    }
+    std::fs::write(&path, "a,b\n1,2,3\n").unwrap();
+    let error = call("db_csv_query", vec![fixture.path("quoted.csv")], &mut env).unwrap_err();
+    assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    std::fs::write(&path, "").unwrap();
+    assert_eq!(
+        call("db_csv_query", vec![fixture.path("quoted.csv")], &mut env).unwrap(),
+        Value::Array(vec![])
+    );
+}
+
+#[test]
+fn key_value_literals_are_validated_before_store_creation() {
+    let fixture = FileFixture::new();
+    let mut env = Env::new();
+    for (key, value) in [("bad\0key", "value"), ("key", "bad\0value")] {
+        let error = call(
+            "db_kv_set",
+            vec![
+                fixture.path("absent.db"),
+                Value::Str(key.into()),
+                Value::Str(value.into()),
+            ],
+            &mut env,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+        assert!(!fixture.directory.join("absent.db").exists());
+    }
+    for name in ["db_kv_set", "db_kv_delete"] {
+        let error = call(
+            name,
+            vec![
+                Value::Int(3),
+                Value::Str("key".into()),
+                Value::Str("value".into()),
+            ],
+            &mut env,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    }
+}
+
+#[test]
+fn key_value_writes_refuse_views_and_quoted_keys_round_trip() {
+    let fixture = FileFixture::new();
+    let db = rusqlite::Connection::open(fixture.directory.join("view.db")).unwrap();
+    db.execute_batch("CREATE VIEW kv AS SELECT 'x' AS key, 'y' AS value;")
+        .unwrap();
+    drop(db);
+    let mut env = Env::new();
+    let error = call(
+        "db_kv_set",
+        vec![
+            fixture.path("view.db"),
+            Value::Str("key".into()),
+            Value::Str("value".into()),
+        ],
+        &mut env,
+    )
+    .unwrap_err();
+    if error.to_string().contains("E_TOOL_MISSING") {
+        return;
+    }
+    assert!(error.to_string().contains("E_TOOL_FAILED"), "{error}");
+    assert!(error.to_string().contains("cannot modify kv"), "{error}");
+    let key = Value::Str("key'; DROP TABLE kv; --".into());
+    assert_eq!(
+        call(
+            "db_kv_set",
+            vec![
+                fixture.path("store.db"),
+                key.clone(),
+                Value::Str("hello'世界".into())
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Bool(true)
+    );
+    let db = rusqlite::Connection::open(fixture.directory.join("store.db")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT value FROM kv", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "hello'世界"
+    );
+    drop(db);
+    assert_eq!(
+        call(
+            "db_kv_delete",
+            vec![fixture.path("store.db"), key],
+            &mut env
+        )
+        .unwrap(),
+        Value::Bool(true)
+    );
+    let db = rusqlite::Connection::open(fixture.directory.join("store.db")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM kv", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    drop(db);
+}
+
+#[test]
 fn temporary_directories_are_unique_under_concurrent_creation() {
     temporary_paths_are_unique("fs_tempdir");
 }

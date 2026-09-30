@@ -32773,7 +32773,13 @@ fn bi_db_kv_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_db_kv_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let store_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => ".aether_kv.db".to_string(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_kv_set",
+                "store: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let key = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -32797,8 +32803,11 @@ fn bi_db_kv_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
-    // Ensure table exists
-    let _ = bi_db_sqlite_exec(
+    // Validate literals before any file can be created or changed.
+    let key = crate::safety::sql_literal("db_kv_set", &key)?;
+    let value = crate::safety::sql_literal("db_kv_set", &value)?;
+    // Ensure table exists, propagating its failure.
+    bi_db_sqlite_exec(
         vec![
             Value::Str(store_path.clone()),
             Value::Str(
@@ -32806,15 +32815,14 @@ fn bi_db_kv_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ),
         ],
         None,
-    );
+    )?;
 
     bi_db_sqlite_exec(
         vec![
             Value::Str(store_path),
             Value::Str(format!(
                 "INSERT OR REPLACE INTO kv (key, value) VALUES ({}, {})",
-                crate::safety::sql_literal("db_kv_set", &key)?,
-                crate::safety::sql_literal("db_kv_set", &value)?
+                key, value
             )),
         ],
         None,
@@ -32824,7 +32832,13 @@ fn bi_db_kv_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_db_kv_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let store_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => ".aether_kv.db".to_string(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "db_kv_delete",
+                "store: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
     let key = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -32943,26 +32957,26 @@ fn bi_db_csv_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let content = std::fs::read_to_string(&csv_path)
         .map_err(|e| crate::safety::fs_error("db_csv_query", &csv_path, &e))?;
-    let lines: Vec<&str> = content.lines().collect();
-
-    if lines.is_empty() {
-        return Ok(Value::Array(vec![]));
-    }
-
-    let headers: Vec<&str> = lines[0].split(',').map(|s| s.trim()).collect();
-    let rows: Vec<Value> = lines[1..]
-        .iter()
-        .map(|line| {
-            let values: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-            let mut rec = std::collections::BTreeMap::new();
-            for (i, h) in headers.iter().enumerate() {
-                if let Some(v) = values.get(i) {
-                    rec.insert(h.to_string(), Value::Str(v.to_string()));
-                }
-            }
-            Value::Record(rec)
+    let mut reader = csv::ReaderBuilder::new()
+        .trim(csv::Trim::All)
+        .from_reader(content.as_bytes());
+    let csv_error = |e: csv::Error| {
+        crate::safety::bad_arg("db_csv_query", "CSV with equal-length rows", &e.to_string())
+    };
+    let headers = reader.headers().map_err(csv_error)?.clone();
+    let rows = reader
+        .records()
+        .map(|record| {
+            let record = record.map_err(csv_error)?;
+            Ok(Value::Record(
+                headers
+                    .iter()
+                    .zip(record.iter())
+                    .map(|(header, value)| (header.to_string(), Value::Str(value.to_string())))
+                    .collect(),
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     Ok(Value::Array(rows))
 }
