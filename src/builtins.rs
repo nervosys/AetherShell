@@ -33305,9 +33305,16 @@ fn sql_value(builtin: &str, v: &Value) -> Result<String> {
     Ok(match v {
         Value::Str(s) => crate::safety::sql_literal(builtin, s)?,
         Value::Int(n) => n.to_string(),
-        Value::Float(f) => f.to_string(),
+        Value::Float(f) if f.is_finite() => f.to_string(),
         Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
-        _ => "NULL".to_string(),
+        Value::Null => "NULL".to_string(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "String, Int, finite Float, Bool or Null SQL cell",
+                other.type_name(),
+            ))
+        }
     })
 }
 
@@ -33342,6 +33349,12 @@ fn bi_db_sqlite_insert(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             ))
         }
     };
+
+    if values.is_empty() {
+        return Err(crate::safety::arg_err(
+            "db_sqlite_insert: values must be a nonempty Record",
+        ));
+    }
 
     // Column names are identifiers, and they come from a caller-supplied record,
     // so they are exactly as controlled as the values are. Escaping the values
@@ -33408,6 +33421,12 @@ fn bi_db_sqlite_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         }
     };
 
+    if values.is_empty() || where_clause.trim().is_empty() {
+        return Err(crate::safety::arg_err(
+            "db_sqlite_update: values and WHERE clause must be nonempty",
+        ));
+    }
+
     // Same as `db_sqlite_insert`: the record's keys are identifiers and are
     // caller-controlled. The WHERE clause is SQL by contract -- this builtin
     // exists to take one -- so it stays the caller's, matching the note in
@@ -33454,8 +33473,15 @@ fn bi_db_sqlite_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         }
     };
     let where_clause = match args.get(2) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "1=0".to_string(), // Safety: don't delete all by default
+        Some(Value::Str(s)) if !s.trim().is_empty() => s.clone(),
+        None => "1=0".to_string(), // Safety: don't delete all by default
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "db_sqlite_delete",
+                "where: String",
+                other.type_name(),
+            ))
+        }
     };
 
     crate::safety::guard(crate::safety::GuardCtx {
@@ -33568,6 +33594,11 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
         Some(Value::Record(r)) => r.clone(),
         Some(Value::Str(s)) => {
             // Allow raw column definition
+            if s.trim().is_empty() {
+                return Err(crate::safety::arg_err(
+                    "db_sqlite_create_table: column definition must be nonempty",
+                ));
+            }
             let sql = format!(
                 "CREATE TABLE IF NOT EXISTS {} ({})",
                 crate::safety::sql_identifier("db_sqlite_create_table", &table)?,
@@ -33584,22 +33615,27 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
         }
     };
 
-    // Both halves of `"<name> <type>"` are validated. The type half used to be
-    // interpolated as written, carried forward across sessions on the grounds
-    // that constraining it "means inventing a grammar for SQL type expressions,
-    // which is a deliberate decision rather than a drive-by one". That decision
-    // is now made and lives in `safety::sql_column_type`: a token allowlist, not
-    // a parser, because the value being described is small and closed. The
-    // builtin is still unregistered, so this fixes nothing exploitable today —
-    // it removes the precondition that registering it required a security
-    // decision nobody had taken.
+    if columns.is_empty() {
+        return Err(crate::safety::arg_err(
+            "db_sqlite_create_table: columns must be a nonempty Record",
+        ));
+    }
+
+    // Record-form column names and type strings are validated before execution.
+    // The explicit raw-SQL string form above retains the caller's SQL grammar.
     let col_defs: Vec<String> = columns
         .iter()
         .map(|(name, typ)| {
-            let name = crate::safety::sql_identifier("db_sqlite_create", name)?;
+            let name = crate::safety::sql_identifier("db_sqlite_create_table", name)?;
             let type_str = match typ {
-                Value::Str(s) => crate::safety::sql_column_type("db_sqlite_create", s)?,
-                _ => "TEXT".to_string(),
+                Value::Str(s) => crate::safety::sql_column_type("db_sqlite_create_table", s)?,
+                other => {
+                    return Err(crate::safety::bad_arg(
+                        "db_sqlite_create_table",
+                        "column type: String",
+                        other.type_name(),
+                    ))
+                }
             };
             Ok(format!("{} {}", name, type_str))
         })
@@ -33607,7 +33643,7 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
 
     let sql = format!(
         "CREATE TABLE IF NOT EXISTS {} ({})",
-        crate::safety::sql_identifier("db_sqlite_create", &table)?,
+        crate::safety::sql_identifier("db_sqlite_create_table", &table)?,
         col_defs.join(", ")
     );
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)

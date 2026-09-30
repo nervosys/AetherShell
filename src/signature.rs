@@ -4854,6 +4854,36 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_kv"); let f = d + "/store.db"; db_kv_set(f, "greeting", "hello"); let result = db_kv_delete(f, "greeting"); rmdir(d, true); result"#, "true")],
     },
     Signature {
+        name: "db_sqlite_insert", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "SQLite database path"), req("table", Ty::Str, "validated table identifier"), req("values", Ty::Record, "nonempty column-to-value record; String, Int, finite Float, Bool or Null cells")], returns: "Bool",
+        doc: "Insert one row using the sqlite3 CLI. Validate identifiers and scalar cells before execution; return true when SQL succeeds or a coded error.",
+        examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_insert"); let f = d + "/db"; file_copy("tests/fixtures/sample.db", f); let result = db_sqlite_insert(f, "people", {name: "O'Brien", age: 37}); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
+        name: "db_sqlite_update", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "SQLite database path"), req("table", Ty::Str, "validated table identifier"), req("values", Ty::Record, "nonempty column-to-scalar record"), req("where", Ty::Str, "nonempty caller-owned SQL condition")], returns: "Bool",
+        doc: "Update matching rows using the sqlite3 CLI. Cells accept String, Int, finite Float, Bool and Null; other types are refused. Return true on successful SQL, even with no matching rows.",
+        examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_update"); let f = d + "/db"; file_copy("tests/fixtures/sample.db", f); let result = db_sqlite_update(f, "people", {age: 41}, "age > 40"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
+        name: "db_sqlite_delete", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "SQLite database path"), req("table", Ty::Str, "validated table identifier"), opt("where", Ty::Str, "nonempty caller-owned SQL condition; omitted means 1=0, deleting no rows")], returns: "Bool",
+        doc: "Delete matching rows through the destructive effect gate using sqlite3. Omission preserves rows; malformed conditions are refused. Return true when SQL succeeds, even with no match.",
+        examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_delete"); let f = d + "/db"; file_copy("tests/fixtures/sample.db", f); let result = db_sqlite_delete(f, "people"); rmdir(d, true); result"#, "true"), (r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_delete"); let f = d + "/db"; file_copy("tests/fixtures/sample.db", f); let result = db_sqlite_delete(f, "people", "age > 40"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
+        name: "db_sqlite_create_table", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "SQLite database path"), req("table", Ty::Str, "validated table identifier"), req("columns", Ty::Any, "nonempty Record of validated SQL type strings, or nonempty raw SQL column-definition String")], returns: "Bool",
+        doc: "Create a table if absent using sqlite3. Validate record-form names and types before execution; the string form accepts caller-owned SQL grammar. Return true when SQL succeeds.",
+        examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_create"); let result = db_sqlite_create_table(d + "/db", "example", {name: "TEXT", age: "INTEGER"}); rmdir(d, true); result"#, "true"), (r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_create"); let result = db_sqlite_create_table(d + "/db", "example", "name TEXT, age INTEGER"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
+        name: "db_sqlite_drop_table", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "SQLite database path"), req("table", Ty::Str, "validated table identifier")], returns: "Bool",
+        doc: "Drop a table if present through the destructive effect gate using sqlite3. An active transaction snapshots the database for rollback. Return true when SQL succeeds.",
+        examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_drop"); let f = d + "/db"; file_copy("tests/fixtures/sample.db", f); let result = db_sqlite_drop_table(f, "people"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
         name: "db_sqlite_schema", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("db", Ty::Str, "existing SQLite database"), opt("table", Ty::Str, "literal table name")], returns: "Array",
         doc: "Read table definitions in name order, or column metadata for a literal table name. A missing table returns an empty array; a missing database is not created.",

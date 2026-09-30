@@ -8,6 +8,245 @@ struct FileFixture {
 }
 
 #[test]
+fn sqlite_record_cells_refuse_unsupported_types_before_opening_a_database() {
+    let fixture = FileFixture::new();
+    let mut env = Env::new();
+    for value in [
+        Value::Array(vec![Value::Int(1)]),
+        Value::Record(Default::default()),
+        Value::Float(f64::NAN),
+        Value::Float(f64::INFINITY),
+    ] {
+        let record = Value::Record(std::collections::BTreeMap::from([("value".into(), value)]));
+        for name in ["db_sqlite_insert", "db_sqlite_update"] {
+            let mut args = vec![
+                fixture.path("absent.db"),
+                Value::Str("example".into()),
+                record.clone(),
+            ];
+            if name == "db_sqlite_update" {
+                args.push(Value::Str("1=1".into()));
+            }
+            let error = call(name, args, &mut env).unwrap_err();
+            assert!(error.to_string().contains("E_BAD_ARG"), "{name}: {error}");
+            assert!(!fixture.directory.join("absent.db").exists());
+        }
+    }
+}
+
+#[test]
+fn sqlite_mutation_shapes_refuse_invalid_or_empty_arguments_before_writing() {
+    let fixture = FileFixture::new();
+    let mut env = Env::new();
+    let empty = Value::Record(Default::default());
+    let rows = [
+        (
+            "db_sqlite_insert",
+            vec![
+                fixture.path("absent.db"),
+                Value::Str("example".into()),
+                empty.clone(),
+            ],
+        ),
+        (
+            "db_sqlite_update",
+            vec![
+                fixture.path("absent.db"),
+                Value::Str("example".into()),
+                empty.clone(),
+                Value::Str("1=1".into()),
+            ],
+        ),
+        (
+            "db_sqlite_create_table",
+            vec![
+                fixture.path("absent.db"),
+                Value::Str("example".into()),
+                empty,
+            ],
+        ),
+        (
+            "db_sqlite_create_table",
+            vec![
+                fixture.path("absent.db"),
+                Value::Str("example".into()),
+                Value::Str(" ".into()),
+            ],
+        ),
+        (
+            "db_sqlite_create_table",
+            vec![
+                fixture.path("absent.db"),
+                Value::Str("example".into()),
+                Value::Record(std::collections::BTreeMap::from([(
+                    "value".into(),
+                    Value::Int(4),
+                )])),
+            ],
+        ),
+        (
+            "db_sqlite_delete",
+            vec![
+                fixture.path("absent.db"),
+                Value::Str("example".into()),
+                Value::Int(1),
+            ],
+        ),
+        (
+            "db_sqlite_delete",
+            vec![
+                fixture.path("absent.db"),
+                Value::Str("example".into()),
+                Value::Str(" ".into()),
+            ],
+        ),
+        (
+            "db_sqlite_drop_table",
+            vec![
+                fixture.path("absent.db"),
+                Value::Str("example".into()),
+                Value::Bool(true),
+            ],
+        ),
+    ];
+    for (name, args) in rows {
+        let error = call(name, args, &mut env).unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{name}: {error}");
+        assert!(!fixture.directory.join("absent.db").exists());
+    }
+}
+
+#[test]
+fn sqlite_mutations_preserve_scalar_cells_and_default_delete_is_a_noop() {
+    let fixture = FileFixture::new();
+    let mut env = Env::new();
+    let created = call(
+        "db_sqlite_create_table",
+        vec![
+            fixture.path("rows.db"),
+            Value::Str("example".into()),
+            Value::Str("text TEXT, number INTEGER, fraction REAL, flag INTEGER, empty TEXT".into()),
+        ],
+        &mut env,
+    );
+    if let Err(error) = &created {
+        assert!(error.to_string().contains("E_TOOL_MISSING"), "{error}");
+        return;
+    }
+    assert_eq!(created.unwrap(), Value::Bool(true));
+    let record = Value::Record(std::collections::BTreeMap::from([
+        ("text".into(), Value::Str("O'Brien 世界".into())),
+        ("number".into(), Value::Int(42)),
+        ("fraction".into(), Value::Float(1.5)),
+        ("flag".into(), Value::Bool(true)),
+        ("empty".into(), Value::Null),
+    ]));
+    assert_eq!(
+        call(
+            "db_sqlite_insert",
+            vec![
+                fixture.path("rows.db"),
+                Value::Str("example".into()),
+                record
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Bool(true)
+    );
+    let db = rusqlite::Connection::open(fixture.directory.join("rows.db")).unwrap();
+    let row = db
+        .query_row(
+            "SELECT text, number, fraction, flag, empty FROM example",
+            [],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, f64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(row, ("O'Brien 世界".into(), 42, 1.5, 1, None));
+    drop(db);
+    assert_eq!(
+        call(
+            "db_sqlite_delete",
+            vec![fixture.path("rows.db"), Value::Str("example".into())],
+            &mut env
+        )
+        .unwrap(),
+        Value::Bool(true)
+    );
+    let db = rusqlite::Connection::open(fixture.directory.join("rows.db")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM example", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    drop(db);
+    let update = Value::Record(std::collections::BTreeMap::from([(
+        "number".into(),
+        Value::Int(43),
+    )]));
+    call(
+        "db_sqlite_update",
+        vec![
+            fixture.path("rows.db"),
+            Value::Str("example".into()),
+            update,
+            Value::Str("number = 42".into()),
+        ],
+        &mut env,
+    )
+    .unwrap();
+    let db = rusqlite::Connection::open(fixture.directory.join("rows.db")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT number FROM example", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        43
+    );
+    drop(db);
+    call(
+        "db_sqlite_delete",
+        vec![
+            fixture.path("rows.db"),
+            Value::Str("example".into()),
+            Value::Str("number = 43".into()),
+        ],
+        &mut env,
+    )
+    .unwrap();
+    let db = rusqlite::Connection::open(fixture.directory.join("rows.db")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM example", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    drop(db);
+    call(
+        "db_sqlite_drop_table",
+        vec![fixture.path("rows.db"), Value::Str("example".into())],
+        &mut env,
+    )
+    .unwrap();
+    let db = rusqlite::Connection::open(fixture.directory.join("rows.db")).unwrap();
+    assert_eq!(
+        db.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name = 'example'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    drop(db);
+}
+
+#[test]
 fn sqlite_mutations_refuse_extra_arguments_before_creating_a_database() {
     let fixture = FileFixture::new();
     let mut env = Env::new();
