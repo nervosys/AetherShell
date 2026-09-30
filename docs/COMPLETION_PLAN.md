@@ -1,5 +1,12 @@
 # Completion plan
 
+2026-09-30 update: the maintainer selected **13.0.0** for the stricter contracts.
+The source-reviewed migration currently has 472 declarations covering 472 of
+1,171 implementations and 578 of 1,437 callable names, measured with
+`cargo run --example signature_inventory`. The migration remains incomplete.
+Current preparation and release blockers are tracked in
+[`release/13.0.0.md`](release/13.0.0.md). Older figures below are historical baselines.
+
 The work that began as a benchmark response to *Is Bash All You Need?* and
 *Testing if bash is all you need* is finished when:
 
@@ -25,7 +32,7 @@ that proves it has been run. Baseline at `b799289`:
 - [ ] Decide the global git `user.email`; repositories without a local override inherit it.
 - [ ] Provide a model API credential for E7.
 - [ ] Check `hw_battery`, `hw_gpu`, `hw_sensors` and `sys_cpu_freq` on hardware that has a battery, GPU and sensors.
-- [ ] Choose the release version. 173 argument arms and 84 stubs now refuse where they answered `false`, `[]` or a string, which argues for a major version.
+- [x] Choose the release version: the maintainer selected 13.0.0 for the stricter contracts on 2026-09-29.
 - [ ] Choose where the response is published.
 
 ## Phase 1 — Finish the signature migration

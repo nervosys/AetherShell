@@ -31,6 +31,18 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
 
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+
+            - name: Test release version guard
+              run: python scripts/test_release_version.py
+
+            - name: Test release preflight (Windows)
+              if: matrix.os == 'windows-latest'
+              shell: pwsh
+              run: ./scripts/test-release-preflight.ps1
+
             - name: Install Linux dependencies
               if: matrix.os == 'ubuntu-latest'
               run: |

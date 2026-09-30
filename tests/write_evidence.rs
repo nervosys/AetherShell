@@ -51,6 +51,10 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 /// `effect_ratchet`'s list: only markers whose presence means *this* body writes,
 /// so the rule below can be an equality rather than a guess.
 const WRITE_EVIDENCE: &[(&str, &str)] = &[
+    (
+        "write_file_atomically(",
+        "writes and renames through the shared atomic writer",
+    ),
     ("fs::write(", "writes a file"),
     ("fs::rename(", "renames over a path"),
     ("fs::remove_file(", "deletes a file"),
@@ -180,22 +184,20 @@ fn strip_comments(src: &str) -> String {
     out
 }
 
-/// `fn bi_<name>` bodies by brace matching, skipping string literals so a `}` in
+/// Function bodies by brace matching, skipping string literals so a `}` in
 /// a format string does not close the body early.
-fn builtin_bodies(src: &str) -> Vec<(String, String)> {
+fn function_bodies(src: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let bytes = src.as_bytes();
     let mut search = 0usize;
-    while let Some(rel) = src[search..].find("\nfn bi_") {
+    while let Some(rel) = src[search..].find("\nfn ") {
         let start = search + rel + 1;
-        search = start + 6;
+        search = start + 3;
         let rest = &src[start + 3..];
         let Some(name_end) = rest.find(|c: char| !(c.is_alphanumeric() || c == '_')) else {
             continue;
         };
-        let Some(name) = rest[..name_end].strip_prefix("bi_") else {
-            continue;
-        };
+        let name = &rest[..name_end];
         if name.is_empty() {
             continue;
         }
@@ -229,6 +231,31 @@ fn builtin_bodies(src: &str) -> Vec<(String, String)> {
         out.push((name.to_string(), src[brace..i.min(bytes.len())].to_string()));
     }
     out
+}
+
+fn builtin_bodies(src: &str) -> Vec<(String, String)> {
+    function_bodies(src)
+        .into_iter()
+        .filter_map(|(name, body)| {
+            name.strip_prefix("bi_")
+                .map(|builtin| (builtin.to_string(), body))
+        })
+        .collect()
+}
+
+#[test]
+fn the_atomic_writer_marker_is_backed_by_real_filesystem_operations() {
+    let bodies = function_bodies(&source());
+    let (_, body) = bodies
+        .iter()
+        .find(|(name, _)| name == "write_file_atomically")
+        .expect("the atomic writer helper must be found");
+    assert!(
+        WRITE_EVIDENCE
+            .iter()
+            .any(|(marker, _)| { *marker != "write_file_atomically(" && body.contains(marker) }),
+        "the helper marker must be backed by direct write evidence"
+    );
 }
 
 #[test]

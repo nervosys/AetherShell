@@ -1,5 +1,8 @@
 # Release Checklist for AetherShell v0.1.0
 
+Historical checklist for v0.1.0. Current release preparation is tracked in
+[`13.0.0.md`](13.0.0.md); the completion marks below do not describe the current tree.
+
 ## ✅ Completed
 
 ### Documentation

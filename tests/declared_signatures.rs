@@ -316,6 +316,18 @@ fn every_declared_builtin_is_actually_dispatched() {
 }
 
 #[test]
+fn canonical_declarations_are_unique() {
+    let mut names = std::collections::BTreeSet::new();
+    for signature in SIGNATURES {
+        assert!(
+            names.insert(signature.name),
+            "duplicate declaration for {}",
+            signature.name
+        );
+    }
+}
+
+#[test]
 fn every_declaration_carries_a_worked_example() {
     // The example is the part an agent copies. A declaration without one is
     // only marginally better than a name.
@@ -660,6 +672,33 @@ fn a_declaration_is_found_by_every_spelling_that_dispatches() {
             "{alias} is declared as an alias but is not dispatched"
         );
     }
+}
+
+#[test]
+fn every_alias_of_a_declared_implementation_is_checked() {
+    let mut checked = 0;
+    for names in aethershell::builtins::alias_groups() {
+        if !names.iter().any(|name| signature_of(name).is_some()) {
+            continue;
+        }
+        for name in names {
+            let signature = signature_of(name).unwrap_or_else(|| {
+                panic!("alias {name} bypasses its implementation's declaration")
+            });
+            if !signature.params.last().is_some_and(|param| param.variadic) {
+                let extra = vec![Value::Null; signature.params.len() + 2];
+                assert!(
+                    aethershell::signature::validate(name, &extra, None).is_err(),
+                    "{name} accepted extra arguments"
+                );
+            }
+            checked += 1;
+        }
+    }
+    assert!(
+        checked >= 100,
+        "only {checked} declared alias spellings checked"
+    );
 }
 
 #[test]

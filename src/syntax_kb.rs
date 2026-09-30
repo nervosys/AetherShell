@@ -519,7 +519,11 @@ impl AgenticBinary {
         // Decode payload length
         let (payload_len, varint_size) = Self::decode_varint(&data[1..])?;
         let payload_start = 1 + varint_size;
-        let payload_end = payload_start + payload_len as usize;
+        let payload_len = usize::try_from(payload_len)
+            .map_err(|_| anyhow!("Payload length exceeds addressable size"))?;
+        let payload_end = payload_start
+            .checked_add(payload_len)
+            .ok_or_else(|| anyhow!("Payload length overflow"))?;
 
         if data.len() < payload_end {
             return Err(anyhow!("Incomplete message"));
@@ -552,6 +556,9 @@ impl AgenticBinary {
         let mut result = 0u64;
         let mut shift = 0;
         for (i, &byte) in data.iter().enumerate() {
+            if shift == 63 && byte > 1 {
+                return Err(anyhow!("Varint overflow"));
+            }
             result |= ((byte & 0x7F) as u64) << shift;
             if byte & 0x80 == 0 {
                 return Ok((result, i + 1));

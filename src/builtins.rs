@@ -5252,7 +5252,13 @@ fn bi_product(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                         if has_float {
                             float_product *= n as f64;
                         } else {
-                            int_product *= n;
+                            int_product = int_product.checked_mul(n).ok_or_else(|| {
+                                crate::safety::bad_arg(
+                                    "product",
+                                    "a product within Int range",
+                                    "integer overflow",
+                                )
+                            })?;
                         }
                     }
                     Value::Float(f) => {
@@ -5263,9 +5269,10 @@ fn bi_product(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                         float_product *= f;
                     }
                     _ => {
-                        return Err(anyhow!(
-                            "product: array must contain only numbers, got {:?}",
-                            item
+                        return Err(crate::safety::bad_arg(
+                            "product",
+                            "an array of numbers",
+                            item.type_name(),
                         ))
                     }
                 }
@@ -9792,7 +9799,8 @@ fn bi_ai_model_fits(args: Vec<Value>) -> Result<Value> {
 fn bi_ai_providers() -> Result<Value> {
     use crate::providers::registry::PROVIDER_REGISTRY;
 
-    let providers = PROVIDER_REGISTRY.list();
+    let mut providers = PROVIDER_REGISTRY.list();
+    providers.sort_by_key(|provider| provider.scheme());
     let available = PROVIDER_REGISTRY.available();
 
     let mut records = Vec::new();
@@ -10848,7 +10856,9 @@ fn bi_type_fields(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     r.insert("type".to_string(), Value::Str(detailed_type_name(value)));
                     // Brief preview of value
                     let preview = match value {
-                        Value::Str(s) if s.len() > 50 => format!("\"{}…\"", &s[..50]),
+                        Value::Str(s) if s.chars().nth(50).is_some() => {
+                            format!("\"{}…\"", s.chars().take(50).collect::<String>())
+                        }
                         Value::Array(a) => format!("[…] ({} items)", a.len()),
                         Value::Record(r) => format!("{{…}} ({} fields)", r.len()),
                         other => format!("{}", other),
@@ -13129,20 +13139,20 @@ fn bi_ab_encode(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     // Parse message type
     let msg_type = match &args[0] {
-        Value::Int(i) => *i as u8,
+        Value::Int(i) if (0..=3).contains(i) => *i as u8,
         Value::Str(s) => match s.to_lowercase().as_str() {
             "command" | "cmd" => 0,
             "query" => 1,
             "response" | "resp" => 2,
             "event" => 3,
-            _ => return Err(anyhow!("Invalid message type: {}", s)),
+            _ => return Err(crate::safety::arg_err(format!("Invalid message type: {s}"))),
         },
         _ => return Err(crate::safety::arg_err("msg_type must be String or Int")),
     };
 
     // Parse opcode
     let opcode = match &args[1] {
-        Value::Int(i) => *i as u8,
+        Value::Int(i) if (0..=15).contains(i) => *i as u8,
         Value::Str(s) => match s.to_uppercase().as_str() {
             "PING" => 0x0,
             "ACK" => 0x1,
@@ -13160,7 +13170,7 @@ fn bi_ab_encode(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "OBSERVE" => 0xD,
             "REFLECT" => 0xE,
             "EXTEND" => 0xF,
-            _ => return Err(anyhow!("Invalid opcode: {}", s)),
+            _ => return Err(crate::safety::arg_err(format!("Invalid opcode: {s}"))),
         },
         _ => return Err(crate::safety::arg_err("opcode must be String or Int")),
     };
@@ -13193,12 +13203,15 @@ fn bi_ab_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let bytes: Vec<u8> = bytes_arr
         .iter()
         .map(|v| match v {
-            Value::Int(i) => Ok(*i as u8),
-            _ => Err(anyhow!("Byte array must contain integers")),
+            Value::Int(i) if (0..=255).contains(i) => Ok(*i as u8),
+            _ => Err(crate::safety::arg_err(
+                "Byte array must contain integers in 0..255",
+            )),
         })
         .collect::<Result<Vec<u8>>>()?;
 
-    let (version, msg_type, opcode, payload) = AgenticBinary::decode(&bytes)?;
+    let (version, msg_type, opcode, payload) = AgenticBinary::decode(&bytes)
+        .map_err(|error| crate::safety::arg_err(format!("ab_decode: {error}")))?;
 
     let mut result = std::collections::BTreeMap::new();
     result.insert("version".to_string(), Value::Int(version as i64));
@@ -15414,13 +15427,17 @@ fn bi_tool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_tool_schema(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db = OSToolsDatabase::new();
 
-    let filter = args.first().and_then(|v| {
-        if let Value::Str(s) = v {
-            Some(s.clone())
-        } else {
-            None
+    let filter = match args.first() {
+        None => None,
+        Some(Value::Str(s)) => Some(s.clone()),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "tool_schema",
+                "filter: String",
+                other.type_name(),
+            ));
         }
-    });
+    };
 
     let schemas = if let Some(ref name) = filter {
         // Check if it's a specific tool
@@ -19301,16 +19318,16 @@ fn bi_sort_by(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<V
         .iter()
         .map(|item| {
             let key = match (&lambda, &field) {
-                (Some(l), _) => call_lambda(l, &[item.clone()], env).unwrap_or(Value::Null),
+                (Some(l), _) => call_lambda(l, &[item.clone()], env)?,
                 (None, Some(f)) => match item {
                     Value::Record(m) => m.get(f).cloned().unwrap_or(Value::Null),
                     _ => Value::Null,
                 },
                 (None, None) => Value::Null,
             };
-            (key, item.clone())
+            Ok((key, item.clone()))
         })
-        .collect();
+        .collect::<Result<_>>()?;
 
     // Sort by keys
     keyed.sort_by(|(a, _), (b, _)| {
@@ -30500,21 +30517,34 @@ fn bi_web_decode_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Ok(Value::Str("".to_string())),
     };
 
-    let mut decoded = String::new();
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '%' {
-            let hex: String = chars.by_ref().take(2).collect();
-            if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                decoded.push(byte as char);
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len()
+                || !bytes[index + 1].is_ascii_hexdigit()
+                || !bytes[index + 2].is_ascii_hexdigit()
+            {
+                return Err(crate::safety::bad_arg(
+                    "web_decode_url",
+                    "two hexadecimal digits after each percent sign",
+                    &text,
+                ));
             }
-        } else if c == '+' {
-            decoded.push(' ');
+            index += 3;
         } else {
-            decoded.push(c);
+            index += 1;
         }
     }
-    Ok(Value::Str(decoded))
+    let form_text = text.replace('+', " ");
+    let decoded = urlencoding::decode(&form_text).map_err(|error| {
+        crate::safety::bad_arg(
+            "web_decode_url",
+            "percent-encoded UTF-8",
+            &error.to_string(),
+        )
+    })?;
+    Ok(Value::Str(decoded.into_owned()))
 }
 
 fn bi_web_parse_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -30924,7 +30954,7 @@ fn bi_web_extract_emails(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     let mut current = String::new();
     let mut in_email = false;
 
-    for c in text.chars() {
+    for c in text.chars().chain(std::iter::once('\0')) {
         if c.is_alphanumeric() || c == '.' || c == '_' || c == '-' || c == '+' {
             current.push(c);
             if c == '@' {
@@ -30963,7 +30993,7 @@ fn bi_web_extract_phones(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     let mut phones = Vec::new();
     let mut current = String::new();
 
-    for c in text.chars() {
+    for c in text.chars().chain(std::iter::once('\0')) {
         if c.is_ascii_digit() || c == '+' || c == '-' || c == '(' || c == ')' || c == ' ' {
             current.push(c);
         } else {
@@ -31048,7 +31078,16 @@ fn bi_web_json_path(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                         _ => Value::Null,
                     };
                 }
-                let idx: usize = idx_str.trim_end_matches(']').parse().unwrap_or(0);
+                let idx: usize = idx_str
+                    .strip_suffix(']')
+                    .and_then(|index| index.parse().ok())
+                    .ok_or_else(|| {
+                        crate::safety::bad_arg(
+                            "web_json_path",
+                            "a nonnegative array index followed by ]",
+                            idx_str,
+                        )
+                    })?;
                 current = match &current {
                     Value::Array(arr) => arr.get(idx).cloned().unwrap_or(Value::Null),
                     _ => Value::Null,
@@ -31762,173 +31801,56 @@ $hash = $hmac.ComputeHash($data)
 }
 
 fn bi_crypto_uuid(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "[guid]::NewGuid().ToString()"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_uuid", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-    }
-    #[cfg(unix)]
-    {
-        // Try uuidgen first
-        let output = std::process::Command::new("uuidgen").output();
-        if let Ok(out) = output {
-            if out.status.success() {
-                return Ok(Value::Str(
-                    String::from_utf8_lossy(&out.stdout).trim().to_lowercase(),
-                ));
-            }
-        }
-        // Fallback to /proc/sys/kernel/random/uuid on Linux
-        if let Ok(uuid) = std::fs::read_to_string("/proc/sys/kernel/random/uuid") {
-            return Ok(Value::Str(uuid.trim().to_string()));
-        }
-    }
-
-    // Fallback: a real v4 UUID (AS-2026-05).
-    //
-    // This used to be built from a nanosecond clock while setting the version
-    // nibble to 4 and the variant bits to 8 -- advertising randomness it did
-    // not have. Measured, nanoseconds since epoch is a 61-bit quantity, so
-    // `ts >> 96`, `ts >> 80` and `ts >> 64` were all identically zero and the
-    // output had the shape `00000000-0000-4000-98cc-<48 bits of clock>`: three
-    // of five groups constant, zero bits of randomness, monotonic.
-    //
-    // `rand::random` is the same CSPRNG the API-key path in `auth.rs` uses.
-    let b: [u8; 16] = rand::random();
-    let uuid = format!(
-        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        b[0], b[1], b[2], b[3],
-        b[4], b[5],
-        (b[6] & 0x0f) | 0x40, b[7],
-        (b[8] & 0x3f) | 0x80, b[9],
-        b[10], b[11], b[12], b[13], b[14], b[15]
-    );
-    Ok(Value::Str(uuid))
+    Ok(Value::Str(uuid::Uuid::new_v4().to_string()))
 }
 
 fn bi_crypto_random_bytes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let count = match args.first() {
-        Some(Value::Int(n)) => *n as usize,
-        _ => 32,
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_script = crate::ps_script!(
-            r#"
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$bytes = New-Object byte[] {}
-$rng.GetBytes($bytes)
-[System.BitConverter]::ToString($bytes).Replace("-", "").ToLower()
-"#,
-            count
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_random_bytes", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+    use rand::RngCore;
+    let count = args
+        .first()
+        .map(|v| expect_int("crypto_random_bytes", v))
+        .transpose()?
+        .unwrap_or(32);
+    if !(0..=1_048_576).contains(&count) {
+        return Err(crate::safety::arg_err(
+            "crypto_random_bytes: count must be in 0..1048576",
+        ));
     }
-    #[cfg(unix)]
-    {
-        let output = std::process::Command::new("head")
-            .args(["-c", &count.to_string(), "/dev/urandom"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_random_bytes", "head", &e))?;
-        if output.status.success() {
-            let hex: String = output.stdout.iter().map(|b| format!("{:02x}", b)).collect();
-            return Ok(Value::Str(hex));
-        }
-    }
-    Ok(Value::Null)
+    let mut bytes = vec![0u8; count as usize];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    Ok(Value::Str(
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+    ))
 }
 
 fn bi_crypto_random_string(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let length = match args.first() {
-        Some(Value::Int(n)) => *n as usize,
-        _ => 32,
-    };
+    use rand::Rng;
+    let length = args
+        .first()
+        .map(|v| expect_int("crypto_random_string", v))
+        .transpose()?
+        .unwrap_or(32);
+    if !(0..=1_048_576).contains(&length) {
+        return Err(crate::safety::arg_err(
+            "crypto_random_string: length must be in 0..1048576",
+        ));
+    }
     let charset = args
         .get(1)
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| {
-            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".to_string()
-        });
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_script = crate::ps_script!(
-            r#"
-$charset = {}
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$result = ""
-for ($i = 0; $i -lt {}; $i++) {{
-    $byte = New-Object byte[] 1
-    do {{ $rng.GetBytes($byte) }} while ($byte[0] -ge (256 - (256 % $charset.Length)))
-    $result += $charset[$byte[0] % $charset.Length]
-}}
-$result
-"#,
-            crate::safety::ps_quote(&charset),
-            length
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_random_string", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+        .map(|v| expect_string("crypto_random_string", v))
+        .transpose()?
+        .unwrap_or("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+    let chars: Vec<char> = charset.chars().collect();
+    if chars.is_empty() {
+        return Err(crate::safety::arg_err(
+            "crypto_random_string: charset must not be empty",
+        ));
     }
-    #[cfg(unix)]
-    {
-        // Use /dev/urandom
-        let output = std::process::Command::new("head")
-            .args(["-c", &(length * 2).to_string(), "/dev/urandom"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_random_string", "head", &e))?;
-        if output.status.success() {
-            // Rejection sampling, not `% len` (AS-2026-06).
-            //
-            // With the default 62-character set, 256 = 4*62 + 8, so a plain
-            // modulo makes the first eight characters 25% more likely. The
-            // entropy cost was small -- 5.9497 bits per character against a
-            // uniform 5.9542, about 0.14 bits over a 32-character token -- but
-            // the fix is four lines, so there is no reason to carry the bias.
-            //
-            // `head -c` is asked for `length * 2` bytes, which leaves slack for
-            // rejections; if the slack runs out the result is short rather than
-            // biased, and the caller can see that.
-            let chars: Vec<char> = charset.chars().collect();
-            let n = chars.len();
-            let limit = 256 - (256 % n);
-            let result: String = output
-                .stdout
-                .iter()
-                .filter(|b| (**b as usize) < limit)
-                .take(length)
-                .map(|b| chars[(*b as usize) % n])
-                .collect();
-            return Ok(Value::Str(result));
-        }
-    }
-    Ok(Value::Null)
+    let mut rng = rand::thread_rng();
+    let result = (0..length)
+        .map(|_| chars[rng.gen_range(0..chars.len())])
+        .collect();
+    Ok(Value::Str(result))
 }
 
 fn bi_crypto_base64_encode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -33991,6 +33913,31 @@ fn bi_db_kv_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// This is the foundation for safe file writing without shell escaping issues.
 /// Usage: file_write("config.txt", "line1\nline2\nline3")
 ///        content | file_write("output.txt")
+fn write_file_atomically(builtin: &str, path: &str, content: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let target = std::path::Path::new(path);
+    let parent = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let temporary = parent.join(format!(".aether_tmp_{}", uuid::Uuid::new_v4()));
+    // Never reuse another writer's temporary file or follow a preexisting link.
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(|error| crate::safety::fs_error(builtin, path, &error))?;
+    let written = file.write_all(content);
+    drop(file);
+    let result = written
+        .and_then(|_| fs::rename(&temporary, target))
+        .map_err(|error| crate::safety::fs_error(builtin, path, &error));
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
 fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
         return Err(crate::safety::arg_err("file_write requires a file path"));
@@ -34059,29 +34006,7 @@ fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     crate::tx::snapshot(&path); // record pre-write state if a transaction is active
 
-    // Write atomically: write to temp file, then rename
-    let parent = std::path::Path::new(&path).parent();
-    let temp_path = match parent {
-        Some(p) if p.exists() => {
-            let temp_name = format!(".aether_tmp_{}", std::process::id());
-            p.join(temp_name).to_string_lossy().to_string()
-        }
-        _ => format!(".aether_tmp_{}", std::process::id()),
-    };
-
-    // Write to temp file
-    fs::write(&temp_path, &content)
-        .with_context(|| format!("file_write: failed to write temp file '{}'", temp_path))?;
-
-    // Rename to final destination (atomic on most filesystems)
-    fs::rename(&temp_path, &path)
-        .or_else(|_| {
-            // Fallback: copy and delete (for cross-device moves)
-            fs::copy(&temp_path, &path)?;
-            fs::remove_file(&temp_path)?;
-            Ok::<(), std::io::Error>(())
-        })
-        .with_context(|| format!("file_write: failed to write to '{}'", path))?;
+    write_file_atomically("file_write", &path, content.as_bytes())?;
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
@@ -34168,10 +34093,10 @@ fn bi_file_append(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .create(true)
         .append(true)
         .open(&path)
-        .with_context(|| format!("file_append: failed to open '{}'", path))?;
+        .map_err(|error| crate::safety::fs_error("file_append", &path, &error))?;
 
     file.write_all(content.as_bytes())
-        .with_context(|| format!("file_append: failed to write to '{}'", path))?;
+        .map_err(|error| crate::safety::fs_error("file_append", &path, &error))?;
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
@@ -34228,6 +34153,29 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
+    // Refuse malformed instructions before reading or writing the file.
+    for (index, patch) in patches.iter().enumerate() {
+        let Value::Record(record) = patch else {
+            return Err(crate::safety::arg_err(format!(
+                "file_patch: patch {index} must be a record"
+            )));
+        };
+        for names in [["find", "old", "search"], ["replace", "new", "with"]] {
+            if !matches!(
+                record
+                    .get(names[0])
+                    .or(record.get(names[1]))
+                    .or(record.get(names[2])),
+                Some(Value::Str(_))
+            ) {
+                return Err(crate::safety::arg_err(format!(
+                    "file_patch: patch {index} requires a {} string",
+                    names[0]
+                )));
+            }
+        }
+    }
+
     // Read current content
     let mut content =
         fs::read_to_string(&path).map_err(|e| crate::safety::fs_error("file_patch", &path, &e))?;
@@ -34281,8 +34229,8 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             failed.push(Value::Str(format!(
                 "patch {}: '{}' not found",
                 i,
-                if find_str.len() > 40 {
-                    format!("{}...", &find_str[..40])
+                if find_str.chars().nth(40).is_some() {
+                    format!("{}...", find_str.chars().take(40).collect::<String>())
                 } else {
                     find_str
                 }
@@ -34291,9 +34239,7 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 
     // Write back atomically
-    let temp_path = format!("{}.aether_tmp", path);
-    fs::write(&temp_path, &content)?;
-    fs::rename(&temp_path, &path)?;
+    write_file_atomically("file_patch", &path, content.as_bytes())?;
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
@@ -34462,8 +34408,8 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             } else if let Some(Value::Int(line)) = r.get("line") {
                 insert_pos = ((*line).max(1) as usize - 1).min(lines.len());
             } else {
-                return Err(anyhow!(
-                    "file_insert: position record must have 'after', 'before', or 'line' key"
+                return Err(crate::safety::arg_err(
+                    "file_insert: position record must have 'after', 'before', or 'line' key",
                 ));
             }
         }
@@ -34483,9 +34429,7 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         file_content.push('\n');
     }
 
-    let temp_path = format!("{}.aether_tmp", path);
-    fs::write(&temp_path, &file_content)?;
-    fs::rename(&temp_path, &path)?;
+    write_file_atomically("file_insert", &path, file_content.as_bytes())?;
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
@@ -35079,7 +35023,7 @@ fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     if !std::path::Path::new(&source).exists() {
-        return Err(anyhow!("file_move: source '{}' does not exist", source));
+        return Err(crate::safety::not_found("file_move", "source", &source));
     }
 
     // Classified `ReadLocal` while the body renamed one path over another —
@@ -35093,7 +35037,7 @@ fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let bytes = metadata.len();
 
     fs::rename(&source, &dest)
-        .with_context(|| format!("file_move: failed to move '{}' to '{}'", source, dest))?;
+        .map_err(|error| crate::safety::fs_error("file_move", &dest, &error))?;
 
     let mut result = BTreeMap::new();
     result.insert("source".to_string(), Value::Str(source));
@@ -35138,7 +35082,7 @@ fn bi_file_mkdir(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let already_exists = std::path::Path::new(&path).exists();
 
     fs::create_dir_all(&path)
-        .with_context(|| format!("file_mkdir: failed to create '{}'", path))?;
+        .map_err(|error| crate::safety::fs_error("file_mkdir", &path, &error))?;
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
@@ -48475,12 +48419,27 @@ fn bi_telemetry_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 }
 
 /// Generate a telemetry usage report.
-/// Usage: telemetry.report() or telemetry.report({category?, since?})
+/// Usage: telemetry.report() or telemetry.report({category?})
 fn bi_telemetry_report(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let opts = match args.first() {
         Some(Value::Record(r)) => r.clone(),
-        _ => BTreeMap::new(),
+        None => BTreeMap::new(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "telemetry_report",
+                "options: Record",
+                other.type_name(),
+            ))
+        }
     };
+    for (key, value) in &opts {
+        if key != "category" {
+            return Err(crate::safety::arg_err(format!(
+                "telemetry_report: unknown option {key}"
+            )));
+        }
+        expect_string("telemetry_report category", value)?;
+    }
     let category_filter = opts.get("category").and_then(|v| {
         if let Value::Str(s) = v {
             Some(s.clone())
@@ -48494,8 +48453,8 @@ fn bi_telemetry_report(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         .map_err(|e| anyhow!("lock error: {}", e))?;
 
     // Group by category
-    let mut by_category: HashMap<String, i64> = HashMap::new();
-    let mut by_type: HashMap<String, i64> = HashMap::new();
+    let mut by_category: BTreeMap<String, i64> = BTreeMap::new();
+    let mut by_type: BTreeMap<String, i64> = BTreeMap::new();
     let mut filtered_count = 0i64;
 
     for event in events.iter() {

@@ -41,10 +41,10 @@
 //! the same declaration supplies the ontology, so the catalogue cannot describe
 //! a function that does not exist.
 //!
-//! This is a **vertical slice**, not a migration. Builtins without a
-//! declaration dispatch exactly as they did before, so nothing regresses;
-//! `SIGNATURES` currently covers the ones that failed above plus a core of
-//! everyday verbs. `tests/declared_signatures.rs` asserts that every declared
+//! This is an incremental, source-reviewed migration. Builtins without a
+//! declaration retain their legacy dispatch behavior. The coverage inventory
+//! in `examples/signature_inventory.rs` lists the remaining implementations.
+//! `tests/declared_signatures.rs` asserts that every declared
 //! builtin is real, that its ontology entry comes from the declaration rather
 //! than from its name, and that violating a declaration is refused.
 
@@ -250,6 +250,358 @@ const fn rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
 /// actually reaches for. Growing this list is the migration; the mechanism does
 /// not depend on its size.
 pub static SIGNATURES: &[Signature] = &[
+    Signature {
+        name: "file_append", category: None, subject_required: false, aliases: &["append_file"],
+        subject: None, params: &[req("path", Ty::Str, "file to append or create"), opt("content", Ty::Any, "content; omitted uses pipeline input")], returns: "Record",
+        doc: "Append content and return path, bytes appended and success. Arrays are joined as lines.",
+        examples: &[
+            (r#"let d = fs_tempdir("ae_append"); let f = d + "/x"; let result = file_append(f, "hello"); rmdir(d, true); result.bytes_appended"#, "5"),
+            (r#"let d = fs_tempdir("ae_append"); let f = d + "/x"; let result = "hi" | file_append(f); rmdir(d, true); result.bytes_appended"#, "2"),
+        ],
+    },
+    Signature {
+        name: "config_get", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("path", Ty::Str, "supported dotted configuration key")], returns: "Any",
+        doc: "Read a supported configuration key; unknown keys are refused with E_NOT_FOUND.",
+        examples: &[(r#"config_get("shell.show_banner") | type_of"#, "Bool")],
+    },
+    Signature {
+        name: "file_write", category: None, subject_required: false, aliases: &["write_file", "text_write"],
+        subject: None, params: &[req("path", Ty::Str, "destination path"), opt("content", Ty::Any, "content; omitted uses pipeline input")], returns: "Record",
+        doc: "Atomically write content, returning path, bytes, lines and success. Arrays are joined as lines.",
+        examples: &[
+            (r#"let d = fs_tempdir("ae_write"); let f = d + "/x"; let result = file_write(f, "hello"); rmdir(d, true); result.bytes"#, "5"),
+            (r#"let d = fs_tempdir("ae_write"); let f = d + "/x"; let result = "hi" | file_write(f); rmdir(d, true); result.bytes"#, "2"),
+        ],
+    },
+    Signature {
+        name: "file_patch", category: None, subject_required: false, aliases: &["patch_file"],
+        subject: None, params: &[req("path", Ty::Str, "file to patch"), opt("patches", Ty::Any, "patch record or array; omitted uses pipeline input")], returns: "Record",
+        doc: "Apply find/replace patches in order and report applied patches and unmatched searches.",
+        examples: &[
+            (r#"let d = fs_tempdir("ae_patch"); let f = d + "/x"; file_write(f, "hello"); let result = file_patch(f, {find: "hello", replace: "hi"}); rmdir(d, true); result.patches_applied"#, "1"),
+            (r#"let d = fs_tempdir("ae_patch"); let f = d + "/x"; file_write(f, "hello"); let result = [{find: "hello", replace: "hi"}] | file_patch(f); rmdir(d, true); result.success"#, "true"),
+        ],
+    },
+    Signature {
+        name: "file_replace", category: None, subject_required: false, aliases: &["str_replace_in_file", "text_replace"],
+        subject: None, params: &[req("path", Ty::Str, "file to edit"), req("old_text", Ty::Str, "text to replace"), req("new_text", Ty::Str, "replacement text")], returns: "Record",
+        doc: "Replace all occurrences of text in a file and return the patch result.",
+        examples: &[(r#"let d = fs_tempdir("ae_replace"); let f = d + "/x"; file_write(f, "hello"); let result = file_replace(f, "hello", "hi"); rmdir(d, true); result.success"#, "true")],
+    },
+    Signature {
+        name: "file_insert", category: None, subject_required: false, aliases: &["insert_lines"],
+        subject: None, params: &[req("path", Ty::Str, "file to edit"), req("position", Ty::Any, "1-based line, named position, text pattern, or after/before/line record"), opt("content", Ty::Any, "lines to insert; omitted uses pipeline input")], returns: "Record",
+        doc: "Insert lines at a position or pattern, returning the insertion location and whether a pattern matched.",
+        examples: &[
+            (r#"let d = fs_tempdir("ae_insert"); let f = d + "/x"; file_write(f, "a"); let result = file_insert(f, 1, "b"); rmdir(d, true); result.at_line"#, "1"),
+            (r#"let d = fs_tempdir("ae_insert"); let f = d + "/x"; file_write(f, "a"); let result = "b" | file_insert(f, "end"); rmdir(d, true); result.at_line"#, "2"),
+        ],
+    },
+    Signature {
+        name: "file_move", category: None, subject_required: false, aliases: &["file_rename", "move_file", "mv"],
+        subject: None, params: &[req("source", Ty::Str, "existing source path"), req("destination", Ty::Str, "destination path on the same filesystem")], returns: "Record",
+        doc: "Rename a path and return source, destination, bytes and success; both paths pass the move gate.",
+        examples: &[(r#"let d = fs_tempdir("ae_move"); let f = d + "/x"; file_write(f, "hi"); let result = file_move(f, d + "/y"); rmdir(d, true); result.success"#, "true")],
+    },
+    Signature {
+        name: "file_mkdir", category: None, subject_required: false, aliases: &["mkdir", "mkdirp"],
+        subject: Some(Ty::Str), params: &[], returns: "Record",
+        doc: "Create a directory and missing parents, returning path, created and success.",
+        examples: &[(r#"let d = fs_tempdir("ae_mkdir"); let result = file_mkdir(d + "/a/b"); rmdir(d, true); result.created"#, "true")],
+    },
+    Signature {
+        name: "syntax_get", category: None, subject_required: false, aliases: &[],
+        subject: Some(Ty::Str), params: &[], returns: "Record",
+        doc: "Look up a registered syntax ID and return its specification, examples and encoding metadata.",
+        examples: &[(r#"syntax_get("ab").id"#, "ab"), (r#"("aethershell" | syntax_get).id"#, "aethershell")],
+    },
+    Signature {
+        name: "tool_info", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("name", Ty::Str, "registered OS tool name")], returns: "Record",
+        doc: "Describe an OS tool's command, safety level, parameters and worked examples.",
+        examples: &[(r#"tool_info("curl").name"#, "curl")],
+    },
+    Signature {
+        name: "tool_schema", category: None, subject_required: false, aliases: &["tool_schemas"],
+        subject: None, params: &[opt("filter", Ty::Str, "tool name, category or search query; omitted includes all tools")], returns: "Array",
+        doc: "Export OpenAI-compatible function schemas from the OS tool catalogue without executing tools.",
+        examples: &[("tool_schema() | type_of", "Array"), (r#"tool_schema("curl") | len"#, "1")],
+    },
+    Signature {
+        name: "tool_search", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("query", Ty::Str, "keyword or description")], returns: "Array",
+        doc: "Find recommended OS tools, falling back to catalogue text search.",
+        examples: &[(r#"tool_search("file copy") | type_of"#, "Array")],
+    },
+    Signature {
+        name: "ai_usage", category: Some("AI"), subject_required: false, aliases: &["ai-usage"],
+        subject: None, params: &[], returns: "Record",
+        doc: "Read session call counts, token totals, estimated costs and usage records.",
+        examples: &[("ai_usage() | type_of", "Record")],
+    },
+    Signature {
+        name: "ai_cost", category: Some("AI"), subject_required: false, aliases: &["ai-cost"],
+        subject: None, params: &[], returns: "Float",
+        doc: "Read the session's total estimated AI cost in USD.",
+        examples: &[("ai_cost() | type_of", "Float")],
+    },
+    Signature {
+        name: "ai_providers", category: Some("AI"), subject_required: false, aliases: &["ai-providers"],
+        subject: None, params: &[], returns: "Array",
+        doc: "List registered providers, readiness and credential presence, ordered by provider name.",
+        examples: &[("ai_providers() | type_of", "Array")],
+    },
+    Signature {
+        name: "ai_routes", category: Some("AI"), subject_required: false, aliases: &["ai-routes"],
+        subject: None, params: &[], returns: "Record",
+        doc: "Read registry totals, registered provider count, default provider and router enabled flag.",
+        examples: &[("ai_routes() | type_of", "Record")],
+    },
+    Signature {
+        name: "ai_registry_stats", category: Some("AI"), subject_required: false, aliases: &["ai-registry-stats"],
+        subject: None, params: &[], returns: "Record",
+        doc: "Read request, token, cost and latency statistics by provider, and the load-balancing strategy.",
+        examples: &[("ai_registry_stats() | type_of", "Record")],
+    },
+    Signature {
+        name: "ai_load_balancing", category: Some("AI"), subject_required: false, aliases: &["ai-load-balancing"],
+        subject: None, params: &[], returns: "String",
+        doc: "Read the current provider load-balancing strategy.",
+        examples: &[("ai_load_balancing() | type_of", "String")],
+    },
+    Signature {
+        name: "ai_local_backends", category: Some("AI"), subject_required: false, aliases: &["ai-local-backends"],
+        subject: None, params: &[], returns: "Array",
+        doc: "List compiled local inference backends, loaded models and supported formats.",
+        examples: &[("ai_local_backends() | type_of", "Array")],
+    },
+    Signature {
+        name: "ai_detect_format", category: Some("AI"), subject_required: false, aliases: &["ai-detect-format"],
+        subject: None, params: &[req("path", Ty::Str, "model path; classified by extension without opening the file")], returns: "String",
+        doc: "Identify a model format by case-insensitive extension; unrecognized extensions return Unknown.",
+        examples: &[(r#"ai_detect_format("model.GGUF")"#, "GGUF"), (r#"ai_detect_format("model.xyz")"#, "Unknown")],
+    },
+    Signature {
+        name: "sys_env_all", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Record",
+        doc: "Read environment variables into a record, applying the secret access gate to each value.",
+        examples: &[("sys_env_all() | type_of", "Record")],
+    },
+    Signature {
+        name: "telemetry_report", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[opt("options", Ty::Record, "optional category string filter")], returns: "Record",
+        doc: "Count telemetry events by category and type, returning groups in sorted order.",
+        examples: &[("telemetry_report() | type_of", "Record"), (r#"telemetry_report({category: "example"}) | type_of"#, "Record")],
+    },
+    Signature {
+        name: "crypto_uuid", category: None, subject_required: false, aliases: &["uuid"],
+        subject: None, params: &[], returns: "String",
+        doc: "Generate a random version-four UUID in process.",
+        examples: &[("crypto_uuid() | len", "36")],
+    },
+    Signature {
+        name: "crypto_random_bytes", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[opt_range("count", Ty::Int, 0, 1_048_576, "byte count; default 32")], returns: "String",
+        doc: "Generate random bytes in process and return lowercase hexadecimal text.",
+        examples: &[("crypto_random_bytes() | len", "64"), ("crypto_random_bytes(3) | len", "6")],
+    },
+    Signature {
+        name: "crypto_random_string", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[opt_range("length", Ty::Int, 0, 1_048_576, "character count; default 32"), opt("charset", Ty::Str, "nonempty character set; default ASCII alphanumeric")], returns: "String",
+        doc: "Generate the requested number of random characters using unbiased index sampling.",
+        examples: &[("crypto_random_string() | len", "32"), (r#"crypto_random_string(3, "x")"#, "xxx")],
+    },
+    Signature {
+        name: "ab_encode", category: None, subject_required: false, aliases: &[],
+        subject: None,
+        params: &[req("msg_type", Ty::Any, "String name or integer code 0..3"), req("opcode", Ty::Any, "String name or integer code 0..15"), req("payload", Ty::Str, "UTF-8 payload")],
+        returns: "Array",
+        doc: "Encode a version-zero AgenticBinary message as byte integers.",
+        examples: &[(r#"ab_encode("Query", "DATA", "hi") | len"#, "4"), (r#"(ab_encode(1, 4, "hi") | ab_decode).payload"#, "hi")],
+    },
+    Signature {
+        name: "ab_decode", category: None, subject_required: false, aliases: &[],
+        subject: Some(Ty::Array), params: &[], returns: "Record",
+        doc: "Decode an AgenticBinary byte array into header fields, payload text and bytes.",
+        examples: &[(r#"ab_decode([20, 2, 104, 105]).payload"#, "hi")],
+    },
+    Signature {
+        name: "web_parse_url", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("url", Ty::Str, "URL text")], returns: "Record",
+        doc: "Split URL text into protocol, host, port, path, query and hash fields.",
+        examples: &[(r#"web_parse_url("https://example.com:8080/a?q=1#x").host"#, "example.com")],
+    },
+    Signature {
+        name: "web_encode_url", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("text", Ty::Str, "UTF-8 text")], returns: "String",
+        doc: "Percent-encode UTF-8 text, preserving unreserved URL characters.",
+        examples: &[(r#"web_encode_url("a b")"#, "a%20b")],
+    },
+    Signature {
+        name: "web_decode_url", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("text", Ty::Str, "percent-encoded UTF-8; plus means space")], returns: "String",
+        doc: "Decode percent-encoded UTF-8; refuse invalid escapes and invalid UTF-8.",
+        examples: &[(r#"web_decode_url("%C3%A9+a")"#, "é a")],
+    },
+    Signature {
+        name: "web_parse_query", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("query", Ty::Str, "ampersand-separated key=value pairs")], returns: "Record",
+        doc: "Split query text into a record without percent-decoding; the last repeated key wins.",
+        examples: &[(r#"web_parse_query("?a=1&b=two").b"#, "two")],
+    },
+    Signature {
+        name: "web_build_query", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("values", Ty::Record, "query keys and values")], returns: "String",
+        doc: "Join record fields as key=value pairs without percent-encoding, in sorted key order.",
+        examples: &[(r#"web_build_query({a: "1", b: "two"})"#, "a=1&b=two")],
+    },
+    Signature {
+        name: "web_extract_emails", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("text", Ty::Str, "text to scan")], returns: "Array",
+        doc: "Find distinct email-like tokens in text.",
+        examples: &[(r#"web_extract_emails("a@example.com") | len"#, "1")],
+    },
+    Signature {
+        name: "web_extract_phones", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("text", Ty::Str, "text to scan")], returns: "Array",
+        doc: "Find phone-like runs containing 7 to 15 digits.",
+        examples: &[(r#"web_extract_phones("+1 555 123 4567") | len"#, "1")],
+    },
+    Signature {
+        name: "web_html_to_text", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("html", Ty::Str, "HTML text")], returns: "String",
+        doc: "Strip HTML tags using the shell's simple text converter.",
+        examples: &[(r#"web_html_to_text("<p>Hello</p>")"#, "Hello")],
+    },
+    Signature {
+        name: "web_html_to_markdown", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("html", Ty::Str, "HTML text")], returns: "String",
+        doc: "Convert basic headings, paragraphs and inline tags to Markdown.",
+        examples: &[(r#"web_html_to_markdown("<strong>Hello</strong>")"#, "**Hello**")],
+    },
+    Signature {
+        name: "web_json_path", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("value", Ty::Any, "value to traverse"), opt("path", Ty::Str, "dot fields and array indexes; omitted returns the value")], returns: "Any",
+        doc: "Traverse dot-separated fields and array indexes; missing values return null.",
+        examples: &[(r#"web_json_path({a: [7]}, "$.a[0]")"#, "7"), ("web_json_path(7)", "7")],
+    },
+    Signature {
+        name: "type_fields", category: None, subject_required: false, aliases: &[],
+        subject: Some(Ty::Record), params: &[], returns: "Array",
+        doc: "Inspect record fields or table columns as name, type and preview records.",
+        examples: &[(r#"type_fields({a: 1, b: "x"}) | len"#, "2")],
+    },
+    Signature {
+        name: "ontology_manifest", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Record",
+        doc: "List ontology categories, counts and schema metadata without expanding every builtin.",
+        examples: &[("ontology_manifest() | type_of", "Record")],
+    },
+    Signature {
+        name: "product", category: Some("Array"), subject_required: false, aliases: &[],
+        subject: Some(Ty::Array), params: &[], returns: "Number",
+        doc: "Multiply an array of numbers; the empty product is 1.",
+        examples: &[("[2,3,4] | product", "24"), ("product([])", "1")],
+    },
+    Signature {
+        name: "is_type", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("value", Ty::Any, "value to inspect"), req("type_name", Ty::Str, "type name or supported synonym")],
+        returns: "Bool", doc: "Check a value against a case-insensitive type name or synonym.",
+        examples: &[(r#"is_type([], "list")"#, "true"), (r#"is_type(1, "String")"#, "false")],
+    },
+    Signature {
+        name: "ontology_json", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Record", doc: "Export the OS ontology as JSON Schema.",
+        examples: &[("ontology_json() | type_of", "Record")],
+    },
+    Signature {
+        name: "ontology_jsonld", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Record", doc: "Export the OS ontology as JSON-LD.",
+        examples: &[("ontology_jsonld() | type_of", "Record")],
+    },
+    Signature {
+        name: "ontology_owl", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "String", doc: "Export the OS ontology as OWL/RDF Turtle.",
+        examples: &[("ontology_owl() | type_of", "String")],
+    },
+    Signature {
+        name: "ontology_shacl", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Record", doc: "Export the OS ontology as SHACL shapes.",
+        examples: &[("ontology_shacl() | type_of", "Record")],
+    },
+    Signature {
+        name: "Some", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("value", Ty::Any, "the contained value")],
+        returns: "Record", doc: "Wrap a value in the Some option constructor.",
+        examples: &[("Some(7)._value", "7")],
+    },
+    Signature {
+        name: "reduce", category: Some("Array"), subject_required: false, aliases: &[],
+        subject: Some(Ty::Array), params: &[req("action", Ty::Lambda, "fn(acc, item) or fn(acc, item, index)"), req("initial", Ty::Any, "the initial accumulator")],
+        returns: "Any", doc: "Fold an array from left to right, optionally passing each item's index.",
+        examples: &[("[1, 2, 3] | reduce(fn(a, x) => a + x, 0)", "6"), ("reduce([1, 2], fn(a, x, i) => a + x + i, 0)", "4")],
+    },
+    Signature {
+        name: "push", category: Some("Array"), subject_required: false, aliases: &[],
+        subject: Some(Ty::Array), params: &[req("item", Ty::Any, "the item to append")],
+        returns: "Array", doc: "Append one value to an array.",
+        examples: &[("[1, 2] | push(3) | len", "3"), ("push([1], 2) | len", "2")],
+    },
+    Signature {
+        name: "concat", category: Some("Array"), subject_required: false, aliases: &[],
+        subject: Some(Ty::Array), params: &[req("other", Ty::Array, "the array to append")],
+        returns: "Array", doc: "Concatenate two arrays in order.",
+        examples: &[("[1, 2] | concat([3]) | sum", "6"), ("concat([1], [2]) | len", "2")],
+    },
+    Signature {
+        name: "json_parse", category: None, subject_required: false, aliases: &[],
+        subject: Some(Ty::Str), params: &[], returns: "Any",
+        doc: "Parse a JSON string into a typed value.",
+        examples: &[(r#"json_parse("{\"n\":7}").n"#, "7"), (r#""[1,2]" | json_parse | len"#, "2")],
+    },
+    Signature {
+        name: "from-csv", category: None, subject_required: true, aliases: &["from_csv"],
+        subject: Some(Ty::Str), params: &[], returns: "Array",
+        doc: "Parse a piped CSV string with headers, inferring numeric and boolean cells.",
+        examples: &[(r#"("n\n7\n" | from_csv | first).n"#, "7")],
+    },
+    Signature {
+        name: "to-csv", category: None, subject_required: true, aliases: &["to_csv"],
+        subject: Some(Ty::Array), params: &[], returns: "String",
+        doc: "Serialize a piped array of records to CSV using the first record's columns.",
+        examples: &[(r#"[{n: 7}] | to_csv | from_csv | len"#, "1")],
+    },
+    Signature {
+        name: "from-yaml", category: None, subject_required: false, aliases: &["from_yaml"],
+        subject: Some(Ty::Str), params: &[], returns: "Any",
+        doc: "Parse the supported YAML subset into a typed value.",
+        examples: &[(r#"from_yaml("n: 7").n"#, "7"), (r#"("n: 7" | from_yaml).n"#, "7")],
+    },
+    Signature {
+        name: "to-yaml", category: None, subject_required: false, aliases: &["to_yaml"],
+        subject: Some(Ty::Any), params: &[], returns: "String",
+        doc: "Serialize a typed value as YAML with round-trip-safe quoting.",
+        examples: &[("({n: 7} | to_yaml | from_yaml).n", "7"), ("from_yaml(to_yaml({n: 7})).n", "7")],
+    },
+    Signature {
+        name: "columns", category: None, subject_required: true, aliases: &[],
+        subject: Some(Ty::Any), params: &[], returns: "Array",
+        doc: "Keys of a piped record or its first array row; empty for other values.",
+        examples: &[("{a: 1, b: 2} | columns | len", "2"), ("42 | columns | len", "0")],
+    },
+    Signature {
+        name: "describe", category: None, subject_required: true, aliases: &[],
+        subject: Some(Ty::Any), params: &[], returns: "Record",
+        doc: "Describe a piped value's type and collection structure.",
+        examples: &[(r#"([1,2,3] | describe).length"#, "3")],
+    },
+    Signature {
+        name: "type_assert", category: None, subject_required: false, aliases: &["assert_type"],
+        subject: Some(Ty::Any), params: &[req("expected", Ty::Str, "case-insensitive value type name")],
+        returns: "Any", doc: "Return the value if its type matches, otherwise produce an error value.",
+        examples: &[(r#"type_assert(7, "Int")"#, "7"), (r#"7 | type_assert("int")"#, "7")],
+    },
     Signature {
         name: "round",
         category: None,
@@ -498,7 +850,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("order", Ty::Str, r#""desc" for descending; default ascending"#),
         ],
         returns: "Array",
-        doc: "Sort an array of records by a field name or a lambda.",
+        doc: "Sort an array of records by a field name or a lambda; propagate key-evaluation errors.",
         examples: &[
             (r#"[{n: 2}, {n: 1}] | sort_by("n") | first | fn(r) => r.n"#, "1"),
             (r#"[{n: 1}, {n: 2}] | sort_by("n", "desc") | first | fn(r) => r.n"#, "2"),
@@ -5775,6 +6127,17 @@ pub fn signature_of(name: &str) -> Option<&'static Signature> {
             for s in SIGNATURES {
                 for a in s.aliases {
                     m.entry(*a).or_insert(s);
+                }
+            }
+            // Dispatcher aliases execute the same body. Let a reviewed
+            // declaration cover every spelling of that implementation, rather
+            // than leaving aliases able to bypass argument validation. Keep
+            // explicitly declared names and aliases authoritative.
+            for names in crate::builtins::alias_groups() {
+                if let Some(signature) = names.iter().find_map(|name| m.get(name).copied()) {
+                    for name in names {
+                        m.entry(name).or_insert(signature);
+                    }
                 }
             }
             m

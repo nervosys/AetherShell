@@ -26,12 +26,17 @@ jobs:
 
             - name: Get version
               id: get_version
+              env:
+                  REQUESTED_VERSION: ${{ inputs.version }}
               run: |
+                  set -euo pipefail
+                  python3 scripts/test_release_version.py
                   if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-                    echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+                    VERSION="$REQUESTED_VERSION"
                   else
-                    echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+                    VERSION="${GITHUB_REF#refs/tags/v}"
                   fi
+                  python3 scripts/release_version.py "$VERSION" >> "$GITHUB_OUTPUT"
 
             - name: Create Release
               id: create_release

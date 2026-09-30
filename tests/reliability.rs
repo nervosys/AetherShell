@@ -73,7 +73,9 @@ fn shared_extraction_helpers_emit_structured_bad_arg() {
     // assertion would leave the test passing while covering nothing, so it now
     // finds a still-undeclared builtin using `expect_string` at run time.
     // `tests/declared_signatures.rs` covers the declared path.
-    let name = ["json_parse", "syntax_search", "lower", "trim", "upper"]
+    // nn_create checks the name with expect_string before constructing a
+    // network, so the invalid call has no state-changing effect.
+    let name = ["nn_create", "json_parse", "syntax_search", "lower", "trim", "upper"]
         .into_iter()
         .find(|n| {
             aethershell::signature::signature_of(n).is_none()

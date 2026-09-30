@@ -8,7 +8,7 @@
 - **Tagline**: One language, every platform, deterministic typed output
 - **Binary**: `ae`
 - **Language**: Rust
-- **Version**: 1.6.0
+- **Version**: 12.0.2 (13.0.0 in preparation)
 - **Repository**: https://github.com/nervosys/AetherShell
 - **License**: AGPL-3.0-or-later
 - **File Extension**: `.ae`
@@ -19,7 +19,7 @@ AI agents today are forced to interact with shells designed decades ago for huma
 
 ## What Is AetherShell?
 
-AetherShell eliminates this entire class of failure. It provides a single cross-platform shell language with deterministic, typed output — every command returns structured data (Int, Float, String, Array, Record, Lambda), not raw text. An ontology built into the shell makes commands, their arguments, and their return types discoverable by AI agents without documentation scraping or prompt engineering. It has 1,100+ builtins (1,164 listed by its ontology; 1,433 callable names counting aliases) in 108 modules, native AI agents with multi-modal support, and implements the MCP, A2A, A2UI, and NANDA agentic protocols.
+AetherShell eliminates this entire class of failure. It provides a single cross-platform shell language with deterministic, typed output — every command returns structured data (Int, Float, String, Array, Record, Lambda), not raw text. An ontology built into the shell makes commands, their arguments, and their return types discoverable by AI agents without documentation scraping or prompt engineering. It has 1,100+ builtins (1,171 listed by its ontology; 1,437 callable names counting aliases) in 108 modules, native AI agents with multi-modal support, and implements the MCP, A2A, A2UI, and NANDA agentic protocols.
 
 ## How To Use AetherShell (for AI agents)
 
@@ -264,7 +264,7 @@ Schema formats: `openai`, `claude`, `gemini`, `llama`, `mistral`, `cohere`, `gro
 
 ```bash
 cargo build --bins          # Build ae + aimodel
-cargo test                  # Run 1,237 tests
+cargo test --workspace      # Run workspace tests
 cargo run -- --tui          # TUI mode
 cargo run -- -c 'expr'      # Quick eval
 ```

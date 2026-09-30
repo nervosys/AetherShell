@@ -1,5 +1,8 @@
 # AetherShell v0.1.0 - Release Notes
 
+Historical notes for v0.1.0. See [`13.0.0.md`](13.0.0.md) for the next release's
+draft notes and readiness checklist.
+
 **Release Date**: October 23, 2025  
 **License**: MIT  
 **Status**: ✅ Ready for Public Release
