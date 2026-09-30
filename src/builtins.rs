@@ -32091,12 +32091,16 @@ fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| crate::safety::spawn_error("crypto_encrypt", "openssl", &e))?;
+        .map_err(|e| crate::safety::spawn_error("crypto_decrypt", "openssl", &e))?;
     if let Some(stdin) = child.stdin.as_mut() {
         use std::io::Write;
-        stdin.write_all(data.as_bytes())?;
+        stdin
+            .write_all(data.as_bytes())
+            .map_err(|e| anyhow::anyhow!("E_IO: crypto_decrypt: writing legacy ciphertext: {e}"))?;
     }
-    let output = child.wait_with_output()?;
+    let output = child
+        .wait_with_output()
+        .map_err(|e| anyhow::anyhow!("E_IO: crypto_decrypt: waiting for OpenSSL: {e}"))?;
     if output.status.success() {
         return Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).to_string(),
@@ -32200,7 +32204,7 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key)
         .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: bad key length: {}", e))?;
 
-    // Poly1305 verifies the tag before any plaintext is released, so a wrong
+    // AES-GCM verifies the tag before any plaintext is released, so a wrong
     // password and a modified ciphertext give the same answer here -- and
     // unlike the CBC path, "it decrypted" now genuinely means "it was not
     // modified".

@@ -450,3 +450,22 @@ fn hmac_matches_reference_vectors_and_refuses_invalid_algorithms() {
         assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
     }
 }
+
+#[test]
+fn authenticated_crypto_refuses_discarded_options_before_running() {
+    let mut env = Env::new();
+    for name in ["crypto_encrypt", "crypto_decrypt"] {
+        for args in [
+            vec![
+                Value::Str("message".into()),
+                Value::Str("password".into()),
+                Value::Str("aes-cbc".into()),
+            ],
+            vec![Value::Str("message".into()), Value::Int(1)],
+            vec![Value::Str("message".into())],
+        ] {
+            let error = call(name, args, &mut env).unwrap_err();
+            assert!(error.to_string().contains("E_BAD_ARG"), "{name}: {error}");
+        }
+    }
+}

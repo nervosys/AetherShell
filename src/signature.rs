@@ -395,6 +395,18 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[("telemetry_report() | type_of", "Record"), (r#"telemetry_report({category: "example"}) | type_of"#, "Record")],
     },
     Signature {
+        name: "crypto_encrypt", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("data", Ty::Str, "UTF-8 plaintext"), req("password", Ty::Str, "nonempty password")], returns: "String",
+        doc: "Encrypt UTF-8 text with AES-256-GCM and fresh salt and nonce. Return a versioned authenticated envelope using Argon2id, or PBKDF2 in FIPS mode.",
+        examples: &[(r#"crypto_decrypt(crypto_encrypt("hello", "example-password"), "example-password")"#, "hello")],
+    },
+    Signature {
+        name: "crypto_decrypt", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("data", Ty::Str, "versioned authenticated ciphertext"), req("password", Ty::Str, "encryption password")], returns: "String",
+        doc: "Authenticate and decrypt a versioned envelope to UTF-8 text. The envelope selects its KDF. Legacy unauthenticated CBC requires explicit environment opt-in and Unix OpenSSL.",
+        examples: &[(r#"crypto_decrypt(crypto_encrypt("hello", "example-password"), "example-password")"#, "hello")],
+    },
+    Signature {
         name: "crypto_hmac", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("data", Ty::Str, "UTF-8 message"), req("key", Ty::Str, "UTF-8 secret key"), opt("algorithm", Ty::Str, "md5, sha1, sha256, sha384 or sha512; default sha256")], returns: "String",
         doc: "Authenticate a message in process and return its lowercase hexadecimal HMAC. Weak algorithms are refused in FIPS mode.",
