@@ -73,9 +73,8 @@ fn shared_extraction_helpers_emit_structured_bad_arg() {
     // assertion would leave the test passing while covering nothing, so it now
     // finds a still-undeclared builtin using `expect_string` at run time.
     // `tests/declared_signatures.rs` covers the declared path.
-    // consensus_net checks the name before allocating networks. Supply all
-    // five arguments so the call reaches expect_string, not the arity check.
-    let (name, arguments) = [("consensus_net", "123, 1, 1, 1, 1"), ("json_parse", "123"), ("syntax_search", "123"), ("lower", "123"), ("trim", "123"), ("upper", "123")]
+    // population checks the genome type before allocating any individuals.
+    let (name, arguments) = [("population", "1, 123"), ("json_parse", "123"), ("syntax_search", "123"), ("lower", "123"), ("trim", "123"), ("upper", "123")]
         .into_iter()
         .find(|(n, _)| {
             aethershell::signature::signature_of(n).is_none()

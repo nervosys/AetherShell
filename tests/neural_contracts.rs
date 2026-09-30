@@ -330,3 +330,196 @@ fn strategy_descriptors_refuse_unused_parameters_and_invalid_domains() {
         &mut env,
     );
 }
+
+fn consensus_network(env: &mut Env) -> Value {
+    call(
+        "consensus_net",
+        vec![
+            Value::Str("test".into()),
+            Value::Int(2),
+            Value::Int(2),
+            Value::Int(2),
+            Value::Int(2),
+        ],
+        env,
+    )
+    .unwrap()
+}
+
+#[test]
+fn consensus_creation_checks_sizes_and_aggregate_budget() {
+    let mut env = Env::new();
+    for position in 1..5 {
+        for invalid in [-1, 0, i64::MAX] {
+            let mut args = vec![
+                Value::Str("test".into()),
+                Value::Int(2),
+                Value::Int(2),
+                Value::Int(2),
+                Value::Int(2),
+            ];
+            args[position] = Value::Int(invalid);
+            let error = call("consensus_net", args, &mut env).unwrap_err();
+            assert!(
+                error.to_string().contains("E_BAD_ARG")
+                    || error.to_string().contains("E_BUDGET_EXCEEDED"),
+                "{error}"
+            );
+        }
+    }
+    // Each component fits individually, but their combined parameters do not.
+    let error = call(
+        "consensus_net",
+        vec![
+            Value::Str("test".into()),
+            Value::Int(100),
+            Value::Int(100),
+            Value::Int(100),
+            Value::Int(2),
+        ],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_BUDGET_EXCEEDED"), "{error}");
+}
+
+#[test]
+fn consensus_vote_requires_exact_finite_inputs_and_returns_normalized_decisions() {
+    let mut env = Env::new();
+    let network = consensus_network(&mut env);
+    for input in [
+        Value::Array(vec![]),
+        Value::Array(vec![numbers(&[0, 0])]),
+        Value::Array(vec![numbers(&[0]), numbers(&[0, 0])]),
+        Value::Array(vec![numbers(&[0, 0, 0]), numbers(&[0, 0])]),
+        Value::Array(vec![
+            Value::Array(vec![Value::Float(f64::NAN), Value::Int(0)]),
+            numbers(&[0, 0]),
+        ]),
+    ] {
+        bad_argument(
+            "consensus_vote",
+            vec![network.clone(), input.clone()],
+            &mut env,
+        );
+        let error = call_with_input(
+            "consensus_vote",
+            vec![input],
+            Some(network.clone()),
+            &mut env,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    }
+    let result = call(
+        "consensus_vote",
+        vec![
+            network,
+            Value::Array(vec![numbers(&[0, 0]), numbers(&[0, 0])]),
+        ],
+        &mut env,
+    )
+    .unwrap();
+    let Value::Record(result) = result else {
+        panic!("expected Record")
+    };
+    assert_eq!(result["confidence"], Value::Float(1.0));
+    let Value::Array(decisions) = &result["decisions"] else {
+        panic!("expected decisions")
+    };
+    assert_eq!(decisions.len(), 2);
+    for decision in decisions {
+        let Value::Array(row) = decision else {
+            panic!("expected row")
+        };
+        let sum: f64 = row
+            .iter()
+            .map(|value| match value {
+                Value::Float(n) => *n,
+                _ => panic!("expected Float"),
+            })
+            .sum();
+        assert!((sum - 1.0).abs() < 1e-12);
+    }
+}
+
+#[test]
+fn consensus_vote_validates_serialized_components_and_round_budget() {
+    let mut env = Env::new();
+    let Value::Record(network) = consensus_network(&mut env) else {
+        panic!("expected Record")
+    };
+    let Value::Str(data) = &network["_data"] else {
+        panic!("expected encoding")
+    };
+    let original: serde_json::Value = serde_json::from_str(data).unwrap();
+    for mutation in 0..5 {
+        let mut data = original.clone();
+        match mutation {
+            0 => data["local_encoder"]["layers"][0]["weights"] = serde_json::json!([]),
+            1 => data["agent_networks"] = serde_json::json!([]),
+            2 => data["state_dim"] = serde_json::json!(3),
+            3 => data["message_dim"] = serde_json::json!(3),
+            _ => data["decision_network"]["layers"] = serde_json::json!([]),
+        }
+        bad_argument(
+            "consensus_vote",
+            vec![
+                encoded(data),
+                Value::Array(vec![numbers(&[0, 0]), numbers(&[0, 0])]),
+            ],
+            &mut env,
+        );
+    }
+    let mut data = original;
+    data["num_rounds"] = serde_json::json!(17);
+    let error = call(
+        "consensus_vote",
+        vec![
+            encoded(data),
+            Value::Array(vec![numbers(&[0, 0]), numbers(&[0, 0])]),
+        ],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_BUDGET_EXCEEDED"), "{error}");
+    bad_argument(
+        "consensus_vote",
+        vec![
+            Value::Record(BTreeMap::from([(
+                "_data".into(),
+                Value::Str("invalid".into()),
+            )])),
+            Value::Array(vec![]),
+        ],
+        &mut env,
+    );
+}
+
+#[test]
+fn consensus_vote_refuses_non_finite_computation_results() {
+    let mut env = Env::new();
+    let Value::Record(network) = consensus_network(&mut env) else {
+        panic!("expected Record")
+    };
+    let Value::Str(data) = &network["_data"] else {
+        panic!("expected encoding")
+    };
+    let mut data: serde_json::Value = serde_json::from_str(data).unwrap();
+    let layers = data["decision_network"]["layers"].as_array_mut().unwrap();
+    let last = layers.last_mut().unwrap();
+    last["activation"] = serde_json::json!("Linear");
+    last["weights"] = serde_json::json!([[0.0, 0.0], [0.0, 0.0]]);
+    last["biases"] = serde_json::json!([f64::MAX, f64::MAX]);
+    // Each individual output is finite, but summing two decisions overflows.
+    let error = call(
+        "consensus_vote",
+        vec![
+            encoded(data),
+            Value::Array(vec![numbers(&[0, 0]), numbers(&[0, 0])]),
+        ],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_BAD_STATE"), "{error}");
+}

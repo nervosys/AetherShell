@@ -13554,10 +13554,47 @@ fn bi_consensus_net(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 
     let name = expect_string("consensus_net", &args[0])?;
-    let agent_count = expect_int("consensus_net", &args[1])? as usize;
-    let input_size = expect_int("consensus_net", &args[2])? as usize;
-    let hidden_size = expect_int("consensus_net", &args[3])? as usize;
-    let output_size = expect_int("consensus_net", &args[4])? as usize;
+    let size = |value: &Value| -> Result<usize> {
+        let n = expect_int("consensus_net", value)?;
+        usize::try_from(n).ok().filter(|n| *n > 0).ok_or_else(|| {
+            crate::safety::arg_err("consensus_net sizes must be positive representable integers")
+        })
+    };
+    let agent_count = size(&args[1])?;
+    let input_size = size(&args[2])?;
+    let hidden_size = size(&args[3])?;
+    let output_size = size(&args[4])?;
+    if agent_count > 1024 {
+        return Err(crate::safety::budget_exceeded(
+            "consensus_net",
+            "supports at most 1024 agents".into(),
+            "use fewer agents",
+        ));
+    }
+    let twice_input = input_size.checked_mul(2);
+    let twice_hidden = hidden_size.checked_mul(2);
+    let decision_input = hidden_size.checked_add(input_size);
+    let decision_hidden = hidden_size.checked_add(output_size).map(|n| n / 2);
+    let dimensions = twice_input
+        .zip(twice_hidden)
+        .zip(decision_input.zip(decision_hidden))
+        .ok_or_else(|| crate::safety::arg_err("consensus_net dimension arithmetic overflow"))?;
+    let ((twice_input, twice_hidden), (decision_input, decision_hidden)) = dimensions;
+    let mut total = 0;
+    for (input, output) in [
+        (input_size, twice_input),
+        (twice_input, hidden_size),
+        (twice_hidden, twice_hidden),
+        (twice_hidden, hidden_size),
+        (decision_input, decision_hidden),
+        (decision_hidden, output_size),
+    ] {
+        total = checked_nn_parameter_count(total, input, output)?;
+    }
+    for _ in 0..agent_count {
+        total = checked_nn_parameter_count(total, input_size, input_size)?;
+        total = checked_nn_parameter_count(total, input_size, hidden_size)?;
+    }
 
     let consensus = ConsensusNetwork::new(name, agent_count, input_size, hidden_size, output_size);
     consensus_net_to_value(&consensus)
@@ -13587,13 +13624,36 @@ fn bi_consensus_vote(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .iter()
         .map(|v| {
             let arr = expect_array("consensus_vote", v)?;
-            arr.iter().map(value_to_f64).collect()
+            arr.iter()
+                .map(|v| finite_nn_number("consensus_vote", v))
+                .collect()
         })
         .collect::<Result<Vec<_>>>()?;
 
+    if agent_inputs.len() != network.agent_networks.len()
+        || agent_inputs
+            .iter()
+            .any(|row| row.len() != network.state_dim)
+    {
+        return Err(crate::safety::arg_err(
+            "consensus_vote requires exactly one state_dim input row per agent",
+        ));
+    }
     let (decisions, consensus) = network.consensus(&agent_inputs);
 
-    // Calculate confidence as 1 - variance of decisions
+    if decisions
+        .iter()
+        .flatten()
+        .chain(consensus.iter())
+        .any(|n| !n.is_finite())
+    {
+        return Err(crate::safety::bad_state(
+            "consensus_vote",
+            "non-finite output",
+            "the computation exceeded the numeric range",
+        ));
+    }
+    // Confidence is the reciprocal of one plus the mean squared disagreement.
     let decision_dim = decisions.first().map(|d| d.len()).unwrap_or(0);
     let mean: Vec<f64> = (0..decision_dim)
         .map(|i| {
@@ -14363,10 +14423,77 @@ fn consensus_net_to_value(network: &ConsensusNetwork) -> Result<Value> {
 fn value_to_consensus_net(v: &Value) -> Result<ConsensusNetwork> {
     if let Value::Record(rec) = v {
         if let Some(Value::Str(data)) = rec.get("_data") {
-            return serde_json::from_str(data).context("Failed to deserialize consensus network");
+            if data.len() > 64 * 1024 * 1024 {
+                return Err(crate::safety::budget_exceeded(
+                    "consensus_vote",
+                    "consensus network encoding exceeds 64 MiB".into(),
+                    "use a smaller network",
+                ));
+            }
+            let network: ConsensusNetwork = serde_json::from_str(data).map_err(|e| {
+                crate::safety::bad_arg(
+                    "consensus_vote",
+                    "valid encoded consensus network",
+                    &e.to_string(),
+                )
+            })?;
+            validate_consensus_net(&network)?;
+            return Ok(network);
         }
     }
     Err(crate::safety::arg_err("Invalid consensus network value"))
+}
+
+fn validate_consensus_net(network: &ConsensusNetwork) -> Result<()> {
+    if network.state_dim == 0 || network.message_dim == 0 || network.agent_networks.is_empty() {
+        return Err(crate::safety::arg_err(
+            "consensus network dimensions and agent count must be positive",
+        ));
+    }
+    if network.agent_networks.len() > 1024 || network.num_rounds > 16 {
+        return Err(crate::safety::budget_exceeded(
+            "consensus_vote",
+            "consensus network exceeds 1024 agents or 16 rounds".into(),
+            "use fewer agents or rounds",
+        ));
+    }
+    let mut total = 0;
+    for nn in [
+        &network.local_encoder,
+        &network.message_processor,
+        &network.decision_network,
+    ]
+    .into_iter()
+    .chain(network.agent_networks.iter())
+    {
+        validate_nn(nn)?;
+        for layer in &nn.layers {
+            total = checked_nn_parameter_count(total, layer.input_size, layer.output_size)?;
+        }
+    }
+    let dimensions_match = |nn: &NeuralNetwork, input: Option<usize>, output: usize| {
+        input == Some(nn.layers[0].input_size) && nn.layers.last().unwrap().output_size == output
+    };
+    if !dimensions_match(
+        &network.local_encoder,
+        Some(network.state_dim),
+        network.message_dim,
+    ) || !dimensions_match(
+        &network.message_processor,
+        network.message_dim.checked_mul(2),
+        network.message_dim,
+    ) || Some(network.decision_network.layers[0].input_size)
+        != network.message_dim.checked_add(network.state_dim)
+        || network
+            .agent_networks
+            .iter()
+            .any(|nn| !dimensions_match(nn, Some(network.state_dim), network.message_dim))
+    {
+        return Err(crate::safety::arg_err(
+            "consensus network component dimensions do not match",
+        ));
+    }
+    Ok(())
 }
 
 fn get_population_genome_type(v: &Value) -> Result<String> {

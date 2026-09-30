@@ -1521,6 +1521,18 @@ pub static SIGNATURES: &[Signature] = &[
             (r#""passthrough" | cat"#, r#""passthrough""#),
         ],
     },
+    Signature {
+        name: "consensus_net", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "network name"), req("agent_count", Ty::Int, "positive; at most 1024"), req("input_size", Ty::Int, "positive state dimension"), req("hidden_size", Ty::Int, "positive message dimension"), req("output_size", Ty::Int, "positive decision dimension")], returns: "Record",
+        doc: "Create a randomly initialized consensus network with three message-passing rounds and Softmax decisions. Refuse invalid sizes and more than one million total weights and biases before allocation, including retained per-agent networks.",
+        examples: &[(r#"consensus_net("example", 2, 2, 2, 2).agent_count"#, "2")],
+    },
+    Signature {
+        name: "consensus_vote", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("agent_inputs", Ty::Array, "exactly one row of finite numbers per agent, each of state_dim length")], returns: "Record",
+        doc: "Run shared encoder/message/decision networks and return decisions, their mean consensus, and confidence 1/(1+mean squared disagreement). Retained per-agent networks are validated but not evaluated. Encoded networks are limited to 64 MiB, one million total parameters, 1024 agents and 16 rounds; malformed shapes and non-finite results are refused.",
+        examples: &[(r#"consensus_vote(consensus_net("example", 2, 2, 2, 2), [[0, 0], [0, 0]]).decisions | len"#, "2"), (r#"let result = consensus_net("example", 2, 2, 2, 2) | consensus_vote([[0, 0], [0, 0]]); result.consensus | len"#, "2")],
+    },
     // Source-reviewed neural operations; serialized networks are validated.
     Signature {
         name: "nn_create", category: None, subject_required: false, aliases: &[], subject: None,
