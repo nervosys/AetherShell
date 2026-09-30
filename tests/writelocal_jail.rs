@@ -108,6 +108,25 @@ fn refused_by_the_jail(r: &anyhow::Result<Value>) -> bool {
 }
 
 #[test]
+fn csv_import_refuses_a_new_destination_outside_workspace() {
+    let _g = lock();
+    let jail = Jail::new("csv_import");
+    let source = jail.workspace.join("rows.csv");
+    std::fs::write(&source, "name,age\nAda,42\n").unwrap();
+    let destination = jail.victim.with_extension("new.sqlite");
+    assert!(!destination.exists());
+    let result = call(
+        "db_csv_to_sqlite",
+        vec![
+            Value::Str(destination.to_string_lossy().into()),
+            Value::Str(source.to_string_lossy().into()),
+        ],
+    );
+    assert!(refused_by_the_jail(&result), "{result:?}");
+    assert!(!destination.exists());
+}
+
+#[test]
 fn overwriting_a_file_outside_the_workspace_is_refused_whichever_builtin_does_it() {
     let _g = lock();
     let jail = Jail::new("copy");

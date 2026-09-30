@@ -8,6 +8,103 @@ struct FileFixture {
 }
 
 #[test]
+fn csv_import_preserves_quoted_fields_and_supports_both_table_forms() {
+    let fixture = FileFixture::new();
+    let source = fixture.directory.join("source ' quoted.csv");
+    let mut writer = csv::Writer::from_path(&source).unwrap();
+    writer.write_record(["select", "note"]).unwrap();
+    writer
+        .write_record(["Ada's, λ", " leading\n\"quoted\" trailing "])
+        .unwrap();
+    writer.flush().unwrap();
+    drop(writer);
+    let mut env = Env::new();
+    for (file, table, explicit) in [
+        ("default ' db.sqlite", "imported", false),
+        ("named.db", "people", true),
+    ] {
+        let mut args = vec![fixture.path(file), fixture.path("source ' quoted.csv")];
+        if explicit {
+            args.push(Value::Str(table.into()));
+        }
+        assert_eq!(
+            call("db_csv_to_sqlite", args, &mut env).unwrap(),
+            Value::Bool(true)
+        );
+        let db = rusqlite::Connection::open(fixture.directory.join(file)).unwrap();
+        let row: (String, String) = db
+            .query_row(&format!("SELECT \"select\", note FROM {table}"), [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(
+            row,
+            ("Ada's, λ".into(), " leading\n\"quoted\" trailing ".into())
+        );
+    }
+}
+
+#[test]
+fn csv_import_validates_before_creating_destination() {
+    let fixture = FileFixture::new();
+    let mut env = Env::new();
+    for content in [
+        "",
+        "name,age\nAda\n",
+        "name,NAME\nAda,42\n",
+        "bad-name\nAda\n",
+    ] {
+        std::fs::write(fixture.directory.join("bad.csv"), content).unwrap();
+        let error = call(
+            "db_csv_to_sqlite",
+            vec![fixture.path("absent.db"), fixture.path("bad.csv")],
+            &mut env,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+        assert!(!fixture.directory.join("absent.db").exists());
+    }
+    let error = call(
+        "db_csv_to_sqlite",
+        vec![fixture.path("absent.db"), fixture.path("missing.csv")],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_NOT_FOUND"), "{error}");
+    assert!(!fixture.directory.join("absent.db").exists());
+}
+
+#[test]
+fn csv_import_rolls_back_all_rows_after_constraint_failure() {
+    let fixture = FileFixture::new();
+    let destination = fixture.directory.join("existing.db");
+    let db = rusqlite::Connection::open(&destination).unwrap();
+    db.execute_batch("CREATE TABLE people(name TEXT, age INTEGER CHECK(age >= 0)); INSERT INTO people VALUES('original', 10)").unwrap();
+    drop(db);
+    std::fs::write(
+        fixture.directory.join("rows.csv"),
+        "name,age\nvalid,42\ninvalid,-1\n",
+    )
+    .unwrap();
+    let error = call(
+        "db_csv_to_sqlite",
+        vec![
+            fixture.path("existing.db"),
+            fixture.path("rows.csv"),
+            Value::Str("people".into()),
+        ],
+        &mut Env::new(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    let db = rusqlite::Connection::open(destination).unwrap();
+    let count: i64 = db
+        .query_row("SELECT count(*) FROM people", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
 fn sqlite_table_export_is_typed_and_does_not_create_missing_databases() {
     let fixture = FileFixture::new();
     let mut env = Env::new();

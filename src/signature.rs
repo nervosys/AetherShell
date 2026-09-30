@@ -4884,6 +4884,12 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_drop"); let f = d + "/db"; file_copy("tests/fixtures/sample.db", f); let result = db_sqlite_drop_table(f, "people"); rmdir(d, true); result"#, "true")],
     },
     Signature {
+        name: "db_csv_to_sqlite", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("db", Ty::Str, "SQLite destination path"), req("csv", Ty::Str, "UTF-8 CSV with a header of unique validated identifiers"), opt("table", Ty::Str, "validated table identifier; default imported")], returns: "Bool",
+        doc: "Import CSV in process in one transaction. Always consume the header; create absent columns as TEXT and bind fields as strings. Existing column affinities apply. Parse failures create no database; row failures roll back all imported rows. Limited to one million rows and the configured file-size budget.",
+        examples: &[(r#"let d = fs_tempdir("ae_csv_import"); let f = d + "/rows.csv"; file_write(f, "name,age\nAda,42\n"); let result = db_csv_to_sqlite(d + "/db", f); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_csv_import"); let f = d + "/rows.csv"; file_write(f, "name,age\nAda,42\n"); let result = db_csv_to_sqlite(d + "/db", f, "people"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
         name: "db_sqlite_import", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("db", Ty::Str, "SQLite database path"), req("sql_file", Ty::Str, "UTF-8 file of SQL statements")], returns: "Bool",
         doc: "Read SQL from a file and execute it using sqlite3, snapshotting an active transaction. SQLite dot commands are refused; missing files and tool failures are coded errors.",

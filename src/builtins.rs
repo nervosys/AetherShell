@@ -32629,44 +32629,110 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 fn bi_db_sqlite_import_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let db_path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "db_sqlite_import_csv",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+    const NAME: &str = "db_csv_to_sqlite";
+    let db_path = args
+        .first()
+        .ok_or_else(|| crate::safety::arg_err("db_csv_to_sqlite: db is required"))?;
+    let db_path = expect_string(NAME, db_path)?;
+    let csv_path = args
+        .get(1)
+        .ok_or_else(|| crate::safety::arg_err("db_csv_to_sqlite: csv is required"))?;
+    let csv_path = expect_string(NAME, csv_path)?;
+    let table = args
+        .get(2)
+        .map(|v| expect_string(NAME, v))
+        .transpose()?
+        .unwrap_or("imported");
+    let table = format!("\"{}\"", crate::safety::sql_identifier(NAME, table)?);
+    let csv_path = crate::safety::resolve_path_str(csv_path);
+    std::fs::metadata(&csv_path).map_err(|e| crate::safety::fs_error(NAME, &csv_path, &e))?;
+    let source = crate::security::validate_read_path(&csv_path)
+        .map_err(|e| anyhow!("E_POLICY_DENY: {NAME}: {e}"))?;
+    let metadata =
+        std::fs::metadata(&source).map_err(|e| crate::safety::fs_error(NAME, &csv_path, &e))?;
+    crate::security::check_file_size_limit(metadata.len())
+        .map_err(|e| anyhow!("E_BUDGET_EXCEEDED: {NAME}: {e}"))?;
+    let content = std::fs::read_to_string(&source)
+        .map_err(|e| crate::safety::fs_error(NAME, &csv_path, &e))?;
+    let csv_error = |e: csv::Error| {
+        crate::safety::bad_arg(
+            NAME,
+            "CSV with a header and equal-length rows",
+            &e.to_string(),
+        )
+    };
+    let mut reader = csv::ReaderBuilder::new()
+        .trim(csv::Trim::Headers)
+        .from_reader(content.as_bytes());
+    let headers = reader.headers().map_err(csv_error)?.clone();
+    if headers.is_empty() {
+        return Err(crate::safety::arg_err(
+            "db_csv_to_sqlite: CSV header must be nonempty",
+        ));
+    }
+    let mut names = std::collections::HashSet::new();
+    let columns: Vec<String> = headers
+        .iter()
+        .map(|name| {
+            let name = crate::safety::sql_identifier(NAME, name)?;
+            if !names.insert(name.to_ascii_lowercase()) {
+                return Err(crate::safety::arg_err(
+                    "db_csv_to_sqlite: duplicate CSV column name",
+                ));
+            }
+            Ok(format!("\"{name}\""))
+        })
+        .collect::<Result<_>>()?;
+    // Parse all rows before opening the destination; failed validation creates nothing.
+    let rows = reader
+        .records()
+        .enumerate()
+        .map(|(index, row)| {
+            if index >= 1_000_000 {
+                return Err(anyhow!(
+                    "E_BUDGET_EXCEEDED: {NAME}: CSV exceeds 1000000 rows"
+                ));
+            }
+            row.map_err(csv_error)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let db_path = guard_local_write(NAME, db_path)?;
+    crate::tx::snapshot(&db_path);
+    let mut db = rusqlite::Connection::open(&db_path).map_err(|e| anyhow!("E_IO: {NAME}: {e}"))?;
+    let transaction = db.transaction().map_err(|e| anyhow!("E_IO: {NAME}: {e}"))?;
+    let sql_error = |e: rusqlite::Error| {
+        crate::safety::arg_err(&format!(
+            "{NAME}: SQLite rejected import: {e}; no rows committed"
+        ))
+    };
+    let definitions = columns
+        .iter()
+        .map(|name| format!("{name} TEXT"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    transaction
+        .execute_batch(&format!(
+            "CREATE TABLE IF NOT EXISTS {table} ({definitions})"
+        ))
+        .map_err(sql_error)?;
+    let placeholders = vec!["?"; columns.len()].join(", ");
+    {
+        let mut statement = transaction
+            .prepare(&format!(
+                "INSERT INTO {table} ({}) VALUES ({placeholders})",
+                columns.join(", ")
             ))
+            .map_err(sql_error)?;
+        for row in rows {
+            statement
+                .execute(rusqlite::params_from_iter(row.iter()))
+                .map_err(sql_error)?;
         }
-    };
-    let csv_path = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "db_sqlite_import_csv",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let table_name = match args.get(2) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "imported".to_string(),
-    };
-
-    crate::safety::reject_option_like(
-        "db_sqlite_import_csv",
-        &[db_path.clone(), csv_path.clone()],
-    )?;
-    let output = std::process::Command::new("sqlite3")
-        .args([
-            &db_path,
-            &format!(".mode csv\n.import {} {}", csv_path, table_name),
-        ])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("db_sqlite_import_csv", "sqlite3", &e))?;
-
-    Ok(Value::Bool(output.status.success()))
+    }
+    transaction
+        .commit()
+        .map_err(|e| anyhow!("E_IO: {NAME}: committing import: {e}"))?;
+    Ok(Value::Bool(true))
 }
 
 fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
