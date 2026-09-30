@@ -345,3 +345,108 @@ fn field_previews_do_not_slice_through_a_unicode_character() {
     };
     assert_eq!(preview.matches('界').count(), 50);
 }
+
+#[test]
+fn hmac_matches_reference_vectors_and_refuses_invalid_algorithms() {
+    let mut env = Env::new();
+    assert_eq!(
+        call(
+            "crypto_hmac",
+            vec![
+                Value::Str("The quick brown fox jumps over the lazy dog".into()),
+                Value::Str("key".into()),
+                Value::Str("md5".into())
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Str("80070713463e7749b90c2dc24911e275".into())
+    );
+    assert_eq!(call("crypto_hmac", vec![Value::Str("Unicode message".into()), Value::Str("KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK".into()), Value::Str("md5".into())], &mut env).unwrap(), Value::Str("1d83714680314ccd9d530f50e8953641".into()));
+    assert_eq!(
+        call(
+            "crypto_hmac",
+            vec![
+                Value::Str("".into()),
+                Value::Str("".into()),
+                Value::Str("md5".into())
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Str("74e6f7298a9c2d168935f58c001bad88".into())
+    );
+    assert_eq!(
+        call(
+            "crypto_hmac",
+            vec![
+                Value::Str("The quick brown fox jumps over the lazy dog".into()),
+                Value::Str("key".into()),
+                Value::Str("sha1".into())
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Str("de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9".into())
+    );
+    assert_eq!(call("crypto_hmac", vec![Value::Str("Unicode message".into()), Value::Str("KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK".into()), Value::Str("sha1".into())], &mut env).unwrap(), Value::Str("65bd75815d9009090a16197d00b5c95d19982a0e".into()));
+    assert_eq!(
+        call(
+            "crypto_hmac",
+            vec![
+                Value::Str("".into()),
+                Value::Str("".into()),
+                Value::Str("sha1".into())
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Str("fbdb1d1b18aa6c08324b7d64b71fb76370690e1d".into())
+    );
+    assert_eq!(
+        call(
+            "crypto_hmac",
+            vec![
+                Value::Str("The quick brown fox jumps over the lazy dog".into()),
+                Value::Str("key".into()),
+                Value::Str("sha256".into())
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Str("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8".into())
+    );
+    assert_eq!(call("crypto_hmac", vec![Value::Str("Unicode message".into()), Value::Str("KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK".into()), Value::Str("sha256".into())], &mut env).unwrap(), Value::Str("ac7de0f744aa272d3f8ba6c8f4be985197401dc443e722b995a2a115cbe8e5e4".into()));
+    assert_eq!(
+        call(
+            "crypto_hmac",
+            vec![
+                Value::Str("".into()),
+                Value::Str("".into()),
+                Value::Str("sha256".into())
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Str("b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad".into())
+    );
+    assert_eq!(call("crypto_hmac", vec![Value::Str("The quick brown fox jumps over the lazy dog".into()), Value::Str("key".into()), Value::Str("sha384".into())], &mut env).unwrap(), Value::Str("d7f4727e2c0b39ae0f1e40cc96f60242d5b7801841cea6fc592c5d3e1ae50700582a96cf35e1e554995fe4e03381c237".into()));
+    assert_eq!(call("crypto_hmac", vec![Value::Str("Unicode message".into()), Value::Str("KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK".into()), Value::Str("sha384".into())], &mut env).unwrap(), Value::Str("1ffc837d4db60727c4ebcd6d6beae29a3578acbfb88c661e9b7a9de93526a6287531e51ff43fde78354817e723270718".into()));
+    assert_eq!(call("crypto_hmac", vec![Value::Str("".into()), Value::Str("".into()), Value::Str("sha384".into())], &mut env).unwrap(), Value::Str("6c1f2ee938fad2e24bd91298474382ca218c75db3d83e114b3d4367776d14d3551289e75e8209cd4b792302840234adc".into()));
+    assert_eq!(call("crypto_hmac", vec![Value::Str("The quick brown fox jumps over the lazy dog".into()), Value::Str("key".into()), Value::Str("sha512".into())], &mut env).unwrap(), Value::Str("b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a".into()));
+    assert_eq!(call("crypto_hmac", vec![Value::Str("Unicode message".into()), Value::Str("KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK".into()), Value::Str("sha512".into())], &mut env).unwrap(), Value::Str("6bf902db15bf2dda9004b0a5e525dd9839cb9ad614d07cda6146d3e29688798c67229e86af510ed96a6dd709fc23c88302ad13d853c1d62454830517db159e11".into()));
+    assert_eq!(call("crypto_hmac", vec![Value::Str("".into()), Value::Str("".into()), Value::Str("sha512".into())], &mut env).unwrap(), Value::Str("b936cee86c9f87aa5d3c6f2e84cb5a4239a5fe50480a6ec66b70ab5b1f4ac6730c6c515421b327ec1d69402e53dfb49ad7381eb067b338fd7b0cb22247225d47".into()));
+    for algorithm in [Value::Str("unknown".into()), Value::Int(3)] {
+        let error = call(
+            "crypto_hmac",
+            vec![
+                Value::Str("message".into()),
+                Value::Str("key".into()),
+                algorithm,
+            ],
+            &mut env,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    }
+}

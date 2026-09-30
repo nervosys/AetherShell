@@ -31715,89 +31715,67 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 fn bi_crypto_hmac(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let data = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "crypto_hmac",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let key = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "crypto_hmac",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let algo = args
-        .get(2)
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.to_lowercase()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "sha256".to_string());
+    use hmac::{Hmac, Mac};
+    let data = args
+        .first()
+        .ok_or_else(|| crate::safety::arg_err("crypto_hmac: data is required"))?;
+    let data = expect_string("crypto_hmac", data)?;
+    let key = args
+        .get(1)
+        .ok_or_else(|| crate::safety::arg_err("crypto_hmac: key is required"))?;
+    let key = expect_string("crypto_hmac", key)?;
+    let algo =
+        algo_param("crypto_hmac", args.get(2..).unwrap_or(&[]), "sha256")?.to_ascii_lowercase();
     crate::safety::require_fips_hash(&algo)?;
-
-    #[cfg(target_os = "windows")]
-    {
-        let ps_algo = match algo.as_str() {
-            "md5" => "MD5",
-            "sha1" => "SHA1",
-            "sha384" | "sha-384" => "SHA384",
-            "sha512" | "sha-512" => "SHA512",
-            _ => "SHA256",
-        };
-        let ps_script = crate::ps_script!(
-            r#"
-$key = [System.Text.Encoding]::UTF8.GetBytes({})
-$data = [System.Text.Encoding]::UTF8.GetBytes({})
-$hmac = New-Object System.Security.Cryptography.HMAC{}
-$hmac.Key = $key
-$hash = $hmac.ComputeHash($data)
-[System.BitConverter]::ToString($hash).Replace("-", "").ToLower()
-"#,
-            crate::safety::ps_quote(&key),
-            crate::safety::ps_quote(&data),
-            crate::safety::ps_quote(&ps_algo)
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_hmac", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+    macro_rules! authenticate {
+        ($digest:ty) => {{
+            let mut mac = Hmac::<$digest>::new_from_slice(key.as_bytes())
+                .map_err(|_| crate::safety::arg_err("crypto_hmac: invalid key"))?;
+            mac.update(data.as_bytes());
+            mac.finalize()
+                .into_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        }};
     }
-    #[cfg(unix)]
-    {
-        let output = std::process::Command::new("openssl")
-            .args(["dgst", &format!("-{}", algo), "-hmac", &key])
-            .stdin(std::process::Stdio::piped())
-            .output();
-        if let Ok(out) = output {
-            if out.status.success() {
-                let result = String::from_utf8_lossy(&out.stdout);
-                // `next_back()` rather than `last()`: the iterator is
-                // double-ended, so `last()` would walk the whole string.
-                let hash = result
-                    .split('=')
-                    .next_back()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                return Ok(Value::Str(hash));
+    let result = match algo.as_str() {
+        "sha1" | "sha-1" => authenticate!(sha1::Sha1),
+        "sha256" | "sha-256" => authenticate!(sha2::Sha256),
+        "sha384" | "sha-384" => authenticate!(sha2::Sha384),
+        "sha512" | "sha-512" => authenticate!(sha2::Sha512),
+        "md5" => {
+            // RFC 2104 compatibility: md5 0.7 predates the Digest trait.
+            let shortened;
+            let key = if key.len() > 64 {
+                shortened = md5::compute(key.as_bytes()).0;
+                &shortened[..]
+            } else {
+                key.as_bytes()
+            };
+            let mut inner_pad = [0x36; 64];
+            let mut outer_pad = [0x5c; 64];
+            for (i, byte) in key.iter().enumerate() {
+                inner_pad[i] ^= byte;
+                outer_pad[i] ^= byte;
             }
+            let mut inner = md5::Context::new();
+            inner.consume(inner_pad);
+            inner.consume(data.as_bytes());
+            let mut outer = md5::Context::new();
+            outer.consume(outer_pad);
+            outer.consume(inner.compute().0);
+            format!("{:x}", outer.compute())
         }
-    }
-    Ok(Value::Null)
+        other => {
+            return Err(crate::safety::bad_arg(
+                "crypto_hmac",
+                "algorithm md5, sha1, sha256, sha384 or sha512",
+                other,
+            ))
+        }
+    };
+    Ok(Value::Str(result))
 }
 
 fn bi_crypto_uuid(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

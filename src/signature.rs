@@ -395,6 +395,12 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[("telemetry_report() | type_of", "Record"), (r#"telemetry_report({category: "example"}) | type_of"#, "Record")],
     },
     Signature {
+        name: "crypto_hmac", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("data", Ty::Str, "UTF-8 message"), req("key", Ty::Str, "UTF-8 secret key"), opt("algorithm", Ty::Str, "md5, sha1, sha256, sha384 or sha512; default sha256")], returns: "String",
+        doc: "Authenticate a message in process and return its lowercase hexadecimal HMAC. Weak algorithms are refused in FIPS mode.",
+        examples: &[(r#"crypto_hmac("The quick brown fox jumps over the lazy dog", "key")"#, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"), (r#"crypto_hmac("The quick brown fox jumps over the lazy dog", "key", "sha256")"#, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8")],
+    },
+    Signature {
         name: "crypto_uuid", category: None, subject_required: false, aliases: &["uuid"],
         subject: None, params: &[], returns: "String",
         doc: "Generate a random version-four UUID in process.",
