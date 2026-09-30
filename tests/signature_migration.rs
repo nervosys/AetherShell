@@ -8,6 +8,121 @@ struct FileFixture {
 }
 
 #[test]
+fn sleep_refuses_panicking_durations_and_surplus_arguments() {
+    let mut env = Env::new();
+    for duration in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.1, f64::MAX] {
+        let error = call("sleep", vec![Value::Float(duration)], &mut env).unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    }
+    let error = call("sleep", vec![Value::Int(0), Value::Int(0)], &mut env).unwrap_err();
+    assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    assert_eq!(
+        call("sleep", vec![Value::Int(0)], &mut env).unwrap(),
+        Value::Null
+    );
+}
+
+#[test]
+fn code_scanners_keep_line_numbers_and_refuse_discarded_options() {
+    let mut env = Env::new();
+    let file = Value::Str("tests/fixtures/signature-code.txt".into());
+    for name in [
+        "code_parse",
+        "code_symbols",
+        "code_outline",
+        "code_imports",
+        "code_dependencies",
+        "code_exports",
+        "code_comments",
+        "code_todos",
+    ] {
+        let error = call(
+            name,
+            vec![file.clone(), Value::Str("rust".into())],
+            &mut env,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{name}: {error}");
+        let fixture = FileFixture::new();
+        let error = call(name, vec![fixture.path("absent.rs")], &mut env).unwrap_err();
+        assert!(error.to_string().contains("E_NOT_FOUND"), "{name}: {error}");
+    }
+    let symbols = call("code_symbols", vec![file.clone()], &mut env).unwrap();
+    assert_eq!(
+        call("code_outline", vec![file.clone()], &mut env).unwrap(),
+        symbols
+    );
+    let Value::Array(symbols) = symbols else {
+        panic!("expected symbols")
+    };
+    let lines: Vec<_> = symbols
+        .iter()
+        .map(|s| match s {
+            Value::Record(r) => r["line"].clone(),
+            _ => panic!("expected symbol record"),
+        })
+        .collect();
+    assert_eq!(lines, vec![Value::Int(3), Value::Int(5), Value::Int(7)]);
+    assert_eq!(
+        call("code_imports", vec![file.clone()], &mut env).unwrap(),
+        call("code_dependencies", vec![file.clone()], &mut env).unwrap()
+    );
+    let Value::Record(parsed) = call("code_parse", vec![file], &mut env).unwrap() else {
+        panic!("expected file metadata")
+    };
+    assert_eq!(
+        parsed["size"],
+        Value::Int(
+            std::fs::metadata("tests/fixtures/signature-code.txt")
+                .unwrap()
+                .len() as i64
+        )
+    );
+}
+
+#[test]
+fn memory_queries_return_complete_byte_records_and_refuse_options() {
+    for (name, fields) in [
+        ("sys_mem_info", ["total", "free", "available"]),
+        ("sys_swap_info", ["total", "free", "used"]),
+    ] {
+        let mut env = Env::new();
+        let error = call(name, vec![Value::Str("megabytes".into())], &mut env).unwrap_err();
+        assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+        let value = call(name, vec![], &mut env);
+        if !sysinfo::IS_SUPPORTED_SYSTEM {
+            assert!(value.unwrap_err().to_string().contains("E_UNIMPLEMENTED"));
+            continue;
+        }
+        let Value::Record(record) = value.unwrap() else {
+            panic!("expected {name} record")
+        };
+        assert_eq!(record.len(), 3);
+        let total = match record["total"] {
+            Value::Int(n) => n,
+            _ => panic!("expected bytes"),
+        };
+        for field in fields {
+            let Value::Int(bytes) = record[field] else {
+                panic!("expected {field} bytes")
+            };
+            assert!(
+                bytes >= 0 && bytes <= total,
+                "{name}.{field}={bytes}, total={total}"
+            );
+        }
+        if name == "sys_swap_info" {
+            let (Value::Int(free), Value::Int(used)) = (&record["free"], &record["used"]) else {
+                unreachable!()
+            };
+            assert_eq!(free + used, total);
+        } else {
+            assert!(total > 0);
+        }
+    }
+}
+
+#[test]
 fn csv_import_preserves_quoted_fields_and_supports_both_table_forms() {
     let fixture = FileFixture::new();
     let source = fixture.directory.join("source ' quoted.csv");

@@ -1,0 +1,8 @@
+use std::fmt;
+// TODO improve example
+pub fn hello() {}
+// ordinary comment
+pub struct Example;
+export const value = 1;
+fn private() {}
+# FIXME reminder

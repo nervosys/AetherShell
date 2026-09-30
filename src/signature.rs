@@ -1521,6 +1521,61 @@ pub static SIGNATURES: &[Signature] = &[
             (r#""passthrough" | cat"#, r#""passthrough""#),
         ],
     },
+    // Source-reviewed line scanners; these do not perform AST analysis.
+    Signature {
+        name: "code_parse", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("file", Ty::Str, "UTF-8 source file path")], returns: "Record",
+        doc: "Read a file and return path, lines and size in bytes. Counts Rust string lines; does not parse syntax or produce an AST.",
+        examples: &[(r#"code_parse("tests/fixtures/signature-code.txt").lines"#, "8")],
+    },
+    Signature {
+        name: "code_symbols", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("file", Ty::Str, "UTF-8 source file path")], returns: "Array",
+        doc: "Scan declaration-like lines starting with fn, pub fn, struct, pub struct, enum, pub enum, impl, trait, def, class, function or const. Return records with one-based line and trimmed text. This is a prefix heuristic, not symbol resolution.",
+        examples: &[(r#"code_symbols("tests/fixtures/signature-code.txt") | len"#, "3")],
+    },
+    Signature {
+        name: "code_outline", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("file", Ty::Str, "UTF-8 source file path")], returns: "Array",
+        doc: "The same declaration-line scan as code_symbols; returns line and text records, not a syntax tree.",
+        examples: &[(r#"code_outline("tests/fixtures/signature-code.txt") | len"#, "3")],
+    },
+    Signature {
+        name: "code_imports", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("file", Ty::Str, "UTF-8 source file path")], returns: "Array",
+        doc: "Return trimmed lines beginning with use, import, from or #include. Text scan only; does not resolve modules.",
+        examples: &[(r#"code_imports("tests/fixtures/signature-code.txt") | first"#, "use std::fmt;")],
+    },
+    Signature {
+        name: "code_dependencies", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("file", Ty::Str, "UTF-8 source file path")], returns: "Array",
+        doc: "The same import-line scan as code_imports; returns source text, not resolved package dependencies.",
+        examples: &[(r#"code_dependencies("tests/fixtures/signature-code.txt") | first"#, "use std::fmt;")],
+    },
+    Signature {
+        name: "code_exports", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("file", Ty::Str, "UTF-8 source file path")], returns: "Array",
+        doc: "Return trimmed lines starting with pub or export. Text scan only; does not determine visibility through syntax analysis.",
+        examples: &[(r#"code_exports("tests/fixtures/signature-code.txt") | len"#, "3")],
+    },
+    Signature {
+        name: "code_comments", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("file", Ty::Str, "UTF-8 source file path")], returns: "Array",
+        doc: "Return one-based line and trimmed text records for lines starting with //, #, /* or *. Heuristic scan; excludes inline comments and may include non-comment lines.",
+        examples: &[(r#"code_comments("tests/fixtures/signature-code.txt") | len"#, "3")],
+    },
+    Signature {
+        name: "code_todos", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("file", Ty::Str, "UTF-8 source file path")], returns: "Array",
+        doc: "Return one-based line and trimmed text records for any line containing TODO or FIXME, case-insensitively. Includes matches outside comments.",
+        examples: &[(r#"code_todos("tests/fixtures/signature-code.txt") | len"#, "2")],
+    },
+    Signature {
+        name: "sleep", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("seconds", Ty::Numeric, "finite, non-negative representable duration in seconds")], returns: "Null",
+        doc: "Block the current thread for a numeric duration in seconds and return Null. Refuse NaN, infinity, negative and unrepresentable durations before sleeping.",
+        examples: &[("sleep(0)", "null"), ("sleep(0.001)", "null")],
+    },
     // ---- System information -------------------------------------------
     //
     // Fourteen builtins that take no arguments at all -- their bodies bind
@@ -1667,6 +1722,12 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[("typeof(sys_os())", "String")],
     },
     Signature {
+        name: "sys_mem_info", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Record",
+        doc: "Read memory in process: total, free and available bytes as Int fields. Free means unallocated memory; available includes reusable memory where the OS reports it. Unsupported systems or unavailable measurements produce coded errors.",
+        examples: &[("sys_mem_info()", "{available: 4294967296, free: 2147483648, total: 8589934592}")],
+    },
+    Signature {
         name: "sys_swap_info",
         category: None,
         subject_required: false,
@@ -1674,8 +1735,8 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "Swap totals in bytes: total, used and free.",
-        examples: &[("typeof(sys_swap_info())", "Record")],
+        doc: "Read system swap in process: total, used and free bytes as Int fields. A system with no swap returns zero totals. Unsupported systems or unavailable memory queries produce coded errors.",
+        examples: &[("sys_swap_info()", "{free: 1073741824, total: 2147483648, used: 1073741824}")],
     },
     Signature {
         name: "sys_timezone",

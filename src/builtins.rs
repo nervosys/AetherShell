@@ -12825,13 +12825,10 @@ fn bi_sleep(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Err(crate::safety::arg_err("sleep requires numeric duration")),
     };
 
-    if seconds < 0.0 {
-        return Err(crate::safety::arg_err(
-            "sleep duration must be non-negative",
-        ));
-    }
-
-    std::thread::sleep(Duration::from_secs_f64(seconds));
+    let duration = Duration::try_from_secs_f64(seconds).map_err(|_| {
+        crate::safety::arg_err("sleep: duration must be finite, non-negative and representable")
+    })?;
+    std::thread::sleep(duration);
     Ok(Value::Null)
 }
 
@@ -24364,209 +24361,73 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Null)
 }
 
+// Refresh only memory, not processes, CPUs, disks or networks.
+fn memory_snapshot(builtin: &str) -> Result<System> {
+    if !sysinfo::IS_SUPPORTED_SYSTEM {
+        return Err(crate::safety::unimplemented(
+            builtin,
+            "memory queries are unsupported on this platform",
+            "run on a supported system",
+        ));
+    }
+    let mut system = System::new();
+    system.refresh_memory();
+    if system.total_memory() == 0 {
+        return Err(crate::safety::tool_failed(
+            builtin,
+            "the system memory query",
+            None,
+            "total memory could not be read",
+        ));
+    }
+    Ok(system)
+}
+
+fn memory_bytes(builtin: &str, bytes: u64) -> Result<Value> {
+    i64::try_from(bytes).map(Value::Int).map_err(|_| {
+        crate::safety::tool_failed(
+            builtin,
+            "the system memory query",
+            None,
+            "memory measurement exceeds Int",
+        )
+    })
+}
+
 fn bi_sys_mem_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returns consistent Record {total: Int, free: Int, available: Int} in bytes
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("sys_mem_info", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if let serde_json::Value::Object(obj) = &json {
-                    let mut rec = std::collections::BTreeMap::new();
-                    let total_kb = obj
-                        .get("TotalVisibleMemorySize")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    let free_kb = obj
-                        .get("FreePhysicalMemory")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    rec.insert("total".to_string(), Value::Int(total_kb * 1024));
-                    rec.insert("free".to_string(), Value::Int(free_kb * 1024));
-                    rec.insert("available".to_string(), Value::Int(free_kb * 1024));
-                    return Ok(Value::Record(rec));
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
-            let mut rec = std::collections::BTreeMap::new();
-            let mut total: i64 = 0;
-            let mut free: i64 = 0;
-            let mut available: i64 = 0;
-            for line in meminfo.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    let key = parts[0].trim_end_matches(':');
-                    let val: i64 = parts[1].parse().unwrap_or(0);
-                    match key {
-                        "MemTotal" => total = val * 1024,
-                        "MemFree" => free = val * 1024,
-                        "MemAvailable" => available = val * 1024,
-                        _ => {}
-                    }
-                }
-            }
-            rec.insert("total".to_string(), Value::Int(total));
-            rec.insert("free".to_string(), Value::Int(free));
-            rec.insert("available".to_string(), Value::Int(available));
-            return Ok(Value::Record(rec));
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let mut rec = std::collections::BTreeMap::new();
-        // Total memory
-        if let Ok(output) = std::process::Command::new("sysctl")
-            .args(["-n", "hw.memsize"])
-            .output()
-        {
-            if output.status.success() {
-                let total: i64 = String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .parse()
-                    .unwrap_or(0);
-                rec.insert("total".to_string(), Value::Int(total));
-            }
-        }
-        // Free/available via vm_stat
-        if let Ok(output) = std::process::Command::new("vm_stat").output() {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                let mut free_pages: i64 = 0;
-                let mut speculative: i64 = 0;
-                for line in text.lines() {
-                    if line.starts_with("Pages free") {
-                        if let Some(val) = line.split(':').nth(1) {
-                            free_pages = val.trim().trim_end_matches('.').parse().unwrap_or(0);
-                        }
-                    } else if line.starts_with("Pages speculative") {
-                        if let Some(val) = line.split(':').nth(1) {
-                            speculative = val.trim().trim_end_matches('.').parse().unwrap_or(0);
-                        }
-                    }
-                }
-                let page_size: i64 = 4096; // macOS default
-                let free_bytes = (free_pages + speculative) * page_size;
-                rec.insert("free".to_string(), Value::Int(free_bytes));
-                rec.insert("available".to_string(), Value::Int(free_bytes));
-            }
-        }
-        if !rec.is_empty() {
-            return Ok(Value::Record(rec));
-        }
-    }
-    Ok(Value::Null)
+    let system = memory_snapshot("sys_mem_info")?;
+    Ok(Value::Record(BTreeMap::from([
+        (
+            "total".into(),
+            memory_bytes("sys_mem_info", system.total_memory())?,
+        ),
+        (
+            "free".into(),
+            memory_bytes("sys_mem_info", system.free_memory())?,
+        ),
+        (
+            "available".into(),
+            memory_bytes("sys_mem_info", system.available_memory())?,
+        ),
+    ])))
 }
 
 fn bi_sys_swap_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returns consistent Record {total: Int, used: Int, free: Int} in bytes
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_PageFileUsage | Select-Object Name,CurrentUsage,AllocatedBaseSize | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("sys_swap_info", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let obj = match &json {
-                    serde_json::Value::Object(o) => Some(o),
-                    serde_json::Value::Array(arr) => arr.first().and_then(|v| v.as_object()),
-                    _ => None,
-                };
-                if let Some(obj) = obj {
-                    let mut rec = std::collections::BTreeMap::new();
-                    let total_mb = obj
-                        .get("AllocatedBaseSize")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    let used_mb = obj
-                        .get("CurrentUsage")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    rec.insert("total".to_string(), Value::Int(total_mb * 1024 * 1024));
-                    rec.insert("used".to_string(), Value::Int(used_mb * 1024 * 1024));
-                    rec.insert(
-                        "free".to_string(),
-                        Value::Int((total_mb - used_mb) * 1024 * 1024),
-                    );
-                    return Ok(Value::Record(rec));
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        // Parse /proc/meminfo for swap info
-        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
-            let mut rec = std::collections::BTreeMap::new();
-            let mut total: i64 = 0;
-            let mut free: i64 = 0;
-            for line in meminfo.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    match parts[0].trim_end_matches(':') {
-                        "SwapTotal" => total = parts[1].parse::<i64>().unwrap_or(0) * 1024,
-                        "SwapFree" => free = parts[1].parse::<i64>().unwrap_or(0) * 1024,
-                        _ => {}
-                    }
-                }
-            }
-            rec.insert("total".to_string(), Value::Int(total));
-            rec.insert("used".to_string(), Value::Int(total - free));
-            rec.insert("free".to_string(), Value::Int(free));
-            return Ok(Value::Record(rec));
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(output) = std::process::Command::new("sysctl")
-            .args(["-n", "vm.swapusage"])
-            .output()
-        {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                let mut rec = std::collections::BTreeMap::new();
-                // Format: "total = 2048.00M  used = 1024.00M  free = 1024.00M  ..."
-                for part in text.split_whitespace() {
-                    // skip
-                }
-                // Simple parse
-                let parse_mb = |s: &str| -> i64 {
-                    s.trim_end_matches('M')
-                        .trim_end_matches('G')
-                        .parse::<f64>()
-                        .unwrap_or(0.0) as i64
-                        * if s.ends_with('G') {
-                            1024 * 1024 * 1024
-                        } else {
-                            1024 * 1024
-                        }
-                };
-                let parts: Vec<&str> = text.split_whitespace().collect();
-                for (i, &p) in parts.iter().enumerate() {
-                    if p == "total" && i + 2 < parts.len() {
-                        rec.insert("total".to_string(), Value::Int(parse_mb(parts[i + 2])));
-                    } else if p == "used" && i + 2 < parts.len() {
-                        rec.insert("used".to_string(), Value::Int(parse_mb(parts[i + 2])));
-                    } else if p == "free" && i + 2 < parts.len() {
-                        rec.insert("free".to_string(), Value::Int(parse_mb(parts[i + 2])));
-                    }
-                }
-                if !rec.is_empty() {
-                    return Ok(Value::Record(rec));
-                }
-            }
-        }
-    }
-    Ok(Value::Null)
+    let system = memory_snapshot("sys_swap_info")?;
+    Ok(Value::Record(BTreeMap::from([
+        (
+            "total".into(),
+            memory_bytes("sys_swap_info", system.total_swap())?,
+        ),
+        (
+            "used".into(),
+            memory_bytes("sys_swap_info", system.used_swap())?,
+        ),
+        (
+            "free".into(),
+            memory_bytes("sys_swap_info", system.free_swap())?,
+        ),
+    ])))
 }
 
 fn bi_sys_disk_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -32628,7 +32489,7 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     Ok(Value::Bool(true))
 }
 
-fn bi_db_sqlite_import_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_db_csv_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     const NAME: &str = "db_csv_to_sqlite";
     let db_path = args
         .first()
@@ -32876,8 +32737,11 @@ fn bi_db_kv_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     // Validate literals before any file can be created or changed.
-    let key = crate::safety::sql_literal("db_kv_set", &key)?;
-    let value = crate::safety::sql_literal("db_kv_set", &value)?;
+    let query = format!(
+        "INSERT OR REPLACE INTO kv (key, value) VALUES ({}, {})",
+        crate::safety::sql_literal("db_kv_set", &key)?,
+        crate::safety::sql_literal("db_kv_set", &value)?
+    );
     // Ensure table exists, propagating its failure.
     bi_db_sqlite_exec(
         vec![
@@ -32889,16 +32753,7 @@ fn bi_db_kv_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         None,
     )?;
 
-    bi_db_sqlite_exec(
-        vec![
-            Value::Str(store_path),
-            Value::Str(format!(
-                "INSERT OR REPLACE INTO kv (key, value) VALUES ({}, {})",
-                key, value
-            )),
-        ],
-        None,
-    )
+    bi_db_sqlite_exec(vec![Value::Str(store_path), Value::Str(query)], None)
 }
 
 fn bi_db_kv_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -33845,10 +33700,6 @@ fn bi_db_sqlite_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let sql = std::fs::read_to_string(&sql_file)
         .map_err(|e| crate::safety::fs_error("db_sqlite_import", &sql_file, &e))?;
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
-}
-
-fn bi_db_csv_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    bi_db_sqlite_import_csv(args, None)
 }
 
 fn bi_db_sqlite_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

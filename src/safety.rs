@@ -4083,6 +4083,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "apply",
     "cd",
     "cloud_instance_destroy",
+    "db_csv_to_sqlite",
     "db_kv_delete",
     "db_sqlite_delete",
     "db_sqlite_drop_table",
