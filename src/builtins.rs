@@ -13802,137 +13802,188 @@ fn bi_population(args: Vec<Value>, _input: Option<Value>, _env: &mut Env) -> Res
 ///   - generations: Int - Number of generations
 /// Returns: Record - Updated population with stats
 fn bi_evolve(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    let has_input = input.is_some();
-    let pop_val = input
-        .or_else(|| args.first().cloned())
-        .ok_or_else(|| crate::safety::arg_err("evolve requires population"))?;
-
-    let idx = if has_input { 0 } else { 1 };
-    let fitness_fn = args
-        .get(idx)
-        .ok_or_else(|| crate::safety::arg_err("evolve requires fitness function"))?;
-    let lambda = need_lambda(fitness_fn, "evolve")?.clone();
-
-    let generations = args
-        .get(idx + 1)
-        .map(|v| expect_int("evolve", v))
-        .transpose()?
-        .unwrap_or(10) as usize;
-
-    let genome_type = get_population_genome_type(&pop_val)?;
-
-    match genome_type.as_str() {
-        "nn" => {
-            let mut pop = value_to_population_nn(&pop_val)?;
-            for _ in 0..generations {
-                pop.evolve(|genome| {
-                    let genome_val = nn_to_value(genome).unwrap_or(Value::Null);
-                    let result =
-                        call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
-                    let score = value_to_f64(&result).unwrap_or(0.0);
-                    FitnessResult::new(score)
-                });
-            }
-            population_to_value(&pop, "nn")
-        }
-        "vec" => {
-            let mut pop = value_to_population_vec(&pop_val)?;
-            for _ in 0..generations {
-                pop.evolve(|genome| {
-                    let genome_val =
-                        Value::Array(genome.iter().map(|&f| Value::Float(f)).collect());
-                    let result =
-                        call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
-                    let score = value_to_f64(&result).unwrap_or(0.0);
-                    FitnessResult::new(score)
-                });
-            }
-            population_to_value(&pop, "vec")
-        }
-        _ => Err(anyhow!("Unknown genome type: {}", genome_type)),
-    }
+    evolution_operation("evolve", args, input, env, true, false)
 }
 
-/// evolve_step(population, fitness_fn)
-/// Run single evolution step
+/// Run one generation, evaluating uncached parents before reproduction.
 fn bi_evolve_step(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    let has_input = input.is_some();
-    let pop_val = input
+    evolution_operation("evolve_step", args, input, env, false, false)
+}
+
+/// Evaluate uncached individuals and retain their scores for subsequent calls.
+fn bi_fitness(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    evolution_operation("fitness", args, input, env, false, true)
+}
+
+fn evolution_operation(
+    name: &str,
+    args: Vec<Value>,
+    input: Option<Value>,
+    env: &mut Env,
+    multiple: bool,
+    evaluate_only: bool,
+) -> Result<Value> {
+    let piped = input.is_some();
+    let value = input
         .or_else(|| args.first().cloned())
-        .ok_or_else(|| crate::safety::arg_err("evolve_step requires population"))?;
-
-    let idx = if has_input { 0 } else { 1 };
-    let fitness_fn = args
-        .get(idx)
-        .ok_or_else(|| crate::safety::arg_err("evolve_step requires fitness function"))?;
-    let lambda = need_lambda(fitness_fn, "evolve_step")?.clone();
-
-    let genome_type = get_population_genome_type(&pop_val)?;
-
-    match genome_type.as_str() {
+        .ok_or_else(|| crate::safety::arg_err(format!("{name} requires population")))?;
+    let idx = usize::from(!piped);
+    let lambda = need_lambda(
+        args.get(idx)
+            .ok_or_else(|| crate::safety::arg_err(format!("{name} requires fitness function")))?,
+        name,
+    )?
+    .clone();
+    if lambda.params.len() != 1 {
+        return Err(crate::safety::arg_err(format!(
+            "{name}: fitness function must take exactly one genome parameter"
+        )));
+    }
+    let generations = if evaluate_only {
+        None
+    } else if multiple {
+        let count = match args.get(idx + 1) {
+            None => 10,
+            Some(Value::Int(n)) => usize::try_from(*n)
+                .map_err(|_| crate::safety::arg_err("evolve: generations must be non-negative"))?,
+            Some(other) => {
+                return Err(crate::safety::bad_arg(
+                    name,
+                    "generations: Int",
+                    other.type_name(),
+                ))
+            }
+        };
+        Some(count)
+    } else {
+        Some(1)
+    };
+    match get_population_genome_type(&value)?.as_str() {
         "nn" => {
-            let mut pop = value_to_population_nn(&pop_val)?;
-            pop.evolve(|genome| {
-                let genome_val = nn_to_value(genome).unwrap_or(Value::Null);
-                let result = call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
-                let score = value_to_f64(&result).unwrap_or(0.0);
-                FitnessResult::new(score)
-            });
-            population_to_value(&pop, "nn")
+            let mut population = value_to_population_nn(&value)?;
+            run_population_operation(
+                name,
+                &mut population,
+                &lambda,
+                env,
+                generations,
+                nn_to_value,
+                validate_nn,
+            )?;
+            population_to_value(&population, "nn")
         }
         "vec" => {
-            let mut pop = value_to_population_vec(&pop_val)?;
-            pop.evolve(|genome| {
-                let genome_val = Value::Array(genome.iter().map(|&f| Value::Float(f)).collect());
-                let result = call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
-                let score = value_to_f64(&result).unwrap_or(0.0);
-                FitnessResult::new(score)
-            });
-            population_to_value(&pop, "vec")
+            let mut population = value_to_population_vec(&value)?;
+            run_population_operation(
+                name,
+                &mut population,
+                &lambda,
+                env,
+                generations,
+                |genome| {
+                    Ok(Value::Array(
+                        genome.iter().copied().map(Value::Float).collect(),
+                    ))
+                },
+                |genome| validate_vector_genome(genome),
+            )?;
+            population_to_value(&population, "vec")
         }
-        _ => Err(anyhow!("Unknown genome type: {}", genome_type)),
+        other => Err(crate::safety::bad_arg(
+            name,
+            "population genome_type: nn or vec",
+            other,
+        )),
     }
 }
 
-/// fitness(population, fitness_fn)
-/// Evaluate fitness of all individuals
-fn bi_fitness(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    let has_input = input.is_some();
-    let pop_val = input
-        .or_else(|| args.first().cloned())
-        .ok_or_else(|| crate::safety::arg_err("fitness requires population"))?;
-
-    let idx = if has_input { 0 } else { 1 };
-    let fitness_fn = args
-        .get(idx)
-        .ok_or_else(|| crate::safety::arg_err("fitness requires fitness function"))?;
-    let lambda = need_lambda(fitness_fn, "fitness")?.clone();
-
-    let genome_type = get_population_genome_type(&pop_val)?;
-
-    match genome_type.as_str() {
-        "nn" => {
-            let mut pop = value_to_population_nn(&pop_val)?;
-            pop.evaluate(|genome| {
-                let genome_val = nn_to_value(genome).unwrap_or(Value::Null);
-                let result = call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
-                let score = value_to_f64(&result).unwrap_or(0.0);
-                FitnessResult::new(score)
-            });
-            population_to_value(&pop, "nn")
-        }
-        "vec" => {
-            let mut pop = value_to_population_vec(&pop_val)?;
-            pop.evaluate(|genome| {
-                let genome_val = Value::Array(genome.iter().map(|&f| Value::Float(f)).collect());
-                let result = call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
-                let score = value_to_f64(&result).unwrap_or(0.0);
-                FitnessResult::new(score)
-            });
-            population_to_value(&pop, "vec")
-        }
-        _ => Err(anyhow!("Unknown genome type: {}", genome_type)),
+fn run_population_operation<G: crate::evolution::Evolvable>(
+    name: &str,
+    pop: &mut Population<G>,
+    lambda: &Lambda,
+    env: &mut Env,
+    generations: Option<usize>,
+    encode: impl Fn(&G) -> Result<Value>,
+    validate: impl Fn(&G) -> Result<()>,
+) -> Result<()> {
+    let count = generations.unwrap_or(1);
+    let parameters: usize = pop
+        .individuals
+        .iter()
+        .map(|individual| individual.genome.param_count())
+        .sum();
+    if count > MAX_EVOLUTION_GENERATIONS
+        || pop
+            .individuals
+            .len()
+            .checked_mul(count)
+            .is_none_or(|n| n > 100_000)
+        || parameters.checked_mul(count).is_none_or(|n| n > 10_000_000)
+        || pop
+            .stats
+            .fitness_history
+            .len()
+            .checked_add(count)
+            .is_none_or(|n| n > MAX_EVOLUTION_GENERATIONS)
+    {
+        return Err(crate::safety::budget_exceeded(
+            name,
+            "evolution work or history budget exceeded".into(),
+            "use fewer generations or a smaller population",
+        ));
     }
+    let final_generation = pop.generation.checked_add(generations.unwrap_or(0));
+    let final_id = pop
+        .next_id
+        .checked_add(pop.individuals.len() * generations.unwrap_or(0));
+    if final_generation.is_none_or(|n| i64::try_from(n).is_err())
+        || final_id.is_none_or(|n| i64::try_from(n).is_err())
+    {
+        return Err(crate::safety::arg_err(
+            "evolution generation or individual ID overflow",
+        ));
+    }
+    for _ in 0..count {
+        // Populate the cache fallibly before entering the infallible engine.
+        // A failed callback never becomes a zero score or triggers another call.
+        for individual in &mut pop.individuals {
+            if individual.fitness.is_none() {
+                let result = call_lambda(lambda, &[encode(&individual.genome)?], env)?;
+                individual.fitness = Some(FitnessResult::new(finite_nn_number(name, &result)?));
+            }
+        }
+        if generations.is_some() {
+            pop.evolve(|_| unreachable!("all parent fitness values were evaluated"));
+        } else {
+            pop.evaluate(|_| unreachable!("all fitness values were evaluated"));
+            pop.stats.generation = pop.generation;
+        }
+        if [
+            pop.stats.best_fitness,
+            pop.stats.worst_fitness,
+            pop.stats.avg_fitness,
+            pop.stats.diversity,
+        ]
+        .iter()
+        .any(|n| !n.is_finite())
+        {
+            return Err(crate::safety::bad_state(
+                name,
+                "non-finite statistics",
+                "fitness arithmetic exceeded the numeric range",
+            ));
+        }
+        for individual in &pop.individuals {
+            validate(&individual.genome).map_err(|_| {
+                crate::safety::bad_state(
+                    name,
+                    "invalid resulting genome",
+                    "mutation exceeded the numeric range",
+                )
+            })?;
+        }
+    }
+    Ok(())
 }
 
 /// best_individual(population)
@@ -13947,6 +13998,17 @@ fn bi_best_individual(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     match genome_type.as_str() {
         "nn" => {
             let pop = value_to_population_nn(&pop_val)?;
+            if pop
+                .individuals
+                .iter()
+                .any(|individual| individual.fitness.is_none())
+            {
+                return Err(crate::safety::bad_state(
+                    "best_individual",
+                    "population is not fully evaluated",
+                    "call fitness before ranking individuals",
+                ));
+            }
             let best = pop
                 .individuals
                 .iter()
@@ -13955,7 +14017,7 @@ fn bi_best_individual(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                         .partial_cmp(&b.score())
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .ok_or_else(|| anyhow!("Empty population"))?;
+                .ok_or_else(|| crate::safety::arg_err("Empty population"))?;
 
             let mut result = BTreeMap::new();
             result.insert("genome".to_string(), nn_to_value(&best.genome)?);
@@ -13966,6 +14028,17 @@ fn bi_best_individual(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
         "vec" => {
             let pop = value_to_population_vec(&pop_val)?;
+            if pop
+                .individuals
+                .iter()
+                .any(|individual| individual.fitness.is_none())
+            {
+                return Err(crate::safety::bad_state(
+                    "best_individual",
+                    "population is not fully evaluated",
+                    "call fitness before ranking individuals",
+                ));
+            }
             let best = pop
                 .individuals
                 .iter()
@@ -13974,7 +14047,7 @@ fn bi_best_individual(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                         .partial_cmp(&b.score())
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .ok_or_else(|| anyhow!("Empty population"))?;
+                .ok_or_else(|| crate::safety::arg_err("Empty population"))?;
 
             let mut result = BTreeMap::new();
             result.insert(
@@ -13986,7 +14059,11 @@ fn bi_best_individual(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             result.insert("id".to_string(), Value::Int(best.id as i64));
             Ok(Value::Record(result))
         }
-        _ => Err(anyhow!("Unknown genome type: {}", genome_type)),
+        _ => Err(crate::safety::bad_arg(
+            "best_individual",
+            "population genome_type: nn or vec",
+            &genome_type,
+        )),
     }
 }
 
@@ -14648,92 +14725,248 @@ fn population_to_value<G: crate::evolution::Evolvable + serde::Serialize>(
     );
     rec.insert("size".to_string(), Value::Int(pop.individuals.len() as i64));
     rec.insert("generation".to_string(), Value::Int(pop.generation as i64));
+    rec.insert("next_id".to_string(), Value::Int(pop.next_id as i64));
     rec.insert("stats".to_string(), Value::Record(stats));
     rec.insert("_individuals".to_string(), Value::Str(json));
     rec.insert("_config".to_string(), Value::Str(config_json));
     Ok(Value::Record(rec))
 }
 
-fn value_to_population_nn(v: &Value) -> Result<Population<NeuralNetwork>> {
-    if let Value::Record(rec) = v {
-        let individuals: Vec<crate::evolution::Individual<NeuralNetwork>> =
-            if let Some(Value::Str(data)) = rec.get("_individuals") {
-                serde_json::from_str(data).map_err(|e| {
-                    crate::safety::bad_arg(
-                        "evo",
-                        "a population from evo.population",
-                        &e.to_string(),
-                    )
-                })?
-            } else {
-                return Err(anyhow!("Missing _individuals in population"));
-            };
-
-        let config: EvolutionConfig = if let Some(Value::Str(data)) = rec.get("_config") {
-            serde_json::from_str(data).map_err(|e| {
-                crate::safety::bad_arg("evo", "a population from evo.population", &e.to_string())
-            })?
-        } else {
-            EvolutionConfig::default()
-        };
-
-        let generation = if let Some(Value::Int(g)) = rec.get("generation") {
-            *g as usize
-        } else {
-            0
-        };
-
-        Ok(Population {
-            individuals,
-            generation,
-            config,
-            stats: crate::evolution::EvolutionStats::new(),
-            next_id: 0,
-        })
-    } else {
-        Err(anyhow!("Invalid population value"))
+fn validate_vector_genome(genome: &[f64]) -> Result<()> {
+    if genome.is_empty() || genome.iter().any(|n| !n.is_finite()) {
+        return Err(crate::safety::arg_err(
+            "population vectors must be nonempty and finite",
+        ));
     }
+    Ok(())
 }
 
-fn value_to_population_vec(v: &Value) -> Result<Population<Vec<f64>>> {
-    if let Value::Record(rec) = v {
-        let individuals: Vec<crate::evolution::Individual<Vec<f64>>> =
-            if let Some(Value::Str(data)) = rec.get("_individuals") {
-                serde_json::from_str(data).map_err(|e| {
-                    crate::safety::bad_arg(
-                        "evo",
-                        "a population from evo.population",
-                        &e.to_string(),
-                    )
-                })?
-            } else {
-                return Err(anyhow!("Missing _individuals in population"));
-            };
-
-        let config: EvolutionConfig = if let Some(Value::Str(data)) = rec.get("_config") {
-            serde_json::from_str(data).map_err(|e| {
-                crate::safety::bad_arg("evo", "a population from evo.population", &e.to_string())
-            })?
-        } else {
-            EvolutionConfig::default()
-        };
-
-        let generation = if let Some(Value::Int(g)) = rec.get("generation") {
-            *g as usize
-        } else {
-            0
-        };
-
-        Ok(Population {
-            individuals,
-            generation,
-            config,
-            stats: crate::evolution::EvolutionStats::new(),
-            next_id: 0,
-        })
-    } else {
-        Err(anyhow!("Invalid population value"))
+fn value_to_population_nn(value: &Value) -> Result<Population<NeuralNetwork>> {
+    let pop = decode_population(value, validate_nn)?;
+    let dimensions: Vec<_> = pop.individuals[0]
+        .genome
+        .layers
+        .iter()
+        .map(|layer| (layer.input_size, layer.output_size))
+        .collect();
+    if pop.individuals.iter().any(|individual| {
+        individual
+            .genome
+            .layers
+            .iter()
+            .map(|layer| (layer.input_size, layer.output_size))
+            .collect::<Vec<_>>()
+            != dimensions
+    }) {
+        return Err(crate::safety::arg_err(
+            "population networks must have matching layer dimensions",
+        ));
     }
+    Ok(pop)
+}
+
+fn value_to_population_vec(value: &Value) -> Result<Population<Vec<f64>>> {
+    let pop = decode_population(value, |genome: &Vec<f64>| validate_vector_genome(genome))?;
+    let width = pop.individuals[0].genome.len();
+    if pop
+        .individuals
+        .iter()
+        .any(|individual| individual.genome.len() != width)
+    {
+        return Err(crate::safety::arg_err(
+            "population vectors must have equal lengths",
+        ));
+    }
+    Ok(pop)
+}
+
+fn decode_population<G: crate::evolution::Evolvable + serde::de::DeserializeOwned>(
+    value: &Value,
+    validate: impl Fn(&G) -> Result<()>,
+) -> Result<Population<G>> {
+    let Value::Record(record) = value else {
+        return Err(crate::safety::arg_err("population must be a Record"));
+    };
+    let text = |key: &str| -> Result<&str> {
+        match record.get(key) {
+            Some(Value::Str(text)) => Ok(text),
+            _ => Err(crate::safety::arg_err(format!(
+                "population requires encoded {key}: String"
+            ))),
+        }
+    };
+    let data = text("_individuals")?;
+    let config_data = text("_config")?;
+    if data.len().saturating_add(config_data.len()) > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            "evo",
+            "encoded population exceeds 64 MiB".into(),
+            "use a smaller population",
+        ));
+    }
+    let individuals: Vec<crate::evolution::Individual<G>> = serde_json::from_str(data)
+        .map_err(|e| crate::safety::bad_arg("evo", "valid encoded individuals", &e.to_string()))?;
+    let config: EvolutionConfig = serde_json::from_str(config_data).map_err(|e| {
+        crate::safety::bad_arg("evo", "valid encoded configuration", &e.to_string())
+    })?;
+    if individuals.is_empty() || individuals.len() != config.population_size {
+        return Err(crate::safety::arg_err(
+            "population must be nonempty and match configured population_size",
+        ));
+    }
+    let bounded_int = |n: usize| {
+        i64::try_from(n)
+            .map(Value::Int)
+            .map_err(|_| crate::safety::arg_err("population count exceeds Int range"))
+    };
+    let options = Value::Record(BTreeMap::from([
+        (
+            "population_size".into(),
+            bounded_int(config.population_size)?,
+        ),
+        ("generations".into(), bounded_int(config.generations)?),
+        ("elitism".into(), bounded_int(config.elitism)?),
+        ("mutation_rate".into(), Value::Float(config.mutation_rate)),
+        (
+            "mutation_strength".into(),
+            Value::Float(config.mutation_strength),
+        ),
+        ("crossover_rate".into(), Value::Float(config.crossover_rate)),
+    ]));
+    parse_evolution_options("evo", Some(&options), None)?;
+    if config.selection != SelectionStrategy::Tournament(3)
+        || config.crossover != CrossoverStrategy::Uniform(0.5)
+        || config.seed.is_some()
+    {
+        return Err(crate::safety::arg_err(
+            "population uses unsupported selection, crossover or seed settings",
+        ));
+    }
+    let nonnegative = |value: Option<&Value>| -> Result<usize> {
+        match value {
+            Some(Value::Int(n)) => usize::try_from(*n).map_err(|_| {
+                crate::safety::arg_err("population counters must be non-negative Int values")
+            }),
+            _ => Err(crate::safety::arg_err(
+                "population counters must be Int values",
+            )),
+        }
+    };
+    let generation = nonnegative(record.get("generation"))?;
+    let mut ids = std::collections::HashSet::new();
+    let mut parameters = 0usize;
+    let mut next_id = 0usize;
+    for individual in &individuals {
+        validate(&individual.genome)?;
+        parameters = parameters
+            .checked_add(individual.genome.param_count())
+            .filter(|n| *n <= MAX_NN_PARAMETERS)
+            .ok_or_else(|| {
+                crate::safety::budget_exceeded(
+                    "evo",
+                    "population exceeds one million genome parameters".into(),
+                    "use a smaller population",
+                )
+            })?;
+        if individual.generation > generation
+            || i64::try_from(individual.id).is_err()
+            || !ids.insert(individual.id)
+        {
+            return Err(crate::safety::arg_err(
+                "population individual counters or IDs are invalid",
+            ));
+        }
+        next_id = next_id.max(
+            individual
+                .id
+                .checked_add(1)
+                .ok_or_else(|| crate::safety::arg_err("population individual ID overflow"))?,
+        );
+        if individual.fitness.as_ref().is_some_and(|fitness| {
+            !fitness.score.is_finite() || fitness.metrics.values().any(|n| !n.is_finite())
+        }) {
+            return Err(crate::safety::arg_err(
+                "population fitness values must be finite",
+            ));
+        }
+    }
+    if let Some(value) = record.get("next_id") {
+        let supplied = nonnegative(Some(value))?;
+        if supplied < next_id {
+            return Err(crate::safety::arg_err(
+                "population next_id would reuse an individual ID",
+            ));
+        }
+        next_id = supplied;
+    }
+    bounded_int(next_id)?;
+    let Some(Value::Record(stats)) = record.get("stats") else {
+        return Err(crate::safety::arg_err("population requires stats: Record"));
+    };
+    let stats_generation = nonnegative(stats.get("generation"))?;
+    if stats_generation > generation {
+        return Err(crate::safety::arg_err(
+            "population stats generation exceeds population generation",
+        ));
+    }
+    let Some(Value::Array(history)) = stats.get("history") else {
+        return Err(crate::safety::arg_err(
+            "population stats requires history: Array",
+        ));
+    };
+    if history.len() > MAX_EVOLUTION_GENERATIONS {
+        return Err(crate::safety::budget_exceeded(
+            "evo",
+            "population history exceeds 10000 entries".into(),
+            "use a shorter history",
+        ));
+    }
+    let history = history
+        .iter()
+        .map(|value| finite_nn_number("evo", value))
+        .collect::<Result<Vec<_>>>()?;
+    let number = |key: &str| -> Result<f64> {
+        match stats.get(key) {
+            Some(Value::Float(n)) => Ok(*n),
+            Some(Value::Int(n)) => Ok(*n as f64),
+            _ => Err(crate::safety::arg_err(format!(
+                "population stats requires numeric {key}"
+            ))),
+        }
+    };
+    let best = number("best_fitness")?;
+    let worst = number("worst_fitness")?;
+    let avg = number("avg_fitness")?;
+    let diversity = number("diversity")?;
+    let initial = history.is_empty()
+        && individuals
+            .iter()
+            .all(|individual| individual.fitness.is_none())
+        && best == f64::NEG_INFINITY
+        && worst == f64::INFINITY;
+    if (!initial && (!best.is_finite() || !worst.is_finite()))
+        || !avg.is_finite()
+        || !diversity.is_finite()
+        || diversity < 0.0
+    {
+        return Err(crate::safety::arg_err(
+            "population statistics must be finite except unevaluated initial extrema",
+        ));
+    }
+    Ok(Population {
+        individuals,
+        config,
+        generation,
+        next_id,
+        stats: crate::evolution::EvolutionStats {
+            generation: stats_generation,
+            best_fitness: best,
+            worst_fitness: worst,
+            avg_fitness: avg,
+            diversity,
+            fitness_history: history,
+        },
+    })
 }
 
 // ==================== Reinforcement Learning Builtins ====================

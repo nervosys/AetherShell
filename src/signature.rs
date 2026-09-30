@@ -1539,6 +1539,29 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Create an unevaluated random population. nn genomes have layers [4,8,4] with relu/tanh; vec/vector genomes have ten equal random Float values per individual. Size is bounded before allocation. Configurations accept only the documented numeric fields and the evolution_config type marker; rates are finite probabilities, strength is finite and non-negative, generations is an Int in 0..=10000, and elitism is an Int in 0..=size (default min(2,size)). Returned initial stats use negative/positive infinity for unevaluated best/worst fitness. Selection and crossover use engine defaults; strategy descriptors and seed options are unsupported.",
         examples: &[(r#"population(3, "nn").size"#, "3"), (r#"population(3, "vector", {mutation_rate: 0, mutation_strength: 0, crossover_rate: 1, generations: 0, elitism: 1}).genome_type"#, "vec"), (r#"population(3, "vec", evolution_config({population_size: 3})).generation"#, "0")],
     },
+    Signature {
+        name: "fitness", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("fitness_fn", Ty::Lambda, "one genome parameter; return a finite Int or Float")], returns: "Record",
+        doc: "Evaluate only individuals without cached fitness, update statistics once and return a population copy. Propagate the first callback failure or invalid score immediately. Validate encoded populations before callbacks: nonempty compatible genomes, finite parameters and fitness, matching configured size, unique IDs, valid counters and numeric configuration. Limits: 64 MiB encoding, 10000 individuals/history entries and one million total genome parameters. Preserve history and next_id; legacy states without next_id derive it from the largest existing ID. Numeric overflow produces a coded refusal.",
+        examples: &[(r#"fitness(population(3, "vec"), fn(g) => 7).stats.best_fitness"#, "7"), (r#"let result = population(3, "nn") | fitness(fn(g) => g.param_count); result.stats.avg_fitness"#, "76")],
+    },
+    Signature {
+        name: "evolve", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("fitness_fn", Ty::Lambda, "one genome parameter; return a finite Int or Float"), opt("generations", Ty::Int, "0..=10000; default 10, independently of stored config.generations")], returns: "Record",
+        doc: "Run the requested generations on a validated population copy. Each generation evaluates uncached parents before selection, crossover and mutation; propagate callback failures and invalid scores immediately. Return new offspring with unevaluated fitness and retained elite caches; statistics describe evaluated parents, so call fitness before ranking the final population. Preserve history and ID allocation. Encoded population limits match fitness. Before callbacks, cap requested work at 100000 individual-generation pairs, ten million parameter-generation pairs and 10000 total history entries; refuse counter overflow and non-finite computed results. Zero generations only validates and returns the state.",
+        examples: &[(r#"evolve(population(3, "vec"), fn(g) => 1).generation"#, "10"), (r#"evolve(population(3, "nn"), fn(g) => 1, 0).generation"#, "0"), (r#"let result = population(3, "vec") | evolve(fn(g) => 1, 2); result.generation"#, "2")],
+    },
+    Signature {
+        name: "evolve_step", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("fitness_fn", Ty::Lambda, "one genome parameter; return a finite Int or Float")], returns: "Record",
+        doc: "Run one generation with the same validated-state, callback, work-budget and numeric-overflow checks as evolve. Return a population copy with preserved history and IDs. Statistics describe evaluated parents; offspring fitness remains uncached until fitness or the next generation evaluates it.",
+        examples: &[(r#"evolve_step(population(3, "vec"), fn(g) => 1).generation"#, "1"), (r#"let result = population(3, "nn") | evolve_step(fn(g) => 1); result.generation"#, "1")],
+    },
+    Signature {
+        name: "best_individual", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record), params: &[], returns: "Record",
+        doc: "Return genome, finite fitness, generation and id for the highest-scoring individual in a validated, fully evaluated population. Refuse missing fitness with E_BAD_STATE; call fitness to evaluate fresh populations and offspring. Equal scores select the last matching individual. Encoded population limits match fitness.",
+        examples: &[(r#"best_individual(fitness(population(3, "vec"), fn(g) => 7)).fitness"#, "7"), (r#"let result = population(3, "nn") | fitness(fn(g) => 1) | best_individual; result.fitness"#, "1")],
+    },
     // Source-reviewed neural operations; serialized networks are validated.
     Signature {
         name: "nn_create", category: None, subject_required: false, aliases: &[], subject: None,
