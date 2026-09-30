@@ -1521,6 +1521,75 @@ pub static SIGNATURES: &[Signature] = &[
             (r#""passthrough" | cat"#, r#""passthrough""#),
         ],
     },
+    // Source-reviewed neural operations; serialized networks are validated.
+    Signature {
+        name: "nn_create", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "network name"), req("layer_sizes", Ty::Array, "at least two positive Int sizes; at most one million weights and biases"), opt("hidden_activation", Ty::Str, "default relu"), opt("output_activation", Ty::Str, "default tanh")], returns: "Record",
+        doc: "Create a randomly initialized feedforward network. Activation names are case-insensitive: relu, sigmoid, tanh, softmax, linear, swish and leaky_relu. Unknown names, invalid sizes and excessive parameter counts are refused before allocation.",
+        examples: &[(r#"nn_create("example", [2, 3, 1]).param_count"#, "13"), (r#"nn_create("example", [2, 3, 1], "sigmoid").param_count"#, "13"), (r#"nn_create("example", [2, 3, 1], "relu", "linear").param_count"#, "13")],
+    },
+    Signature {
+        name: "nn_forward", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("input", Ty::Array, "finite numbers; length must equal network input size")], returns: "Array",
+        doc: "Evaluate a validated network and return finite Float outputs. Never pad short input or discard extra input. Encoded networks must have consistent nonempty layers, at most one million parameters, and at most 64 MiB of encoded data.",
+        examples: &[(r#"nn_forward(nn_create("example", [2, 1]), [0, 0]) | len"#, "1"), (r#"nn_create("example", [2, 1]) | nn_forward([0, 0]) | len"#, "1")],
+    },
+    Signature {
+        name: "nn_mutate", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[opt("rate", Ty::Numeric, "finite probability in 0..=1; default 0.1"), opt("strength", Ty::Numeric, "finite non-negative magnitude; default 0.3")], returns: "Record",
+        doc: "Return a mutated copy of a validated network. Refuse invalid numeric options or non-finite resulting parameters. Encoded networks are limited to one million parameters and 64 MiB of data.",
+        examples: &[(r#"nn_mutate(nn_create("example", [2, 1])).param_count"#, "3"), (r#"nn_mutate(nn_create("example", [2, 1]), 0).param_count"#, "3"), (r#"let result = nn_create("example", [2, 1]) | nn_mutate(0, 0) | nn_info; result.param_count"#, "3")],
+    },
+    Signature {
+        name: "nn_crossover", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("parent1", Ty::Record, "validated neural network"), req("parent2", Ty::Record, "same layer dimensions as parent1")], returns: "Record",
+        doc: "Combine parent weights and biases at random. Retain the first parent's name and activations. Refuse mismatched architectures. Each encoded network is limited to one million parameters and 64 MiB.",
+        examples: &[(r#"let a = nn_create("a", [2, 1]); nn_crossover(a, a).param_count"#, "3")],
+    },
+    Signature {
+        name: "nn_params", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record), params: &[], returns: "Array",
+        doc: "Flatten a validated network into Float weights and biases, layer by layer: row-major weights followed by biases. Encoded networks are limited to one million parameters and 64 MiB.",
+        examples: &[(r#"nn_params(nn_create("example", [2, 1])) | len"#, "3"), (r#"nn_create("example", [2, 1]) | nn_params | len"#, "3")],
+    },
+    Signature {
+        name: "nn_set_params", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("params", Ty::Array, "finite numbers; exactly the network parameter count")], returns: "Record",
+        doc: "Return a copy with all weights and biases replaced in nn_params order. Never accept partial or surplus parameters. Encoded networks are limited to one million parameters and 64 MiB.",
+        examples: &[(r#"nn_set_params(nn_create("example", [2, 1], "relu", "linear"), [2, 3, 4]) | nn_forward([1, 2]) | first"#, "12"), (r#"nn_create("example", [2, 1], "relu", "linear") | nn_set_params([2, 3, 4]) | nn_forward([1, 2]) | first"#, "12")],
+    },
+    Signature {
+        name: "nn_layers", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record), params: &[], returns: "Array",
+        doc: "Inspect a validated network as layer records: input_size, output_size, activation and param_count. Encoded networks are limited to one million parameters and 64 MiB.",
+        examples: &[(r#"nn_layers(nn_create("example", [2, 3, 1])) | len"#, "2"), (r#"nn_create("example", [2, 1]) | nn_layers | len"#, "1")],
+    },
+    Signature {
+        name: "nn_info", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record), params: &[], returns: "Record",
+        doc: "Inspect a validated network's name, layer_count, param_count, input_size and output_size. Use the encoded network rather than trusting outer metadata. Limit: one million parameters and 64 MiB of encoded data.",
+        examples: &[(r#"nn_info(nn_create("example", [2, 3, 1])).input_size"#, "2"), (r#"let result = nn_create("example", [2, 1]) | nn_info; result.output_size"#, "1")],
+    },
+    Signature {
+        name: "activation", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "relu, sigmoid, tanh, softmax, linear, swish or leaky_relu; case-insensitive")], returns: "Record",
+        doc: "Describe an activation as name and description fields. Leaky ReLU uses slope 0.01; this call takes no slope option.",
+        examples: &[(r#"activation("relu").name"#, "ReLU"), (r#"activation("LINEAR").name"#, "Linear")],
+    },
+    Signature {
+        name: "selection_strategy", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "tournament, roulette, rank, truncation or elite; case-insensitive"), opt("param", Ty::Any, "tournament: positive Int (default 3); elite: positive Int (default 5); truncation: finite probability (default 0.5); other strategies take no parameter")], returns: "Record",
+        doc: "Return a selection descriptor with type and debug-formatted name; does not run selection or configure a population. Refuse unused parameters and invalid ranges.",
+        examples: &[(r#"selection_strategy("tournament").name"#, "Tournament(3)"), (r#"selection_strategy("tournament", 4).name"#, "Tournament(4)"), (r#"selection_strategy("truncation", 0.25).name"#, "Truncation(0.25)"), (r#"selection_strategy("elite").name"#, "Elite(5)"), (r#"selection_strategy("rank").name"#, "Rank")],
+    },
+    Signature {
+        name: "crossover_strategy", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "single_point/singlepoint, two_point/twopoint, uniform, blend or sbx; case-insensitive"), opt("param", Ty::Numeric, "uniform: probability (default 0.5); blend: non-negative alpha (default 0.5); sbx: positive eta (default 20); finite; point crossover takes no parameter")], returns: "Record",
+        doc: "Return a crossover descriptor with type and debug-formatted name; does not run crossover or configure a population. Refuse unused parameters and invalid ranges.",
+        examples: &[(r#"crossover_strategy("uniform").name"#, "Uniform(0.5)"), (r#"crossover_strategy("uniform", 0.25).name"#, "Uniform(0.25)"), (r#"crossover_strategy("blend").name"#, "Blend(0.5)"), (r#"crossover_strategy("sbx").name"#, "SBX(20.0)"), (r#"crossover_strategy("singlepoint").name"#, "SinglePoint")],
+    },
+    Signature {
+        name: "evolution_stats", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record), params: &[], returns: "Record",
+        doc: "Return the nested stats record from a population record. Does not deserialize or run evolution; refuse missing or wrongly typed stats.",
+        examples: &[(r#"evolution_stats({stats: {generation: 3}}).generation"#, "3"), (r#"let result = {stats: {generation: 3}} | evolution_stats; result.generation"#, "3")],
+    },
     // Source-reviewed line scanners; these do not perform AST analysis.
     Signature {
         name: "code_parse", category: None, subject_required: false, aliases: &[], subject: None,

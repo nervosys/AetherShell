@@ -13262,7 +13262,12 @@ fn bi_nn_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let layer_sizes: Vec<usize> = layer_sizes_arr
         .iter()
-        .map(|v| expect_int("nn_create", v).map(|i| i as usize))
+        .map(|v| {
+            let n = expect_int("nn_create", v)?;
+            usize::try_from(n).ok().filter(|&n| n > 0).ok_or_else(|| {
+                crate::safety::arg_err("nn_create: layer sizes must be positive integers")
+            })
+        })
         .collect::<Result<Vec<_>>>()?;
 
     if layer_sizes.len() < 2 {
@@ -13271,28 +13276,29 @@ fn bi_nn_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         ));
     }
 
+    let mut count = 0usize;
+    for sizes in layer_sizes.windows(2) {
+        count = checked_nn_parameter_count(count, sizes[0], sizes[1])?;
+    }
+    let parse_activation = |value: &Value| {
+        let name = expect_string("nn_create", value)?;
+        Activation::from_str(name).ok_or_else(|| {
+            crate::safety::bad_arg(
+                "nn_create",
+                "relu, sigmoid, tanh, softmax, linear, swish or leaky_relu",
+                name,
+            )
+        })
+    };
     let hidden_activation = args
         .get(2)
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.as_str())
-            } else {
-                None
-            }
-        })
-        .and_then(Activation::from_str)
+        .map(parse_activation)
+        .transpose()?
         .unwrap_or(Activation::ReLU);
-
     let output_activation = args
         .get(3)
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.as_str())
-            } else {
-                None
-            }
-        })
-        .and_then(Activation::from_str)
+        .map(parse_activation)
+        .transpose()?
         .unwrap_or(Activation::Tanh);
 
     let network =
@@ -13321,10 +13327,21 @@ fn bi_nn_forward(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let input_vec: Vec<f64> = input_arr
         .iter()
-        .map(value_to_f64)
+        .map(|v| finite_nn_number("nn_forward", v))
         .collect::<Result<Vec<_>>>()?;
-
+    if input_vec.len() != network.layers[0].input_size {
+        return Err(crate::safety::arg_err(
+            "nn_forward: input length must equal the network input size",
+        ));
+    }
     let output = network.forward(&input_vec);
+    if output.iter().any(|n| !n.is_finite()) {
+        return Err(crate::safety::bad_state(
+            "nn_forward",
+            "non-finite output",
+            "the computation exceeded the numeric range",
+        ));
+    }
     Ok(Value::Array(output.into_iter().map(Value::Float).collect()))
 }
 
@@ -13344,14 +13361,24 @@ fn bi_nn_mutate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let network = value_to_nn(&network_val)?;
 
     let idx = if has_input { 0 } else { 1 };
-    let rate = args.get(idx).map(value_to_f64).transpose()?.unwrap_or(0.1);
+    let rate = args
+        .get(idx)
+        .map(|v| finite_nn_number("nn_mutate", v))
+        .transpose()?
+        .unwrap_or(0.1);
     let strength = args
         .get(idx + 1)
-        .map(value_to_f64)
+        .map(|v| finite_nn_number("nn_mutate", v))
         .transpose()?
         .unwrap_or(0.3);
 
+    if !(0.0..=1.0).contains(&rate) || strength < 0.0 {
+        return Err(crate::safety::arg_err(
+            "nn_mutate: rate must be in 0..=1 and strength non-negative",
+        ));
+    }
     let mutated = network.mutate(rate, strength);
+    validate_nn(&mutated)?;
     nn_to_value(&mutated)
 }
 
@@ -13368,7 +13395,17 @@ fn bi_nn_crossover(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let net1 = value_to_nn(&args[0])?;
     let net2 = value_to_nn(&args[1])?;
-
+    if net1.layers.len() != net2.layers.len()
+        || net1
+            .layers
+            .iter()
+            .zip(&net2.layers)
+            .any(|(a, b)| a.input_size != b.input_size || a.output_size != b.output_size)
+    {
+        return Err(crate::safety::arg_err(
+            "nn_crossover: parent layer dimensions must match",
+        ));
+    }
     let child = NeuralNetwork::crossover(&net1, &net2);
     nn_to_value(&child)
 }
@@ -13410,9 +13447,13 @@ fn bi_nn_set_params(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let params: Vec<f64> = params_arr
         .iter()
-        .map(value_to_f64)
+        .map(|v| finite_nn_number("nn_set_params", v))
         .collect::<Result<Vec<_>>>()?;
-
+    if params.len() != network.param_count() {
+        return Err(crate::safety::arg_err(
+            "nn_set_params: parameter length must equal the network parameter count",
+        ));
+    }
     network.set_params(&params);
     nn_to_value(&network)
 }
@@ -13935,13 +13976,33 @@ fn bi_selection_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
                 .get(1)
                 .map(|v| expect_int("selection_strategy", v))
                 .transpose()?
-                .unwrap_or(3) as usize;
+                .unwrap_or(3);
+            let size = usize::try_from(size)
+                .ok()
+                .filter(|&n| n > 0)
+                .ok_or_else(|| {
+                    crate::safety::arg_err("selection_strategy: tournament size must be positive")
+                })?;
             SelectionStrategy::Tournament(size)
+        }
+        "roulette" | "rank" if args.len() > 1 => {
+            return Err(crate::safety::arg_err(
+                "selection_strategy: roulette and rank take no parameter",
+            ))
         }
         "roulette" => SelectionStrategy::Roulette,
         "rank" => SelectionStrategy::Rank,
         "truncation" => {
-            let ratio = args.get(1).map(value_to_f64).transpose()?.unwrap_or(0.5);
+            let ratio = args
+                .get(1)
+                .map(|v| finite_nn_number("selection_strategy", v))
+                .transpose()?
+                .unwrap_or(0.5);
+            if !(0.0..=1.0).contains(&ratio) {
+                return Err(crate::safety::arg_err(
+                    "selection_strategy: truncation ratio must be in 0..=1",
+                ));
+            }
             SelectionStrategy::Truncation(ratio)
         }
         "elite" => {
@@ -13949,7 +14010,10 @@ fn bi_selection_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
                 .get(1)
                 .map(|v| expect_int("selection_strategy", v))
                 .transpose()?
-                .unwrap_or(5) as usize;
+                .unwrap_or(5);
+            let n = usize::try_from(n).ok().filter(|&n| n > 0).ok_or_else(|| {
+                crate::safety::arg_err("selection_strategy: elite count must be positive")
+            })?;
             SelectionStrategy::Elite(n)
         }
         _ => {
@@ -13985,18 +14049,50 @@ fn bi_crossover_strategy(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         .ok_or_else(|| crate::safety::arg_err("crossover_strategy requires name"))?;
 
     let strategy = match name.to_lowercase().as_str() {
+        "single_point" | "singlepoint" | "two_point" | "twopoint" if args.len() > 1 => {
+            return Err(crate::safety::arg_err(
+                "crossover_strategy: point crossover takes no parameter",
+            ))
+        }
         "single_point" | "singlepoint" => CrossoverStrategy::SinglePoint,
         "two_point" | "twopoint" => CrossoverStrategy::TwoPoint,
         "uniform" => {
-            let prob = args.get(1).map(value_to_f64).transpose()?.unwrap_or(0.5);
+            let prob = args
+                .get(1)
+                .map(|v| finite_nn_number("crossover_strategy", v))
+                .transpose()?
+                .unwrap_or(0.5);
+            if !(0.0..=1.0).contains(&prob) {
+                return Err(crate::safety::arg_err(
+                    "crossover_strategy: probability must be in 0..=1",
+                ));
+            }
             CrossoverStrategy::Uniform(prob)
         }
         "blend" => {
-            let alpha = args.get(1).map(value_to_f64).transpose()?.unwrap_or(0.5);
+            let alpha = args
+                .get(1)
+                .map(|v| finite_nn_number("crossover_strategy", v))
+                .transpose()?
+                .unwrap_or(0.5);
+            if alpha < 0.0 {
+                return Err(crate::safety::arg_err(
+                    "crossover_strategy: alpha must be non-negative",
+                ));
+            }
             CrossoverStrategy::Blend(alpha)
         }
         "sbx" => {
-            let eta = args.get(1).map(value_to_f64).transpose()?.unwrap_or(20.0);
+            let eta = args
+                .get(1)
+                .map(|v| finite_nn_number("crossover_strategy", v))
+                .transpose()?
+                .unwrap_or(20.0);
+            if eta <= 0.0 {
+                return Err(crate::safety::arg_err(
+                    "crossover_strategy: eta must be positive",
+                ));
+            }
             CrossoverStrategy::SBX(eta)
         }
         _ => {
@@ -14136,6 +14232,73 @@ fn bi_coevolve(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<
 
 // --------------- Neural/Evolution Helpers ---------------
 
+const MAX_NN_PARAMETERS: usize = 1_000_000;
+
+fn finite_nn_number(builtin: &str, value: &Value) -> Result<f64> {
+    let number = match value {
+        Value::Int(n) => *n as f64,
+        Value::Float(n) => *n,
+        other => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "finite Number",
+                other.type_name(),
+            ))
+        }
+    };
+    if !number.is_finite() {
+        return Err(crate::safety::arg_err(&format!(
+            "{builtin}: number must be finite"
+        )));
+    }
+    Ok(number)
+}
+
+fn checked_nn_parameter_count(total: usize, input: usize, output: usize) -> Result<usize> {
+    total
+        .checked_add(
+            input
+                .checked_mul(output)
+                .and_then(|n| n.checked_add(output))
+                .ok_or_else(|| {
+                    crate::safety::arg_err("neural network: parameter count overflow")
+                })?,
+        )
+        .filter(|&n| n <= MAX_NN_PARAMETERS)
+        .ok_or_else(|| anyhow!("E_BUDGET_EXCEEDED: neural network: exceeds 1000000 parameters"))
+}
+
+fn validate_nn(network: &NeuralNetwork) -> Result<()> {
+    if network.layers.is_empty() {
+        return Err(crate::safety::arg_err(
+            "neural network: at least one dense layer is required",
+        ));
+    }
+    let mut total = 0;
+    let mut previous_output = None;
+    for layer in &network.layers {
+        total = checked_nn_parameter_count(total, layer.input_size, layer.output_size)?;
+        if layer.input_size == 0
+            || layer.output_size == 0
+            || previous_output.is_some_and(|n| n != layer.input_size)
+            || layer.weights.len() != layer.output_size
+            || layer.biases.len() != layer.output_size
+            || layer
+                .weights
+                .iter()
+                .any(|row| row.len() != layer.input_size || row.iter().any(|n| !n.is_finite()))
+            || layer.biases.iter().any(|n| !n.is_finite())
+            || matches!(layer.activation, Activation::LeakyReLU(alpha) if !alpha.is_finite())
+        {
+            return Err(crate::safety::arg_err(
+                "neural network: inconsistent layer dimensions or non-finite parameters",
+            ));
+        }
+        previous_output = Some(layer.output_size);
+    }
+    Ok(())
+}
+
 fn value_to_f64(v: &Value) -> Result<f64> {
     match v {
         Value::Float(f) => Ok(*f),
@@ -14165,7 +14328,16 @@ fn nn_to_value(network: &NeuralNetwork) -> Result<Value> {
 fn value_to_nn(v: &Value) -> Result<NeuralNetwork> {
     if let Value::Record(rec) = v {
         if let Some(Value::Str(data)) = rec.get("_data") {
-            return serde_json::from_str(data).context("Failed to deserialize network");
+            if data.len() > 64 * 1024 * 1024 {
+                return Err(anyhow!(
+                    "E_BUDGET_EXCEEDED: neural network: encoded data exceeds 64 MiB"
+                ));
+            }
+            let network = serde_json::from_str(data).map_err(|e| {
+                crate::safety::arg_err(&format!("neural network: invalid encoded data: {e}"))
+            })?;
+            validate_nn(&network)?;
+            return Ok(network);
         }
     }
     Err(crate::safety::arg_err("Invalid neural network value"))

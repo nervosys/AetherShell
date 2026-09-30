@@ -73,11 +73,11 @@ fn shared_extraction_helpers_emit_structured_bad_arg() {
     // assertion would leave the test passing while covering nothing, so it now
     // finds a still-undeclared builtin using `expect_string` at run time.
     // `tests/declared_signatures.rs` covers the declared path.
-    // nn_create checks the name with expect_string before constructing a
-    // network, so the invalid call has no state-changing effect.
-    let name = ["nn_create", "json_parse", "syntax_search", "lower", "trim", "upper"]
+    // consensus_net checks the name before allocating networks. Supply all
+    // five arguments so the call reaches expect_string, not the arity check.
+    let (name, arguments) = [("consensus_net", "123, 1, 1, 1, 1"), ("json_parse", "123"), ("syntax_search", "123"), ("lower", "123"), ("trim", "123"), ("upper", "123")]
         .into_iter()
-        .find(|n| {
+        .find(|(n, _)| {
             aethershell::signature::signature_of(n).is_none()
                 && aethershell::builtins::is_dispatched(n)
         })
@@ -86,7 +86,7 @@ fn shared_extraction_helpers_emit_structured_bad_arg() {
                 "every candidate is now declared; name another undeclared builtin that uses expect_string, or delete this test and rely on declared_signatures.rs"
             )
         });
-    let src = format!("try {{ {name}(123) }} catch e {{ e }}");
+    let src = format!("try {{ {name}({arguments}) }} catch e {{ e }}");
     let src = src.as_str();
     let stmts = aethershell::parser::parse_program(src).expect("parse");
     let mut env = aethershell::env::Env::new();

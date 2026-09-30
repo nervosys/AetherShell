@@ -123,7 +123,14 @@ impl DenseLayer {
             for j in 0..self.input_size {
                 sum += self.weights[i][j] * input.get(j).unwrap_or(&0.0);
             }
-            output[i] = self.activation.apply(sum);
+            // Softmax needs raw logits here; exponentiate once, after subtracting
+            // their maximum below. Applying it first exponentiated twice and
+            // overflowed even when the final probabilities were representable.
+            output[i] = if matches!(self.activation, Activation::Softmax) {
+                sum
+            } else {
+                self.activation.apply(sum)
+            };
         }
 
         // Handle softmax normalization
