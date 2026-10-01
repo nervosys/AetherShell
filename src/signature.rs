@@ -251,6 +251,12 @@ const fn rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
 /// not depend on its size.
 pub static SIGNATURES: &[Signature] = &[
     Signature {
+        name: "bat", category: None, subject_required: false, aliases: &["bat_view"], subject: None,
+        params: &[req("path", Ty::Str, "literal regular UTF-8 file path")], returns: "String",
+        doc: "Read plain file text natively and preserve all line endings. Resolve relative paths against the workspace and guard the actual read target. Bound regular UTF-8 reads to 64 MiB. Reject pipeline input, extra arguments and invalid paths; filesystem failures are coded. Plain output no longer depends on an external bat executable, its configuration or lossy UTF-8 decoding. File paths are literal, including names beginning with a dash.",
+        examples: &[(r#"let d = fs_tempdir("ae_bat"); let f = d + "/x"; file_write(f, "plain"); let result = bat(f); rmdir(d, true); result"#, r#""plain""#)],
+    },
+    Signature {
         name: "file_diff", category: None, subject_required: false, aliases: &["diff_files"], subject: None,
         params: &[req("path1", Ty::Str, "first regular UTF-8 file"), req("path2", Ty::Str, "second regular UTF-8 file")], returns: "Record",
         doc: "Compare two direct file paths line by line at equal positions, returning original paths, line counts, differences, diff_count and identical. Each difference has a one-based line and type changed/added/deleted with old/new fields as applicable. This is positional comparison, not an edit-distance diff. CRLF and final line terminators do not affect line equality; identical describes line contents rather than byte identity. Resolve relative paths against the workspace and guard both actual read targets. Bound each file read to 64 MiB and differences to 10000 entries. Reject pipeline input and invalid paths; filesystem failures are coded. Iterate line references without collecting full line lists and move the difference array into the result without cloning it.",
@@ -5060,12 +5066,13 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &["pager"],
         subject: Some(Ty::Str),
-        params: &[opt("options", Ty::Record, "{file: true} to read the subject as a path")],
+        params: &[opt("options", Ty::Record, "{file: Bool}, default false; true reads the subject as a path")],
         returns: "String | Record",
-        doc: "Text of at most 40 lines as-is, or the first page of longer text as a record.",
+        doc: "Direct less(text,options?) or text | less(options?); pager is an alias. Return text of at most 40 lines unchanged, including its line endings, or a record with the first 40 lines joined with LF, total_lines, page_size 40, pages and a head/tail hint for longer input. File mode resolves paths against the workspace, guards the actual target and bounds regular UTF-8 reads to 64 MiB. Reject invalid or unknown options, non-Bool file and conflicting direct/piped input. Consume owned text, retain only first-page line references and count remaining lines without collecting them.",
         examples: &[
             (r#"less("a")"#, r#"a"#),
             (r#"typeof(less("Cargo.toml", {file: true}))"#, r#"Record"#),
+            (r#""a" | pager({file: false})"#, r#""a""#),
         ],
     },
     Signature {

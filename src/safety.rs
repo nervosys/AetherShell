@@ -4083,6 +4083,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
 /// removed.
 pub const SELF_GUARDED: &[&str] = &[
     "apply",
+    "bat_view",
     "cd",
     "cloud_instance_destroy",
     "db_csv_to_sqlite",
@@ -4113,6 +4114,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "marketplace_info",
     "marketplace_search",
     "marketplace_update",
+    "pager",
     "perf_record",
     "perf_stat",
     "platform_db_delete",

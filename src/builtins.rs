@@ -50561,49 +50561,76 @@ fn bi_yq_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// pager/less — Display text with pagination (cross-platform).
 /// Usage: less(text) or less(file_path, {file: true})
 fn bi_pager(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let text = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        None => match &input {
-            Some(Value::Str(s)) => s.clone(),
-            _ => return Err(crate::safety::arg_err("pager requires text input")),
-        },
-        _ => return Err(crate::safety::arg_err("pager input must be a string")),
+    let mut args = args.into_iter();
+    let (text, options) = match input {
+        Some(Value::Str(text)) => {
+            let options = args.next();
+            if args.next().is_some() {
+                return Err(crate::safety::arg_err(
+                    "piped pager accepts optional options only",
+                ));
+            }
+            (text, options)
+        }
+        Some(_) => return Err(crate::safety::arg_err("pager piped input must be String")),
+        None => {
+            let Some(Value::Str(text)) = args.next() else {
+                return Err(crate::safety::arg_err(
+                    "pager requires text or file path String",
+                ));
+            };
+            (text, args.next())
+        }
     };
-    let is_file = match args.get(1) {
-        Some(Value::Record(r)) => r
-            .get("file")
-            .map(|v| matches!(v, Value::Bool(true)))
-            .unwrap_or(false),
-        _ => false,
-    };
-    let content = if is_file {
-        std::fs::read_to_string(&text).map_err(|e| crate::safety::fs_error("less", &text, &e))?
+    let mut file = false;
+    if let Some(options) = options {
+        let Value::Record(record) = options else {
+            return Err(crate::safety::arg_err("pager options must be Record"));
+        };
+        for (key, value) in record {
+            if key != "file" {
+                return Err(crate::safety::arg_err(format!(
+                    "pager unknown option {key}"
+                )));
+            }
+            let Value::Bool(flag) = value else {
+                return Err(crate::safety::arg_err("pager file must be Bool"));
+            };
+            file = flag;
+        }
+    }
+    let content = if file {
+        let path = crate::safety::resolve_path_str(&text);
+        crate::safety::guard(crate::safety::GuardCtx {
+            builtin: "pager",
+            effect: crate::safety::Effect::ReadLocal,
+            what: "read paged file text",
+            targets: vec![path.clone()],
+            blast_radius: serde_json::json!({"files":1}),
+            reversible: true,
+            fs_paths: true,
+        })?;
+        line_read("pager", &path)?
     } else {
-        text.clone()
+        text
     };
-    // In a shell context, output paginated content
-    let lines: Vec<&str> = content.lines().collect();
-    let total = lines.len();
-    let page_size: usize = 40; // Default terminal height
-    if total <= page_size {
-        // No pagination needed
+    const PAGE_SIZE: usize = 40;
+    let mut lines = content.lines();
+    let first: Vec<_> = lines.by_ref().take(PAGE_SIZE).collect();
+    let total = first.len() + lines.count();
+    if total <= PAGE_SIZE {
         return Ok(Value::Str(content));
     }
-    // Return structured output with pagination info
-    let first_page: String = lines[..page_size.min(total)].join("\n");
-    let mut rec = BTreeMap::new();
-    rec.insert("content".to_string(), Value::Str(first_page));
-    rec.insert("total_lines".to_string(), Value::Int(total as i64));
-    rec.insert("page_size".to_string(), Value::Int(page_size as i64));
-    rec.insert(
-        "pages".to_string(),
-        Value::Int(total.div_ceil(page_size) as i64),
-    );
-    rec.insert(
-        "hint".to_string(),
-        Value::Str("Use head/tail for specific line ranges".to_string()),
-    );
-    Ok(Value::Record(rec))
+    Ok(Value::Record(BTreeMap::from([
+        ("content".into(), Value::Str(first.join("\n"))),
+        ("total_lines".into(), Value::Int(total as i64)),
+        ("page_size".into(), Value::Int(PAGE_SIZE as i64)),
+        ("pages".into(), Value::Int(total.div_ceil(PAGE_SIZE) as i64)),
+        (
+            "hint".into(),
+            Value::Str("Use head/tail for specific line ranges".into()),
+        ),
+    ])))
 }
 
 /// tee — Write input to both a file and return it (cross-platform, native Rust).
@@ -52364,25 +52391,26 @@ fn bi_iperf3_client(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // --- bat (1028) ---
 
 /// bat — Cat clone with syntax highlighting.
-fn bi_bat_view(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("bat requires a file path")),
-    };
-    let output = std::process::Command::new("bat")
-        .args(["--plain", "--color=never", &path])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            Ok(Value::Str(String::from_utf8_lossy(&o.stdout).to_string()))
-        }
-        _ => {
-            // Fallback to cat/native read
-            let content = std::fs::read_to_string(&path)
-                .map_err(|e| crate::safety::fs_error("bat", &path, &e))?;
-            Ok(Value::Str(content))
-        }
+fn bi_bat_view(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if input.is_some() || args.len() != 1 {
+        return Err(crate::safety::arg_err(
+            "bat requires one direct file path and no pipeline input",
+        ));
     }
+    let Some(Value::Str(path)) = args.into_iter().next() else {
+        return Err(crate::safety::arg_err("bat path must be String"));
+    };
+    let path = crate::safety::resolve_path_str(&path);
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "bat_view",
+        effect: crate::safety::Effect::ReadLocal,
+        what: "read plain file text",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({"files":1}),
+        reversible: true,
+        fs_paths: true,
+    })?;
+    Ok(Value::Str(line_read("bat", &path)?))
 }
 
 // --- eza (1029) ---

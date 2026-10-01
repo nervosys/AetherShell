@@ -67,6 +67,174 @@ impl Drop for Fixture {
 fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
+fn pager_file(file: bool) -> Value {
+    Value::Record(std::collections::BTreeMap::from([(
+        "file".into(),
+        Value::Bool(file),
+    )]))
+}
+#[test]
+fn bat_reads_literal_plain_files_and_guards_both_aliases() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let workspace = fixture.root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    std::fs::write(workspace.join("-plain"), "a\r\né\r\n").unwrap();
+    let outside = fixture.path("outside");
+    std::fs::write(&outside, "secret").unwrap();
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    for name in ["bat", "bat_view"] {
+        assert_eq!(
+            call(name, vec![s("-plain")], &mut env).unwrap(),
+            s("a\r\né\r\n")
+        );
+        code(
+            call(name, vec![s(&outside)], &mut env),
+            "E_OUTSIDE_WORKSPACE",
+        );
+        code(call(name, vec![Value::Int(1)], &mut env), "E_BAD_ARG");
+        code(
+            call(name, vec![s("-plain"), s("extra")], &mut env),
+            "E_BAD_ARG",
+        );
+        code(
+            call_with_input(name, vec![s("-plain")], Some(s("ignored")), &mut env),
+            "E_BAD_ARG",
+        );
+        assert_eq!(
+            aethershell::safety::effect_of(name),
+            aethershell::safety::Effect::ReadLocal
+        );
+    }
+}
+#[test]
+fn pager_preserves_short_text_and_exact_page_boundaries() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    for name in ["less", "pager"] {
+        for count in [0, 1, 40, 41, 80, 81] {
+            let text = (0..count)
+                .map(|n| format!("line{n}\r\n"))
+                .collect::<String>();
+            let direct = call(name, vec![s(&text)], &mut env).unwrap();
+            assert_eq!(
+                call_with_input(name, vec![pager_file(false)], Some(s(&text)), &mut env).unwrap(),
+                direct
+            );
+            if count <= 40 {
+                assert_eq!(direct, s(&text));
+            } else {
+                let record = diff_record(direct);
+                assert_eq!(
+                    record["content"],
+                    s(&(0..40)
+                        .map(|n| format!("line{n}"))
+                        .collect::<Vec<_>>()
+                        .join("\n"))
+                );
+                assert_eq!(record["total_lines"], Value::Int(count));
+                assert_eq!(record["page_size"], Value::Int(40));
+                assert_eq!(record["pages"], Value::Int((count + 39) / 40));
+                assert_eq!(record["hint"], s("Use head/tail for specific line ranges"));
+            }
+        }
+    }
+}
+#[test]
+fn pager_validates_options_and_guards_resolved_file_reads() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let workspace = fixture.root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    std::fs::write(workspace.join("input"), "a\r\nb\r\n").unwrap();
+    let outside = fixture.path("outside");
+    std::fs::write(&outside, "secret").unwrap();
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    for name in ["less", "pager"] {
+        assert_eq!(
+            call(name, vec![s("input"), pager_file(true)], &mut env).unwrap(),
+            s("a\r\nb\r\n")
+        );
+        assert_eq!(
+            call_with_input(name, vec![pager_file(true)], Some(s("input")), &mut env).unwrap(),
+            s("a\r\nb\r\n")
+        );
+        code(
+            call(name, vec![s(&outside), pager_file(true)], &mut env),
+            "E_OUTSIDE_WORKSPACE",
+        );
+        code(
+            call_with_input(name, vec![pager_file(true)], Some(s(&outside)), &mut env),
+            "E_OUTSIDE_WORKSPACE",
+        );
+        for options in [
+            Value::Bool(true),
+            Value::Record(std::collections::BTreeMap::from([(
+                "file".into(),
+                s("true"),
+            )])),
+            Value::Record(std::collections::BTreeMap::from([(
+                "unknown".into(),
+                Value::Bool(true),
+            )])),
+        ] {
+            code(
+                call(name, vec![s("input"), options.clone()], &mut env),
+                "E_BAD_ARG",
+            );
+            code(
+                call_with_input(name, vec![options], Some(s("input")), &mut env),
+                "E_BAD_ARG",
+            );
+        }
+        code(
+            call_with_input(
+                name,
+                vec![s("input"), pager_file(true)],
+                Some(s("conflict")),
+                &mut env,
+            ),
+            "E_BAD_ARG",
+        );
+        code(
+            call_with_input(name, vec![], Some(Value::Int(1)), &mut env),
+            "E_BAD_ARG",
+        );
+        code(call(name, vec![], &mut env), "E_BAD_ARG");
+    }
+}
+#[test]
+fn bat_and_pager_code_read_errors_and_bound_file_sizes() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let bad = fixture.path("bad");
+    std::fs::write(&bad, [0xff]).unwrap();
+    let large = fixture.path("large");
+    std::fs::File::create(&large)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    for name in ["bat", "bat_view", "less", "pager"] {
+        for (path, expected) in [
+            (fixture.path("missing"), "E_NOT_FOUND"),
+            (bad.clone(), "E_IO"),
+            (fixture.path("."), "E_BAD_ARG"),
+            (large.clone(), "E_BUDGET_EXCEEDED"),
+        ] {
+            let mut args = vec![s(&path)];
+            if name == "less" || name == "pager" {
+                args.push(pager_file(true));
+            }
+            code(call(name, args, &mut env), expected);
+        }
+    }
+}
 fn diff_record(value: Value) -> std::collections::BTreeMap<String, Value> {
     let Value::Record(record) = value else {
         panic!("expected diff record")
