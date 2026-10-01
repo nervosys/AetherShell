@@ -1616,6 +1616,18 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Return an agent copy updated by REINFORCE: compute discounted returns, subtract their mean, then update linear softmax weights sequentially in recorded step order. A nonempty episode clears all history arrays and increments episodes once; an empty episode remains unchanged. Validate encoded state as in rl_pg_step; refuse counter overflow, more than ten million weight-step pairs or non-finite computed weights.",
         examples: &[(r#"rl_pg_episode_end(rl_pg_agent("example", 2, 2)).episodes"#, "0"), (r#"let result = rl_pg_agent("example", 2, 2) | rl_pg_step([1, 0], 1, 5) | rl_pg_episode_end; result.episodes"#, "1")],
     },
+    Signature {
+        name: "rl_ac_agent", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "agent name"), req("state_dim", Ty::Int, "positive state width"), req("action_size", Ty::Int, "positive action count; at most 10000")], returns: "Record",
+        doc: "Create linear softmax actor and linear value critic with random weights in [-0.1,0.1), actor_lr and critic_lr 0.01, discount 0.99 and zero steps. Check dimensions and combined actor/critic weight count at most one million before allocation. No configuration argument is supported.",
+        examples: &[(r#"rl_ac_agent("example", 2, 3).action_size"#, "3")],
+    },
+    Signature {
+        name: "rl_ac_update", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("state", Ty::Array, "exactly state_dim finite numbers"), req("action", Ty::Int, "in 0..action_size"), req("reward", Ty::Numeric, "finite reward"), req("next_state", Ty::Array, "exactly state_dim finite numbers, including terminal transitions"), req("done", Ty::Bool, "terminal transition")], returns: "Record",
+        doc: "Return an agent copy updated using TD error reward + discount*V(next_state) - V(state), with next value zero when terminal. Compute both values before changing critic weights, then update critic and softmax actor from that same TD error and increment steps once. Validate encoded shapes, finite probability rates and weights; cap encoding at 64 MiB, actions at 10000 and combined weights at one million. Refuse counter overflow and non-finite computed weights.",
+        examples: &[(r#"rl_ac_update(rl_ac_agent("example", 2, 2), [1, 0], 1, 5, [0, 1], true).steps"#, "1"), (r#"let result = rl_ac_agent("example", 2, 2) | rl_ac_update([1, 0], 1, 5, [0, 1], false); result.steps"#, "1")],
+    },
     // Source-reviewed neural operations; serialized networks are validated.
     Signature {
         name: "nn_create", category: None, subject_required: false, aliases: &[], subject: None,

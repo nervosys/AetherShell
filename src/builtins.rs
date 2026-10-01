@@ -15522,96 +15522,117 @@ fn bi_rl_pg_episode_end(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     pg_agent_to_value(&agent)
 }
 
-/// Create an Actor-Critic agent
-fn bi_rl_ac_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    if args.len() < 3 {
-        return Err(crate::safety::arg_err(
-            "rl_ac_agent requires: name, state_dim, action_size",
+fn ac_dimensions(state_dim: usize, actions: usize) -> Result<()> {
+    pg_dimensions(state_dim, actions)?;
+    if actions
+        .checked_add(1)
+        .and_then(|n| n.checked_mul(state_dim))
+        .is_none_or(|n| n > MAX_RL_CELLS)
+    {
+        return Err(crate::safety::budget_exceeded(
+            "rl_ac",
+            "actor and critic exceed one million weights".into(),
+            "use a smaller agent",
         ));
     }
-
-    let name = match &args[0] {
-        Value::Str(s) => s.clone(),
-        _ => return Err(crate::safety::arg_err("name must be string")),
-    };
-
-    let state_dim = match &args[1] {
-        Value::Int(n) => *n as usize,
-        _ => return Err(crate::safety::arg_err("state_dim must be integer")),
-    };
-
-    let action_size = match &args[2] {
-        Value::Int(n) => *n as usize,
-        _ => return Err(crate::safety::arg_err("action_size must be integer")),
-    };
-
-    let agent = ActorCriticAgent::new(&name, state_dim, action_size, 0.01, 0.01, 0.99);
-    ac_agent_to_value(&agent)
+    Ok(())
 }
-
-/// Update Actor-Critic agent
-fn bi_rl_ac_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    if args.len() < 6 {
+fn validate_ac_agent(agent: &ActorCriticAgent) -> Result<()> {
+    ac_dimensions(agent.state_dim, agent.action_size)?;
+    if agent.actor_weights.len() != agent.action_size
+        || agent
+            .actor_weights
+            .iter()
+            .any(|row| row.len() != agent.state_dim || row.iter().any(|n| !n.is_finite()))
+        || agent.critic_weights.len() != agent.state_dim
+        || agent.critic_weights.iter().any(|n| !n.is_finite())
+    {
         return Err(crate::safety::arg_err(
-            "rl_ac_update requires: agent, state, action, reward, next_state, done",
+            "actor/critic weights must match dimensions and be finite",
         ));
     }
-
-    let mut agent = value_to_ac_agent(&args[0])?;
-
-    let state: Vec<f64> = match &args[1] {
-        Value::Array(arr) => arr
-            .iter()
-            .map(|v| match v {
-                Value::Float(f) => Ok(*f),
-                Value::Int(i) => Ok(*i as f64),
-                _ => Err(anyhow!("state elements must be numbers")),
-            })
-            .collect::<Result<Vec<_>>>()?,
-        _ => return Err(crate::safety::arg_err("state must be array")),
+    if [agent.actor_lr, agent.critic_lr, agent.discount]
+        .iter()
+        .any(|n| !n.is_finite() || !(0.0..=1.0).contains(n))
+        || i64::try_from(agent.steps).is_err()
+    {
+        return Err(crate::safety::arg_err(
+            "actor/critic rates must be finite probabilities and steps must fit Int",
+        ));
+    }
+    Ok(())
+}
+fn ac_state(value: &Value, width: usize) -> Result<Vec<f64>> {
+    let Value::Array(values) = value else {
+        return Err(crate::safety::arg_err("actor/critic state must be Array"));
     };
-
-    let action = match &args[2] {
-        Value::Int(a) => *a as usize,
-        _ => return Err(crate::safety::arg_err("action must be integer")),
+    if values.len() != width {
+        return Err(crate::safety::arg_err(
+            "actor/critic state must match state_dim",
+        ));
+    }
+    values
+        .iter()
+        .map(|v| finite_nn_number("rl_ac_update state", v))
+        .collect()
+}
+/// Create a bounded linear actor and critic with fixed rates.
+fn bi_rl_ac_agent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = expect_string(
+        "rl_ac_agent",
+        args.first()
+            .ok_or_else(|| crate::safety::arg_err("rl_ac_agent requires name"))?,
+    )?;
+    let states = rl_positive_size(
+        "rl_ac_agent",
+        args.get(1)
+            .ok_or_else(|| crate::safety::arg_err("rl_ac_agent requires state_dim"))?,
+    )?;
+    let actions = rl_positive_size(
+        "rl_ac_agent",
+        args.get(2)
+            .ok_or_else(|| crate::safety::arg_err("rl_ac_agent requires action_size"))?,
+    )?;
+    ac_dimensions(states, actions)?;
+    ac_agent_to_value(&ActorCriticAgent::new(
+        &name, states, actions, 0.01, 0.01, 0.99,
+    ))
+}
+/// Update a validated copy of an actor-critic agent.
+fn bi_rl_ac_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let piped = input.is_some();
+    let value = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| crate::safety::arg_err("rl_ac_update requires agent"))?;
+    let mut agent = value_to_ac_agent(&value)?;
+    let idx = usize::from(!piped);
+    let arg = |offset| {
+        args.get(idx + offset).ok_or_else(|| {
+            crate::safety::arg_err("rl_ac_update requires state, action, reward, next_state, done")
+        })
     };
-
-    let reward = match &args[3] {
-        Value::Float(r) => *r,
-        Value::Int(r) => *r as f64,
-        _ => return Err(crate::safety::arg_err("reward must be number")),
+    let state = ac_state(arg(0)?, agent.state_dim)?;
+    let action = rl_index("rl_ac_update action", arg(1)?, agent.action_size)?;
+    let reward = finite_nn_number("rl_ac_update reward", arg(2)?)?;
+    let next = ac_state(arg(3)?, agent.state_dim)?;
+    let Value::Bool(done) = arg(4)? else {
+        return Err(crate::safety::arg_err("rl_ac_update done must be Bool"));
     };
-
-    let next_state: Vec<f64> = match &args[4] {
-        Value::Array(arr) => arr
-            .iter()
-            .map(|v| match v {
-                Value::Float(f) => Ok(*f),
-                Value::Int(i) => Ok(*i as f64),
-                _ => Err(anyhow!("next_state elements must be numbers")),
-            })
-            .collect::<Result<Vec<_>>>()?,
-        _ => return Err(crate::safety::arg_err("next_state must be array")),
-    };
-
-    let done = match &args[5] {
-        Value::Bool(b) => *b,
-        _ => return Err(crate::safety::arg_err("done must be boolean")),
-    };
-
-    agent.update(&state, action, reward, &next_state, done);
+    if agent
+        .steps
+        .checked_add(1)
+        .is_none_or(|n| i64::try_from(n).is_err())
+    {
+        return Err(crate::safety::arg_err("rl_ac_update step counter overflow"));
+    }
+    agent.update(&state, action, reward, &next, *done);
+    validate_ac_agent(&agent).map_err(|_| {
+        crate::safety::bad_state(
+            "rl_ac_update",
+            "non-finite actor-critic result",
+            "the update exceeded the numeric range",
+        )
+    })?;
     ac_agent_to_value(&agent)
 }
 
@@ -16066,7 +16087,15 @@ fn value_to_pg_agent(value: &Value) -> Result<PolicyGradientAgent> {
 }
 
 fn ac_agent_to_value(agent: &ActorCriticAgent) -> Result<Value> {
+    validate_ac_agent(agent)?;
     let json = serde_json::to_string(agent).context("Failed to serialize AC agent")?;
+    if json.len() > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            "rl_ac",
+            "actor-critic encoding exceeds 64 MiB".into(),
+            "use a smaller agent",
+        ));
+    }
 
     let mut rec = BTreeMap::new();
     rec.insert(
@@ -16085,16 +16114,27 @@ fn ac_agent_to_value(agent: &ActorCriticAgent) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-fn value_to_ac_agent(v: &Value) -> Result<ActorCriticAgent> {
-    if let Value::Record(rec) = v {
-        if let Some(Value::Str(data)) = rec.get("_data") {
-            serde_json::from_str(data).context("Failed to deserialize AC agent")
-        } else {
-            Err(crate::safety::arg_err("Invalid AC agent: missing _data"))
-        }
-    } else {
-        Err(anyhow!("Invalid AC agent value"))
+fn value_to_ac_agent(value: &Value) -> Result<ActorCriticAgent> {
+    let Value::Record(record) = value else {
+        return Err(crate::safety::arg_err("actor-critic agent must be Record"));
+    };
+    let Some(Value::Str(data)) = record.get("_data") else {
+        return Err(crate::safety::arg_err(
+            "actor-critic agent requires _data: String",
+        ));
+    };
+    if data.len() > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            "rl_ac",
+            "actor-critic encoding exceeds 64 MiB".into(),
+            "use a smaller agent",
+        ));
     }
+    let agent: ActorCriticAgent = serde_json::from_str(data).map_err(|e| {
+        crate::safety::bad_arg("rl_ac", "valid encoded actor-critic agent", &e.to_string())
+    })?;
+    validate_ac_agent(&agent)?;
+    Ok(agent)
 }
 
 fn dqn_agent_to_value(agent: &DQNAgent) -> Result<Value> {
