@@ -35557,116 +35557,105 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(result))
 }
 
-/// file_delete_lines(path, start, end?) - Delete lines from a file
-fn bi_file_delete_lines(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err(
-            "file_delete_lines requires path and line specification",
-        ));
+/// Delete an inclusive one-based range or lines selected by a literal pattern.
+fn bi_file_delete_lines(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !(2..=3).contains(&args.len()) || input.is_some() {
+        return Err(crate::safety::arg_err("file_delete_lines requires path, line specification and optional range end, without pipeline input"));
     }
-
-    let path = match &args[0] {
-        Value::Str(s) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "file_delete_lines",
-                "path: String",
-                other.type_name(),
-            ))
+    enum Selection {
+        Range(usize, usize),
+        Pattern(String, bool),
+    }
+    fn line_index(value: Value) -> Result<usize> {
+        match value {
+            Value::Int(n) if n > 0 => usize::try_from(n - 1)
+                .map_err(|_| crate::safety::arg_err("file_delete_lines line number is too large")),
+            _ => Err(crate::safety::arg_err(
+                "file_delete_lines line numbers must be positive Int",
+            )),
         }
+    }
+    let mut args = args.into_iter();
+    let Some(Value::Str(path)) = args.next() else {
+        return Err(crate::safety::arg_err(
+            "file_delete_lines path must be String",
+        ));
     };
-
-    crate::safety::guard(crate::safety::GuardCtx {
-        builtin: "file_delete_lines",
-        effect: crate::safety::Effect::Destructive,
-        what: "modify",
-        targets: vec![path.clone()],
-        blast_radius: serde_json::json!({ "path": path.clone() }),
-        reversible: false,
-        fs_paths: true,
-    })?;
-
-    let content = fs::read_to_string(&path)
-        .map_err(|e| crate::safety::fs_error("file_delete_lines", &path, &e))?;
-
-    let lines: Vec<&str> = content.lines().collect();
-    let original_count = lines.len();
-    let mut keep: Vec<bool> = vec![true; lines.len()];
-
-    match &args[1] {
-        Value::Int(start_line) => {
-            let start = (*start_line).max(1) as usize - 1;
-            let end = if args.len() > 2 {
-                match &args[2] {
-                    Value::Int(e) => (*e).max(1) as usize - 1,
-                    _ => start,
-                }
-            } else {
-                start
-            };
-
-            for i in start..=end.min(lines.len() - 1) {
-                keep[i] = false;
-            }
-        }
-        Value::Record(r) => {
-            if let Some(Value::Str(pattern)) =
-                r.get("matching").or(r.get("contains")).or(r.get("pattern"))
-            {
-                for (i, line) in lines.iter().enumerate() {
-                    if line.contains(pattern) {
-                        keep[i] = false;
-                    }
-                }
-            } else if let Some(Value::Str(exact)) = r.get("exact") {
-                for (i, line) in lines.iter().enumerate() {
-                    if *line == exact {
-                        keep[i] = false;
-                    }
-                }
-            } else {
-                return Err(anyhow!(
-                    "file_delete_lines: record must have 'matching', 'contains', or 'exact' key"
+    let selection = match args.next() {
+        Some(value @ Value::Int(_)) => {
+            let start = line_index(value)?;
+            let end = args.next().map(line_index).transpose()?.unwrap_or(start);
+            if end < start {
+                return Err(crate::safety::arg_err(
+                    "file_delete_lines range end must not precede start",
                 ));
             }
+            Selection::Range(start, end)
+        }
+        Some(Value::Record(record)) => {
+            if args.next().is_some() || record.len() != 1 {
+                return Err(crate::safety::arg_err("file_delete_lines pattern record requires exactly one selector and no range end"));
+            }
+            let (key, value) = record.into_iter().next().expect("one selector checked");
+            if !matches!(key.as_str(), "matching" | "contains" | "pattern" | "exact") {
+                return Err(crate::safety::arg_err(
+                    "file_delete_lines selector must be matching, contains, pattern or exact",
+                ));
+            }
+            let Value::Str(pattern) = value else {
+                return Err(crate::safety::arg_err(
+                    "file_delete_lines pattern must be String",
+                ));
+            };
+            Selection::Pattern(pattern, key == "exact")
         }
         _ => {
             return Err(crate::safety::arg_err(
-                "file_delete_lines: second argument must be line number or record",
+                "file_delete_lines selection must be positive Int or pattern Record",
             ))
         }
+    };
+    let path = crate::safety::resolve_path_str(&path);
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "file_delete_lines",
+        effect: crate::safety::Effect::Destructive,
+        what: "delete lines",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({"path":path}),
+        reversible: true,
+        fs_paths: true,
+    })?;
+    let content = line_read("file_delete_lines", &path)?;
+    let mut new_content = String::with_capacity(content.len());
+    let mut deleted = 0;
+    let mut remaining = 0;
+    for (index, line) in content.lines().enumerate() {
+        let remove = match &selection {
+            Selection::Range(start, end) => (*start..=*end).contains(&index),
+            Selection::Pattern(pattern, exact) => {
+                if *exact {
+                    line == pattern
+                } else {
+                    line.contains(pattern)
+                }
+            }
+        };
+        if remove {
+            deleted += 1;
+        } else {
+            new_content.push_str(line);
+            new_content.push('\n');
+            remaining += 1;
+        }
     }
-
-    let new_lines: Vec<&str> = lines
-        .into_iter()
-        .enumerate()
-        .filter(|(i, _)| keep[*i])
-        .map(|(_, line)| line)
-        .collect();
-
-    let deleted_count = original_count - new_lines.len();
-    let mut new_content = new_lines.join("\n");
-    if !new_content.is_empty() {
-        new_content.push('\n');
-    }
-
-    let temp_path = format!("{}.aether_tmp", path);
-    fs::write(&temp_path, &new_content)?;
-    fs::rename(&temp_path, &path)?;
-
-    let mut result = BTreeMap::new();
-    result.insert("path".to_string(), Value::Str(path));
-    result.insert(
-        "lines_deleted".to_string(),
-        Value::Int(deleted_count as i64),
-    );
-    result.insert(
-        "lines_remaining".to_string(),
-        Value::Int(new_lines.len() as i64),
-    );
-    result.insert("success".to_string(), Value::Bool(true));
-
-    Ok(Value::Record(result))
+    crate::tx::snapshot(&path);
+    write_file_atomically("file_delete_lines", &path, new_content.as_bytes())?;
+    Ok(Value::Record(BTreeMap::from([
+        ("path".into(), Value::Str(path)),
+        ("lines_deleted".into(), Value::Int(deleted)),
+        ("lines_remaining".into(), Value::Int(remaining)),
+        ("success".into(), Value::Bool(true)),
+    ])))
 }
 
 /// file_edit(path, edits) - Apply structured edits to a file

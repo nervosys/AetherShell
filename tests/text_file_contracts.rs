@@ -68,6 +68,212 @@ fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
 #[test]
+fn delete_lines_preserves_aliases_ranges_and_literal_selectors() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let path = fixture.path("input");
+    for name in ["file_delete_lines", "delete_lines", "remove_lines"] {
+        std::fs::write(&path, "a\r\nb\r\nc").unwrap();
+        let result = diff_record(call(name, vec![s("input"), Value::Int(2)], &mut env).unwrap());
+        assert_eq!(result["path"], s(&path));
+        assert_eq!(result["lines_deleted"], Value::Int(1));
+        assert_eq!(result["lines_remaining"], Value::Int(2));
+        assert_eq!(result["success"], Value::Bool(true));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\nc\n");
+        std::fs::write(&path, "a\nb\nc\n").unwrap();
+        call(
+            name,
+            vec![s("input"), Value::Int(1), Value::Int(2)],
+            &mut env,
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "c\n");
+    }
+    for key in ["matching", "contains", "pattern", "exact"] {
+        std::fs::write(&path, "x\nprefix x\nother\n").unwrap();
+        let selector = Value::Record(std::collections::BTreeMap::from([(key.into(), s("x"))]));
+        call("file_delete_lines", vec![s("input"), selector], &mut env).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            if key == "exact" {
+                "prefix x\nother\n"
+            } else {
+                "other\n"
+            }
+        );
+    }
+    // Patterns are literal, including metacharacters and the empty pattern.
+    std::fs::write(&path, "x\n.*\n").unwrap();
+    call(
+        "delete_lines",
+        vec![
+            s("input"),
+            Value::Record(std::collections::BTreeMap::from([(
+                "pattern".into(),
+                s(".*"),
+            )])),
+        ],
+        &mut env,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "x\n");
+    call(
+        "delete_lines",
+        vec![
+            s("input"),
+            Value::Record(std::collections::BTreeMap::from([(
+                "contains".into(),
+                s(""),
+            )])),
+        ],
+        &mut env,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+}
+#[test]
+fn delete_lines_handles_empty_files_and_ranges_beyond_eof() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    for text in ["", "\n", "a", "a\nb\n"] {
+        std::fs::write(&path, text).unwrap();
+        let result = diff_record(
+            call(
+                "delete_lines",
+                vec![s(&path), Value::Int(i64::MAX)],
+                &mut env,
+            )
+            .unwrap(),
+        );
+        assert_eq!(result["lines_deleted"], Value::Int(0));
+        assert_eq!(
+            result["lines_remaining"],
+            Value::Int(text.lines().count() as i64)
+        );
+        let expected = text
+            .lines()
+            .map(|line| format!("{line}\n"))
+            .collect::<String>();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+        call(
+            "delete_lines",
+            vec![s(&path), Value::Int(1), Value::Int(i64::MAX)],
+            &mut env,
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+    }
+}
+#[test]
+fn delete_lines_refuses_malformed_selections_without_modifying_files() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::fs::write(&path, "original").unwrap();
+    for tail in [
+        vec![],
+        vec![Value::Int(0)],
+        vec![Value::Int(-1)],
+        vec![Value::Float(1.0)],
+        vec![Value::Int(2), Value::Int(1)],
+        vec![Value::Int(1), Value::Int(0)],
+        vec![Value::Int(1), s("2")],
+        vec![Value::Int(1), Value::Int(2), Value::Int(3)],
+        vec![Value::Record(Default::default())],
+        vec![Value::Record(std::collections::BTreeMap::from([(
+            "unknown".into(),
+            s("x"),
+        )]))],
+        vec![Value::Record(std::collections::BTreeMap::from([(
+            "exact".into(),
+            Value::Int(1),
+        )]))],
+        vec![Value::Record(std::collections::BTreeMap::from([
+            ("exact".into(), s("x")),
+            ("contains".into(), s("x")),
+        ]))],
+        vec![
+            Value::Record(std::collections::BTreeMap::from([("exact".into(), s("x"))])),
+            Value::Int(1),
+        ],
+    ] {
+        let mut args = vec![s(&path)];
+        args.extend(tail);
+        code(call("file_delete_lines", args, &mut env), "E_BAD_ARG");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
+    }
+    code(
+        call_with_input(
+            "remove_lines",
+            vec![s(&path), Value::Int(1)],
+            Some(s("ignored")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    // The legacy predictable temporary name is an unrelated file.
+    let unrelated = path.clone() + ".aether_tmp";
+    std::fs::write(&unrelated, "keep").unwrap();
+    call("delete_lines", vec![s(&path), Value::Int(1)], &mut env).unwrap();
+    assert_eq!(std::fs::read_to_string(unrelated).unwrap(), "keep");
+}
+#[test]
+fn delete_lines_codes_read_failures_guards_paths_and_supports_rollback() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    code(
+        call("delete_lines", vec![s("missing"), Value::Int(1)], &mut env),
+        "E_NOT_FOUND",
+    );
+    std::fs::write(&path, [255]).unwrap();
+    code(
+        call("delete_lines", vec![s("input"), Value::Int(1)], &mut env),
+        "E_IO",
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), [255]);
+    let large = fixture.path("large");
+    std::fs::File::create(&large)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    code(
+        call("delete_lines", vec![s("large"), Value::Int(1)], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    std::fs::write(&path, "a\r\nb").unwrap();
+    aethershell::tx::begin().unwrap();
+    call("remove_lines", vec![s("input"), Value::Int(1)], &mut env).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "b\n");
+    aethershell::tx::rollback().unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb");
+    let jail = fixture.root.join("jail");
+    std::fs::create_dir(&jail).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", jail);
+    for name in ["file_delete_lines", "delete_lines", "remove_lines"] {
+        code(
+            call(name, vec![s(&path), Value::Int(1)], &mut env),
+            "E_OUTSIDE_WORKSPACE",
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb");
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_POLICY", "strict");
+    code(
+        call("delete_lines", vec![s("input"), Value::Int(1)], &mut env),
+        "E_NEEDS_APPROVAL",
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb");
+}
+#[test]
 fn file_copy_aliases_preserve_binary_bytes_and_resolve_workspace_paths() {
     let _lock = LOCK.lock().unwrap();
     let fixture = Fixture::new();
