@@ -1598,6 +1598,24 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Return an updated agent copy using Q += learning_rate*(reward + discount*Q(next_state,next_action) - Q), with the next Q-value zero for terminal transitions. Increment steps once and preserve epsilon. Validate dimensions, finite probability rates, counters and unique finite table rows before updating; cap encoding at 64 MiB, actions at 10000 and possible state-action cells at one million. Refuse counter overflow and non-finite computed results.",
         examples: &[(r#"rl_sarsa_update(rl_sarsa_agent("example", 2, 2), 0, 1, 5, 1, 0, true).steps"#, "1"), (r#"let result = rl_sarsa_agent("example", 2, 2) | rl_sarsa_update(0, 1, 5, 1, 0, false); result.steps"#, "1")],
     },
+    Signature {
+        name: "rl_pg_agent", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "agent name"), req("state_dim", Ty::Int, "positive state width"), req("action_size", Ty::Int, "positive action count; at most 10000")], returns: "Record",
+        doc: "Create a linear softmax policy with random weights in [-0.1,0.1), fixed learning_rate 0.01 and discount 0.99. Refuse more than one million weights before allocation. No configuration argument is supported. Start with empty episode history and zero completed episodes.",
+        examples: &[(r#"rl_pg_agent("example", 2, 3).action_size"#, "3")],
+    },
+    Signature {
+        name: "rl_pg_step", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("state", Ty::Array, "exactly state_dim finite numbers"), req("action", Ty::Int, "in 0..action_size"), req("reward", Ty::Numeric, "finite reward")], returns: "Record",
+        doc: "Return an agent copy with one recorded step; do not update weights or completed-episode count. Validate encoded dimensions, weight shapes, rates, counters and aligned episode arrays. Limit encoding to 64 MiB, episode length to 10000 and stored state values to one million. Refuse wrong-width/non-finite states and invalid actions/rewards.",
+        examples: &[(r#"rl_pg_step(rl_pg_agent("example", 2, 2), [1, 0], 1, 5).episodes"#, "0"), (r#"let result = rl_pg_agent("example", 2, 2) | rl_pg_step([1, 0], 1, 5); result.episodes"#, "0")],
+    },
+    Signature {
+        name: "rl_pg_episode_end", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[], returns: "Record",
+        doc: "Return an agent copy updated by REINFORCE: compute discounted returns, subtract their mean, then update linear softmax weights sequentially in recorded step order. A nonempty episode clears all history arrays and increments episodes once; an empty episode remains unchanged. Validate encoded state as in rl_pg_step; refuse counter overflow, more than ten million weight-step pairs or non-finite computed weights.",
+        examples: &[(r#"rl_pg_episode_end(rl_pg_agent("example", 2, 2)).episodes"#, "0"), (r#"let result = rl_pg_agent("example", 2, 2) | rl_pg_step([1, 0], 1, 5) | rl_pg_episode_end; result.episodes"#, "1")],
+    },
     // Source-reviewed neural operations; serialized networks are validated.
     Signature {
         name: "nn_create", category: None, subject_required: false, aliases: &[], subject: None,

@@ -15353,96 +15353,172 @@ fn bi_rl_sarsa_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     sarsa_agent_to_value(&agent)
 }
 
-/// Create a Policy Gradient agent
-fn bi_rl_pg_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    if args.len() < 3 {
+fn pg_dimensions(state_dim: usize, action_size: usize) -> Result<usize> {
+    if state_dim == 0 || action_size == 0 {
         return Err(crate::safety::arg_err(
-            "rl_pg_agent requires: name, state_dim, action_size",
+            "policy-gradient dimensions must be positive",
         ));
     }
-
-    let name = match &args[0] {
-        Value::Str(s) => s.clone(),
-        _ => return Err(crate::safety::arg_err("name must be string")),
-    };
-
-    let state_dim = match &args[1] {
-        Value::Int(n) => *n as usize,
-        _ => return Err(crate::safety::arg_err("state_dim must be integer")),
-    };
-
-    let action_size = match &args[2] {
-        Value::Int(n) => *n as usize,
-        _ => return Err(crate::safety::arg_err("action_size must be integer")),
-    };
-
-    let agent = PolicyGradientAgent::new(&name, state_dim, action_size, 0.01, 0.99);
-    pg_agent_to_value(&agent)
+    state_dim
+        .checked_mul(action_size)
+        .filter(|n| *n <= MAX_RL_CELLS && action_size <= 10000)
+        .ok_or_else(|| {
+            crate::safety::budget_exceeded(
+                "rl_pg",
+                "policy exceeds 10000 actions or one million weights".into(),
+                "use a smaller policy",
+            )
+        })
 }
 
-/// Record step for Policy Gradient agent
-fn bi_rl_pg_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    if args.len() < 4 {
-        return Err(crate::safety::arg_err(
-            "rl_pg_step requires: agent, state, action, reward",
+fn pg_history_budget(state_dim: usize, steps: usize) -> Result<()> {
+    if steps > 10000
+        || state_dim
+            .checked_mul(steps)
+            .is_none_or(|n| n > MAX_RL_CELLS)
+    {
+        return Err(crate::safety::budget_exceeded(
+            "rl_pg",
+            "episode exceeds 10000 steps or one million stored state values".into(),
+            "finish a shorter episode",
         ));
     }
+    Ok(())
+}
 
-    let mut agent = value_to_pg_agent(&args[0])?;
-
-    let state: Vec<f64> = match &args[1] {
-        Value::Array(arr) => arr
+fn validate_pg_agent(agent: &PolicyGradientAgent) -> Result<()> {
+    pg_dimensions(agent.state_dim, agent.action_size)?;
+    pg_history_budget(agent.state_dim, agent.episode_states.len())?;
+    if agent.weights.len() != agent.action_size
+        || agent
+            .weights
             .iter()
-            .map(|v| match v {
-                Value::Float(f) => Ok(*f),
-                Value::Int(i) => Ok(*i as f64),
-                _ => Err(anyhow!("state elements must be numbers")),
-            })
-            .collect::<Result<Vec<_>>>()?,
-        _ => return Err(crate::safety::arg_err("state must be array")),
-    };
+            .any(|row| row.len() != agent.state_dim || row.iter().any(|v| !v.is_finite()))
+    {
+        return Err(crate::safety::arg_err(
+            "policy weights must match dimensions and be finite",
+        ));
+    }
+    if [agent.learning_rate, agent.discount]
+        .iter()
+        .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+        || i64::try_from(agent.episodes).is_err()
+    {
+        return Err(crate::safety::arg_err(
+            "policy rates must be finite probabilities and episodes must fit Int",
+        ));
+    }
+    if agent.episode_actions.len() != agent.episode_states.len()
+        || agent.episode_rewards.len() != agent.episode_states.len()
+        || agent
+            .episode_states
+            .iter()
+            .any(|row| row.len() != agent.state_dim || row.iter().any(|v| !v.is_finite()))
+        || agent
+            .episode_actions
+            .iter()
+            .any(|a| *a >= agent.action_size)
+        || agent.episode_rewards.iter().any(|v| !v.is_finite())
+    {
+        return Err(crate::safety::arg_err("episode states, actions and rewards must have equal lengths, valid shapes/indices and finite values"));
+    }
+    Ok(())
+}
 
-    let action = match &args[2] {
-        Value::Int(a) => *a as usize,
-        _ => return Err(crate::safety::arg_err("action must be integer")),
-    };
+/// Create a linear softmax policy with fixed default rates.
+fn bi_rl_pg_agent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = expect_string(
+        "rl_pg_agent",
+        args.first()
+            .ok_or_else(|| crate::safety::arg_err("rl_pg_agent requires name"))?,
+    )?;
+    let state_dim = rl_positive_size(
+        "rl_pg_agent",
+        args.get(1)
+            .ok_or_else(|| crate::safety::arg_err("rl_pg_agent requires state_dim"))?,
+    )?;
+    let action_size = rl_positive_size(
+        "rl_pg_agent",
+        args.get(2)
+            .ok_or_else(|| crate::safety::arg_err("rl_pg_agent requires action_size"))?,
+    )?;
+    pg_dimensions(state_dim, action_size)?;
+    pg_agent_to_value(&PolicyGradientAgent::new(
+        &name,
+        state_dim,
+        action_size,
+        0.01,
+        0.99,
+    ))
+}
 
-    let reward = match &args[3] {
-        Value::Float(r) => *r,
-        Value::Int(r) => *r as f64,
-        _ => return Err(crate::safety::arg_err("reward must be number")),
+/// Append a validated step without updating policy weights.
+fn bi_rl_pg_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let piped = input.is_some();
+    let value = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| crate::safety::arg_err("rl_pg_step requires agent"))?;
+    let mut agent = value_to_pg_agent(&value)?;
+    let idx = usize::from(!piped);
+    let arg = |offset| {
+        args.get(idx + offset)
+            .ok_or_else(|| crate::safety::arg_err("rl_pg_step requires state, action, reward"))
     };
-
+    let Value::Array(values) = arg(0)? else {
+        return Err(crate::safety::arg_err("rl_pg_step state must be Array"));
+    };
+    if values.len() != agent.state_dim {
+        return Err(crate::safety::arg_err(
+            "rl_pg_step state must match state_dim",
+        ));
+    }
+    pg_history_budget(agent.state_dim, agent.episode_states.len() + 1)?;
+    let state = values
+        .iter()
+        .map(|v| finite_nn_number("rl_pg_step state", v))
+        .collect::<Result<Vec<_>>>()?;
+    let action = rl_index("rl_pg_step action", arg(1)?, agent.action_size)?;
+    let reward = finite_nn_number("rl_pg_step reward", arg(2)?)?;
     agent.record_step(state, action, reward);
     pg_agent_to_value(&agent)
 }
 
-/// End episode for Policy Gradient agent (triggers update)
+/// Finish a nonempty episode using REINFORCE, preserving empty episodes.
 fn bi_rl_pg_episode_end(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    if args.is_empty() {
-        return Err(crate::safety::arg_err("rl_pg_episode_end requires: agent"));
+    let value = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| crate::safety::arg_err("rl_pg_episode_end requires agent"))?;
+    let mut agent = value_to_pg_agent(&value)?;
+    if !agent.episode_states.is_empty() {
+        if agent
+            .episodes
+            .checked_add(1)
+            .is_none_or(|n| i64::try_from(n).is_err())
+        {
+            return Err(crate::safety::arg_err(
+                "rl_pg_episode_end episode counter overflow",
+            ));
+        }
+        let weights = pg_dimensions(agent.state_dim, agent.action_size)?;
+        if weights
+            .checked_mul(agent.episode_states.len())
+            .is_none_or(|n| n > 10_000_000)
+        {
+            return Err(crate::safety::budget_exceeded(
+                "rl_pg_episode_end",
+                "episode exceeds ten million weight-step pairs".into(),
+                "use a smaller policy or shorter episode",
+            ));
+        }
+        agent.end_episode();
+        validate_pg_agent(&agent).map_err(|_| {
+            crate::safety::bad_state(
+                "rl_pg_episode_end",
+                "non-finite policy-gradient result",
+                "the update exceeded the numeric range",
+            )
+        })?;
     }
-
-    let mut agent = value_to_pg_agent(&args[0])?;
-    agent.end_episode();
     pg_agent_to_value(&agent)
 }
 
@@ -15933,7 +16009,15 @@ fn value_to_sarsa_agent(value: &Value) -> Result<SarsaAgent> {
 }
 
 fn pg_agent_to_value(agent: &PolicyGradientAgent) -> Result<Value> {
+    validate_pg_agent(agent)?;
     let json = serde_json::to_string(agent).context("Failed to serialize PG agent")?;
+    if json.len() > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            "rl_pg",
+            "policy encoding exceeds 64 MiB".into(),
+            "use a smaller agent",
+        ));
+    }
 
     let mut rec = BTreeMap::new();
     rec.insert(
@@ -15952,20 +16036,33 @@ fn pg_agent_to_value(agent: &PolicyGradientAgent) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-fn value_to_pg_agent(v: &Value) -> Result<PolicyGradientAgent> {
-    if let Value::Record(rec) = v {
-        if let Some(Value::Str(data)) = rec.get("_data") {
-            serde_json::from_str(data).context("Failed to deserialize PG agent")
-        } else {
-            Err(crate::safety::arg_err("Invalid PG agent: missing _data"))
-        }
-    } else {
-        Err(crate::safety::bad_arg(
-            "rl_pg_episode_end",
-            "a policy-gradient agent record",
-            "something else",
-        ))
+fn value_to_pg_agent(value: &Value) -> Result<PolicyGradientAgent> {
+    let Value::Record(record) = value else {
+        return Err(crate::safety::arg_err(
+            "policy-gradient agent must be Record",
+        ));
+    };
+    let Some(Value::Str(data)) = record.get("_data") else {
+        return Err(crate::safety::arg_err(
+            "policy-gradient agent requires _data: String",
+        ));
+    };
+    if data.len() > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            "rl_pg",
+            "policy encoding exceeds 64 MiB".into(),
+            "use a smaller agent",
+        ));
     }
+    let agent: PolicyGradientAgent = serde_json::from_str(data).map_err(|e| {
+        crate::safety::bad_arg(
+            "rl_pg",
+            "valid encoded policy-gradient agent",
+            &e.to_string(),
+        )
+    })?;
+    validate_pg_agent(&agent)?;
+    Ok(agent)
 }
 
 fn ac_agent_to_value(agent: &ActorCriticAgent) -> Result<Value> {
