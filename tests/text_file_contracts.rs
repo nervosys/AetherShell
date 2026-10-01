@@ -71,6 +71,165 @@ fn edit_record(fields: Vec<(&str, Value)>) -> Value {
     Value::Record(fields.into_iter().map(|(k, v)| (k.into(), v)).collect())
 }
 #[test]
+fn chown_refuses_invalid_ids_and_conflicting_calls_without_changes() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::fs::write(&path, "unchanged").unwrap();
+    for owner in [
+        Value::Int(-1),
+        Value::Int(4_294_967_295),
+        Value::Int(i64::MAX),
+        Value::Float(1.0),
+        s("1"),
+        Value::Bool(true),
+    ] {
+        code(
+            call("fs_chown", vec![s(&path), owner.clone()], &mut env),
+            "E_BAD_ARG",
+        );
+        code(
+            call("fs_chown", vec![s(&path), Value::Int(0), owner], &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    for args in [
+        vec![],
+        vec![s(&path)],
+        vec![Value::Int(1), Value::Int(0)],
+        vec![s(&path), Value::Int(0), Value::Int(0), s("ignored")],
+    ] {
+        code(call("fs_chown", args, &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input(
+            "fs_chown",
+            vec![s(&path), Value::Int(0)],
+            Some(s("ignored")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
+}
+#[test]
+fn chown_guards_paths_and_refuses_untracked_transaction_changes() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::fs::write(&path, "unchanged").unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    aethershell::tx::begin().unwrap();
+    code(
+        call("fs_chown", vec![s("input"), Value::Int(0)], &mut env),
+        "E_UNIMPLEMENTED",
+    );
+    aethershell::tx::rollback().unwrap();
+    let jail = fixture.root.join("jail");
+    std::fs::create_dir(&jail).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", jail);
+    code(
+        call("fs_chown", vec![s(&path), Value::Int(0)], &mut env),
+        "E_OUTSIDE_WORKSPACE",
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
+}
+#[cfg(not(unix))]
+#[test]
+fn chown_reports_non_unix_support_explicitly_instead_of_false() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::fs::write(&path, "unchanged").unwrap();
+    for args in [
+        vec![s(&path), Value::Int(0)],
+        vec![
+            s(&path),
+            Value::Int(4_294_967_294),
+            Value::Int(4_294_967_294),
+        ],
+        vec![s(&fixture.path("missing")), Value::Int(0)],
+    ] {
+        code(call("fs_chown", args, &mut env), "E_UNIMPLEMENTED");
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
+}
+#[cfg(unix)]
+#[test]
+fn chown_native_calls_preserve_omitted_group_and_code_missing_files() {
+    use std::os::unix::fs::MetadataExt;
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let path = fixture.path("-owned");
+    std::fs::write(&path, "unchanged").unwrap();
+    let before = std::fs::metadata(&path).unwrap();
+    assert_eq!(
+        call(
+            "fs_chown",
+            vec![s("-owned"), Value::Int(before.uid() as i64)],
+            &mut env
+        )
+        .unwrap(),
+        Value::Bool(true)
+    );
+    assert_eq!(std::fs::metadata(&path).unwrap().gid(), before.gid());
+    assert_eq!(
+        call(
+            "fs_chown",
+            vec![
+                s("-owned"),
+                Value::Int(before.uid() as i64),
+                Value::Int(before.gid() as i64)
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Bool(true)
+    );
+    let after = std::fs::metadata(&path).unwrap();
+    assert_eq!((after.uid(), after.gid()), (before.uid(), before.gid()));
+    code(
+        call(
+            "fs_chown",
+            vec![s("missing"), Value::Int(before.uid() as i64)],
+            &mut env,
+        ),
+        "E_NOT_FOUND",
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
+    let jail = fixture.root.join("jail");
+    std::fs::create_dir(&jail).unwrap();
+    std::os::unix::fs::symlink(&path, jail.join("alias")).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", jail);
+    code(
+        call(
+            "fs_chown",
+            vec![s("alias"), Value::Int(before.uid() as i64)],
+            &mut env,
+        ),
+        "E_OUTSIDE_WORKSPACE",
+    );
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let audit = fixture.root.join("audit.log");
+    if !audit.exists() {
+        std::fs::write(&audit, "owned audit fixture").unwrap();
+    }
+    std::os::unix::fs::symlink(&audit, fixture.root.join("audit-alias")).unwrap();
+    code(
+        call(
+            "fs_chown",
+            vec![s("audit-alias"), Value::Int(before.uid() as i64)],
+            &mut env,
+        ),
+        "E_OUTSIDE_WORKSPACE",
+    );
+}
+#[test]
 fn structured_edits_support_aliases_pipes_and_descending_operation_order() {
     let _lock = LOCK.lock().unwrap();
     let fixture = Fixture::new();

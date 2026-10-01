@@ -43,6 +43,7 @@ fn ok(name: &str, args: Vec<Value>) -> Value {
 ///
 /// Every entry says what it depends on.
 const MACHINE_DEPENDENT: &[(&str, &str)] = &[
+    ("fs_chown", "native Unix ownership; non-Unix returns E_UNIMPLEMENTED; Unix examples use only owned temporary files and their existing owner/group"),
     ("sys_mem_info", "the OS memory query and current memory usage"),
     ("sys_swap_info", "the OS memory query and configured swap"),
     ("db_sqlite_import", "the sqlite3 CLI; example uses a disposable database"),

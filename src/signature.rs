@@ -371,6 +371,15 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"let d = fs_tempdir("ae_edit"); let f = d + "/x"; file_write(f, "a\nb"); let result = file_edit(f, {op: "replace", line: 2, content: "x"}); rmdir(d, true); result.edits_applied"#, "1"), (r#"let d = fs_tempdir("ae_edit_pipe"); let f = d + "/x"; file_write(f, "a"); let result = [{operation: "insert_at", line: 2, text: "b"}] | edit_file(f); rmdir(d, true); result.final_lines"#, "2")],
     },
     Signature {
+        name: "fs_chown", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("path", Ty::Str, "filesystem path; symlinks affect their target"), req("owner", Ty::Int, "numeric Unix owner ID from 0 through 4294967294"), opt("group", Ty::Int, "numeric Unix group ID in the same range; omitted preserves the existing group")], returns: "Bool",
+        doc: "Set ownership through the native Unix API and return true or a coded filesystem refusal, without launching a process. Guard the resolved path. Refuse non-Unix platforms and active filesystem transactions with E_UNIMPLEMENTED; reject reserved IDs, malformed or ignored arguments and pipeline input. Native ownership changes may clear special mode bits and capabilities.",
+        examples: &[
+            (r#"let d = fs_tempdir("ae_chown"); let f = d + "/x"; file_write(f, "hi"); let m = fs_stat(f); let result = if sys_os() == "windows" { [rmdir(d, true), fs_chown(f, 0)] } else { fs_chown(f, m.uid) }; rmdir(d, true); result"#, "true"),
+            (r#"let d = fs_tempdir("ae_chown_group"); let f = d + "/x"; file_write(f, "hi"); let m = fs_stat(f); let result = if sys_os() == "windows" { [rmdir(d, true), fs_chown(f, 0, 0)] } else { fs_chown(f, m.uid, m.gid) }; rmdir(d, true); result"#, "true"),
+        ],
+    },
+    Signature {
         name: "fs_chmod", category: None, subject_required: false, aliases: &["chmod"],
         subject: None, params: &[req("path", Ty::Str, "existing filesystem path"), req("mode", Ty::Any, "Int in 0..=07777 or octal String, optionally prefixed 0o")], returns: "Bool",
         doc: "Set Unix mode bits; on Windows set the read-only attribute from the owner-write bit only. Return true or a coded failure. Resolve and guard the path before changing permissions. Refuse pipeline input and active filesystem transactions because their journal does not reliably restore permission metadata.",

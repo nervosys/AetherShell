@@ -27,7 +27,7 @@ use crate::{
     security::{
         check_file_size_limit, check_rate_limit, create_secure_http_client, validate_ai_prompt,
         validate_hostname_or_ip, validate_http_url, validate_integer_param, validate_read_path,
-        validate_safe_path, validate_sh_allowed,
+        validate_sh_allowed,
     },
     shell_features::{Parameter, ParameterSet, ParameterType, PipelineInputType},
     value::{Lambda, Value},
@@ -23164,50 +23164,57 @@ fn bi_fs_chmod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Bool(true))
 }
 
-fn bi_fs_chown(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "fs_chown",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
+fn bi_fs_chown(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !(2..=3).contains(&args.len()) || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "fs_chown requires path, owner ID and optional group ID, without pipeline input",
+        ));
+    }
+    fn id(value: Value) -> Result<u32> {
+        match value {
+            Value::Int(n) if (0..i64::from(u32::MAX)).contains(&n) => Ok(n as u32),
+            _ => Err(crate::safety::arg_err("fs_chown IDs must be Int in 0..4294967295, excluding the reserved unchanged sentinel")),
         }
+    }
+    let mut args = args.into_iter();
+    let Some(Value::Str(path)) = args.next() else {
+        return Err(crate::safety::arg_err("fs_chown path must be String"));
     };
-    let uid = match args.get(1) {
-        Some(Value::Int(u)) => *u,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "fs_chown",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let gid = match args.get(2) {
-        Some(Value::Int(g)) => *g,
-        _ => uid,
-    };
-
-    // Security: validate path to prevent traversal attacks
-    let _validated_path = validate_safe_path(&path)?;
-    // Security: validate UID/GID integers
-    validate_integer_param(uid, "UID")?;
-    validate_integer_param(gid, "GID")?;
-
+    let owner = args
+        .next()
+        .map(id)
+        .transpose()?
+        .ok_or_else(|| crate::safety::arg_err("fs_chown requires owner ID"))?;
+    let group = args.next().map(id).transpose()?;
+    let path = crate::safety::resolve_path_str(&path);
+    #[cfg(unix)]
+    let path = fs::canonicalize(&path)
+        .map_err(|e| crate::safety::fs_error("fs_chown", &path, &e))?
+        .into_os_string()
+        .into_string()
+        .map_err(|_| crate::safety::arg_err("fs_chown resolved target must be valid UTF-8"))?;
+    let path = guard_local_write("fs_chown", &path)?;
+    if crate::tx::is_active() {
+        return Err(crate::safety::unimplemented(
+            "fs_chown",
+            "ownership changes within filesystem transactions are not implemented",
+            "change ownership outside the transaction",
+        ));
+    }
     #[cfg(unix)]
     {
-        let output = std::process::Command::new("chown")
-            .args([&format!("{}:{}", uid, gid), &path])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("fs_chown", "chown", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+        std::os::unix::fs::chown(&path, Some(owner), group)
+            .map_err(|e| crate::safety::fs_error("fs_chown", &path, &e))?;
+        Ok(Value::Bool(true))
     }
     #[cfg(not(unix))]
     {
-        let _ = (path, uid, gid);
-        Ok(Value::Bool(false))
+        let _ = (path, owner, group);
+        Err(crate::safety::unimplemented(
+            "fs_chown",
+            "Unix numeric ownership is unavailable on this platform",
+            "use the platform's ownership and access-control tools",
+        ))
     }
 }
 
