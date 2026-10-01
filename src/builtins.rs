@@ -13897,14 +13897,10 @@ fn evolution_operation(
     }
 }
 
-fn run_population_operation<G: crate::evolution::Evolvable>(
+fn check_population_work<G: crate::evolution::Evolvable>(
     name: &str,
-    pop: &mut Population<G>,
-    lambda: &Lambda,
-    env: &mut Env,
+    pop: &Population<G>,
     generations: Option<usize>,
-    encode: impl Fn(&G) -> Result<Value>,
-    validate: impl Fn(&G) -> Result<()>,
 ) -> Result<()> {
     let count = generations.unwrap_or(1);
     let parameters: usize = pop
@@ -13943,6 +13939,20 @@ fn run_population_operation<G: crate::evolution::Evolvable>(
             "evolution generation or individual ID overflow",
         ));
     }
+    Ok(())
+}
+
+fn run_population_operation<G: crate::evolution::Evolvable>(
+    name: &str,
+    pop: &mut Population<G>,
+    lambda: &Lambda,
+    env: &mut Env,
+    generations: Option<usize>,
+    encode: impl Fn(&G) -> Result<Value>,
+    validate: impl Fn(&G) -> Result<()>,
+) -> Result<()> {
+    check_population_work(name, pop, generations)?;
+    let count = generations.unwrap_or(1);
     for _ in 0..count {
         // Populate the cache fallibly before entering the infallible engine.
         // A failed callback never becomes a zero score or triggers another call.
@@ -14402,65 +14412,167 @@ fn bi_evolution_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     Ok(Value::Record(result))
 }
 
-/// coevolve(populations, fitness_fn, generations)
-/// Run coevolution across multiple populations
+/// Decoded population variants retained during batch preflight.
+enum EvolutionPopulation {
+    Neural(Population<NeuralNetwork>),
+    Vector(Population<Vec<f64>>),
+}
+
+/// Evolve populations independently after validating the complete batch.
 fn bi_coevolve(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    let has_input = input.is_some();
-    let pops_val = input
+    let piped = input.is_some();
+    let value = input
         .or_else(|| args.first().cloned())
         .ok_or_else(|| crate::safety::arg_err("coevolve requires populations array"))?;
-
-    let pops_arr = expect_array("coevolve", &pops_val)?;
-
-    let idx = if has_input { 0 } else { 1 };
-    let fitness_fn = args
-        .get(idx)
-        .ok_or_else(|| crate::safety::arg_err("coevolve requires fitness function"))?;
-    let lambda = need_lambda(fitness_fn, "coevolve")?.clone();
-
-    let generations = args
-        .get(idx + 1)
-        .map(|v| expect_int("coevolve", v))
-        .transpose()?
-        .unwrap_or(10) as usize;
-
-    // For simplicity, evolve each population with fitness relative to others
-    let mut results = Vec::new();
-    for pop_val in pops_arr {
-        let genome_type = get_population_genome_type(pop_val)?;
-
-        match genome_type.as_str() {
-            "nn" => {
-                let mut pop = value_to_population_nn(pop_val)?;
-                for _ in 0..generations {
-                    pop.evolve(|genome| {
-                        let genome_val = nn_to_value(genome).unwrap_or(Value::Null);
-                        let result =
-                            call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
-                        let score = value_to_f64(&result).unwrap_or(0.0);
-                        FitnessResult::new(score)
-                    });
+    let values = expect_array("coevolve", &value)?;
+    let idx = usize::from(!piped);
+    let lambda = need_lambda(
+        args.get(idx)
+            .ok_or_else(|| crate::safety::arg_err("coevolve requires fitness function"))?,
+        "coevolve",
+    )?
+    .clone();
+    if lambda.params.len() != 1 {
+        return Err(crate::safety::arg_err(
+            "coevolve: fitness function must take exactly one genome parameter",
+        ));
+    }
+    let generations = match args.get(idx + 1) {
+        None => 10,
+        Some(Value::Int(n)) => usize::try_from(*n)
+            .map_err(|_| crate::safety::arg_err("coevolve: generations must be non-negative"))?,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "coevolve",
+                "generations: Int",
+                other.type_name(),
+            ))
+        }
+    };
+    let budget = || {
+        crate::safety::budget_exceeded(
+            "coevolve",
+            "combined population, encoding, history or work budget exceeded".into(),
+            "use fewer or smaller populations and fewer generations",
+        )
+    };
+    if values.len() > MAX_EVOLUTION_POPULATION || generations > MAX_EVOLUTION_GENERATIONS {
+        return Err(budget());
+    }
+    let mut bytes = 0usize;
+    for value in values {
+        if let Value::Record(record) = value {
+            for key in ["_individuals", "_config"] {
+                if let Some(Value::Str(data)) = record.get(key) {
+                    bytes = bytes
+                        .checked_add(data.len())
+                        .filter(|n| *n <= 64 * 1024 * 1024)
+                        .ok_or_else(&budget)?;
                 }
-                results.push(population_to_value(&pop, "nn")?);
             }
-            "vec" => {
-                let mut pop = value_to_population_vec(pop_val)?;
-                for _ in 0..generations {
-                    pop.evolve(|genome| {
-                        let genome_val =
-                            Value::Array(genome.iter().map(|&f| Value::Float(f)).collect());
-                        let result =
-                            call_lambda(&lambda, &[genome_val], env).unwrap_or(Value::Float(0.0));
-                        let score = value_to_f64(&result).unwrap_or(0.0);
-                        FitnessResult::new(score)
-                    });
-                }
-                results.push(population_to_value(&pop, "vec")?);
-            }
-            _ => return Err(anyhow!("Unknown genome type: {}", genome_type)),
         }
     }
-
+    // Decode and preflight the complete batch before invoking any callback.
+    let mut populations = Vec::with_capacity(values.len());
+    let mut individuals = 0usize;
+    let mut parameters = 0usize;
+    let mut history = 0usize;
+    for value in values {
+        let (population, size, params, entries) = match get_population_genome_type(value)?.as_str()
+        {
+            "nn" => {
+                let pop = value_to_population_nn(value)?;
+                check_population_work("coevolve", &pop, Some(generations))?;
+                let params = pop
+                    .individuals
+                    .iter()
+                    .map(|individual| individual.genome.param_count())
+                    .sum::<usize>();
+                let size = pop.individuals.len();
+                let entries = pop.stats.fitness_history.len();
+                (EvolutionPopulation::Neural(pop), size, params, entries)
+            }
+            "vec" => {
+                let pop = value_to_population_vec(value)?;
+                check_population_work("coevolve", &pop, Some(generations))?;
+                let params = pop
+                    .individuals
+                    .iter()
+                    .map(|individual| individual.genome.len())
+                    .sum::<usize>();
+                let size = pop.individuals.len();
+                let entries = pop.stats.fitness_history.len();
+                (EvolutionPopulation::Vector(pop), size, params, entries)
+            }
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "coevolve",
+                    "population genome_type: nn or vec",
+                    other,
+                ))
+            }
+        };
+        individuals = individuals
+            .checked_add(size)
+            .filter(|n| *n <= MAX_EVOLUTION_POPULATION)
+            .ok_or_else(&budget)?;
+        parameters = parameters
+            .checked_add(params)
+            .filter(|n| *n <= MAX_NN_PARAMETERS)
+            .ok_or_else(&budget)?;
+        history = history
+            .checked_add(entries)
+            .filter(|n| *n <= MAX_EVOLUTION_GENERATIONS)
+            .ok_or_else(&budget)?;
+        populations.push(population);
+    }
+    if individuals
+        .checked_mul(generations)
+        .is_none_or(|n| n > 100_000)
+        || parameters
+            .checked_mul(generations)
+            .is_none_or(|n| n > 10_000_000)
+        || populations
+            .len()
+            .checked_mul(generations)
+            .and_then(|n| history.checked_add(n))
+            .is_none_or(|n| n > MAX_EVOLUTION_GENERATIONS)
+    {
+        return Err(budget());
+    }
+    let mut results = Vec::with_capacity(populations.len());
+    for population in populations {
+        match population {
+            EvolutionPopulation::Neural(mut pop) => {
+                run_population_operation(
+                    "coevolve",
+                    &mut pop,
+                    &lambda,
+                    env,
+                    Some(generations),
+                    nn_to_value,
+                    validate_nn,
+                )?;
+                results.push(population_to_value(&pop, "nn")?);
+            }
+            EvolutionPopulation::Vector(mut pop) => {
+                run_population_operation(
+                    "coevolve",
+                    &mut pop,
+                    &lambda,
+                    env,
+                    Some(generations),
+                    |genome| {
+                        Ok(Value::Array(
+                            genome.iter().copied().map(Value::Float).collect(),
+                        ))
+                    },
+                    |genome| validate_vector_genome(genome),
+                )?;
+                results.push(population_to_value(&pop, "vec")?);
+            }
+        }
+    }
     Ok(Value::Array(results))
 }
 

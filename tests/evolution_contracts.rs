@@ -411,3 +411,176 @@ fn work_and_history_budgets_are_checked_before_callbacks() {
         "E_BUDGET_EXCEEDED",
     );
 }
+
+#[test]
+fn coevolve_preserves_order_and_checks_all_states_before_callbacks() {
+    let mut env = Env::new();
+    let vector = population("vec", &mut env);
+    let neural = population("nn", &mut env);
+    let result = call_with_input(
+        "coevolve",
+        vec![lambda("fn(g) => 1"), Value::Int(2)],
+        Some(Value::Array(vec![vector.clone(), neural.clone()])),
+        &mut env,
+    )
+    .unwrap();
+    let Value::Array(results) = result else {
+        panic!("expected Array")
+    };
+    for (index, name) in ["vec", "nn"].into_iter().enumerate() {
+        assert_eq!(
+            fields(&results[index])["genome_type"],
+            Value::Str(name.into())
+        );
+        assert_eq!(fields(&results[index])["generation"], Value::Int(2));
+        assert_eq!(fields(&results[index])["next_id"], Value::Int(9));
+        assert_eq!(
+            fields(&fields(&results[index])["stats"])["history"],
+            Value::Array(vec![Value::Float(1.0); 2])
+        );
+    }
+    let malformed = changed(&neural, "_individuals", |data| {
+        *data = serde_json::json!([])
+    });
+    let error = call(
+        "coevolve",
+        vec![
+            Value::Array(vec![vector, malformed]),
+            lambda("fn(g) => missing_fitness_callback()"),
+            Value::Int(1),
+        ],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
+    assert!(
+        !error.to_string().contains("missing_fitness_callback"),
+        "callback ran before validation: {error}"
+    );
+}
+
+#[test]
+fn coevolve_refuses_combined_work_and_size_budgets() {
+    let mut env = Env::new();
+    let initial = population("vec", &mut env);
+    let wide = changed(&initial, "_individuals", |data| {
+        for individual in data.as_array_mut().unwrap() {
+            individual["genome"] = serde_json::json!(vec![1.0; 1000]);
+        }
+    });
+    error_code(
+        call(
+            "coevolve",
+            vec![
+                Value::Array(vec![wide.clone(), wide]),
+                lambda("fn(g) => missing_fitness_callback()"),
+                Value::Int(2000),
+            ],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+    error_code(
+        call(
+            "coevolve",
+            vec![
+                Value::Array(vec![initial.clone(), initial]),
+                lambda("fn(g) => missing_fitness_callback()"),
+                Value::Int(6000),
+            ],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+    let pop = call(
+        "population",
+        vec![Value::Int(60), Value::Str("vec".into())],
+        &mut env,
+    )
+    .unwrap();
+    // Each population fits the individual work limit, but their sum does not.
+    error_code(
+        call(
+            "coevolve",
+            vec![
+                Value::Array(vec![pop.clone(), pop]),
+                lambda("fn(g) => missing_fitness_callback()"),
+                Value::Int(1000),
+            ],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+    let pop = call(
+        "population",
+        vec![Value::Int(6000), Value::Str("vec".into())],
+        &mut env,
+    )
+    .unwrap();
+    error_code(
+        call(
+            "coevolve",
+            vec![
+                Value::Array(vec![pop.clone(), pop]),
+                lambda("fn(g) => missing_fitness_callback()"),
+                Value::Int(0),
+            ],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+}
+
+#[test]
+fn coevolve_callbacks_and_generation_options_have_strict_contracts() {
+    let mut env = Env::new();
+    let initial = population("vec", &mut env);
+    let batch = Value::Array(vec![initial]);
+    for callback in [lambda("fn(g) => \"bad\""), lambda("fn(a, b) => 1")] {
+        error_code(
+            call("coevolve", vec![batch.clone(), callback], &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    let error = call(
+        "coevolve",
+        vec![batch.clone(), lambda("fn(g) => missing_fitness_callback()")],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("missing_fitness_callback"),
+        "{error}"
+    );
+    for count in [Value::Int(-1), Value::Float(1.0)] {
+        error_code(
+            call(
+                "coevolve",
+                vec![batch.clone(), lambda("fn(g) => 1"), count],
+                &mut env,
+            ),
+            "E_BAD_ARG",
+        );
+    }
+    assert_eq!(
+        call(
+            "coevolve",
+            vec![Value::Array(vec![]), lambda("fn(g) => 1"), Value::Int(0)],
+            &mut env
+        )
+        .unwrap(),
+        Value::Array(vec![])
+    );
+    error_code(
+        call(
+            "coevolve",
+            vec![
+                Value::Array(vec![]),
+                lambda("fn(g) => 1"),
+                Value::Int(10001),
+            ],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+}

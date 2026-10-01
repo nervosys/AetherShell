@@ -1562,6 +1562,12 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Return genome, finite fitness, generation and id for the highest-scoring individual in a validated, fully evaluated population. Refuse missing fitness with E_BAD_STATE; call fitness to evaluate fresh populations and offspring. Equal scores select the last matching individual. Encoded population limits match fitness.",
         examples: &[(r#"best_individual(fitness(population(3, "vec"), fn(g) => 7)).fitness"#, "7"), (r#"let result = population(3, "nn") | fitness(fn(g) => 1) | best_individual; result.fitness"#, "1")],
     },
+    Signature {
+        name: "coevolve", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Array),
+        params: &[req("fitness_fn", Ty::Lambda, "one genome parameter; finite numeric result"), opt("generations", Ty::Int, "0..=10000; default 10 independently of stored configurations")], returns: "Array",
+        doc: "Evolve each population independently with the same callback, in input order; no cross-population fitness or mating is performed. Allow an empty batch. Validate every population and counter before callbacks, propagate callback failures immediately, and preserve caches, histories and IDs. Use evolve semantics for parent statistics and unevaluated offspring. Combined batch limits: 64 MiB encoding, 10000 populations/individuals, one million genome parameters, 10000 existing plus requested history entries, 100000 individual-generation pairs and ten million parameter-generation pairs. Refuse non-finite scores and computed results.",
+        examples: &[(r#"coevolve([population(3, "vec"), population(3, "nn")], fn(g) => 1) | map(fn(p) => p.generation)"#, "[10, 10]"), (r#"[population(3, "vec")] | coevolve(fn(g) => 1, 2) | map(fn(p) => p.generation)"#, "[2]"), (r#"coevolve([], fn(g) => 1, 0)"#, "[]")],
+    },
     // Source-reviewed neural operations; serialized networks are validated.
     Signature {
         name: "nn_create", category: None, subject_required: false, aliases: &[], subject: None,
