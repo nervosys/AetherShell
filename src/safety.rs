@@ -4121,6 +4121,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "rlm_spawn",
     "rm",
     "rmdir",
+    "sed_replace",
     "session_export",
     "sh",
     "ssh_exec",

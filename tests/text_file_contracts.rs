@@ -67,6 +67,214 @@ impl Drop for Fixture {
 fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
+fn sed_options(global: bool, file: bool) -> Value {
+    Value::Record(std::collections::BTreeMap::from([
+        ("global".into(), Value::Bool(global)),
+        ("file".into(), Value::Bool(file)),
+    ]))
+}
+#[test]
+fn sed_preserves_capture_expansion_and_whole_string_match_semantics() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    for name in ["sed", "sed_replace"] {
+        assert_eq!(
+            call(name, vec![s("a"), s("x"), s("a\r\na")], &mut env).unwrap(),
+            s("x\r\nx")
+        );
+        assert_eq!(
+            call_with_input(
+                name,
+                vec![s("a"), s("x"), sed_options(false, false)],
+                Some(s("a\na")),
+                &mut env
+            )
+            .unwrap(),
+            s("x\na")
+        );
+        assert_eq!(
+            call(
+                name,
+                vec![s("(?P<word>[a-z]+)-(\\d+)"), s("${word}:$2:$$"), s("ab-12")],
+                &mut env
+            )
+            .unwrap(),
+            s("ab:12:$")
+        );
+        assert_eq!(
+            call(name, vec![s("missing"), s("x"), s("original")], &mut env).unwrap(),
+            s("original")
+        );
+        assert_eq!(
+            call(name, vec![s(""), s("x"), s("é")], &mut env).unwrap(),
+            s("xéx")
+        );
+    }
+}
+#[test]
+fn sed_refuses_bad_options_regex_and_conflicts_without_writing() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let path = fixture.path("original");
+    std::fs::write(&path, "original").unwrap();
+    let mut env = Env::default();
+    for options in [
+        Value::Bool(true),
+        Value::Record(std::collections::BTreeMap::from([(
+            "file".into(),
+            s("true"),
+        )])),
+        Value::Record(std::collections::BTreeMap::from([(
+            "global".into(),
+            Value::Int(1),
+        )])),
+        Value::Record(std::collections::BTreeMap::from([(
+            "unknown".into(),
+            Value::Bool(true),
+        )])),
+    ] {
+        code(
+            call(
+                "sed",
+                vec![s("o"), s("x"), s(&path), options.clone()],
+                &mut env,
+            ),
+            "E_BAD_ARG",
+        );
+        code(
+            call_with_input(
+                "sed_replace",
+                vec![s("o"), s("x"), options],
+                Some(s(&path)),
+                &mut env,
+            ),
+            "E_BAD_ARG",
+        );
+    }
+    code(
+        call(
+            "sed",
+            vec![s("["), s("x"), s(&path), sed_options(true, true)],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call_with_input(
+            "sed",
+            vec![s("o"), s("x"), s(&path), sed_options(true, true)],
+            Some(s("other")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(call("sed", vec![s("o"), s("x")], &mut env), "E_BAD_ARG");
+    code(
+        call_with_input("sed", vec![s("o"), s("x")], Some(Value::Int(1)), &mut env),
+        "E_BAD_ARG",
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
+}
+#[test]
+fn sed_file_mode_resolves_paths_and_rolls_back_atomic_edits() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::fs::write(fixture.root.join("input"), "aba").unwrap();
+    let mut env = Env::default();
+    aethershell::tx::begin().unwrap();
+    let result = call(
+        "sed",
+        vec![s("a"), s("x"), s("input"), sed_options(false, true)],
+        &mut env,
+    )
+    .unwrap();
+    assert_eq!(
+        result,
+        Value::Record(std::collections::BTreeMap::from([
+            ("file".into(), s("input")),
+            ("status".into(), s("modified"))
+        ]))
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("input")).unwrap(),
+        "xba"
+    );
+    call_with_input(
+        "sed_replace",
+        vec![s("a"), s("y"), sed_options(true, true)],
+        Some(s("input")),
+        &mut env,
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("input")).unwrap(),
+        "xby"
+    );
+    aethershell::tx::rollback().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("input")).unwrap(),
+        "aba"
+    );
+    assert!(!std::fs::read_dir(&fixture.root).unwrap().any(|e| e
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".aether_tmp_")));
+}
+#[test]
+fn sed_file_mode_jails_aliases_and_bounds_reads() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let outside = fixture.path("outside");
+    std::fs::write(&outside, "original").unwrap();
+    let workspace = fixture.root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    let mut env = Env::default();
+    for name in ["sed", "sed_replace"] {
+        code(
+            call(
+                name,
+                vec![s("o"), s("x"), s(&outside), sed_options(true, true)],
+                &mut env,
+            ),
+            "E_OUTSIDE_WORKSPACE",
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "original");
+    std::fs::write(workspace.join("bad"), [0xff]).unwrap();
+    code(
+        call(
+            "sed",
+            vec![s("x"), s("y"), s("bad"), sed_options(true, true)],
+            &mut env,
+        ),
+        "E_IO",
+    );
+    code(
+        call(
+            "sed",
+            vec![s("x"), s("y"), s("missing"), sed_options(true, true)],
+            &mut env,
+        ),
+        "E_NOT_FOUND",
+    );
+    std::fs::File::create(workspace.join("large"))
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    code(
+        call(
+            "sed",
+            vec![s("x"), s("y"), s("large"), sed_options(true, true)],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+}
 #[test]
 fn awk_preserves_fields_whole_lines_and_literal_filter_semantics() {
     let _lock = LOCK.lock().unwrap();

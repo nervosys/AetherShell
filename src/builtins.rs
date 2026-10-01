@@ -49971,65 +49971,87 @@ fn bi_fd_find(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// sed — Stream editor for text substitution (cross-platform, native Rust).
 /// Usage: sed(pattern, replacement, input_text) or sed(pattern, replacement, input_text, {global?, file?})
 fn bi_sed_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let pattern = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "sed requires pattern, replacement, and input",
-            ))
+    let mut args = args.into_iter();
+    let Some(Value::Str(pattern)) = args.next() else {
+        return Err(crate::safety::arg_err("sed requires pattern String"));
+    };
+    let Some(Value::Str(replacement)) = args.next() else {
+        return Err(crate::safety::arg_err("sed requires replacement String"));
+    };
+    let (text, options) = match input {
+        Some(Value::Str(text)) => {
+            let options = args.next();
+            if args.next().is_some() {
+                return Err(crate::safety::arg_err(
+                    "piped sed accepts pattern, replacement and optional options only",
+                ));
+            }
+            (text, options)
+        }
+        Some(_) => return Err(crate::safety::arg_err("sed piped input must be String")),
+        None => {
+            let Some(Value::Str(text)) = args.next() else {
+                return Err(crate::safety::arg_err(
+                    "sed requires text or file path String",
+                ));
+            };
+            (text, args.next())
         }
     };
-    let replacement = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("sed requires a replacement string")),
-    };
-    let text = match args.get(2) {
-        Some(Value::Str(s)) => s.clone(),
-        None => match &input {
-            Some(Value::Str(s)) => s.clone(),
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "sed requires input text (3rd arg or piped input)",
-                ))
-            }
-        },
-        _ => return Err(crate::safety::arg_err("sed input must be a string")),
-    };
-    let global = match args.get(3) {
-        Some(Value::Record(r)) => r
-            .get("global")
-            .map(|v| matches!(v, Value::Bool(true)))
-            .unwrap_or(true),
-        _ => true,
-    };
-    let file_mode = match args.get(3) {
-        Some(Value::Record(r)) => r
-            .get("file")
-            .map(|v| matches!(v, Value::Bool(true)))
-            .unwrap_or(false),
-        _ => false,
-    };
+    let (mut global, mut file_mode) = (true, false);
+    if let Some(options) = options {
+        let Value::Record(record) = options else {
+            return Err(crate::safety::arg_err("sed options must be Record"));
+        };
+        for (key, value) in record {
+            let slot = match key.as_str() {
+                "global" => &mut global,
+                "file" => &mut file_mode,
+                _ => return Err(crate::safety::arg_err(format!("sed unknown option {key}"))),
+            };
+            let Value::Bool(flag) = value else {
+                return Err(crate::safety::arg_err(format!("sed {key} must be Bool")));
+            };
+            *slot = flag;
+        }
+    }
     let re = regex::Regex::new(&pattern)
-        .map_err(|e| anyhow!("Invalid regex pattern '{}': {}", pattern, e))?;
-    let input_text = if file_mode {
-        std::fs::read_to_string(&text)
-            .map_err(|e| crate::safety::fs_error("sed_replace", &text, &e))?
+        .map_err(|e| crate::safety::arg_err(format!("sed invalid regex: {e}")))?;
+    let file = if file_mode {
+        Some((text.clone(), crate::safety::resolve_path_str(&text)))
     } else {
-        text.clone()
+        None
     };
-    let result = if global {
-        re.replace_all(&input_text, replacement.as_str())
-            .to_string()
+    let source = if let Some((_, path)) = &file {
+        crate::safety::guard(crate::safety::GuardCtx {
+            builtin: "sed_replace",
+            effect: crate::safety::Effect::WriteLocal,
+            what: "replace file text",
+            targets: vec![path.clone()],
+            blast_radius: serde_json::json!({"files":1}),
+            reversible: true,
+            fs_paths: true,
+        })?;
+        line_read("sed", path)?
     } else {
-        re.replace(&input_text, replacement.as_str()).to_string()
+        text
     };
-    if file_mode {
-        std::fs::write(&text, &result)
-            .map_err(|e| anyhow!("Cannot write file '{}': {}", text, e))?;
-        let mut rec = BTreeMap::new();
-        rec.insert("file".to_string(), Value::Str(text));
-        rec.insert("status".to_string(), Value::Str("modified".to_string()));
-        Ok(Value::Record(rec))
+    let replaced = if global {
+        re.replace_all(&source, replacement.as_str())
+    } else {
+        re.replace(&source, replacement.as_str())
+    };
+    let result = match replaced {
+        std::borrow::Cow::Owned(result) => result,
+        std::borrow::Cow::Borrowed(_) => source,
+    };
+    if let Some((original, path)) = file {
+        crate::tx::snapshot(&path);
+        write_file_atomically("sed", &path, result.as_bytes())?;
+        Ok(Value::Record(BTreeMap::from([
+            ("file".into(), Value::Str(original)),
+            ("status".into(), Value::Str("modified".into())),
+        ])))
     } else {
         Ok(Value::Str(result))
     }
