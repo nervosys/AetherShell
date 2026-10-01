@@ -2763,3 +2763,153 @@ fn symlink_unix_preserves_dangling_targets_and_protects_audit_aliases() {
     assert!(std::fs::symlink_metadata(&destination).is_err());
     std::fs::remove_file(&alias).unwrap();
 }
+
+#[test]
+fn permission_checks_validate_calls_and_code_missing_paths() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::fs::write(&path, "unchanged").unwrap();
+    for args in [
+        vec![],
+        vec![Value::Int(1)],
+        vec![s(&path), Value::Int(1)],
+        vec![s(&path), s("unknown")],
+        vec![s(&path), s("")],
+        vec![s(&path), s("read"), s("ignored")],
+    ] {
+        code(call("perm_check", args, &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input("perm_check", vec![s(&path)], Some(s("ignored")), &mut env),
+        "E_BAD_ARG",
+    );
+    for mode in ["read", "write", "execute"] {
+        code(
+            call(
+                "perm_check",
+                vec![s(&fixture.path("missing")), s(mode)],
+                &mut env,
+            ),
+            "E_NOT_FOUND",
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
+}
+
+#[test]
+fn permission_checks_report_metadata_and_resolve_workspace_paths() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let path = fixture.path("input");
+    std::fs::write(&path, "owned").unwrap();
+    let original = std::fs::metadata(&path).unwrap().permissions();
+    // Restore host-specific metadata before assertions, even on a failed call.
+    let set_readonly = call("perm_set", vec![s("input"), s("0400")], &mut env);
+    let readonly = ["r", "read", "w", "write"]
+        .map(|mode| call("perm_check", vec![s("input"), s(mode)], &mut env));
+    let set_writable = call("perm_set", vec![s("input"), Value::Int(0o600)], &mut env);
+    let writable = call("perm_check", vec![s("input"), s("write")], &mut env);
+    let default_read = call("perm_check", vec![s("input")], &mut env);
+    let execute = call("perm_check", vec![s("input"), s("execute")], &mut env);
+    std::fs::set_permissions(&path, original).unwrap();
+    assert!(matches!(set_readonly.unwrap(), Value::Bool(true)));
+    assert!(matches!(set_writable.unwrap(), Value::Bool(true)));
+    for (result, expected) in readonly.into_iter().zip([true, true, false, false]) {
+        assert!(matches!(result.unwrap(), Value::Bool(value) if value == expected));
+    }
+    assert!(matches!(writable.unwrap(), Value::Bool(true)));
+    assert!(matches!(default_read.unwrap(), Value::Bool(true)));
+    #[cfg(unix)]
+    assert!(matches!(execute.unwrap(), Value::Bool(false)));
+    #[cfg(not(unix))]
+    code(execute, "E_UNIMPLEMENTED");
+}
+
+#[test]
+fn permission_set_validates_calls_and_never_discards_pipeline_input() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::fs::write(&path, "owned").unwrap();
+    let original = std::fs::metadata(&path).unwrap().permissions();
+    for args in [
+        vec![],
+        vec![s(&path)],
+        vec![Value::Int(1), Value::Int(0o600)],
+        vec![s(&path), Value::Int(-1)],
+        vec![s(&path), Value::Int(0o10000)],
+        vec![s(&path), Value::Float(384.0)],
+        vec![s(&path), s("0888")],
+        vec![s(&path), s("0o")],
+        vec![s(&path), s("0644"), s("ignored")],
+    ] {
+        code(call("perm_set", args, &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input(
+            "perm_set",
+            vec![s(&path), Value::Int(0)],
+            Some(s("ignored")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "owned");
+}
+
+#[test]
+fn permission_set_guards_and_audits_its_own_name_and_refuses_transactions() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let path = fixture.path("input");
+    std::fs::write(&path, "owned").unwrap();
+    code(
+        call("perm_set", vec![s("missing"), Value::Int(0o600)], &mut env),
+        "E_NOT_FOUND",
+    );
+    aethershell::tx::begin().unwrap();
+    code(
+        call("perm_set", vec![s("input"), Value::Int(0o600)], &mut env),
+        "E_UNIMPLEMENTED",
+    );
+    aethershell::tx::rollback().unwrap();
+    let jail = fixture.root.join("jail");
+    std::fs::create_dir(&jail).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &jail);
+    code(
+        call("perm_set", vec![s(&path), Value::Int(0o600)], &mut env),
+        "E_OUTSIDE_WORKSPACE",
+    );
+    let audit = std::fs::read_to_string(fixture.path("audit.log")).unwrap();
+    assert!(audit.contains("perm_set"));
+    assert!(!audit.contains("fs_chmod"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "owned");
+}
+
+#[cfg(unix)]
+#[test]
+fn permission_check_execute_uses_any_unix_execute_bit() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::fs::write(&path, "owned").unwrap();
+    for mode in [0o100, 0o010, 0o001] {
+        call("perm_set", vec![s(&path), Value::Int(mode)], &mut env).unwrap();
+        for name in ["x", "execute"] {
+            assert!(matches!(
+                call("perm_check", vec![s(&path), s(name)], &mut env).unwrap(),
+                Value::Bool(true)
+            ));
+        }
+    }
+    call("perm_set", vec![s(&path), Value::Int(0o600)], &mut env).unwrap();
+}

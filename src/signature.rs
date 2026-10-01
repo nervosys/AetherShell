@@ -4813,6 +4813,18 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "perm_set", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("path", Ty::Str, "existing filesystem path"), req("mode", Ty::Any, "Int in 0..=07777 or octal String, optionally prefixed 0o")], returns: "Bool",
+        doc: "Set Unix mode bits; on Windows set the read-only attribute from the owner-write bit only. Share fs_chmod's strict validation and guarded native implementation while recording perm_set as the mutation name. Return true or a coded refusal. Reject pipeline input and active filesystem transactions because their journal does not reliably restore permissions.",
+        examples: &[(r#"let d = fs_tempdir("ae_perm_set"); let f = d + "/x"; file_write(f, "hi"); let result = perm_set(f, "0644"); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_perm_set_int"); let f = d + "/x"; file_write(f, "hi"); let result = perm_set(f, 384); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
+        name: "perm_check", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("path", Ty::Str, "existing filesystem path, following symlinks"), opt("mode", Ty::Str, "r/read (default), w/write or x/execute")], returns: "Bool",
+        doc: "Query permission metadata, not effective caller authorization or ACL access. Read returns true when metadata is available; write reports the inverse read-only attribute; execute reports whether any Unix execute bit is set, and is E_UNIMPLEMENTED elsewhere. Resolve workspace-relative paths and return coded filesystem errors. Refuse unknown modes, ignored arguments and pipeline input.",
+        examples: &[(r#"let d = fs_tempdir("ae_perm_check"); let f = d + "/x"; file_write(f, "hi"); let result = perm_check(f); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_perm_check_write"); let f = d + "/x"; file_write(f, "hi"); perm_set(f, 384); let result = perm_check(f, "write"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
         name: "perm_get",
         category: None,
         subject_required: false,

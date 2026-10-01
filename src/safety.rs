@@ -4121,6 +4121,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "pager",
     "perf_record",
     "perf_stat",
+    "perm_set",
     "platform_db_delete",
     "platform_db_export",
     "podman_exec",

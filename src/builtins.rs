@@ -23105,49 +23105,60 @@ fn bi_fs_lstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_chmod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    guard_and_set_permission_mode("fs_chmod", args, input)
+}
+
+fn guard_and_set_permission_mode(
+    builtin: &'static str,
+    args: Vec<Value>,
+    input: Option<Value>,
+) -> Result<Value> {
     if args.len() != 2 || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "fs_chmod requires exactly path and mode, without pipeline input",
-        ));
+        return Err(crate::safety::arg_err(format!(
+            "{builtin} requires exactly path and mode, without pipeline input"
+        )));
     }
     let mut args = args.into_iter();
     let Some(Value::Str(path)) = args.next() else {
-        return Err(crate::safety::arg_err("fs_chmod path must be String"));
+        return Err(crate::safety::arg_err(format!(
+            "{builtin} path must be String"
+        )));
     };
     let mode = match args.next() {
         Some(Value::Int(n)) if (0..=0o7777).contains(&n) => n as u32,
         Some(Value::Str(text)) => {
             let digits = text.strip_prefix("0o").unwrap_or(&text);
             if digits.is_empty() || !digits.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
-                return Err(crate::safety::arg_err(
-                    "fs_chmod mode must contain octal digits, optionally prefixed by 0o",
-                ));
+                return Err(crate::safety::arg_err(format!(
+                    "{builtin} mode must contain octal digits, optionally prefixed by 0o"
+                )));
             }
             let mode = u32::from_str_radix(digits, 8)
-                .map_err(|_| crate::safety::arg_err("fs_chmod mode is too large"))?;
+                .map_err(|_| crate::safety::arg_err(format!("{builtin} mode is too large")))?;
             if mode > 0o7777 {
-                return Err(crate::safety::arg_err("fs_chmod mode must be in 0..=07777"));
+                return Err(crate::safety::arg_err(format!(
+                    "{builtin} mode must be in 0..=07777"
+                )));
             }
             mode
         }
         _ => {
-            return Err(crate::safety::arg_err(
-                "fs_chmod mode must be Int in 0..=07777 or octal String",
-            ))
+            return Err(crate::safety::arg_err(format!(
+                "{builtin} mode must be Int in 0..=07777 or octal String"
+            )))
         }
     };
-    let path = guard_local_write("fs_chmod", &path)?;
+    let path = guard_local_write(builtin, &path)?;
     // The filesystem journal restores content, not permission metadata. Do not
     // report a transactional operation that rollback cannot reliably undo.
     if crate::tx::is_active() {
         return Err(crate::safety::unimplemented(
-            "fs_chmod",
+            builtin,
             "permission changes within filesystem transactions are not implemented",
             "change permissions outside the transaction",
         ));
     }
-    let metadata =
-        fs::metadata(&path).map_err(|e| crate::safety::fs_error("fs_chmod", &path, &e))?;
+    let metadata = fs::metadata(&path).map_err(|e| crate::safety::fs_error(builtin, &path, &e))?;
     let mut permissions = metadata.permissions();
     #[cfg(unix)]
     {
@@ -23160,7 +23171,7 @@ fn bi_fs_chmod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         permissions.set_readonly(mode & 0o200 == 0);
     }
     fs::set_permissions(&path, permissions)
-        .map_err(|e| crate::safety::fs_error("fs_chmod", &path, &e))?;
+        .map_err(|e| crate::safety::fs_error(builtin, &path, &e))?;
     Ok(Value::Bool(true))
 }
 
@@ -28002,47 +28013,60 @@ fn bi_perm_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_perm_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    bi_fs_chmod(args, None)
+fn bi_perm_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    guard_and_set_permission_mode("perm_set", args, input)
 }
 
-fn bi_perm_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "perm_check",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+fn bi_perm_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !(1..=2).contains(&args.len()) || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "perm_check requires path and optional mode, without pipeline input",
+        ));
+    }
+    let mut args = args.into_iter();
+    let Some(Value::Str(path)) = args.next() else {
+        return Err(crate::safety::arg_err("perm_check path must be String"));
+    };
+    let mode = match args.next() {
+        None => "r".to_string(),
+        Some(Value::Str(mode))
+            if matches!(
+                mode.as_str(),
+                "r" | "read" | "w" | "write" | "x" | "execute"
+            ) =>
+        {
+            mode
+        }
+        _ => {
+            return Err(crate::safety::arg_err(
+                "perm_check mode must be r/read, w/write or x/execute",
             ))
         }
     };
-    let mode = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "r".to_string(),
-    };
-
-    let meta = std::fs::metadata(&path);
+    let path = crate::safety::resolve_path_str(&path);
+    let metadata =
+        fs::metadata(&path).map_err(|e| crate::safety::fs_error("perm_check", &path, &e))?;
+    // This is a metadata query, not an access check for the caller's identity,
+    // ACLs, privileges, mount flags or sharing restrictions.
     match mode.as_str() {
-        "r" | "read" => Ok(Value::Bool(meta.is_ok())),
-        "w" | "write" => {
-            if let Ok(m) = meta {
-                Ok(Value::Bool(!m.permissions().readonly()))
-            } else {
-                Ok(Value::Bool(false))
-            }
-        }
+        "r" | "read" => Ok(Value::Bool(true)),
+        "w" | "write" => Ok(Value::Bool(!metadata.permissions().readonly())),
         "x" | "execute" => {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                if let Ok(m) = meta {
-                    return Ok(Value::Bool(m.permissions().mode() & 0o111 != 0));
-                }
+                Ok(Value::Bool(metadata.permissions().mode() & 0o111 != 0))
             }
-            Ok(Value::Bool(false))
+            #[cfg(not(unix))]
+            {
+                Err(crate::safety::unimplemented(
+                    "perm_check",
+                    "execute permission bits are unavailable on this platform",
+                    "inspect platform-specific executable formats and access controls",
+                ))
+            }
         }
-        _ => Ok(Value::Bool(false)),
+        _ => unreachable!("validated permission mode"),
     }
 }
 
