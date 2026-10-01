@@ -251,6 +251,12 @@ const fn rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
 /// not depend on its size.
 pub static SIGNATURES: &[Signature] = &[
     Signature {
+        name: "file_backup", category: None, subject_required: false, aliases: &["backup_file"], subject: Some(Ty::Str),
+        params: &[opt("suffix", Ty::Str, "default .bak; nonempty filename suffix without separators, colon, controls or trailing dot/space")], returns: "Record",
+        doc: "Direct file_backup(path,suffix?) or path | file_backup(suffix?). Copy a regular file, including binary content, to path plus suffix and return resolved path, backup, bytes and success. Validate suffixes before effects; refuse non-file destinations and a destination resolving to the source. Resolve both paths against the workspace and guard both targets. Bound source bytes to 64 MiB, including growth during copying. Stream through an exclusively created sibling file, preserve source permissions and atomically replace the destination. Snapshot the destination for active transactions; clean the owned sibling on failure. Filesystem errors are coded.",
+        examples: &[(r#"let d = fs_tempdir("ae_backup"); let f = d + "/x"; file_write(f, "abc"); let result = file_backup(f); rmdir(d, true); result.bytes"#, "3"), (r#"let d = fs_tempdir("ae_backup"); let f = d + "/x"; file_write(f, "abc"); let result = f | backup_file(".save"); rmdir(d, true); result.success"#, "true")],
+    },
+    Signature {
         name: "bat", category: None, subject_required: false, aliases: &["bat_view"], subject: None,
         params: &[req("path", Ty::Str, "literal regular UTF-8 file path")], returns: "String",
         doc: "Read plain file text natively and preserve all line endings. Resolve relative paths against the workspace and guard the actual read target. Bound regular UTF-8 reads to 64 MiB. Reject pipeline input, extra arguments and invalid paths; filesystem failures are coded. Plain output no longer depends on an external bat executable, its configuration or lossy UTF-8 decoding. File paths are literal, including names beginning with a dash.",

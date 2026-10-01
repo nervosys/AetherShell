@@ -35981,44 +35981,136 @@ fn bi_file_diff(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// Usage: file_backup("config.txt")  -> creates config.txt.bak
 /// Usage: file_backup("config.txt", ".backup")  -> creates config.txt.backup
 fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let path = match args.first().or(input.as_ref()) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("file_backup requires a file path")),
+    let mut args = args.into_iter();
+    let path = match input {
+        Some(Value::Str(path)) => path,
+        Some(_) => {
+            return Err(crate::safety::arg_err(
+                "file_backup piped path must be String",
+            ))
+        }
+        None => match args.next() {
+            Some(Value::Str(path)) => path,
+            _ => return Err(crate::safety::arg_err("file_backup requires path String")),
+        },
     };
-
-    let suffix = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".bak".to_string(),
+    let suffix = match args.next() {
+        None => ".bak".to_string(),
+        Some(Value::Str(suffix)) => suffix,
+        Some(_) => return Err(crate::safety::arg_err("file_backup suffix must be String")),
     };
-
-    let backup_path = format!("{}{}", path, suffix);
-
-    // `fs::copy` onto `backup_path` is a write, and the label said read.
-    let path = guard_local_write("file_backup", &path)?;
-    let backup_path = guard_local_write("file_backup", &backup_path)?;
-
-    if !std::path::Path::new(&path).exists() {
-        return Err(crate::safety::not_found(
-            "backup_file",
-            "source file",
-            &path,
+    if args.next().is_some() {
+        return Err(crate::safety::arg_err(
+            "file_backup accepts path and optional suffix only",
         ));
     }
-
-    let bytes_copied = fs::copy(&path, &backup_path).with_context(|| {
-        format!(
-            "file_backup: failed to copy '{}' to '{}'",
-            path, backup_path
-        )
+    if suffix.is_empty()
+        || suffix.ends_with(['.', ' '])
+        || suffix
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+    {
+        return Err(crate::safety::arg_err("file_backup suffix must be nonempty, without separators, colon, controls or trailing dot/space"));
+    }
+    let backup = crate::safety::resolve_path_str(&format!("{path}{suffix}"));
+    let path = crate::safety::resolve_path_str(&path);
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "file_backup",
+        effect: crate::safety::Effect::WriteLocal,
+        what: "back up file",
+        targets: vec![path.clone(), backup.clone()],
+        blast_radius: serde_json::json!({"files":2}),
+        reversible: true,
+        fs_paths: true,
     })?;
+    let bytes = backup_file_atomically(&path, &backup)?;
+    Ok(Value::Record(BTreeMap::from([
+        ("path".into(), Value::Str(path)),
+        ("backup".into(), Value::Str(backup)),
+        ("bytes".into(), Value::Int(bytes as i64)),
+        ("success".into(), Value::Bool(true)),
+    ])))
+}
 
-    let mut result = BTreeMap::new();
-    result.insert("path".to_string(), Value::Str(path));
-    result.insert("backup".to_string(), Value::Str(backup_path));
-    result.insert("bytes".to_string(), Value::Int(bytes_copied as i64));
-    result.insert("success".to_string(), Value::Bool(true));
-
-    Ok(Value::Record(result))
+/// Copy binary bytes through an exclusively created sibling, then publish it.
+fn backup_file_atomically(source: &str, destination: &str) -> Result<u64> {
+    use std::io::Read;
+    const MAX_BYTES: u64 = 64 * 1024 * 1024;
+    let metadata =
+        fs::metadata(source).map_err(|e| crate::safety::fs_error("file_backup", source, &e))?;
+    if !metadata.is_file() {
+        return Err(crate::safety::arg_err(
+            "file_backup source must be a regular file",
+        ));
+    }
+    if metadata.len() > MAX_BYTES {
+        return Err(crate::safety::budget_exceeded(
+            "file_backup",
+            "source exceeds 64 MiB".into(),
+            "back up a smaller file",
+        ));
+    }
+    match fs::metadata(destination) {
+        Ok(metadata) if !metadata.is_file() => {
+            return Err(crate::safety::arg_err(
+                "file_backup destination must be a regular file when it exists",
+            ))
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(crate::safety::fs_error("file_backup", destination, &error)),
+    }
+    if let Ok(source_path) = fs::canonicalize(source) {
+        if fs::canonicalize(destination)
+            .is_ok_and(|destination_path| destination_path == source_path)
+        {
+            return Err(crate::safety::arg_err(
+                "file_backup destination must differ from source",
+            ));
+        }
+    }
+    let file =
+        fs::File::open(source).map_err(|e| crate::safety::fs_error("file_backup", source, &e))?;
+    let target = std::path::Path::new(destination);
+    let parent = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let temporary = parent.join(format!(".aether_tmp_{}", uuid::Uuid::new_v4()));
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(|e| crate::safety::fs_error("file_backup", destination, &e))?;
+    let original_permissions = output.metadata().ok().map(|m| m.permissions());
+    let result = (|| -> Result<u64> {
+        let bytes = std::io::copy(&mut file.take(MAX_BYTES + 1), &mut output)
+            .map_err(|e| crate::safety::fs_error("file_backup", destination, &e))?;
+        if bytes > MAX_BYTES {
+            return Err(crate::safety::budget_exceeded(
+                "file_backup",
+                "source grew beyond 64 MiB".into(),
+                "back up a smaller file",
+            ));
+        }
+        output
+            .set_permissions(metadata.permissions())
+            .map_err(|e| crate::safety::fs_error("file_backup", destination, &e))?;
+        drop(output);
+        crate::tx::snapshot(destination);
+        fs::rename(&temporary, target)
+            .map_err(|e| crate::safety::fs_error("file_backup", destination, &e))?;
+        Ok(bytes)
+    })();
+    if result.is_err() {
+        // Restore the original sibling-file permissions before cleaning our own file.
+        // This also removes Windows read-only attributes copied from the source.
+        if let Some(permissions) = original_permissions {
+            let _ = fs::set_permissions(&temporary, permissions);
+        }
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 /// file_copy(source, dest) - Copy a file or directory

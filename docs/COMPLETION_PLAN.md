@@ -1,8 +1,8 @@
 # Completion plan
 
 2026-09-30 update: the maintainer selected **13.0.0** for the stricter contracts.
-The source-reviewed migration currently has 543 declarations covering 543 of
-1,171 implementations and 658 of 1,437 callable names, measured with
+The source-reviewed migration currently has 544 declarations covering 544 of
+1,171 implementations and 660 of 1,437 callable names, measured with
 `cargo run --example signature_inventory`. The migration remains incomplete.
 Current preparation and release blockers are tracked in
 [`release/13.0.0.md`](release/13.0.0.md). Older figures below are historical baselines.

@@ -67,6 +67,206 @@ impl Drop for Fixture {
 fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
+#[test]
+fn file_backup_preserves_binary_content_and_supports_both_call_forms() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let source = fixture.path("input");
+    let bytes = [0, 0xff, 0x80, 10];
+    std::fs::write(&source, bytes).unwrap();
+    for name in ["file_backup", "backup_file"] {
+        let record = diff_record(call(name, vec![s("input")], &mut env).unwrap());
+        assert_eq!(record["path"], s(&source));
+        assert_eq!(record["backup"], s(&(source.clone() + ".bak")));
+        assert_eq!(record["bytes"], Value::Int(4));
+        assert_eq!(record["success"], Value::Bool(true));
+        assert_eq!(std::fs::read(source.clone() + ".bak").unwrap(), bytes);
+        call_with_input(name, vec![s(".save")], Some(s("input")), &mut env).unwrap();
+        assert_eq!(std::fs::read(source.clone() + ".save").unwrap(), bytes);
+        assert_eq!(
+            aethershell::safety::effect_of(name),
+            aethershell::safety::Effect::WriteLocal
+        );
+    }
+}
+#[test]
+fn file_backup_validates_suffixes_without_creating_or_clobbering_files() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let source = fixture.path("input");
+    std::fs::write(&source, "original").unwrap();
+    for suffix in [
+        "", ".", " ", ".save ", "/escape", "\\escape", ":stream", "\n",
+    ] {
+        code(
+            call("file_backup", vec![s(&source), s(suffix)], &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    code(
+        call("file_backup", vec![s(&source), Value::Int(1)], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call_with_input(
+            "backup_file",
+            vec![Value::Int(1)],
+            Some(s(&source)),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call_with_input(
+            "file_backup",
+            vec![s(&source), s(".save")],
+            Some(s(&source)),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call_with_input("file_backup", vec![], Some(Value::Int(1)), &mut env),
+        "E_BAD_ARG",
+    );
+    code(call("file_backup", vec![], &mut env), "E_BAD_ARG");
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), "original");
+    assert!(!std::path::Path::new(&(source + ".bak")).exists());
+}
+#[test]
+fn file_backup_jails_paths_and_rolls_back_new_and_existing_destinations() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let workspace = fixture.root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let outside = fixture.path("outside");
+    std::fs::write(&outside, "secret").unwrap();
+    std::fs::write(workspace.join("input"), "new").unwrap();
+    std::fs::write(workspace.join("input.bak"), "prior").unwrap();
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    for name in ["file_backup", "backup_file"] {
+        code(
+            call(name, vec![s(&outside)], &mut env),
+            "E_OUTSIDE_WORKSPACE",
+        );
+        assert!(!std::path::Path::new(&(outside.clone() + ".bak")).exists());
+    }
+    aethershell::tx::begin().unwrap();
+    call("file_backup", vec![s("input")], &mut env).unwrap();
+    call_with_input("backup_file", vec![s(".save")], Some(s("input")), &mut env).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("input.bak")).unwrap(),
+        "new"
+    );
+    aethershell::tx::rollback().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("input.bak")).unwrap(),
+        "prior"
+    );
+    assert!(!workspace.join("input.save").exists());
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("input")).unwrap(),
+        "new"
+    );
+}
+#[test]
+fn file_backup_codes_read_and_copy_failures_and_bounds_source_size() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    code(
+        call("file_backup", vec![s(&fixture.path("missing"))], &mut env),
+        "E_NOT_FOUND",
+    );
+    std::fs::create_dir(fixture.root.join("directory")).unwrap();
+    code(
+        call("file_backup", vec![s(&fixture.path("directory"))], &mut env),
+        "E_BAD_ARG",
+    );
+    let source = fixture.path("large");
+    std::fs::File::create(&source)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    code(
+        call("file_backup", vec![s(&source)], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    assert!(!std::path::Path::new(&(source + ".bak")).exists());
+    let source = fixture.path("input");
+    std::fs::write(&source, "original").unwrap();
+    std::fs::create_dir(source.clone() + ".bak").unwrap();
+    aethershell::tx::begin().unwrap();
+    code(call("file_backup", vec![s(&source)], &mut env), "E_BAD_ARG");
+    let later = std::path::PathBuf::from(source.clone() + ".bak").join("later");
+    std::fs::write(&later, "unrelated").unwrap();
+    aethershell::tx::rollback().unwrap();
+    assert_eq!(std::fs::read_to_string(&later).unwrap(), "unrelated");
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), "original");
+    assert!(!std::fs::read_dir(&fixture.root).unwrap().any(|e| e
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".aether_tmp_")));
+}
+#[test]
+fn file_backup_preserves_source_permissions() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let source = fixture.path("readonly");
+    let backup = source.clone() + ".bak";
+    std::fs::write(&source, "bytes").unwrap();
+    let original = std::fs::metadata(&source).unwrap().permissions();
+    let mut readonly = original.clone();
+    readonly.set_readonly(true);
+    std::fs::set_permissions(&source, readonly).unwrap();
+    let result = call("file_backup", vec![s(&source)], &mut env);
+    let backup_readonly = std::fs::metadata(&backup).map(|m| m.permissions().readonly());
+    // Restore permissions before assertions so failed assertions also leave cleanup possible.
+    std::fs::set_permissions(&source, original.clone()).unwrap();
+    if std::path::Path::new(&backup).exists() {
+        std::fs::set_permissions(&backup, original.clone()).unwrap();
+    }
+    result.unwrap();
+    assert!(backup_readonly.unwrap());
+    assert_eq!(std::fs::read(&backup).unwrap(), b"bytes");
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        let locked_path = source.clone() + ".locked";
+        std::fs::write(&locked_path, "prior").unwrap();
+        // Permit metadata/read access, while denying deletion/replacement.
+        let locked = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(3)
+            .open(&locked_path)
+            .unwrap();
+        let mut readonly = original.clone();
+        readonly.set_readonly(true);
+        std::fs::set_permissions(&source, readonly).unwrap();
+        let result = call("backup_file", vec![s(&source), s(".locked")], &mut env);
+        drop(locked);
+        std::fs::set_permissions(&source, original).unwrap();
+        let failure = result.unwrap_err().to_string();
+        assert!(
+            failure.contains("E_IO") || failure.contains("E_POLICY_DENY"),
+            "{failure}"
+        );
+        assert_eq!(std::fs::read_to_string(&locked_path).unwrap(), "prior");
+        assert!(!std::fs::read_dir(&fixture.root).unwrap().any(|e| e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".aether_tmp_")));
+    }
+}
 fn pager_file(file: bool) -> Value {
     Value::Record(std::collections::BTreeMap::from([(
         "file".into(),
