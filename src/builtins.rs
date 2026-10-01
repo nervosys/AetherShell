@@ -23266,45 +23266,107 @@ fn bi_fs_link(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Bool(true))
 }
 
-fn bi_fs_symlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let src = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "fs_symlink",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+fn bi_fs_symlink(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if args.len() != 2 || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "fs_symlink requires exactly target and destination strings, without pipeline input",
+        ));
+    }
+    let mut args = args.into_iter();
+    let Some(Value::Str(target)) = args.next() else {
+        return Err(crate::safety::arg_err("fs_symlink target must be String"));
     };
-    let dst = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "fs_symlink",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+    let Some(Value::Str(destination)) = args.next() else {
+        return Err(crate::safety::arg_err(
+            "fs_symlink destination must be String",
+        ));
     };
-
-    #[cfg(unix)]
-    {
-        return Ok(Value::Bool(std::os::unix::fs::symlink(&src, &dst).is_ok()));
+    if target.is_empty() || destination.is_empty() {
+        return Err(crate::safety::arg_err("fs_symlink paths must not be empty"));
     }
     #[cfg(windows)]
-    {
-        let is_dir = std::fs::metadata(&src).map(|m| m.is_dir()).unwrap_or(false);
-        if is_dir {
-            Ok(Value::Bool(
-                std::os::windows::fs::symlink_dir(&src, &dst).is_ok(),
+    if !std::path::Path::new(&target).is_absolute()
+        && (std::path::Path::new(&target).has_root()
+            || matches!(
+                std::path::Path::new(&target).components().next(),
+                Some(std::path::Component::Prefix(_))
             ))
-        } else {
-            Ok(Value::Bool(
-                std::os::windows::fs::symlink_file(&src, &dst).is_ok(),
+    {
+        return Err(crate::safety::arg_err(
+            "fs_symlink Windows target must be fully absolute or relative without a drive prefix",
+        ));
+    }
+    let destination = crate::safety::resolve_path_str(&destination);
+    // Preserve the stored target: relative links refer to the destination's
+    // parent, rather than the process working directory.
+    let referred = if std::path::Path::new(&target).is_absolute() {
+        std::path::PathBuf::from(&target)
+    } else {
+        std::path::Path::new(&destination)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join(&target)
+    };
+    // Canonical existing targets also expose audit artifacts through aliases.
+    // Missing targets remain useful dangling links on Unix.
+    let referred = match fs::canonicalize(&referred) {
+        Ok(path) => path,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => referred,
+        Err(e) => return Err(crate::safety::fs_error("fs_symlink", &target, &e)),
+    };
+    let referred = referred
+        .into_os_string()
+        .into_string()
+        .map_err(|_| crate::safety::arg_err("fs_symlink resolved target must be valid UTF-8"))?;
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "fs_symlink",
+        effect: crate::safety::Effect::WriteLocal,
+        what: "create symbolic link",
+        targets: vec![referred.clone(), destination.clone()],
+        blast_radius: serde_json::json!({"paths":2}),
+        reversible: false,
+        fs_paths: true,
+    })?;
+    if crate::tx::is_active() {
+        return Err(crate::safety::unimplemented(
+            "fs_symlink",
+            "symbolic links within filesystem transactions are not implemented",
+            "create symbolic links outside the transaction",
+        ));
+    }
+    match fs::symlink_metadata(&destination) {
+        Ok(_) => {
+            return Err(crate::safety::arg_err(
+                "fs_symlink destination must not already exist",
             ))
         }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(crate::safety::fs_error("fs_symlink", &destination, &e)),
     }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&target, &destination)
+        .map_err(|e| crate::safety::fs_error("fs_symlink", &destination, &e))?;
+    #[cfg(windows)]
+    {
+        // Windows requires a link kind. Refuse a missing target instead of
+        // guessing file and creating a broken directory link.
+        let metadata = fs::metadata(&referred)
+            .map_err(|e| crate::safety::fs_error("fs_symlink", &referred, &e))?;
+        let result = if metadata.is_dir() {
+            std::os::windows::fs::symlink_dir(&target, &destination)
+        } else {
+            std::os::windows::fs::symlink_file(&target, &destination)
+        };
+        result.map_err(|e| crate::safety::fs_error("fs_symlink", &destination, &e))?;
+    }
+    #[cfg(not(any(unix, windows)))]
+    return Err(crate::safety::unimplemented(
+        "fs_symlink",
+        "symbolic links are unsupported on this platform",
+        "use file_copy",
+    ));
+    #[cfg(any(unix, windows))]
+    Ok(Value::Bool(true))
 }
 
 fn bi_fs_readlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

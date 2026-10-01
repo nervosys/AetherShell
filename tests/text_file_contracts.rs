@@ -2605,3 +2605,108 @@ fn head_bounds_reads_and_codes_missing_or_invalid_utf8_files() {
         .unwrap();
     code(call("head", vec![s(&path)], &mut env), "E_BUDGET_EXCEEDED");
 }
+
+#[test]
+fn symlink_refuses_invalid_calls_and_existing_destinations() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let destination = fixture.path("existing");
+    std::fs::write(&destination, "unchanged").unwrap();
+    for args in [
+        vec![],
+        vec![s("target")],
+        vec![Value::Int(1), s(&destination)],
+        vec![s("target"), Value::Bool(true)],
+        vec![s("target"), s(&destination), s("ignored")],
+        vec![s(""), s(&destination)],
+        vec![s("target"), s("")],
+        vec![s("target"), s(&destination)],
+    ] {
+        code(call("fs_symlink", args, &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input(
+            "fs_symlink",
+            vec![s("target"), s(&destination)],
+            Some(s("ignored")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert_eq!(std::fs::read_to_string(&destination).unwrap(), "unchanged");
+}
+#[test]
+fn symlink_guards_referred_targets_and_refuses_transactions() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let destination = fixture.path("link");
+    let outside = fixture.root.parent().unwrap().join("outside-target");
+    code(
+        call(
+            "fs_symlink",
+            vec![s(outside.to_str().unwrap()), s(&destination)],
+            &mut env,
+        ),
+        "E_OUTSIDE_WORKSPACE",
+    );
+    code(
+        call(
+            "fs_symlink",
+            vec![s("../outside-target"), s(&destination)],
+            &mut env,
+        ),
+        "E_OUTSIDE_WORKSPACE",
+    );
+    code(
+        call(
+            "fs_symlink",
+            vec![s(&fixture.path("audit.log")), s(&destination)],
+            &mut env,
+        ),
+        "E_OUTSIDE_WORKSPACE",
+    );
+    aethershell::tx::begin().unwrap();
+    code(
+        call("fs_symlink", vec![s("target"), s(&destination)], &mut env),
+        "E_UNIMPLEMENTED",
+    );
+    aethershell::tx::rollback().unwrap();
+    assert!(std::fs::symlink_metadata(&destination).is_err());
+}
+#[test]
+fn symlink_relative_target_uses_destination_parent() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::fs::create_dir(fixture.root.join("nested")).unwrap();
+    let target = fixture.root.join("nested").join("target");
+    let destination = fixture.root.join("nested").join("link");
+    std::fs::write(&target, "owned").unwrap();
+    let result = call(
+        "fs_symlink",
+        vec![s("target"), s(destination.to_str().unwrap())],
+        &mut env,
+    );
+    #[cfg(windows)]
+    if let Err(error) = &result {
+        // Windows hosts without symbolic-link privilege must report the OS
+        // refusal explicitly, never pretend that creation returned false.
+        assert!(
+            error.to_string().contains("E_POLICY_DENY")
+                || error.to_string().contains("os error 1314"),
+            "{error}"
+        );
+        assert!(std::fs::symlink_metadata(&destination).is_err());
+        return;
+    }
+    assert!(matches!(result.unwrap(), Value::Bool(true)));
+    assert_eq!(
+        std::fs::read_link(&destination).unwrap(),
+        std::path::PathBuf::from("target")
+    );
+    assert_eq!(std::fs::read_to_string(&destination).unwrap(), "owned");
+    std::fs::remove_file(&destination).unwrap();
+}

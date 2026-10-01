@@ -4107,6 +4107,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "fs_chmod",
     "fs_chown",
     "fs_link",
+    "fs_symlink",
     "gui_screenshot",
     "gzip_compress",
     "gzip_decompress",
