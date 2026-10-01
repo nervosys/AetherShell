@@ -4104,6 +4104,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "file_move",
     "file_patch",
     "file_write",
+    "fs_link",
     "gui_screenshot",
     "gzip_compress",
     "gzip_decompress",

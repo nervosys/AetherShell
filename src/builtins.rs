@@ -23202,29 +23202,52 @@ fn bi_fs_chown(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_fs_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let src = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "fs_link",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+fn bi_fs_link(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if args.len() != 2 || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "fs_link requires exactly source and destination paths, without pipeline input",
+        ));
+    }
+    let mut args = args.into_iter();
+    let Some(Value::Str(source)) = args.next() else {
+        return Err(crate::safety::arg_err("fs_link source must be String"));
+    };
+    let Some(Value::Str(destination)) = args.next() else {
+        return Err(crate::safety::arg_err("fs_link destination must be String"));
+    };
+    let source = crate::safety::resolve_path_str(&source);
+    let destination = crate::safety::resolve_path_str(&destination);
+    // A hard link exposes the same underlying file through another writable
+    // name. Guard both paths; outside sources can instead be imported by copy.
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "fs_link",
+        effect: crate::safety::Effect::WriteLocal,
+        what: "create hard link",
+        targets: vec![source.clone(), destination.clone()],
+        blast_radius: serde_json::json!({"paths":2}),
+        reversible: true,
+        fs_paths: true,
+    })?;
+    let metadata = fs::symlink_metadata(&source)
+        .map_err(|e| crate::safety::fs_error("fs_link", &source, &e))?;
+    if !metadata.is_file() {
+        return Err(crate::safety::arg_err(
+            "fs_link source must be a regular file, without a symlink",
+        ));
+    }
+    match fs::symlink_metadata(&destination) {
+        Ok(_) => {
+            return Err(crate::safety::arg_err(
+                "fs_link destination must not already exist",
             ))
         }
-    };
-    let dst = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "fs_link",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    Ok(Value::Bool(std::fs::hard_link(&src, &dst).is_ok()))
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(crate::safety::fs_error("fs_link", &destination, &e)),
+    }
+    crate::tx::snapshot(&destination);
+    fs::hard_link(&source, &destination)
+        .map_err(|e| crate::safety::fs_error("fs_link", &destination, &e))?;
+    Ok(Value::Bool(true))
 }
 
 fn bi_fs_symlink(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

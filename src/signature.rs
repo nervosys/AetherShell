@@ -365,6 +365,12 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "fs_link", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("source", Ty::Str, "existing regular file without a symlink"), req("destination", Ty::Str, "new hard-link path on the same filesystem")], returns: "Bool",
+        doc: "Create a hard link and return true, or a coded refusal. Both resolved paths pass the workspace write gate because the link shares the source file. Existing destinations and pipeline input are refused; transactions snapshot the new destination for rollback.",
+        examples: &[(r#"let d = fs_tempdir("ae_hard_link"); let f = d + "/x"; file_write(f, "hi"); let result = fs_link(f, d + "/y"); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
         name: "file_delete_lines", category: None, subject_required: false, aliases: &["delete_lines", "remove_lines"],
         subject: None, params: &[req("path", Ty::Str, "regular UTF-8 file, bounded to 64 MiB"), req("selection", Ty::Any, "positive one-based line or one String selector: matching/contains/pattern/exact"), opt("end", Ty::Int, "inclusive positive end for numeric selection only")], returns: "Record",
         doc: "Delete a line, an ascending inclusive range, or lines matching a literal selector. Surviving lines are normalized to LF with a final newline; empty output stays empty. Out-of-range selection deletes nothing. Pipeline input is refused; the resolved path passes the destructive gate and transaction snapshot before atomic replacement.",

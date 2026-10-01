@@ -68,6 +68,185 @@ fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
 #[test]
+fn hard_links_share_binary_content_and_roll_back_new_destinations() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let source = fixture.path("source");
+    let dest = fixture.path("link");
+    std::fs::write(&source, [0, 255, 128]).unwrap();
+    aethershell::tx::begin().unwrap();
+    assert_eq!(
+        call("fs_link", vec![s("source"), s("link")], &mut env).unwrap(),
+        Value::Bool(true)
+    );
+    assert_eq!(std::fs::read(&dest).unwrap(), [0, 255, 128]);
+    // A real hard link shares bytes; an independent copy would fail this.
+    std::fs::write(&source, "changed").unwrap();
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "changed");
+    aethershell::tx::rollback().unwrap();
+    assert!(!std::path::Path::new(&dest).exists());
+    // Creating a link journals its destination, not arbitrary later source writes.
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), "changed");
+}
+#[test]
+fn hard_links_refuse_invalid_calls_and_existing_destinations_without_snapshotting() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let source = fixture.path("source");
+    let dest = fixture.path("dest");
+    std::fs::write(&source, "source").unwrap();
+    for args in [
+        vec![],
+        vec![s(&source)],
+        vec![s(&source), s(&dest), Value::Bool(true)],
+        vec![Value::Int(1), s(&dest)],
+        vec![s(&source), Value::Bool(false)],
+    ] {
+        code(call("fs_link", args, &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input(
+            "fs_link",
+            vec![s(&source), s(&dest)],
+            Some(s("ignored")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert!(!std::path::Path::new(&dest).exists());
+    std::fs::write(&dest, "prior").unwrap();
+    code(
+        call("fs_link", vec![s(&source), s(&dest)], &mut env),
+        "E_BAD_ARG",
+    );
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "prior");
+    let directory = fixture.root.join("directory");
+    std::fs::create_dir(&directory).unwrap();
+    aethershell::tx::begin().unwrap();
+    code(
+        call(
+            "fs_link",
+            vec![s(&source), s(&directory.to_string_lossy())],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    std::fs::write(directory.join("later"), "keep").unwrap();
+    aethershell::tx::rollback().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(directory.join("later")).unwrap(),
+        "keep"
+    );
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), "source");
+}
+#[test]
+fn hard_links_code_missing_paths_and_refuse_directory_sources() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let source = fixture.path("source");
+    let dest = fixture.path("dest");
+    code(
+        call("fs_link", vec![s(&source), s(&dest)], &mut env),
+        "E_NOT_FOUND",
+    );
+    std::fs::write(&source, "source").unwrap();
+    code(
+        call(
+            "fs_link",
+            vec![
+                s(&source),
+                s(&fixture.root.join("missing").join("child").to_string_lossy()),
+            ],
+            &mut env,
+        ),
+        "E_NOT_FOUND",
+    );
+    let directory = fixture.root.join("directory");
+    std::fs::create_dir(&directory).unwrap();
+    code(
+        call(
+            "fs_link",
+            vec![s(&directory.to_string_lossy()), s(&dest)],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert!(!std::path::Path::new(&dest).exists());
+    assert_eq!(std::fs::read_to_string(source).unwrap(), "source");
+}
+#[test]
+fn hard_links_guard_both_source_and_new_destination() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let workspace = fixture.root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let inside = workspace.join("source");
+    let outside = fixture.root.join("outside");
+    std::fs::write(&inside, "inside").unwrap();
+    std::fs::write(&outside, "outside").unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    code(
+        call(
+            "fs_link",
+            vec![s(&outside.to_string_lossy()), s("import")],
+            &mut env,
+        ),
+        "E_OUTSIDE_WORKSPACE",
+    );
+    code(
+        call(
+            "fs_link",
+            vec![s("source"), s(&fixture.path("escape"))],
+            &mut env,
+        ),
+        "E_OUTSIDE_WORKSPACE",
+    );
+    assert!(!workspace.join("import").exists());
+    assert!(!fixture.root.join("escape").exists());
+    assert_eq!(std::fs::read_to_string(outside).unwrap(), "outside");
+    assert_eq!(std::fs::read_to_string(inside).unwrap(), "inside");
+}
+#[cfg(unix)]
+#[test]
+fn hard_links_refuse_symlink_sources_and_destinations() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let source = fixture.root.join("source");
+    let alias = fixture.root.join("alias");
+    let dest = fixture.root.join("dest");
+    std::fs::write(&source, "source").unwrap();
+    std::os::unix::fs::symlink(&source, &alias).unwrap();
+    code(
+        call(
+            "fs_link",
+            vec![s(&alias.to_string_lossy()), s(&dest.to_string_lossy())],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert!(!dest.exists());
+    std::os::unix::fs::symlink(fixture.root.join("absent"), &dest).unwrap();
+    code(
+        call(
+            "fs_link",
+            vec![s(&source.to_string_lossy()), s(&dest.to_string_lossy())],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert!(std::fs::symlink_metadata(dest)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+}
+#[test]
 fn delete_lines_preserves_aliases_ranges_and_literal_selectors() {
     let _lock = LOCK.lock().unwrap();
     let fixture = Fixture::new();
