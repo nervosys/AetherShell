@@ -15085,166 +15085,172 @@ fn decode_population<G: crate::evolution::Evolvable + serde::de::DeserializeOwne
 
 /// Create a Q-learning agent
 /// Usage: rl_agent(name, state_size, action_size, [config])
-fn bi_rl_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
+const MAX_RL_CELLS: usize = 1_000_000;
 
-    if args.is_empty() {
+fn rl_positive_size(name: &str, value: &Value) -> Result<usize> {
+    match value {
+        Value::Int(n) => usize::try_from(*n).ok().filter(|n| *n > 0).ok_or_else(|| {
+            crate::safety::arg_err(format!("{name}: size must be a positive representable Int"))
+        }),
+        other => Err(crate::safety::bad_arg(
+            name,
+            "positive Int",
+            other.type_name(),
+        )),
+    }
+}
+
+fn validate_q_agent(agent: &QLearningAgent) -> Result<()> {
+    if agent.state_size == 0 || agent.action_size == 0 {
         return Err(crate::safety::arg_err(
-            "rl_agent requires: name, state_size, action_size, [config]",
+            "Q-learning dimensions must be positive",
         ));
     }
+    if agent.action_size > 10000
+        || agent
+            .state_size
+            .checked_mul(agent.action_size)
+            .is_none_or(|n| n > MAX_RL_CELLS)
+        || agent.q_table.len() > MAX_RL_CELLS
+    {
+        return Err(crate::safety::budget_exceeded(
+            "rl",
+            "Q-learning exceeds 10000 actions or one million state-action cells".into(),
+            "use a smaller state/action space",
+        ));
+    }
+    if [
+        agent.learning_rate,
+        agent.discount,
+        agent.epsilon,
+        agent.epsilon_decay,
+        agent.epsilon_min,
+    ]
+    .iter()
+    .any(|n| !n.is_finite() || !(0.0..=1.0).contains(n))
+        || i64::try_from(agent.steps).is_err()
+    {
+        return Err(crate::safety::arg_err(
+            "Q-learning rates must be finite probabilities and steps must fit Int",
+        ));
+    }
+    if agent.q_table.iter().any(|(&(state, action), q)| {
+        state >= agent.state_size || action >= agent.action_size || !q.is_finite()
+    }) {
+        return Err(crate::safety::arg_err(
+            "Q-learning table indices must be in range and values finite",
+        ));
+    }
+    Ok(())
+}
 
-    let name = match &args[0] {
-        Value::Str(s) => s.clone(),
-        other => {
+fn rl_index(name: &str, value: &Value, limit: usize) -> Result<usize> {
+    match value {
+        Value::Int(n) => usize::try_from(*n)
+            .ok()
+            .filter(|n| *n < limit)
+            .ok_or_else(|| crate::safety::arg_err(format!("{name}: index must be in 0..{limit}"))),
+        other => Err(crate::safety::bad_arg(
+            name,
+            "index: Int",
+            other.type_name(),
+        )),
+    }
+}
+
+fn bi_rl_agent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = expect_string(
+        "rl_agent",
+        args.first()
+            .ok_or_else(|| crate::safety::arg_err("rl_agent requires name"))?,
+    )?;
+    let states = rl_positive_size(
+        "rl_agent",
+        args.get(1)
+            .ok_or_else(|| crate::safety::arg_err("rl_agent requires state_size"))?,
+    )?;
+    let actions = rl_positive_size(
+        "rl_agent",
+        args.get(2)
+            .ok_or_else(|| crate::safety::arg_err("rl_agent requires action_size"))?,
+    )?;
+    let mut agent = QLearningAgent::new(name, states, actions, 0.1, 0.99, 0.1);
+    if let Some(value) = args.get(3) {
+        let Value::Record(options) = value else {
             return Err(crate::safety::bad_arg(
                 "rl_agent",
-                "name: String",
-                other.type_name(),
-            ))
+                "config: Record",
+                value.type_name(),
+            ));
+        };
+        for (key, value) in options {
+            let number = finite_nn_number("rl_agent", value)?;
+            match key.as_str() {
+                "learning_rate" => agent.learning_rate = number,
+                "discount" => agent.discount = number,
+                "epsilon" => agent.epsilon = number,
+                _ => {
+                    return Err(crate::safety::arg_err(format!(
+                        "rl_agent: unknown option {key}"
+                    )))
+                }
+            }
         }
-    };
-
-    let state_size = match args.get(1) {
-        Some(Value::Int(n)) => *n as usize,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "rl_agent",
-                "state_size: Int",
-                other.map_or("nothing", |v| v.type_name()),
-            ))
-        }
-    };
-
-    let action_size = match args.get(2) {
-        Some(Value::Int(n)) => *n as usize,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "rl_agent",
-                "action_size: Int",
-                other.map_or("nothing", |v| v.type_name()),
-            ))
-        }
-    };
-
-    // Parse optional config
-    let (learning_rate, discount, epsilon) = if let Some(Value::Record(config)) = args.get(3) {
-        (
-            config
-                .get("learning_rate")
-                .and_then(|v| match v {
-                    Value::Float(f) => Some(*f),
-                    _ => None,
-                })
-                .unwrap_or(0.1),
-            config
-                .get("discount")
-                .and_then(|v| match v {
-                    Value::Float(f) => Some(*f),
-                    _ => None,
-                })
-                .unwrap_or(0.99),
-            config
-                .get("epsilon")
-                .and_then(|v| match v {
-                    Value::Float(f) => Some(*f),
-                    _ => None,
-                })
-                .unwrap_or(0.1),
-        )
-    } else {
-        (0.1, 0.99, 0.1)
-    };
-
-    let agent = QLearningAgent::new(
-        &name,
-        state_size,
-        action_size,
-        learning_rate,
-        discount,
-        epsilon,
-    );
+    }
+    validate_q_agent(&agent)?;
     q_agent_to_value(&agent)
 }
 
-/// Select action using Q-learning agent
-/// Usage: rl_action(agent, state)
 fn bi_rl_action(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err("rl_action requires: agent, state"));
-    }
-
-    let agent = value_to_q_agent(&args[0])?;
-
-    let state = match &args[1] {
-        Value::Int(s) => *s as usize,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "rl_action",
-                "state: Int",
-                other.type_name(),
-            ))
-        }
-    };
-
-    let action = agent.select_action(state);
-    Ok(Value::Int(action as i64))
+    let piped = input.is_some();
+    let value = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| crate::safety::arg_err("rl_action requires agent"))?;
+    let agent = value_to_q_agent(&value)?;
+    let idx = usize::from(!piped);
+    let state = rl_index(
+        "rl_action state",
+        args.get(idx)
+            .ok_or_else(|| crate::safety::arg_err("rl_action requires state"))?,
+        agent.state_size,
+    )?;
+    Ok(Value::Int(agent.select_action(state) as i64))
 }
 
-/// Update Q-learning agent
-/// Usage: rl_update(agent, state, action, reward, next_state, done)
 fn bi_rl_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
+    let piped = input.is_some();
+    let value = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| crate::safety::arg_err("rl_update requires agent"))?;
+    let mut agent = value_to_q_agent(&value)?;
+    let idx = usize::from(!piped);
+    let arg = |offset| {
+        args.get(idx + offset).ok_or_else(|| {
+            crate::safety::arg_err("rl_update requires state, action, reward, next_state, done")
+        })
     };
-
-    if args.len() < 6 {
-        return Err(crate::safety::arg_err(
-            "rl_update requires: agent, state, action, reward, next_state, done",
-        ));
+    let state = rl_index("rl_update state", arg(0)?, agent.state_size)?;
+    let action = rl_index("rl_update action", arg(1)?, agent.action_size)?;
+    let reward = finite_nn_number("rl_update reward", arg(2)?)?;
+    let next_state = rl_index("rl_update next_state", arg(3)?, agent.state_size)?;
+    let Value::Bool(done) = arg(4)? else {
+        return Err(crate::safety::arg_err("rl_update done must be Bool"));
+    };
+    if agent
+        .steps
+        .checked_add(1)
+        .is_none_or(|n| i64::try_from(n).is_err())
+    {
+        return Err(crate::safety::arg_err("rl_update step counter overflow"));
     }
-
-    let mut agent = value_to_q_agent(&args[0])?;
-
-    let state = match &args[1] {
-        Value::Int(s) => *s as usize,
-        _ => return Err(crate::safety::arg_err("state must be integer")),
-    };
-
-    let action = match &args[2] {
-        Value::Int(a) => *a as usize,
-        _ => return Err(crate::safety::arg_err("action must be integer")),
-    };
-
-    let reward = match &args[3] {
-        Value::Float(r) => *r,
-        Value::Int(r) => *r as f64,
-        _ => return Err(crate::safety::arg_err("reward must be number")),
-    };
-
-    let next_state = match &args[4] {
-        Value::Int(s) => *s as usize,
-        _ => return Err(crate::safety::arg_err("next_state must be integer")),
-    };
-
-    let done = match &args[5] {
-        Value::Bool(b) => *b,
-        _ => return Err(crate::safety::arg_err("done must be boolean")),
-    };
-
-    agent.update(state, action, reward, next_state, done);
+    agent.update(state, action, reward, next_state, *done);
+    validate_q_agent(&agent).map_err(|_| {
+        crate::safety::bad_state(
+            "rl_update",
+            "non-finite Q-learning result",
+            "the update exceeded the numeric range",
+        )
+    })?;
     q_agent_to_value(&agent)
 }
 
@@ -15703,7 +15709,19 @@ fn bi_rl_env_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // ==================== RL Helper Functions ====================
 
 fn q_agent_to_value(agent: &QLearningAgent) -> Result<Value> {
-    let json = serde_json::to_string(agent).context("Failed to serialize Q-learning agent")?;
+    validate_q_agent(agent)?;
+    let mut rows: Vec<_> = agent
+        .q_table
+        .iter()
+        .map(|(&(state, action), &q)| (state, action, q))
+        .collect();
+    rows.sort_by_key(|&(state, action, _)| (state, action));
+    let json = serde_json::json!({
+        "name": agent.name, "state_size": agent.state_size, "action_size": agent.action_size,
+        "learning_rate": agent.learning_rate, "discount": agent.discount, "epsilon": agent.epsilon,
+        "epsilon_decay": agent.epsilon_decay, "epsilon_min": agent.epsilon_min, "steps": agent.steps,
+        "q_table": rows,
+    }).to_string();
 
     let mut rec = BTreeMap::new();
     rec.insert(
@@ -15726,18 +15744,75 @@ fn q_agent_to_value(agent: &QLearningAgent) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-fn value_to_q_agent(v: &Value) -> Result<QLearningAgent> {
-    if let Value::Record(rec) = v {
-        if let Some(Value::Str(data)) = rec.get("_data") {
-            serde_json::from_str(data).context("Failed to deserialize Q-learning agent")
-        } else {
-            Err(crate::safety::arg_err(
-                "Invalid Q-learning agent: missing _data",
+fn value_to_q_agent(value: &Value) -> Result<QLearningAgent> {
+    let Value::Record(record) = value else {
+        return Err(crate::safety::arg_err("Q-learning agent must be a Record"));
+    };
+    let Some(Value::Str(data)) = record.get("_data") else {
+        return Err(crate::safety::arg_err(
+            "Q-learning agent requires _data: String",
+        ));
+    };
+    if data.len() > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            "rl",
+            "Q-learning encoding exceeds 64 MiB".into(),
+            "use a smaller agent",
+        ));
+    }
+    let mut wire: serde_json::Value = serde_json::from_str(data).map_err(|e| {
+        crate::safety::bad_arg("rl", "valid encoded Q-learning agent", &e.to_string())
+    })?;
+    let rows = match wire.get_mut("q_table") {
+        Some(value @ serde_json::Value::Array(_)) => {
+            std::mem::replace(value, serde_json::json!({}))
+        }
+        Some(serde_json::Value::Object(table)) if table.is_empty() => serde_json::json!([]),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "Q-learning q_table must contain row triples or a legacy empty object",
             ))
         }
-    } else {
-        Err(anyhow!("Invalid Q-learning agent value"))
+    };
+    let mut agent: QLearningAgent = serde_json::from_value(wire).map_err(|e| {
+        crate::safety::bad_arg("rl", "valid encoded Q-learning agent", &e.to_string())
+    })?;
+    validate_q_agent(&agent)?;
+    let rows = rows.as_array().expect("row representation was checked");
+    if rows.len() > MAX_RL_CELLS {
+        return Err(crate::safety::budget_exceeded(
+            "rl",
+            "Q-learning table exceeds one million entries".into(),
+            "use a smaller agent",
+        ));
     }
+    for row in rows {
+        let Some(row) = row.as_array().filter(|row| row.len() == 3) else {
+            return Err(crate::safety::arg_err(
+                "Q-learning rows must be [state, action, finite value]",
+            ));
+        };
+        let index = |value: &serde_json::Value, limit| {
+            value
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .filter(|n| *n < limit)
+                .ok_or_else(|| {
+                    crate::safety::arg_err("Q-learning row indices must be in-range integers")
+                })
+        };
+        let state = index(&row[0], agent.state_size)?;
+        let action = index(&row[1], agent.action_size)?;
+        let q = row[2].as_f64().filter(|n| n.is_finite()).ok_or_else(|| {
+            crate::safety::arg_err("Q-learning row values must be finite numbers")
+        })?;
+        if agent.q_table.insert((state, action), q).is_some() {
+            return Err(crate::safety::arg_err(
+                "Q-learning rows contain duplicate state-action pairs",
+            ));
+        }
+    }
+    Ok(agent)
 }
 
 fn sarsa_agent_to_value(agent: &SarsaAgent) -> Result<Value> {

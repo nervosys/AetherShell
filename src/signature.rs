@@ -1568,6 +1568,24 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Evolve each population independently with the same callback, in input order; no cross-population fitness or mating is performed. Allow an empty batch. Validate every population and counter before callbacks, propagate callback failures immediately, and preserve caches, histories and IDs. Use evolve semantics for parent statistics and unevaluated offspring. Combined batch limits: 64 MiB encoding, 10000 populations/individuals, one million genome parameters, 10000 existing plus requested history entries, 100000 individual-generation pairs and ten million parameter-generation pairs. Refuse non-finite scores and computed results.",
         examples: &[(r#"coevolve([population(3, "vec"), population(3, "nn")], fn(g) => 1) | map(fn(p) => p.generation)"#, "[10, 10]"), (r#"[population(3, "vec")] | coevolve(fn(g) => 1, 2) | map(fn(p) => p.generation)"#, "[2]"), (r#"coevolve([], fn(g) => 1, 0)"#, "[]")],
     },
+    Signature {
+        name: "rl_agent", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "agent name"), req("state_size", Ty::Int, "positive state count"), req("action_size", Ty::Int, "positive action count; at most 10000"), opt("config", Ty::Record, "learning_rate, discount, epsilon: finite numbers in 0..=1")], returns: "Record",
+        doc: "Create an empty tabular Q-learning agent. Refuse invalid dimensions or more than one million possible state-action cells. Defaults: learning_rate 0.1, discount 0.99, epsilon 0.1. Unknown or wrong-typed options are refused. Encoded Q-table rows are sorted [state,action,value] triples; legacy empty-object tables remain readable.",
+        examples: &[(r#"rl_agent("example", 2, 3).action_size"#, "3"), (r#"rl_agent("example", 2, 3, {learning_rate: 1, discount: 0, epsilon: 0}).epsilon"#, "0")],
+    },
+    Signature {
+        name: "rl_action", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("state", Ty::Int, "in 0..state_size")], returns: "Int",
+        doc: "Select an action using epsilon-greedy Q-learning policy without updating the agent. With epsilon zero, return the highest Q-value action, choosing the last action on ties. Validate encoded rates, dimensions, counters and table rows; cap encoding at 64 MiB, actions at 10000 and state-action cells at one million.",
+        examples: &[(r#"rl_action(rl_agent("example", 2, 3, {epsilon: 0}), 0)"#, "2"), (r#"rl_agent("example", 2, 1) | rl_action(1)"#, "0")],
+    },
+    Signature {
+        name: "rl_update", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("state", Ty::Int, "in 0..state_size"), req("action", Ty::Int, "in 0..action_size"), req("reward", Ty::Numeric, "finite reward"), req("next_state", Ty::Int, "in 0..state_size, including terminal transitions"), req("done", Ty::Bool, "terminal transition")], returns: "Record",
+        doc: "Return an updated agent copy using Q += learning_rate*(reward + discount*max_next_Q - Q), with max_next_Q zero for terminal transitions. Increment steps once and multiply epsilon by epsilon_decay while it exceeds epsilon_min (defaults 0.995 and 0.01). Preserve sorted Q-table rows. Validate encoded state as in rl_action, refuse invalid indices/counter overflow and return a coded error for non-finite computed values.",
+        examples: &[(r#"rl_update(rl_agent("example", 2, 2), 0, 1, 5, 1, true).steps"#, "1"), (r#"let result = rl_agent("example", 2, 2) | rl_update(0, 1, 5, 1, false); result.steps"#, "1")],
+    },
     // Source-reviewed neural operations; serialized networks are validated.
     Signature {
         name: "nn_create", category: None, subject_required: false, aliases: &[], subject: None,
