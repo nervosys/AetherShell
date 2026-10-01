@@ -18646,31 +18646,32 @@ fn budget_string_record(s: &str, max: usize) -> Value {
 /// rendering with an explicit elision marker. With piped input the args are
 /// `(max_tokens, cursor?)`; otherwise `(value, max_tokens, cursor?)`.
 fn bi_budget(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // Resolve (value, max, cursor) depending on whether input is piped.
-    let (value, max_v, cursor_v) = if let Some(inp) = input {
-        (inp, args.first().cloned(), args.get(1).cloned())
-    } else {
-        let v = args
-            .first()
-            .cloned()
-            .ok_or_else(|| crate::safety::bad_arg("budget", "value, max_tokens: Int", "nothing"))?;
-        (v, args.get(1).cloned(), args.get(2).cloned())
-    };
-    let max = match max_v {
-        Some(Value::Int(n)) if n > 0 => n as usize,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "budget",
-                "max_tokens: positive Int",
-                other.as_ref().map(|v| v.type_name()).unwrap_or("nothing"),
+    let mut args = args.into_iter();
+    let value = input
+        .or_else(|| args.next())
+        .ok_or_else(|| crate::safety::arg_err("budget requires value and max_tokens"))?;
+    let max = rl_positive_size(
+        "budget max_tokens",
+        &args
+            .next()
+            .ok_or_else(|| crate::safety::arg_err("budget requires max_tokens"))?,
+    )?;
+    let cursor = match args.next() {
+        None => 0,
+        Some(Value::Int(n)) => usize::try_from(n).map_err(|_| {
+            crate::safety::arg_err("budget cursor must be a nonnegative representable Int")
+        })?,
+        Some(_) => {
+            return Err(crate::safety::arg_err(
+                "budget cursor must be a nonnegative Int",
             ))
         }
     };
-    let cursor = match cursor_v {
-        Some(Value::Int(n)) if n >= 0 => n as usize,
-        _ => 0,
-    };
-
+    if !matches!(&value, Value::Array(_) | Value::Table(_)) && cursor != 0 {
+        return Err(crate::safety::arg_err(
+            "budget nonzero cursor requires Array or Table",
+        ));
+    }
     Ok(budget_value(&value, max, cursor))
 }
 
@@ -18678,31 +18679,42 @@ fn bi_budget(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// arrays/tables from `cursor` (with metadata) and truncating other values'
 /// AECON rendering losslessly. Public so the REPL can apply `AE_TOKEN_BUDGET`.
 pub fn budget_value(value: &Value, max: usize, cursor: usize) -> Value {
-    let rows: Vec<Value> = match value {
-        Value::Table(t) => t.rows.iter().map(|r| Value::Record(r.clone())).collect(),
-        Value::Array(a) => a.clone(),
+    let total = match value {
+        Value::Table(t) => t.rows.len(),
+        Value::Array(a) => a.len(),
         other => return budget_string_record(&aecon_render(other), max),
     };
-
-    let total = rows.len();
     let start = cursor.min(total);
     let mut end = start;
     let mut used = 0usize;
     while end < total {
         // Conservative per-row estimate (a single record renders with its keys;
         // the final page shares one header, so this never under-counts).
-        let row_tok = est_token_count(&aecon_render(&rows[end]));
-        if end > start && used + row_tok > max {
+        let rendered = match value {
+            Value::Table(t) => aecon_render(&Value::Record(t.rows[end].clone())),
+            Value::Array(a) => aecon_render(&a[end]),
+            _ => unreachable!("row value was checked"),
+        };
+        let row_tok = est_token_count(&rendered);
+        if end > start && (used > max || row_tok > max.saturating_sub(used)) {
             break;
         }
-        used += row_tok;
+        used = used.saturating_add(row_tok);
         end += 1;
     }
     if end == start && total > start {
         end = start + 1; // always make progress, even on a single oversized row
     }
 
-    let page_slice = Value::Array(rows[start..end].to_vec());
+    let page_slice = Value::Array(match value {
+        Value::Table(t) => t.rows[start..end]
+            .iter()
+            .cloned()
+            .map(Value::Record)
+            .collect(),
+        Value::Array(a) => a[start..end].to_vec(),
+        _ => unreachable!("row value was checked"),
+    });
     let page_str = aecon_render(&page_slice);
     let page_tokens = est_token_count(&page_str);
     let shown = end - start;

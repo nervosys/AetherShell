@@ -251,6 +251,18 @@ const fn rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
 /// not depend on its size.
 pub static SIGNATURES: &[Signature] = &[
     Signature {
+        name: "call", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "builtin name or alias"), opt_rest("args", Ty::Any, "arguments forwarded unchanged to the target")], returns: "Any",
+        doc: "Dynamically dispatch a builtin name (String or Uri) with zero or more arguments and forward any pipeline input unchanged. Use normal target signature validation and effect gating; target errors propagate. This calls builtins, not user-defined lambdas.",
+        examples: &[(r#"call("rl_gridworld").width"#, "5"), (r#"call("lower", "ABC")"#, r#""abc""#), (r#"[1,2] | call("map", fn(x) => x + 1)"#, "[2, 3]")],
+    },
+    Signature {
+        name: "budget", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Any),
+        params: &[req("max_tokens", Ty::Int, "positive representable token budget"), opt("cursor", Ty::Int, "nonnegative representable row offset; default zero")], returns: "Record",
+        doc: "Render a value using AECON and estimated tokens (or cl100k BPE with real-tokens). Arrays and tables produce a row page with from/shown/total/elided/next_cursor metadata; clamp the cursor to the row count and always include at least one remaining row even if oversized. Estimate rows conservatively and report actual page_tokens, which may exceed max_tokens due to an oversized row or framing. Other values produce a prefix with an explicit elision marker when over budget; nonzero cursors are refused for these values. Prefix length uses four Unicode characters per budget token, so the envelope is an approximate budget, not a hard cap. Clone only selected array/table rows.",
+        examples: &[(r#"budget([1,2,3], 100).shown"#, "3"), (r#"let result = [1,2,3] | budget(100, 1); result.from"#, "1"), (r#"budget("abc", 100).truncated"#, "false")],
+    },
+    Signature {
         name: "file_append", category: None, subject_required: false, aliases: &["append_file"],
         subject: None, params: &[req("path", Ty::Str, "file to append or create"), opt("content", Ty::Any, "content; omitted uses pipeline input")], returns: "Record",
         doc: "Append content and return path, bytes appended and success. Arrays are joined as lines.",
