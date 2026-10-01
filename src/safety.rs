@@ -316,6 +316,8 @@ pub fn effect_is_declared(name: &str) -> bool {
 
 fn classified_effect(name: &str) -> Option<Effect> {
     match name {
+        // Native regex substitution only: no process or file access.
+        "sd_replace" => Some(Effect::Pure),
         // The privilege boundary itself. `decide(Privileged, Agent)` is `Deny`,
         // and until these names arrived the class governed nothing: every other
         // privilege-shaped builtin in the catalog (`sudo_exec`, `user_add`,
@@ -560,7 +562,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "svc_stop"
         | "tmux_attach" => Some(Effect::Process),
 
-        // ---- WriteLocal (52) ----
+        // ---- WriteLocal (51) ----
         | "age_decrypt"
         | "age_encrypt"
         | "age_keygen"
@@ -595,7 +597,6 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "refactor_rename_file"
         | "ruff_check"
         | "ruff_format"
-        | "sd_replace"
         | "sed_replace"
         | "session_checkpoint"
         | "session_restore"

@@ -50036,15 +50036,7 @@ fn bi_sed_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     } else {
         text
     };
-    let replaced = if global {
-        re.replace_all(&source, replacement.as_str())
-    } else {
-        re.replace(&source, replacement.as_str())
-    };
-    let result = match replaced {
-        std::borrow::Cow::Owned(result) => result,
-        std::borrow::Cow::Borrowed(_) => source,
-    };
+    let result = regex_substitute(&re, &replacement, source, global);
     if let Some((original, path)) = file {
         crate::tx::snapshot(&path);
         write_file_atomically("sed", &path, result.as_bytes())?;
@@ -52640,46 +52632,38 @@ fn bi_rga_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- sd (1036) ---
 
-/// sd — Intuitive find-and-replace CLI.
+/// Native regex replacement independent of an installed sd executable.
 fn bi_sd_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let find = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("sd requires a find pattern")),
+    if (input.is_some() && args.len() != 2) || (input.is_none() && args.len() != 3) {
+        return Err(crate::safety::arg_err(
+            "sd requires pattern, replacement and direct or piped text, without conflicting input",
+        ));
+    }
+    let mut args = args.into_iter();
+    let Some(Value::Str(pattern)) = args.next() else {
+        return Err(crate::safety::arg_err("sd requires pattern String"));
     };
-    let replace = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("sd requires a replacement string")),
+    let Some(Value::Str(replacement)) = args.next() else {
+        return Err(crate::safety::arg_err("sd requires replacement String"));
     };
-    let text = match args.get(2) {
-        Some(Value::Str(s)) => s.clone(),
-        None => match &input {
-            Some(Value::Str(s)) => s.clone(),
-            _ => return Err(crate::safety::arg_err("sd requires input text")),
-        },
-        _ => return Err(crate::safety::arg_err("sd input must be a string")),
+    let Some(Value::Str(text)) = input.or_else(|| args.next()) else {
+        return Err(crate::safety::arg_err("sd requires input String"));
     };
-    // Use sd if available, otherwise fallback to Rust regex
-    let child = std::process::Command::new("sd")
-        .args([&find, &replace])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn();
-    match child {
-        Ok(mut c) => {
-            use std::io::Write;
-            if let Some(ref mut stdin) = c.stdin {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            let output = c.wait_with_output()?;
-            Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
-            ))
-        }
-        Err(_) => {
-            // Fallback: simple string replace
-            Ok(Value::Str(text.replace(&find, &replace)))
-        }
+    let re = regex::Regex::new(&pattern)
+        .map_err(|e| crate::safety::arg_err(format!("sd invalid regex: {e}")))?;
+    Ok(Value::Str(regex_substitute(&re, &replacement, text, true)))
+}
+
+/// Reuse owned source text when a regex has no match.
+fn regex_substitute(re: &regex::Regex, replacement: &str, source: String, global: bool) -> String {
+    let replaced = if global {
+        re.replace_all(&source, replacement)
+    } else {
+        re.replace(&source, replacement)
+    };
+    match replaced {
+        std::borrow::Cow::Owned(result) => result,
+        std::borrow::Cow::Borrowed(_) => source,
     }
 }
 

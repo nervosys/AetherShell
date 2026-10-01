@@ -67,6 +67,98 @@ impl Drop for Fixture {
 fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
+#[test]
+fn sd_uses_native_regex_and_preserves_capture_and_line_semantics() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    for name in ["sd", "sd_replace"] {
+        assert_eq!(
+            call(name, vec![s("[a-z]+"), s("x"), s("abc 123 def")], &mut env).unwrap(),
+            s("x 123 x")
+        );
+        assert_eq!(
+            call_with_input(
+                name,
+                vec![s("(?P<word>[a-z]+)-(\\d+)"), s("${word}:$2:$$")],
+                Some(s("abc-12")),
+                &mut env
+            )
+            .unwrap(),
+            s("abc:12:$")
+        );
+        assert_eq!(
+            call(name, vec![s("a"), s("x"), s("a\r\na")], &mut env).unwrap(),
+            s("x\r\nx")
+        );
+        assert_eq!(
+            call(name, vec![s(""), s("x"), s("é")], &mut env).unwrap(),
+            s("xéx")
+        );
+        assert_eq!(
+            call(name, vec![s("missing"), s("x"), s("original")], &mut env).unwrap(),
+            s("original")
+        );
+    }
+}
+#[test]
+fn sd_refuses_invalid_regex_types_and_conflicting_input() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    for name in ["sd", "sd_replace"] {
+        code(
+            call(name, vec![s("["), s("x"), s("a")], &mut env),
+            "E_BAD_ARG",
+        );
+        code(call(name, vec![s("a"), s("x")], &mut env), "E_BAD_ARG");
+        code(
+            call(name, vec![s("a"), s("x"), Value::Int(1)], &mut env),
+            "E_BAD_ARG",
+        );
+        code(
+            call_with_input(
+                name,
+                vec![s("a"), s("x"), s("explicit")],
+                Some(s("piped")),
+                &mut env,
+            ),
+            "E_BAD_ARG",
+        );
+        code(
+            call_with_input(name, vec![s("a"), s("x")], Some(Value::Int(1)), &mut env),
+            "E_BAD_ARG",
+        );
+        code(
+            call(
+                name,
+                vec![s("a"), s("x"), s("a"), Value::Record(Default::default())],
+                &mut env,
+            ),
+            "E_BAD_ARG",
+        );
+    }
+}
+#[test]
+fn sd_is_declared_pure_and_runs_under_strict_agent_policy() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_POLICY", "strict");
+    std::env::set_var("AETHER_MAX_FILES", "0");
+    let mut env = Env::default();
+    for name in ["sd", "sd_replace"] {
+        assert_eq!(
+            aethershell::safety::effect_of(name),
+            aethershell::safety::Effect::Pure
+        );
+        assert!(aethershell::safety::effect_is_declared(name));
+        assert_eq!(
+            call(name, vec![s("a+"), s("x"), s("aaa")], &mut env).unwrap(),
+            s("x")
+        );
+    }
+}
 fn sed_options(global: bool, file: bool) -> Value {
     Value::Record(std::collections::BTreeMap::from([
         ("global".into(), Value::Bool(global)),
