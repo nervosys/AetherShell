@@ -67,6 +67,296 @@ impl Drop for Fixture {
 fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
+fn edit_record(fields: Vec<(&str, Value)>) -> Value {
+    Value::Record(fields.into_iter().map(|(k, v)| (k.into(), v)).collect())
+}
+#[test]
+fn structured_edits_support_aliases_pipes_and_descending_operation_order() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let path = fixture.path("input");
+    let batch = Value::Array(vec![
+        edit_record(vec![("op", s("delete")), ("line", Value::Int(1))]),
+        edit_record(vec![
+            ("operation", s("insert_at")),
+            ("line", Value::Int(2)),
+            ("text", s("B0")),
+        ]),
+        edit_record(vec![
+            ("op", s("replace_range")),
+            ("start_line", Value::Int(3)),
+            ("content", s("C")),
+        ]),
+    ]);
+    for name in ["file_edit", "edit_file", "text_edit"] {
+        std::fs::write(&path, "a\r\nb\r\nc").unwrap();
+        let result = diff_record(call(name, vec![s("input"), batch.clone()], &mut env).unwrap());
+        assert_eq!(result["path"], s(&path));
+        assert_eq!(result["success"], Value::Bool(true));
+        assert_eq!(result["edits_applied"], Value::Int(3));
+        assert_eq!(result["edits_failed"], Value::Int(0));
+        assert_eq!(result["failed"], Value::Array(vec![]));
+        assert_eq!(result["final_lines"], Value::Int(3));
+        let Value::Array(applied) = &result["applied"] else {
+            panic!("expected applied metadata");
+        };
+        assert_eq!(diff_record(applied[0].clone())["op"], s("replace_range"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "B0\nb\nC\n");
+        let append = edit_record(vec![
+            ("op", s("insert")),
+            ("line", Value::Int(i64::MAX)),
+            ("content", s("tail")),
+        ]);
+        let result =
+            diff_record(call_with_input(name, vec![s("input")], Some(append), &mut env).unwrap());
+        assert_eq!(result["final_lines"], Value::Int(4));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "B0\nb\nC\ntail\n");
+    }
+    std::fs::write(&path, "a\nb\nc\n").unwrap();
+    call(
+        "file_edit",
+        vec![
+            s("input"),
+            edit_record(vec![
+                ("op", s("replace")),
+                ("line", Value::Int(2)),
+                ("end_line", Value::Int(i64::MAX)),
+                ("content", s("")),
+            ]),
+        ],
+        &mut env,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\n");
+    std::fs::write(&path, "x\n").unwrap();
+    let tied = Value::Array(vec![
+        edit_record(vec![
+            ("op", s("insert")),
+            ("line", Value::Int(1)),
+            ("content", s("A")),
+        ]),
+        edit_record(vec![
+            ("op", s("insert")),
+            ("line", Value::Int(1)),
+            ("content", s("B")),
+        ]),
+    ]);
+    call("file_edit", vec![s("input"), tied], &mut env).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "B\nA\nx\n");
+    std::fs::write(&path, "\n").unwrap();
+    call(
+        "file_edit",
+        vec![s("input"), Value::Array(vec![])],
+        &mut env,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "\n");
+}
+#[test]
+fn structured_edits_refuse_entire_malformed_or_inapplicable_batches() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::fs::write(&path, "original\n").unwrap();
+    let valid = edit_record(vec![
+        ("op", s("insert")),
+        ("line", Value::Int(1)),
+        ("content", s("new")),
+    ]);
+    for invalid in [
+        Value::Int(1),
+        edit_record(vec![]),
+        edit_record(vec![("op", s("unknown")), ("line", Value::Int(1))]),
+        edit_record(vec![("op", s("delete")), ("line", Value::Int(0))]),
+        edit_record(vec![("op", s("delete")), ("line", Value::Float(1.0))]),
+        edit_record(vec![
+            ("op", s("delete")),
+            ("line", Value::Int(2)),
+            ("end_line", Value::Int(1)),
+        ]),
+        edit_record(vec![
+            ("op", s("delete")),
+            ("line", Value::Int(1)),
+            ("end_line", s("2")),
+        ]),
+        edit_record(vec![("op", s("replace")), ("line", Value::Int(1))]),
+        edit_record(vec![
+            ("op", s("replace")),
+            ("line", Value::Int(1)),
+            ("content", Value::Int(2)),
+        ]),
+        edit_record(vec![
+            ("op", s("insert")),
+            ("line", Value::Int(1)),
+            ("content", s("x")),
+            ("end_line", Value::Int(2)),
+        ]),
+        edit_record(vec![
+            ("op", s("delete")),
+            ("operation", s("delete")),
+            ("line", Value::Int(1)),
+        ]),
+        edit_record(vec![
+            ("op", s("delete")),
+            ("line", Value::Int(1)),
+            ("start_line", Value::Int(1)),
+        ]),
+        edit_record(vec![
+            ("op", s("replace")),
+            ("line", Value::Int(1)),
+            ("content", s("x")),
+            ("text", s("x")),
+        ]),
+        edit_record(vec![
+            ("op", s("delete")),
+            ("line", Value::Int(1)),
+            ("content", s("ignored")),
+        ]),
+    ] {
+        code(
+            call(
+                "file_edit",
+                vec![s(&path), Value::Array(vec![valid.clone(), invalid])],
+                &mut env,
+            ),
+            "E_BAD_ARG",
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+    }
+    let delete = edit_record(vec![("op", s("delete")), ("line", Value::Int(1))]);
+    code(
+        call(
+            "file_edit",
+            vec![s(&path), Value::Array(vec![delete.clone(), delete])],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+    code(
+        call_with_input(
+            "file_edit",
+            vec![s(&path), valid.clone()],
+            Some(valid.clone()),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call("file_edit", vec![s(&path), valid, s("ignored")], &mut env),
+        "E_BAD_ARG",
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+}
+#[test]
+fn structured_edits_bound_batches_work_lines_and_output_before_writing() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    let insert = edit_record(vec![
+        ("op", s("insert")),
+        ("line", Value::Int(1)),
+        ("content", s("")),
+    ]);
+    std::fs::write(&path, "original").unwrap();
+    code(
+        call(
+            "file_edit",
+            vec![s(&path), Value::Array(vec![insert.clone(); 10_001])],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
+    let content = "a\n".repeat(1001);
+    std::fs::write(&path, &content).unwrap();
+    code(
+        call(
+            "file_edit",
+            vec![s(&path), Value::Array(vec![insert; 10_000])],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+    std::fs::write(&path, "\n".repeat(1_000_001)).unwrap();
+    code(
+        call("file_edit", vec![s(&path), Value::Array(vec![])], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), 1_000_001);
+    std::fs::File::create(&path)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 - 2)
+        .unwrap();
+    let append = edit_record(vec![
+        ("op", s("insert")),
+        ("line", Value::Int(2)),
+        ("content", s("xx")),
+    ]);
+    code(
+        call("file_edit", vec![s(&path), append], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().len(),
+        64 * 1024 * 1024 - 2
+    );
+}
+#[test]
+fn structured_edits_code_read_failures_guard_aliases_and_roll_back() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let path = fixture.path("input");
+    let edit = edit_record(vec![
+        ("op", s("replace")),
+        ("line", Value::Int(1)),
+        ("content", s("new")),
+    ]);
+    code(
+        call("file_edit", vec![s("missing"), edit.clone()], &mut env),
+        "E_NOT_FOUND",
+    );
+    std::fs::write(&path, [255]).unwrap();
+    code(
+        call("file_edit", vec![s("input"), edit.clone()], &mut env),
+        "E_IO",
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), [255]);
+    std::fs::File::create(&path)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    code(
+        call("file_edit", vec![s("input"), edit.clone()], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    std::fs::write(&path, "a\r\nb").unwrap();
+    let unrelated = path.clone() + ".aether_tmp";
+    std::fs::write(&unrelated, "keep").unwrap();
+    aethershell::tx::begin().unwrap();
+    call("file_edit", vec![s("input"), edit.clone()], &mut env).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "new\nb\n");
+    assert_eq!(std::fs::read_to_string(&unrelated).unwrap(), "keep");
+    aethershell::tx::rollback().unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb");
+    let jail = fixture.root.join("jail");
+    std::fs::create_dir(&jail).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", jail);
+    for name in ["file_edit", "edit_file", "text_edit"] {
+        code(
+            call(name, vec![s(&path), edit.clone()], &mut env),
+            "E_OUTSIDE_WORKSPACE",
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb");
+}
 #[test]
 fn chmod_validates_modes_and_preserves_platform_permission_semantics() {
     let _lock = LOCK.lock().unwrap();

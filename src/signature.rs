@@ -365,6 +365,12 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "file_edit", category: None, subject_required: false, aliases: &["edit_file", "text_edit"],
+        subject: None, params: &[req("path", Ty::Str, "regular UTF-8 file bounded to 64 MiB"), opt("edits", Ty::Any, "operation Record or Array; omitted uses pipeline input")], returns: "Record",
+        doc: "Validate replace/insert/delete operations and apply them in descending start-line order, preserving input order for ties, then publish atomically with transaction snapshot. Positive one-based ranges clip their end to EOF; out-of-range replacement/deletion refuses the whole batch, while insertion clips to EOF. Require operation-specific fields and String content for insert/replace. Normalize surviving lines to LF with a final newline. Refuse malformed or conflicting input; bound edits to 10000, aggregate payload and output to 64 MiB each, potential lines to one million and conservative line-edit work to ten million. Successful results contain applied metadata and an empty failed array.",
+        examples: &[(r#"let d = fs_tempdir("ae_edit"); let f = d + "/x"; file_write(f, "a\nb"); let result = file_edit(f, {op: "replace", line: 2, content: "x"}); rmdir(d, true); result.edits_applied"#, "1"), (r#"let d = fs_tempdir("ae_edit_pipe"); let f = d + "/x"; file_write(f, "a"); let result = [{operation: "insert_at", line: 2, text: "b"}] | edit_file(f); rmdir(d, true); result.final_lines"#, "2")],
+    },
+    Signature {
         name: "fs_chmod", category: None, subject_required: false, aliases: &["chmod"],
         subject: None, params: &[req("path", Ty::Str, "existing filesystem path"), req("mode", Ty::Any, "Int in 0..=07777 or octal String, optionally prefixed 0o")], returns: "Bool",
         doc: "Set Unix mode bits; on Windows set the read-only attribute from the owner-write bit only. Return true or a coded failure. Resolve and guard the path before changing permissions. Refuse pipeline input and active filesystem transactions because their journal does not reliably restore permission metadata.",

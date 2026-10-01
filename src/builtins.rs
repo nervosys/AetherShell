@@ -35690,229 +35690,210 @@ fn bi_file_delete_lines(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     ])))
 }
 
-/// file_edit(path, edits) - Apply structured edits to a file
+/// Apply a validated batch in descending line order, then publish once.
 fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if args.is_empty() {
-        return Err(crate::safety::arg_err("file_edit requires a file path"));
+    const MAX_BYTES: usize = 64 * 1024 * 1024;
+    const MAX_LINES: usize = 1_000_000;
+    if (input.is_some() && args.len() != 1) || (input.is_none() && args.len() != 2) {
+        return Err(crate::safety::arg_err(
+            "file_edit requires path and direct or piped edits, without conflicting input",
+        ));
     }
-
-    let path = match &args[0] {
-        Value::Str(s) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "file_edit",
-                "path: String",
-                other.type_name(),
+    let mut args = args.into_iter();
+    let Some(Value::Str(path)) = args.next() else {
+        return Err(crate::safety::arg_err("file_edit path must be String"));
+    };
+    let edits = match input.or_else(|| args.next()) {
+        Some(Value::Array(edits)) => edits,
+        Some(edit @ Value::Record(_)) => vec![edit],
+        _ => {
+            return Err(crate::safety::arg_err(
+                "file_edit edits must be a Record or Array of Records",
             ))
         }
     };
-    // Classified `ReadLocal` while the body wrote the file back in place.
-    // `WriteLocal` is what the jail keys on, so this path went uncontained.
-    let path = guard_local_write("file_edit", &path)?;
-
-    let edits = if args.len() > 1 {
-        match &args[1] {
-            Value::Array(arr) => arr.clone(),
-            Value::Record(r) => vec![Value::Record(r.clone())],
+    if edits.len() > 10_000 {
+        return Err(crate::safety::budget_exceeded(
+            "file_edit",
+            "batch exceeds 10000 edits".into(),
+            "use a smaller batch",
+        ));
+    }
+    fn field(
+        record: &mut BTreeMap<String, Value>,
+        name: &str,
+        alias: &str,
+    ) -> Result<Option<Value>> {
+        let first = record.remove(name);
+        let second = record.remove(alias);
+        if first.is_some() && second.is_some() {
+            return Err(crate::safety::arg_err(format!(
+                "file_edit cannot combine {name} and {alias}"
+            )));
+        }
+        Ok(first.or(second))
+    }
+    fn position(value: Option<Value>) -> Result<usize> {
+        match value {
+            Some(Value::Int(n)) if n > 0 => usize::try_from(n - 1)
+                .map_err(|_| crate::safety::arg_err("file_edit line number is too large")),
+            _ => Err(crate::safety::arg_err(
+                "file_edit line numbers must be positive Int",
+            )),
+        }
+    }
+    struct Edit {
+        index: usize,
+        op: &'static str,
+        start: usize,
+        end: usize,
+        lines: Vec<String>,
+    }
+    let mut prepared = Vec::with_capacity(edits.len());
+    let mut payload_bytes = 0usize;
+    let mut payload_lines = 0usize;
+    for (index, edit) in edits.into_iter().enumerate() {
+        let Value::Record(mut record) = edit else {
+            return Err(crate::safety::arg_err(
+                "file_edit every edit must be a Record",
+            ));
+        };
+        let op = match field(&mut record, "op", "operation")? {
+            Some(Value::Str(op)) => match op.as_str() {
+                "replace" | "replace_range" => "replace_range",
+                "insert" | "insert_at" => "insert_at",
+                "delete" | "delete_range" => "delete_range",
+                _ => return Err(crate::safety::arg_err("file_edit unknown operation")),
+            },
             _ => {
                 return Err(crate::safety::arg_err(
-                    "file_edit: edits must be an array of edit operations",
+                    "file_edit requires an operation String",
                 ))
             }
+        };
+        let start = if op == "insert_at" {
+            position(record.remove("line"))?
+        } else {
+            position(field(&mut record, "start_line", "line")?)?
+        };
+        let end = if op == "insert_at" {
+            start
+        } else {
+            record
+                .remove("end_line")
+                .map(|v| position(Some(v)))
+                .transpose()?
+                .unwrap_or(start)
+        };
+        if end < start {
+            return Err(crate::safety::arg_err(
+                "file_edit range end must not precede start",
+            ));
         }
-    } else {
-        match input {
-            Some(Value::Array(arr)) => arr,
-            Some(Value::Record(r)) => vec![Value::Record(r)],
-            _ => return Err(crate::safety::arg_err("file_edit: edits must be provided")),
+        let lines = if op == "delete_range" {
+            Vec::new()
+        } else {
+            let Some(Value::Str(text)) = field(&mut record, "content", "text")? else {
+                return Err(crate::safety::arg_err(
+                    "file_edit insert and replace require content String",
+                ));
+            };
+            payload_bytes = payload_bytes.saturating_add(text.len());
+            payload_lines = payload_lines.saturating_add(text.lines().count());
+            if payload_bytes > MAX_BYTES || payload_lines > MAX_LINES {
+                return Err(crate::safety::budget_exceeded(
+                    "file_edit",
+                    "edit payload exceeds 64 MiB or one million lines".into(),
+                    "use a smaller batch",
+                ));
+            }
+            text.lines().map(str::to_owned).collect()
+        };
+        if !record.is_empty() {
+            return Err(crate::safety::arg_err(
+                "file_edit unknown or conflicting operation fields",
+            ));
         }
-    };
-
-    let content =
-        fs::read_to_string(&path).map_err(|e| crate::safety::fs_error("file_edit", &path, &e))?;
-
-    let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-    let mut applied = Vec::new();
-    let mut failed = Vec::new();
-
-    // Sort edits by line number in reverse order
-    let mut sorted_edits: Vec<(usize, Value)> = edits.into_iter().enumerate().collect();
-    sorted_edits.sort_by(|a, b| {
-        let get_line = |v: &Value| -> i64 {
-            if let Value::Record(r) = v {
-                r.get("start_line")
-                    .or(r.get("line"))
-                    .and_then(|v| match v {
-                        Value::Int(n) => Some(*n),
-                        _ => None,
-                    })
-                    .unwrap_or(0)
-            } else {
-                0
-            }
-        };
-        get_line(&b.1).cmp(&get_line(&a.1))
-    });
-
-    for (idx, edit) in sorted_edits {
-        let record = match &edit {
-            Value::Record(r) => r,
-            _ => {
-                failed.push(Value::Str(format!("edit {}: not a record", idx)));
-                continue;
-            }
-        };
-
-        let op = match record.get("op").or(record.get("operation")) {
-            Some(Value::Str(s)) => s.as_str(),
-            _ => {
-                failed.push(Value::Str(format!("edit {}: missing 'op' field", idx)));
-                continue;
-            }
-        };
-
-        match op {
-            "replace_range" | "replace" => {
-                let start_line = match record.get("start_line").or(record.get("line")) {
-                    Some(Value::Int(n)) => (*n).max(1) as usize - 1,
-                    _ => {
-                        failed.push(Value::Str(format!("edit {}: missing start_line", idx)));
-                        continue;
-                    }
-                };
-                let end_line = match record.get("end_line") {
-                    Some(Value::Int(n)) => (*n).max(1) as usize - 1,
-                    _ => start_line,
-                };
-                let new_content = match record.get("content").or(record.get("text")) {
-                    Some(Value::Str(s)) => s.clone(),
-                    _ => String::new(),
-                };
-
-                if start_line < lines.len() {
-                    let end = end_line.min(lines.len() - 1);
-                    let new_lines: Vec<String> =
-                        new_content.lines().map(|s| s.to_string()).collect();
-
-                    lines.drain(start_line..=end);
-                    for (i, line) in new_lines.into_iter().enumerate() {
-                        lines.insert(start_line + i, line);
-                    }
-
-                    let mut result = BTreeMap::new();
-                    result.insert("op".to_string(), Value::Str("replace_range".to_string()));
-                    result.insert(
-                        "start_line".to_string(),
-                        Value::Int((start_line + 1) as i64),
-                    );
-                    result.insert("end_line".to_string(), Value::Int((end + 1) as i64));
-                    applied.push(Value::Record(result));
-                } else {
-                    failed.push(Value::Str(format!(
-                        "edit {}: line {} out of range",
-                        idx,
-                        start_line + 1
-                    )));
-                }
-            }
-            "insert_at" | "insert" => {
-                let line = match record.get("line") {
-                    Some(Value::Int(n)) => (*n).max(1) as usize - 1,
-                    _ => {
-                        failed.push(Value::Str(format!("edit {}: missing line", idx)));
-                        continue;
-                    }
-                };
-                let new_content = match record.get("content").or(record.get("text")) {
-                    Some(Value::Str(s)) => s.clone(),
-                    _ => String::new(),
-                };
-
-                let insert_pos = line.min(lines.len());
-                let new_lines: Vec<String> = new_content.lines().map(|s| s.to_string()).collect();
-
-                for (i, new_line) in new_lines.iter().enumerate() {
-                    lines.insert(insert_pos + i, new_line.clone());
-                }
-
-                let mut result = BTreeMap::new();
-                result.insert("op".to_string(), Value::Str("insert_at".to_string()));
-                result.insert("line".to_string(), Value::Int((insert_pos + 1) as i64));
-                result.insert(
-                    "lines_inserted".to_string(),
-                    Value::Int(new_lines.len() as i64),
-                );
-                applied.push(Value::Record(result));
-            }
-            "delete_range" | "delete" => {
-                let start_line = match record.get("start_line").or(record.get("line")) {
-                    Some(Value::Int(n)) => (*n).max(1) as usize - 1,
-                    _ => {
-                        failed.push(Value::Str(format!("edit {}: missing start_line", idx)));
-                        continue;
-                    }
-                };
-                let end_line = match record.get("end_line") {
-                    Some(Value::Int(n)) => (*n).max(1) as usize - 1,
-                    _ => start_line,
-                };
-
-                if start_line < lines.len() {
-                    let end = end_line.min(lines.len() - 1);
-                    let deleted_count = end - start_line + 1;
-                    lines.drain(start_line..=end);
-
-                    let mut result = BTreeMap::new();
-                    result.insert("op".to_string(), Value::Str("delete_range".to_string()));
-                    result.insert(
-                        "start_line".to_string(),
-                        Value::Int((start_line + 1) as i64),
-                    );
-                    result.insert(
-                        "lines_deleted".to_string(),
-                        Value::Int(deleted_count as i64),
-                    );
-                    applied.push(Value::Record(result));
-                } else {
-                    failed.push(Value::Str(format!(
-                        "edit {}: line {} out of range",
-                        idx,
-                        start_line + 1
-                    )));
-                }
-            }
-            _ => {
-                failed.push(Value::Str(format!(
-                    "edit {}: unknown operation '{}'",
-                    idx, op
+        prepared.push(Edit {
+            index,
+            op,
+            start,
+            end,
+            lines,
+        });
+    }
+    let path = guard_local_write("file_edit", &path)?;
+    let content = line_read("file_edit", &path)?;
+    let count = content.lines().count();
+    let max_lines = count.saturating_add(payload_lines);
+    if max_lines > MAX_LINES || max_lines.saturating_mul(prepared.len()) > 10_000_000 {
+        return Err(crate::safety::budget_exceeded(
+            "file_edit",
+            "batch exceeds one million potential lines or ten million line-edit work units".into(),
+            "use a smaller file or batch",
+        ));
+    }
+    let mut lines: Vec<String> = content.lines().map(str::to_owned).collect();
+    drop(content);
+    prepared.sort_by(|a, b| b.start.cmp(&a.start));
+    let mut applied = Vec::with_capacity(prepared.len());
+    for edit in prepared {
+        let mut result = BTreeMap::from([("op".into(), Value::Str(edit.op.into()))]);
+        if edit.op == "insert_at" {
+            let at = edit.start.min(lines.len());
+            let inserted = edit.lines.len();
+            lines.splice(at..at, edit.lines);
+            result.insert("line".into(), Value::Int((at + 1) as i64));
+            result.insert("lines_inserted".into(), Value::Int(inserted as i64));
+        } else {
+            if edit.start >= lines.len() {
+                return Err(crate::safety::arg_err(format!(
+                    "file_edit edit {}: start line out of range",
+                    edit.index
                 )));
             }
+            let end = edit.end.min(lines.len() - 1);
+            result.insert("start_line".into(), Value::Int((edit.start + 1) as i64));
+            if edit.op == "replace_range" {
+                lines.splice(edit.start..=end, edit.lines);
+                result.insert("end_line".into(), Value::Int((end + 1) as i64));
+            } else {
+                lines.drain(edit.start..=end);
+                result.insert(
+                    "lines_deleted".into(),
+                    Value::Int((end - edit.start + 1) as i64),
+                );
+            }
         }
+        applied.push(Value::Record(result));
     }
-
-    // Write back
-    let mut new_content = lines.join("\n");
-    if !new_content.is_empty() && !new_content.ends_with('\n') {
-        new_content.push('\n');
+    let bytes = lines.iter().fold(0usize, |n, line| {
+        n.saturating_add(line.len()).saturating_add(1)
+    });
+    if bytes > MAX_BYTES {
+        return Err(crate::safety::budget_exceeded(
+            "file_edit",
+            "normalized output exceeds 64 MiB".into(),
+            "produce a smaller file",
+        ));
     }
-
-    let temp_path = format!("{}.aether_tmp", path);
-    fs::write(&temp_path, &new_content)?;
-    fs::rename(&temp_path, &path)?;
-
-    let mut result = BTreeMap::new();
-    result.insert("path".to_string(), Value::Str(path));
-    result.insert("applied".to_string(), Value::Array(applied.clone()));
-    result.insert("failed".to_string(), Value::Array(failed.clone()));
-    result.insert("success".to_string(), Value::Bool(failed.is_empty()));
-    result.insert(
-        "edits_applied".to_string(),
-        Value::Int(applied.len() as i64),
-    );
-    result.insert("edits_failed".to_string(), Value::Int(failed.len() as i64));
-    result.insert("final_lines".to_string(), Value::Int(lines.len() as i64));
-
-    Ok(Value::Record(result))
+    let mut output = String::with_capacity(bytes);
+    for line in &lines {
+        output.push_str(line);
+        output.push('\n');
+    }
+    crate::tx::snapshot(&path);
+    write_file_atomically("file_edit", &path, output.as_bytes())?;
+    let applied_count = applied.len();
+    Ok(Value::Record(BTreeMap::from([
+        ("path".into(), Value::Str(path)),
+        ("applied".into(), Value::Array(applied)),
+        ("failed".into(), Value::Array(Vec::new())),
+        ("success".into(), Value::Bool(true)),
+        ("edits_applied".into(), Value::Int(applied_count as i64)),
+        ("edits_failed".into(), Value::Int(0)),
+        ("final_lines".into(), Value::Int(lines.len() as i64)),
+    ])))
 }
 
 /// file_diff(path1, path2) - Compare two files and return differences
