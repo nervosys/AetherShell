@@ -23104,55 +23104,64 @@ fn bi_fs_lstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Null)
 }
 
-fn bi_fs_chmod(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "fs_chmod",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+fn bi_fs_chmod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if args.len() != 2 || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "fs_chmod requires exactly path and mode, without pipeline input",
+        ));
+    }
+    let mut args = args.into_iter();
+    let Some(Value::Str(path)) = args.next() else {
+        return Err(crate::safety::arg_err("fs_chmod path must be String"));
+    };
+    let mode = match args.next() {
+        Some(Value::Int(n)) if (0..=0o7777).contains(&n) => n as u32,
+        Some(Value::Str(text)) => {
+            let digits = text.strip_prefix("0o").unwrap_or(&text);
+            if digits.is_empty() || !digits.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
+                return Err(crate::safety::arg_err(
+                    "fs_chmod mode must contain octal digits, optionally prefixed by 0o",
+                ));
+            }
+            let mode = u32::from_str_radix(digits, 8)
+                .map_err(|_| crate::safety::arg_err("fs_chmod mode is too large"))?;
+            if mode > 0o7777 {
+                return Err(crate::safety::arg_err("fs_chmod mode must be in 0..=07777"));
+            }
+            mode
+        }
+        _ => {
+            return Err(crate::safety::arg_err(
+                "fs_chmod mode must be Int in 0..=07777 or octal String",
             ))
         }
     };
-    let mode = match args.get(1) {
-        Some(Value::Int(m)) => *m as u32,
-        Some(Value::Str(s)) => {
-            u32::from_str_radix(s.trim_start_matches("0o").trim_start_matches("0"), 8)
-                .unwrap_or(0o644)
-        }
-        other => {
-            return Err(crate::safety::bad_arg(
-                "fs_chmod",
-                "Int or String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
+    let path = guard_local_write("fs_chmod", &path)?;
+    // The filesystem journal restores content, not permission metadata. Do not
+    // report a transactional operation that rollback cannot reliably undo.
+    if crate::tx::is_active() {
+        return Err(crate::safety::unimplemented(
+            "fs_chmod",
+            "permission changes within filesystem transactions are not implemented",
+            "change permissions outside the transaction",
+        ));
+    }
+    let metadata =
+        fs::metadata(&path).map_err(|e| crate::safety::fs_error("fs_chmod", &path, &e))?;
+    let mut permissions = metadata.permissions();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(&path) {
-            let mut perms = meta.permissions();
-            perms.set_mode(mode);
-            if std::fs::set_permissions(&path, perms).is_ok() {
-                return Ok(Value::Bool(true));
-            }
-        }
+        permissions.set_mode(mode);
     }
     #[cfg(not(unix))]
     {
-        // Windows: set readonly based on mode
-        if let Ok(meta) = std::fs::metadata(&path) {
-            let mut perms = meta.permissions();
-            perms.set_readonly(mode & 0o200 == 0);
-            if std::fs::set_permissions(&path, perms).is_ok() {
-                return Ok(Value::Bool(true));
-            }
-        }
+        // The Windows contract changes the read-only attribute only.
+        permissions.set_readonly(mode & 0o200 == 0);
     }
-    Ok(Value::Bool(false))
+    fs::set_permissions(&path, permissions)
+        .map_err(|e| crate::safety::fs_error("fs_chmod", &path, &e))?;
+    Ok(Value::Bool(true))
 }
 
 fn bi_fs_chown(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

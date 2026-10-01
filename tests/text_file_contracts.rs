@@ -68,6 +68,122 @@ fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
 #[test]
+fn chmod_validates_modes_and_preserves_platform_permission_semantics() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let path = fixture.path("input");
+    std::fs::write(&path, "unchanged").unwrap();
+    let original = std::fs::metadata(&path).unwrap().permissions();
+    for name in ["fs_chmod", "chmod"] {
+        for (mode, expected) in [
+            (Value::Int(0), 0),
+            (Value::Int(0o400), 0o400),
+            (Value::Int(0o600), 0o600),
+            (s("0o0644"), 0o644),
+            (s("0"), 0),
+            (s("0644"), 0o644),
+        ] {
+            let result = call(name, vec![s("input"), mode], &mut env);
+            let changed = std::fs::metadata(&path).map(|m| m.permissions());
+            // Restore before assertions so Windows read-only files cannot leak.
+            std::fs::set_permissions(&path, original.clone()).unwrap();
+            assert_eq!(result.unwrap(), Value::Bool(true));
+            let changed = changed.unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(changed.mode() & 0o7777, expected);
+            }
+            #[cfg(not(unix))]
+            assert_eq!(changed.readonly(), expected & 0o200 == 0);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
+        }
+    }
+}
+#[test]
+fn chmod_refuses_invalid_modes_and_calls_without_changing_permissions() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::fs::write(&path, "unchanged").unwrap();
+    let original = std::fs::metadata(&path).unwrap().permissions();
+    for mode in [
+        Value::Int(-1),
+        Value::Int(0o10000),
+        Value::Float(420.0),
+        Value::Bool(true),
+        s(""),
+        s("0o"),
+        s("0x644"),
+        s(" 644"),
+        s("-1"),
+        s("888"),
+        s("10000"),
+        s("777777777777777777777777777"),
+    ] {
+        code(
+            call("fs_chmod", vec![s(&path), mode], &mut env),
+            "E_BAD_ARG",
+        );
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
+    }
+    for args in [
+        vec![],
+        vec![s(&path)],
+        vec![Value::Int(1), Value::Int(420)],
+        vec![s(&path), Value::Int(420), s("ignored")],
+    ] {
+        code(call("chmod", args, &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input(
+            "chmod",
+            vec![s(&path), Value::Int(420)],
+            Some(s("ignored")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
+}
+#[test]
+fn chmod_codes_missing_paths_guards_aliases_and_refuses_untracked_transaction_changes() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("input");
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    code(
+        call("chmod", vec![s("missing"), Value::Int(420)], &mut env),
+        "E_NOT_FOUND",
+    );
+    std::fs::write(&path, "unchanged").unwrap();
+    let original = std::fs::metadata(&path).unwrap().permissions();
+    aethershell::tx::begin().unwrap();
+    for name in ["fs_chmod", "chmod"] {
+        code(
+            call(name, vec![s("input"), Value::Int(0)], &mut env),
+            "E_UNIMPLEMENTED",
+        );
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
+    }
+    aethershell::tx::rollback().unwrap();
+    let jail = fixture.root.join("jail");
+    std::fs::create_dir(&jail).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", jail);
+    for name in ["fs_chmod", "chmod"] {
+        code(
+            call(name, vec![s(&path), Value::Int(0)], &mut env),
+            "E_OUTSIDE_WORKSPACE",
+        );
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
+}
+#[test]
 fn hard_links_share_binary_content_and_roll_back_new_destinations() {
     let _lock = LOCK.lock().unwrap();
     let fixture = Fixture::new();

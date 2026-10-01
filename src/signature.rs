@@ -365,6 +365,12 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "fs_chmod", category: None, subject_required: false, aliases: &["chmod"],
+        subject: None, params: &[req("path", Ty::Str, "existing filesystem path"), req("mode", Ty::Any, "Int in 0..=07777 or octal String, optionally prefixed 0o")], returns: "Bool",
+        doc: "Set Unix mode bits; on Windows set the read-only attribute from the owner-write bit only. Return true or a coded failure. Resolve and guard the path before changing permissions. Refuse pipeline input and active filesystem transactions because their journal does not reliably restore permission metadata.",
+        examples: &[(r#"let d = fs_tempdir("ae_chmod"); let f = d + "/x"; file_write(f, "hi"); let result = fs_chmod(f, "0644"); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_chmod_int"); let f = d + "/x"; file_write(f, "hi"); let result = chmod(f, 420); rmdir(d, true); result"#, "true")],
+    },
+    Signature {
         name: "fs_link", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("source", Ty::Str, "existing regular file without a symlink"), req("destination", Ty::Str, "new hard-link path on the same filesystem")], returns: "Bool",
         doc: "Create a hard link and return true, or a coded refusal. Both resolved paths pass the workspace write gate because the link shares the source file. Existing destinations and pipeline input are refused; transactions snapshot the new destination for rollback.",
