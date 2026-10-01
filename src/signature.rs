@@ -251,6 +251,12 @@ const fn rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
 /// not depend on its size.
 pub static SIGNATURES: &[Signature] = &[
     Signature {
+        name: "cut", category: None, subject_required: false, aliases: &["cut_columns"], subject: None,
+        params: &[req("delimiter", Ty::Str, "literal delimiter, including empty or multi-character strings"), req("fields", Ty::Any, "positive Int or comma-separated positive indices and ascending inclusive ranges"), opt("text", Ty::Str, "required direct text; omitted with piped String")], returns: "Array<String>",
+        doc: "Extract fields from each text line. Direct cut(delimiter,fields,text), or text | cut(delimiter,fields). Fields are one-based; preserve specification order and duplicates, and omit missing fields. Trim whitespace around comma-separated specifications; reject zero, negative, malformed, descending or unrepresentable fields. Bound expanded selections to 10000 entries before allocation. Split on a literal delimiter and join selected fields with it. Normalize line endings and omit a trailing empty line. Refuse conflicting direct text and pipeline input.",
+        examples: &[(r#"cut(",", "3,1,3", "a,b,c")"#, r#"["c,a,c"]"#), (r#""a::b::c\nx::y" | cut("::", "2-3")"#, r#"["b::c", "y"]"#), (r#""a,b" | cut(",", 1)"#, r#"["a"]"#)],
+    },
+    Signature {
         name: "tail", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Any),
         params: &[opt("count_or_path", Ty::Any, "nonnegative representable Int count (default 10), or a file String in the count-first direct form")], returns: "String",
         doc: "Return the last lines of a piped String, or read a UTF-8 file with tail(path,count?) or tail(count,path). Preserve both direct argument orders. Reject non-String input/path and invalid counts; zero yields empty output. Strip line terminators, normalize CRLF to LF and join without a trailing newline. Bound file reads to 64 MiB and validate read paths. Scan backwards and retain only the selected line references.",
@@ -1168,21 +1174,19 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[("[1, 2, 3, 4] | take(2) | len", "2")],
     },
     Signature {
-        // A declared String subject turns `[1,2,3] | head` from an uncoded
-        // E_UNKNOWN ("head: input must be a string") into an E_BAD_ARG naming
-        // the expected type -- the taxonomy says E_UNKNOWN is the one code an
-        // agent must not reason about.
+        // Conditional file/count argument roles are checked by the body.
         name: "head",
         category: None,
         subject_required: false,
         aliases: &[],
-        subject: Some(Ty::Str),
-        params: &[opt("n", Ty::Int, "how many leading lines; default 10")],
+        subject: Some(Ty::Any),
+        params: &[opt("count_or_path", Ty::Any, "nonnegative representable Int count (default 10), or file String in count-first direct calls")],
         returns: "String",
-        doc: "The first lines of a string.",
+        doc: "Return the first lines of a piped String, or a regular UTF-8 file with head(path,count?) or head(count,path). Preserve both direct argument orders. Counts must be nonnegative representable Int values; zero returns empty text. Normalize CRLF to LF and join without a trailing newline. Validate file read paths and bound reads to 64 MiB.",
         examples: &[
             (r#""abc" | head"#, r#""abc""#),
             (r#""a\nb\nc" | head(2) | split("\n") | len"#, "2"),
+            (r#"let d = fs_tempdir("ae_head"); let f = d + "/x"; file_write(f, "a\nb"); let result = head(1, f); rmdir(d, true); result"#, r#""a""#),
         ],
     },
     Signature {

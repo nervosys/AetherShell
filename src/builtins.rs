@@ -7758,130 +7758,59 @@ fn bi_read_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // Determine line count and content source
-    let (lines_count, content) = if let Some(input) = input {
-        // Input from pipeline
-        let count = if !args.is_empty() {
-            match &args[0] {
-                Value::Int(n) => *n as usize,
-                _ => 10,
-            }
-        } else {
-            10
-        };
-        let content = match input {
-            Value::Str(s) => s,
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "head",
-                    "input: String",
-                    other.type_name(),
-                ))
-            }
-        };
-        (count, content)
-    } else {
-        // No pipeline input, read from file
-        match args.len() {
-            0 => {
-                return Err(crate::safety::bad_arg(
-                    "head",
-                    "a piped String, or a file path as the first argument",
-                    "nothing",
-                ))
-            }
-            1 => {
-                // Single argument: could be file path or line count
-                match &args[0] {
-                    Value::Str(path_str) => {
-                        // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
-                        let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path)
-                            .map_err(|e| crate::safety::fs_error("head", &validated_path, &e))?;
-                        (10, content)
-                    }
-                    Value::Int(_) => {
-                        return Err(crate::safety::bad_arg(
-                            "head",
-                            "a file path before the line count, or a piped String",
-                            "an Int with no file",
-                        ))
-                    }
-                    other => {
-                        return Err(crate::safety::bad_arg(
-                            "head",
-                            "a file path (String), or a piped String",
-                            other.type_name(),
-                        ))
-                    }
-                }
-            }
-            2 => {
-                // Two arguments: could be (file, count) or (count, file)
-                // Try file first, then count
-                match (&args[0], &args[1]) {
-                    (Value::Str(path_str), Value::Int(n)) => {
-                        // SECURITY: Validate path to prevent traversal attacks
-                        let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path)
-                            .map_err(|e| crate::safety::fs_error("head", &validated_path, &e))?;
-                        (*n as usize, content)
-                    }
-                    (Value::Int(n), Value::Str(path_str)) => {
-                        // SECURITY: Validate path to prevent traversal attacks
-                        let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path)
-                            .map_err(|e| crate::safety::fs_error("head", &validated_path, &e))?;
-                        (*n as usize, content)
-                    }
-                    _ => {
-                        return Err(crate::safety::arg_err(
-                            "head: invalid arguments - need file path and line count",
-                        ));
-                    }
-                }
-            }
-            _ => return Err(anyhow!("head: too many arguments")),
-        }
+    let (count, content) = match input {
+        Some(Value::Str(content)) => (args.first().map(|v| line_count("head", v)).transpose()?.unwrap_or(10), content),
+        Some(_) => return Err(crate::safety::arg_err("head piped input must be String")),
+        None => match args.as_slice() {
+            [Value::Str(path)] => (10, line_read("head", path)?),
+            [Value::Str(path), count] => (line_count("head", count)?, line_read("head", path)?),
+            [count, Value::Str(path)] => (line_count("head", count)?, line_read("head", path)?),
+            _ => return Err(crate::safety::arg_err("head requires a file path and optional count, or count then path, or a piped String")),
+        },
     };
-
-    let lines: Vec<&str> = content.lines().take(lines_count).collect();
-    Ok(Value::Str(lines.join("\n")))
+    Ok(Value::Str(
+        content.lines().take(count).collect::<Vec<_>>().join("\n"),
+    ))
 }
 
-fn tail_count(value: &Value) -> Result<usize> {
+fn line_count(builtin: &str, value: &Value) -> Result<usize> {
     let Value::Int(n) = value else {
-        return Err(crate::safety::arg_err(
-            "tail count must be a nonnegative Int",
-        ));
+        return Err(crate::safety::arg_err(format!(
+            "{builtin} count must be a nonnegative Int"
+        )));
     };
-    usize::try_from(*n)
-        .map_err(|_| crate::safety::arg_err("tail count must be a nonnegative representable Int"))
+    usize::try_from(*n).map_err(|_| {
+        crate::safety::arg_err(format!(
+            "{builtin} count must be a nonnegative representable Int"
+        ))
+    })
 }
 
-fn tail_read(path: &str) -> Result<String> {
+fn line_read(builtin: &str, path: &str) -> Result<String> {
     use std::io::Read;
     const MAX_BYTES: u64 = 64 * 1024 * 1024;
     let path = validate_read_path(path)?;
-    let metadata = fs::metadata(&path).map_err(|e| crate::safety::fs_error("tail", &path, &e))?;
+    let metadata = fs::metadata(&path).map_err(|e| crate::safety::fs_error(builtin, &path, &e))?;
     if metadata.len() > MAX_BYTES {
         return Err(crate::safety::budget_exceeded(
-            "tail",
+            builtin,
             "file exceeds 64 MiB".into(),
             "use a smaller file",
         ));
     }
     if !metadata.is_file() {
-        return Err(crate::safety::arg_err("tail requires a regular UTF-8 file"));
+        return Err(crate::safety::arg_err(format!(
+            "{builtin} requires a regular UTF-8 file"
+        )));
     }
-    let file = fs::File::open(&path).map_err(|e| crate::safety::fs_error("tail", &path, &e))?;
+    let file = fs::File::open(&path).map_err(|e| crate::safety::fs_error(builtin, &path, &e))?;
     let mut content = String::new();
     file.take(MAX_BYTES + 1)
         .read_to_string(&mut content)
-        .map_err(|e| crate::safety::fs_error("tail", &path, &e))?;
+        .map_err(|e| crate::safety::fs_error(builtin, &path, &e))?;
     if content.len() as u64 > MAX_BYTES {
         return Err(crate::safety::budget_exceeded(
-            "tail",
+            builtin,
             "file exceeds 64 MiB".into(),
             "use a smaller file",
         ));
@@ -7896,14 +7825,14 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         };
         let count = match args.first() {
             None => 10,
-            Some(value) => tail_count(value)?,
+            Some(value) => line_count("tail", value)?,
         };
         (count, content)
     } else {
         match args.as_slice() {
-            [Value::Str(path)] => (10,tail_read(path)?),
-            [Value::Str(path),count] => (tail_count(count)?,tail_read(path)?),
-            [count,Value::Str(path)] => (tail_count(count)?,tail_read(path)?),
+            [Value::Str(path)] => (10,line_read("tail", path)?),
+            [Value::Str(path),count] => (line_count("tail", count)?,line_read("tail", path)?),
+            [count,Value::Str(path)] => (line_count("tail", count)?,line_read("tail", path)?),
             _=>return Err(crate::safety::arg_err("tail requires a file path and optional count, or count then path, or a piped String")),
         }
     };
@@ -50204,6 +50133,11 @@ fn parse_simple_awk(program: &str) -> (Option<String>, Vec<usize>) {
 /// Usage: cut(delimiter, fields, input_text) or piped: text | cut(delimiter, fields)
 /// fields is a string like "1,3" or "1-3" (1-based)
 fn bi_cut_columns(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if input.is_some() && args.len() > 2 {
+        return Err(crate::safety::arg_err(
+            "piped cut accepts delimiter and fields only",
+        ));
+    }
     let delimiter = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -50234,9 +50168,9 @@ fn bi_cut_columns(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let mut results = Vec::new();
     for line in text.lines() {
         let cols: Vec<&str> = line.split(&delimiter).collect();
-        let selected: Vec<String> = field_indices
+        let selected: Vec<&str> = field_indices
             .iter()
-            .filter_map(|&i| cols.get(i.saturating_sub(1)).map(|s| s.to_string()))
+            .filter_map(|&i| cols.get(i - 1).copied())
             .collect();
         results.push(Value::Str(selected.join(&delimiter)));
     }
@@ -50245,28 +50179,41 @@ fn bi_cut_columns(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// Parse a field specification like "1,3,5" or "1-3" into a Vec of 1-based indices.
 fn parse_field_spec(spec: &str) -> Result<Vec<usize>> {
+    const MAX_FIELDS: usize = 10000;
+    let invalid = || {
+        crate::safety::arg_err("cut fields must be positive integers or ascending inclusive ranges, separated by commas")
+    };
+    let parse = |part: &str| -> Result<usize> {
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(invalid());
+        }
+        let n = part.parse::<usize>().map_err(|_| invalid())?;
+        if n == 0 {
+            return Err(invalid());
+        }
+        Ok(n)
+    };
     let mut indices = Vec::new();
     for part in spec.split(',') {
         let part = part.trim();
-        if part.contains('-') {
-            let range_parts: Vec<&str> = part.split('-').collect();
-            if range_parts.len() == 2 {
-                let start: usize = range_parts[0]
-                    .parse()
-                    .map_err(|_| anyhow!("Invalid field spec: {}", spec))?;
-                let end: usize = range_parts[1]
-                    .parse()
-                    .map_err(|_| anyhow!("Invalid field spec: {}", spec))?;
-                for i in start..=end {
-                    indices.push(i);
-                }
-            }
+        let (start, end) = if let Some((left, right)) = part.split_once('-') {
+            (parse(left)?, parse(right)?)
         } else {
-            let n: usize = part
-                .parse()
-                .map_err(|_| anyhow!("Invalid field number: {}", part))?;
-            indices.push(n);
+            let n = parse(part)?;
+            (n, n)
+        };
+        if start > end {
+            return Err(invalid());
         }
+        let length = end - start + 1;
+        if length > MAX_FIELDS - indices.len() {
+            return Err(crate::safety::budget_exceeded(
+                "cut",
+                "field selection exceeds 10000 entries".into(),
+                "select fewer fields",
+            ));
+        }
+        indices.extend(start..=end);
     }
     Ok(indices)
 }

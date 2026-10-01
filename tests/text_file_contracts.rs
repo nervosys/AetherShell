@@ -67,6 +67,101 @@ impl Drop for Fixture {
 fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
+#[test]
+fn cut_preserves_field_order_duplicates_and_literal_delimiters() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    for name in ["cut", "cut_columns"] {
+        assert_eq!(
+            call(
+                name,
+                vec![s(","), s("3,1,3,9"), s("a,b,c\r\nx,y\r\n")],
+                &mut env
+            )
+            .unwrap(),
+            Value::Array(vec![s("c,a,c"), s("x")])
+        );
+        assert_eq!(
+            call_with_input(
+                name,
+                vec![s("::"), s(" 2-3 ")],
+                Some(s("a::b::c\nx::y")),
+                &mut env
+            )
+            .unwrap(),
+            Value::Array(vec![s("b::c"), s("y")])
+        );
+        assert_eq!(
+            call_with_input(name, vec![s(","), Value::Int(2)], Some(s("a,b")), &mut env).unwrap(),
+            Value::Array(vec![s("b")])
+        );
+        assert_eq!(
+            call(name, vec![s(""), s("2-3"), s("ab")], &mut env).unwrap(),
+            Value::Array(vec![s("ab")])
+        );
+        assert_eq!(
+            call(name, vec![s(","), s("1"), s("")], &mut env).unwrap(),
+            Value::Array(vec![])
+        );
+    }
+}
+#[test]
+fn cut_refuses_malformed_conflicting_and_oversized_selections() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    for spec in [
+        "",
+        "0",
+        "-1",
+        "3-1",
+        "1-2-3",
+        "1,",
+        "1--2",
+        "+1",
+        "1.0",
+        "18446744073709551616",
+    ] {
+        code(
+            call("cut", vec![s(","), s(spec), s("a,b")], &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    for spec in ["1-10001", "1-10000,1"] {
+        code(
+            call("cut", vec![s(","), s(spec), s("a")], &mut env),
+            "E_BUDGET_EXCEEDED",
+        );
+    }
+    let result = call("cut", vec![s(","), s("1-10000"), s("a")], &mut env).unwrap();
+    assert_eq!(result, Value::Array(vec![s("a")]));
+    for fields in [
+        Value::Int(-1),
+        Value::Int(0),
+        Value::Float(1.0),
+        Value::Bool(true),
+    ] {
+        code(
+            call("cut", vec![s(","), fields, s("a")], &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    code(
+        call_with_input(
+            "cut",
+            vec![s(","), s("1"), s("explicit")],
+            Some(s("piped")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call_with_input("cut", vec![s(","), s("1")], Some(Value::Int(1)), &mut env),
+        "E_BAD_ARG",
+    );
+    code(call("cut", vec![s(","), s("1")], &mut env), "E_BAD_ARG");
+}
 fn options(append: bool) -> Value {
     Value::Record(std::collections::BTreeMap::from([(
         "append".into(),
@@ -256,4 +351,62 @@ fn tee_snapshots_overwrites_appends_and_new_files_for_rollback() {
     aethershell::tx::rollback().unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
     assert!(!std::path::Path::new(&new).exists());
+}
+
+#[test]
+fn head_preserves_both_file_orders_and_pipeline_line_semantics() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let path = fixture.path("input");
+    std::fs::write(&path, "a\r\nb\r\nc\r\n").unwrap();
+    let mut env = Env::default();
+    assert_eq!(
+        call("head", vec![s(&path)], &mut env).unwrap(),
+        s("a\nb\nc")
+    );
+    for args in [vec![s(&path), Value::Int(2)], vec![Value::Int(2), s(&path)]] {
+        assert_eq!(call("head", args, &mut env).unwrap(), s("a\nb"));
+    }
+    assert_eq!(
+        call_with_input("head", vec![Value::Int(0)], Some(s("a\nb")), &mut env).unwrap(),
+        s("")
+    );
+    assert_eq!(
+        call_with_input("head", vec![Value::Int(1)], Some(s("a\n\nb\n")), &mut env).unwrap(),
+        s("a")
+    );
+    assert_eq!(
+        call_with_input("head", vec![], Some(s("")), &mut env).unwrap(),
+        s("")
+    );
+    for count in [Value::Int(-1), Value::Float(1.0), s("bad")] {
+        code(
+            call_with_input("head", vec![count.clone()], Some(s("a")), &mut env),
+            "E_BAD_ARG",
+        );
+        code(call("head", vec![s(&path), count], &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input("head", vec![], Some(Value::Int(1)), &mut env),
+        "E_BAD_ARG",
+    );
+}
+#[test]
+fn head_bounds_reads_and_codes_missing_or_invalid_utf8_files() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    code(
+        call("head", vec![s(&fixture.path("missing"))], &mut env),
+        "E_NOT_FOUND",
+    );
+    let path = fixture.path("bad");
+    std::fs::write(&path, [0xff]).unwrap();
+    code(call("head", vec![s(&path)], &mut env), "E_IO");
+    let path = fixture.path("large");
+    std::fs::File::create(&path)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    code(call("head", vec![s(&path)], &mut env), "E_BUDGET_EXCEEDED");
 }
