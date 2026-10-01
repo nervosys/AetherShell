@@ -15844,73 +15844,99 @@ fn bi_rl_dqn_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     dqn_agent_to_value(&agent)
 }
 
-/// Create a replay buffer
-fn bi_rl_replay_buffer(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
+/// Create an empty bounded replay buffer.
+fn bi_rl_replay_buffer(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let capacity = match args.first() {
-        Some(Value::Int(n)) => *n as usize,
-        _ => 10000, // Default capacity
+        None => 10000,
+        Some(value) => rl_positive_size("rl_replay_buffer", value)?,
     };
-
-    let buffer = ReplayBuffer::new(capacity);
-    replay_buffer_to_value(&buffer)
-}
-
-/// Create a gridworld environment
-fn bi_rl_gridworld(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    let width = match args.first() {
-        Some(Value::Int(n)) => *n as usize,
-        _ => 5,
-    };
-
-    let height = match args.get(1) {
-        Some(Value::Int(n)) => *n as usize,
-        _ => width,
-    };
-
-    let env = GridWorld::new(width, height);
-    gridworld_to_value(&env)
-}
-
-/// Step gridworld environment
-fn bi_rl_env_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err("rl_env_step requires: env, action"));
+    if capacity > 10000 {
+        return Err(crate::safety::budget_exceeded(
+            "rl_replay_buffer",
+            "replay capacity exceeds 10000".into(),
+            "use a smaller capacity",
+        ));
     }
+    replay_buffer_to_value(&ReplayBuffer::new(capacity))
+}
 
-    let mut env = value_to_gridworld(&args[0])?;
+fn grid_dimensions(width: usize, height: usize) -> Result<usize> {
+    if width == 0 || height == 0 {
+        return Err(crate::safety::arg_err(
+            "gridworld dimensions must be positive",
+        ));
+    }
+    width
+        .checked_mul(height)
+        .filter(|n| *n <= MAX_RL_CELLS)
+        .ok_or_else(|| {
+            crate::safety::budget_exceeded(
+                "rl_gridworld",
+                "gridworld exceeds one million cells".into(),
+                "use smaller dimensions",
+            )
+        })
+}
 
-    let action = match &args[1] {
-        Value::Int(a) => *a as usize,
-        _ => return Err(crate::safety::arg_err("action must be integer")),
+fn validate_gridworld(env: &GridWorld) -> Result<()> {
+    grid_dimensions(env.width, env.height)?;
+    if env.agent_pos.0 >= env.width
+        || env.agent_pos.1 >= env.height
+        || env.goal_pos.0 >= env.width
+        || env.goal_pos.1 >= env.height
+        || env
+            .obstacles
+            .iter()
+            .any(|&(x, y)| x >= env.width || y >= env.height)
+    {
+        return Err(crate::safety::arg_err(
+            "gridworld positions must be within dimensions",
+        ));
+    }
+    if env.obstacles.len() > 10000 {
+        return Err(crate::safety::budget_exceeded(
+            "rl_gridworld",
+            "gridworld exceeds 10000 obstacle entries".into(),
+            "use fewer obstacles",
+        ));
+    }
+    Ok(())
+}
+
+/// Create a positive bounded gridworld.
+fn bi_rl_gridworld(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let width = match args.first() {
+        None => 5,
+        Some(value) => rl_positive_size("rl_gridworld width", value)?,
     };
+    let height = match args.get(1) {
+        None => width,
+        Some(value) => rl_positive_size("rl_gridworld height", value)?,
+    };
+    grid_dimensions(width, height)?;
+    gridworld_to_value(&GridWorld::new(width, height))
+}
 
-    let (next_state, reward, done) = env.step(action);
-
-    let mut result = BTreeMap::new();
-    result.insert("state".to_string(), Value::Int(next_state as i64));
-    result.insert("reward".to_string(), Value::Float(reward));
-    result.insert("done".to_string(), Value::Bool(done));
-    result.insert("env".to_string(), gridworld_to_value(&env)?);
-
-    Ok(Value::Record(result))
+/// Move a validated gridworld copy by one clamped cardinal step.
+fn bi_rl_env_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let piped = input.is_some();
+    let value = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| crate::safety::arg_err("rl_env_step requires environment"))?;
+    let mut env = value_to_gridworld(&value)?;
+    let action = rl_index(
+        "rl_env_step action",
+        args.get(usize::from(!piped))
+            .ok_or_else(|| crate::safety::arg_err("rl_env_step requires action"))?,
+        4,
+    )?;
+    let (state, reward, done) = env.step(action);
+    Ok(Value::Record(BTreeMap::from([
+        ("state".into(), Value::Int(state as i64)),
+        ("reward".into(), Value::Float(reward)),
+        ("done".into(), Value::Bool(done)),
+        ("env".into(), gridworld_to_value(&env)?),
+    ])))
 }
 
 // ==================== RL Helper Functions ====================
@@ -16295,6 +16321,7 @@ fn replay_buffer_to_value(buffer: &ReplayBuffer) -> Result<Value> {
 }
 
 fn gridworld_to_value(env: &GridWorld) -> Result<Value> {
+    validate_gridworld(env)?;
     let mut rec = BTreeMap::new();
     rec.insert("type".to_string(), Value::Str("gridworld".to_string()));
     rec.insert("width".to_string(), Value::Int(env.width as i64));
@@ -16303,6 +16330,15 @@ fn gridworld_to_value(env: &GridWorld) -> Result<Value> {
     rec.insert("agent_y".to_string(), Value::Int(env.agent_pos.1 as i64));
     rec.insert("goal_x".to_string(), Value::Int(env.goal_pos.0 as i64));
     rec.insert("goal_y".to_string(), Value::Int(env.goal_pos.1 as i64));
+    rec.insert(
+        "obstacles".to_string(),
+        Value::Array(
+            env.obstacles
+                .iter()
+                .map(|&(x, y)| Value::Array(vec![Value::Int(x as i64), Value::Int(y as i64)]))
+                .collect(),
+        ),
+    );
     rec.insert(
         "state_size".to_string(),
         Value::Int(env.state_size() as i64),
@@ -16315,35 +16351,86 @@ fn gridworld_to_value(env: &GridWorld) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-fn value_to_gridworld(v: &Value) -> Result<GridWorld> {
-    if let Value::Record(rec) = v {
-        let width = match rec.get("width") {
-            Some(Value::Int(n)) => *n as usize,
-            _ => return Err(crate::safety::arg_err("Invalid gridworld: missing width")),
-        };
-
-        let height = match rec.get("height") {
-            Some(Value::Int(n)) => *n as usize,
-            _ => return Err(crate::safety::arg_err("Invalid gridworld: missing height")),
-        };
-
-        let agent_x = match rec.get("agent_x") {
-            Some(Value::Int(n)) => *n as usize,
-            _ => 0,
-        };
-
-        let agent_y = match rec.get("agent_y") {
-            Some(Value::Int(n)) => *n as usize,
-            _ => 0,
-        };
-
-        let mut env = GridWorld::new(width, height);
-        env.agent_pos = (agent_x, agent_y);
-
-        Ok(env)
-    } else {
-        Err(anyhow!("Invalid gridworld value"))
+fn value_to_gridworld(value: &Value) -> Result<GridWorld> {
+    let Value::Record(record) = value else {
+        return Err(crate::safety::arg_err(
+            "gridworld environment must be Record",
+        ));
+    };
+    if let Some(value) = record.get("type") {
+        if !matches!(value, Value::Str(kind) if kind == "gridworld") {
+            return Err(crate::safety::arg_err("gridworld type must be gridworld"));
+        }
     }
+    let width = rl_positive_size(
+        "gridworld width",
+        record
+            .get("width")
+            .ok_or_else(|| crate::safety::arg_err("gridworld requires width"))?,
+    )?;
+    let height = rl_positive_size(
+        "gridworld height",
+        record
+            .get("height")
+            .ok_or_else(|| crate::safety::arg_err("gridworld requires height"))?,
+    )?;
+    let cells = grid_dimensions(width, height)?;
+    let position = |key: &str, default, limit| -> Result<usize> {
+        match record.get(key) {
+            None => Ok(default),
+            Some(value) => rl_index(key, value, limit),
+        }
+    };
+    let mut env = GridWorld::new(width, height);
+    env.agent_pos = (
+        position("agent_x", 0, width)?,
+        position("agent_y", 0, height)?,
+    );
+    env.goal_pos = (
+        position("goal_x", width - 1, width)?,
+        position("goal_y", height - 1, height)?,
+    );
+    for (key, expected) in [("state_size", cells as i64), ("action_size", 4)] {
+        if let Some(value) = record.get(key) {
+            if !matches!(value, Value::Int(n) if *n == expected) {
+                return Err(crate::safety::arg_err(format!(
+                    "gridworld {key} must match dimensions"
+                )));
+            }
+        }
+    }
+    if let Some(value) = record.get("obstacles") {
+        let Value::Array(rows) = value else {
+            return Err(crate::safety::arg_err(
+                "gridworld obstacles must be Array of [x,y] pairs",
+            ));
+        };
+        if rows.len() > 10000 {
+            return Err(crate::safety::budget_exceeded(
+                "rl_gridworld",
+                "gridworld exceeds 10000 obstacle entries".into(),
+                "use fewer obstacles",
+            ));
+        }
+        for row in rows {
+            let Value::Array(pair) = row else {
+                return Err(crate::safety::arg_err(
+                    "gridworld obstacles must be [x,y] pairs",
+                ));
+            };
+            if pair.len() != 2 {
+                return Err(crate::safety::arg_err(
+                    "gridworld obstacles must be [x,y] pairs",
+                ));
+            }
+            env.obstacles.push((
+                rl_index("obstacle x", &pair[0], width)?,
+                rl_index("obstacle y", &pair[1], height)?,
+            ));
+        }
+    }
+    validate_gridworld(&env)?;
+    Ok(env)
 }
 
 // ===========================================================================
