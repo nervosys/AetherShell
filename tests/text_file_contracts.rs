@@ -2710,3 +2710,56 @@ fn symlink_relative_target_uses_destination_parent() {
     assert_eq!(std::fs::read_to_string(&destination).unwrap(), "owned");
     std::fs::remove_file(&destination).unwrap();
 }
+
+#[cfg(windows)]
+#[test]
+fn symlink_windows_refuses_ambiguous_and_missing_targets_before_creation() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let destination = fixture.path("link");
+    for target in [r"C:target", r"\target"] {
+        code(
+            call("fs_symlink", vec![s(target), s(&destination)], &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    code(
+        call("fs_symlink", vec![s("missing"), s(&destination)], &mut env),
+        "E_NOT_FOUND",
+    );
+    assert!(std::fs::symlink_metadata(&destination).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_unix_preserves_dangling_targets_and_protects_audit_aliases() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let destination = fixture.path("link");
+    assert!(matches!(
+        call("fs_symlink", vec![s("missing"), s(&destination)], &mut env).unwrap(),
+        Value::Bool(true)
+    ));
+    assert_eq!(
+        std::fs::read_link(&destination).unwrap(),
+        std::path::PathBuf::from("missing")
+    );
+    code(
+        call("fs_symlink", vec![s("another"), s(&destination)], &mut env),
+        "E_BAD_ARG",
+    );
+    std::fs::remove_file(&destination).unwrap();
+    let audit = fixture.path("audit.log");
+    std::fs::write(&audit, "owned").unwrap();
+    let alias = fixture.path("alias");
+    std::os::unix::fs::symlink(&audit, &alias).unwrap();
+    code(
+        call("fs_symlink", vec![s(&alias), s(&destination)], &mut env),
+        "E_OUTSIDE_WORKSPACE",
+    );
+    assert!(std::fs::symlink_metadata(&destination).is_err());
+    std::fs::remove_file(&alias).unwrap();
+}

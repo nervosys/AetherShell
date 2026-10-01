@@ -43,6 +43,7 @@ fn ok(name: &str, args: Vec<Value>) -> Value {
 ///
 /// Every entry says what it depends on.
 const MACHINE_DEPENDENT: &[(&str, &str)] = &[
+    ("fs_symlink", "native symlink support; Windows may require symbolic-link privilege (OS error 1314); examples use and clean owned temporary fixtures"),
     ("fs_chown", "native Unix ownership; non-Unix returns E_UNIMPLEMENTED; Unix examples use only owned temporary files and their existing owner/group"),
     ("sys_mem_info", "the OS memory query and current memory usage"),
     ("sys_swap_info", "the OS memory query and configured swap"),
@@ -289,6 +290,20 @@ const ABSENT_HERE: &[&str] = &[
     // stop is coded and honest; it is not a defect in the call.
     "E_BUDGET_EXCEEDED",
 ];
+
+// Do not treat general permission failures as machine absence. Windows
+// symlink creation has a specific optional privilege; all other policy denials
+// remain failures, including filesystem ACL denials for this builtin.
+fn machine_absence(name: &str, msg: &str) -> bool {
+    let code = error_code(msg);
+    if cfg!(windows)
+        && name == "fs_symlink"
+        && matches!(code.as_deref(), Some("E_POLICY_DENY" | "E_IO"))
+    {
+        return msg.contains("os error 1314");
+    }
+    code.as_deref().is_some_and(|c| ABSENT_HERE.contains(&c))
+}
 
 fn machine_dependent(name: &str) -> bool {
     MACHINE_DEPENDENT.iter().any(|(n, _)| *n == name)
@@ -1179,7 +1194,7 @@ fn a_machine_dependent_example_answers_in_its_type_or_says_why_not() {
                     let msg = e.to_string();
                     let code_seen = error_code(&msg);
                     assert!(
-                        code_seen.as_deref().is_some_and(|c| ABSENT_HERE.contains(&c)),
+                        machine_absence(name, &msg),
                         "{name}'s example failed in a way that is not \"absent on this                          machine\" ({code_seen:?}): {code}
   {msg}"
                     );
@@ -1201,4 +1216,36 @@ fn non_vacuity_the_machine_dependent_checks_can_fail() {
         Some("E_BAD_ARG")
     );
     assert!(!ABSENT_HERE.contains(&"E_BAD_ARG") && !ABSENT_HERE.contains(&"E_UNKNOWN"));
+}
+
+#[test]
+fn symlink_machine_absence_requires_the_specific_windows_privilege_error() {
+    assert!(!machine_absence(
+        "fs_symlink",
+        "E_POLICY_DENY: access denied (os error 5)"
+    ));
+    assert!(!machine_absence(
+        "fs_link",
+        "E_POLICY_DENY: privilege not held (os error 1314)"
+    ));
+    assert!(!machine_absence(
+        "fs_symlink",
+        "E_BAD_ARG: malformed (os error 1314)"
+    ));
+    if cfg!(windows) {
+        assert!(machine_absence(
+            "fs_symlink",
+            "E_POLICY_DENY: privilege not held (os error 1314)"
+        ));
+        assert!(machine_absence(
+            "fs_symlink",
+            "E_IO: privilege not held (os error 1314)"
+        ));
+        assert!(!machine_absence("fs_symlink", "E_IO: unrelated error"));
+    } else {
+        assert!(!machine_absence(
+            "fs_symlink",
+            "E_POLICY_DENY: privilege not held (os error 1314)"
+        ));
+    }
 }

@@ -386,6 +386,15 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"let d = fs_tempdir("ae_chmod"); let f = d + "/x"; file_write(f, "hi"); let result = fs_chmod(f, "0644"); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_chmod_int"); let f = d + "/x"; file_write(f, "hi"); let result = chmod(f, 420); rmdir(d, true); result"#, "true")],
     },
     Signature {
+        name: "fs_symlink", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[req("target", Ty::Str, "nonempty target; relative to the destination parent"), req("destination", Ty::Str, "nonempty new symbolic-link path")], returns: "Bool",
+        doc: "Create a symbolic link and return true or a coded refusal. Guard both the destination and referred target, including existing canonical audit aliases. Preserve relative target spelling. Refuse existing destinations, pipeline input and filesystem transactions. Windows requires an existing target to select file/directory kind and refuses drive-relative or root-relative targets; creation may require symbolic-link privilege. Unix permits dangling targets.",
+        examples: &[
+            (r#"let d = fs_tempdir("ae_symlink"); file_write(d + "/target", "hi"); let result = try { fs_symlink("target", d + "/link") } catch e { e }; rmdir(d, true); if typeof(result) == "Bool" { result } else { throw json_stringify(result) }"#, "true"),
+            (r#"let d = fs_tempdir("ae_symlink_dir"); file_mkdir(d + "/target"); let result = try { fs_symlink(d + "/target", d + "/link") } catch e { e }; rmdir(d, true); if typeof(result) == "Bool" { result } else { throw json_stringify(result) }"#, "true"),
+        ],
+    },
+    Signature {
         name: "fs_link", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("source", Ty::Str, "existing regular file without a symlink"), req("destination", Ty::Str, "new hard-link path on the same filesystem")], returns: "Bool",
         doc: "Create a hard link and return true, or a coded refusal. Both resolved paths pass the workspace write gate because the link shares the source file. Existing destinations and pipeline input are refused; transactions snapshot the new destination for rollback.",
