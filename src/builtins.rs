@@ -15144,6 +15144,42 @@ fn validate_q_agent(agent: &QLearningAgent) -> Result<()> {
     Ok(())
 }
 
+fn validate_sarsa_agent(agent: &SarsaAgent) -> Result<()> {
+    if agent.state_size == 0 || agent.action_size == 0 {
+        return Err(crate::safety::arg_err("SARSA dimensions must be positive"));
+    }
+    if agent.action_size > 10000
+        || agent
+            .state_size
+            .checked_mul(agent.action_size)
+            .is_none_or(|n| n > MAX_RL_CELLS)
+        || agent.q_table.len() > MAX_RL_CELLS
+    {
+        return Err(crate::safety::budget_exceeded(
+            "rl",
+            "SARSA exceeds 10000 actions or one million state-action cells".into(),
+            "use a smaller state/action space",
+        ));
+    }
+    if [agent.learning_rate, agent.discount, agent.epsilon]
+        .iter()
+        .any(|n| !n.is_finite() || !(0.0..=1.0).contains(n))
+        || i64::try_from(agent.steps).is_err()
+    {
+        return Err(crate::safety::arg_err(
+            "SARSA rates must be finite probabilities and steps must fit Int",
+        ));
+    }
+    if agent.q_table.iter().any(|(&(state, action), q)| {
+        state >= agent.state_size || action >= agent.action_size || !q.is_finite()
+    }) {
+        return Err(crate::safety::arg_err(
+            "SARSA table indices must be in range and values finite",
+        ));
+    }
+    Ok(())
+}
+
 fn rl_index(name: &str, value: &Value, limit: usize) -> Result<usize> {
     match value {
         Value::Int(n) => usize::try_from(*n)
@@ -15254,87 +15290,66 @@ fn bi_rl_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     q_agent_to_value(&agent)
 }
 
-/// Create a SARSA agent
-fn bi_rl_sarsa_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    if args.len() < 3 {
-        return Err(crate::safety::arg_err(
-            "rl_sarsa_agent requires: name, state_size, action_size",
-        ));
-    }
-
-    let name = match &args[0] {
-        Value::Str(s) => s.clone(),
-        _ => return Err(crate::safety::arg_err("name must be string")),
-    };
-
-    let state_size = match &args[1] {
-        Value::Int(n) => *n as usize,
-        _ => return Err(crate::safety::arg_err("state_size must be integer")),
-    };
-
-    let action_size = match &args[2] {
-        Value::Int(n) => *n as usize,
-        _ => return Err(crate::safety::arg_err("action_size must be integer")),
-    };
-
-    let agent = SarsaAgent::new(&name, state_size, action_size, 0.1, 0.99, 0.1);
-    sarsa_agent_to_value(&agent)
+/// Create a SARSA agent with fixed default rates.
+fn bi_rl_sarsa_agent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = expect_string(
+        "rl_sarsa_agent",
+        args.first()
+            .ok_or_else(|| crate::safety::arg_err("rl_sarsa_agent requires name"))?,
+    )?;
+    let states = rl_positive_size(
+        "rl_sarsa_agent",
+        args.get(1)
+            .ok_or_else(|| crate::safety::arg_err("rl_sarsa_agent requires state_size"))?,
+    )?;
+    let actions = rl_positive_size(
+        "rl_sarsa_agent",
+        args.get(2)
+            .ok_or_else(|| crate::safety::arg_err("rl_sarsa_agent requires action_size"))?,
+    )?;
+    sarsa_agent_to_value(&SarsaAgent::new(&name, states, actions, 0.1, 0.99, 0.1))
 }
 
-/// Update SARSA agent
+/// Update a validated SARSA agent copy using the supplied next action.
 fn bi_rl_sarsa_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
+    let piped = input.is_some();
+    let value = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| crate::safety::arg_err("rl_sarsa_update requires agent"))?;
+    let mut agent = value_to_sarsa_agent(&value)?;
+    let idx = usize::from(!piped);
+    let arg = |offset| {
+        args.get(idx + offset).ok_or_else(|| {
+            crate::safety::arg_err(
+                "rl_sarsa_update requires state, action, reward, next_state, next_action, done",
+            )
+        })
     };
-
-    if args.len() < 7 {
+    let state = rl_index("rl_sarsa_update state", arg(0)?, agent.state_size)?;
+    let action = rl_index("rl_sarsa_update action", arg(1)?, agent.action_size)?;
+    let reward = finite_nn_number("rl_sarsa_update reward", arg(2)?)?;
+    let next_state = rl_index("rl_sarsa_update next_state", arg(3)?, agent.state_size)?;
+    let next_action = rl_index("rl_sarsa_update next_action", arg(4)?, agent.action_size)?;
+    let Value::Bool(done) = arg(5)? else {
+        return Err(crate::safety::arg_err("rl_sarsa_update done must be Bool"));
+    };
+    if agent
+        .steps
+        .checked_add(1)
+        .is_none_or(|n| i64::try_from(n).is_err())
+    {
         return Err(crate::safety::arg_err(
-            "rl_sarsa_update requires: agent, state, action, reward, next_state, next_action, done",
+            "rl_sarsa_update step counter overflow",
         ));
     }
-
-    let mut agent = value_to_sarsa_agent(&args[0])?;
-
-    let state = match &args[1] {
-        Value::Int(s) => *s as usize,
-        _ => return Err(crate::safety::arg_err("state must be integer")),
-    };
-
-    let action = match &args[2] {
-        Value::Int(a) => *a as usize,
-        _ => return Err(crate::safety::arg_err("action must be integer")),
-    };
-
-    let reward = match &args[3] {
-        Value::Float(r) => *r,
-        Value::Int(r) => *r as f64,
-        _ => return Err(crate::safety::arg_err("reward must be number")),
-    };
-
-    let next_state = match &args[4] {
-        Value::Int(s) => *s as usize,
-        _ => return Err(crate::safety::arg_err("next_state must be integer")),
-    };
-
-    let next_action = match &args[5] {
-        Value::Int(a) => *a as usize,
-        _ => return Err(crate::safety::arg_err("next_action must be integer")),
-    };
-
-    let done = match &args[6] {
-        Value::Bool(b) => *b,
-        _ => return Err(crate::safety::arg_err("done must be boolean")),
-    };
-
-    agent.update(state, action, reward, next_state, next_action, done);
+    agent.update(state, action, reward, next_state, next_action, *done);
+    validate_sarsa_agent(&agent).map_err(|_| {
+        crate::safety::bad_state(
+            "rl_sarsa_update",
+            "non-finite SARSA result",
+            "the update exceeded the numeric range",
+        )
+    })?;
     sarsa_agent_to_value(&agent)
 }
 
@@ -15816,7 +15831,20 @@ fn value_to_q_agent(value: &Value) -> Result<QLearningAgent> {
 }
 
 fn sarsa_agent_to_value(agent: &SarsaAgent) -> Result<Value> {
-    let json = serde_json::to_string(agent).context("Failed to serialize SARSA agent")?;
+    validate_sarsa_agent(agent)?;
+    let mut rows: Vec<_> = agent
+        .q_table
+        .iter()
+        .map(|(&(state, action), &q)| (state, action, q))
+        .collect();
+    rows.sort_by_key(|&(state, action, _)| (state, action));
+    let json = serde_json::json!({
+        "name": agent.name, "state_size": agent.state_size, "action_size": agent.action_size,
+        "learning_rate": agent.learning_rate, "discount": agent.discount, "epsilon": agent.epsilon,
+        "steps": agent.steps,
+        "q_table": rows,
+    })
+    .to_string();
 
     let mut rec = BTreeMap::new();
     rec.insert("type".to_string(), Value::Str("sarsa_agent".to_string()));
@@ -15836,16 +15864,72 @@ fn sarsa_agent_to_value(agent: &SarsaAgent) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-fn value_to_sarsa_agent(v: &Value) -> Result<SarsaAgent> {
-    if let Value::Record(rec) = v {
-        if let Some(Value::Str(data)) = rec.get("_data") {
-            serde_json::from_str(data).context("Failed to deserialize SARSA agent")
-        } else {
-            Err(crate::safety::arg_err("Invalid SARSA agent: missing _data"))
-        }
-    } else {
-        Err(anyhow!("Invalid SARSA agent value"))
+fn value_to_sarsa_agent(value: &Value) -> Result<SarsaAgent> {
+    let Value::Record(record) = value else {
+        return Err(crate::safety::arg_err("SARSA agent must be a Record"));
+    };
+    let Some(Value::Str(data)) = record.get("_data") else {
+        return Err(crate::safety::arg_err("SARSA agent requires _data: String"));
+    };
+    if data.len() > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            "rl",
+            "SARSA encoding exceeds 64 MiB".into(),
+            "use a smaller agent",
+        ));
     }
+    let mut wire: serde_json::Value = serde_json::from_str(data)
+        .map_err(|e| crate::safety::bad_arg("rl", "valid encoded SARSA agent", &e.to_string()))?;
+    let rows = match wire.get_mut("q_table") {
+        Some(value @ serde_json::Value::Array(_)) => {
+            std::mem::replace(value, serde_json::json!({}))
+        }
+        Some(serde_json::Value::Object(table)) if table.is_empty() => serde_json::json!([]),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "SARSA q_table must contain row triples or a legacy empty object",
+            ))
+        }
+    };
+    let mut agent: SarsaAgent = serde_json::from_value(wire)
+        .map_err(|e| crate::safety::bad_arg("rl", "valid encoded SARSA agent", &e.to_string()))?;
+    validate_sarsa_agent(&agent)?;
+    let rows = rows.as_array().expect("row representation was checked");
+    if rows.len() > MAX_RL_CELLS {
+        return Err(crate::safety::budget_exceeded(
+            "rl",
+            "SARSA table exceeds one million entries".into(),
+            "use a smaller agent",
+        ));
+    }
+    for row in rows {
+        let Some(row) = row.as_array().filter(|row| row.len() == 3) else {
+            return Err(crate::safety::arg_err(
+                "SARSA rows must be [state, action, finite value]",
+            ));
+        };
+        let index = |value: &serde_json::Value, limit| {
+            value
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .filter(|n| *n < limit)
+                .ok_or_else(|| {
+                    crate::safety::arg_err("SARSA row indices must be in-range integers")
+                })
+        };
+        let state = index(&row[0], agent.state_size)?;
+        let action = index(&row[1], agent.action_size)?;
+        let q = row[2]
+            .as_f64()
+            .filter(|n| n.is_finite())
+            .ok_or_else(|| crate::safety::arg_err("SARSA row values must be finite numbers"))?;
+        if agent.q_table.insert((state, action), q).is_some() {
+            return Err(crate::safety::arg_err(
+                "SARSA rows contain duplicate state-action pairs",
+            ));
+        }
+    }
+    Ok(agent)
 }
 
 fn pg_agent_to_value(agent: &PolicyGradientAgent) -> Result<Value> {

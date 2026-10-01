@@ -1586,6 +1586,18 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Return an updated agent copy using Q += learning_rate*(reward + discount*max_next_Q - Q), with max_next_Q zero for terminal transitions. Increment steps once and multiply epsilon by epsilon_decay while it exceeds epsilon_min (defaults 0.995 and 0.01). Preserve sorted Q-table rows. Validate encoded state as in rl_action, refuse invalid indices/counter overflow and return a coded error for non-finite computed values.",
         examples: &[(r#"rl_update(rl_agent("example", 2, 2), 0, 1, 5, 1, true).steps"#, "1"), (r#"let result = rl_agent("example", 2, 2) | rl_update(0, 1, 5, 1, false); result.steps"#, "1")],
     },
+    Signature {
+        name: "rl_sarsa_agent", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "agent name"), req("state_size", Ty::Int, "positive state count"), req("action_size", Ty::Int, "positive action count; at most 10000")], returns: "Record",
+        doc: "Create an empty tabular SARSA agent with fixed learning_rate 0.1, discount 0.99 and epsilon 0.1. Limit the state-action space to one million cells. No configuration argument is supported. Encode Q-values as sorted [state,action,value] rows; legacy empty-object tables remain readable.",
+        examples: &[(r#"rl_sarsa_agent("example", 2, 3).action_size"#, "3")],
+    },
+    Signature {
+        name: "rl_sarsa_update", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("state", Ty::Int, "in 0..state_size"), req("action", Ty::Int, "in 0..action_size"), req("reward", Ty::Numeric, "finite reward"), req("next_state", Ty::Int, "in 0..state_size, including terminal transitions"), req("next_action", Ty::Int, "in 0..action_size, including terminal transitions"), req("done", Ty::Bool, "terminal transition")], returns: "Record",
+        doc: "Return an updated agent copy using Q += learning_rate*(reward + discount*Q(next_state,next_action) - Q), with the next Q-value zero for terminal transitions. Increment steps once and preserve epsilon. Validate dimensions, finite probability rates, counters and unique finite table rows before updating; cap encoding at 64 MiB, actions at 10000 and possible state-action cells at one million. Refuse counter overflow and non-finite computed results.",
+        examples: &[(r#"rl_sarsa_update(rl_sarsa_agent("example", 2, 2), 0, 1, 5, 1, 0, true).steps"#, "1"), (r#"let result = rl_sarsa_agent("example", 2, 2) | rl_sarsa_update(0, 1, 5, 1, 0, false); result.steps"#, "1")],
+    },
     // Source-reviewed neural operations; serialized networks are validated.
     Signature {
         name: "nn_create", category: None, subject_required: false, aliases: &[], subject: None,
