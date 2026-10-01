@@ -1114,8 +1114,8 @@ screen_attach	Process
 screen_list	ReadLocal
 screen_new	Process
 screenshot	WriteLocal
-sd	WriteLocal
-sd_replace	WriteLocal
+sd	Pure
+sd_replace	Pure
 search_by_size	ReadLocal
 search_by_type	ReadLocal
 search_code	ReadLocal

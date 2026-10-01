@@ -59,26 +59,20 @@ fn the_undeclared_population_is_reported_not_hidden() {
 }
 
 #[test]
-fn today_every_pure_is_the_fallthrough_and_none_is_a_finding() {
-    // Written expecting the opposite, and corrected by the result: the match
-    // has no `Pure` arm at all. So `x-effect: pure` does not mean "read and
-    // found harmless" for *any* builtin today -- it means "not classified",
-    // uniformly, for all 694 of them.
-    //
-    // Worth pinning rather than fixing quietly. If someone later classifies a
-    // builtin as genuinely Pure, this test fails and asks them to say so --
-    // at which point `pure` carries two meanings again and
-    // `effect_is_declared` becomes the only way to separate them.
-    let declared_pure: Vec<&str> = BUILTIN_LOOKUP
+fn reviewed_pure_builtins_are_distinguished_from_the_fallthrough() {
+    // Native sd substitution was reviewed as Pure when its external process
+    // and file-writing classification were removed. Both aliases must disclose
+    // that finding; other Pure results still require the undeclared flag.
+    let mut declared_pure: Vec<&str> = BUILTIN_LOOKUP
         .keys()
         .filter(|n| effect_of(n) == Effect::Pure && effect_is_declared(n))
         .copied()
         .collect();
-    assert!(
-        declared_pure.is_empty(),
-        "{} builtin(s) are now explicitly classified Pure: {:?}. This is an          improvement, not a regression -- update this test to name them, and          note that `x-effect: pure` now means two different things which only          `x-effect-declared` separates.",
-        declared_pure.len(),
-        &declared_pure[..declared_pure.len().min(10)]
+    declared_pure.sort_unstable();
+    assert_eq!(
+        declared_pure,
+        ["sd", "sd_replace"],
+        "update the reviewed Pure inventory when classifying another builtin"
     );
 }
 
@@ -101,8 +95,11 @@ fn the_ontology_flags_only_the_undeclared_and_absence_means_declared() {
          a default from a finding"
     );
 
-    for name in ["sh", "ls", "cat"] {
+    for name in ["sh", "ls", "cat", "sd", "sd_replace"] {
         let classified = ontology_describe_json(name);
+        if matches!(name, "sd" | "sd_replace") {
+            assert_eq!(classified["effect"], "pure");
+        }
         assert!(
             classified.get("effect_declared").is_none(),
             "{name} is classified, so the flag must be absent -- emitting it \
