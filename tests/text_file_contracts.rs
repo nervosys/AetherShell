@@ -2913,3 +2913,41 @@ fn permission_check_execute_uses_any_unix_execute_bit() {
     }
     call("perm_set", vec![s(&path), Value::Int(0o600)], &mut env).unwrap();
 }
+
+#[test]
+fn unsupported_filesystem_operations_refuse_without_mutation() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let path = fixture.path("owned");
+    std::fs::write(&path, "unchanged").unwrap();
+    for name in ["fs_watch", "fs_unwatch", "fs_mount", "fs_unmount"] {
+        code(call(name, vec![], &mut env), "E_UNIMPLEMENTED");
+        for args in [
+            vec![s(&path)],
+            vec![Value::Int(1)],
+            vec![s(&path), s("ignored")],
+        ] {
+            code(call(name, args, &mut env), "E_BAD_ARG");
+        }
+        code(
+            call_with_input(name, vec![], Some(s(&path)), &mut env),
+            "E_BAD_ARG",
+        );
+        let signature = aethershell::signature::signature_of(name).unwrap();
+        assert!(signature.params.is_empty());
+        assert!(signature.doc.contains("Unsupported placeholder"));
+        for (source, _) in signature.examples {
+            let program = aethershell::parser::parse_program(source).unwrap();
+            assert!(
+                matches!(aethershell::eval::eval_program(&program, &mut env).unwrap(), Value::Str(code) if code == "E_UNIMPLEMENTED")
+            );
+        }
+    }
+    let error = call("fs_unwatch", vec![], &mut env)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("no watch handle exists"));
+    assert!(!error.contains("returns a handle"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
+}

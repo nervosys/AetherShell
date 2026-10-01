@@ -385,6 +385,32 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Set Unix mode bits; on Windows set the read-only attribute from the owner-write bit only. Return true or a coded failure. Resolve and guard the path before changing permissions. Refuse pipeline input and active filesystem transactions because their journal does not reliably restore permission metadata.",
         examples: &[(r#"let d = fs_tempdir("ae_chmod"); let f = d + "/x"; file_write(f, "hi"); let result = fs_chmod(f, "0644"); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_chmod_int"); let f = d + "/x"; file_write(f, "hi"); let result = chmod(f, 420); rmdir(d, true); result"#, "true")],
     },
+    // Unsupported operations declare their current refusal-only interface.
+    // No future arguments, handle types or successful behavior are invented.
+    Signature {
+        name: "fs_watch", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Any",
+        doc: "Unsupported placeholder: a parameterless call refuses with E_UNIMPLEMENTED after dispatch policy; no watcher or handle is created. Accept no arguments or pipeline input. Poll fs_stat or use an external watcher. There is no successful return value.",
+        examples: &[(r#"(try { fs_watch() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "fs_unwatch", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Any",
+        doc: "Unsupported placeholder: a parameterless call refuses with E_UNIMPLEMENTED after dispatch policy; no watcher is stopped. Accept no arguments or pipeline input. No fs_watch handle exists; manage external watchers through their own interfaces. There is no successful return value.",
+        examples: &[(r#"(try { fs_unwatch() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "fs_mount", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Any",
+        doc: "Unsupported placeholder: a parameterless call refuses with E_UNIMPLEMENTED after dispatch policy; nothing is mounted and no platform tool is launched. Accept no arguments or pipeline input. Use platform mount tools through their normal administration interface. There is no successful return value.",
+        examples: &[(r#"(try { fs_mount() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "fs_unmount", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Any",
+        doc: "Unsupported placeholder: a parameterless call refuses with E_UNIMPLEMENTED after dispatch policy; nothing is unmounted and no platform tool is launched. Accept no arguments or pipeline input. Use platform unmount tools through their normal administration interface. There is no successful return value.",
+        examples: &[(r#"(try { fs_unmount() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
     Signature {
         name: "fs_symlink", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("target", Ty::Str, "nonempty target; relative to the destination parent"), req("destination", Ty::Str, "nonempty new symbolic-link path")], returns: "Bool",

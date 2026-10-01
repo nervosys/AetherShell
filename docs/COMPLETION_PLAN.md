@@ -1,8 +1,8 @@
 # Completion plan
 
 2026-10-01 update: the maintainer selected **13.0.0** for the stricter contracts.
-The source-reviewed migration currently has 553 declarations covering 553 of
-1,171 implementations and 676 of 1,437 callable names, measured with
+The source-reviewed migration currently has 557 declarations covering 557 of
+1,171 implementations and 680 of 1,437 callable names, measured with
 `cargo run --example signature_inventory`. The migration remains incomplete.
 The latest intermediate Windows workspace check passed 2,633 tests across 186
 suites, with four ignored, after the file-copy, line-deletion, hard-link,

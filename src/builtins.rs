@@ -23463,7 +23463,12 @@ fn bi_fs_tempdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(path.to_string_lossy().to_string()))
 }
 
-fn bi_fs_watch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_fs_watch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "fs_watch is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // This answered the String "watch_id_stub", as if a watch had been set up.
     Err(crate::safety::unimplemented(
         "fs_watch",
@@ -23472,13 +23477,18 @@ fn bi_fs_watch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_fs_unwatch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_fs_unwatch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "fs_unwatch is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value, so an agent could not tell
     // this apart from a result. Nothing here was implemented.
     Err(crate::safety::unimplemented(
         "fs_unwatch",
         "cancelling a filesystem watch is not implemented; NOTHING WAS DONE",
-        "use fs_watch, which returns a handle you can drop",
+        "no watch handle exists; stop any external watcher through its own interface",
     ))
 }
 
@@ -23823,7 +23833,12 @@ fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(vec![]))
 }
 
-fn bi_fs_mount(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_fs_mount(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "fs_mount is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // This answered the String "mount requires elevated privileges" at exit
     // 0, advice in place of a result.
     Err(crate::safety::unimplemented(
@@ -23833,7 +23848,12 @@ fn bi_fs_mount(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_fs_unmount(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_fs_unmount(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "fs_unmount is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
