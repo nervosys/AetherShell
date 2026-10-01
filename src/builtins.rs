@@ -36034,43 +36034,50 @@ fn bi_file_backup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// Copy binary bytes through an exclusively created sibling, then publish it.
 fn backup_file_atomically(source: &str, destination: &str) -> Result<u64> {
+    copy_file_atomically("file_backup", source, destination, 64 * 1024 * 1024)
+}
+
+fn copy_file_atomically(
+    builtin: &str,
+    source: &str,
+    destination: &str,
+    max_bytes: u64,
+) -> Result<u64> {
     use std::io::Read;
-    const MAX_BYTES: u64 = 64 * 1024 * 1024;
     let metadata =
-        fs::metadata(source).map_err(|e| crate::safety::fs_error("file_backup", source, &e))?;
+        fs::metadata(source).map_err(|e| crate::safety::fs_error(builtin, source, &e))?;
     if !metadata.is_file() {
-        return Err(crate::safety::arg_err(
-            "file_backup source must be a regular file",
-        ));
+        return Err(crate::safety::arg_err(format!(
+            "{builtin} source must be a regular file"
+        )));
     }
-    if metadata.len() > MAX_BYTES {
+    if metadata.len() > max_bytes {
         return Err(crate::safety::budget_exceeded(
-            "file_backup",
-            "source exceeds 64 MiB".into(),
-            "back up a smaller file",
+            builtin,
+            "source exceeds remaining copy byte budget".into(),
+            "copy a smaller file",
         ));
     }
     match fs::metadata(destination) {
         Ok(metadata) if !metadata.is_file() => {
-            return Err(crate::safety::arg_err(
-                "file_backup destination must be a regular file when it exists",
-            ))
+            return Err(crate::safety::arg_err(format!(
+                "{builtin} destination must be a regular file when it exists"
+            )))
         }
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(crate::safety::fs_error("file_backup", destination, &error)),
+        Err(error) => return Err(crate::safety::fs_error(builtin, destination, &error)),
     }
     if let Ok(source_path) = fs::canonicalize(source) {
         if fs::canonicalize(destination)
             .is_ok_and(|destination_path| destination_path == source_path)
         {
-            return Err(crate::safety::arg_err(
-                "file_backup destination must differ from source",
-            ));
+            return Err(crate::safety::arg_err(format!(
+                "{builtin} destination must differ from source"
+            )));
         }
     }
-    let file =
-        fs::File::open(source).map_err(|e| crate::safety::fs_error("file_backup", source, &e))?;
+    let file = fs::File::open(source).map_err(|e| crate::safety::fs_error(builtin, source, &e))?;
     let target = std::path::Path::new(destination);
     let parent = target
         .parent()
@@ -36081,25 +36088,25 @@ fn backup_file_atomically(source: &str, destination: &str) -> Result<u64> {
         .write(true)
         .create_new(true)
         .open(&temporary)
-        .map_err(|e| crate::safety::fs_error("file_backup", destination, &e))?;
+        .map_err(|e| crate::safety::fs_error(builtin, destination, &e))?;
     let original_permissions = output.metadata().ok().map(|m| m.permissions());
     let result = (|| -> Result<u64> {
-        let bytes = std::io::copy(&mut file.take(MAX_BYTES + 1), &mut output)
-            .map_err(|e| crate::safety::fs_error("file_backup", destination, &e))?;
-        if bytes > MAX_BYTES {
+        let bytes = std::io::copy(&mut file.take(max_bytes + 1), &mut output)
+            .map_err(|e| crate::safety::fs_error(builtin, destination, &e))?;
+        if bytes > max_bytes {
             return Err(crate::safety::budget_exceeded(
-                "file_backup",
-                "source grew beyond 64 MiB".into(),
-                "back up a smaller file",
+                builtin,
+                "source grew beyond remaining copy byte budget".into(),
+                "copy a smaller file",
             ));
         }
         output
             .set_permissions(metadata.permissions())
-            .map_err(|e| crate::safety::fs_error("file_backup", destination, &e))?;
+            .map_err(|e| crate::safety::fs_error(builtin, destination, &e))?;
         drop(output);
         crate::tx::snapshot(destination);
         fs::rename(&temporary, target)
-            .map_err(|e| crate::safety::fs_error("file_backup", destination, &e))?;
+            .map_err(|e| crate::safety::fs_error(builtin, destination, &e))?;
         Ok(bytes)
     })();
     if result.is_err() {
@@ -36113,90 +36120,181 @@ fn backup_file_atomically(source: &str, destination: &str) -> Result<u64> {
     result
 }
 
-/// file_copy(source, dest) - Copy a file or directory
-fn bi_file_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
+/// Copy a bounded, preflighted file or directory tree.
+fn bi_file_copy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const MAX_BYTES: u64 = 64 * 1024 * 1024;
+    const MAX_ENTRIES: usize = 10_000;
+    if args.len() != 2 || input.is_some() {
         return Err(crate::safety::arg_err(
-            "file_copy requires source and destination paths",
+            "file_copy requires exactly source and destination paths, without pipeline input",
         ));
     }
-
-    let source = match &args[0] {
-        Value::Str(s) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "file_copy",
-                "source: String",
-                other.type_name(),
-            ))
-        }
+    let mut args = args.into_iter();
+    let Some(Value::Str(source)) = args.next() else {
+        return Err(crate::safety::arg_err("file_copy source must be String"));
     };
-
-    let dest = match &args[1] {
-        Value::Str(s) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "file_copy",
-                "destination: String",
-                other.type_name(),
-            ))
-        }
+    let Some(Value::Str(dest)) = args.next() else {
+        return Err(crate::safety::arg_err(
+            "file_copy destination must be String",
+        ));
     };
-
-    // The destination only. Reading from outside the workspace is allowed by
-    // policy — `ReadLocal` is unjailed — so jailing the *source* would refuse
-    // copying a file in, which is a legitimate call. Only the call site knows
-    // which argument is which, which is why this cannot live in
-    // `guard_dispatch`.
-    let dest = guard_local_write("file_copy", &dest)?;
-
+    let source = crate::safety::resolve_path_str(&source);
+    let dest = crate::safety::resolve_path_str(&dest);
     let source_path = std::path::Path::new(&source);
-
-    if !source_path.exists() {
-        return Err(anyhow!("file_copy: source '{}' does not exist", source));
+    let dest_path = std::path::Path::new(&dest);
+    let metadata = fs::symlink_metadata(source_path)
+        .map_err(|e| crate::safety::fs_error("file_copy", source_path, &e))?;
+    if !metadata.is_file() && !metadata.is_dir() {
+        return Err(crate::safety::arg_err(
+            "file_copy supports regular files and directories only, without symlink entries",
+        ));
     }
-
-    let bytes_copied = if source_path.is_dir() {
-        copy_dir_recursive(&source, &dest)?
-    } else {
-        fs::copy(&source, &dest)
-            .with_context(|| format!("file_copy: failed to copy '{}' to '{}'", source, dest))?
+    // Canonicalize the existing parent before joining the leaf: this also makes
+    // non-existent destinations comparable with the canonical source tree.
+    let parent = dest_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let parent =
+        fs::canonicalize(parent).map_err(|e| crate::safety::fs_error("file_copy", parent, &e))?;
+    let leaf = dest_path.file_name().ok_or_else(|| {
+        crate::safety::arg_err("file_copy destination must name a file or directory")
+    })?;
+    if !parent.is_dir() {
+        return Err(crate::safety::arg_err(
+            "file_copy destination parent must be an existing directory",
+        ));
+    }
+    let canonical_dest = match fs::canonicalize(dest_path) {
+        Ok(path) => path,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => parent.join(leaf),
+        Err(e) => return Err(crate::safety::fs_error("file_copy", dest_path, &e)),
     };
-
-    let mut result = BTreeMap::new();
-    result.insert("source".to_string(), Value::Str(source));
-    result.insert("dest".to_string(), Value::Str(dest));
-    result.insert("bytes".to_string(), Value::Int(bytes_copied as i64));
-    result.insert("success".to_string(), Value::Bool(true));
-
-    Ok(Value::Record(result))
-}
-
-fn copy_dir_recursive(src: &str, dst: &str) -> Result<u64> {
-    let src_path = std::path::Path::new(src);
-    let dst_path = std::path::Path::new(dst);
-
-    fs::create_dir_all(dst_path)?;
-
-    let mut total_bytes = 0u64;
-
-    for entry in WalkDir::new(src_path).min_depth(1) {
-        let entry = entry?;
-        let src_file = entry.path();
-        let relative = src_file.strip_prefix(src_path)?;
-        let dst_file = dst_path.join(relative);
-
-        if entry.file_type().is_dir() {
-            fs::create_dir_all(&dst_file)?;
-        } else {
-            if let Some(parent) = dst_file.parent() {
-                fs::create_dir_all(parent)?;
+    let canonical_source = fs::canonicalize(source_path)
+        .map_err(|e| crate::safety::fs_error("file_copy", source_path, &e))?;
+    if canonical_source == canonical_dest
+        || (metadata.is_dir()
+            && (canonical_dest.starts_with(&canonical_source)
+                || canonical_source.starts_with(&canonical_dest)))
+    {
+        return Err(crate::safety::arg_err(
+            "file_copy source and destination must not overlap",
+        ));
+    }
+    // Source reads are intentionally unjailed. Only destination paths are guarded.
+    let mut plan = vec![(
+        source_path.to_path_buf(),
+        dest_path.to_path_buf(),
+        metadata.is_dir(),
+    )];
+    let mut bytes = if metadata.is_file() {
+        metadata.len()
+    } else {
+        0
+    };
+    if metadata.is_dir() {
+        for entry in WalkDir::new(source_path).min_depth(1) {
+            if plan.len() >= MAX_ENTRIES {
+                return Err(crate::safety::budget_exceeded(
+                    "file_copy",
+                    "copy exceeds 10000 entries".into(),
+                    "copy a smaller tree",
+                ));
             }
-            total_bytes += fs::copy(src_file, &dst_file)?;
+            let entry = entry.map_err(|e| {
+                crate::safety::fs_error(
+                    "file_copy",
+                    e.path().unwrap_or(source_path),
+                    &std::io::Error::other(e.to_string()),
+                )
+            })?;
+            let kind = entry.file_type();
+            if entry.path().to_str().is_none() {
+                return Err(crate::safety::arg_err(
+                    "file_copy tree paths must be valid UTF-8",
+                ));
+            }
+            if !kind.is_file() && !kind.is_dir() {
+                return Err(crate::safety::arg_err("file_copy tree must contain regular files and directories only, without symlink entries"));
+            }
+            let relative = entry
+                .path()
+                .strip_prefix(source_path)
+                .map_err(|_| crate::safety::arg_err("file_copy traversal escaped source"))?;
+            if kind.is_file() {
+                let size = fs::metadata(entry.path())
+                    .map_err(|e| crate::safety::fs_error("file_copy", entry.path(), &e))?
+                    .len();
+                bytes = bytes.saturating_add(size);
+            }
+            plan.push((
+                entry.path().to_path_buf(),
+                dest_path.join(relative),
+                kind.is_dir(),
+            ));
+            if bytes > MAX_BYTES {
+                break;
+            }
         }
     }
-
-    Ok(total_bytes)
+    if bytes > MAX_BYTES {
+        return Err(crate::safety::budget_exceeded(
+            "file_copy",
+            "copy exceeds 64 MiB total".into(),
+            "copy smaller files",
+        ));
+    }
+    // Refuse conflicts and symlink destinations for the entire plan before any
+    // mkdir, transaction snapshot or copy. Existing directories are merged.
+    for (_, target, directory) in &plan {
+        match fs::symlink_metadata(target) {
+            Ok(m) if (*directory && !m.is_dir()) || (!*directory && !m.is_file()) => {
+                return Err(crate::safety::arg_err(
+                    "file_copy destination type conflicts with source or is a symlink",
+                ));
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(crate::safety::fs_error("file_copy", target, &e)),
+        }
+    }
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "file_copy",
+        effect: crate::safety::Effect::WriteLocal,
+        what: "copy files",
+        targets: plan
+            .iter()
+            .map(|(_, p, _)| p.to_string_lossy().into_owned())
+            .collect(),
+        blast_radius: serde_json::json!({"entries":plan.len(),"bytes":bytes}),
+        reversible: true,
+        fs_paths: true,
+    })?;
+    let mut copied = 0;
+    for (from, to, directory) in plan {
+        let to_str = to.to_string_lossy();
+        if directory {
+            // Snapshot only new directories; snapshotting an existing merge
+            // root would also journal unrelated files in that directory.
+            if !to.exists() {
+                crate::tx::snapshot(&to_str);
+                fs::create_dir(&to).map_err(|e| crate::safety::fs_error("file_copy", &to, &e))?;
+            }
+        } else {
+            copied += copy_file_atomically(
+                "file_copy",
+                &from.to_string_lossy(),
+                &to_str,
+                MAX_BYTES - copied,
+            )?;
+        }
+    }
+    Ok(Value::Record(BTreeMap::from([
+        ("source".into(), Value::Str(source)),
+        ("dest".into(), Value::Str(dest)),
+        ("bytes".into(), Value::Int(copied as i64)),
+        ("success".into(), Value::Bool(true)),
+    ])))
 }
 
 /// file_move(source, dest) - Move/rename a file or directory

@@ -68,6 +68,246 @@ fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
 #[test]
+fn file_copy_aliases_preserve_binary_bytes_and_resolve_workspace_paths() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let bytes = [0, 255, 128, 10];
+    std::fs::write(fixture.path("input"), bytes).unwrap();
+    for name in ["file_copy", "copy_file", "cp"] {
+        let result = diff_record(call(name, vec![s("input"), s(name)], &mut env).unwrap());
+        assert_eq!(result["source"], s(&fixture.path("input")));
+        assert_eq!(result["dest"], s(&fixture.path(name)));
+        assert_eq!(result["bytes"], Value::Int(4));
+        assert_eq!(result["success"], Value::Bool(true));
+        assert_eq!(std::fs::read(fixture.path(name)).unwrap(), bytes);
+    }
+}
+#[test]
+fn file_copy_preflights_conflicts_overlap_and_budget_without_writes() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let source = fixture.path("source");
+    let dest = fixture.path("dest");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::create_dir(&dest).unwrap();
+    std::fs::write(std::path::Path::new(&source).join("first"), "new").unwrap();
+    std::fs::write(std::path::Path::new(&dest).join("first"), "old").unwrap();
+    std::fs::write(std::path::Path::new(&source).join("conflict"), "file").unwrap();
+    std::fs::create_dir(std::path::Path::new(&dest).join("conflict")).unwrap();
+    code(
+        call("cp", vec![s(&source), s(&dest)], &mut env),
+        "E_BAD_ARG",
+    );
+    assert_eq!(
+        std::fs::read_to_string(std::path::Path::new(&dest).join("first")).unwrap(),
+        "old"
+    );
+    code(
+        call("cp", vec![s(&source), s(&source)], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call(
+            "cp",
+            vec![
+                s(&source),
+                s(&std::path::Path::new(&source)
+                    .join("nested")
+                    .to_string_lossy()),
+            ],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert!(!std::path::Path::new(&std::path::Path::new(&source).join("nested")).exists());
+    let oversized = fixture.path("oversized");
+    std::fs::File::create(&oversized)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    let output = fixture.path("output");
+    code(
+        call("cp", vec![s(&oversized), s(&output)], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    assert!(!std::path::Path::new(&output).exists());
+    let many = fixture.path("many");
+    std::fs::create_dir(&many).unwrap();
+    for index in 0..10_000 {
+        std::fs::write(std::path::Path::new(&many).join(index.to_string()), []).unwrap();
+    }
+    code(
+        call("cp", vec![s(&many), s(&output)], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    assert!(!std::path::Path::new(&output).exists());
+}
+#[test]
+fn file_copy_refuses_invalid_calls_and_reports_missing_paths() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let source = fixture.path("input");
+    let dest = fixture.path("output");
+    std::fs::write(&source, "source").unwrap();
+    for args in [
+        vec![],
+        vec![s(&source)],
+        vec![s(&source), s(&dest), Value::Bool(true)],
+        vec![Value::Int(1), s(&dest)],
+        vec![s(&source), Value::Bool(false)],
+    ] {
+        code(call("file_copy", args, &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input(
+            "file_copy",
+            vec![s(&source), s(&dest)],
+            Some(s("ignored")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call("cp", vec![s(&fixture.path("missing")), s(&dest)], &mut env),
+        "E_NOT_FOUND",
+    );
+    code(
+        call(
+            "cp",
+            vec![s(&source), s(&fixture.path("missing/output"))],
+            &mut env,
+        ),
+        "E_NOT_FOUND",
+    );
+    assert!(!std::path::Path::new(&dest).exists());
+    assert_eq!(std::fs::read_to_string(source).unwrap(), "source");
+}
+#[test]
+fn file_copy_imports_outside_sources_and_rolls_back_directory_merges() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let source = fixture.path("source");
+    let workspace = fixture.root.join("workspace");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::create_dir(&workspace).unwrap();
+    std::fs::create_dir(std::path::Path::new(&source).join("nested")).unwrap();
+    std::fs::write(
+        std::path::Path::new(&source).join("nested").join("new"),
+        "new",
+    )
+    .unwrap();
+    std::fs::write(
+        std::path::Path::new(&source).join("existing"),
+        "replacement",
+    )
+    .unwrap();
+    let dest = workspace.join("merged");
+    std::fs::create_dir(&dest).unwrap();
+    std::fs::write(dest.join("existing"), "old").unwrap();
+    std::fs::write(dest.join("unrelated"), "keep").unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    aethershell::tx::begin().unwrap();
+    let result = diff_record(call("copy_file", vec![s(&source), s("merged")], &mut env).unwrap());
+    assert_eq!(result["bytes"], Value::Int(14));
+    assert_eq!(
+        std::fs::read_to_string(dest.join("existing")).unwrap(),
+        "replacement"
+    );
+    std::fs::write(dest.join("after_copy"), "unrelated later write").unwrap();
+    aethershell::tx::rollback().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dest.join("existing")).unwrap(),
+        "old"
+    );
+    assert!(!dest.join("nested").exists());
+    assert_eq!(
+        std::fs::read_to_string(dest.join("after_copy")).unwrap(),
+        "unrelated later write"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest.join("unrelated")).unwrap(),
+        "keep"
+    );
+    aethershell::tx::begin().unwrap();
+    call("cp", vec![s(&source), s("new_tree")], &mut env).unwrap();
+    aethershell::tx::rollback().unwrap();
+    assert!(!workspace.join("new_tree").exists());
+    code(
+        call(
+            "cp",
+            vec![s(&source), s(&fixture.path("outside_copy"))],
+            &mut env,
+        ),
+        "E_OUTSIDE_WORKSPACE",
+    );
+    assert!(!fixture.root.join("outside_copy").exists());
+}
+#[cfg(unix)]
+#[test]
+fn file_copy_refuses_source_and_destination_symlinks_before_merging() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let source = fixture.root.join("source");
+    let dest = fixture.root.join("dest");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::create_dir(&dest).unwrap();
+    std::fs::write(source.join("ordinary"), "new").unwrap();
+    std::fs::write(dest.join("ordinary"), "old").unwrap();
+    std::os::unix::fs::symlink(source.join("ordinary"), source.join("link")).unwrap();
+    code(
+        call(
+            "cp",
+            vec![s(&source.to_string_lossy()), s(&dest.to_string_lossy())],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest.join("ordinary")).unwrap(),
+        "old"
+    );
+    std::fs::remove_file(source.join("link")).unwrap();
+    std::fs::write(source.join("link"), "new").unwrap();
+    std::os::unix::fs::symlink(dest.join("ordinary"), dest.join("link")).unwrap();
+    code(
+        call(
+            "cp",
+            vec![s(&source.to_string_lossy()), s(&dest.to_string_lossy())],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest.join("ordinary")).unwrap(),
+        "old"
+    );
+    std::fs::remove_file(dest.join("link")).unwrap();
+    use std::os::unix::ffi::OsStringExt;
+    std::fs::write(
+        source.join(std::ffi::OsString::from_vec(vec![255])),
+        "bad name",
+    )
+    .unwrap();
+    code(
+        call(
+            "cp",
+            vec![s(&source.to_string_lossy()), s(&dest.to_string_lossy())],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest.join("ordinary")).unwrap(),
+        "old"
+    );
+}
+#[test]
 fn file_backup_preserves_binary_content_and_supports_both_call_forms() {
     let _lock = LOCK.lock().unwrap();
     let fixture = Fixture::new();
