@@ -35895,85 +35895,87 @@ fn bi_file_edit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// file_diff(path1, path2) - Compare two files and return differences
-fn bi_file_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err("file_diff requires two file paths"));
+fn bi_file_diff(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if input.is_some() || args.len() != 2 {
+        return Err(crate::safety::arg_err(
+            "file_diff requires two direct file paths and no pipeline input",
+        ));
     }
-
-    let path1 = match &args[0] {
-        Value::Str(s) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "file_diff",
-                "first path: String",
-                other.type_name(),
-            ))
-        }
+    let mut args = args.into_iter();
+    let Some(Value::Str(path1)) = args.next() else {
+        return Err(crate::safety::arg_err(
+            "file_diff first path must be String",
+        ));
     };
-
-    let path2 = match &args[1] {
-        Value::Str(s) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "file_diff",
-                "second path: String",
-                other.type_name(),
-            ))
-        }
+    let Some(Value::Str(path2)) = args.next() else {
+        return Err(crate::safety::arg_err(
+            "file_diff second path must be String",
+        ));
     };
-
-    let content1 =
-        fs::read_to_string(&path1).map_err(|e| crate::safety::fs_error("file_diff", &path1, &e))?;
-    let content2 =
-        fs::read_to_string(&path2).map_err(|e| crate::safety::fs_error("file_diff", &path2, &e))?;
-
-    let lines1: Vec<&str> = content1.lines().collect();
-    let lines2: Vec<&str> = content2.lines().collect();
-
+    let resolved1 = crate::safety::resolve_path_str(&path1);
+    let resolved2 = crate::safety::resolve_path_str(&path2);
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "file_diff",
+        effect: crate::safety::Effect::ReadLocal,
+        what: "compare files",
+        targets: vec![resolved1.clone(), resolved2.clone()],
+        blast_radius: serde_json::json!({"files":2}),
+        reversible: true,
+        fs_paths: true,
+    })?;
+    let content1 = line_read("file_diff", &resolved1)?;
+    let content2 = line_read("file_diff", &resolved2)?;
+    let mut lines1 = content1.lines();
+    let mut lines2 = content2.lines();
+    let (mut count1, mut count2, mut line) = (0, 0, 0);
     let mut diffs = Vec::new();
-    let max_lines = lines1.len().max(lines2.len());
-
-    for i in 0..max_lines {
-        let line1 = lines1.get(i);
-        let line2 = lines2.get(i);
-
-        match (line1, line2) {
-            (Some(l1), Some(l2)) if l1 != l2 => {
-                let mut diff = BTreeMap::new();
-                diff.insert("line".to_string(), Value::Int((i + 1) as i64));
-                diff.insert("type".to_string(), Value::Str("changed".to_string()));
-                diff.insert("old".to_string(), Value::Str(l1.to_string()));
-                diff.insert("new".to_string(), Value::Str(l2.to_string()));
-                diffs.push(Value::Record(diff));
-            }
-            (Some(l1), None) => {
-                let mut diff = BTreeMap::new();
-                diff.insert("line".to_string(), Value::Int((i + 1) as i64));
-                diff.insert("type".to_string(), Value::Str("deleted".to_string()));
-                diff.insert("old".to_string(), Value::Str(l1.to_string()));
-                diffs.push(Value::Record(diff));
-            }
-            (None, Some(l2)) => {
-                let mut diff = BTreeMap::new();
-                diff.insert("line".to_string(), Value::Int((i + 1) as i64));
-                diff.insert("type".to_string(), Value::Str("added".to_string()));
-                diff.insert("new".to_string(), Value::Str(l2.to_string()));
-                diffs.push(Value::Record(diff));
-            }
-            _ => {}
+    loop {
+        let old = lines1.next();
+        let new = lines2.next();
+        if old.is_none() && new.is_none() {
+            break;
         }
+        line += 1;
+        count1 += usize::from(old.is_some());
+        count2 += usize::from(new.is_some());
+        if old == new {
+            continue;
+        }
+        if diffs.len() >= 10000 {
+            return Err(crate::safety::budget_exceeded(
+                "file_diff",
+                "comparison exceeds 10000 differences".into(),
+                "compare smaller files",
+            ));
+        }
+        let kind = match (old, new) {
+            (Some(_), Some(_)) => "changed",
+            (Some(_), None) => "deleted",
+            (None, Some(_)) => "added",
+            _ => unreachable!(),
+        };
+        let mut diff = BTreeMap::from([
+            ("line".into(), Value::Int(line)),
+            ("type".into(), Value::Str(kind.into())),
+        ]);
+        if let Some(old) = old {
+            diff.insert("old".into(), Value::Str(old.to_string()));
+        }
+        if let Some(new) = new {
+            diff.insert("new".into(), Value::Str(new.to_string()));
+        }
+        diffs.push(Value::Record(diff));
     }
-
-    let mut result = BTreeMap::new();
-    result.insert("file1".to_string(), Value::Str(path1));
-    result.insert("file2".to_string(), Value::Str(path2));
-    result.insert("lines1".to_string(), Value::Int(lines1.len() as i64));
-    result.insert("lines2".to_string(), Value::Int(lines2.len() as i64));
-    result.insert("differences".to_string(), Value::Array(diffs.clone()));
-    result.insert("diff_count".to_string(), Value::Int(diffs.len() as i64));
-    result.insert("identical".to_string(), Value::Bool(diffs.is_empty()));
-
-    Ok(Value::Record(result))
+    let diff_count = diffs.len();
+    Ok(Value::Record(BTreeMap::from([
+        ("file1".into(), Value::Str(path1)),
+        ("file2".into(), Value::Str(path2)),
+        ("lines1".into(), Value::Int(count1 as i64)),
+        ("lines2".into(), Value::Int(count2 as i64)),
+        ("differences".into(), Value::Array(diffs)),
+        ("diff_count".into(), Value::Int(diff_count as i64)),
+        ("identical".into(), Value::Bool(diff_count == 0)),
+    ])))
 }
 /// file_backup(path, [suffix]) - Create a backup copy of a file before editing
 /// Usage: file_backup("config.txt")  -> creates config.txt.bak

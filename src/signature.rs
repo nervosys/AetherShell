@@ -251,6 +251,12 @@ const fn rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
 /// not depend on its size.
 pub static SIGNATURES: &[Signature] = &[
     Signature {
+        name: "file_diff", category: None, subject_required: false, aliases: &["diff_files"], subject: None,
+        params: &[req("path1", Ty::Str, "first regular UTF-8 file"), req("path2", Ty::Str, "second regular UTF-8 file")], returns: "Record",
+        doc: "Compare two direct file paths line by line at equal positions, returning original paths, line counts, differences, diff_count and identical. Each difference has a one-based line and type changed/added/deleted with old/new fields as applicable. This is positional comparison, not an edit-distance diff. CRLF and final line terminators do not affect line equality; identical describes line contents rather than byte identity. Resolve relative paths against the workspace and guard both actual read targets. Bound each file read to 64 MiB and differences to 10000 entries. Reject pipeline input and invalid paths; filesystem failures are coded. Iterate line references without collecting full line lists and move the difference array into the result without cloning it.",
+        examples: &[(r#"let d = fs_tempdir("ae_diff"); let a = d + "/a"; let b = d + "/b"; file_write(a, "same"); file_write(b, "same\n"); let result = file_diff(a, b); rmdir(d, true); result.identical"#, "true"), (r#"let d = fs_tempdir("ae_diff"); let a = d + "/a"; let b = d + "/b"; file_write(a, "a\nb"); file_write(b, "a\nc\nd"); let result = diff_files(a, b); rmdir(d, true); result.diff_count"#, "2")],
+    },
+    Signature {
         name: "sd", category: None, subject_required: false, aliases: &["sd_replace"], subject: None,
         params: &[req("pattern", Ty::Str, "Rust regex pattern"), req("replacement", Ty::Str, "regex replacement with capture expansion"), opt("text", Ty::Str, "required direct input; omitted with piped String")], returns: "String",
         doc: "Replace all regex matches across a whole String using native Rust regex, consistently across hosts. Direct sd(pattern,replacement,text) or text | sd(pattern,replacement). Support numbered/named capture expansion, braces and $$ for a literal dollar. Preserve line endings; reuse owned text if there is no match. Reject invalid regex, missing or wrong input types, extra arguments and conflicting direct/piped input. This is pure text processing with no file editing or external process. The previous host-dependent literal fallback and ignored external failure status are removed.",

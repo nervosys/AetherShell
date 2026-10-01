@@ -689,7 +689,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "yarn_run"
         | "yq_query" => Some(Effect::Exec),
 
-        // ---- ReadLocal (143) ----
+        // ---- ReadLocal (144) ----
         | "archive_test"
         | "asdf_list"
         | "at_list"
@@ -733,6 +733,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "env_rust"
         | "eza_list"
         | "fd_find"
+        | "file_diff"
         | "fs_df"
         | "git_blame"
         | "git_branch"
@@ -4095,6 +4096,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "file_backup",
     "file_copy",
     "file_delete_lines",
+    "file_diff",
     "file_edit",
     "file_insert",
     "file_mkdir",

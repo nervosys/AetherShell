@@ -67,6 +67,179 @@ impl Drop for Fixture {
 fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
+fn diff_record(value: Value) -> std::collections::BTreeMap<String, Value> {
+    let Value::Record(record) = value else {
+        panic!("expected diff record")
+    };
+    record
+}
+#[test]
+fn file_diff_preserves_positional_changes_counts_and_line_equality() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let a = fixture.path("a");
+    let b = fixture.path("b");
+    std::fs::write(&a, "a\r\nb\r\n").unwrap();
+    std::fs::write(&b, "a\nc\nd").unwrap();
+    let mut env = Env::default();
+    for name in ["file_diff", "diff_files"] {
+        let result = diff_record(call(name, vec![s(&a), s(&b)], &mut env).unwrap());
+        assert_eq!(result["file1"], s(&a));
+        assert_eq!(result["file2"], s(&b));
+        assert_eq!(result["lines1"], Value::Int(2));
+        assert_eq!(result["lines2"], Value::Int(3));
+        assert_eq!(result["diff_count"], Value::Int(2));
+        assert_eq!(result["identical"], Value::Bool(false));
+        let Value::Array(rows) = &result["differences"] else {
+            panic!("expected differences")
+        };
+        assert_eq!(
+            diff_record(rows[0].clone()),
+            std::collections::BTreeMap::from([
+                ("line".into(), Value::Int(2)),
+                ("type".into(), s("changed")),
+                ("old".into(), s("b")),
+                ("new".into(), s("c"))
+            ])
+        );
+        assert_eq!(
+            diff_record(rows[1].clone()),
+            std::collections::BTreeMap::from([
+                ("line".into(), Value::Int(3)),
+                ("type".into(), s("added")),
+                ("new".into(), s("d"))
+            ])
+        );
+    }
+    std::fs::write(&b, "a").unwrap();
+    let result = diff_record(call("file_diff", vec![s(&a), s(&b)], &mut env).unwrap());
+    let Value::Array(rows) = &result["differences"] else {
+        panic!("expected differences")
+    };
+    assert_eq!(
+        diff_record(rows[0].clone()),
+        std::collections::BTreeMap::from([
+            ("line".into(), Value::Int(2)),
+            ("type".into(), s("deleted")),
+            ("old".into(), s("b"))
+        ])
+    );
+    std::fs::write(&b, "a\nb").unwrap();
+    assert_eq!(
+        diff_record(call("file_diff", vec![s(&a), s(&b)], &mut env).unwrap())["identical"],
+        Value::Bool(true)
+    );
+    std::fs::write(&a, "").unwrap();
+    std::fs::write(&b, "").unwrap();
+    let result = diff_record(call("file_diff", vec![s(&a), s(&b)], &mut env).unwrap());
+    assert_eq!(result["lines1"], Value::Int(0));
+    assert_eq!(result["differences"], Value::Array(vec![]));
+}
+#[test]
+fn file_diff_declares_and_guards_both_actual_read_targets() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let workspace = fixture.root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    std::fs::write(workspace.join("a"), "a").unwrap();
+    std::fs::write(workspace.join("b"), "b").unwrap();
+    let outside = fixture.path("outside");
+    std::fs::write(&outside, "secret").unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    std::env::set_var("AETHER_MODE", "agent");
+    let mut env = Env::default();
+    for name in ["file_diff", "diff_files"] {
+        assert_eq!(
+            aethershell::safety::effect_of(name),
+            aethershell::safety::Effect::ReadLocal
+        );
+        assert!(aethershell::safety::effect_is_declared(name));
+        code(
+            call(name, vec![s("a"), s(&outside)], &mut env),
+            "E_OUTSIDE_WORKSPACE",
+        );
+        code(
+            call(name, vec![s(&outside), s("b")], &mut env),
+            "E_OUTSIDE_WORKSPACE",
+        );
+        assert_eq!(
+            diff_record(call(name, vec![s("a"), s("b")], &mut env).unwrap())["diff_count"],
+            Value::Int(1)
+        );
+    }
+}
+#[test]
+fn file_diff_bounds_reads_and_refuses_invalid_arguments() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let good = fixture.path("good");
+    std::fs::write(&good, "a").unwrap();
+    let bad = fixture.path("bad");
+    std::fs::write(&bad, [0xff]).unwrap();
+    code(call("file_diff", vec![s(&good), s(&bad)], &mut env), "E_IO");
+    code(
+        call(
+            "file_diff",
+            vec![s(&good), s(&fixture.path("missing"))],
+            &mut env,
+        ),
+        "E_NOT_FOUND",
+    );
+    code(
+        call("file_diff", vec![s(&good), s(&fixture.path("."))], &mut env),
+        "E_BAD_ARG",
+    );
+    let large = fixture.path("large");
+    std::fs::File::create(&large)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    code(
+        call("file_diff", vec![s(&large), s(&good)], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    code(
+        call("file_diff", vec![s(&good), Value::Int(1)], &mut env),
+        "E_BAD_ARG",
+    );
+    code(call("file_diff", vec![s(&good)], &mut env), "E_BAD_ARG");
+    code(
+        call("file_diff", vec![s(&good), s(&good), s(&good)], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call_with_input(
+            "file_diff",
+            vec![s(&good), s(&good)],
+            Some(s(&good)),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+}
+#[test]
+fn file_diff_bounds_difference_records_at_the_exact_limit() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let a = fixture.path("a");
+    let b = fixture.path("b");
+    std::fs::write(&a, "a\n".repeat(10000)).unwrap();
+    std::fs::write(&b, "b\n".repeat(10000)).unwrap();
+    let result = diff_record(call("diff_files", vec![s(&a), s(&b)], &mut env).unwrap());
+    assert_eq!(result["diff_count"], Value::Int(10000));
+    let Value::Array(rows) = &result["differences"] else {
+        panic!("expected differences")
+    };
+    assert_eq!(diff_record(rows[9999].clone())["line"], Value::Int(10000));
+    std::fs::write(&a, "a\n".repeat(10001)).unwrap();
+    std::fs::write(&b, "b\n".repeat(10001)).unwrap();
+    code(
+        call("file_diff", vec![s(&a), s(&b)], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+}
 #[test]
 fn sd_uses_native_regex_and_preserves_capture_and_line_semantics() {
     let _lock = LOCK.lock().unwrap();
