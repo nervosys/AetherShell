@@ -50039,94 +50039,136 @@ fn bi_sed_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// Usage: awk(program, input_text) or piped: text | awk(program)
 /// Supports simple awk patterns: '{print $N}', '/pattern/{print $N}', field separator via {fs: ","}
 fn bi_awk_process(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let program = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("awk requires a program string")),
+    let mut args = args.into_iter();
+    let program = match args.next() {
+        Some(Value::Str(s)) => s,
+        _ => return Err(crate::safety::arg_err("awk requires a program String")),
     };
-    let text = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        None => match &input {
-            Some(Value::Str(s)) => s.clone(),
-            _ => return Err(crate::safety::arg_err("awk requires input text")),
-        },
-        _ => return Err(crate::safety::arg_err("awk input must be a string")),
+    let (text, options) = match input {
+        Some(Value::Str(text)) => {
+            let options = args.next();
+            if args.next().is_some() {
+                return Err(crate::safety::arg_err(
+                    "piped awk accepts program and optional options only",
+                ));
+            }
+            (text, options)
+        }
+        Some(_) => return Err(crate::safety::arg_err("awk piped input must be String")),
+        None => {
+            let Some(Value::Str(text)) = args.next() else {
+                return Err(crate::safety::arg_err("awk requires input String"));
+            };
+            (text, args.next())
+        }
     };
-    let fs = match args.get(2) {
-        Some(Value::Record(r)) => r
-            .get("fs")
-            .and_then(|v| {
-                if let Value::Str(s) = v {
-                    Some(s.clone())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| " ".to_string()),
-        _ => " ".to_string(),
-    };
-    // Parse simple awk programs: '{print $1}', '{print $1, $3}', '/pattern/{print $2}'
-    let (filter_pattern, field_indices) = parse_simple_awk(&program);
+    let mut separator = " ".to_string();
+    if let Some(options) = options {
+        let Value::Record(record) = options else {
+            return Err(crate::safety::arg_err("awk options must be Record"));
+        };
+        for (key, value) in record {
+            if key != "fs" {
+                return Err(crate::safety::arg_err(format!("awk unknown option {key}")));
+            }
+            let Value::Str(value) = value else {
+                return Err(crate::safety::arg_err("awk fs must be String"));
+            };
+            separator = value;
+        }
+    }
+    let (filter, indices) = parse_simple_awk(&program)?;
     let mut results = Vec::new();
     for line in text.lines() {
-        // Apply filter pattern if present
-        if let Some(ref pat) = filter_pattern {
-            if !line.contains(pat.as_str()) {
-                continue;
-            }
+        if filter
+            .as_ref()
+            .is_some_and(|pattern| !line.contains(pattern))
+        {
+            continue;
         }
-        let fields: Vec<&str> = if fs == " " {
+        if indices.is_empty() {
+            results.push(Value::Str(line.to_string()));
+            continue;
+        }
+        let fields: Vec<_> = if separator == " " {
             line.split_whitespace().collect()
         } else {
-            line.split(&fs).collect()
+            line.split(&separator).collect()
         };
-        if field_indices.is_empty() {
-            results.push(Value::Str(line.to_string()));
-        } else {
-            let selected: Vec<String> = field_indices
-                .iter()
-                .filter_map(|&i| {
-                    if i == 0 {
-                        Some(line.to_string())
-                    } else {
-                        fields.get(i - 1).map(|s| s.to_string())
-                    }
-                })
-                .collect();
-            results.push(Value::Str(selected.join("\t")));
-        }
+        let selected: Vec<_> = indices
+            .iter()
+            .filter_map(|&i| {
+                if i == 0 {
+                    Some(line)
+                } else {
+                    fields.get(i - 1).copied()
+                }
+            })
+            .collect();
+        results.push(Value::Str(selected.join("\t")));
     }
     Ok(Value::Array(results))
 }
 
-/// Parse a simple awk program into (optional_filter, field_indices).
-fn parse_simple_awk(program: &str) -> (Option<String>, Vec<usize>) {
-    let prog = program.trim();
+/// The deliberately limited awk dialect uses a literal line filter, not regex.
+fn parse_simple_awk(program: &str) -> Result<(Option<String>, Vec<usize>)> {
+    let mut body = program.trim();
     let mut filter = None;
-    let mut body = prog;
-    // Check for /pattern/{...} form
-    if prog.starts_with('/') {
-        if let Some(end) = prog[1..].find('/') {
-            filter = Some(prog[1..=end].to_string());
-            body = prog[end + 2..].trim();
-        }
+    if let Some(rest) = body.strip_prefix('/') {
+        let Some(end) = rest.find('/') else {
+            return Err(crate::safety::arg_err("awk unterminated literal filter"));
+        };
+        filter = Some(rest[..end].to_string());
+        body = rest[end + 1..].trim();
     }
-    // Extract field references from {print $N, $M, ...}
+    let braced = body.starts_with('{') || body.ends_with('}');
+    if braced {
+        body = body
+            .strip_prefix('{')
+            .and_then(|b| b.strip_suffix('}'))
+            .ok_or_else(|| crate::safety::arg_err("awk requires matched action braces"))?
+            .trim();
+    }
+    if body == "print" || (body.is_empty() && filter.is_some() && !braced) {
+        return Ok((filter, vec![]));
+    }
+    if let Some(rest) = body.strip_prefix("print") {
+        if !rest.starts_with(char::is_whitespace) {
+            return Err(crate::safety::unimplemented(
+                "awk",
+                "only print field selections are supported",
+                "use print $N",
+            ));
+        }
+        body = rest.trim();
+    }
     let mut fields = Vec::new();
-    let inner = body.trim_start_matches('{').trim_end_matches('}').trim();
-    let print_part = if inner.starts_with("print ") {
-        &inner[6..]
-    } else {
-        inner
-    };
-    for part in print_part.split(',') {
-        let part = part.trim();
-        if part.starts_with('$') {
-            if let Ok(n) = part[1..].parse::<usize>() {
-                fields.push(n);
-            }
+    for part in body.split(',') {
+        let Some(number) = part.trim().strip_prefix('$') else {
+            return Err(crate::safety::unimplemented(
+                "awk",
+                "only print field selections and literal /text/ filters are supported",
+                "use print $N or print",
+            ));
+        };
+        if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(crate::safety::arg_err(
+                "awk field references must be nonnegative representable integers",
+            ));
         }
+        let index = number
+            .parse::<usize>()
+            .map_err(|_| crate::safety::arg_err("awk field index is not representable"))?;
+        if fields.len() >= 10000 {
+            return Err(crate::safety::budget_exceeded(
+                "awk",
+                "field selection exceeds 10000 entries".into(),
+                "select fewer fields",
+            ));
+        }
+        fields.push(index);
     }
-    (filter, fields)
+    Ok((filter, fields))
 }
 
 /// cut — Extract columns/fields from text (cross-platform, native Rust).

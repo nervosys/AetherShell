@@ -68,6 +68,170 @@ fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
 #[test]
+fn awk_preserves_fields_whole_lines_and_literal_filter_semantics() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    for name in ["awk", "awk_process"] {
+        assert_eq!(
+            call(
+                name,
+                vec![s("{print $2,$1,$2,$9}"), s("a b\r\nc d\r\n")],
+                &mut env
+            )
+            .unwrap(),
+            Value::Array(vec![s("b\ta\tb"), s("d\tc\td")])
+        );
+        assert_eq!(
+            call_with_input(
+                name,
+                vec![s("/a.b/{print $0, $2}")],
+                Some(s("a.b x\naxb y")),
+                &mut env
+            )
+            .unwrap(),
+            Value::Array(vec![s("a.b x\tx")])
+        );
+        assert_eq!(
+            call(name, vec![s("/keep/"), s("keep a\nskip b")], &mut env).unwrap(),
+            Value::Array(vec![s("keep a")])
+        );
+        assert_eq!(
+            call(name, vec![s("print"), s("  a  b  ")], &mut env).unwrap(),
+            Value::Array(vec![s("  a  b  ")])
+        );
+        assert_eq!(
+            call(name, vec![s("$2,$1"), s("a\u{2003}b")], &mut env).unwrap(),
+            Value::Array(vec![s("b\ta")])
+        );
+    }
+}
+#[test]
+fn awk_honours_optional_separators_in_direct_and_piped_forms() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    for separator in [",", "::", ""] {
+        let input = if separator.is_empty() {
+            "ab".to_string()
+        } else {
+            format!("a{separator}b")
+        };
+        let options = Value::Record(std::collections::BTreeMap::from([(
+            "fs".into(),
+            s(separator),
+        )]));
+        let expected = if separator.is_empty() { s("a") } else { s("b") };
+        assert_eq!(
+            call(
+                "awk",
+                vec![s("{print $2}"), s(&input), options.clone()],
+                &mut env
+            )
+            .unwrap(),
+            Value::Array(vec![expected.clone()])
+        );
+        assert_eq!(
+            call_with_input(
+                "awk_process",
+                vec![s("{print $2}"), options],
+                Some(s(&input)),
+                &mut env
+            )
+            .unwrap(),
+            Value::Array(vec![expected])
+        );
+    }
+}
+#[test]
+fn awk_refuses_unhandled_programs_invalid_options_and_conflicts() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    for program in [
+        "",
+        "{exit}",
+        "{print 1}",
+        "{print $1; exit}",
+        "printf",
+        "/a/{}",
+    ] {
+        // A malformed field token is a bad argument; unsupported actions are explicit refusals.
+        let expected = if program.contains("$1;") {
+            "E_BAD_ARG"
+        } else {
+            "E_UNIMPLEMENTED"
+        };
+        code(call("awk", vec![s(program), s("a")], &mut env), expected);
+    }
+    for program in [
+        "/missing",
+        "{print $1",
+        "print $1}",
+        "{print $-1}",
+        "{print $}",
+        "{print $18446744073709551616}",
+    ] {
+        code(call("awk", vec![s(program), s("a")], &mut env), "E_BAD_ARG");
+    }
+    for options in [
+        Value::Bool(true),
+        Value::Record(std::collections::BTreeMap::from([(
+            "fs".into(),
+            Value::Int(1),
+        )])),
+        Value::Record(std::collections::BTreeMap::from([(
+            "unknown".into(),
+            s(","),
+        )])),
+    ] {
+        code(
+            call("awk", vec![s("print"), s("a"), options.clone()], &mut env),
+            "E_BAD_ARG",
+        );
+        code(
+            call_with_input("awk", vec![s("print"), options], Some(s("a")), &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    code(
+        call_with_input(
+            "awk",
+            vec![s("print"), s("explicit"), Value::Record(Default::default())],
+            Some(s("piped")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(call("awk", vec![s("print")], &mut env), "E_BAD_ARG");
+    code(
+        call_with_input("awk", vec![s("print")], Some(Value::Int(1)), &mut env),
+        "E_BAD_ARG",
+    );
+}
+#[test]
+fn awk_bounds_field_reference_expansion() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    let program = std::iter::repeat_n("$1", 10000)
+        .collect::<Vec<_>>()
+        .join(",");
+    let Value::Array(result) = call("awk", vec![s(&program), s("a")], &mut env).unwrap() else {
+        panic!("expected rows")
+    };
+    assert_eq!(
+        result[0],
+        s(&std::iter::repeat_n("a", 10000)
+            .collect::<Vec<_>>()
+            .join("\t"))
+    );
+    code(
+        call("awk", vec![s(&(program + ",$1")), s("a")], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+}
+#[test]
 fn cut_preserves_field_order_duplicates_and_literal_delimiters() {
     let _lock = LOCK.lock().unwrap();
     let _fixture = Fixture::new();
