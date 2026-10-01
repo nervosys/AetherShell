@@ -4127,6 +4127,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "ssh_keygen",
     "strace_cmd",
     "tar_extract",
+    "tee_output",
     "terraform_destroy",
     "timeout_cmd",
     "tmux_new",

@@ -7849,101 +7849,67 @@ fn bi_head(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(lines.join("\n")))
 }
 
+fn tail_count(value: &Value) -> Result<usize> {
+    let Value::Int(n) = value else {
+        return Err(crate::safety::arg_err(
+            "tail count must be a nonnegative Int",
+        ));
+    };
+    usize::try_from(*n)
+        .map_err(|_| crate::safety::arg_err("tail count must be a nonnegative representable Int"))
+}
+
+fn tail_read(path: &str) -> Result<String> {
+    use std::io::Read;
+    const MAX_BYTES: u64 = 64 * 1024 * 1024;
+    let path = validate_read_path(path)?;
+    let metadata = fs::metadata(&path).map_err(|e| crate::safety::fs_error("tail", &path, &e))?;
+    if metadata.len() > MAX_BYTES {
+        return Err(crate::safety::budget_exceeded(
+            "tail",
+            "file exceeds 64 MiB".into(),
+            "use a smaller file",
+        ));
+    }
+    if !metadata.is_file() {
+        return Err(crate::safety::arg_err("tail requires a regular UTF-8 file"));
+    }
+    let file = fs::File::open(&path).map_err(|e| crate::safety::fs_error("tail", &path, &e))?;
+    let mut content = String::new();
+    file.take(MAX_BYTES + 1)
+        .read_to_string(&mut content)
+        .map_err(|e| crate::safety::fs_error("tail", &path, &e))?;
+    if content.len() as u64 > MAX_BYTES {
+        return Err(crate::safety::budget_exceeded(
+            "tail",
+            "file exceeds 64 MiB".into(),
+            "use a smaller file",
+        ));
+    }
+    Ok(content)
+}
+
 fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // Determine line count and content source
-    let (lines_count, content) = if let Some(input) = input {
-        // Input from pipeline
-        let count = if !args.is_empty() {
-            match &args[0] {
-                Value::Int(n) => *n as usize,
-                _ => 10,
-            }
-        } else {
-            10
+    let (count, content) = if let Some(value) = input {
+        let Value::Str(content) = value else {
+            return Err(crate::safety::arg_err("tail piped input must be String"));
         };
-        let content = match input {
-            Value::Str(s) => s,
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "tail",
-                    "input: String",
-                    other.type_name(),
-                ))
-            }
+        let count = match args.first() {
+            None => 10,
+            Some(value) => tail_count(value)?,
         };
         (count, content)
     } else {
-        // No pipeline input, read from file
-        match args.len() {
-            0 => {
-                return Err(crate::safety::bad_arg(
-                    "tail",
-                    "a piped String, or a file path as the first argument",
-                    "nothing",
-                ))
-            }
-            1 => {
-                // Single argument: could be file path or line count
-                match &args[0] {
-                    Value::Str(path_str) => {
-                        // SECURITY: Validate path to prevent traversal attacks (CVSS 8.2)
-                        let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path)
-                            .map_err(|e| crate::safety::fs_error("tail", &validated_path, &e))?;
-                        (10, content)
-                    }
-                    Value::Int(_) => {
-                        return Err(crate::safety::bad_arg(
-                            "tail",
-                            "a file path before the line count, or a piped String",
-                            "an Int with no file",
-                        ))
-                    }
-                    other => {
-                        return Err(crate::safety::bad_arg(
-                            "tail",
-                            "a file path (String), or a piped String",
-                            other.type_name(),
-                        ))
-                    }
-                }
-            }
-            2 => {
-                // Two arguments: could be (file, count) or (count, file)
-                match (&args[0], &args[1]) {
-                    (Value::Str(path_str), Value::Int(n)) => {
-                        // SECURITY: Validate path to prevent traversal attacks
-                        let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path)
-                            .map_err(|e| crate::safety::fs_error("tail", &validated_path, &e))?;
-                        (*n as usize, content)
-                    }
-                    (Value::Int(n), Value::Str(path_str)) => {
-                        // SECURITY: Validate path to prevent traversal attacks
-                        let validated_path = validate_read_path(path_str)?;
-                        let content = fs::read_to_string(&validated_path)
-                            .map_err(|e| crate::safety::fs_error("tail", &validated_path, &e))?;
-                        (*n as usize, content)
-                    }
-                    _ => {
-                        return Err(crate::safety::arg_err(
-                            "tail: invalid arguments - need file path and line count",
-                        ));
-                    }
-                }
-            }
-            _ => return Err(anyhow!("tail: too many arguments")),
+        match args.as_slice() {
+            [Value::Str(path)] => (10,tail_read(path)?),
+            [Value::Str(path),count] => (tail_count(count)?,tail_read(path)?),
+            [count,Value::Str(path)] => (tail_count(count)?,tail_read(path)?),
+            _=>return Err(crate::safety::arg_err("tail requires a file path and optional count, or count then path, or a piped String")),
         }
     };
-
-    let lines: Vec<&str> = content.lines().collect();
-    let start = if lines.len() > lines_count {
-        lines.len() - lines_count
-    } else {
-        0
-    };
-    let tail_lines = &lines[start..];
-    Ok(Value::Str(tail_lines.join("\n")))
+    let mut lines: Vec<_> = content.lines().rev().take(count).collect();
+    lines.reverse();
+    Ok(Value::Str(lines.join("\n")))
 }
 
 fn bi_find(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -50638,40 +50604,68 @@ fn bi_pager(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// tee — Write input to both a file and return it (cross-platform, native Rust).
 /// Usage: tee(file_path, text) or piped: text | tee(file_path)
 fn bi_tee_output(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let file_path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("tee requires a file path")),
+    let path = crate::safety::resolve_path_str(&expect_string(
+        "tee",
+        args.first()
+            .ok_or_else(|| crate::safety::arg_err("tee requires path"))?,
+    )?);
+    let (value, options) = match input {
+        Some(value) => {
+            if args.len() > 2 {
+                return Err(crate::safety::arg_err(
+                    "piped tee accepts path and optional options only",
+                ));
+            }
+            (value, args.get(1))
+        }
+        None => (
+            args.get(1)
+                .cloned()
+                .ok_or_else(|| crate::safety::arg_err("tee requires data"))?,
+            args.get(2),
+        ),
     };
-    let text = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        Some(v) => format!("{}", v),
-        None => match &input {
-            Some(Value::Str(s)) => s.clone(),
-            Some(v) => format!("{}", v),
-            None => return Err(crate::safety::arg_err("tee requires input data")),
-        },
+    let mut append = false;
+    if let Some(options) = options {
+        let Value::Record(record) = options else {
+            return Err(crate::safety::arg_err("tee options must be Record"));
+        };
+        for (key, value) in record {
+            if key != "append" {
+                return Err(crate::safety::arg_err(format!("tee unknown option {key}")));
+            }
+            let Value::Bool(flag) = value else {
+                return Err(crate::safety::arg_err("tee append must be Bool"));
+            };
+            append = *flag;
+        }
+    }
+    let text = match value {
+        Value::Str(text) => text,
+        other => format!("{other}"),
     };
-    let append = match args.get(2) {
-        Some(Value::Record(r)) => r
-            .get("append")
-            .map(|v| matches!(v, Value::Bool(true)))
-            .unwrap_or(false),
-        _ => false,
-    };
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "tee_output",
+        effect: crate::safety::Effect::WriteLocal,
+        what: if append { "append" } else { "write" },
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({"bytes":text.len()}),
+        reversible: true,
+        fs_paths: true,
+    })?;
+    crate::tx::snapshot(&path);
     if append {
         use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
+        let mut file = fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&file_path)
-            .map_err(|e| anyhow!("Cannot open '{}': {}", file_path, e))?;
+            .open(&path)
+            .map_err(|e| crate::safety::fs_error("tee", &path, &e))?;
         file.write_all(text.as_bytes())
-            .map_err(|e| anyhow!("Cannot write to '{}': {}", file_path, e))?;
+            .map_err(|e| crate::safety::fs_error("tee", &path, &e))?;
     } else {
-        std::fs::write(&file_path, &text)
-            .map_err(|e| anyhow!("Cannot write to '{}': {}", file_path, e))?;
+        write_file_atomically("tee", &path, text.as_bytes())?;
     }
-    // Return the same input (tee semantics: pass-through)
     Ok(Value::Str(text))
 }
 

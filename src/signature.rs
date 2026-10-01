@@ -251,6 +251,18 @@ const fn rest(name: &'static str, ty: Ty, doc: &'static str) -> Param {
 /// not depend on its size.
 pub static SIGNATURES: &[Signature] = &[
     Signature {
+        name: "tail", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Any),
+        params: &[opt("count_or_path", Ty::Any, "nonnegative representable Int count (default 10), or a file String in the count-first direct form")], returns: "String",
+        doc: "Return the last lines of a piped String, or read a UTF-8 file with tail(path,count?) or tail(count,path). Preserve both direct argument orders. Reject non-String input/path and invalid counts; zero yields empty output. Strip line terminators, normalize CRLF to LF and join without a trailing newline. Bound file reads to 64 MiB and validate read paths. Scan backwards and retain only the selected line references.",
+        examples: &[(r#""a\nb\nc" | tail"#, "\"a\nb\nc\""), (r#""a\nb\nc" | tail(2)"#, "\"b\nc\""), (r#"let d = fs_tempdir("ae_tail"); let f = d + "/x"; file_write(f, "a\nb\nc"); let result = tail(1, f); rmdir(d, true); result"#, r#""c""#)],
+    },
+    Signature {
+        name: "tee", category: None, subject_required: false, aliases: &["tee_output"], subject: None,
+        params: &[req("path", Ty::Str, "destination"), opt("data_or_options", Ty::Any, "required data for direct calls; optional {append: Bool} for piped calls"), opt("options", Ty::Record, "direct-call {append: Bool}; default false")], returns: "String",
+        doc: "Write data to a file and return its text. Direct: tee(path,data,options?); piped: data | tee(path,options?). Strings are unchanged; other values use their display representation. Refuse missing data, wrong options, unknown keys, non-Bool append and conflicting direct data in piped calls. Guard the actual destination, including newly created files, and snapshot for active transactions. Overwrite atomically by default; append with an append-only file handle when append is true. Filesystem failures are coded.",
+        examples: &[(r#"let d = fs_tempdir("ae_tee"); let f = d + "/x"; let result = tee(f, "hi"); rmdir(d, true); result"#, r#""hi""#), (r#"let d = fs_tempdir("ae_tee"); let f = d + "/x"; tee(f, "a"); tee(f, "b", {append: true}); let result = cat(f); rmdir(d, true); result"#, r#""ab""#), (r#"let d = fs_tempdir("ae_tee"); let f = d + "/x"; let result = "hi" | tee(f, {append: false}); rmdir(d, true); result"#, r#""hi""#), (r#"let d = fs_tempdir("ae_tee"); let f = d + "/x"; let result = "hi" | tee(f); rmdir(d, true); result"#, r#""hi""#)],
+    },
+    Signature {
         name: "call", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("name", Ty::Str, "builtin name or alias"), opt_rest("args", Ty::Any, "arguments forwarded unchanged to the target")], returns: "Any",
         doc: "Dynamically dispatch a builtin name (String or Uri) with zero or more arguments and forward any pipeline input unchanged. Use normal target signature validation and effect gating; target errors propagate. This calls builtins, not user-defined lambdas.",
