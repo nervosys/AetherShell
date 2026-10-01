@@ -15636,116 +15636,211 @@ fn bi_rl_ac_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ac_agent_to_value(&agent)
 }
 
-/// Create a DQN agent
-fn bi_rl_dqn_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    if args.len() < 3 {
-        return Err(crate::safety::arg_err(
-            "rl_dqn_agent requires: name, state_dim, action_size, [hidden_sizes]",
+fn validate_dqn_agent(agent: &DQNAgent) -> Result<()> {
+    if agent.state_dim == 0 || agent.action_size == 0 {
+        return Err(crate::safety::arg_err("DQN dimensions must be positive"));
+    }
+    if agent.action_size > 10000
+        || agent.network.layers.len() > 127
+        || agent.target_network.layers.len() > 127
+    {
+        return Err(crate::safety::budget_exceeded(
+            "rl_dqn",
+            "DQN exceeds 10000 actions or 127 dense layers".into(),
+            "use a smaller network",
         ));
     }
-
-    let name = match &args[0] {
-        Value::Str(s) => s.clone(),
-        _ => return Err(crate::safety::arg_err("name must be string")),
-    };
-
-    let state_dim = match &args[1] {
-        Value::Int(n) => *n as usize,
-        _ => return Err(crate::safety::arg_err("state_dim must be integer")),
-    };
-
-    let action_size = match &args[2] {
-        Value::Int(n) => *n as usize,
-        _ => return Err(crate::safety::arg_err("action_size must be integer")),
-    };
-
-    let hidden_sizes: Vec<usize> = if let Some(Value::Array(arr)) = args.get(3) {
-        arr.iter()
-            .map(|v| match v {
-                Value::Int(n) => Ok(*n as usize),
-                _ => Err(anyhow!("hidden_sizes must be array of integers")),
-            })
-            .collect::<Result<Vec<_>>>()?
-    } else {
-        vec![64, 64] // Default hidden layers
-    };
-
-    let agent = DQNAgent::new(
-        &name,
-        state_dim,
-        action_size,
-        &hidden_sizes,
-        0.001, // learning rate
-        0.99,  // discount
-        1.0,   // epsilon
-        10000, // buffer size
-    );
-    dqn_agent_to_value(&agent)
+    let mut total = 0;
+    for net in [&agent.network, &agent.target_network] {
+        validate_nn(net)?;
+        if net
+            .layers
+            .first()
+            .is_none_or(|l| l.input_size != agent.state_dim)
+            || net
+                .layers
+                .last()
+                .is_none_or(|l| l.output_size != agent.action_size)
+        {
+            return Err(crate::safety::arg_err(
+                "DQN network endpoints must match state/action dimensions",
+            ));
+        }
+        for layer in &net.layers {
+            total = checked_nn_parameter_count(total, layer.input_size, layer.output_size)?;
+        }
+    }
+    if agent.network.layers.len() != agent.target_network.layers.len()
+        || agent
+            .network
+            .layers
+            .iter()
+            .zip(&agent.target_network.layers)
+            .any(|(a, b)| (a.input_size, a.output_size) != (b.input_size, b.output_size))
+    {
+        return Err(crate::safety::arg_err(
+            "DQN policy and target architectures must match",
+        ));
+    }
+    if [
+        agent.learning_rate,
+        agent.discount,
+        agent.epsilon,
+        agent.epsilon_decay,
+        agent.epsilon_min,
+    ]
+    .iter()
+    .any(|n| !n.is_finite() || !(0.0..=1.0).contains(n))
+        || i64::try_from(agent.steps).is_err()
+        || agent.batch_size == 0
+        || agent.batch_size > 10000
+        || agent.target_update_freq == 0
+    {
+        return Err(crate::safety::arg_err("DQN requires finite probability rates, a representable step count, batch size in 1..=10000 and positive target frequency"));
+    }
+    let replay = &agent.replay_buffer;
+    if replay.capacity == 0
+        || replay.buffer.len() > replay.capacity
+        || replay.position >= replay.capacity
+        || (replay.buffer.len() < replay.capacity && replay.position != replay.buffer.len())
+    {
+        return Err(crate::safety::arg_err(
+            "DQN replay capacity, length and circular position are inconsistent",
+        ));
+    }
+    if replay.capacity > 10000
+        || replay
+            .buffer
+            .len()
+            .checked_mul(agent.state_dim)
+            .and_then(|n| n.checked_mul(2))
+            .is_none_or(|n| n > MAX_RL_CELLS)
+    {
+        return Err(crate::safety::budget_exceeded(
+            "rl_dqn",
+            "replay exceeds 10000 capacity or one million state values".into(),
+            "use a smaller replay buffer",
+        ));
+    }
+    if replay.buffer.iter().any(|exp| {
+        exp.state.len() != agent.state_dim
+            || exp.next_state.len() != agent.state_dim
+            || exp
+                .state
+                .iter()
+                .chain(&exp.next_state)
+                .any(|n| !n.is_finite())
+            || exp.action >= agent.action_size
+            || !exp.reward.is_finite()
+    }) {
+        return Err(crate::safety::arg_err(
+            "DQN experiences require exact finite state widths, valid actions and finite rewards",
+        ));
+    }
+    Ok(())
 }
 
-/// Step DQN agent (store experience and train)
-fn bi_rl_dqn_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let args = if args.is_empty() && input.is_some() {
-        vec![input.unwrap()]
-    } else {
-        args
-    };
-
-    if args.len() < 6 {
-        return Err(crate::safety::arg_err(
-            "rl_dqn_step requires: agent, state, action, reward, next_state, done",
+/// Create bounded policy and target networks with fixed DQN defaults.
+fn bi_rl_dqn_agent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let name = expect_string(
+        "rl_dqn_agent",
+        args.first()
+            .ok_or_else(|| crate::safety::arg_err("rl_dqn_agent requires name"))?,
+    )?;
+    let states = rl_positive_size(
+        "rl_dqn_agent",
+        args.get(1)
+            .ok_or_else(|| crate::safety::arg_err("rl_dqn_agent requires state_dim"))?,
+    )?;
+    let actions = rl_positive_size(
+        "rl_dqn_agent",
+        args.get(2)
+            .ok_or_else(|| crate::safety::arg_err("rl_dqn_agent requires action_size"))?,
+    )?;
+    if actions > 10000 {
+        return Err(crate::safety::budget_exceeded(
+            "rl_dqn_agent",
+            "DQN exceeds 10000 actions".into(),
+            "use fewer actions",
         ));
     }
-
-    let mut agent = value_to_dqn_agent(&args[0])?;
-
-    let state: Vec<f64> = match &args[1] {
-        Value::Array(arr) => arr
+    let hidden = match args.get(3) {
+        None => vec![64, 64],
+        Some(Value::Array(values)) if values.len() <= 126 => values
             .iter()
-            .map(|v| match v {
-                Value::Float(f) => Ok(*f),
-                Value::Int(i) => Ok(*i as f64),
-                _ => Err(anyhow!("state elements must be numbers")),
-            })
+            .map(|v| rl_positive_size("rl_dqn_agent hidden size", v))
             .collect::<Result<Vec<_>>>()?,
-        _ => return Err(crate::safety::arg_err("state must be array")),
+        Some(Value::Array(_)) => {
+            return Err(crate::safety::budget_exceeded(
+                "rl_dqn_agent",
+                "DQN exceeds 126 hidden layers".into(),
+                "use fewer layers",
+            ))
+        }
+        Some(_) => return Err(crate::safety::arg_err("DQN hidden_sizes must be Array")),
     };
+    let sizes: Vec<_> = std::iter::once(states)
+        .chain(hidden.iter().copied())
+        .chain(std::iter::once(actions))
+        .collect();
+    let mut total = 0;
+    for _ in 0..2 {
+        for pair in sizes.windows(2) {
+            total = checked_nn_parameter_count(total, pair[0], pair[1])?;
+        }
+    }
+    dqn_agent_to_value(&DQNAgent::new(
+        &name, states, actions, &hidden, 0.001, 0.99, 1.0, 10000,
+    ))
+}
 
-    let action = match &args[2] {
-        Value::Int(a) => *a as usize,
-        _ => return Err(crate::safety::arg_err("action must be integer")),
+/// Record experience; refuse the unimplemented training path before mutation.
+fn bi_rl_dqn_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let piped = input.is_some();
+    let value = input
+        .or_else(|| args.first().cloned())
+        .ok_or_else(|| crate::safety::arg_err("rl_dqn_step requires agent"))?;
+    let mut agent = value_to_dqn_agent(&value)?;
+    let idx = usize::from(!piped);
+    let arg = |offset| {
+        args.get(idx + offset).ok_or_else(|| {
+            crate::safety::arg_err("rl_dqn_step requires state, action, reward, next_state, done")
+        })
     };
-
-    let reward = match &args[3] {
-        Value::Float(r) => *r,
-        Value::Int(r) => *r as f64,
-        _ => return Err(crate::safety::arg_err("reward must be number")),
+    let state = ac_state(arg(0)?, agent.state_dim)?;
+    let action = rl_index("rl_dqn_step action", arg(1)?, agent.action_size)?;
+    let reward = finite_nn_number("rl_dqn_step reward", arg(2)?)?;
+    let next = ac_state(arg(3)?, agent.state_dim)?;
+    let Value::Bool(done) = arg(4)? else {
+        return Err(crate::safety::arg_err("rl_dqn_step done must be Bool"));
     };
-
-    let next_state: Vec<f64> = match &args[4] {
-        Value::Array(arr) => arr
-            .iter()
-            .map(|v| match v {
-                Value::Float(f) => Ok(*f),
-                Value::Int(i) => Ok(*i as f64),
-                _ => Err(anyhow!("next_state elements must be numbers")),
-            })
-            .collect::<Result<Vec<_>>>()?,
-        _ => return Err(crate::safety::arg_err("next_state must be array")),
-    };
-
-    let done = match &args[5] {
-        Value::Bool(b) => *b,
-        _ => return Err(crate::safety::arg_err("done must be boolean")),
-    };
-
-    agent.step(state, action, reward, next_state, done);
+    if agent
+        .steps
+        .checked_add(1)
+        .is_none_or(|n| i64::try_from(n).is_err())
+    {
+        return Err(crate::safety::arg_err("rl_dqn_step counter overflow"));
+    }
+    let next_len = (agent.replay_buffer.len() + 1).min(agent.replay_buffer.capacity);
+    if next_len
+        .checked_mul(agent.state_dim)
+        .and_then(|n| n.checked_mul(2))
+        .is_none_or(|n| n > MAX_RL_CELLS)
+    {
+        return Err(crate::safety::budget_exceeded(
+            "rl_dqn_step",
+            "replay exceeds one million state values".into(),
+            "use a smaller buffer or state",
+        ));
+    }
+    if next_len >= agent.batch_size {
+        return Err(crate::safety::unimplemented(
+            "rl_dqn_step",
+            "DQN training does not update network weights",
+            "use an implemented reinforcement-learning trainer",
+        ));
+    }
+    agent.step(state, action, reward, next, *done);
     dqn_agent_to_value(&agent)
 }
 
@@ -16138,7 +16233,15 @@ fn value_to_ac_agent(value: &Value) -> Result<ActorCriticAgent> {
 }
 
 fn dqn_agent_to_value(agent: &DQNAgent) -> Result<Value> {
+    validate_dqn_agent(agent)?;
     let json = serde_json::to_string(agent).context("Failed to serialize DQN agent")?;
+    if json.len() > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            "rl_dqn",
+            "DQN encoding exceeds 64 MiB".into(),
+            "use a smaller agent",
+        ));
+    }
 
     let mut rec = BTreeMap::new();
     rec.insert("type".to_string(), Value::Str("dqn_agent".to_string()));
@@ -16159,16 +16262,24 @@ fn dqn_agent_to_value(agent: &DQNAgent) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-fn value_to_dqn_agent(v: &Value) -> Result<DQNAgent> {
-    if let Value::Record(rec) = v {
-        if let Some(Value::Str(data)) = rec.get("_data") {
-            serde_json::from_str(data).context("Failed to deserialize DQN agent")
-        } else {
-            Err(crate::safety::arg_err("Invalid DQN agent: missing _data"))
-        }
-    } else {
-        Err(anyhow!("Invalid DQN agent value"))
+fn value_to_dqn_agent(value: &Value) -> Result<DQNAgent> {
+    let Value::Record(record) = value else {
+        return Err(crate::safety::arg_err("DQN agent must be Record"));
+    };
+    let Some(Value::Str(data)) = record.get("_data") else {
+        return Err(crate::safety::arg_err("DQN agent requires _data: String"));
+    };
+    if data.len() > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            "rl_dqn",
+            "DQN encoding exceeds 64 MiB".into(),
+            "use a smaller agent",
+        ));
     }
+    let agent: DQNAgent = serde_json::from_str(data)
+        .map_err(|e| crate::safety::bad_arg("rl_dqn", "valid encoded DQN agent", &e.to_string()))?;
+    validate_dqn_agent(&agent)?;
+    Ok(agent)
 }
 
 fn replay_buffer_to_value(buffer: &ReplayBuffer) -> Result<Value> {

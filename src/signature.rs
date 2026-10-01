@@ -1628,6 +1628,18 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Return an agent copy updated using TD error reward + discount*V(next_state) - V(state), with next value zero when terminal. Compute both values before changing critic weights, then update critic and softmax actor from that same TD error and increment steps once. Validate encoded shapes, finite probability rates and weights; cap encoding at 64 MiB, actions at 10000 and combined weights at one million. Refuse counter overflow and non-finite computed weights.",
         examples: &[(r#"rl_ac_update(rl_ac_agent("example", 2, 2), [1, 0], 1, 5, [0, 1], true).steps"#, "1"), (r#"let result = rl_ac_agent("example", 2, 2) | rl_ac_update([1, 0], 1, 5, [0, 1], false); result.steps"#, "1")],
     },
+    Signature {
+        name: "rl_dqn_agent", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "agent name"), req("state_dim", Ty::Int, "positive state width"), req("action_size", Ty::Int, "positive action count; at most 10000"), opt("hidden_sizes", Ty::Array, "at most 126 positive Int widths; default [64,64]; empty means no hidden layers")], returns: "Record",
+        doc: "Create matching policy/target networks with ReLU hidden layers and linear Q outputs, checking combined parameters at most one million before allocation. Defaults: learning_rate 0.001, discount 0.99, epsilon 1, epsilon_decay 0.995, epsilon_min 0.01, replay capacity 10000, batch size 32, target update frequency 100, steps zero. Training is not implemented.",
+        examples: &[(r#"rl_dqn_agent("example", 2, 3).action_size"#, "3"), (r#"rl_dqn_agent("example", 2, 3, []).buffer_size"#, "0")],
+    },
+    Signature {
+        name: "rl_dqn_step", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[req("state", Ty::Array, "exactly state_dim finite numbers"), req("action", Ty::Int, "in 0..action_size"), req("reward", Ty::Numeric, "finite reward"), req("next_state", Ty::Array, "exactly state_dim finite numbers, including terminal transitions"), req("done", Ty::Bool, "terminal transition")], returns: "Record",
+        doc: "Below the training threshold, return an agent copy with the experience stored in its circular replay buffer, steps incremented, target network copied at its update frequency, and epsilon multiplied by epsilon_decay while above epsilon_min. Refuse with E_UNIMPLEMENTED before mutation when the resulting buffer size reaches batch_size: the underlying training placeholder does not update weights. Validate both networks, matching architectures, rates, positive batch/frequency, replay entries/position and counters; cap encoding at 64 MiB, combined network parameters and stored state values separately at one million, and replay capacity/actions at 10000.",
+        examples: &[(r#"rl_dqn_step(rl_dqn_agent("example", 2, 2, []), [1, 0], 1, 5, [0, 1], true).steps"#, "1"), (r#"let result = rl_dqn_agent("example", 2, 2) | rl_dqn_step([1, 0], 1, 5, [0, 1], false); result.buffer_size"#, "1")],
+    },
     // Source-reviewed neural operations; serialized networks are validated.
     Signature {
         name: "nn_create", category: None, subject_required: false, aliases: &[], subject: None,
