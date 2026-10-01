@@ -4,9 +4,11 @@
 The source-reviewed migration currently has 549 declarations covering 549 of
 1,171 implementations and 672 of 1,437 callable names, measured with
 `cargo run --example signature_inventory`. The migration remains incomplete.
-The intermediate Windows workspace check passed 2,614 tests across 186 suites,
-with four ignored. It corrected stale effect provenance and snapshot expectations
-for the native sd aliases; final-tree release validation remains outstanding.
+The latest intermediate Windows workspace check passed 2,633 tests across 186
+suites, with four ignored, after the file-copy, line-deletion, hard-link,
+permission-mode and structured-edit tranches. Release preflight passed three
+Python tests and eight simulated checks under each of PowerShell 7 and 5.1.
+Final-tree and cross-platform release validation remain outstanding.
 Current preparation and release blockers are tracked in
 [`release/13.0.0.md`](release/13.0.0.md). Older figures below are historical baselines.
 
