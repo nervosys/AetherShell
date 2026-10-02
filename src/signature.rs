@@ -4905,6 +4905,12 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"(try { group_mod() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
     },
     Signature {
+        name: "sudo_check", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Bool",
+        doc: "Inspect current effective privileges: Unix effective UID zero, or the Windows current-token Administrator role through a noninteractive PowerShell query without profiles. This does not test sudo configuration or acquire privileges. Reject arguments and pipeline input. Report failed subprocesses and malformed output with codes rather than false; unsupported platforms refuse explicitly.",
+        examples: &[("sudo_check()", "false")],
+    },
+    Signature {
         name: "sudo_exec", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[], returns: "Any",
         doc: "Unsupported placeholder: a parameterless call refuses with E_UNIMPLEMENTED after dispatch policy. No command is executed or privilege acquired. Accept no arguments or pipeline input; there is no successful return value.",

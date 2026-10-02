@@ -2995,6 +2995,36 @@ fn unsupported_account_group_and_elevation_calls_are_strict() {
 }
 
 #[test]
+fn sudo_check_rejects_ignored_input_and_inspects_without_elevating() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    for args in [vec![Value::Int(1)], vec![s("ignored")], vec![Value::Null]] {
+        code(call("sudo_check", args, &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input("sudo_check", vec![], Some(s("ignored")), &mut env),
+        "E_BAD_ARG",
+    );
+    match call("sudo_check", vec![], &mut env) {
+        Ok(Value::Bool(value)) => {
+            #[cfg(unix)]
+            assert_eq!(value, unsafe { libc::geteuid() } == 0);
+            #[cfg(not(unix))]
+            let _ = value;
+        }
+        Err(error) => assert!(
+            error.to_string().contains("E_TOOL_MISSING")
+                || error.to_string().contains("E_TOOL_FAILED")
+                || error.to_string().contains("E_UNIMPLEMENTED"),
+            "{error}"
+        ),
+        other => panic!("unexpected privilege inspection result: {other:?}"),
+    }
+    assert!(fixture.root.is_dir());
+}
+
+#[test]
 fn unsupported_filesystem_operations_refuse_without_mutation() {
     let _lock = LOCK.lock().unwrap();
     let fixture = Fixture::new();

@@ -43,6 +43,7 @@ fn ok(name: &str, args: Vec<Value>) -> Value {
 ///
 /// Every entry says what it depends on.
 const MACHINE_DEPENDENT: &[(&str, &str)] = &[
+    ("sudo_check", "current effective privilege state; Windows needs PowerShell; Unix uses native effective UID; the query never elevates"),
     ("fs_symlink", "native symlink support; Windows may require symbolic-link privilege (OS error 1314); examples use and clean owned temporary fixtures"),
     ("fs_chown", "native Unix ownership; non-Unix returns E_UNIMPLEMENTED; Unix examples use only owned temporary files and their existing owner/group"),
     ("sys_mem_info", "the OS memory query and current memory usage"),

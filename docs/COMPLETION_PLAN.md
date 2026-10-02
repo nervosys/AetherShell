@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 569/1,171 implementations; 694/1,437 callable names | 602 implementations and 743 callable names |
-| Latest targeted Windows validation | 738 unique tests across ten suites passed | Validate the complete final tree |
+| Signature migration | 570/1,171 implementations; 695/1,437 callable names | 601 implementations and 742 callable names |
+| Latest targeted Windows validation | 742 unique tests across ten suites passed | Validate the complete final tree |
 | Earlier Windows workspace checkpoint | 2,633 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -41,7 +41,7 @@ accepted limitation. No placeholder is described as successful work.
 - [x] Add declaration uniqueness, alias inheritance and repeatable coverage inventory.
 - [x] Cover the E1/E2/E7 working set with declared contracts.
 - [ ] Finish the 602 remaining implementations, grouped by module and actual behavior. Refresh the inventory after every tranche.
-- [ ] Migrate sudo_check next: reject arguments and pipeline input, check subprocess status, validate output, and distinguish inspection failure from a genuine false result.
+- [x] Migrate sudo_check: strict input rejection, native Unix effective UID, checked Windows subprocess status and boolean parsing, and coded failures; Windows checks passed, native Unix validation remains a platform gate.
 - [ ] Read each body before authoring its declaration; record direct-call, pipeline, optional-argument and alias semantics without generating contracts from probes.
 - [ ] Reject surplus arguments, wrong types, conflicting input and invalid options before effects or expensive work begin.
 - [ ] Add executable examples for each declaration, witnessing optional parameters both absent and present. Use owned fixtures for mutations and explicit machine-dependent checks where necessary.

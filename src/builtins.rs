@@ -28169,30 +28169,123 @@ fn bi_acl_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_sudo_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
+fn bi_sudo_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "sudo_check accepts no arguments or pipeline input",
+        ));
+    }
+    #[cfg(windows)]
     {
         let output = std::process::Command::new("powershell")
-            .args(["-Command", "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
+            .stdin(std::process::Stdio::null())
             .output()
-        .map_err(|e| crate::safety::spawn_error("sudo_check", "powershell", &e))?;
-        let is_admin = String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .to_lowercase()
-            == "true";
-        Ok(Value::Bool(is_admin))
+            .map_err(|e| crate::safety::spawn_error("sudo_check", "powershell", &e))?;
+        parse_windows_admin_status(output)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(unix)]
     {
-        let output = std::process::Command::new("id")
-            .args(["-u"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sudo_check", "id", &e))?;
-        let uid: u32 = String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .parse()
-            .unwrap_or(1000);
-        return Ok(Value::Bool(uid == 0));
+        // geteuid cannot fail and inspects this process without spawning id.
+        Ok(Value::Bool(unsafe { libc::geteuid() } == 0))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(crate::safety::unimplemented(
+            "sudo_check",
+            "privilege inspection is unavailable on this platform",
+            "use the platform's identity inspection tools",
+        ))
+    }
+}
+
+#[cfg(any(windows, test))]
+fn parse_windows_admin_status(output: std::process::Output) -> Result<Value> {
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "sudo_check",
+            "powershell",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    let text = std::str::from_utf8(&output.stdout).map_err(|_| {
+        crate::safety::bad_state(
+            "sudo_check",
+            "administrator query returned non-UTF-8 output",
+            "use a PowerShell installation that emits a boolean result",
+        )
+    })?;
+    let text = text.trim_matches(|c: char| c.is_ascii_whitespace());
+    if text.eq_ignore_ascii_case("true") {
+        Ok(Value::Bool(true))
+    } else if text.eq_ignore_ascii_case("false") {
+        Ok(Value::Bool(false))
+    } else {
+        Err(crate::safety::bad_state(
+            "sudo_check",
+            "administrator query returned an invalid boolean result",
+            "inspect the PowerShell installation; expected True or False",
+        ))
+    }
+}
+
+#[cfg(test)]
+mod sudo_check_contract_tests {
+    use super::*;
+    fn output(status: i32, stdout: &[u8], stderr: &[u8]) -> std::process::Output {
+        #[cfg(windows)]
+        let status = {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(status as u32)
+        };
+        #[cfg(unix)]
+        let status = {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(status << 8)
+        };
+        std::process::Output {
+            status,
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
+    }
+    #[test]
+    fn windows_query_accepts_only_boolean_results() {
+        for (text, expected) in [
+            (b"True\r\n".as_slice(), true),
+            (b"false".as_slice(), false),
+            (b" \tTRUE\n".as_slice(), true),
+        ] {
+            assert!(
+                matches!(parse_windows_admin_status(output(0, text, b"")).unwrap(), Value::Bool(value) if value == expected)
+            );
+        }
+    }
+    #[test]
+    fn malformed_query_output_never_becomes_false() {
+        for text in [
+            b"".as_slice(),
+            b"0",
+            b"permission denied",
+            b"True\nFalse",
+            b"True extra",
+            &[0xff],
+        ] {
+            let error = parse_windows_admin_status(output(0, text, b"")).unwrap_err();
+            assert!(error.to_string().contains("E_BAD_STATE"), "{error}");
+        }
+    }
+    #[test]
+    fn failed_query_status_takes_precedence_over_output() {
+        for text in [b"True".as_slice(), b"False", b""] {
+            let error =
+                parse_windows_admin_status(output(3, text, b"owned test failure")).unwrap_err();
+            let message = error.to_string();
+            assert!(message.contains("E_TOOL_FAILED"));
+            assert!(message.contains("exited 3"));
+            assert!(message.contains("owned test failure"));
+        }
     }
 }
 
