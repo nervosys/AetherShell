@@ -322,12 +322,15 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         "docs_api",
     ] {
         let mut env = aethershell::env::Env::new();
-        let r = aethershell::builtins::call_with_input(
-            name,
-            vec![aethershell::value::Value::Str("anything".to_string())],
-            None,
-            &mut env,
-        );
+        // Declared refusal-only interfaces accept no arguments. Keep testing
+        // their E_UNIMPLEMENTED message with a valid call; malformed-call
+        // rejection is covered by the contract regressions.
+        let args = if matches!(name, "user_lock" | "user_unlock" | "acl_set") {
+            vec![]
+        } else {
+            vec![aethershell::value::Value::Str("anything".to_string())]
+        };
+        let r = aethershell::builtins::call_with_input(name, args, None, &mut env);
         match r {
             Ok(v) => panic!("{name} answered {v:?} instead of saying it is not implemented"),
             Err(e) => {

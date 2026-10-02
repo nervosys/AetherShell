@@ -27802,7 +27802,12 @@ fn bi_user_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     bi_sys_users(vec![], None)
 }
 
-fn bi_user_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_user_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "user_add is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -27815,7 +27820,12 @@ fn bi_user_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_user_del(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_user_del(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "user_del is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -27828,7 +27838,12 @@ fn bi_user_del(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_user_mod(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_user_mod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "user_mod is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -27841,7 +27856,12 @@ fn bi_user_mod(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_user_passwd(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_user_passwd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "user_passwd is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -27854,7 +27874,12 @@ fn bi_user_passwd(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_user_lock(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_user_lock(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "user_lock is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Returned `Ok(false)` for every call, ignoring its arguments: an
     // agent could not tell "this did not work" from "this shell does
     // not do that", and the catalogue advertised it either way.
@@ -27865,7 +27890,12 @@ fn bi_user_lock(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_user_unlock(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_user_unlock(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "user_unlock is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Returned `Ok(false)` for every call, ignoring its arguments: an
     // agent could not tell "this did not work" from "this shell does
     // not do that", and the catalogue advertised it either way.
@@ -27880,7 +27910,12 @@ fn bi_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     bi_sys_groups(vec![], None)
 }
 
-fn bi_group_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_group_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "group_add is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -27893,7 +27928,12 @@ fn bi_group_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_group_del(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_group_del(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "group_del is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -27906,7 +27946,12 @@ fn bi_group_del(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_group_mod(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_group_mod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "group_mod is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -28151,7 +28196,12 @@ fn bi_sudo_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_sudo_exec(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_sudo_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "sudo_exec is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
