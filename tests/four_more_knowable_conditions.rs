@@ -301,8 +301,6 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         "session_redo",
         // Answered an empty collection, which reads as a definitive result:
         // `code_references("foo")` said there were none.
-        "code_references",
-        "code_callers",
         "test_passing",
         "test_failing",
         "search_semantic",

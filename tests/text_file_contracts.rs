@@ -3826,6 +3826,15 @@ fn tcp_handle_budget_releases_capacity_and_close_interrupts_reader() {
 fn tcp_waits_respect_short_and_expired_evaluation_deadlines() {
     use std::net::TcpListener;
     use std::time::{Duration, Instant};
+    fn short_deadline(result: anyhow::Result<Value>) {
+        // Scheduling may consume the deadline before I/O starts. Both paths
+        // refuse the wait; a timeout after I/O starts is E_IO.
+        let error = result.unwrap_err().to_string();
+        assert!(
+            error.contains("E_IO") || error.contains("E_BUDGET_EXCEEDED"),
+            "{error}"
+        );
+    }
     let _lock = LOCK.lock().unwrap();
     let _fixture = Fixture::new();
     std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
@@ -3841,7 +3850,7 @@ fn tcp_waits_respect_short_and_expired_evaluation_deadlines() {
     {
         let _deadline = aethershell::safety::enter_deadline(Duration::from_millis(20));
         let started = Instant::now();
-        code(call("net_recv", vec![handle.clone()], &mut env), "E_IO");
+        short_deadline(call("net_recv", vec![handle.clone()], &mut env));
         assert!(started.elapsed() < Duration::from_secs(1));
     }
     {
@@ -3863,13 +3872,422 @@ fn tcp_waits_respect_short_and_expired_evaluation_deadlines() {
     drop(reservation);
     let _deadline = aethershell::safety::enter_deadline(Duration::from_millis(20));
     let started = Instant::now();
+    short_deadline(call(
+        "net_listen",
+        vec![s("127.0.0.1"), Value::Int(port as i64), Value::Int(5000)],
+        &mut env,
+    ));
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+#[test]
+fn source_navigation_inspects_real_bindings_references_and_signatures_without_effects() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let mut env = Env::default();
+    let source="# side in a comment\nside = fn(x) => file.write(\"must-not-exist\", x); other = fn(y) => side(y); literal = \"side\"; result = other(1)";
+    let Value::Array(definitions) =
+        call("code_definition", vec![s(source), s("side")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(definitions.len(), 1);
+    let Value::Record(definition) = &definitions[0] else {
+        panic!()
+    };
+    assert_eq!(definition["kind"], s("lambda"));
+    assert_eq!(definition["params"], Value::Array(vec![s("x")]));
+    assert!(matches!(&definition["value_ast"],Value::Record(ast) if ast.contains_key("Lambda")));
+    let Value::Array(references) =
+        call("code_references", vec![s(source), s("side")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(references.len(), 2); // The comment and String do not create references.
+    let Value::Array(callers) = call("code_callers", vec![s(source), s("side")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(callers, vec![s("other")]);
+    let Value::Record(callees) =
+        call("code_callees", vec![s(source), s("side")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(callees["callees"], Value::Array(vec![s("file.write")]));
+    assert_eq!(callees["dynamic_calls"], Value::Int(0));
+    assert_eq!(callees["found"], Value::Bool(true));
+    let Value::Record(signature) =
+        call("code_signature", vec![s(source), s("side")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(
+        signature["signatures"],
+        Value::Array(vec![s("side(x) -> Any")])
+    );
+    assert_eq!(signature["origin"], s("source"));
+    let Value::Record(builtin) = call("code_signature", vec![s(""), s("round")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(builtin["origin"], s("builtin"));
+    assert_eq!(builtin["found"], Value::Bool(true));
+    let Value::Record(module_sig) =
+        call("code_signature", vec![s(""), s("math.abs")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(module_sig["found"], Value::Bool(true));
+    let Value::Record(shadow) = call(
+        "code_signature",
+        vec![s("round = 42"), s("round")],
+        &mut env,
+    )
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(shadow["origin"], s("source"));
+    assert_eq!(shadow["found"], Value::Bool(false));
+    assert!(!fixture.root.join("must-not-exist").exists());
+}
+
+#[test]
+fn source_navigation_counts_dynamic_calls_pipelines_unicode_positions_and_completions() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    let source = "f = fn(x) => [abs(x), len(x), (fn(y) => y)(x), x | len]";
+    let Value::Record(callees) = call("code_callees", vec![s(source), s("f")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(callees["callees"], Value::Array(vec![s("abs"), s("len")]));
+    assert_eq!(callees["dynamic_calls"], Value::Int(1));
+    let Value::Array(callers) = call(
+        "code_callers",
+        vec![s("f = fn(x) => abs(x); result = abs(1)"), s("abs")],
+        &mut env,
+    )
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(callers, vec![s("<top-level>"), s("f")]);
+    let source = "v = \"α\"; result = v";
+    let Value::Array(refs) = call("code_references", vec![s(source), s("v")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    let Value::Record(last) = &refs[1] else {
+        panic!()
+    };
+    assert_eq!(last["column"], Value::Int(19));
+    assert_eq!(last["end_column"], Value::Int(20));
+    let Value::Record(hover) = call(
+        "code_hover",
+        vec![s(source), Value::Int(1), Value::Int(19)],
+        &mut env,
+    )
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(hover["name"], s("v"));
+    assert_eq!(hover["found"], Value::Bool(true));
+    let Value::Record(hover) = call(
+        "code_hover",
+        vec![s("# α"), Value::Int(1), Value::Int(3)],
+        &mut env,
+    )
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(hover["found"], Value::Bool(false));
+    let Value::Array(refs) = call(
+        "code_references",
+        vec![s("math.abs(1)"), s("math.abs")],
+        &mut env,
+    )
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(refs.len(), 1);
+    let Value::Record(reference) = &refs[0] else {
+        panic!()
+    };
+    assert_eq!(reference["name"], s("abs"));
+    let Value::Array(fields) = call(
+        "code_references",
+        vec![s("r = {from: 42}; r.from"), s("from")],
+        &mut env,
+    )
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(fields.len(), 2);
+    let Value::Array(keywords) =
+        call("code_references", vec![s("x = true"), s("true")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert!(keywords.is_empty());
+
+    let Value::Array(completions) = call(
+        "code_completions",
+        vec![s("map = 42; map_extra = 1"), s("map")],
+        &mut env,
+    )
+    .unwrap() else {
+        panic!()
+    };
+    let Value::Record(first) = &completions[0] else {
+        panic!()
+    };
+    assert_eq!(first["name"], s("map"));
+    assert_eq!(first["kind"], s("variable"));
+    assert!(completions
+        .iter()
+        .any(|v| matches!(v,Value::Record(r) if r["name"]==s("map_extra"))));
+    let Value::Array(missing) =
+        call("code_definition", vec![s(source), s("missing")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert!(missing.is_empty());
+    let Value::Record(missing) =
+        call("code_callees", vec![s(source), s("missing")], &mut env).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(missing["found"], Value::Bool(false));
+}
+
+#[test]
+fn source_navigation_refuses_invalid_shapes_syntax_and_complexity() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    for name in [
+        "code_references",
+        "code_definition",
+        "code_callers",
+        "code_callees",
+        "code_signature",
+        "code_completions",
+        "code_hover",
+    ] {
+        code(call(name, vec![], &mut env), "E_BAD_ARG");
+        let args = if name == "code_hover" {
+            vec![s("x ="), Value::Int(1), Value::Int(1)]
+        } else if name == "code_completions" {
+            vec![s("x =")]
+        } else {
+            vec![s("x ="), s("x")]
+        };
+        code(call(name, args.clone(), &mut env), "E_BAD_ARG");
+        code(
+            call_with_input(name, args, Some(s("discarded")), &mut env),
+            "E_BAD_ARG",
+        );
+    }
     code(
         call(
-            "net_listen",
-            vec![s("127.0.0.1"), Value::Int(port as i64), Value::Int(5000)],
+            "code_hover",
+            vec![s("x = 1"), Value::Int(2), Value::Int(1)],
             &mut env,
         ),
-        "E_IO",
+        "E_BAD_ARG",
     );
-    assert!(started.elapsed() < Duration::from_secs(1));
+    code(
+        call("code_definition", vec![s("x = 1"), s("x; rm")], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call(
+            "code_completions",
+            vec![s(""), s(&"x".repeat(257))],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call(
+            "code_references",
+            vec![s(&format!("#{}", "x".repeat(65536))), s("x")],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+    code(
+        call(
+            "code_references",
+            vec![s(&format!("#{}", ".".repeat(257))), s("x")],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+    code(
+        call(
+            "code_references",
+            vec![s(&"x ".repeat(8193)), s("x")],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+}
+
+#[test]
+fn project_scripts_reads_json_jsonc_python_and_cargo_without_running_commands() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    let cases = [
+        (
+            "package.json",
+            r#"{"scripts":{"z":"echo z","a":"rm must-not-exist"}}"#,
+            vec!["npm_script", "npm_script"],
+        ),
+        (
+            "deno.jsonc",
+            r#"{
+          // task descriptions are data
+          "tasks": {"a": {"description":"hi","command":"echo https://host/*literal*/,"}, "z":"echo z",},
+        }"#,
+            vec!["deno_task", "deno_task"],
+        ),
+        (
+            "pyproject.toml",
+            "[project.scripts]\nz = 'module:main'\n[project.gui-scripts]\na = 'module:gui'",
+            vec!["python_gui_script", "python_console_script"],
+        ),
+        (
+            "config.toml",
+            "[alias]\nz = ['test', '--workspace']\na = 'build'",
+            vec!["cargo_alias", "cargo_alias"],
+        ),
+    ];
+    for (file, source, kinds) in cases {
+        let path = fixture.path(file);
+        std::fs::write(&path, source).unwrap();
+        let Value::Array(entries) = call("project_scripts", vec![s(&path)], &mut env).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(entries.len(), 2);
+        for (i, kind) in kinds.iter().enumerate() {
+            let Value::Record(entry) = &entries[i] else {
+                panic!()
+            };
+            assert_eq!(entry["kind"], s(kind));
+            assert_eq!(entry["name"], s(if i == 0 { "a" } else { "z" }));
+            assert_eq!(entry["manifest"], s(&path));
+        }
+        if file == "deno.jsonc" {
+            let Value::Record(entry) = &entries[0] else {
+                panic!()
+            };
+            assert_eq!(entry["command"], s("echo https://host/*literal*/,"));
+        }
+        if file == "config.toml" {
+            let Value::Record(entry) = &entries[1] else {
+                panic!()
+            };
+            assert_eq!(
+                entry["command"],
+                Value::Array(vec![s("test"), s("--workspace")])
+            );
+        }
+    }
+    let path = fixture.path("grouped.json");
+    std::fs::write(&path,r#"{"tasks":{"build":"echo build","all":{"dependencies":["build"],"description":"Grouped"}}}"#).unwrap();
+    let Value::Array(entries) = call("project_scripts", vec![s(&path)], &mut env).unwrap() else {
+        panic!()
+    };
+    let Value::Record(grouped) = &entries[0] else {
+        panic!()
+    };
+    assert_eq!(grouped["name"], s("all"));
+    assert_eq!(grouped["command"], Value::Null);
+    let Value::Record(definition) = &grouped["definition"] else {
+        panic!()
+    };
+    assert_eq!(definition["dependencies"], Value::Array(vec![s("build")]));
+    assert_eq!(definition["description"], s("Grouped"));
+    assert!(!fixture.root.join("must-not-exist").exists());
+    assert!(std::fs::read_to_string(fixture.root.join("audit.log"))
+        .unwrap()
+        .contains("project_scripts"));
+    assert_eq!(
+        aethershell::safety::effect_of("project_scripts"),
+        aethershell::safety::Effect::ReadLocal
+    );
+}
+
+#[test]
+fn project_scripts_refuses_malformed_missing_and_oversized_manifests_without_partial_results() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    code(call("project_scripts", vec![], &mut env), "E_BAD_ARG");
+    code(
+        call("project_scripts", vec![s("file.yaml")], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call_with_input(
+            "project_scripts",
+            vec![s("file.json")],
+            Some(s("discarded")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call(
+            "project_scripts",
+            vec![s(&fixture.path("missing.json"))],
+            &mut env,
+        ),
+        "E_NOT_FOUND",
+    );
+    for source in [
+        r#"{"scripts":{"valid":"echo ok","bad":42}}"#,
+        r#"{"tasks":[]}"#,
+        r#"{"tasks":{"bad":{"description":"no command"}}}"#,
+        r#"{"scripts":{,}}"#,
+        r#"{"scripts":{"a":"ok"}/*"#,
+    ] {
+        let path = fixture.path("invalid.jsonc");
+        std::fs::write(&path, source).unwrap();
+        code(
+            call("project_scripts", vec![s(&path)], &mut env),
+            "E_BAD_STATE",
+        );
+    }
+    let path = fixture.path("invalid.toml");
+    std::fs::write(&path, "[alias]\na = [1]").unwrap();
+    code(
+        call("project_scripts", vec![s(&path)], &mut env),
+        "E_BAD_STATE",
+    );
+    let path = fixture.path("large.json");
+    std::fs::write(&path, " ".repeat(1048577)).unwrap();
+    code(
+        call("project_scripts", vec![s(&path)], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    let path = fixture.path("empty.json");
+    std::fs::write(&path, "{}").unwrap();
+    assert_eq!(
+        call("project_scripts", vec![s(&path)], &mut env).unwrap(),
+        Value::Array(vec![])
+    );
+    let jail = fixture.root.join("jail");
+    std::fs::create_dir(&jail).unwrap();
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", &jail);
+    code(
+        call("project_scripts", vec![s(&path)], &mut env),
+        "E_OUTSIDE_WORKSPACE",
+    );
 }

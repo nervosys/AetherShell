@@ -139,6 +139,75 @@ struct Spanned {
     col: usize,   // 1-based column number
 }
 
+/// A native source-analysis view of an identifier token. Columns count Unicode
+/// scalar values, as the parser does; literals and comments are excluded.
+#[cfg(feature = "native")]
+pub(crate) struct SourceIdentifier {
+    pub text: String,
+    pub qualified: String,
+    pub terminal: bool,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[cfg(feature = "native")]
+pub(crate) fn source_identifiers(builtin: &str, source: &str) -> Result<Vec<SourceIdentifier>> {
+    let tokens = lex(source).map_err(|e| anyhow::Error::new(ParseError::new(e.to_string())))?;
+    if tokens.len() > 8192 {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            "source exceeds 8192 tokens".into(),
+            "analyze a smaller source unit",
+        ));
+    }
+    let field_word = |token: &Spanned| {
+        !matches!(token.kind, Tok::String | Tok::Eof)
+            && token
+                .text
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && token
+                .text
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    let identifier_at = |index: usize| {
+        let token = &tokens[index];
+        token.kind == Tok::Ident
+            || (field_word(token)
+                && ((index > 0 && tokens[index - 1].kind == Tok::Dot)
+                    || tokens.get(index + 1).is_some_and(|t| t.kind == Tok::Colon)))
+    };
+    let mut identifiers = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if !identifier_at(index) {
+            continue;
+        }
+        let mut start = index;
+        let mut end = index;
+        while start >= 2 && tokens[start - 1].kind == Tok::Dot && identifier_at(start - 2) {
+            start -= 2;
+        }
+        while end + 2 < tokens.len() && tokens[end + 1].kind == Tok::Dot && identifier_at(end + 2) {
+            end += 2;
+        }
+        let qualified = (start..=end)
+            .step_by(2)
+            .map(|i| tokens[i].text.as_str())
+            .collect::<Vec<_>>()
+            .join(".");
+        identifiers.push(SourceIdentifier {
+            text: token.text.clone(),
+            qualified,
+            terminal: index == end,
+            line: token.line,
+            column: token.col,
+        });
+    }
+    Ok(identifiers)
+}
+
 pub struct Parser {
     toks: Vec<Spanned>,
     i: usize,

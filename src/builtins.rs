@@ -38195,6 +38195,9 @@ fn bi_git_clean(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(files))
 }
 
+#[path = "source_navigation.rs"]
+mod source_navigation;
+
 // Code module implementations
 fn bi_code_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = args
@@ -38249,30 +38252,12 @@ fn bi_code_outline(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     bi_code_symbols(args, input)
 }
 
-fn bi_code_references(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returned an empty result for every call, ignoring its
-    // arguments: `code_references("anything")` answered "there are none",
-    // which is a confident negative rather than a refusal. An empty
-    // list is worse than `false` here -- it reads as a definitive
-    // answer, so an agent stops looking.
-    Err(crate::safety::unimplemented(
-        "code_references",
-        "finding references to a symbol is not implemented; NO ANALYSIS WAS PERFORMED",
-        "use grep",
-    ))
+fn bi_code_references(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    source_navigation::analyze("code_references", args, input)
 }
 
-fn bi_code_definition(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returned an empty result for every call, ignoring its
-    // arguments: `code_definition("anything")` answered "there are none",
-    // which is a confident negative rather than a refusal. An empty
-    // list is worse than `false` here -- it reads as a definitive
-    // answer, so an agent stops looking.
-    Err(crate::safety::unimplemented(
-        "code_definition",
-        "locating a symbol's definition is not implemented; NO ANALYSIS WAS PERFORMED",
-        "use grep",
-    ))
+fn bi_code_definition(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    source_navigation::analyze("code_definition", args, input)
 }
 
 fn bi_code_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -38316,69 +38301,24 @@ fn bi_code_dependencies(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     bi_code_imports(args, _input)
 }
 
-fn bi_code_callers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returned an empty result for every call, ignoring its
-    // arguments: `code_callers("anything")` answered "there are none",
-    // which is a confident negative rather than a refusal. An empty
-    // list is worse than `false` here -- it reads as a definitive
-    // answer, so an agent stops looking.
-    Err(crate::safety::unimplemented(
-        "code_callers",
-        "listing the callers of a symbol is not implemented; NO ANALYSIS WAS PERFORMED",
-        "use grep",
-    ))
+fn bi_code_callers(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    source_navigation::analyze("code_callers", args, input)
 }
 
-fn bi_code_callees(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returned an empty result for every call, ignoring its
-    // arguments: `code_callees("anything")` answered "there are none",
-    // which is a confident negative rather than a refusal. An empty
-    // list is worse than `false` here -- it reads as a definitive
-    // answer, so an agent stops looking.
-    Err(crate::safety::unimplemented(
-        "code_callees",
-        "listing the functions a symbol calls is not implemented; NO ANALYSIS WAS PERFORMED",
-        "use grep",
-    ))
+fn bi_code_callees(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    source_navigation::analyze("code_callees", args, input)
 }
 
-fn bi_code_hover(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returned an empty result for every call, ignoring its
-    // arguments: `code_hover("anything")` answered "there are none",
-    // which is a confident negative rather than a refusal. An empty
-    // list is worse than `false` here -- it reads as a definitive
-    // answer, so an agent stops looking.
-    Err(crate::safety::unimplemented(
-        "code_hover",
-        "describing the symbol under a position is not implemented; NO ANALYSIS WAS PERFORMED",
-        "use an editor language server",
-    ))
+fn bi_code_hover(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    source_navigation::analyze("code_hover", args, input)
 }
 
-fn bi_code_signature(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returned an empty result for every call, ignoring its
-    // arguments: `code_signature("anything")` answered "there are none",
-    // which is a confident negative rather than a refusal. An empty
-    // list is worse than `false` here -- it reads as a definitive
-    // answer, so an agent stops looking.
-    Err(crate::safety::unimplemented(
-        "code_signature",
-        "reporting a call signature is not implemented; NO ANALYSIS WAS PERFORMED",
-        "use ontology_describe for AetherShell builtins",
-    ))
+fn bi_code_signature(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    source_navigation::analyze("code_signature", args, input)
 }
 
-fn bi_code_completions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returned an empty result for every call, ignoring its
-    // arguments: `code_completions("anything")` answered "there are none",
-    // which is a confident negative rather than a refusal. An empty
-    // list is worse than `false` here -- it reads as a definitive
-    // answer, so an agent stops looking.
-    Err(crate::safety::unimplemented(
-        "code_completions",
-        "offering completions at a position is not implemented; NO ANALYSIS WAS PERFORMED",
-        "use an editor language server",
-    ))
+fn bi_code_completions(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    source_navigation::analyze("code_completions", args, input)
 }
 
 fn bi_code_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -38622,17 +38562,10 @@ fn bi_project_dev_dependencies(_args: Vec<Value>, _input: Option<Value>) -> Resu
     Ok(Value::Array(deps))
 }
 
-fn bi_project_scripts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "project_scripts",
-        "listing the scripts a manifest declares is not implemented; NOTHING WAS DONE",
-        "use read the manifest with file.read and parse it",
-    ))
+#[path = "project_manifest.rs"]
+mod project_manifest;
+fn bi_project_scripts(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    project_manifest::guard_and_discover(args, input)
 }
 
 fn bi_project_structure(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

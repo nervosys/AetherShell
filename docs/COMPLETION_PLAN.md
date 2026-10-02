@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 590/1,171 implementations; 715/1,437 callable names | 581 implementations and 722 callable names |
-| Latest targeted Windows validation | 726 unique tests across nine suites passed | Validate the complete final tree |
+| Signature migration | 598/1,171 implementations; 723/1,437 callable names | 573 implementations and 714 callable names |
+| Latest targeted Windows validation | 731 unique tests across nine suites passed | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 590 implementations covered, 581 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 598 implementations covered, 573 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -301,14 +301,14 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_input_form
 - [ ] bi_crypto_cert_verify
 - [ ] bi_crypto_verify_signature
-- [ ] bi_code_references
-- [ ] bi_code_definition
-- [ ] bi_code_callers
-- [ ] bi_code_callees
-- [ ] bi_code_hover
-- [ ] bi_code_signature
-- [ ] bi_code_completions
-- [ ] bi_project_scripts
+- [x] bi_code_references
+- [x] bi_code_definition
+- [x] bi_code_callers
+- [x] bi_code_callees
+- [x] bi_code_hover
+- [x] bi_code_signature
+- [x] bi_code_completions
+- [x] bi_project_scripts
 - [ ] bi_search_duplicates
 - [ ] bi_search_semantic
 - [ ] bi_search_similar
@@ -515,3 +515,14 @@ Backend references: [Microsoft scheduled triggers](https://learn.microsoft.com/e
 [POSIX at](https://manpages.ubuntu.com/manpages/focal/man1/at.1posix.html), and the
 [DQN paper](https://arxiv.org/abs/1312.5602). These references support the adapter and
 learning design; local tests establish this implementation's behavior.
+
+### Source/project implementation checkpoint, 2026-10-02
+
+Implemented seven bounded, pure AetherShell source-navigation operations and
+ReadLocal manifest-script discovery. Navigation is syntactic and single-source;
+manifest discovery reads literal npm/Deno/Python/Cargo declarations and never
+executes them. Five new contract tests and the final 84-test text/file suite passed, including
+keyword field indexing and a scheduling-aware socket deadline witness. Across
+nine suites, 731 unique tests passed. Final lint, Rust 1.88, WASM, formatting
+and diff checks passed. Inventory confirms 598/1171 implementations and 723/1437 callable names. See docs/release/13.0.0.md and temp/ae-perf/source-project-*.log.
+The full unsupported-builtin goal and 13.0.0 release gates remain open.

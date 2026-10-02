@@ -1003,7 +1003,7 @@ project_loc	ReadLocal
 project_name	ReadLocal
 project_readme	ReadLocal
 project_root	ReadLocal
-project_scripts	Pure
+project_scripts	ReadLocal
 project_size	ReadLocal
 project_structure	ReadLocal
 project_test_files	ReadLocal
