@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 608/1,171 implementations; 733/1,437 callable names | 563 implementations and 704 callable names |
-| Latest targeted Windows validation | 74 report-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
+| Signature migration | 611/1,171 implementations; 736/1,437 callable names | 560 implementations and 701 callable names |
+| Latest targeted Windows validation | 57 refactor-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 608 implementations covered, 563 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 611 implementations covered, 560 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -326,9 +326,9 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_refactor_extract_constant
 - [ ] bi_refactor_inline
 - [ ] bi_refactor_move_to_file
-- [ ] bi_refactor_change_signature
-- [ ] bi_refactor_add_parameter
-- [ ] bi_refactor_remove_parameter
+- [x] bi_refactor_change_signature
+- [x] bi_refactor_add_parameter
+- [x] bi_refactor_remove_parameter
 - [ ] bi_session_end
 - [ ] bi_session_history
 - [ ] bi_session_undo
@@ -607,3 +607,39 @@ No dependency, version or publication changes are included.
 
 Final all-target Clippy with warnings denied, formatting and diff checks passed
 (reports-clippy-final.log). The final-tree workspace and release gates remain open.
+
+
+## Rust function signature editing checkpoint, 2026-10-02
+
+Refactor_change_signature, refactor_add_parameter and refactor_remove_parameter
+now perform bounded syntax transformations on exactly one supplied Rust free
+function. They return token-formatted source without files, compiler execution,
+call-site rewriting, type resolution or macro/cfg expansion. Function bodies,
+visibility and documentation/attributes are retained as tokens; ordinary comments
+and formatting are discarded. At most 64 plain identifier parameters are allowed;
+receivers, variadics and destructuring/ref/subpatterns reject. Raw identifiers
+normalize for duplicate binding checks. Dropping bindings uses a conservative,
+scope-insensitive visitor: identifier mentions (including fields/shadowing),
+macros, nonliteral-doc attributes, nested items and verbatim syntax reject.
+Callers still update call sites/body types and compile the output. All three
+operations retain their Pure effect classifications.
+
+Six new regression tests passed, with actual compilation/execution of transformed
+functions under denied warnings, including append/front/middle insertion,
+reordering and unused/raw parameter removal. Other witnesses cover body/literal/
+documentation preservation, qualifiers/generics, conservative refusals,
+argument/syntax/work bounds and all new examples through module aliases.
+Rust 1.88 workspace and WASM web library checks passed; the existing non-native
+unused Env-method warning remains. Only the already-locked syn native dependency's
+visit feature was enabled; no lockfile/package versions changed. Live inventory
+is 611/1171 implementations and 736/1437 callable names, leaving 560 implementations
+and 701 names undeclared (temp/ae-perf/refactor-inventory.log). Other refactoring,
+implementation and release gates remain open. No version bump or publication.
+
+Final targeted validation passed 57 tests across five suites: six new refactoring
+contracts, 28 declaration checks, 18 effect ratchets, two effect coverage checks
+and three module alias checks (temp/ae-perf/refactor-validation.log). Three broad
+existing example sweeps were excluded; every new example, including omitted and
+supplied insertion positions, ran through canonical and module spellings.
+All-target workspace Clippy with warnings denied passed (refactor-clippy-final.log),
+as did formatting and diff checks. Final-tree workspace and release gates remain open.

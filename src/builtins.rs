@@ -39516,34 +39516,16 @@ fn bi_refactor_move_to_file(_args: Vec<Value>, _input: Option<Value>) -> Result<
     ))
 }
 
-fn bi_refactor_change_signature(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "refactor_change_signature",
-        "changing a function signature is not implemented; NOTHING WAS DONE",
-        "use an IDE refactoring",
-    ))
+#[path = "signature_refactor.rs"]
+mod signature_refactor;
+fn bi_refactor_change_signature(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    signature_refactor::run("refactor_change_signature", args, input)
 }
-
-fn bi_refactor_add_parameter(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "refactor_add_parameter",
-        "adding a parameter to a function is not implemented; NOTHING WAS DONE",
-        "use an IDE refactoring",
-    ))
+fn bi_refactor_add_parameter(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    signature_refactor::run("refactor_add_parameter", args, input)
 }
-
-fn bi_refactor_remove_parameter(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "refactor_remove_parameter",
-        "removing a parameter from a function is not implemented; NOTHING WAS DONE",
-        "use an IDE refactoring",
-    ))
+fn bi_refactor_remove_parameter(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    signature_refactor::run("refactor_remove_parameter", args, input)
 }
 
 fn bi_refactor_organize_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
