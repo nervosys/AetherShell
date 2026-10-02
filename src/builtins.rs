@@ -39212,14 +39212,11 @@ fn bi_search_by_size(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(files))
 }
 
-fn bi_search_duplicates(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "search_duplicates",
-        "finding duplicated code is not implemented; NOTHING WAS DONE",
-        "use an external clone detector",
-    ))
+#[path = "code_search.rs"]
+mod code_search;
+
+fn bi_search_duplicates(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    code_search::run("search_duplicates", args, input)
 }
 
 fn bi_search_todos(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -39242,24 +39239,12 @@ fn bi_search_fixmes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(fixmes))
 }
 
-fn bi_search_semantic(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "search_semantic",
-        "semantic code search is not implemented; NOTHING WAS DONE",
-        "use grep, or search_regex",
-    ))
+fn bi_search_semantic(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    code_search::run("search_semantic", args, input)
 }
 
-fn bi_search_similar(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "search_similar",
-        "finding similar code is not implemented; NOTHING WAS DONE",
-        "use grep, or search_regex",
-    ))
+fn bi_search_similar(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    code_search::run("search_similar", args, input)
 }
 
 // Test module implementations
@@ -39889,14 +39874,8 @@ fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(matches))
 }
 
-fn bi_docs_api(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "docs_api",
-        "generating API documentation is not implemented; NOTHING WAS DONE",
-        "use `cargo doc`, or your language's doc tool",
-    ))
+fn bi_docs_api(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    code_search::run("docs_api", args, input)
 }
 
 fn bi_docs_readme(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

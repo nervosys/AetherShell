@@ -2563,6 +2563,30 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[("typeof(audit_stats())", "Record")],
     },
     Signature {
+        name: "docs_api", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("source", Ty::Str, "Rust source text, at most 64 KiB")], returns: "Array",
+        doc: "Extract top-level explicitly public Rust function, struct, enum, union, trait, type-alias, const and static declarations into name/kind/declaration/documentation records, sorted by name and kind. Function declarations are signatures without bodies; other declarations retain full syntactic definitions, including nested fields and trait defaults. Documentation is literal doc attributes with leading whitespace trimmed. Exclude private and restricted pub(crate)/pub(super) declarations. No effective visibility/type resolution, module/impl traversal, imports, macro expansion, cfg evaluation, HTML generation, file reads or execution. Limit 256 raw ASCII punctuation characters including comments/strings. Reject malformed source and pipeline input.",
+        examples: &[(r#"len(docs_api("pub fn example() {}"))"#, "1")],
+    },
+    Signature {
+        name: "search_duplicates", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("corpus", Ty::Array, "Array of exactly {name: String, source: String} Rust source records")], returns: "Array",
+        doc: "Find exact token-normalized Rust free-function clones across supplied documents and inline modules. Ignore function names, outer attributes/docs, visibility, comments and source formatting. Preserve parameter names, types, qualifiers, generics, literal values and bodies. Return groups with count and sorted occurrences {document,function}; omit singletons. Not alpha-renaming, semantic equivalence, impl methods or macro expansion. Corpus maximum 128 unique document names (nonempty, <=256 bytes), 1 MiB aggregate source, 256 functions; each source <=64 KiB and 256 raw ASCII punctuation characters including strings/comments. Ambiguous duplicate function paths reject; cfg is not evaluated. Pure, direct-only; source is never executed or read from files.",
+        examples: &[("search_duplicates([])", "[]")],
+    },
+    Signature {
+        name: "search_similar", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("query", Ty::Str, "Rust source containing exactly one free function"), req("corpus", Ty::Array, "Array of exactly {name: String, source: String} records"), opt_range("limit", Ty::Int, 1, 100, "Maximum matches, default 10")], returns: "Array",
+        doc: "Rank parsed Rust free functions by Jaccard similarity of unique five-Unicode-scalar shingles of token-normalized signature/body syntax, ignoring function names and outer attributes/visibility. Preserve literal contents and parameter names. Return {document,function,score}, descending score then document/function. Structural text similarity, without semantic or alpha-renaming claims. The query contains exactly one free function; unrelated nonfunction items are ignored. Inline modules are traversed, impl methods/macros are not. Same source/corpus bounds and ambiguity rules as search_duplicates. Pure, direct-only; no files, execution or models.",
+        examples: &[(r#"search_similar("fn query() {}", [])"#, "[]"), (r#"search_similar("fn query() {}", [], 1)"#, "[]")],
+    },
+    Signature {
+        name: "search_semantic", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("query_embedding", Ty::Array, "Nonzero finite numeric embedding"), req("corpus", Ty::Array, "Array of exactly {name: String, embedding: Array} records"), opt_range("limit", Ty::Int, 1, 100, "Maximum matches, default 10")], returns: "Array",
+        doc: "Exact cosine nearest-neighbor ranking for caller-supplied semantic embeddings in a common model/space. Does not generate embeddings or infer meaning from source text. Return {name,score}, descending score then name, including negative scores. Scale-normalize to avoid overflow/underflow with finite extreme components. Each vector has equal dimension 1..4096, finite Int/Float elements and nonzero norm. At most 1024 unique nonempty document names (<=256 bytes), and 1048576 compared components. Validate the entire corpus before returning matches; malformed or incompatible vectors reject. Pure, direct-only, deterministic and no model/network/filesystem calls.",
+        examples: &[("search_semantic([1, 0], [])", "[]"), ("search_semantic([1, 0], [], 1)", "[]")],
+    },
+    Signature {
         name: "docs_types", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("source", Ty::Str, "Rust source text, at most 1 MiB")], returns: "Array",
         doc: "Parse Rust source and return top-level struct, enum, union, trait and type-alias declarations as name/kind/definition String records, sorted by name. Token-normalized definitions retain syntactic generics and fields. No file reads, execution, macro expansion, module traversal or type resolution. Conservative limit of 128 raw ASCII punctuation characters includes comments/strings. Reject invalid syntax, surplus arguments and pipeline input.",

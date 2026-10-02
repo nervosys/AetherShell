@@ -11,7 +11,7 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 598/1,171 implementations; 723/1,437 callable names | 573 implementations and 714 callable names |
+| Signature migration | 602/1,171 implementations; 727/1,437 callable names | 569 implementations and 710 callable names |
 | Latest targeted Windows validation | 731 unique tests across nine suites passed | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 598 implementations covered, 573 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 602 implementations covered, 569 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -309,9 +309,9 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_code_signature
 - [x] bi_code_completions
 - [x] bi_project_scripts
-- [ ] bi_search_duplicates
-- [ ] bi_search_semantic
-- [ ] bi_search_similar
+- [x] bi_search_duplicates
+- [x] bi_search_semantic
+- [x] bi_search_similar
 - [ ] bi_test_coverage
 - [ ] bi_test_failing
 - [ ] bi_test_passing
@@ -333,7 +333,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_session_history
 - [ ] bi_session_undo
 - [ ] bi_session_redo
-- [ ] bi_docs_api
+- [x] bi_docs_api
 - [ ] bi_platform_libcpp
 - [ ] bi_blkid
 - [ ] bi_lsof
@@ -526,3 +526,15 @@ keyword field indexing and a scheduling-aware socket deadline witness. Across
 nine suites, 731 unique tests passed. Final lint, Rust 1.88, WASM, formatting
 and diff checks passed. Inventory confirms 598/1171 implementations and 723/1437 callable names. See docs/release/13.0.0.md and temp/ae-perf/source-project-*.log.
 The full unsupported-builtin goal and 13.0.0 release gates remain open.
+
+### Code-search/API implementation checkpoint, 2026-10-02
+
+Implemented exact normalized Rust free-function clone grouping, explicit
+syntax-shingle similarity ranking, cosine ranking of supplied embeddings,
+and top-level public Rust API/documentation extraction. Contracts state their
+language, algorithm, corpus bounds and lack of implicit source/model execution.
+69 tests passed across six relevant suites, including five new regression
+tests. All-target lint, Rust 1.88 and WASM compatibility passed. Formatting/diff checks passed; inventory confirms 602/1171 implementations
+and 727/1437 callable names. See
+ docs/release/13.0.0.md and temp/ae-perf/code-search-*.log. The remaining
+unsupported-builtin implementations and 13.0.0 release gates remain open.
