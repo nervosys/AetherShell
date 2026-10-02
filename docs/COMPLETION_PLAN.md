@@ -13,7 +13,7 @@ have their own milestones; this checklist governs the current release.
 | --- | --- | --- |
 | Signature migration | 572/1,171 implementations; 697/1,437 callable names | 599 implementations and 740 callable names |
 | Latest targeted Windows validation | 734 unique tests across ten suites passed | Validate the complete final tree |
-| Earlier Windows workspace checkpoint | 2,633 passed across 186 suites; four ignored | Rerun after all remaining changes |
+| Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
 | Package versions | Root and LSP remain 12.0.2 | Update the release metadata together |
@@ -24,6 +24,19 @@ Evidence: [release preparation](release/13.0.0.md),
 `cargo run --example signature_inventory`. Performance figures are workload-
 and host-specific; they exclude process startup and transport overhead.
 
+Additional current-tree checks passed: Rust 1.88 workspace check with the root
+lockfile, library check without default features, locked offline wasm32 check,
+and the CI browser packaging command. The separate web lockfile was stale at
+root version 1.6.0 and has been refreshed offline for the current manifest.
+The generated browser package now includes a byte-identical repository LICENSE.
+These are checkpoint results; stage 4 still requires validation after migration.
+Non-native builds retain an existing unused Env-method warning.
+
+The four ignored tests are recorded rather than counted as passes: HTTP example
+03 requires network access; AI example 05 requires a configured provider; TUI/MCP
+example 22 requires suitable servers; the security sanitization doctest is marked
+ignore and contains illustrative pseudocode. Provider/server checks remain open.
+
 ## 1. Confirm release scope and unsupported features
 
 - [x] Select 13.0.0 for the compatibility changes.
@@ -31,7 +44,7 @@ and host-specific; they exclude process startup and transport overhead.
 - [x] Make a release-scope register: implemented, explicitly unsupported, or deferred, with evidence and an owner for each unresolved item.
 - [ ] Review placeholder operations, including accounts, groups, ACLs, mounting, watching and elevated execution; approve which remain explicitly unsupported for 13.0.0.
 - [x] Resolve the DQN training decision: implement and test real weight updates, or retain the explicit unsupported contract and document that limitation.
-- [ ] Separate future roadmap features from release blockers. Reconcile the stale version, metrics and open-issue sections in ROADMAP.md using current evidence.
+- [x] Separate future roadmap features from release blockers. Reconcile the stale version, metrics and open-issue sections in ROADMAP.md using current evidence.
 
 **Gate:** every advertised capability has an implementation or an explicit,
 accepted limitation. No placeholder is described as successful work.
