@@ -1,6 +1,6 @@
 # AetherShell completion plan
 
-Updated 2026-10-01. Target: **13.0.0**, selected for the stricter builtin contracts.
+Updated 2026-10-02. Target: **13.0.0**, selected for the stricter builtin contracts.
 
 Completion means a validated, installable release with a declared contract for
 every dispatchable builtin, honest unsupported-feature reporting, reproducible
@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 572/1,171 implementations; 697/1,437 callable names | 599 implementations and 740 callable names |
-| Latest targeted Windows validation | 734 unique tests across ten suites passed | Validate the complete final tree |
+| Signature migration | 576/1,171 implementations; 701/1,437 callable names | 595 implementations and 736 callable names |
+| Latest targeted Windows validation | 764 unique tests across twelve suites passed | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -24,7 +24,7 @@ Evidence: [release preparation](release/13.0.0.md),
 `cargo run --example signature_inventory`. Performance figures are workload-
 and host-specific; they exclude process startup and transport overhead.
 
-Additional current-tree checks passed: Rust 1.88 workspace check with the root
+The 2026-10-01 checkpoint, before the latest crypto migration, passed: Rust 1.88 workspace check with the root
 lockfile, library check without default features, locked offline wasm32 check,
 and the CI browser packaging command. The separate web lockfile was stale at
 root version 1.6.0 and has been refreshed offline for the current manifest.
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 572 implementations covered, 599 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 576 implementations covered, 595 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution | Explicitly unsupported for this release | Source bodies and refusal contracts produce E_UNIMPLEMENTED; no successful mutation claimed | Runtime maintainer |
@@ -78,7 +78,7 @@ remaining catalogue or platform gates.
 
 - [x] Add declaration uniqueness, alias inheritance and repeatable coverage inventory.
 - [x] Cover the E1/E2/E7 working set with declared contracts.
-- [ ] Finish the 599 remaining implementations, grouped by module and actual behavior. Refresh the inventory after every tranche.
+- [ ] Finish the 595 remaining implementations, grouped by module and actual behavior. Refresh the inventory after every tranche.
 - [x] Migrate sudo_check: strict input rejection, native Unix effective UID, checked Windows subprocess status and boolean parsing, and coded failures; Windows checks passed, native Unix validation remains a platform gate.
 - [ ] Read each body before authoring its declaration; record direct-call, pipeline, optional-argument and alias semantics without generating contracts from probes.
 - [ ] Reject surplus arguments, wrong types, conflicting input and invalid options before effects or expensive work begin.

@@ -4905,6 +4905,30 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"(try { group_mod() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
     },
     Signature {
+        name: "crypto_cert_info", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("path", Ty::Str, "regular PEM certificate file, at most 64 MiB")], returns: "String",
+        doc: "Unix OpenSSL certificate details as text. Resolve relative paths against the configured workspace; reject option-like paths, surplus arguments and pipeline input. Missing files, failed tools and malformed successful output have distinct coded errors. After validating the file, non-Unix builds explicitly refuse. Metadata size preflight is not a snapshot against concurrent file changes.",
+        examples: &[(r#"crypto_cert_info("/etc/ssl/certs/ca-certificates.crt")"#, "certificate details")],
+    },
+    Signature {
+        name: "crypto_sign", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[], returns: "Any",
+        doc: "Unsupported signing placeholder. A parameterless call refuses with E_UNIMPLEMENTED; no signature is produced. Reject all arguments and pipeline input. There is no successful return value.",
+        examples: &[(r#"(try { crypto_sign() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "crypto_verify_signature", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[], returns: "Any",
+        doc: "Unsupported signature-verification placeholder. A parameterless call refuses with E_UNIMPLEMENTED; nothing is verified. Reject all arguments and pipeline input. There is no successful return value.",
+        examples: &[(r#"(try { crypto_verify_signature() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "crypto_generate_key", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt("type", Ty::Str, "rsa (default), ec or ecdsa; case insensitive"), opt("bits", Ty::Int, "RSA-only size 2048 through 16384; default 2048")], returns: "String",
+        doc: "Unix OpenSSL private-key PEM text: RSA or P-256 EC. No file is written. Reject unsupported types, wrong types, inapplicable EC bit sizes, surplus arguments and pipeline input before subprocess execution. Failed tools and malformed successful output carry coded errors. Non-Unix builds explicitly refuse after argument validation. Existing conservative WriteLocal classification is retained.",
+        examples: &[("crypto_generate_key()", "PEM private key"), (r#"crypto_generate_key("rsa")"#, "PEM private key"), (r#"crypto_generate_key("rsa", 2048)"#, "PEM private key"), (r#"crypto_generate_key("ec")"#, "PEM private key")],
+    },
+    Signature {
         name: "crypto_password_hash", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("password", Ty::Str, "password, at most 65536 bytes")], returns: "String",
         doc: "Native salted Argon2id PHC hash; AETHER_FIPS algorithm policy uses PBKDF2-HMAC-SHA256 with 600000 iterations. Fresh 16-byte salt. No subprocess or unsalted fallback. Reject pipeline input and surplus arguments.",

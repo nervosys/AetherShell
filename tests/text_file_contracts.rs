@@ -3202,3 +3202,133 @@ fn password_hashes_use_stored_salts_and_bounded_parameters() {
         Value::Bool(true)
     ));
 }
+
+#[test]
+fn crypto_refusals_and_key_generation_reject_discarded_input() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::new();
+    for name in ["crypto_sign", "crypto_verify_signature"] {
+        code(call(name, vec![], &mut env), "E_UNIMPLEMENTED");
+        code(call(name, vec![s("ignored")], &mut env), "E_BAD_ARG");
+        code(
+            call_with_input(name, vec![], Some(s("ignored")), &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    for args in [
+        vec![Value::Int(1)],
+        vec![s("dsa")],
+        vec![s("rsa"), s("2048")],
+        vec![s("rsa"), Value::Int(2047)],
+        vec![s("rsa"), Value::Int(16385)],
+        vec![s("ec"), Value::Int(2048)],
+        vec![s("ecdsa"), Value::Int(256)],
+        vec![s("rsa"), Value::Int(2048), s("extra")],
+    ] {
+        code(call("crypto_generate_key", args, &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input("crypto_generate_key", vec![], Some(s("ignored")), &mut env),
+        "E_BAD_ARG",
+    );
+    #[cfg(not(unix))]
+    for args in [
+        vec![],
+        vec![s("RSA")],
+        vec![s("rsa"), Value::Int(2048)],
+        vec![s("ec")],
+        vec![s("ecdsa")],
+    ] {
+        code(
+            call("crypto_generate_key", args, &mut env),
+            "E_UNIMPLEMENTED",
+        );
+    }
+}
+
+#[test]
+fn certificate_inspection_validates_owned_files_before_platform_or_tool_checks() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::new();
+    let path = fixture.path("invalid.pem");
+    std::fs::write(&path, "not a certificate").unwrap();
+    for args in [vec![], vec![Value::Int(1)], vec![s(&path), s("ignored")]] {
+        code(call("crypto_cert_info", args, &mut env), "E_BAD_ARG");
+    }
+    code(
+        call_with_input(
+            "crypto_cert_info",
+            vec![s(&path)],
+            Some(s("ignored")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call("crypto_cert_info", vec![s("-in")], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call(
+            "crypto_cert_info",
+            vec![s(&fixture.path("absent.pem"))],
+            &mut env,
+        ),
+        "E_NOT_FOUND",
+    );
+    code(
+        call(
+            "crypto_cert_info",
+            vec![s(fixture.root.to_str().unwrap())],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    let oversized = fixture.path("large.pem");
+    std::fs::File::create(&oversized)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    code(
+        call("crypto_cert_info", vec![s(&oversized)], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    let err = call("crypto_cert_info", vec![s(&path)], &mut env)
+        .unwrap_err()
+        .to_string();
+    #[cfg(unix)]
+    assert!(
+        err.contains("E_TOOL_FAILED") || err.contains("E_TOOL_MISSING"),
+        "{err}"
+    );
+    #[cfg(not(unix))]
+    assert!(err.contains("E_UNIMPLEMENTED"), "{err}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "not a certificate");
+}
+
+#[cfg(unix)]
+#[test]
+fn generated_ec_key_is_checkable_by_openssl_in_an_owned_fixture() {
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let mut env = Env::new();
+    let key = match call("crypto_generate_key", vec![s("EC")], &mut env) {
+        Ok(Value::Str(key)) => key,
+        Err(err) if err.to_string().contains("E_TOOL_MISSING") => return,
+        Err(err) => panic!("key generation failed: {err}"),
+        Ok(_) => panic!("key generation must return String"),
+    };
+    let path = fixture.path("test-only-private-key.pem");
+    std::fs::write(&path, key).unwrap();
+    let output = std::process::Command::new("openssl")
+        .args(["pkey", "-in", &path, "-check", "-noout"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "generated key failed OpenSSL validation"
+    );
+}

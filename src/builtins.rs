@@ -33527,82 +33527,178 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .map_err(|_| anyhow::anyhow!("E_DECRYPT_FAILED: plaintext is not valid UTF-8"))
 }
 
-fn bi_crypto_sign(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_crypto_sign(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "crypto_sign accepts no arguments or pipeline input while unsupported",
+        ));
+    }
     Err(crate::safety::unimplemented(
-        "crypto.sign",
+        "crypto_sign",
         "signing needs key management AetherShell does not provide; \
          NO SIGNATURE WAS PRODUCED",
         "use the openssl CLI directly",
     ))
 }
 
-fn bi_crypto_key_generate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let key_type = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.to_lowercase()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "rsa".to_string());
-    let bits = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Int(n) => Some(*n),
-            _ => None,
-        })
-        .unwrap_or(2048);
-    // Any size was accepted, 512 included.
-    if key_type == "rsa" && !(2048..=16384).contains(&bits) {
-        return Err(crate::safety::bad_arg(
-            "crypto_key_generate",
-            "an RSA size from 2048 to 16384 bits",
-            &bits.to_string(),
+fn bi_crypto_key_generate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let name = "crypto_generate_key";
+    if args.len() > 2 || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "crypto_generate_key accepts zero to two arguments and no pipeline input",
         ));
     }
-
+    let key_type = match args.first() {
+        None => "rsa".to_string(),
+        Some(Value::Str(s)) => s.to_ascii_lowercase(),
+        Some(v) => {
+            return Err(crate::safety::bad_arg(
+                name,
+                "key type String",
+                v.type_name(),
+            ))
+        }
+    };
+    if !matches!(key_type.as_str(), "rsa" | "ec" | "ecdsa") {
+        return Err(crate::safety::bad_arg(
+            name,
+            "key type rsa, ec or ecdsa",
+            "unsupported key type",
+        ));
+    }
+    let bits = match args.get(1) {
+        None => 2048,
+        Some(Value::Int(n)) if key_type == "rsa" && (2048..=16384).contains(n) => *n,
+        Some(_) => {
+            return Err(crate::safety::bad_arg(
+                name,
+                "RSA-only integer size from 2048 to 16384 bits",
+                "invalid or inapplicable size",
+            ))
+        }
+    };
     #[cfg(unix)]
     {
-        let output = match key_type.as_str() {
-            "rsa" => std::process::Command::new("openssl")
-                .args(["genrsa", &bits.to_string()])
-                .output()
-                .map_err(|e| crate::safety::spawn_error("crypto_key_generate", "openssl", &e))?,
-            "ec" | "ecdsa" => std::process::Command::new("openssl")
-                .args(["ecparam", "-genkey", "-name", "prime256v1"])
-                .output()
-                .map_err(|e| crate::safety::spawn_error("crypto_key_generate", "openssl", &e))?,
-            // This answered the String "Unsupported key type" -- in the place a
-            // caller reads the key from.
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "crypto_key_generate",
-                    "key type rsa or ec",
-                    other,
-                ))
-            }
-        };
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
-            ));
+        let mut command = std::process::Command::new("openssl");
+        if key_type == "rsa" {
+            command.args(["genrsa", &bits.to_string()]);
+        } else {
+            command.args(["ecparam", "-genkey", "-noout", "-name", "prime256v1"]);
         }
+        let output = command
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|e| crate::safety::spawn_error(name, "openssl", &e))?;
+        return crypto_key_output(output);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (key_type, bits);
+        Err(crate::safety::unimplemented(
+            name,
+            "key generation uses the openssl CLI only on Unix; no key was generated",
+            "generate a key with a supported external tool",
+        ))
+    }
+}
+
+#[cfg(any(unix, test))]
+fn crypto_key_output(output: std::process::Output) -> Result<Value> {
+    let name = "crypto_generate_key";
+    if !output.status.success() {
         return Err(crate::safety::tool_failed(
-            "crypto_key_generate",
+            name,
             "openssl",
             output.status.code(),
             &String::from_utf8_lossy(&output.stderr),
         ));
     }
-    // This answered the String "Key generation requires OpenSSL" as the key:
-    // saved to a file, that sentence became the private key.
-    #[allow(unreachable_code)]
-    {
-        let _ = (key_type, bits);
-        Err(crate::safety::unimplemented(
-            "crypto_key_generate",
-            "key generation needs the openssl CLI, which this build uses only on Unix; NO KEY WAS GENERATED",
-            "generate the key with openssl or ssh_keygen",
-        ))
+    let text = String::from_utf8(output.stdout).map_err(|_| {
+        crate::safety::bad_state(name, "non-UTF-8 key output", "PEM private-key output")
+    })?;
+    use base64::Engine;
+    let valid = text.len() <= 65536
+        && ["PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY"]
+            .iter()
+            .any(|label| {
+                let begin = format!("-----BEGIN {label}-----");
+                let end = format!("-----END {label}-----");
+                let Some(body) = text
+                    .trim()
+                    .strip_prefix(&begin)
+                    .and_then(|s| s.strip_suffix(&end))
+                else {
+                    return false;
+                };
+                let body: String = body.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+                base64::engine::general_purpose::STANDARD
+                    .decode(body)
+                    .is_ok_and(|bytes| !bytes.is_empty())
+            });
+    if !valid {
+        return Err(crate::safety::bad_state(
+            name,
+            "unexpected successful tool output",
+            "PEM private-key envelope",
+        ));
+    }
+    Ok(Value::Str(text))
+}
+
+#[cfg(all(test, any(unix, windows)))]
+mod crypto_key_output_tests {
+    use super::*;
+    fn output(success: bool, stdout: &[u8]) -> std::process::Output {
+        #[cfg(unix)]
+        let status = {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(if success { 0 } else { 256 })
+        };
+        #[cfg(windows)]
+        let status = {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(if success { 0 } else { 1 })
+        };
+        std::process::Output {
+            status,
+            stdout: stdout.to_vec(),
+            stderr: b"test tool failure".to_vec(),
+        }
+    }
+    #[test]
+    fn pem_envelopes_are_preserved_and_bad_success_is_coded() {
+        for label in ["PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY"] {
+            let pem = format!("-----BEGIN {label}-----\nZml4dHVyZQ==\n-----END {label}-----\n");
+            assert!(
+                matches!(crypto_key_output(output(true, pem.as_bytes())).unwrap(), Value::Str(s) if s == pem)
+            );
+        }
+        for invalid in [
+            b"".as_slice(),
+            b"Key generation requires OpenSSL",
+            b"\xff",
+            b"-----BEGIN PRIVATE KEY-----\ntruncated",
+            b"-----BEGIN PRIVATE KEY-----\n-----END PRIVATE KEY-----",
+            b"-----BEGIN PRIVATE KEY-----\nnot base64!\n-----END PRIVATE KEY-----",
+        ] {
+            let err = crypto_key_output(output(true, invalid)).unwrap_err();
+            assert!(err.to_string().contains("E_BAD_STATE"), "{err}");
+        }
+    }
+    #[test]
+    fn failed_exit_trumps_success_shaped_or_non_utf8_stdout() {
+        for stdout in [
+            b"-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----".as_slice(),
+            b"\xff",
+        ] {
+            let err = crypto_key_output(output(false, stdout))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("E_TOOL_FAILED") && err.contains("test tool failure"),
+                "{err}"
+            );
+        }
     }
 }
 
@@ -33766,36 +33862,77 @@ fn bi_crypto_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     bi_crypto_hash_file(args, None)
 }
 
-fn bi_crypto_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "crypto_cert_info",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+fn bi_crypto_cert_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let name = "crypto_cert_info";
+    if args.len() != 1 || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "crypto_cert_info requires one path and no pipeline input",
+        ));
+    }
+    let Value::Str(path) = &args[0] else {
+        return Err(crate::safety::bad_arg(
+            name,
+            "path String",
+            args[0].type_name(),
+        ));
     };
-
+    crate::safety::reject_option_like(name, std::slice::from_ref(path))?;
+    let path = crate::safety::resolve_path_str(path);
+    let metadata =
+        std::fs::metadata(&path).map_err(|e| crate::safety::fs_error(name, &path, &e))?;
+    if !metadata.is_file() {
+        return Err(crate::safety::bad_arg(
+            name,
+            "regular certificate file",
+            "non-file path",
+        ));
+    }
+    if metadata.len() > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            name,
+            "certificate input exceeds 64 MiB".into(),
+            "inspect a smaller file",
+        ));
+    }
     #[cfg(unix)]
     {
-        crate::safety::reject_option_like("crypto_cert_info", std::slice::from_ref(&path))?;
         let output = std::process::Command::new("openssl")
             .args(["x509", "-in", &path, "-text", "-noout"])
+            .stdin(std::process::Stdio::null())
             .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_cert_info", "openssl", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
+            .map_err(|e| crate::safety::spawn_error(name, "openssl", &e))?;
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                name,
+                "openssl",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
             ));
         }
+        let text = String::from_utf8(output.stdout).map_err(|_| {
+            crate::safety::bad_state(
+                name,
+                "non-UTF-8 certificate output",
+                "textual certificate details",
+            )
+        })?;
+        if text.trim().is_empty() {
+            return Err(crate::safety::bad_state(
+                name,
+                "empty successful tool output",
+                "textual certificate details",
+            ));
+        }
+        Ok(Value::Str(text))
     }
-    Err(crate::safety::unimplemented(
-        "crypto.cert_parse",
-        "certificate parsing requires the openssl CLI, which is Unix-only",
-        "run `openssl x509 -text` yourself",
-    ))
+    #[cfg(not(unix))]
+    {
+        Err(crate::safety::unimplemented(
+            name,
+            "certificate inspection uses the openssl CLI only on Unix",
+            "inspect the certificate with a supported external tool",
+        ))
+    }
 }
 
 // ============================================================================
@@ -34692,14 +34829,19 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     }
 }
 
-fn bi_crypto_generate_key(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    bi_crypto_key_generate(args, None)
+fn bi_crypto_generate_key(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    bi_crypto_key_generate(args, input)
 }
 
-/// See [`bi_crypto_verify`] — same fail-open hazard, same resolution.
-fn bi_crypto_verify_signature(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// Unsupported signature verification refuses instead of returning a truthy sentinel.
+fn bi_crypto_verify_signature(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "crypto_verify_signature accepts no arguments or pipeline input while unsupported",
+        ));
+    }
     Err(crate::safety::unimplemented(
-        "crypto.verify_signature",
+        "crypto_verify_signature",
         "verification needs key management AetherShell does not provide; \
          NOTHING WAS VERIFIED",
         "use the openssl CLI directly",

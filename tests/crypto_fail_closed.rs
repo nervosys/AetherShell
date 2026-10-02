@@ -61,16 +61,11 @@ fn assert_not_mistakable_for_success(name: &str, args: Vec<Value>) {
     }
 }
 
-// Note the registered names: the dispatch table knows `crypto_verify_signature`
-// and `crypto_cert_verify`. `crypto.verify` — which modules.rs advertises — maps
-// to `crypto_verify`, which no builtin implements; see the dangling-alias test
-// in tests/module_aliases.rs.
+// The unsupported signature-verification contract is parameterless. Exercise
+// its well-formed refusal here; malformed calls are checked separately.
 #[test]
 fn signature_verification_never_reports_success_when_unimplemented() {
-    assert_not_mistakable_for_success(
-        "crypto_verify_signature",
-        vec![s("c2lnbmF0dXJl"), s("payload"), s("key")],
-    );
+    assert_not_mistakable_for_success("crypto_verify_signature", vec![]);
 }
 
 #[test]
@@ -130,7 +125,7 @@ fn encrypt_and_decrypt_do_not_return_prose_in_place_of_ciphertext() {
 
 #[test]
 fn signing_does_not_return_prose_in_place_of_a_signature() {
-    match try_call("crypto_sign", vec![s("payload"), s("key")]) {
+    match try_call("crypto_sign", vec![]) {
         Err(e) => assert!(
             e.to_string().contains("E_UNIMPLEMENTED"),
             "crypto_sign: unexpected error: {e}"

@@ -142,6 +142,8 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "crypto_cert_verify",
         "openssl and the system trust store (Unix only)",
     ),
+    ("crypto_generate_key", "Unix OpenSSL key generation; E_UNIMPLEMENTED on other platforms"),
+    ("crypto_cert_info", "Unix OpenSSL and the host certificate bundle; missing on other platforms"),
     ("ssh_config", "the user's ~/.ssh/config"),
     (
         "monitor_iftop",
