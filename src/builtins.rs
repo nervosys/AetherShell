@@ -39361,24 +39361,15 @@ fn bi_test_bench(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_test_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "test_snapshot",
-        "snapshot testing is not implemented; NOTHING WAS DONE",
-        "use a snapshot testing library",
-    ))
+#[path = "testing_backend.rs"]
+mod testing_backend;
+
+fn bi_test_snapshot(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    testing_backend::run("test_snapshot", args, input)
 }
 
-fn bi_test_generate(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "test_generate",
-        "generating tests is not implemented; NOTHING WAS DONE",
-        "use an AI query via ai(), or write them",
-    ))
+fn bi_test_generate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    testing_backend::run("test_generate", args, input)
 }
 
 // Diagnostics module implementations

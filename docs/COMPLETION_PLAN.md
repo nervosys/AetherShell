@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 602/1,171 implementations; 727/1,437 callable names | 569 implementations and 710 callable names |
-| Latest targeted Windows validation | 731 unique tests across nine suites passed | Validate the complete final tree |
+| Signature migration | 604/1,171 implementations; 729/1,437 callable names | 567 implementations and 708 callable names |
+| Latest targeted Windows validation | 62 final-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 602 implementations covered, 569 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 604 implementations covered, 567 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -317,8 +317,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_test_passing
 - [ ] bi_test_skipped
 - [ ] bi_test_watch
-- [ ] bi_test_snapshot
-- [ ] bi_test_generate
+- [x] bi_test_snapshot
+- [x] bi_test_generate
 - [ ] bi_diag_suppress
 - [ ] bi_refactor_rename
 - [ ] bi_refactor_extract_function
@@ -538,3 +538,14 @@ tests. All-target lint, Rust 1.88 and WASM compatibility passed. Formatting/diff
 and 727/1437 callable names. See
  docs/release/13.0.0.md and temp/ae-perf/code-search-*.log. The remaining
 unsupported-builtin implementations and 13.0.0 release gates remain open.
+
+### Testing implementation checkpoint, 2026-10-02
+
+Implemented typed snapshot comparison with bounded structured differences and
+Rust unit-test generation from explicit parsed expressions. Both are Pure;
+snapshot persistence and test execution use separate existing operations.
+Six new regressions passed, including actual compiled generated tests that
+both pass correct oracles and fail an incorrect oracle, plus language-level
+examples. The final batch passed 62 tests across six relevant suites. All-target
+Clippy, Rust 1.88 and WASM checks passed. Signature inventory confirms
+604/1171 implementations and 729/1437 callable names. Formatting/diff checks and final example-test lint passed. See docs/release/13.0.0.md and temp/ae-perf/testing-*.log.

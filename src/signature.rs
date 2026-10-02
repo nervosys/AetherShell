@@ -2563,6 +2563,18 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[("typeof(audit_stats())", "Record")],
     },
     Signature {
+        name: "test_snapshot", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("actual", Ty::Any, "Actual snapshot data"), req("baseline", Ty::Any, "Reference snapshot data; may be loaded with open()")], returns: "Record",
+        doc: "Compare typed snapshot data and return matched Bool, mismatches Int, truncated Bool and up to 128 structured differences. Paths use JSON Pointer escaping; root path is empty. Difference kinds are added, removed or changed relative to the baseline; absent values are Null with kind distinguishing absence. Traverse record keys in sorted order and arrays by index. Int and Float remain distinct; finite signed-zero Floats compare equal. Supported data: Null, Bool, Int, finite Float, String, Array and Record. Reject opaque values, nonfinite floats and invalid calls. Combined budgets: depth 32 (root depth zero), 10000 nodes, 1 MiB scalar/key bytes (numeric/Null/Bool count eight bytes); record keys <=256 bytes. Validate both snapshots before reporting differences, count all differences even if output is capped. Pure comparison only; baseline persistence is composed with ordinary file builtins. Direct-only.",
+        examples: &[("test_snapshot([1, 2], [1, 2]).matched", "true")],
+    },
+    Signature {
+        name: "test_generate", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("function", Ty::Str, "Rust function path"), req("cases", Ty::Array, "1..128 records of exactly arguments: Array<String>, expected: String; Strings are Rust expressions")], returns: "String",
+        doc: "Generate Rust assert_eq! unit-test source in a cfg(test) module named __ae_generated_tests, with stable case_000 onward names and super::* imports. Function paths are interpreted from that generated module; use crate:: paths for explicit placement. Parse each supplied argument/expected expression as Rust syntax before emitting code; expression code is supplied by the caller, not inferred. Generation does not execute code, typecheck expressions, infer test oracles, read files or use a model. Limits: path <=256 bytes and 32 raw ASCII punctuation characters; <=64 arguments per case; expressions <=16 KiB each, 64 KiB total and 128 raw ASCII punctuation characters each including strings/comments; output <=1 MiB. Reject malformed syntax, surplus fields and pipeline input. Pure, direct-only. Embed the returned module beside the code under test and run ordinary Rust tests separately.",
+        examples: &[(r#"typeof(test_generate("add", [{arguments: ["1", "2"], expected: "3"}]))"#, "String")],
+    },
+    Signature {
         name: "docs_api", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("source", Ty::Str, "Rust source text, at most 64 KiB")], returns: "Array",
         doc: "Extract top-level explicitly public Rust function, struct, enum, union, trait, type-alias, const and static declarations into name/kind/declaration/documentation records, sorted by name and kind. Function declarations are signatures without bodies; other declarations retain full syntactic definitions, including nested fields and trait defaults. Documentation is literal doc attributes with leading whitespace trimmed. Exclude private and restricted pub(crate)/pub(super) declarations. No effective visibility/type resolution, module/impl traversal, imports, macro expansion, cfg evaluation, HTML generation, file reads or execution. Limit 256 raw ASCII punctuation characters including comments/strings. Reject malformed source and pipeline input.",
