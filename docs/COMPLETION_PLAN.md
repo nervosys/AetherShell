@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 612/1,171 implementations; 737/1,437 callable names | 559 implementations and 700 callable names |
-| Latest targeted Windows validation | 56 diagnostic-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
+| Signature migration | 614/1,171 implementations; 739/1,437 callable names | 557 implementations and 698 callable names |
+| Latest targeted Windows validation | 63 extraction-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 612 implementations covered, 559 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 614 implementations covered, 557 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -322,8 +322,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_diag_suppress
 - [ ] bi_refactor_rename
 - [ ] bi_refactor_extract_function
-- [ ] bi_refactor_extract_variable
-- [ ] bi_refactor_extract_constant
+- [x] bi_refactor_extract_variable
+- [x] bi_refactor_extract_constant
 - [ ] bi_refactor_inline
 - [ ] bi_refactor_move_to_file
 - [x] bi_refactor_change_signature
@@ -672,3 +672,40 @@ The existing non-native unused Env-method warning remains. Final-tree workspace,
 cross-platform and release gates are still open; no version bump/publication.
 Live signature inventory is 612/1171 implementations and 737/1437 callable names,
 leaving 559 implementations and 700 names undeclared (diag-inventory.log).
+
+## Rust tail-expression extraction checkpoint, 2026-10-02
+
+Refactor_extract_variable(source, name) and refactor_extract_constant(source,
+name, type) now transform exactly one supplied Rust free function's top-level
+final expression without semicolon. Variable extraction inserts let NAME = EXPR;
+NAME; constant extraction inserts const NAME: TYPE = EXPR; NAME. Preceding
+statements and function declaration/body-expression tokens remain. Ordinary
+comments/layout are discarded and documentation comments become attributes.
+Identifier collisions are checked conservatively over the function and explicit
+constant type, including field names, shadowed bindings and normalized raw
+identifiers. Macros, nonliteral-doc attributes, nested items, verbatim syntax,
+receivers and variadics reject. This does not select arbitrary subexpressions or
+resolve symbols/types/borrowing, expand macros/cfg, edit files or execute code.
+Variable binding can change temporary lifetimes; constant validity and types are
+checked by the caller's compiler. This is bounded syntax editing, not a guarantee
+of semantic equivalence or const-evaluability. Source <=64 KiB/256 raw ASCII
+punctuation; name <=256 bytes/32 punctuation; type <=16 KiB/128 punctuation;
+output <=1 MiB. Both are direct-only and retain their Pure effects.
+
+Targeted validation passed 63 tests across six suites: six new expression
+extraction contracts, six existing signature refactoring contracts, 28 declaration
+checks, 18 effect ratchets, two effect coverage checks and three module alias
+checks (temp/ae-perf/extract-validation.log). Owned Rust fixtures compile and run
+variable/constant transformations with warnings denied; a runtime-dependent
+constant deliberately fails caller compilation with E0435. Tests cover evaluation
+order and single evaluation, borrowing/raw identifiers, declarations/docs,
+collisions/opaque syntax, invalid arguments/tails/work limits and both new
+canonical/module examples. Three broad existing example sweeps were excluded.
+Rust 1.88 workspace check passed (extract-msrv.log).
+All-target workspace Clippy with warnings denied, WASM web library, formatting
+and diff checks passed (extract-clippy.log, extract-wasm.log); the existing
+non-native unused Env-method warning remains. Live inventory is 614/1171
+implementations and 739/1437 callable names, leaving 557 implementations and
+698 names undeclared (extract-inventory.log). No dependencies/package versions
+changed. Other refactorings, unsupported implementations, final-tree workspace,
+cross-platform and release gates remain open. No version bump/publication.

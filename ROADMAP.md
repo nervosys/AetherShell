@@ -3,8 +3,8 @@
 > Current release status, 2026-10-02: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
-> owners, evidence and release gates. Signature coverage is 612/1171
-> implementations and 737/1437 callable names; migration remains incomplete.
+> owners, evidence and release gates. Signature coverage is 614/1171
+> implementations and 739/1437 callable names; migration remains incomplete.
 > Measured evaluator improvements are recorded in the linked performance
 > report; final-tree cross-platform measurements remain pending.
 
@@ -15,7 +15,9 @@ verification now replace signature placeholders; non-Unix RSA/EC generation rema
 LCOV coverage summaries and completed libtest JSON outcome reports are now implemented
 as explicit, pure report operations. Rust function signature changes and parameter
 addition/removal now return bounded, syntactic source edits; caller compilation
-and call-site updates remain explicit. Exact warning-code filtering of supplied
+and call-site updates remain explicit. Variable and explicitly typed constant
+extraction now edit a function's top-level tail expression; caller compiler and
+semantic checks remain necessary. Exact warning-code filtering of supplied
 rustc/Cargo JSON diagnostics is implemented without changing compiler policy.
 Disposable-platform scheduler validation
 remains open. Accounts/groups, ACL operations, mounting/watching, elevated

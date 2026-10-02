@@ -39442,6 +39442,8 @@ fn bi_diag_config(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // Refactor module implementations
+#[path = "expression_refactor.rs"]
+mod expression_refactor;
 fn bi_refactor_rename(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Did no work and returned a value, so an agent could not tell
     // this apart from a result. Nothing here was implemented.
@@ -39472,24 +39474,12 @@ fn bi_refactor_extract_function(_args: Vec<Value>, _input: Option<Value>) -> Res
     ))
 }
 
-fn bi_refactor_extract_variable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "refactor_extract_variable",
-        "extracting a variable is not implemented; NOTHING WAS DONE",
-        "use an IDE refactoring",
-    ))
+fn bi_refactor_extract_variable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    expression_refactor::run("refactor_extract_variable", args, input)
 }
 
-fn bi_refactor_extract_constant(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "refactor_extract_constant",
-        "extracting a constant is not implemented; NOTHING WAS DONE",
-        "use an IDE refactoring",
-    ))
+fn bi_refactor_extract_constant(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    expression_refactor::run("refactor_extract_constant", args, input)
 }
 
 fn bi_refactor_inline(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
