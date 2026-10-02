@@ -394,6 +394,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "delete_role"
         | "kubectl_delete"
         | "role_delete"
+        | "cron_remove"
         | "svc_delete"
         | "terraform_destroy"
         | "helm_uninstall"
@@ -407,6 +408,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         "workflow_cancel" | "workflow_pause" | "workflow_resume"
         | "workflow_create" | "circuit_breaker_create"
         | "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check"
+        | "cron_disable"
         | "svc_restart" | "k8s_rollout_restart" => Some(Effect::Process),
         // Every builtin whose argument *is* a command to run. These are the
         // same capability as `sh` under different names; classifying them as
@@ -423,6 +425,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // will later run, so they are not reads.
         | "workflow_register" | "workflow_pipeline" | "workflow_map_reduce"
         | "workflow_saga" | "workflow_fan_out" | "workflow_scatter_gather"
+        | "cron_enable"
         | "sh" | "exec" | "system" | "timeout" | "timeout_cmd" | "xargs" | "xargs_exec"
         | "proc_spawn" | "strace" | "strace_cmd" | "ltrace" | "ltrace_cmd"
         | "perf_stat" | "perf_record" | "tmux_new" | "tmux_send"
@@ -4086,6 +4089,9 @@ pub const SELF_GUARDED: &[&str] = &[
     "bat_view",
     "cd",
     "cloud_instance_destroy",
+    "cron_disable",
+    "cron_enable",
+    "cron_remove",
     "db_csv_to_sqlite",
     "db_kv_delete",
     "db_sqlite_delete",

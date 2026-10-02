@@ -27053,53 +27053,347 @@ fn bi_cron_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_cron_remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "cron_remove is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "cron_remove",
-        "removing a scheduled job is not implemented; NOTHING WAS DONE",
-        "use `crontab -e`, or `schtasks` on Windows",
-    ))
+    guard_and_change_cron("cron_remove", args, input, "remove")
 }
 
 fn bi_cron_enable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "cron_enable is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Returned `Ok(false)` for every call, ignoring its arguments: an
-    // agent could not tell "this did not work" from "this shell does
-    // not do that", and the catalogue advertised it either way.
-    Err(crate::safety::unimplemented(
-        "cron_enable",
-        "enabling a cron job is not implemented; NOTHING WAS CHANGED",
-        "use `crontab -e`, or cron.add to create one",
-    ))
+    guard_and_change_cron("cron_enable", args, input, "enable")
 }
 
 fn bi_cron_disable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
+    guard_and_change_cron("cron_disable", args, input, "disable")
+}
+
+fn guard_and_change_cron(
+    name: &str,
+    args: Vec<Value>,
+    input: Option<Value>,
+    action: &str,
+) -> Result<Value> {
+    let [Value::Str(target)] = args.as_slice() else {
+        return Err(crate::safety::arg_err(format!(
+            "{name} requires one String target"
+        )));
+    };
+    if input.is_some()
+        || target.trim().is_empty()
+        || target.contains(['\0', '\n', '\r'])
+        || target.starts_with(['-', '/'])
+        || target.len() > 65536
+    {
         return Err(crate::safety::arg_err(
-            "cron_disable is unsupported and accepts no arguments or pipeline input",
+            "invalid scheduler target or pipeline input",
         ));
     }
-    // Returned `Ok(false)` for every call, ignoring its arguments: an
-    // agent could not tell "this did not work" from "this shell does
-    // not do that", and the catalogue advertised it either way.
-    Err(crate::safety::unimplemented(
-        "cron_disable",
-        "disabling a cron job is not implemented; NOTHING WAS CHANGED",
-        "use `crontab -e`",
-    ))
+    if cfg!(windows) && target.contains(['*', '?']) {
+        return Err(crate::safety::arg_err(
+            "scheduler target must name one task; wildcards are forbidden",
+        ));
+    }
+    if cfg!(unix) {
+        let parsed = parse_cron_listing(cron_success_output(target.as_bytes().to_vec()), false)
+            .map_err(|_| crate::safety::arg_err("target must be one complete crontab job"))?;
+        if !matches!(parsed, Value::Array(ref rows) if rows.len() == 1) {
+            return Err(crate::safety::arg_err(
+                "target must be one complete crontab job",
+            ));
+        }
+    }
+    if crate::tx::is_active() {
+        return Err(crate::safety::unimplemented(
+            name,
+            "scheduler changes cannot be rolled back",
+            "finish the transaction first",
+        ));
+    }
+    if action == "enable" {
+        crate::safety::guard_exec(name, format!("enable scheduled job: {target}"))?;
+    } else {
+        crate::safety::guard(crate::safety::GuardCtx {
+            builtin: name,
+            effect: crate::safety::effect_of(name),
+            what: action,
+            targets: vec![target.clone()],
+            blast_radius: serde_json::json!({"scheduled_jobs": 1}),
+            reversible: false,
+            fs_paths: false,
+        })?;
+    }
+    change_cron_backend(
+        name,
+        target,
+        action,
+        cfg!(windows),
+        |tool, arguments, stdin| {
+            use std::io::Write;
+            let mut command = std::process::Command::new(tool);
+            command
+                .args(arguments)
+                .env("LC_ALL", "C")
+                .stdin(if stdin.is_some() {
+                    std::process::Stdio::piped()
+                } else {
+                    std::process::Stdio::null()
+                })
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let mut child = command
+                .spawn()
+                .map_err(|e| crate::safety::spawn_error(name, tool, &e))?;
+            if let Some(bytes) = stdin {
+                let write = child
+                    .stdin
+                    .take()
+                    .expect("piped scheduler stdin")
+                    .write_all(bytes);
+                if let Err(e) = write {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(crate::safety::spawn_error(name, tool, &e));
+                }
+            }
+            child
+                .wait_with_output()
+                .map_err(|e| crate::safety::spawn_error(name, tool, &e))
+        },
+    )
+}
+
+// This lock serializes this process's read/modify/write operations. Other crontab
+// clients can still race; the native user-crontab API has no compare-and-swap.
+static CRON_CHANGE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn change_cron_backend(
+    name: &str,
+    target: &str,
+    action: &str,
+    windows: bool,
+    mut run: impl FnMut(&str, &[&str], Option<&[u8]>) -> Result<std::process::Output>,
+) -> Result<Value> {
+    if windows && target.contains(['*', '?']) {
+        return Err(crate::safety::arg_err(
+            "scheduler target must name one task; wildcards are forbidden",
+        ));
+    }
+    let _lock = CRON_CHANGE_LOCK.lock().map_err(|_| {
+        crate::safety::bad_state(name, "scheduler lock poisoned", "restart the runtime")
+    })?;
+    let check = |output: std::process::Output, tool: &str| -> Result<Vec<u8>> {
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                name,
+                tool,
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
+        }
+        Ok(output.stdout)
+    };
+    if windows {
+        let arguments = match action {
+            "remove" => vec!["/Delete", "/TN", target, "/F"],
+            "enable" => vec!["/Change", "/TN", target, "/ENABLE"],
+            "disable" => vec!["/Change", "/TN", target, "/DISABLE"],
+            _ => return Err(crate::safety::arg_err("unknown scheduler action")),
+        };
+        check(run("schtasks", &arguments, None)?, "schtasks")?;
+    } else {
+        let bytes = check(run("crontab", &["-l"], None)?, "crontab")?;
+        let text = std::str::from_utf8(&bytes).map_err(|_| {
+            crate::safety::bad_state(name, "non-UTF-8 crontab", "UTF-8 user crontab")
+        })?;
+        let replacement = transform_cron_entry(text, target, action)?;
+        if replacement == text {
+            return Ok(Value::Bool(true));
+        }
+        check(
+            run("crontab", &["-"], Some(replacement.as_bytes()))?,
+            "crontab",
+        )?;
+    }
+    Ok(Value::Bool(true))
+}
+
+fn transform_cron_entry(text: &str, target: &str, action: &str) -> Result<String> {
+    const DISABLED: &str = "# aethershell-disabled: ";
+    if target.starts_with('#') || target.trim().is_empty() {
+        return Err(crate::safety::arg_err(
+            "target must be an active crontab entry, without a comment prefix",
+        ));
+    }
+    // Validate the selected entry using the same parser as listing. It must be
+    // exactly one job, never an environment assignment or a comment.
+    let parsed = parse_cron_listing(cron_success_output(target.as_bytes().to_vec()), false)
+        .map_err(|_| crate::safety::arg_err("target must be one complete crontab job"))?;
+    if !matches!(parsed, Value::Array(ref rows) if rows.len() == 1) {
+        return Err(crate::safety::arg_err(
+            "target must be one complete crontab job",
+        ));
+    }
+    let disabled = format!("{DISABLED}{target}");
+    let matches = text
+        .lines()
+        .filter(|line| *line == target || *line == disabled)
+        .count();
+    if matches != 1 {
+        return Err(crate::safety::bad_state(
+            "cron",
+            &format!("expected one matching job, found {matches}"),
+            "select a unique existing crontab entry",
+        ));
+    }
+    let mut result = String::new();
+    for line in text.split_inclusive('\n') {
+        let entry = line.strip_suffix('\n').unwrap_or(line);
+        if entry == target || entry == disabled {
+            match action {
+                "remove" => continue,
+                "enable" => result.push_str(target),
+                "disable" => result.push_str(&disabled),
+                _ => return Err(crate::safety::arg_err("unknown scheduler action")),
+            }
+            if line.ends_with('\n') {
+                result.push('\n');
+            }
+        } else {
+            result.push_str(line);
+        }
+    }
+    Ok(result)
+}
+
+fn cron_success_output(stdout: Vec<u8>) -> std::process::Output {
+    #[cfg(unix)]
+    let status = {
+        use std::os::unix::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(0)
+    };
+    #[cfg(windows)]
+    let status = {
+        use std::os::windows::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(0)
+    };
+    std::process::Output {
+        status,
+        stdout,
+        stderr: vec![],
+    }
+}
+
+#[cfg(test)]
+mod cron_mutation_tests {
+    use super::*;
+    #[test]
+    fn transformations_preserve_unrelated_bytes_and_are_idempotent() {
+        let job = "0 1 * * * echo hello";
+        let text = format!("# owned comment\nPATH=/bin\n{job}\n@daily other");
+        let disabled = transform_cron_entry(&text, job, "disable").unwrap();
+        assert_eq!(
+            disabled,
+            format!("# owned comment\nPATH=/bin\n# aethershell-disabled: {job}\n@daily other")
+        );
+        assert_eq!(
+            transform_cron_entry(&disabled, job, "disable").unwrap(),
+            disabled
+        );
+        assert_eq!(
+            transform_cron_entry(&disabled, job, "enable").unwrap(),
+            text
+        );
+        assert_eq!(
+            transform_cron_entry(&text, job, "remove").unwrap(),
+            "# owned comment\nPATH=/bin\n@daily other"
+        );
+        for invalid in ["PATH=/bin", "# comment", "@unknown x"] {
+            assert!(transform_cron_entry(&text, invalid, "remove").is_err());
+        }
+        assert!(transform_cron_entry(&format!("{job}\n{job}\n"), job, "remove").is_err());
+        assert!(transform_cron_entry("", job, "remove").is_err());
+    }
+    #[test]
+    fn failures_never_report_success_or_write_after_failed_read() {
+        for windows in [true, false] {
+            let mut calls = 0;
+            let result = change_cron_backend(
+                "cron_remove",
+                "@daily echo test",
+                "remove",
+                windows,
+                |_, _, _| {
+                    calls += 1;
+                    let mut output = cron_success_output(vec![]);
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::process::ExitStatusExt;
+                        output.status = std::process::ExitStatus::from_raw(1);
+                    }
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::process::ExitStatusExt;
+                        output.status = std::process::ExitStatus::from_raw(256);
+                    }
+                    output.stderr = b"access denied".to_vec();
+                    Ok(output)
+                },
+            );
+            assert!(result.unwrap_err().to_string().contains("E_TOOL_FAILED"));
+            assert_eq!(calls, 1);
+        }
+        for target in ["*", "\\Folder\\*"] {
+            let result = change_cron_backend("cron_remove", target, "remove", true, |_, _, _| {
+                panic!("wildcard reached native backend")
+            });
+            assert!(result.unwrap_err().to_string().contains("E_BAD_ARG"));
+        }
+    }
+    #[test]
+    fn native_backends_receive_exact_targets_and_checked_updates() {
+        let job = "@daily echo hello";
+        let mut calls = 0;
+        assert_eq!(
+            change_cron_backend(
+                "cron_disable",
+                job,
+                "disable",
+                false,
+                |tool, args, stdin| {
+                    assert_eq!(tool, "crontab");
+                    calls += 1;
+                    if calls == 1 {
+                        assert_eq!(args, &["-l"]);
+                        assert!(stdin.is_none());
+                        Ok(cron_success_output(format!("{job}\n").into_bytes()))
+                    } else {
+                        assert_eq!(args, &["-"]);
+                        assert_eq!(
+                            stdin.unwrap(),
+                            format!("# aethershell-disabled: {job}\n").as_bytes()
+                        );
+                        Ok(cron_success_output(vec![]))
+                    }
+                }
+            )
+            .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(calls, 2);
+        for (action, expected) in [
+            ("remove", vec!["/Delete", "/TN", "\\Owned task", "/F"]),
+            ("enable", vec!["/Change", "/TN", "\\Owned task", "/ENABLE"]),
+            (
+                "disable",
+                vec!["/Change", "/TN", "\\Owned task", "/DISABLE"],
+            ),
+        ] {
+            change_cron_backend("cron", "\\Owned task", action, true, |tool, args, stdin| {
+                assert_eq!(tool, "schtasks");
+                assert_eq!(args, expected);
+                assert!(stdin.is_none());
+                Ok(cron_success_output(vec![]))
+            })
+            .unwrap();
+        }
+    }
 }
 
 fn bi_at_schedule(args: Vec<Value>, input: Option<Value>) -> Result<Value> {

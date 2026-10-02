@@ -3338,18 +3338,19 @@ fn scheduling_contracts_reject_ignored_input_without_scheduling_jobs() {
     let _lock = LOCK.lock().unwrap();
     let _fixture = Fixture::new();
     let mut env = Env::new();
-    for name in [
-        "cron_add",
-        "cron_remove",
-        "cron_enable",
-        "cron_disable",
-        "at_schedule",
-        "at_remove",
-    ] {
+    for name in ["cron_add", "at_schedule", "at_remove"] {
         code(call(name, vec![], &mut env), "E_UNIMPLEMENTED");
         code(call(name, vec![s("ignored")], &mut env), "E_BAD_ARG");
         code(
             call_with_input(name, vec![], Some(s("ignored")), &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    for name in ["cron_remove", "cron_enable", "cron_disable"] {
+        code(call(name, vec![], &mut env), "E_BAD_ARG");
+        code(call(name, vec![s("")], &mut env), "E_BAD_ARG");
+        code(
+            call_with_input(name, vec![s("job")], Some(s("ignored")), &mut env),
             "E_BAD_ARG",
         );
     }
@@ -3362,6 +3363,36 @@ fn scheduling_contracts_reject_ignored_input_without_scheduling_jobs() {
     }
     #[cfg(not(unix))]
     code(call("at_list", vec![], &mut env), "E_UNIMPLEMENTED");
+}
+
+#[test]
+fn scheduler_lifecycle_is_gated_before_native_backend_access() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::new();
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_POLICY", "strict");
+    #[cfg(windows)]
+    for name in ["cron_remove", "cron_enable", "cron_disable"] {
+        code(call(name, vec![s("*")], &mut env), "E_BAD_ARG");
+    }
+    #[cfg(unix)]
+    for name in ["cron_remove", "cron_enable", "cron_disable"] {
+        code(
+            call(name, vec![s("not a cron entry")], &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    for name in ["cron_remove", "cron_enable", "cron_disable"] {
+        code(
+            call(
+                name,
+                vec![s("@daily echo AetherShell-owned-fixture")],
+                &mut env,
+            ),
+            "E_NEEDS_APPROVAL",
+        );
+    }
 }
 
 #[test]

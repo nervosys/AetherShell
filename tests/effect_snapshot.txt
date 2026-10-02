@@ -233,10 +233,10 @@ copy_file	WriteLocal
 cp	WriteLocal
 create_role	Pure
 cron_add	Pure
-cron_disable	Pure
-cron_enable	Pure
+cron_disable	Process
+cron_enable	Exec
 cron_list	ReadLocal
-cron_remove	Pure
+cron_remove	Destructive
 crossover_strategy	Pure
 crypto_base64_decode	ReadLocal
 crypto_base64_encode	ReadLocal

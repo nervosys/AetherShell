@@ -12,7 +12,7 @@ have their own milestones; this checklist governs the current release.
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
 | Signature migration | 585/1,171 implementations; 710/1,437 callable names | 586 implementations and 727 callable names |
-| Latest targeted Windows validation | 696 unique tests across eight suites passed | Validate the complete final tree |
+| Latest targeted Windows validation | 700 unique tests across eight suites passed | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -60,7 +60,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Strict builtin signatures | Partially implemented; blocker | Live inventory: 585 implementations covered, 586 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
-| Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Current bodies refuse; working operations and owned-fixture/platform tests are required | Runtime maintainer |
+| Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; cron remove/enable/disable now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
 | DQN weight training | Implementation pending; blocker | src/rl.rs train computes a local Q-value without updating weights; rl_dqn_step refuses before the batch threshold mutates state; tests/dqn_contracts.rs witnesses refusal | RL maintainer |
 | Other placeholder operations | Audit pending; blocker | Enumerate through remaining source-reviewed catalogue migration; do not infer support from registration | Runtime maintainer |
 | Platform/features/packaging | Validation pending; blocker | Complete stages 4 and 6 on final commit, including MSRV and supported feature builds | Platform and release maintainers |
@@ -81,6 +81,9 @@ removing their guards.
 - [x] Fix cron_list query parsing and checked subprocess output; platform validation remains open.
 - [ ] Classify the source candidates below into always-missing functionality, conditional platform support, and transaction/capability constraints; map helpers to callable operations.
 - [ ] Implement scheduler mutations with real backends, effect gates, validated inputs and isolated mutation tests.
+  - [x] Implement cron_remove, cron_enable and cron_disable using native Windows task operations and exact-entry Unix crontab updates. Injected backend tests cover successful changes, duplicate refusal, preserved unrelated text, native failures and Windows wildcard refusal.
+  - [ ] Implement cron_add, at_schedule and at_remove.
+  - [ ] Verify actual mutations in disposable Windows and Unix environments; backend injection is not a native-platform mutation witness.
 - [ ] Implement services, users/groups, permissions/ACLs, mounting and watching with tested platform backends.
 - [ ] Implement native socket lifecycle and missing web/clipboard/UI/input operations.
 - [ ] Implement missing package-manager operations with checked tool adapters.
@@ -90,7 +93,7 @@ removing their guards.
 - [ ] Verify each operation's positive result against real effects in owned fixtures or disposable environments; malformed-call refusal alone does not verify implementation.
 - [ ] Re-run the final supported-platform matrix and remaining release gates.
 
-The source scan currently finds **123 bi_* functions containing explicit
+The previous source scan found **123 bi_* functions containing explicit
 unsupported branches**, down from 125 before the two source-extraction
 implementations. This is a candidate count, not a count of missing callable
 implementations: it includes helpers, platform branches, deliberate algorithm
@@ -238,9 +241,9 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_svc_delete
 - [ ] bi_cron_list
 - [ ] bi_cron_add
-- [ ] bi_cron_remove
-- [ ] bi_cron_enable
-- [ ] bi_cron_disable
+- [x] bi_cron_remove — native lifecycle backend implemented; disposable-platform verification remains open.
+- [x] bi_cron_enable — native lifecycle backend implemented; disposable-platform verification remains open.
+- [x] bi_cron_disable — native lifecycle backend implemented; disposable-platform verification remains open.
 - [ ] bi_at_schedule
 - [ ] bi_at_list
 - [ ] bi_at_remove
@@ -434,3 +437,28 @@ that proves it has been run. Baseline at `b799289`:
 Order: Phase 0 in parallel with everything; then Phase 2's Windows search,
 Phase 3, 1a, Phase 4, Phase 5, with 1b last and longest. Phases 3 and 4 do not
 wait on 1b.
+
+### Scheduler lifecycle implementation checkpoint — 2026-10-02
+
+`cron_remove(target)`, `cron_enable(target)` and `cron_disable(target)` now return
+Bool true only after successful native operations (or an already achieved Unix
+state). Windows targets are full task names, passed as separate schtasks argv;
+wildcards are refused. Unix targets are the exact active crontab entry, even when
+currently disabled through `# aethershell-disabled: `. Duplicate or absent matches
+refuse instead of guessing. Unrelated lines are preserved. Operations are gated
+as Destructive, Exec and Process respectively, and refuse active transactions.
+The process serializes its own crontab changes; external writers can still race.
+No host jobs were mutated during verification.
+
+Backend syntax was checked against [Microsoft's schtasks reference](https://learn.microsoft.com/en-us/windows/win32/taskschd/schtasks)
+and the [native crontab manual](https://man7.org/linux/man-pages/man1/crontab.1.html).
+The Windows contract/safety sweep passed 700 unique tests across eight suites
+(548 library, 31 declarations, 74 text/file, 18 effect ratchet, 14 guard, 2 effect
+coverage, 10 error conditions and 3 module aliases). Actual mutation witnesses on
+disposable platforms and all remaining unsupported operations are still required.
+
+Final scheduler target-validation regression passed after the sweep. Workspace
+all-target Clippy passed with warnings denied, and the locked offline Rust 1.88
+workspace check passed. Evidence: `temp/ae-perf/cron-lifecycle-validation.log`,
+`cron-lifecycle-final.log`, `cron-lifecycle-clippy.log`, and
+`cron-lifecycle-msrv.log`. Versions and publication state remain unchanged.

@@ -296,8 +296,6 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         // Answered `false`.
         "user_lock",
         "user_unlock",
-        "cron_enable",
-        "cron_disable",
         "at_remove",
         "acl_set",
         "session_undo",
@@ -324,10 +322,7 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         // Declared refusal-only interfaces accept no arguments. Keep testing
         // their E_UNIMPLEMENTED message with a valid call; malformed-call
         // rejection is covered by the contract regressions.
-        let args = if matches!(
-            name,
-            "user_lock" | "user_unlock" | "acl_set" | "cron_enable" | "cron_disable" | "at_remove"
-        ) {
+        let args = if matches!(name, "user_lock" | "user_unlock" | "acl_set" | "at_remove") {
             vec![]
         } else {
             vec![aethershell::value::Value::Str("anything".to_string())]
