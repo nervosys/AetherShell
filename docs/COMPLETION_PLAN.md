@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 611/1,171 implementations; 736/1,437 callable names | 560 implementations and 701 callable names |
-| Latest targeted Windows validation | 57 refactor-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
+| Signature migration | 612/1,171 implementations; 737/1,437 callable names | 559 implementations and 700 callable names |
+| Latest targeted Windows validation | 56 diagnostic-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 611 implementations covered, 560 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 612 implementations covered, 559 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -319,7 +319,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_test_watch
 - [x] bi_test_snapshot
 - [x] bi_test_generate
-- [ ] bi_diag_suppress
+- [x] bi_diag_suppress
 - [ ] bi_refactor_rename
 - [ ] bi_refactor_extract_function
 - [ ] bi_refactor_extract_variable
@@ -643,3 +643,32 @@ existing example sweeps were excluded; every new example, including omitted and
 supplied insertion positions, ran through canonical and module spellings.
 All-target workspace Clippy with warnings denied passed (refactor-clippy-final.log),
 as did formatting and diff checks. Final-tree workspace and release gates remain open.
+
+## Diagnostic report filtering checkpoint, 2026-10-02
+
+Diag_suppress(report, codes) now filters supplied rustc/Cargo JSON-lines text by
+exact warning code. It removes only top-level warning diagnostics; errors, notes,
+null-code summaries and other Cargo events retain their original bytes, including
+CRLF and missing final newline. Child diagnostics stay with their parent. Cargo
+short-format text is unsupported because it does not supply warning codes.
+Each diagnostic requires String level/message and null/object code. Unknown
+levels, malformed JSON/objects and duplicate keys at any depth reject the report.
+Other Cargo events with String reason pass through. There are no compiler runs,
+source/configuration changes or implicit cached reports inside the builtin; it
+retains its Pure effect. Limits are 1 MiB, 25000 lines, 64 KiB per line and 128
+unique codes of at most 128 bytes, with serde's JSON recursion limit. Selectors
+are ASCII identifier segments separated by double colon. Empty reports are valid;
+blank JSON lines are not. This is display-data filtering, not compiler policy.
+
+Final targeted validation passed 56 tests across five suites: five diagnostic
+contracts, 28 declaration checks, 18 effect ratchets, two effect coverage checks
+and three alias checks (temp/ae-perf/diag-validation.log). An exclusively owned
+fixture compiles Rust with --error-format=json and verifies exact removal of its
+unused_variables warning while unmatched data remains. Both canonical and module
+examples ran; the three broad existing example sweeps were excluded. All-target
+workspace Clippy with warnings denied, Rust 1.88 workspace, WASM web library,
+formatting and diff checks passed (diag-clippy.log, diag-msrv.log, diag-wasm.log).
+The existing non-native unused Env-method warning remains. Final-tree workspace,
+cross-platform and release gates are still open; no version bump/publication.
+Live signature inventory is 612/1171 implementations and 737/1437 callable names,
+leaving 559 implementations and 700 names undeclared (diag-inventory.log).

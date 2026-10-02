@@ -39425,15 +39425,11 @@ fn bi_diag_explain(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_diag_suppress(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "diag_suppress",
-        "suppressing a diagnostic is not implemented; NOTHING WAS DONE",
-        "use filter the output of diag_run yourself",
-    ))
+fn bi_diag_suppress(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    diagnostic_filter::run(args, input)
 }
+#[path = "diagnostic_filter.rs"]
+mod diagnostic_filter;
 
 fn bi_diag_config(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if let Ok(content) = std::fs::read_to_string("clippy.toml") {
