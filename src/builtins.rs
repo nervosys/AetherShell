@@ -39286,44 +39286,19 @@ fn bi_test_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(tests))
 }
 
-fn bi_test_coverage(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "test_coverage",
-        "measuring test coverage is not implemented; NOTHING WAS DONE",
-        "use `cargo llvm-cov`, or your language's coverage tool",
-    ))
+#[path = "test_reports.rs"]
+mod test_reports;
+fn bi_test_coverage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    test_reports::coverage(args, input)
 }
-
-fn bi_test_failing(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "test_failing",
-        "listing failing tests is not implemented; NOTHING WAS DONE",
-        "use run the test command and read its output",
-    ))
+fn bi_test_failing(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    test_reports::outcomes("test_failing", args, input)
 }
-
-fn bi_test_passing(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "test_passing",
-        "listing passing tests is not implemented; NOTHING WAS DONE",
-        "use run the test command and read its output",
-    ))
+fn bi_test_passing(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    test_reports::outcomes("test_passing", args, input)
 }
-
-fn bi_test_skipped(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "test_skipped",
-        "listing skipped tests is not implemented; NOTHING WAS DONE",
-        "use run the test command and read its output",
-    ))
+fn bi_test_skipped(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    test_reports::outcomes("test_skipped", args, input)
 }
 
 fn bi_test_watch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 604/1,171 implementations; 729/1,437 callable names | 567 implementations and 708 callable names |
-| Latest targeted Windows validation | 140 crypto-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
+| Signature migration | 608/1,171 implementations; 733/1,437 callable names | 563 implementations and 704 callable names |
+| Latest targeted Windows validation | 74 report-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 604 implementations covered, 567 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 608 implementations covered, 563 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -312,10 +312,10 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_search_duplicates
 - [x] bi_search_semantic
 - [x] bi_search_similar
-- [ ] bi_test_coverage
-- [ ] bi_test_failing
-- [ ] bi_test_passing
-- [ ] bi_test_skipped
+- [x] bi_test_coverage
+- [x] bi_test_failing
+- [x] bi_test_passing
+- [x] bi_test_skipped
 - [ ] bi_test_watch
 - [x] bi_test_snapshot
 - [x] bi_test_generate
@@ -576,3 +576,34 @@ passed in five suites total) and the separately locked WASM browser wrapper.
 Three unchanged broad example sweeps were filtered; the new Ed25519 examples
 were executed directly. Formatting and diff checks passed. The web lockfile
 remains unchanged because it does not enable the optional native dependency.
+
+
+## Test report implementation checkpoint, 2026-10-02
+
+Test_coverage now summarizes supplied LCOV 1.x source records into deterministic
+line/function/branch metrics and sorted per-file summaries. It validates optional
+summary counts, unions covered locations across repeated source records and
+rejects conflicting supplied checksums/function locations. Test_passing,
+test_failing and test_skipped parse supplied completed Rust libtest JSON reports,
+validate event sequencing and exact suite counts, and preserve typed result data.
+Filtered-out identities are not inferred. Incomplete/fail-fast, discovery,
+benchmark, Cargo compiler JSON and malformed reports reject. These are Pure report
+operations: test execution, instrumentation and file loading remain explicit.
+Test_watch and other runner/implementation gaps remain open.
+
+Seven new regressions cover weighted coverage and repeated-record union, malformed
+and contradictory data, multiple suites, escaped Unicode/diagnostics, bounded
+work and call shapes, executable declaration examples/module aliases, and an
+actual owned Rust harness with passing/failing/ignored/filtered tests. Only the
+owned child harness enables libtest's unstable JSON reporter. All 13 testing
+contracts passed, including all canonical and module examples. Ten existing refusal/error-contract
+tests and 51 discovery/effect/alias tests also passed: 74 tests in six suites.
+Three unchanged broad signature-example sweeps were filtered; all four new
+examples were evaluated directly. Native library, Rust 1.88 workspace and WASM
+web library checks passed; WASM retains its existing unused Env-method warning.
+Inventory confirms 608/1171 implementations and 733/1437 callable names, leaving
+563 implementations and 704 names undeclared. Logs: temp/ae-perf/reports-*.log.
+No dependency, version or publication changes are included.
+
+Final all-target Clippy with warnings denied, formatting and diff checks passed
+(reports-clippy-final.log). The final-tree workspace and release gates remain open.

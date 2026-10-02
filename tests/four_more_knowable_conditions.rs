@@ -299,10 +299,8 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         "acl_set",
         "session_undo",
         "session_redo",
-        // Answered an empty collection, which reads as a definitive result:
-        // `code_references("foo")` said there were none.
-        "test_passing",
-        "test_failing",
+        // Test outcome reporters now parse supplied completed libtest JSON.
+        // Their malformed/truncated report failures have dedicated regressions.
         // Answered the ADVICE as the return value. `refactor_rename` handed
         // back the String "Use IDE rename functionality" at exit 0, which an
         // agent cannot tell from renamed code, and `docs_api` returned a
