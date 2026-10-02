@@ -28090,7 +28090,12 @@ fn bi_perm_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_acl_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_acl_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "acl_get is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -28103,7 +28108,12 @@ fn bi_acl_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_acl_set(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_acl_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "acl_set is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Returned `Ok(false)` for every call, ignoring its arguments: an
     // agent could not tell "this did not work" from "this shell does
     // not do that", and the catalogue advertised it either way.

@@ -4851,6 +4851,18 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"let d = fs_tempdir("ae_perm_check"); let f = d + "/x"; file_write(f, "hi"); let result = perm_check(f); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_perm_check_write"); let f = d + "/x"; file_write(f, "hi"); perm_set(f, 384); let result = perm_check(f, "write"); rmdir(d, true); result"#, "true")],
     },
     Signature {
+        name: "acl_get", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Any",
+        doc: "Unsupported placeholder: a parameterless call refuses with E_UNIMPLEMENTED after dispatch policy. No ACL is read and no platform tool is launched. Accept no arguments or pipeline input. Use a platform ACL inspection tool. There is no successful return value.",
+        examples: &[(r#"(try { acl_get() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "acl_set", category: None, subject_required: false, aliases: &[],
+        subject: None, params: &[], returns: "Any",
+        doc: "Unsupported placeholder: a parameterless call refuses with E_UNIMPLEMENTED after dispatch policy. No ACL is changed and no platform tool is launched. Accept no arguments or pipeline input. Use a platform ACL administration tool. There is no successful return value.",
+        examples: &[(r#"(try { acl_set() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
         name: "perm_get",
         category: None,
         subject_required: false,
