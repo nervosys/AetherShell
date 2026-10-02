@@ -142,7 +142,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "crypto_cert_verify",
         "openssl and the system trust store (Unix only)",
     ),
-    ("crypto_generate_key", "Unix OpenSSL key generation; E_UNIMPLEMENTED on other platforms"),
+    ("crypto_generate_key", "native Ed25519; RSA/EC use Unix OpenSSL and return E_UNIMPLEMENTED on other platforms"),
     ("crypto_cert_info", "Unix OpenSSL and the host certificate bundle; missing on other platforms"),
     ("at_list", "Unix atq and this user's queue; E_UNIMPLEMENTED on non-Unix"),
     ("cron_list", "host scheduler query: Windows PowerShell task module or Unix crontab"),

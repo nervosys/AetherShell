@@ -12,7 +12,7 @@ have their own milestones; this checklist governs the current release.
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
 | Signature migration | 604/1,171 implementations; 729/1,437 callable names | 567 implementations and 708 callable names |
-| Latest targeted Windows validation | 62 final-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
+| Latest targeted Windows validation | 140 crypto-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -288,8 +288,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_input_timeout
 - [ ] bi_input_autocomplete
 - [ ] bi_crypto_decrypt
-- [ ] bi_crypto_sign
-- [ ] bi_crypto_key_generate
+- [x] bi_crypto_sign
+- [ ] bi_crypto_key_generate — native Ed25519 implemented; non-Unix RSA/EC remain open
 - [ ] bi_crypto_password_verify
 - [ ] bi_crypto_cert_info
 - [ ] bi_clipboard_get_image
@@ -300,7 +300,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_input_table
 - [ ] bi_input_form
 - [ ] bi_crypto_cert_verify
-- [ ] bi_crypto_verify_signature
+- [x] bi_crypto_verify_signature
 - [x] bi_code_references
 - [x] bi_code_definition
 - [x] bi_code_callers
@@ -549,3 +549,30 @@ both pass correct oracles and fail an incorrect oracle, plus language-level
 examples. The final batch passed 62 tests across six relevant suites. All-target
 Clippy, Rust 1.88 and WASM checks passed. Signature inventory confirms
 604/1171 implementations and 729/1437 callable names. Formatting/diff checks and final example-test lint passed. See docs/release/13.0.0.md and temp/ae-perf/testing-*.log.
+
+
+## Native Ed25519 implementation checkpoint, 2026-10-02
+
+Crypto_sign and crypto_verify_signature now implement native Ed25519 rather than
+parameterless refusals. Signing requires supplied PKCS#8 v2 PEM and returns a
+Record with algorithm, public_key and signature; verification accepts canonical
+Base64 public-key/signature data and returns Bool. UTF-8 String and binary byte
+Array messages are bounded to 1 MiB. Crypto_generate_key adds native Ed25519,
+with operating-system randomness and no key-file/process backend. Its existing
+conservative WriteLocal effect is retained; signing and verification stay Pure.
+AETHER_FIPS rejects the unvalidated backend. Non-Unix RSA/EC generation remains
+an implementation blocker. Certificate and other crypto gaps remain open.
+
+The 92 affected tests passed, including RFC 8032 known-answer data, tampering,
+malformed and inconsistent keys, executable examples, argument/size bounds and
+FIPS refusals. Native library, Rust 1.88 workspace, WASM web library and all-target
+Clippy passed. Ring 0.17.14 was already locked through TLS; the root dependency
+edge is now explicit and native-only. Signature coverage is unchanged because
+all three signatures already existed. See docs/release/13.0.0.md and
+temp/ae-perf/signatures-*.log. No version bump or publication was performed.
+
+Final batch validation also passed 48 signature-discovery/effect tests (140
+passed in five suites total) and the separately locked WASM browser wrapper.
+Three unchanged broad example sweeps were filtered; the new Ed25519 examples
+were executed directly. Formatting and diff checks passed. The web lockfile
+remains unchanged because it does not enable the optional native dependency.

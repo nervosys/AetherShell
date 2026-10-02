@@ -19,6 +19,9 @@
 //! test runs in CI as well as on Unix, where `openssl` may be absent or may
 //! fail. `crypto_encrypt`/`crypto_decrypt` are the exception since 10.0.0: they
 //! are in-process AES-256-GCM and behave identically on every platform.
+//! Ed25519 signing/verification are also native; their missing-argument cases
+//! must still fail closed. Positive and malformed-key witnesses live in
+//! text_file_contracts.rs.
 
 use aethershell::value::Value;
 
@@ -44,9 +47,11 @@ fn assert_not_mistakable_for_success(name: &str, args: Vec<Value>) {
             // first: the bogus paths used here do not exist, and saying so is
             // as fail-closed as E_UNIMPLEMENTED. An uncoded error is not.
             assert!(
-                msg.contains("E_UNIMPLEMENTED") || msg.contains("E_NOT_FOUND"),
+                msg.contains("E_UNIMPLEMENTED")
+                    || msg.contains("E_NOT_FOUND")
+                    || msg.contains("E_BAD_ARG"),
                 "{name} failed, but not with the E_UNIMPLEMENTED code the shell's \
-                 error convention expects: {msg}"
+                 coded refusal convention expects: {msg}"
             );
         }
         // A real implementation (openssl present on Unix) is free to answer
@@ -61,10 +66,9 @@ fn assert_not_mistakable_for_success(name: &str, args: Vec<Value>) {
     }
 }
 
-// The unsupported signature-verification contract is parameterless. Exercise
-// its well-formed refusal here; malformed calls are checked separately.
+// Missing signature-verification arguments must fail closed.
 #[test]
-fn signature_verification_never_reports_success_when_unimplemented() {
+fn signature_verification_never_reports_success_for_missing_arguments() {
     assert_not_mistakable_for_success("crypto_verify_signature", vec![]);
 }
 
@@ -127,7 +131,7 @@ fn encrypt_and_decrypt_do_not_return_prose_in_place_of_ciphertext() {
 fn signing_does_not_return_prose_in_place_of_a_signature() {
     match try_call("crypto_sign", vec![]) {
         Err(e) => assert!(
-            e.to_string().contains("E_UNIMPLEMENTED"),
+            e.to_string().contains("E_BAD_ARG"),
             "crypto_sign: unexpected error: {e}"
         ),
         Ok(Value::Str(out)) => {

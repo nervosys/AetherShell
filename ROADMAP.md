@@ -10,7 +10,8 @@
 
 The user expanded the 13.0.0 implementation scope on 2026-10-02 to all unsupported
 builtins. Scheduler mutation adapters, DQN weight training and native TCP socket lifecycle now have working
-implementations and targeted tests; disposable-platform scheduler validation
+implementations and targeted tests. Native Ed25519 key generation, signing and
+verification now replace signature placeholders; non-Unix RSA/EC generation remains open. Disposable-platform scheduler validation
 remains open. Accounts/groups, ACL operations, mounting/watching, elevated
 execution and other unsupported operations remain implementation blockers. The completion plan separates those gaps
 from legitimate platform, policy and transaction constraints. Refusal contracts

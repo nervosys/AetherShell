@@ -34009,18 +34009,10 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .map_err(|_| anyhow::anyhow!("E_DECRYPT_FAILED: plaintext is not valid UTF-8"))
 }
 
+#[path = "digital_signatures.rs"]
+mod digital_signatures;
 fn bi_crypto_sign(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "crypto_sign accepts no arguments or pipeline input while unsupported",
-        ));
-    }
-    Err(crate::safety::unimplemented(
-        "crypto_sign",
-        "signing needs key management AetherShell does not provide; \
-         NO SIGNATURE WAS PRODUCED",
-        "use the openssl CLI directly",
-    ))
+    digital_signatures::sign(args, input)
 }
 
 fn bi_crypto_key_generate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -34041,10 +34033,10 @@ fn bi_crypto_key_generate(args: Vec<Value>, input: Option<Value>) -> Result<Valu
             ))
         }
     };
-    if !matches!(key_type.as_str(), "rsa" | "ec" | "ecdsa") {
+    if !matches!(key_type.as_str(), "rsa" | "ec" | "ecdsa" | "ed25519") {
         return Err(crate::safety::bad_arg(
             name,
-            "key type rsa, ec or ecdsa",
+            "key type rsa, ec, ecdsa or ed25519",
             "unsupported key type",
         ));
     }
@@ -34059,6 +34051,9 @@ fn bi_crypto_key_generate(args: Vec<Value>, input: Option<Value>) -> Result<Valu
             ))
         }
     };
+    if key_type == "ed25519" {
+        return digital_signatures::generate_key();
+    }
     #[cfg(unix)]
     {
         let mut command = std::process::Command::new("openssl");
@@ -35315,19 +35310,9 @@ fn bi_crypto_generate_key(args: Vec<Value>, input: Option<Value>) -> Result<Valu
     bi_crypto_key_generate(args, input)
 }
 
-/// Unsupported signature verification refuses instead of returning a truthy sentinel.
+/// Signature verification returns a Bool only after structural input validation.
 fn bi_crypto_verify_signature(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "crypto_verify_signature accepts no arguments or pipeline input while unsupported",
-        ));
-    }
-    Err(crate::safety::unimplemented(
-        "crypto_verify_signature",
-        "verification needs key management AetherShell does not provide; \
-         NOTHING WAS VERIFIED",
-        "use the openssl CLI directly",
-    ))
+    digital_signatures::verify(args, input)
 }
 
 fn bi_crypto_jwt_decode(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
