@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 576/1,171 implementations; 701/1,437 callable names | 595 implementations and 736 callable names |
-| Latest targeted Windows validation | 764 unique tests across twelve suites passed | Validate the complete final tree |
+| Signature migration | 583/1,171 implementations; 708/1,437 callable names | 588 implementations and 729 callable names |
+| Latest targeted Windows validation | 731 unique tests across nine suites passed | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,10 +57,10 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 576 implementations covered, 595 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 583 implementations covered, 588 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
-| Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution | Explicitly unsupported for this release | Source bodies and refusal contracts produce E_UNIMPLEMENTED; no successful mutation claimed | Runtime maintainer |
+| Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Explicitly unsupported for this release | Source bodies and refusal contracts produce E_UNIMPLEMENTED; no successful mutation claimed | Runtime maintainer |
 | DQN weight training | Explicitly unsupported for this release; real trainer deferred | src/rl.rs train computes a local Q-value without updating weights; rl_dqn_step refuses before the batch threshold mutates state; tests/dqn_contracts.rs witnesses refusal | RL maintainer |
 | Other placeholder operations | Audit pending; blocker | Enumerate through remaining source-reviewed catalogue migration; do not infer support from registration | Runtime maintainer |
 | Platform/features/packaging | Validation pending; blocker | Complete stages 4 and 6 on final commit, including MSRV and supported feature builds | Platform and release maintainers |
@@ -78,7 +78,7 @@ remaining catalogue or platform gates.
 
 - [x] Add declaration uniqueness, alias inheritance and repeatable coverage inventory.
 - [x] Cover the E1/E2/E7 working set with declared contracts.
-- [ ] Finish the 595 remaining implementations, grouped by module and actual behavior. Refresh the inventory after every tranche.
+- [ ] Finish the 588 remaining implementations, grouped by module and actual behavior. Refresh the inventory after every tranche.
 - [x] Migrate sudo_check: strict input rejection, native Unix effective UID, checked Windows subprocess status and boolean parsing, and coded failures; Windows checks passed, native Unix validation remains a platform gate.
 - [ ] Read each body before authoring its declaration; record direct-call, pipeline, optional-argument and alias semantics without generating contracts from probes.
 - [ ] Reject surplus arguments, wrong types, conflicting input and invalid options before effects or expensive work begin.
@@ -94,6 +94,7 @@ and malformed-call regressions pass without broad skip lists masking failures.
 ## 3. Close correctness and security gaps
 
 - [x] Fix legacy password hash/verification consistency across platforms, including fresh salts, supported formats and FIPS behavior; test success, wrong passwords and malformed hashes.
+- [ ] Complete cron_list output validation: Windows currently accepts scalar JSON as an empty list and incomplete task objects as records; review Unix environment assignments, special schedules and repeated whitespace. The current scheduling tranche enforces call shape only for this already-declared query.
 - [ ] Review remaining unchecked subprocess exits and false/zero/empty-result failure paths; lower the ratchet counts only with source review and meaningful tests.
 - [ ] Verify that unsupported, absent-tool, failed-tool, invalid-input and policy refusals remain distinct, coded outcomes.
 - [ ] Complete native Unix validation for ownership, modes, execute bits, symlink targets, dangling links and audit aliases. Validate Windows privilege and read-only behavior separately.

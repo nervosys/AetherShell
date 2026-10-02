@@ -3332,3 +3332,34 @@ fn generated_ec_key_is_checkable_by_openssl_in_an_owned_fixture() {
         "generated key failed OpenSSL validation"
     );
 }
+
+#[test]
+fn scheduling_contracts_reject_ignored_input_without_scheduling_jobs() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::new();
+    for name in [
+        "cron_add",
+        "cron_remove",
+        "cron_enable",
+        "cron_disable",
+        "at_schedule",
+        "at_remove",
+    ] {
+        code(call(name, vec![], &mut env), "E_UNIMPLEMENTED");
+        code(call(name, vec![s("ignored")], &mut env), "E_BAD_ARG");
+        code(
+            call_with_input(name, vec![], Some(s("ignored")), &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    for name in ["cron_list", "at_list"] {
+        code(call(name, vec![s("ignored")], &mut env), "E_BAD_ARG");
+        code(
+            call_with_input(name, vec![], Some(s("ignored")), &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    #[cfg(not(unix))]
+    code(call("at_list", vec![], &mut env), "E_UNIMPLEMENTED");
+}

@@ -26783,7 +26783,12 @@ fn bi_svc_delete(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_cron_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "cron_list accepts no arguments or pipeline input",
+        ));
+    }
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -26887,7 +26892,12 @@ fn bi_cron_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_cron_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_cron_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "cron_add is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -26900,7 +26910,12 @@ fn bi_cron_add(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_cron_remove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_cron_remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "cron_remove is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -26913,7 +26928,12 @@ fn bi_cron_remove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_cron_enable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_cron_enable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "cron_enable is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Returned `Ok(false)` for every call, ignoring its arguments: an
     // agent could not tell "this did not work" from "this shell does
     // not do that", and the catalogue advertised it either way.
@@ -26924,7 +26944,12 @@ fn bi_cron_enable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_cron_disable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_cron_disable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "cron_disable is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Returned `Ok(false)` for every call, ignoring its arguments: an
     // agent could not tell "this did not work" from "this shell does
     // not do that", and the catalogue advertised it either way.
@@ -26935,7 +26960,12 @@ fn bi_cron_disable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_at_schedule(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_at_schedule(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "at_schedule is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Did no work and returned a value. An agent could not tell this
     // apart from a result -- and for this family that matters more
     // than most, because "it needs privileges" read as a String at
@@ -26948,42 +26978,146 @@ fn bi_at_schedule(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_at_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(not(target_os = "windows"))]
+fn bi_at_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "at_list accepts no arguments or pipeline input",
+        ));
+    }
+    #[cfg(unix)]
     {
         let output = std::process::Command::new("atq")
+            .stdin(std::process::Stdio::null())
             .output()
             .map_err(|e| crate::safety::spawn_error("at_list", "atq", &e))?;
-        let text = String::from_utf8_lossy(&output.stdout).to_string();
-        let jobs: Vec<Value> = text
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|line| {
-                let mut rec = std::collections::BTreeMap::new();
-                let parts: Vec<&str> = line.splitn(2, '\t').collect();
-                if let Some(id_str) = parts.first() {
-                    rec.insert("job_id".to_string(), Value::Str(id_str.trim().to_string()));
-                }
-                if let Some(rest) = parts.get(1) {
-                    let tokens: Vec<&str> = rest.rsplitn(3, ' ').collect();
-                    if tokens.len() >= 2 {
-                        rec.insert("queue".to_string(), Value::Str(tokens[1].to_string()));
-                        rec.insert("user".to_string(), Value::Str(tokens[0].to_string()));
-                    }
-                    rec.insert("schedule".to_string(), Value::Str(rest.trim().to_string()));
-                }
-                Value::Record(rec)
-            })
-            .collect();
-        return Ok(Value::Array(jobs));
+        parse_at_queue(output)
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(not(unix))]
     {
-        Ok(Value::Array(vec![]))
+        Err(crate::safety::unimplemented(
+            "at_list",
+            "Unix atq job listing is unavailable on this platform; no queue was queried",
+            "inspect the platform scheduler with a supported tool",
+        ))
     }
 }
 
-fn bi_at_remove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+#[cfg(any(unix, test))]
+fn parse_at_queue(output: std::process::Output) -> Result<Value> {
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            "at_list",
+            "atq",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    let malformed = || {
+        crate::safety::bad_state(
+            "at_list",
+            "unexpected atq output",
+            "tab-separated job ID and schedule/queue/user layout",
+        )
+    };
+    let text = String::from_utf8(output.stdout).map_err(|_| malformed())?;
+    let mut jobs = Vec::new();
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let (id, rest) = line.split_once('\t').ok_or_else(malformed)?;
+        let id = id.trim();
+        if id.is_empty()
+            || !id.bytes().all(|b| b.is_ascii_digit())
+            || id.parse::<u64>().ok().is_none_or(|n| n == 0)
+        {
+            return Err(malformed());
+        }
+        let tokens: Vec<_> = rest.split_whitespace().collect();
+        if tokens.len() < 3 {
+            return Err(malformed());
+        }
+        let mut rec = std::collections::BTreeMap::new();
+        rec.insert("job_id".into(), Value::Str(id.into()));
+        rec.insert("queue".into(), Value::Str(tokens[tokens.len() - 2].into()));
+        rec.insert("user".into(), Value::Str(tokens[tokens.len() - 1].into()));
+        // Keep the previous schedule field: the entire unparsed tail, including
+        // queue and user. Date/locale normalization is not claimed.
+        rec.insert("schedule".into(), Value::Str(rest.trim().into()));
+        jobs.push(Value::Record(rec));
+    }
+    Ok(Value::Array(jobs))
+}
+
+#[cfg(all(test, any(unix, windows)))]
+mod at_queue_contract_tests {
+    use super::*;
+    fn output(success: bool, bytes: &[u8]) -> std::process::Output {
+        #[cfg(unix)]
+        let status = {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(if success { 0 } else { 256 })
+        };
+        #[cfg(windows)]
+        let status = {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(if success { 0 } else { 1 })
+        };
+        std::process::Output {
+            status,
+            stdout: bytes.to_vec(),
+            stderr: b"permission denied".to_vec(),
+        }
+    }
+    #[test]
+    fn successful_empty_and_populated_queues_have_distinct_results() {
+        assert!(
+            matches!(parse_at_queue(output(true,b"  \n")).unwrap(),Value::Array(a) if a.is_empty())
+        );
+        let Value::Array(rows) =
+            parse_at_queue(output(true, b"12\tFri Oct 2 10:00:00 2026   a   user  \n")).unwrap()
+        else {
+            panic!("expected array")
+        };
+        let Value::Record(row) = &rows[0] else {
+            panic!("expected record")
+        };
+        assert_eq!(row.get("job_id"), Some(&Value::Str("12".into())));
+        assert_eq!(row.get("queue"), Some(&Value::Str("a".into())));
+        assert_eq!(row.get("user"), Some(&Value::Str("user".into())));
+        assert_eq!(
+            row.get("schedule"),
+            Some(&Value::Str("Fri Oct 2 10:00:00 2026   a   user".into()))
+        );
+    }
+    #[test]
+    fn unsuccessful_queries_and_malformed_successes_are_coded() {
+        for bytes in [b"".as_slice(), b"12\tdate a user", b"\xff"] {
+            let err = parse_at_queue(output(false, bytes))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("E_TOOL_FAILED") && err.contains("permission denied"),
+                "{err}"
+            );
+        }
+        for bytes in [
+            b"\xff".as_slice(),
+            b"noise",
+            b"0\tdate a user",
+            b"x\tdate a user",
+            b"1\ta user",
+            b"1\tdate a user\nnoise",
+        ] {
+            let err = parse_at_queue(output(true, bytes)).unwrap_err().to_string();
+            assert!(err.contains("E_BAD_STATE"), "{err}");
+        }
+    }
+}
+
+fn bi_at_remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() || input.is_some() {
+        return Err(crate::safety::arg_err(
+            "at_remove is unsupported and accepts no arguments or pipeline input",
+        ));
+    }
     // Returned `Ok(false)` for every call, ignoring its arguments: an
     // agent could not tell "this did not work" from "this shell does
     // not do that", and the catalogue advertised it either way.

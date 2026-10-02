@@ -2563,6 +2563,41 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[("typeof(audit_stats())", "Record")],
     },
     Signature {
+        name: "cron_add", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Any",
+        doc: "Unsupported scheduler mutation. Parameterless calls refuse with E_UNIMPLEMENTED; no job is added. Reject all arguments and pipeline input; no successful return value.",
+        examples: &[(r#"(try { cron_add() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "cron_remove", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Any",
+        doc: "Unsupported scheduler mutation. Parameterless calls refuse with E_UNIMPLEMENTED; no job is removed. Reject all arguments and pipeline input; no successful return value.",
+        examples: &[(r#"(try { cron_remove() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "cron_enable", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Any",
+        doc: "Unsupported scheduler mutation. Parameterless calls refuse with E_UNIMPLEMENTED; no job is enabled. Reject all arguments and pipeline input; no successful return value.",
+        examples: &[(r#"(try { cron_enable() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "cron_disable", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Any",
+        doc: "Unsupported scheduler mutation. Parameterless calls refuse with E_UNIMPLEMENTED; no job is disabled. Reject all arguments and pipeline input; no successful return value.",
+        examples: &[(r#"(try { cron_disable() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "at_schedule", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Any",
+        doc: "Unsupported one-time scheduling. Parameterless calls refuse with E_UNIMPLEMENTED; no job is scheduled. Reject all arguments and pipeline input; no successful return value.",
+        examples: &[(r#"(try { at_schedule() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "at_remove", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Any",
+        doc: "Unsupported one-time job removal. Parameterless calls refuse with E_UNIMPLEMENTED; no job is removed. Reject all arguments and pipeline input; no successful return value.",
+        examples: &[(r#"(try { at_remove() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+    },
+    Signature {
+        name: "at_list", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Array",
+        doc: "Unix atq job listing in a supported tab-separated layout. Records contain job_id, queue, user and schedule Strings; schedule preserves the entire raw tail including queue/user, without date or locale normalization. Successful empty output means no jobs. Failed tools, non-UTF-8 or unfamiliar layouts carry coded errors. Non-Unix builds explicitly refuse. Reject arguments and pipeline input.",
+        examples: &[("typeof(at_list())", "Array")],
+    },
+    Signature {
         name: "cron_list",
         category: None,
         subject_required: false,
