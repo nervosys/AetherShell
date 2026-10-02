@@ -15728,14 +15728,27 @@ fn bi_rl_dqn_step(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "use a smaller buffer or state",
         ));
     }
-    if next_len >= agent.batch_size {
-        return Err(crate::safety::unimplemented(
+    if next_len >= agent.batch_size
+        && (agent.network.param_count() + agent.target_network.param_count())
+            .checked_mul(agent.batch_size)
+            .and_then(|work| work.checked_mul(4))
+            .is_none_or(|work| work > 20_000_000)
+    {
+        return Err(crate::safety::budget_exceeded(
             "rl_dqn_step",
-            "DQN training does not update network weights",
-            "use an implemented reinforcement-learning trainer",
+            "training exceeds twenty million estimated dense operations".into(),
+            "use a smaller network or batch size",
         ));
     }
-    agent.step(state, action, reward, next, *done);
+    agent
+        .step(state, action, reward, next, *done)
+        .map_err(|reason| {
+            crate::safety::bad_state(
+                "rl_dqn_step",
+                reason,
+                "finite training arithmetic; use smaller values or learning rate",
+            )
+        })?;
     dqn_agent_to_value(&agent)
 }
 
@@ -27034,22 +27047,11 @@ mod cron_listing_tests {
     }
 }
 
+#[path = "scheduler.rs"]
+mod scheduler;
+
 fn bi_cron_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "cron_add is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "cron_add",
-        "adding a scheduled job is not implemented; NOTHING WAS DONE",
-        "use `crontab -e`, or `schtasks` on Windows",
-    ))
+    scheduler::guard_and_add(args, input)
 }
 
 fn bi_cron_remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -27124,38 +27126,7 @@ fn guard_and_change_cron(
         target,
         action,
         cfg!(windows),
-        |tool, arguments, stdin| {
-            use std::io::Write;
-            let mut command = std::process::Command::new(tool);
-            command
-                .args(arguments)
-                .env("LC_ALL", "C")
-                .stdin(if stdin.is_some() {
-                    std::process::Stdio::piped()
-                } else {
-                    std::process::Stdio::null()
-                })
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped());
-            let mut child = command
-                .spawn()
-                .map_err(|e| crate::safety::spawn_error(name, tool, &e))?;
-            if let Some(bytes) = stdin {
-                let write = child
-                    .stdin
-                    .take()
-                    .expect("piped scheduler stdin")
-                    .write_all(bytes);
-                if let Err(e) = write {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(crate::safety::spawn_error(name, tool, &e));
-                }
-            }
-            child
-                .wait_with_output()
-                .map_err(|e| crate::safety::spawn_error(name, tool, &e))
-        },
+        |tool, arguments, stdin| scheduler::run_tool(name, tool, arguments, stdin),
     )
 }
 
@@ -27397,21 +27368,7 @@ mod cron_mutation_tests {
 }
 
 fn bi_at_schedule(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "at_schedule is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "at_schedule",
-        "scheduling a one-time job is not implemented; NOTHING WAS DONE",
-        "use `at`",
-    ))
+    scheduler::guard_and_schedule(args, input)
 }
 
 fn bi_at_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -27428,12 +27385,16 @@ fn bi_at_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             .map_err(|e| crate::safety::spawn_error("at_list", "atq", &e))?;
         parse_at_queue(output)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        scheduler::list_windows_at()
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         Err(crate::safety::unimplemented(
             "at_list",
-            "Unix atq job listing is unavailable on this platform; no queue was queried",
-            "inspect the platform scheduler with a supported tool",
+            "unsupported scheduler platform",
+            "use a supported platform",
         ))
     }
 }
@@ -27549,19 +27510,7 @@ mod at_queue_contract_tests {
 }
 
 fn bi_at_remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "at_remove is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Returned `Ok(false)` for every call, ignoring its arguments: an
-    // agent could not tell "this did not work" from "this shell does
-    // not do that", and the catalogue advertised it either way.
-    Err(crate::safety::unimplemented(
-        "at_remove",
-        "removing a scheduled `at` job is not implemented; NOTHING WAS CHANGED",
-        "use `atrm <id>`",
-    ))
+    scheduler::guard_and_remove(args, input)
 }
 
 fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

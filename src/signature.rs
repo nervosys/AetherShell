@@ -1776,13 +1776,13 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "rl_dqn_agent", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("name", Ty::Str, "agent name"), req("state_dim", Ty::Int, "positive state width"), req("action_size", Ty::Int, "positive action count; at most 10000"), opt("hidden_sizes", Ty::Array, "at most 126 positive Int widths; default [64,64]; empty means no hidden layers")], returns: "Record",
-        doc: "Create matching policy/target networks with ReLU hidden layers and linear Q outputs, checking combined parameters at most one million before allocation. Defaults: learning_rate 0.001, discount 0.99, epsilon 1, epsilon_decay 0.995, epsilon_min 0.01, replay capacity 10000, batch size 32, target update frequency 100, steps zero. Training is not implemented.",
+        doc: "Create matching policy/target networks with ReLU hidden layers and linear Q outputs, checking combined parameters at most one million before allocation. Defaults: learning_rate 0.001, discount 0.99, epsilon 1, epsilon_decay 0.995, epsilon_min 0.01, replay capacity 10000, batch size 32, target update frequency 100, steps zero. Batch training uses selected-action mean squared TD loss and SGD backpropagation, with a detached target network.",
         examples: &[(r#"rl_dqn_agent("example", 2, 3).action_size"#, "3"), (r#"rl_dqn_agent("example", 2, 3, []).buffer_size"#, "0")],
     },
     Signature {
         name: "rl_dqn_step", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
         params: &[req("state", Ty::Array, "exactly state_dim finite numbers"), req("action", Ty::Int, "in 0..action_size"), req("reward", Ty::Numeric, "finite reward"), req("next_state", Ty::Array, "exactly state_dim finite numbers, including terminal transitions"), req("done", Ty::Bool, "terminal transition")], returns: "Record",
-        doc: "Below the training threshold, return an agent copy with the experience stored in its circular replay buffer, steps incremented, target network copied at its update frequency, and epsilon multiplied by epsilon_decay while above epsilon_min. Refuse with E_UNIMPLEMENTED before mutation when the resulting buffer size reaches batch_size: the underlying training placeholder does not update weights. Validate both networks, matching architectures, rates, positive batch/frequency, replay entries/position and counters; cap encoding at 64 MiB, combined network parameters and stored state values separately at one million, and replay capacity/actions at 10000.",
+        doc: "Return an agent copy with its experience stored in circular replay. At batch_size, sample replay with replacement and update policy weights/biases by batch-mean SGD for half squared TD loss, differentiating only the selected action and holding target values fixed; terminal transitions do not bootstrap. Increment steps, copy the trained policy to the target at its update frequency, and decay epsilon while above epsilon_min. Reject non-finite training arithmetic without returning changed state; cap estimated training work at twenty million dense operations. Validate both networks, matching architectures, rates, positive batch/frequency, replay entries/position and counters; cap encoding at 64 MiB, combined network parameters and stored state values separately at one million, and replay capacity/actions at 10000.",
         examples: &[(r#"rl_dqn_step(rl_dqn_agent("example", 2, 2, []), [1, 0], 1, 5, [0, 1], true).steps"#, "1"), (r#"let result = rl_dqn_agent("example", 2, 2) | rl_dqn_step([1, 0], 1, 5, [0, 1], false); result.buffer_size"#, "1")],
     },
     // Source-reviewed neural operations; serialized networks are validated.
@@ -2575,9 +2575,10 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"len(docs_signatures("fn example(x: i64) -> i64 { x }"))"#, "1")],
     },
     Signature {
-        name: "cron_add", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Any",
-        doc: "Unsupported scheduler mutation. Parameterless calls refuse with E_UNIMPLEMENTED; no job is added. Reject all arguments and pipeline input; no successful return value.",
-        examples: &[(r#"(try { cron_add() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+        name: "cron_add", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("schedule", Ty::Str, "Unix five-field/@ schedule; Windows @hourly, @daily or @weekly"), req("command", Ty::Str, "One command line; Unix at most 64 KiB, Windows at most 4096 UTF-16 code units")], returns: "String",
+        doc: "Create a recurring job under the current user and return its lifecycle target. Unix appends one unique crontab entry, preserving unrelated text; external writers can race. Windows creates a uniquely named limited interactive-user task running cmd.exe /d /s /c: @hourly starts next whole hour, @daily at midnight, @weekly Sunday midnight. Windows tasks require the user to be logged in. Reject transactions, invalid shape and pipeline input; requires Exec approval.",
+        examples: &[(r#"(try { cron_add("", "") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
         name: "cron_remove", category: None, subject_required: false, aliases: &[], subject: None,
@@ -2598,18 +2599,20 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"(try { cron_disable("") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
-        name: "at_schedule", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Any",
-        doc: "Unsupported one-time scheduling. Parameterless calls refuse with E_UNIMPLEMENTED; no job is scheduled. Reject all arguments and pipeline input; no successful return value.",
-        examples: &[(r#"(try { at_schedule() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+        name: "at_schedule", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("time", Ty::Str, "Future local YYYY-MM-DDTHH:MM timestamp"), req("command", Ty::Str, "One command line; Unix at most 64 KiB, Windows at most 4096 UTF-16 code units")], returns: "String",
+        doc: "Schedule a one-time command and return its job ID. Reject past, ambiguous or nonexistent local times, invalid shape, transactions and pipeline input. Unix uses at -t with the command on stdin; Windows registers a unique AetherShell-at task under the current limited interactive user running cmd.exe /d /s /c, requiring that user to be logged in. Requires Exec approval. Unrecognized successful registration output reports that a job may exist: inspect the queue before retrying.",
+        examples: &[(r#"(try { at_schedule("", "") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
-        name: "at_remove", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Any",
-        doc: "Unsupported one-time job removal. Parameterless calls refuse with E_UNIMPLEMENTED; no job is removed. Reject all arguments and pipeline input; no successful return value.",
-        examples: &[(r#"(try { at_remove() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+        name: "at_remove", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("job_id", Ty::Str, "Unix positive decimal atq ID or Windows AetherShell-at UUID task name")], returns: "Bool",
+        doc: "Remove one scheduled one-time job and return true after successful native removal. Unix uses atrm; Windows deletes the exact AetherShell-at task by name. Reject invalid IDs, wildcard targets, transactions and pipeline input; requires Destructive approval.",
+        examples: &[(r#"(try { at_remove("") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
         name: "at_list", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Array",
-        doc: "Unix atq job listing in a supported tab-separated layout. Records contain job_id, queue, user and schedule Strings; schedule preserves the entire raw tail including queue/user, without date or locale normalization. Successful empty output means no jobs. Failed tools, non-UTF-8 or unfamiliar layouts carry coded errors. Non-Unix builds explicitly refuse. Reject arguments and pipeline input.",
+        doc: "Unix atq job listing in a supported tab-separated layout. Records contain job_id, queue, user and schedule Strings; schedule preserves the entire raw tail including queue/user, without date or locale normalization. Successful empty output means no jobs. Failed tools, non-UTF-8 or unfamiliar layouts carry coded errors. Windows lists root-folder AetherShell-at tasks as job_id/queue/user/schedule/state Strings; other Windows tasks are excluded, and schedule is the native trigger StartBoundary. Reject arguments and pipeline input.",
         examples: &[("at_list()", "[]")],
     },
     Signature {

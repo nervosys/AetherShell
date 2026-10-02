@@ -12,7 +12,7 @@ have their own milestones; this checklist governs the current release.
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
 | Signature migration | 585/1,171 implementations; 710/1,437 callable names | 586 implementations and 727 callable names |
-| Latest targeted Windows validation | 700 unique tests across eight suites passed | Validate the complete final tree |
+| Latest targeted Windows validation | 721 unique tests across nine suites passed | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -60,8 +60,8 @@ items remain release blockers unless explicitly listed as deferred.
 | Strict builtin signatures | Partially implemented; blocker | Live inventory: 585 implementations covered, 586 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
-| Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; cron remove/enable/disable now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
-| DQN weight training | Implementation pending; blocker | src/rl.rs train computes a local Q-value without updating weights; rl_dqn_step refuses before the batch threshold mutates state; tests/dqn_contracts.rs witnesses refusal | RL maintainer |
+| Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
+| DQN weight training | Implemented; final platform/release validation open | Batch SGD updates weights/biases; finite-difference checks cover all seven activations; terminal targets, delayed synchronization, budgets and complete rollback on arithmetic failure are tested | RL maintainer |
 | Other placeholder operations | Audit pending; blocker | Enumerate through remaining source-reviewed catalogue migration; do not infer support from registration | Runtime maintainer |
 | Platform/features/packaging | Validation pending; blocker | Complete stages 4 and 6 on final commit, including MSRV and supported feature builds | Platform and release maintainers |
 | Provider-backed E7 evidence | Validation pending; blocker | Requires configured test provider; record model, prompt and corpus versions | Evaluation maintainer |
@@ -80,15 +80,17 @@ removing their guards.
 - [x] Implement docs_types and docs_signatures as pure Rust source extraction.
 - [x] Fix cron_list query parsing and checked subprocess output; platform validation remains open.
 - [ ] Classify the source candidates below into always-missing functionality, conditional platform support, and transaction/capability constraints; map helpers to callable operations.
-- [ ] Implement scheduler mutations with real backends, effect gates, validated inputs and isolated mutation tests.
+- [x] Implement scheduler mutations with real backends, effect gates, validated inputs and isolated mutation tests.
   - [x] Implement cron_remove, cron_enable and cron_disable using native Windows task operations and exact-entry Unix crontab updates. Injected backend tests cover successful changes, duplicate refusal, preserved unrelated text, native failures and Windows wildcard refusal.
-  - [ ] Implement cron_add, at_schedule and at_remove.
+  - [x] Implement cron_add, at_schedule and at_remove; add Windows one-time task listing. Fixed registration code accepts UTF-8 JSON data on stdin and uses a limited interactive-user principal. Eight isolated tests passed, including all Windows trigger branches through process-local cmdlet stubs.
   - [ ] Verify actual mutations in disposable Windows and Unix environments; backend injection is not a native-platform mutation witness.
 - [ ] Implement services, users/groups, permissions/ACLs, mounting and watching with tested platform backends.
 - [ ] Implement native socket lifecycle and missing web/clipboard/UI/input operations.
 - [ ] Implement missing package-manager operations with checked tool adapters.
 - [ ] Implement source navigation, refactoring, search, tests, sessions and documentation operations.
 - [ ] Implement DQN training and remaining crypto operations/legacy verification where supported by the algorithm policy.
+  - [x] Implement DQN batch SGD with detached targets and real weights/bias updates.
+  - [ ] Implement remaining crypto operations and permitted legacy verification.
 - [ ] Complete long-running process/watch/server lifecycles with bounded cancellation and cleanup.
 - [ ] Verify each operation's positive result against real effects in owned fixtures or disposable environments; malformed-call refusal alone does not verify implementation.
 - [ ] Re-run the final supported-platform matrix and remaining release gates.
@@ -221,7 +223,7 @@ Unchecked means the unsupported branches still require classification and review
 not that the entire function is nonfunctional. Generated from source headers and
 explicit refusal calls, without executing builtins or generating their contracts.
 
-- [ ] bi_rl_dqn_step
+- [x] bi_rl_dqn_step — working implementation added; final platform/release validation remains open.
 - [ ] bi_proc_kill
 - [ ] bi_fs_chmod
 - [ ] bi_fs_chown
@@ -240,13 +242,13 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_svc_create
 - [ ] bi_svc_delete
 - [ ] bi_cron_list
-- [ ] bi_cron_add
+- [x] bi_cron_add — working implementation added; final platform/release validation remains open.
 - [x] bi_cron_remove — native lifecycle backend implemented; disposable-platform verification remains open.
 - [x] bi_cron_enable — native lifecycle backend implemented; disposable-platform verification remains open.
 - [x] bi_cron_disable — native lifecycle backend implemented; disposable-platform verification remains open.
-- [ ] bi_at_schedule
-- [ ] bi_at_list
-- [ ] bi_at_remove
+- [x] bi_at_schedule — working implementation added; final platform/release validation remains open.
+- [x] bi_at_list — working implementation added; final platform/release validation remains open.
+- [x] bi_at_remove — working implementation added; final platform/release validation remains open.
 - [ ] bi_startup_list
 - [ ] bi_archive_test
 - [ ] bi_user_add
@@ -462,3 +464,52 @@ all-target Clippy passed with warnings denied, and the locked offline Rust 1.88
 workspace check passed. Evidence: `temp/ae-perf/cron-lifecycle-validation.log`,
 `cron-lifecycle-final.log`, `cron-lifecycle-clippy.log`, and
 `cron-lifecycle-msrv.log`. Versions and publication state remain unchanged.
+
+### Scheduler creation and DQN checkpoint — 2026-10-02
+
+Scheduler creation now has working adapters: Unix cron appends exact entries and
+at submits stdin to `at -t`; Windows registers unique tasks through fixed
+PowerShell code and JSON stdin. Windows recurring schedules are @hourly (starting
+at the next whole hour), @daily (midnight) and @weekly (Sunday midnight). Windows
+jobs execute cmd.exe under the current limited interactive user, so that user
+must be logged in. One-time timestamps are future local `YYYY-MM-DDTHH:MM`; invalid,
+ambiguous or nonexistent times fail before approval. Returned targets/IDs feed
+native lifecycle/removal operations. Unix at-list queries the native queue;
+Windows lists root-folder AetherShell-at tasks with typed records. Failed tools
+and malformed registration confirmations never become successful results. If a
+successful registration returns an unreadable ID, the error explicitly warns
+that a job may exist and directs inspection before retrying. Host jobs were not
+mutated during tests; real disposable-platform mutation witnesses remain open.
+
+DQN now optimizes batch-mean half squared TD loss with SGD backpropagation,
+differentiating the selected action and holding target-network predictions fixed.
+Terminal transitions use their reward directly. Replay samples with replacement;
+the trained policy synchronizes at the configured frequency. Arithmetic failure
+preserves the entire agent, including weights, replay, counters, epsilon and
+targets. MultiAgentRL.step propagates failures atomically across agents; both Rust
+step APIs now return Result. The shell refuses training above twenty million
+estimated dense operations while retaining prior size/encoding/replay limits.
+Gradient tests use independent central differences through ReLU, sigmoid, tanh,
+linear, leaky ReLU, swish and softmax. API tests verify actual parameter updates,
+reduced terminal error, target timing, direct/pipeline equivalence and budget/error
+refusals without changed input state. The Windows checkpoint passed 721 unique tests across nine suites: 561 library,
+31 declaration/example, eight DQN, 74 text/file, 18 effect ratchet, 14 guard, two
+effect coverage, ten error conditions and three module alias tests. The final
+scheduler input-limit and script-stub tests passed again after tightening Windows
+commands to 4096 UTF-16 code units and timestamps to exactly 16 characters.
+Workspace all-target Clippy passed; final library Clippy and Rust 1.88 workspace
+checks passed. The locked offline wasm32 web library check passed with the
+existing unused Env-method warning. CLI binaries are native targets. Evidence:
+`temp/ae-perf/scheduler-dqn-validation-final.log`, `scheduler-dqn-text-final.log`,
+`scheduler-creation-final.log`, `scheduler-dqn-clippy.log`,
+`scheduler-dqn-clippy-final.log`, `scheduler-dqn-msrv-final.log` and
+`scheduler-dqn-wasm-lib.log`. Failed initial test/build attempts are not counted
+as successful checks; repeated tests are counted only once.
+
+Windows creation also rejects commands longer than 4096 UTF-16 code units
+before approval; this leaves room below the [documented cmd.exe limit](https://learn.microsoft.com/en-us/troubleshoot/windows-client/shell-experience/command-line-string-limitation).
+
+Backend references: [Microsoft scheduled triggers](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtasktrigger),
+[POSIX at](https://manpages.ubuntu.com/manpages/focal/man1/at.1posix.html), and the
+[DQN paper](https://arxiv.org/abs/1312.5602). These references support the adapter and
+learning design; local tests establish this implementation's behavior.

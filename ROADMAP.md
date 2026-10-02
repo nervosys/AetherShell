@@ -1,6 +1,6 @@
 # AetherShell Roadmap
 
-> Current release status, 2026-10-01: workspace packages remain **12.0.2**;
+> Current release status, 2026-10-02: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
 > owners, evidence and release gates. Signature coverage is 585/1171
@@ -9,9 +9,10 @@
 > report; final-tree cross-platform measurements remain pending.
 
 The user expanded the 13.0.0 implementation scope on 2026-10-02 to all unsupported
-builtins. Accounts/groups, ACL operations, mounting/watching, scheduler mutations,
-elevated execution and DQN weight training currently have missing functionality;
-they are now implementation blockers. The completion plan separates those gaps
+builtins. Scheduler mutation adapters and DQN weight training now have working
+implementations and targeted tests; disposable-platform scheduler validation
+remains open. Accounts/groups, ACL operations, mounting/watching, elevated
+execution and other unsupported operations remain implementation blockers. The completion plan separates those gaps
 from legitimate platform, policy and transaction constraints. Refusal contracts
 alone do not close this implementation scope.
 

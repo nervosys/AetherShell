@@ -3339,8 +3339,8 @@ fn scheduling_contracts_reject_ignored_input_without_scheduling_jobs() {
     let _fixture = Fixture::new();
     let mut env = Env::new();
     for name in ["cron_add", "at_schedule", "at_remove"] {
-        code(call(name, vec![], &mut env), "E_UNIMPLEMENTED");
-        code(call(name, vec![s("ignored")], &mut env), "E_BAD_ARG");
+        code(call(name, vec![], &mut env), "E_BAD_ARG");
+        code(call(name, vec![s("")], &mut env), "E_BAD_ARG");
         code(
             call_with_input(name, vec![], Some(s("ignored")), &mut env),
             "E_BAD_ARG",
@@ -3361,8 +3361,6 @@ fn scheduling_contracts_reject_ignored_input_without_scheduling_jobs() {
             "E_BAD_ARG",
         );
     }
-    #[cfg(not(unix))]
-    code(call("at_list", vec![], &mut env), "E_UNIMPLEMENTED");
 }
 
 #[test]
@@ -3392,6 +3390,30 @@ fn scheduler_lifecycle_is_gated_before_native_backend_access() {
             ),
             "E_NEEDS_APPROVAL",
         );
+    }
+    for (name, args) in [
+        ("cron_add", vec![s("@daily"), s("echo owned-fixture")]),
+        (
+            "at_schedule",
+            vec![s("2099-01-01T12:00"), s("echo owned-fixture")],
+        ),
+        (
+            "at_remove",
+            vec![s(if cfg!(windows) {
+                "AetherShell-at-12345678-1234-4234-8234-123456789012"
+            } else {
+                "12"
+            })],
+        ),
+    ] {
+        code(call(name, args, &mut env), "E_NEEDS_APPROVAL");
+    }
+    for (name, args) in [
+        ("cron_add", vec![s("@daily"), s("echo x\necho y")]),
+        ("at_schedule", vec![s("2000-01-01T12:00"), s("echo x")]),
+        ("at_remove", vec![s("*")]),
+    ] {
+        code(call(name, args, &mut env), "E_BAD_ARG");
     }
 }
 

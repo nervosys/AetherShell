@@ -138,6 +138,8 @@ pub mod builtins;
 /// Configuration — XDG-compliant config, themes, and settings.
 #[cfg(feature = "native")]
 pub mod config;
+#[cfg(feature = "native")]
+mod dqn_training;
 /// Evaluator — expression evaluation and runtime semantics.
 #[cfg(feature = "native")]
 pub mod eval;

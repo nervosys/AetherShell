@@ -677,7 +677,8 @@ impl DQNAgent {
             .unwrap_or(0)
     }
 
-    /// Store experience and potentially train
+    /// Store a transition and train with batch SGD when replay reaches batch_size.
+    /// Arithmetic failure leaves the complete agent unchanged.
     pub fn step(
         &mut self,
         state: Vec<f64>,
@@ -685,62 +686,61 @@ impl DQNAgent {
         reward: f64,
         next_state: Vec<f64>,
         done: bool,
-    ) {
-        // Store experience
-        self.replay_buffer.push(Experience {
+    ) -> Result<(), &'static str> {
+        if state.len() != self.state_dim
+            || next_state.len() != self.state_dim
+            || state.iter().chain(&next_state).any(|x| !x.is_finite())
+            || !reward.is_finite()
+            || action >= self.action_size
+            || self.batch_size == 0
+            || self.target_update_freq == 0
+            || self.replay_buffer.capacity == 0
+            || self.replay_buffer.position >= self.replay_buffer.capacity
+            || self.steps.checked_add(1).is_none()
+            || [
+                self.learning_rate,
+                self.discount,
+                self.epsilon,
+                self.epsilon_decay,
+                self.epsilon_min,
+            ]
+            .iter()
+            .any(|x| !x.is_finite() || !(0.0..=1.0).contains(x))
+        {
+            return Err("invalid DQN transition, rates, replay or counters");
+        }
+        let mut candidate = self.clone();
+        candidate.replay_buffer.push(Experience {
             state,
             action,
             reward,
             next_state,
             done,
         });
-
-        // Train if we have enough experiences
-        if self.replay_buffer.len() >= self.batch_size {
-            self.train();
+        if candidate.replay_buffer.len() >= candidate.batch_size {
+            candidate.train()?;
         }
-
-        self.steps += 1;
-
-        // Update target network periodically
-        if self.steps.is_multiple_of(self.target_update_freq) {
-            self.update_target_network();
+        candidate.steps += 1;
+        if candidate.steps.is_multiple_of(candidate.target_update_freq) {
+            candidate.update_target_network();
         }
-
-        // Decay epsilon
-        if self.epsilon > self.epsilon_min {
-            self.epsilon *= self.epsilon_decay;
+        if candidate.epsilon > candidate.epsilon_min {
+            candidate.epsilon *= candidate.epsilon_decay;
         }
+        *self = candidate;
+        Ok(())
     }
 
-    /// Train on a batch of experiences
-    fn train(&mut self) {
+    /// Mean selected-action squared TD loss, with target values held constant.
+    fn train(&mut self) -> Result<(), &'static str> {
         let batch = self.replay_buffer.sample(self.batch_size);
-
-        for exp in batch {
-            // Compute target Q-value
-            let target_q_values = self.target_network.forward(&exp.next_state);
-            let max_target_q = target_q_values
-                .iter()
-                .fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-
-            let target = if exp.done {
-                exp.reward
-            } else {
-                exp.reward + self.discount * max_target_q
-            };
-
-            // Get current Q-values and update for the taken action
-            let mut current_q = self.network.forward(&exp.state);
-            let td_error = target - current_q[exp.action];
-
-            // Simple gradient descent update
-            // In a full implementation, this would use proper backpropagation
-            current_q[exp.action] += self.learning_rate * td_error;
-
-            // Update network weights (simplified - in practice use backprop)
-            // This is a placeholder for demonstration
-        }
+        crate::dqn_training::train_batch(
+            &mut self.network,
+            &self.target_network,
+            &batch,
+            self.learning_rate,
+            self.discount,
+        )
     }
 
     /// Copy weights from policy network to target network
@@ -832,10 +832,31 @@ impl MultiAgentRL {
         rewards: Vec<f64>,
         next_states: Vec<Vec<f64>>,
         dones: Vec<bool>,
-    ) {
-        for (i, agent) in self.agents.iter_mut().enumerate() {
+    ) -> Result<(), &'static str> {
+        let count = self.agents.len();
+        if [
+            states.len(),
+            actions.len(),
+            rewards.len(),
+            next_states.len(),
+            dones.len(),
+        ]
+        .iter()
+        .any(|n| *n != count)
+        {
+            return Err("multi-agent transition count differs from agent count");
+        }
+        if self
+            .shared_buffer
+            .as_ref()
+            .is_some_and(|buffer| buffer.capacity == 0 || buffer.position >= buffer.capacity)
+        {
+            return Err("invalid shared replay buffer");
+        }
+        let mut candidate = self.clone();
+        for (i, agent) in candidate.agents.iter_mut().enumerate() {
             // Store in shared buffer if enabled
-            if let Some(ref mut buffer) = self.shared_buffer {
+            if let Some(ref mut buffer) = candidate.shared_buffer {
                 buffer.push(Experience {
                     state: states[i].clone(),
                     action: actions[i],
@@ -852,8 +873,10 @@ impl MultiAgentRL {
                 rewards[i],
                 next_states[i].clone(),
                 dones[i],
-            );
+            )?;
         }
+        *self = candidate;
+        Ok(())
     }
 
     /// Parameter sharing: copy best agent's parameters to all
@@ -1105,5 +1128,42 @@ mod tests {
         assert!((returns[2] - 1.0).abs() < 1e-6);
         assert!((returns[1] - 1.9).abs() < 1e-6);
         assert!((returns[0] - 2.71).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod dqn_learning_tests {
+    use super::*;
+    #[test]
+    fn failed_training_keeps_replay_weights_steps_targets_and_epsilon_unchanged() {
+        let mut agent = DQNAgent::new("atomic", 1, 1, &[], 0.1, 0.9, 0.5, 32);
+        agent.batch_size = 1;
+        agent.network.set_params(&[1.0, 0.0]);
+        let before = serde_json::to_value(&agent).unwrap();
+        assert!(agent
+            .step(vec![f64::MAX], 0, -f64::MAX, vec![0.0], true)
+            .is_err());
+        assert_eq!(serde_json::to_value(&agent).unwrap(), before);
+    }
+    #[test]
+    fn multi_agent_error_does_not_commit_an_earlier_agents_update() {
+        let config = MultiAgentConfig {
+            num_agents: 2,
+            shared_replay: true,
+            parameter_sharing: false,
+            communication: false,
+        };
+        let mut agents = MultiAgentRL::new(config, 1, 1, &[], 0.1);
+        let before = serde_json::to_value(&agents).unwrap();
+        assert!(agents
+            .step(
+                vec![vec![1.0], vec![]],
+                vec![0, 0],
+                vec![1.0, 1.0],
+                vec![vec![0.0], vec![0.0]],
+                vec![true, true]
+            )
+            .is_err());
+        assert_eq!(serde_json::to_value(&agents).unwrap(), before);
     }
 }

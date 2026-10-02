@@ -394,7 +394,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "delete_role"
         | "kubectl_delete"
         | "role_delete"
-        | "cron_remove"
+        | "cron_remove" | "at_remove"
         | "svc_delete"
         | "terraform_destroy"
         | "helm_uninstall"
@@ -425,7 +425,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // will later run, so they are not reads.
         | "workflow_register" | "workflow_pipeline" | "workflow_map_reduce"
         | "workflow_saga" | "workflow_fan_out" | "workflow_scatter_gather"
-        | "cron_enable"
+        | "cron_enable" | "cron_add" | "at_schedule"
         | "sh" | "exec" | "system" | "timeout" | "timeout_cmd" | "xargs" | "xargs_exec"
         | "proc_spawn" | "strace" | "strace_cmd" | "ltrace" | "ltrace_cmd"
         | "perf_stat" | "perf_record" | "tmux_new" | "tmux_send"
@@ -4086,9 +4086,12 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
 /// removed.
 pub const SELF_GUARDED: &[&str] = &[
     "apply",
+    "at_remove",
+    "at_schedule",
     "bat_view",
     "cd",
     "cloud_instance_destroy",
+    "cron_add",
     "cron_disable",
     "cron_enable",
     "cron_remove",

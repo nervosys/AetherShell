@@ -123,8 +123,8 @@ asdf_list	ReadLocal
 assert	Pure
 assert_type	Pure
 at_list	ReadLocal
-at_remove	Pure
-at_schedule	Pure
+at_remove	Destructive
+at_schedule	Exec
 audit_export	Pure
 audit_log	ReadLocal
 audit_query	Pure
@@ -232,7 +232,7 @@ contains	Pure
 copy_file	WriteLocal
 cp	WriteLocal
 create_role	Pure
-cron_add	Pure
+cron_add	Exec
 cron_disable	Process
 cron_enable	Exec
 cron_list	ReadLocal
