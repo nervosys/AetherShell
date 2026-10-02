@@ -83,10 +83,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "the size IS an option-shaped value by contract — it defaults to `+1M` and `-1M` is the documented spelling for 'smaller than'",
     ),
     (
-        "bi_crypto_password_hash",
-        "a password may legitimately start with '-', and `openssl passwd` has no option that runs a program",
-    ),
-    (
         "bi_crypto_hmac",
         "an HMAC key is opaque bytes and may start with '-'; it is the argument of `-hmac`, which consumes it",
     ),

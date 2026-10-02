@@ -25,6 +25,7 @@ impl Fixture {
             "AETHER_AUDIT_KEY_FILE",
             "AETHER_AUDIT_SINK",
             "AETHER_MAX_FILES",
+            "AETHER_FIPS",
         ];
         let fixture = Self {
             root,
@@ -3060,4 +3061,144 @@ fn unsupported_filesystem_operations_refuse_without_mutation() {
     assert!(error.contains("no watch handle exists"));
     assert!(!error.contains("returns a handle"));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
+}
+
+#[test]
+fn password_hashes_use_stored_salts_and_bounded_parameters() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::default();
+    let password = "-secret\n\0雪";
+    let first = call("crypto_password_hash", vec![s(password)], &mut env).unwrap();
+    let second = call("crypto_password_hash", vec![s(password)], &mut env).unwrap();
+    assert_ne!(format!("{first:?}"), format!("{second:?}"));
+    assert!(matches!(
+        call(
+            "crypto_password_verify",
+            vec![s(password), first.clone()],
+            &mut env
+        )
+        .unwrap(),
+        Value::Bool(true)
+    ));
+    assert!(matches!(
+        call(
+            "crypto_password_verify",
+            vec![s("wrong"), first.clone()],
+            &mut env
+        )
+        .unwrap(),
+        Value::Bool(false)
+    ));
+    code(
+        call("crypto_password_hash", vec![s("x"), s("extra")], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call(
+            "crypto_password_verify",
+            vec![s("x"), s("garbage")],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call(
+            "crypto_password_hash",
+            vec![s(&"x".repeat(65537))],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+    let Value::Str(original) = &first else {
+        panic!("hash must be String")
+    };
+    let excessive = original.replace("m=19456", "m=65537");
+    assert_ne!(&excessive, original);
+    code(
+        call(
+            "crypto_password_verify",
+            vec![s(password), s(&excessive)],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+    code(
+        call(
+            "crypto_password_verify",
+            vec![s("x"), s("$6$legacy")],
+            &mut env,
+        ),
+        "E_UNIMPLEMENTED",
+    );
+    code(
+        call_with_input(
+            "crypto_password_hash",
+            vec![s("x")],
+            Some(s("pipe")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call_with_input(
+            "crypto_password_verify",
+            vec![s("x"), first.clone()],
+            Some(s("pipe")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    use sha2::{Digest, Sha256};
+    let legacy = hex::encode(Sha256::digest(password.as_bytes()));
+    assert!(matches!(
+        call(
+            "crypto_password_verify",
+            vec![s(password), s(&legacy)],
+            &mut env
+        )
+        .unwrap(),
+        Value::Bool(true)
+    ));
+    assert!(matches!(
+        call(
+            "crypto_password_verify",
+            vec![s("wrong"), s(&legacy)],
+            &mut env
+        )
+        .unwrap(),
+        Value::Bool(false)
+    ));
+    let excessive_pbkdf2 =
+        "$pbkdf2-sha256$i=1200001,l=32$c2FsdHNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    code(
+        call(
+            "crypto_password_verify",
+            vec![s(password), s(excessive_pbkdf2)],
+            &mut env,
+        ),
+        "E_BUDGET_EXCEEDED",
+    );
+    std::env::set_var("AETHER_FIPS", "1");
+    code(
+        call(
+            "crypto_password_verify",
+            vec![s(password), s(&legacy)],
+            &mut env,
+        ),
+        "E_POLICY_DENY",
+    );
+    code(
+        call("crypto_password_verify", vec![s(password), first], &mut env),
+        "E_POLICY_DENY",
+    );
+    let hash = call("crypto_password_hash", vec![s(password)], &mut env).unwrap();
+    let Value::Str(encoded) = &hash else {
+        panic!("hash must be String")
+    };
+    assert!(encoded.starts_with("$pbkdf2-sha256$i=600000,"));
+    assert!(matches!(
+        call("crypto_password_verify", vec![s(password), hash], &mut env).unwrap(),
+        Value::Bool(true)
+    ));
 }

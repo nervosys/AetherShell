@@ -167,7 +167,7 @@ hmac = "0.12"
 # offline cracking and stays the default; this exists so that a deployment
 # running under AETHER_FIPS has an all-approved chain rather than one
 # documented exception (AS-2026-08).
-pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac", "simple"] }
 url = "2.5"
 urlencoding = "2.1"
 flate2 = "1.0"

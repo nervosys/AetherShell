@@ -4905,6 +4905,18 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"(try { group_mod() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
     },
     Signature {
+        name: "crypto_password_hash", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("password", Ty::Str, "password, at most 65536 bytes")], returns: "String",
+        doc: "Native salted Argon2id PHC hash; AETHER_FIPS algorithm policy uses PBKDF2-HMAC-SHA256 with 600000 iterations. Fresh 16-byte salt. No subprocess or unsalted fallback. Reject pipeline input and surplus arguments.",
+        examples: &[(r#"typeof(crypto_password_hash("example"))"#, "String")],
+    },
+    Signature {
+        name: "crypto_password_verify", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("password", Ty::Str, "password"), req("hash", Ty::Str, "stored PHC hash, at most 1024 bytes")], returns: "Bool",
+        doc: "Verify stored salt and bounded Argon2id or PBKDF2-SHA256 parameters. False means mismatch; malformed, unsupported or excessive parameters produce coded errors. Legacy SHA256 hex is verify-only outside algorithm-policy mode and should be rehashed; SHA512-crypt refuses explicitly. Reject pipeline input and surplus arguments.",
+        examples: &[(r#"crypto_password_verify("example", crypto_password_hash("example"))"#, "true")],
+    },
+    Signature {
         name: "sudo_check", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[], returns: "Bool",
         doc: "Inspect current effective privileges: Unix effective UID zero, or the Windows current-token Administrator role through a noninteractive PowerShell query without profiles. This does not test sudo configuration or acquire privileges. Reject arguments and pipeline input. Report failed subprocesses and malformed output with codes rather than false; unsupported platforms refuse explicitly.",

@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 570/1,171 implementations; 695/1,437 callable names | 601 implementations and 742 callable names |
-| Latest targeted Windows validation | 742 unique tests across ten suites passed | Validate the complete final tree |
+| Signature migration | 572/1,171 implementations; 697/1,437 callable names | 599 implementations and 740 callable names |
+| Latest targeted Windows validation | 734 unique tests across ten suites passed | Validate the complete final tree |
 | Earlier Windows workspace checkpoint | 2,633 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -55,7 +55,7 @@ and malformed-call regressions pass without broad skip lists masking failures.
 
 ## 3. Close correctness and security gaps
 
-- [ ] Fix legacy password hash/verification consistency across platforms, including fresh salts, supported formats and FIPS behavior; test success, wrong passwords and malformed hashes.
+- [x] Fix legacy password hash/verification consistency across platforms, including fresh salts, supported formats and FIPS behavior; test success, wrong passwords and malformed hashes.
 - [ ] Review remaining unchecked subprocess exits and false/zero/empty-result failure paths; lower the ratchet counts only with source review and meaningful tests.
 - [ ] Verify that unsupported, absent-tool, failed-tool, invalid-input and policy refusals remain distinct, coded outcomes.
 - [ ] Complete native Unix validation for ownership, modes, execute bits, symlink targets, dangling links and audit aliases. Validate Windows privilege and read-only behavior separately.

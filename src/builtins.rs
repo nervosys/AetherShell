@@ -33606,74 +33606,160 @@ fn bi_crypto_key_generate(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     }
 }
 
-fn bi_crypto_password_hash(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let password = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "crypto_password_hash",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(unix)]
-    {
-        // The password used to be argv, where `/proc/<pid>/cmdline` is
-        // world-readable on Linux (AS-2026-03). `-stdin` moves it to a pipe;
-        // nothing else uses this child's stdin.
-        use std::io::Write as _;
-        let mut child = std::process::Command::new("openssl")
-            .args(["passwd", "-6", "-stdin"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| crate::safety::spawn_error("crypto_password_hash", "openssl", &e))?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            writeln!(stdin, "{}", password)?;
-        }
-        let output = child.wait_with_output()?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+fn password_arguments<'a>(
+    name: &str,
+    args: &'a [Value],
+    input: &Option<Value>,
+    count: usize,
+) -> Result<Vec<&'a str>> {
+    if input.is_some() || args.len() != count {
+        return Err(crate::safety::bad_arg(
+            name,
+            "exact positional String arguments; no pipeline input",
+            "invalid call shape",
+        ));
     }
-    // Fallback to SHA256 hash
-    bi_crypto_hash(
-        vec![Value::Str(password), Value::Str("sha256".to_string())],
-        None,
-    )
+    let values = args
+        .iter()
+        .map(|v| match v {
+            Value::Str(s) => Ok(s.as_str()),
+            _ => Err(crate::safety::bad_arg(name, "String", v.type_name())),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if values[0].len() > 65536 || (count == 2 && values[1].len() > 1024) {
+        return Err(crate::safety::budget_exceeded(
+            name,
+            "password or stored hash exceeds size limit".into(),
+            "password limit 65536 bytes; stored hash limit 1024 bytes",
+        ));
+    }
+    Ok(values)
 }
 
-fn bi_crypto_password_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let password = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "crypto_password_verify",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let hash = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "crypto_password_verify",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    // Simple verification - hash the password and compare
-    if let Ok(Value::Str(computed)) = bi_crypto_password_hash(vec![Value::Str(password)], None) {
-        return Ok(Value::Bool(computed == hash));
+fn bi_crypto_password_hash(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    use argon2::password_hash::{PasswordHasher, SaltString};
+    use rand::RngCore;
+    let values = password_arguments("crypto_password_hash", &args, &input, 1)?;
+    let mut salt = [0u8; 16];
+    rand::rngs::OsRng.try_fill_bytes(&mut salt).map_err(|_| {
+        crate::safety::bad_state(
+            "crypto_password_hash",
+            "randomness unavailable",
+            "operating-system entropy",
+        )
+    })?;
+    let salt = SaltString::encode_b64(&salt).map_err(|_| {
+        crate::safety::bad_state("crypto_password_hash", "salt encoding failed", "valid salt")
+    })?;
+    let hash = if crate::safety::fips_enabled() {
+        pbkdf2::Pbkdf2.hash_password(values[0].as_bytes(), &salt)
+    } else {
+        argon2::Argon2::default().hash_password(values[0].as_bytes(), &salt)
     }
-    Ok(Value::Bool(false))
+    .map_err(|_| {
+        crate::safety::bad_state(
+            "crypto_password_hash",
+            "password derivation failed",
+            "supported parameters",
+        )
+    })?;
+    Ok(Value::Str(hash.to_string()))
+}
+
+fn bi_crypto_password_verify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    use argon2::password_hash::{PasswordHash, PasswordVerifier};
+    let name = "crypto_password_verify";
+    let values = password_arguments(name, &args, &input, 2)?;
+    let malformed = || {
+        crate::safety::bad_arg(
+            name,
+            "supported password hash with valid parameters",
+            "invalid stored hash",
+        )
+    };
+    if values[1].len() == 64 && values[1].bytes().all(|b| b.is_ascii_hexdigit()) {
+        if crate::safety::fips_enabled() {
+            return Err(crate::safety::policy_deny(
+                name,
+                "legacy unsalted password hash",
+                "rehash with crypto_password_hash",
+            ));
+        }
+        use argon2::password_hash::Output;
+        use sha2::{Digest, Sha256};
+        let expected = hex::decode(values[1]).map_err(|_| malformed())?;
+        let actual = Sha256::digest(values[0].as_bytes());
+        return Ok(Value::Bool(
+            Output::new(&expected).map_err(|_| malformed())?
+                == Output::new(&actual).map_err(|_| malformed())?,
+        ));
+    }
+    if values[1].starts_with("$6$") {
+        return Err(crate::safety::unimplemented(
+            name,
+            "legacy SHA512-crypt verification is unsupported",
+            "verify with a trusted legacy implementation and rehash, or reset the password",
+        ));
+    }
+    let hash = PasswordHash::new(values[1]).map_err(|_| malformed())?;
+    let salt = hash.salt.ok_or_else(malformed)?;
+    let mut salt_bytes = [0u8; 64];
+    let salt_len = salt
+        .decode_b64(&mut salt_bytes)
+        .map_err(|_| malformed())?
+        .len();
+    let digest_len = hash.hash.ok_or_else(malformed)?.len();
+    if !(8..=64).contains(&salt_len) || !(16..=64).contains(&digest_len) {
+        return Err(malformed());
+    }
+    let result = match hash.algorithm.as_str() {
+        "argon2id" => {
+            if crate::safety::fips_enabled() {
+                return Err(crate::safety::policy_deny(
+                    name,
+                    "Argon2 is outside the configured algorithm policy",
+                    "use a PBKDF2 password hash",
+                ));
+            }
+            if hash.version != Some(19) || hash.params.iter().count() != 3 {
+                return Err(malformed());
+            }
+            for key in ["m", "t", "p"] {
+                if hash.params.get_decimal(key).is_none() {
+                    return Err(malformed());
+                }
+            }
+            let params = argon2::Params::try_from(&hash).map_err(|_| malformed())?;
+            if params.m_cost() > 65536 || params.t_cost() > 10 || params.p_cost() > 4 {
+                return Err(crate::safety::budget_exceeded(
+                    name,
+                    "stored Argon2 parameters exceed verification limits".into(),
+                    "maximum m=65536 KiB, t=10, p=4",
+                ));
+            }
+            argon2::Argon2::default().verify_password(values[0].as_bytes(), &hash)
+        }
+        "pbkdf2-sha256" => {
+            let params = pbkdf2::Params::try_from(&hash).map_err(|_| malformed())?;
+            if params.rounds == 0 || !(16..=64).contains(&params.output_length) {
+                return Err(malformed());
+            }
+            if params.rounds > 1200000 {
+                return Err(crate::safety::budget_exceeded(
+                    name,
+                    "stored PBKDF2 iterations exceed verification limit".into(),
+                    "maximum 1200000 iterations",
+                ));
+            }
+            pbkdf2::Pbkdf2.verify_password(values[0].as_bytes(), &hash)
+        }
+        _ => return Err(malformed()),
+    };
+    match result {
+        Ok(()) => Ok(Value::Bool(true)),
+        Err(argon2::password_hash::Error::Password) => Ok(Value::Bool(false)),
+        Err(_) => Err(malformed()),
+    }
 }
 
 fn bi_crypto_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
