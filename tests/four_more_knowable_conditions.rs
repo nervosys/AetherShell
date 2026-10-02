@@ -310,7 +310,6 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         "test_passing",
         "test_failing",
         "search_semantic",
-        "docs_signatures",
         // Answered the ADVICE as the return value. `refactor_rename` handed
         // back the String "Use IDE rename functionality" at exit 0, which an
         // agent cannot tell from renamed code, and `docs_api` returned a

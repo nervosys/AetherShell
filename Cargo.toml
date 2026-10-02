@@ -89,6 +89,8 @@ native = [
     "dep:utoipa",
     "dep:utoipa-swagger-ui",
     "dep:jsonschema",
+    "dep:syn",
+    "dep:quote",
 ]
 candle = [
     "dep:candle-core",
@@ -266,6 +268,10 @@ reqwest = { version = "0.12", default-features = false, features = [
     "http2",
     "macos-system-configuration",
 ] }
+
+# Parse Rust source for pure documentation extraction; native builtins only.
+syn = { version = "2", optional = true, features = ["full"] }
+quote = { version = "1", optional = true }
 
 # WASM-only dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]

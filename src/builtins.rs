@@ -26789,106 +26789,248 @@ fn bi_cron_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "cron_list accepts no arguments or pipeline input",
         ));
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
+        let script = "$ErrorActionPreference='Stop'; $OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=$OutputEncoding; ConvertTo-Json -InputObject @(Get-ScheduledTask -ErrorAction Stop | Select-Object TaskName,@{Name='State';Expression={$_.State.ToString()}},TaskPath) -Depth 3 -Compress";
         let output = std::process::Command::new("powershell")
             .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
                 "-Command",
-                "Get-ScheduledTask | Select-Object TaskName,State,TaskPath | ConvertTo-Json",
+                script,
             ])
+            .stdin(std::process::Stdio::null())
             .output()
             .map_err(|e| crate::safety::spawn_error("cron_list", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let tasks: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("TaskName") {
-                            rec.insert("name".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("State") {
-                            rec.insert("state".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("TaskPath") {
-                            rec.insert("path".to_string(), json_to_value(v.clone()));
-                        }
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                return Ok(Value::Array(tasks));
-            }
-            // PowerShell prints nothing at all for zero tasks, so an empty
-            // stdout on success is a real "none". Non-empty output that is
-            // not JSON is not.
-            if json_str.trim().is_empty() {
-                return Ok(Value::Array(vec![]));
-            }
-            return Err(crate::safety::tool_failed(
-                "cron_list",
-                "powershell Get-ScheduledTask",
-                output.status.code(),
-                "the output was not the JSON that was asked for",
-            ));
-        }
-        // A failed query used to fall through to an empty list, i.e. "no
-        // scheduled tasks" -- the answer to a question that was never asked
-        // successfully.
-        Err(crate::safety::tool_failed(
-            "cron_list",
-            "powershell Get-ScheduledTask",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ))
+        parse_cron_listing(output, true)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(unix)]
     {
         let output = std::process::Command::new("crontab")
-            .args(["-l"])
+            .arg("-l")
+            .env("LC_ALL", "C")
+            .stdin(std::process::Stdio::null())
             .output()
             .map_err(|e| crate::safety::spawn_error("cron_list", "crontab", &e))?;
-        // `crontab -l` exits 1 with "no crontab for <user>" when the user has
-        // no jobs, which genuinely means an empty list. Every OTHER failure
-        // -- a permission error, a broken cron daemon -- was also reported as
-        // an empty list, which is a confident "you have no scheduled jobs"
-        // about a question the shell could not answer.
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr);
-            if err.contains("no crontab for") {
-                return Ok(Value::Array(vec![]));
-            }
-            return Err(crate::safety::tool_failed(
-                "cron_list",
-                "crontab -l",
-                output.status.code(),
-                &err,
-            ));
+        parse_cron_listing(output, false)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(crate::safety::unimplemented(
+            "cron_list",
+            "scheduler queries are unavailable on this platform",
+            "use a supported platform scheduler",
+        ))
+    }
+}
+
+#[cfg(any(unix, windows, test))]
+fn parse_cron_listing(output: std::process::Output, windows: bool) -> Result<Value> {
+    let tool = if windows {
+        "powershell Get-ScheduledTask"
+    } else {
+        "crontab -l"
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let diagnostic = stderr
+            .trim()
+            .strip_prefix("crontab: ")
+            .unwrap_or(stderr.trim());
+        let absent = diagnostic
+            .strip_prefix("no crontab for ")
+            .is_some_and(|user| !user.is_empty() && !user.contains(['\n', '\r']));
+        if !windows
+            && output.status.code() == Some(1)
+            && output.stdout.iter().all(u8::is_ascii_whitespace)
+            && absent
+        {
+            return Ok(Value::Array(vec![]));
         }
-        let text = String::from_utf8_lossy(&output.stdout);
-        let entries: Vec<Value> = text
-            .lines()
-            .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
-            .map(|l| {
-                let mut rec = std::collections::BTreeMap::new();
-                let parts: Vec<&str> = l.splitn(6, char::is_whitespace).collect();
-                if parts.len() >= 6 {
-                    // Standard cron format: min hour dom month dow command
-                    rec.insert("schedule".to_string(), Value::Str(parts[..5].join(" ")));
-                    rec.insert("command".to_string(), Value::Str(parts[5].to_string()));
-                } else {
-                    rec.insert("command".to_string(), Value::Str(l.to_string()));
+        return Err(crate::safety::tool_failed(
+            "cron_list",
+            tool,
+            output.status.code(),
+            &stderr,
+        ));
+    }
+    let malformed = || {
+        crate::safety::bad_state(
+            "cron_list",
+            "unexpected scheduler output",
+            "complete task JSON or supported user-crontab syntax",
+        )
+    };
+    let text = String::from_utf8(output.stdout).map_err(|_| malformed())?;
+    let mut rows = Vec::new();
+    if windows {
+        let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| malformed())?;
+        let tasks = json.as_array().ok_or_else(malformed)?;
+        for task in tasks {
+            let mut row = std::collections::BTreeMap::new();
+            for (source, target) in [
+                ("TaskName", "name"),
+                ("State", "state"),
+                ("TaskPath", "path"),
+            ] {
+                let field = task
+                    .get(source)
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(malformed)?;
+                row.insert(target.into(), Value::Str(field.into()));
+            }
+            rows.push(Value::Record(row));
+        }
+    } else {
+        for line in text.lines() {
+            let mut rest = line.trim_start();
+            if rest.is_empty() || rest.starts_with('#') {
+                continue;
+            }
+            if let Some((name, _)) = rest.split_once('=') {
+                let name = name.trim();
+                let mut chars = name.bytes();
+                if chars
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
+                    && chars.all(|c| c.is_ascii_alphanumeric() || c == b'_')
+                {
+                    continue;
                 }
-                Value::Record(rec)
-            })
-            .collect();
-        return Ok(Value::Array(entries));
+            }
+            let mut fields = Vec::new();
+            let count = if rest.starts_with('@') { 1 } else { 5 };
+            for _ in 0..count {
+                let end = rest.find(char::is_whitespace).ok_or_else(malformed)?;
+                fields.push(&rest[..end]);
+                rest = rest[end..].trim_start();
+            }
+            if rest.is_empty() {
+                return Err(malformed());
+            }
+            if count == 1
+                && !matches!(
+                    fields[0],
+                    "@reboot"
+                        | "@yearly"
+                        | "@annually"
+                        | "@monthly"
+                        | "@weekly"
+                        | "@daily"
+                        | "@midnight"
+                        | "@hourly"
+                )
+            {
+                return Err(malformed());
+            }
+            let mut row = std::collections::BTreeMap::new();
+            row.insert("schedule".into(), Value::Str(fields.join(" ")));
+            row.insert("command".into(), Value::Str(rest.into()));
+            rows.push(Value::Record(row));
+        }
+    }
+    Ok(Value::Array(rows))
+}
+
+#[cfg(all(test, any(unix, windows)))]
+mod cron_listing_tests {
+    use super::*;
+    fn output(code: u32, stdout: &[u8], stderr: &[u8]) -> std::process::Output {
+        #[cfg(unix)]
+        let status = {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw((code as i32) << 8)
+        };
+        #[cfg(windows)]
+        let status = {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code)
+        };
+        std::process::Output {
+            status,
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
+    }
+    #[test]
+    fn windows_tasks_require_complete_string_records_and_a_real_empty_array() {
+        assert!(
+            matches!(parse_cron_listing(output(0,b"[]",b""),true).unwrap(),Value::Array(a) if a.is_empty())
+        );
+        let rows = parse_cron_listing(
+            output(
+                0,
+                br#"[{"TaskName":"test","State":"Ready","TaskPath":"/"}]"#,
+                b"",
+            ),
+            true,
+        )
+        .unwrap();
+        assert!(matches!(rows,Value::Array(a) if a.len()==1));
+        for text in [
+            "",
+            "null",
+            "1",
+            "{}",
+            "[{}]",
+            "[null]",
+            r#"[{"TaskName":"test","State":3,"TaskPath":"/"}]"#,
+            r#"[{"TaskName":"test","State":"Ready"}]"#,
+        ] {
+            let err = parse_cron_listing(output(0, text.as_bytes(), b""), true)
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("E_BAD_STATE"), "{err}");
+        }
+    }
+    #[test]
+    fn unix_lines_preserve_commands_skip_environment_and_accept_special_schedules() {
+        let Value::Array(rows)=parse_cron_listing(output(0,b"# comment\nSHELL = /bin/sh\nMAILTO=\"a@b\"\n  0   1\t* * * echo a  b=1\n@reboot echo ready\n",b""),false).unwrap() else {panic!("array")};
+        assert_eq!(rows.len(), 2);
+        let Value::Record(first) = &rows[0] else {
+            panic!("record")
+        };
+        assert_eq!(first.get("schedule"), Some(&Value::Str("0 1 * * *".into())));
+        assert_eq!(
+            first.get("command"),
+            Some(&Value::Str("echo a  b=1".into()))
+        );
+        for text in [
+            "0 1 * *",
+            "0 1 * * * ",
+            "@unknown command",
+            "0 1 * * * echo ok\ninvalid",
+        ] {
+            assert!(parse_cron_listing(output(0, text.as_bytes(), b""), false)
+                .unwrap_err()
+                .to_string()
+                .contains("E_BAD_STATE"));
+        }
+    }
+    #[test]
+    fn only_a_specific_absent_crontab_diagnostic_means_no_jobs() {
+        assert!(
+            matches!(parse_cron_listing(output(1,b"",b"no crontab for test\n"),false).unwrap(),Value::Array(a) if a.is_empty())
+        );
+        for (code, stdout, stderr, windows) in [
+            (2, b"".as_slice(), b"no crontab for test".as_slice(), false),
+            (1, b"unexpected", b"no crontab for test", false),
+            (1, b"", b"permission denied: no crontab for test", false),
+            (1, b"", b"no crontab for test", true),
+        ] {
+            assert!(parse_cron_listing(output(code, stdout, stderr), windows)
+                .unwrap_err()
+                .to_string()
+                .contains("E_TOOL_FAILED"));
+        }
+        for windows in [false, true] {
+            assert!(parse_cron_listing(output(0, b"\xff", b""), windows)
+                .unwrap_err()
+                .to_string()
+                .contains("E_BAD_STATE"));
+        }
     }
 }
 
@@ -39645,24 +39787,100 @@ fn bi_docs_examples(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(examples))
 }
 
-fn bi_docs_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "docs_types",
-        "extracting type definitions from source is not implemented; NOTHING WAS DONE",
-        "use ontology_describe for AetherShell builtins",
-    ))
+fn bi_docs_types(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    extract_rust_documentation("docs_types", args, input, false)
 }
 
-fn bi_docs_signatures(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "docs_signatures",
-        "extracting signatures from source is not implemented; NOTHING WAS DONE",
-        "use ontology_describe for AetherShell builtins",
-    ))
+fn bi_docs_signatures(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    extract_rust_documentation("docs_signatures", args, input, true)
+}
+
+fn extract_rust_documentation(
+    name: &str,
+    args: Vec<Value>,
+    input: Option<Value>,
+    functions: bool,
+) -> Result<Value> {
+    use quote::ToTokens;
+    if args.len() != 1 || input.is_some() {
+        return Err(crate::safety::bad_arg(
+            name,
+            "one Rust source String; no pipeline input",
+            "invalid call shape",
+        ));
+    }
+    let Value::Str(source) = &args[0] else {
+        return Err(crate::safety::bad_arg(
+            name,
+            "Rust source String",
+            args[0].type_name(),
+        ));
+    };
+    if source.len() > 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
+            name,
+            "Rust source exceeds 1 MiB".into(),
+            "extract from a smaller source unit",
+        ));
+    }
+    // Conservative complexity preflight before token-tree/AST construction.
+    // Count punctuation even inside strings/comments so they cannot hide nested
+    // syntax from this budget. Callers can submit smaller source units.
+    if source
+        .bytes()
+        .filter(u8::is_ascii_punctuation)
+        .take(129)
+        .count()
+        > 128
+    {
+        return Err(crate::safety::budget_exceeded(name, "raw syntax punctuation exceeds 128".into(), "extract from smaller source units; the conservative budget includes strings and comments"));
+    }
+    let file = syn::parse_file(source)
+        .map_err(|_| crate::safety::bad_arg(name, "valid Rust source", "syntax error"))?;
+    let mut rows = Vec::new();
+    for item in file.items {
+        let mut row = std::collections::BTreeMap::new();
+        if functions {
+            if let syn::Item::Fn(function) = item {
+                row.insert("name".into(), Value::Str(function.sig.ident.to_string()));
+                row.insert(
+                    "signature".into(),
+                    Value::Str(function.sig.to_token_stream().to_string()),
+                );
+                row.insert(
+                    "async".into(),
+                    Value::Bool(function.sig.asyncness.is_some()),
+                );
+            } else {
+                continue;
+            }
+        } else {
+            let (ident, kind) = match &item {
+                syn::Item::Struct(x) => (&x.ident, "struct"),
+                syn::Item::Enum(x) => (&x.ident, "enum"),
+                syn::Item::Union(x) => (&x.ident, "union"),
+                syn::Item::Trait(x) => (&x.ident, "trait"),
+                syn::Item::Type(x) => (&x.ident, "alias"),
+                _ => continue,
+            };
+            row.insert("name".into(), Value::Str(ident.to_string()));
+            row.insert("kind".into(), Value::Str(kind.into()));
+            row.insert(
+                "definition".into(),
+                Value::Str(item.to_token_stream().to_string()),
+            );
+        }
+        rows.push(Value::Record(row));
+    }
+    rows.sort_by(|a, b| {
+        let Value::Record(a) = a else { unreachable!() };
+        let Value::Record(b) = b else { unreachable!() };
+        a.get("name")
+            .unwrap()
+            .to_display_string()
+            .cmp(&b.get("name").unwrap().to_display_string())
+    });
+    Ok(Value::Array(rows))
 }
 
 // Environment module implementations

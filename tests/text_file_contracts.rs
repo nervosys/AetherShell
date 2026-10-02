@@ -3363,3 +3363,71 @@ fn scheduling_contracts_reject_ignored_input_without_scheduling_jobs() {
     #[cfg(not(unix))]
     code(call("at_list", vec![], &mut env), "E_UNIMPLEMENTED");
 }
+
+#[test]
+fn rust_documentation_extracts_real_declarations_without_running_source() {
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    let mut env = Env::new();
+    let source = r#"// fn fake() {}
+        const TEXT: &str = "struct Fake; fn pretend() {}";
+        struct Zed<T> { value: T }
+        enum Choice { A, B }
+        type Alias = Vec<u8>;
+        trait Named { fn name(&self); }
+        union Bits { integer: u32, float: f32 }
+        async fn zeta<T: Clone>(x: T) -> T where T: Send { x }
+        fn alpha(x: i64) -> i64 { panic!("must not execute") }
+        mod nested { pub fn hidden() {} }
+    "#;
+    let Value::Array(types) = call("docs_types", vec![s(source)], &mut env).unwrap() else {
+        panic!("array")
+    };
+    assert_eq!(types.len(), 5);
+    let Value::Record(first) = &types[0] else {
+        panic!("record")
+    };
+    assert_eq!(first.get("name"), Some(&s("Alias")));
+    let Value::Array(functions) = call("docs_signatures", vec![s(source)], &mut env).unwrap()
+    else {
+        panic!("array")
+    };
+    assert_eq!(functions.len(), 2);
+    let Value::Record(first) = &functions[0] else {
+        panic!("record")
+    };
+    assert_eq!(first.get("name"), Some(&s("alpha")));
+    let Value::Record(second) = &functions[1] else {
+        panic!("record")
+    };
+    assert_eq!(second.get("async"), Some(&Value::Bool(true)));
+    let Some(Value::Str(signature)) = second.get("signature") else {
+        panic!("signature")
+    };
+    assert!(
+        signature.contains("where") && signature.contains("Clone") && signature.contains("Send")
+    );
+    for name in ["docs_types", "docs_signatures"] {
+        for args in [
+            vec![],
+            vec![Value::Int(1)],
+            vec![s("fn broken(")],
+            vec![s(source), s("ignored")],
+        ] {
+            code(call(name, args, &mut env), "E_BAD_ARG");
+        }
+        code(
+            call_with_input(name, vec![s(source)], Some(s("ignored")), &mut env),
+            "E_BAD_ARG",
+        );
+        code(
+            call(name, vec![s(&" ".repeat(1024 * 1024 + 1))], &mut env),
+            "E_BUDGET_EXCEEDED",
+        );
+        code(
+            call(name, vec![s(&"(".repeat(129))], &mut env),
+            "E_BUDGET_EXCEEDED",
+        );
+        assert!(matches!(call(name,vec![s("")],&mut env).unwrap(),Value::Array(a) if a.is_empty()));
+    }
+}

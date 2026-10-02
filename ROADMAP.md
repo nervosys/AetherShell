@@ -3,15 +3,17 @@
 > Current release status, 2026-10-01: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
-> owners, evidence and release gates. Signature coverage is 572/1171
-> implementations and 697/1437 callable names; migration remains incomplete.
+> owners, evidence and release gates. Signature coverage is 585/1171
+> implementations and 710/1437 callable names; migration remains incomplete.
 > Measured evaluator improvements are recorded in the linked performance
 > report; final-tree cross-platform measurements remain pending.
 
-Accounts/groups, ACL operations, filesystem mount/watch operations, elevated
-execution and DQN weight training retain explicit unsupported contracts for
-13.0.0. DQN inference and bounded experience recording do not imply a working
-trainer. Future feature expansion requires separate implementation and validation.
+The user expanded the 13.0.0 implementation scope on 2026-10-02 to all unsupported
+builtins. Accounts/groups, ACL operations, mounting/watching, scheduler mutations,
+elevated execution and DQN weight training currently have missing functionality;
+they are now implementation blockers. The completion plan separates those gaps
+from legitimate platform, policy and transaction constraints. Refusal contracts
+alone do not close this implementation scope.
 
 ## Historical roadmap — reference only
 

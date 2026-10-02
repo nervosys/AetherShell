@@ -2563,6 +2563,18 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[("typeof(audit_stats())", "Record")],
     },
     Signature {
+        name: "docs_types", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("source", Ty::Str, "Rust source text, at most 1 MiB")], returns: "Array",
+        doc: "Parse Rust source and return top-level struct, enum, union, trait and type-alias declarations as name/kind/definition String records, sorted by name. Token-normalized definitions retain syntactic generics and fields. No file reads, execution, macro expansion, module traversal or type resolution. Conservative limit of 128 raw ASCII punctuation characters includes comments/strings. Reject invalid syntax, surplus arguments and pipeline input.",
+        examples: &[(r#"len(docs_types("struct Example;"))"#, "1")],
+    },
+    Signature {
+        name: "docs_signatures", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("source", Ty::Str, "Rust source text, at most 1 MiB")], returns: "Array",
+        doc: "Parse Rust source and return top-level free-function name/signature Strings and async Bool, sorted by name. Signatures preserve syntactic parameters, generics, return types and where clauses with normalized token spacing. No file reads, execution, macro expansion, module/impl traversal or type resolution. Source limit 1 MiB; conservative limit of 128 raw ASCII punctuation characters includes comments/strings. Reject invalid syntax, surplus arguments and pipeline input.",
+        examples: &[(r#"len(docs_signatures("fn example(x: i64) -> i64 { x }"))"#, "1")],
+    },
+    Signature {
         name: "cron_add", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Any",
         doc: "Unsupported scheduler mutation. Parameterless calls refuse with E_UNIMPLEMENTED; no job is added. Reject all arguments and pipeline input; no successful return value.",
         examples: &[(r#"(try { cron_add() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
@@ -2595,7 +2607,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "at_list", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Array",
         doc: "Unix atq job listing in a supported tab-separated layout. Records contain job_id, queue, user and schedule Strings; schedule preserves the entire raw tail including queue/user, without date or locale normalization. Successful empty output means no jobs. Failed tools, non-UTF-8 or unfamiliar layouts carry coded errors. Non-Unix builds explicitly refuse. Reject arguments and pipeline input.",
-        examples: &[("typeof(at_list())", "Array")],
+        examples: &[("at_list()", "[]")],
     },
     Signature {
         name: "cron_list",
@@ -2605,8 +2617,8 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "Every scheduled job visible to this user.",
-        examples: &[("typeof(cron_list())", "Array")],
+        doc: "Read-only scheduler query. Windows returns name/state/path Strings from complete task JSON; Unix returns schedule/command Strings from user-crontab jobs, excluding comments and environment definitions. Standard five-field and known @ schedules are supported; command text is preserved. No schedule evaluation or environment interpretation is performed. Reject arguments and pipeline input; failures and malformed output carry coded errors.",
+        examples: &[("cron_list()", "[]")],
     },
     Signature {
         name: "group_list",

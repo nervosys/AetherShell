@@ -3,7 +3,7 @@
 Updated 2026-10-02. Target: **13.0.0**, selected for the stricter builtin contracts.
 
 Completion means a validated, installable release with a declared contract for
-every dispatchable builtin, honest unsupported-feature reporting, reproducible
+every dispatchable builtin, working implementations for placeholder operations, reproducible
 performance evidence, and verified distribution artifacts. Future roadmap ideas
 have their own milestones; this checklist governs the current release.
 
@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 583/1,171 implementations; 708/1,437 callable names | 588 implementations and 729 callable names |
-| Latest targeted Windows validation | 731 unique tests across nine suites passed | Validate the complete final tree |
+| Signature migration | 585/1,171 implementations; 710/1,437 callable names | 586 implementations and 727 callable names |
+| Latest targeted Windows validation | 696 unique tests across eight suites passed | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -42,8 +42,8 @@ ignore and contains illustrative pseudocode. Provider/server checks remain open.
 - [x] Select 13.0.0 for the compatibility changes.
 - [x] Preserve the implemented evaluator latency and throughput improvements.
 - [x] Make a release-scope register: implemented, explicitly unsupported, or deferred, with evidence and an owner for each unresolved item.
-- [ ] Review placeholder operations, including accounts, groups, ACLs, mounting, watching and elevated execution; approve which remain explicitly unsupported for 13.0.0.
-- [x] Resolve the DQN training decision: implement and test real weight updates, or retain the explicit unsupported contract and document that limitation.
+- [ ] Implement placeholder operations, including accounts, groups, ACLs, mounting, watching, scheduler mutations and elevated execution. The user selected all unsupported builtins on 2026-10-02; refusal contracts do not complete this scope.
+- [ ] Implement and test DQN weight updates and actual learning; the user expanded implementation scope on 2026-10-02.
 - [x] Separate future roadmap features from release blockers. Reconcile the stale version, metrics and open-issue sections in ROADMAP.md using current evidence.
 
 **Gate:** every advertised capability has an implementation or an explicit,
@@ -57,28 +57,51 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 583 implementations covered, 588 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 585 implementations covered, 586 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
-| Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Explicitly unsupported for this release | Source bodies and refusal contracts produce E_UNIMPLEMENTED; no successful mutation claimed | Runtime maintainer |
-| DQN weight training | Explicitly unsupported for this release; real trainer deferred | src/rl.rs train computes a local Q-value without updating weights; rl_dqn_step refuses before the batch threshold mutates state; tests/dqn_contracts.rs witnesses refusal | RL maintainer |
+| Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Current bodies refuse; working operations and owned-fixture/platform tests are required | Runtime maintainer |
+| DQN weight training | Implementation pending; blocker | src/rl.rs train computes a local Q-value without updating weights; rl_dqn_step refuses before the batch threshold mutates state; tests/dqn_contracts.rs witnesses refusal | RL maintainer |
 | Other placeholder operations | Audit pending; blocker | Enumerate through remaining source-reviewed catalogue migration; do not infer support from registration | Runtime maintainer |
 | Platform/features/packaging | Validation pending; blocker | Complete stages 4 and 6 on final commit, including MSRV and supported feature builds | Platform and release maintainers |
 | Provider-backed E7 evidence | Validation pending; blocker | Requires configured test provider; record model, prompt and corpus versions | Evaluation maintainer |
 | 13.0.0 publication | Pending final readiness and explicit publication authorization | Stage 7; no tag or publication performed | Release maintainer |
 | Future product expansion | Deferred beyond 13.0.0 | Historical roadmap ideas do not turn unsupported implementations into working features | Feature maintainers |
 
-Retaining the DQN refusal is the release implementation decision: a functioning
-trainer needs a separate weight-update implementation and tests demonstrating
-learning. Its existing API must not claim that training occurred. These scope
-choices require accurate user-facing release limitations and do not waive the
-remaining catalogue or platform gates.
+The 2026-10-02 user instruction supersedes the earlier choice to release these
+operations as refusal-only placeholders. Real DQN weight updates and working
+placeholder operations are now required. Existing policy, containment, budgets
+and rollback requirements remain in force; implement those semantics rather than
+removing their guards.
+
+### All-implementation work register — active scope
+
+- [x] Confirm scope with the user: implement all unsupported builtins.
+- [x] Implement docs_types and docs_signatures as pure Rust source extraction.
+- [x] Fix cron_list query parsing and checked subprocess output; platform validation remains open.
+- [ ] Classify the source candidates below into always-missing functionality, conditional platform support, and transaction/capability constraints; map helpers to callable operations.
+- [ ] Implement scheduler mutations with real backends, effect gates, validated inputs and isolated mutation tests.
+- [ ] Implement services, users/groups, permissions/ACLs, mounting and watching with tested platform backends.
+- [ ] Implement native socket lifecycle and missing web/clipboard/UI/input operations.
+- [ ] Implement missing package-manager operations with checked tool adapters.
+- [ ] Implement source navigation, refactoring, search, tests, sessions and documentation operations.
+- [ ] Implement DQN training and remaining crypto operations/legacy verification where supported by the algorithm policy.
+- [ ] Complete long-running process/watch/server lifecycles with bounded cancellation and cleanup.
+- [ ] Verify each operation's positive result against real effects in owned fixtures or disposable environments; malformed-call refusal alone does not verify implementation.
+- [ ] Re-run the final supported-platform matrix and remaining release gates.
+
+The source scan currently finds **123 bi_* functions containing explicit
+unsupported branches**, down from 125 before the two source-extraction
+implementations. This is a candidate count, not a count of missing callable
+implementations: it includes helpers, platform branches, deliberate algorithm
+policy constraints and rollback refusals. Every candidate requires source review.
+Signature coverage and implementation completeness are separate measures.
 
 ## 2. Finish all builtin contracts — the critical path
 
 - [x] Add declaration uniqueness, alias inheritance and repeatable coverage inventory.
 - [x] Cover the E1/E2/E7 working set with declared contracts.
-- [ ] Finish the 588 remaining implementations, grouped by module and actual behavior. Refresh the inventory after every tranche.
+- [ ] Finish the 586 remaining implementations, grouped by module and actual behavior. Refresh the inventory after every tranche.
 - [x] Migrate sudo_check: strict input rejection, native Unix effective UID, checked Windows subprocess status and boolean parsing, and coded failures; Windows checks passed, native Unix validation remains a platform gate.
 - [ ] Read each body before authoring its declaration; record direct-call, pipeline, optional-argument and alias semantics without generating contracts from probes.
 - [ ] Reject surplus arguments, wrong types, conflicting input and invalid options before effects or expensive work begin.
@@ -94,7 +117,7 @@ and malformed-call regressions pass without broad skip lists masking failures.
 ## 3. Close correctness and security gaps
 
 - [x] Fix legacy password hash/verification consistency across platforms, including fresh salts, supported formats and FIPS behavior; test success, wrong passwords and malformed hashes.
-- [ ] Complete cron_list output validation: Windows currently accepts scalar JSON as an empty list and incomplete task objects as records; review Unix environment assignments, special schedules and repeated whitespace. The current scheduling tranche enforces call shape only for this already-declared query.
+- [x] Implement cron_list output validation: complete string-valued Windows task records, explicit query failures, Unix environment exclusions, known special schedules and repeated whitespace. Native Unix execution remains a platform gate.
 - [ ] Review remaining unchecked subprocess exits and false/zero/empty-result failure paths; lower the ratchet counts only with source review and meaningful tests.
 - [ ] Verify that unsupported, absent-tool, failed-tool, invalid-input and policy refusals remain distinct, coded outcomes.
 - [ ] Complete native Unix validation for ownership, modes, execute bits, symlink targets, dangling links and audit aliases. Validate Windows privilege and read-only behavior separately.
@@ -188,6 +211,136 @@ inputs are supported-platform/hardware access, an authorized model credential
 for E7, credentials for selected publication channels, and final release approval.
 There is no completion-date commitment until these dependencies and the remaining
 migration effort are resolved.
+
+## Source-function implementation audit candidates
+
+Unchecked means the unsupported branches still require classification and review,
+not that the entire function is nonfunctional. Generated from source headers and
+explicit refusal calls, without executing builtins or generating their contracts.
+
+- [ ] bi_rl_dqn_step
+- [ ] bi_proc_kill
+- [ ] bi_fs_chmod
+- [ ] bi_fs_chown
+- [ ] bi_fs_symlink
+- [ ] bi_fs_watch
+- [ ] bi_fs_unwatch
+- [ ] bi_fs_mount
+- [ ] bi_fs_unmount
+- [ ] bi_net_connect
+- [ ] bi_net_send
+- [ ] bi_net_recv
+- [ ] bi_net_close
+- [ ] bi_sys_cpu_freq
+- [ ] bi_whoami
+- [ ] bi_svc_status
+- [ ] bi_svc_create
+- [ ] bi_svc_delete
+- [ ] bi_cron_list
+- [ ] bi_cron_add
+- [ ] bi_cron_remove
+- [ ] bi_cron_enable
+- [ ] bi_cron_disable
+- [ ] bi_at_schedule
+- [ ] bi_at_list
+- [ ] bi_at_remove
+- [ ] bi_startup_list
+- [ ] bi_archive_test
+- [ ] bi_user_add
+- [ ] bi_user_del
+- [ ] bi_user_mod
+- [ ] bi_user_passwd
+- [ ] bi_user_lock
+- [ ] bi_user_unlock
+- [ ] bi_group_add
+- [ ] bi_group_del
+- [ ] bi_group_mod
+- [ ] bi_perm_check
+- [ ] bi_acl_get
+- [ ] bi_acl_set
+- [ ] bi_sudo_check
+- [ ] bi_sudo_exec
+- [ ] bi_capabilities
+- [ ] bi_pkg_list
+- [ ] bi_pkg_install
+- [ ] bi_pkg_remove
+- [ ] bi_pkg_update
+- [ ] bi_pkg_upgrade
+- [ ] bi_pkg_clean
+- [ ] bi_pkg_add_source
+- [ ] bi_pkg_hold
+- [ ] bi_pkg_unhold
+- [ ] bi_pkg_autoremove
+- [ ] bi_pkg_history
+- [ ] bi_gui_screenshot
+- [ ] bi_gui_screenshot_window
+- [ ] bi_gui_find_image
+- [ ] bi_web_websocket
+- [ ] bi_web_xpath
+- [ ] bi_clipboard_types
+- [ ] bi_input_timeout
+- [ ] bi_input_autocomplete
+- [ ] bi_crypto_decrypt
+- [ ] bi_crypto_sign
+- [ ] bi_crypto_key_generate
+- [ ] bi_crypto_password_verify
+- [ ] bi_crypto_cert_info
+- [ ] bi_clipboard_get_image
+- [ ] bi_clipboard_set_image
+- [ ] bi_input_read_char
+- [ ] bi_input_spinner
+- [ ] bi_input_progress
+- [ ] bi_input_table
+- [ ] bi_input_form
+- [ ] bi_crypto_cert_verify
+- [ ] bi_crypto_verify_signature
+- [ ] bi_code_references
+- [ ] bi_code_definition
+- [ ] bi_code_callers
+- [ ] bi_code_callees
+- [ ] bi_code_hover
+- [ ] bi_code_signature
+- [ ] bi_code_completions
+- [ ] bi_project_scripts
+- [ ] bi_search_duplicates
+- [ ] bi_search_semantic
+- [ ] bi_search_similar
+- [ ] bi_test_coverage
+- [ ] bi_test_failing
+- [ ] bi_test_passing
+- [ ] bi_test_skipped
+- [ ] bi_test_watch
+- [ ] bi_test_snapshot
+- [ ] bi_test_generate
+- [ ] bi_diag_suppress
+- [ ] bi_refactor_rename
+- [ ] bi_refactor_extract_function
+- [ ] bi_refactor_extract_variable
+- [ ] bi_refactor_extract_constant
+- [ ] bi_refactor_inline
+- [ ] bi_refactor_move_to_file
+- [ ] bi_refactor_change_signature
+- [ ] bi_refactor_add_parameter
+- [ ] bi_refactor_remove_parameter
+- [ ] bi_session_end
+- [ ] bi_session_history
+- [ ] bi_session_undo
+- [ ] bi_session_redo
+- [ ] bi_docs_api
+- [ ] bi_platform_libcpp
+- [ ] bi_blkid
+- [ ] bi_lsof
+- [ ] bi_tcpdump_capture
+- [ ] bi_ethtool_info
+- [ ] bi_perf_stat
+- [ ] bi_perf_record
+- [ ] bi_awk_process
+- [ ] bi_nc_listen
+- [ ] bi_iperf3_server
+- [ ] bi_lazygit_open
+- [ ] bi_entr_watch
+- [ ] bi_watchexec_run
+- [ ] bi_nodemon_run
 
 ## Historical plan and evidence — reference only
 
