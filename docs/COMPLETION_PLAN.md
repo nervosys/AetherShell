@@ -28,19 +28,44 @@ and host-specific; they exclude process startup and transport overhead.
 
 - [x] Select 13.0.0 for the compatibility changes.
 - [x] Preserve the implemented evaluator latency and throughput improvements.
-- [ ] Make a release-scope register: implemented, explicitly unsupported, or deferred, with evidence and an owner for each unresolved item.
+- [x] Make a release-scope register: implemented, explicitly unsupported, or deferred, with evidence and an owner for each unresolved item.
 - [ ] Review placeholder operations, including accounts, groups, ACLs, mounting, watching and elevated execution; approve which remain explicitly unsupported for 13.0.0.
-- [ ] Resolve the DQN training decision: implement and test real weight updates, or retain the explicit unsupported contract and document that limitation.
+- [x] Resolve the DQN training decision: implement and test real weight updates, or retain the explicit unsupported contract and document that limitation.
 - [ ] Separate future roadmap features from release blockers. Reconcile the stale version, metrics and open-issue sections in ROADMAP.md using current evidence.
 
 **Gate:** every advertised capability has an implementation or an explicit,
 accepted limitation. No placeholder is described as successful work.
 
+### Release-scope register
+
+Owners below are responsibility roles, not assignments to named people. All open
+items remain release blockers unless explicitly listed as deferred.
+
+| Area | 13.0.0 disposition | Evidence and remaining work | Owner |
+| --- | --- | --- | --- |
+| Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 572 implementations covered, 599 pending; review bodies and aliases | Runtime maintainer |
+| Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
+| Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
+| Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution | Explicitly unsupported for this release | Source bodies and refusal contracts produce E_UNIMPLEMENTED; no successful mutation claimed | Runtime maintainer |
+| DQN weight training | Explicitly unsupported for this release; real trainer deferred | src/rl.rs train computes a local Q-value without updating weights; rl_dqn_step refuses before the batch threshold mutates state; tests/dqn_contracts.rs witnesses refusal | RL maintainer |
+| Other placeholder operations | Audit pending; blocker | Enumerate through remaining source-reviewed catalogue migration; do not infer support from registration | Runtime maintainer |
+| Platform/features/packaging | Validation pending; blocker | Complete stages 4 and 6 on final commit, including MSRV and supported feature builds | Platform and release maintainers |
+| Provider-backed E7 evidence | Validation pending; blocker | Requires configured test provider; record model, prompt and corpus versions | Evaluation maintainer |
+| 13.0.0 publication | Pending final readiness and explicit publication authorization | Stage 7; no tag or publication performed | Release maintainer |
+| Future product expansion | Deferred beyond 13.0.0 | Historical roadmap ideas do not turn unsupported implementations into working features | Feature maintainers |
+
+Retaining the DQN refusal is the release implementation decision: a functioning
+trainer needs a separate weight-update implementation and tests demonstrating
+learning. Its existing API must not claim that training occurred. These scope
+choices require accurate user-facing release limitations and do not waive the
+remaining catalogue or platform gates.
+
 ## 2. Finish all builtin contracts — the critical path
 
 - [x] Add declaration uniqueness, alias inheritance and repeatable coverage inventory.
 - [x] Cover the E1/E2/E7 working set with declared contracts.
-- [ ] Finish the 602 remaining implementations, grouped by module and actual behavior. Refresh the inventory after every tranche.
+- [ ] Finish the 599 remaining implementations, grouped by module and actual behavior. Refresh the inventory after every tranche.
 - [x] Migrate sudo_check: strict input rejection, native Unix effective UID, checked Windows subprocess status and boolean parsing, and coded failures; Windows checks passed, native Unix validation remains a platform gate.
 - [ ] Read each body before authoring its declaration; record direct-call, pipeline, optional-argument and alias semantics without generating contracts from probes.
 - [ ] Reject surplus arguments, wrong types, conflicting input and invalid options before effects or expensive work begin.
@@ -82,7 +107,7 @@ into apparent success, bypass its effect gate, or make a documented mutation uns
 **Gate:** all required jobs pass on the exact release commit. A historical pass,
 a targeted suite or a started workflow does not satisfy this gate.
 
-## 5. Recheck performance and finish the response
+## 5. Recheck performance and agentic evidence
 
 - [x] Record paired evaluator measurements and ownership/binding regression evidence.
 - [ ] Rebuild baseline and final optimized executables, identify them by commit/hash, and rerun the paired performance probe after compilation is complete.

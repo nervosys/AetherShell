@@ -1,5 +1,26 @@
 # AetherShell Roadmap
 
+> Current release status, 2026-10-01: workspace packages remain **12.0.2**;
+> **13.0.0 is in preparation and has not been published by this work**.
+> The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
+> owners, evidence and release gates. Signature coverage is 572/1171
+> implementations and 697/1437 callable names; migration remains incomplete.
+> Measured evaluator improvements are recorded in the linked performance
+> report; final-tree cross-platform measurements remain pending.
+
+Accounts/groups, ACL operations, filesystem mount/watch operations, elevated
+execution and DQN weight training retain explicit unsupported contracts for
+13.0.0. DQN inference and bounded experience recording do not imply a working
+trainer. Future feature expansion requires separate implementation and validation.
+
+## Historical roadmap — reference only
+
+The February snapshot below is preserved as history. Its “Complete” labels,
+versions, counts and distribution claims are historical assertions, not current
+release validation or independently verified registry status. Use the completion
+plan for outstanding 13.0.0 work and the release checklist before publication.
+
+
 > **Last Updated:** February 20, 2026
 
 This document tracks the development progress of AetherShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
@@ -39,7 +60,7 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ## Version History
 
-### v1.2.0 (Current) — February 2026
+### v1.2.0 (historical checkpoint) — February 2026
 - [x] **Streaming support** — `chat_stream()` implemented for all 4 providers: OpenAI (SSE), Anthropic (SSE with event types), Google Gemini (SSE), Ollama (NDJSON); `StreamChunk`/`StreamDelta` types; `supports("streaming")` returns true on all providers
 - [x] **Cost-based routing** — added `CostUnder { max_cost_per_1k }` and `LatencyUnder { max_ms }` conditions to `RoutingCondition` enum (13 total variants)
 - [x] **Latency tracking** — extended `ProviderStats` with `min_latency_ms`, `max_latency_ms`, `p95_latency_ms`, `total_cost_usd`, and `last_request_epoch` fields
