@@ -2575,6 +2575,36 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"len(docs_signatures("fn example(x: i64) -> i64 { x }"))"#, "1")],
     },
     Signature {
+        name: "net_connect", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("ip", Ty::Str, "Literal IPv4 or IPv6 address"), Param { range: Some((1, 65535)), ..req("port", Ty::Int, "Port 1..65535") }, opt_range("timeout_ms", Ty::Int, 1, 10000, "Timeout in milliseconds, default 1000; also used for later I/O")], returns: "String",
+        doc: "Connect to a TCP endpoint. Return an opaque process-local connection handle. Literal IPs avoid unbounded DNS lookup. At most 128 retained handles; close explicitly. Timeout 1..10000 ms, default 1000. Network policy applies before effects. Transactions and pipeline input are refused.",
+        examples: &[(r#"(try { net_connect("invalid", 1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { net_connect("invalid", 1, 50) } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
+    Signature {
+        name: "net_listen", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("ip", Ty::Str, "Literal IPv4 or IPv6 address"), Param { range: Some((1, 65535)), ..req("port", Ty::Int, "Port 1..65535") }, opt_range("timeout_ms", Ty::Int, 1, 10000, "Timeout in milliseconds, default 1000; also used for later I/O")], returns: "String",
+        doc: "Bind a TCP endpoint and accept one connection before timeout, then drop the listener. Guard both the bind address and accepted peer. Port zero is not accepted. Return an opaque process-local connection handle. Literal IPs avoid unbounded DNS lookup. At most 128 retained handles; close explicitly. Timeout 1..10000 ms, default 1000. Network policy applies before effects. Transactions and pipeline input are refused.",
+        examples: &[(r#"(try { net_listen("invalid", 1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { net_listen("invalid", 1, 50) } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
+    Signature {
+        name: "net_send", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("handle", Ty::Str, "Live process-local TCP handle"), req("data", Ty::Any, "String UTF-8 or Array of byte Ints 0..255, at most 1 MiB")], returns: "Int",
+        doc: "Write all UTF-8 String or byte Array data and return byte count. At most 1 MiB per call. Total send deadline uses the connection timeout. Errors may occur after a prefix was transmitted; do not blindly retry. Guard the stored actual peer on every call. Transactions and pipeline input are refused; concurrent I/O on the same handle is refused as busy.",
+        examples: &[(r#"(try { net_send("missing", [256]) } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
+    Signature {
+        name: "net_recv", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("handle", Ty::Str, "Live process-local TCP handle"), opt_range("max_bytes", Ty::Int, 1, 1048576, "Maximum bytes for one read, default 4096")], returns: "Record",
+        doc: "Perform one TCP read and return {bytes: Array<Int>, eof: Bool}. Binary bytes are preserved. A read may return fewer than max_bytes; TCP has no message framing. EOF means a zero-byte read; timeout is E_IO. Connection timeout bounds blocking. Guard the stored peer, refuse transactions and pipeline input, and reject concurrent I/O as busy.",
+        examples: &[(r#"(try { net_recv("missing") } catch e { e.error.code })"#, "E_BAD_STATE"), (r#"(try { net_recv("missing", 1) } catch e { e.error.code })"#, "E_BAD_STATE")],
+    },
+    Signature {
+        name: "net_close", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("handle", Ty::Str, "Live process-local TCP handle")], returns: "Bool",
+        doc: "Shutdown both directions and invalidate a TCP handle, returning true on successful closure including an already disconnected peer. Pending I/O observes a closed flag between waits bounded to 50 milliseconds; close never waits for the stream mutex. Guard the stored peer before cleanup; current network policy must permit it. Unknown or closed handles return E_BAD_STATE. Transactions and pipeline input are refused. Handles are released automatically on process exit.",
+        examples: &[(r#"(try { net_close("missing") } catch e { e.error.code })"#, "E_BAD_STATE")],
+    },
+    Signature {
         name: "cron_add", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("schedule", Ty::Str, "Unix five-field/@ schedule; Windows @hourly, @daily or @weekly"), req("command", Ty::Str, "One command line; Unix at most 64 KiB, Windows at most 4096 UTF-16 code units")], returns: "String",
         doc: "Create a recurring job under the current user and return its lifecycle target. Unix appends one unique crontab entry, preserving unrelated text; external writers can race. Windows creates a uniquely named limited interactive-user task running cmd.exe /d /s /c: @hourly starts next whole hour, @daily at midnight, @weekly Sunday midnight. Windows tasks require the user to be logged in. Reject transactions, invalid shape and pipeline input; requires Exec approval.",

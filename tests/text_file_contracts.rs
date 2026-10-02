@@ -26,6 +26,10 @@ impl Fixture {
             "AETHER_AUDIT_SINK",
             "AETHER_MAX_FILES",
             "AETHER_FIPS",
+            "AETHER_NET_ALLOW",
+            "AETHER_MAX_NET",
+            "AETHER_MAX_OPS",
+            "AETHER_MAX_PROCS",
         ];
         let fixture = Self {
             root,
@@ -3483,4 +3487,389 @@ fn rust_documentation_extracts_real_declarations_without_running_source() {
         );
         assert!(matches!(call(name,vec![s("")],&mut env).unwrap(),Value::Array(a) if a.is_empty()));
     }
+}
+#[test]
+fn tcp_binary_transfer_eof_timeout_and_handle_lifecycle() {
+    use std::io::{Read, Write};
+    use std::net::{Shutdown, TcpListener};
+    use std::time::Duration;
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        let (mut peer, _) = listener.accept().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        peer.set_write_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut bytes = [0; 5];
+        peer.read_exact(&mut bytes).unwrap();
+        assert_eq!(bytes, [0, 255, 65, 195, 169]);
+        peer.write_all(&bytes).unwrap();
+        peer.shutdown(Shutdown::Write).unwrap();
+    });
+    let mut env = Env::default();
+    let handle = call(
+        "net_connect",
+        vec![s("127.0.0.1"), Value::Int(port as i64), Value::Int(500)],
+        &mut env,
+    )
+    .unwrap();
+    assert!(matches!(
+        call(
+            "net_send",
+            vec![
+                handle.clone(),
+                Value::Array(vec![Value::Int(0), Value::Int(255)])
+            ],
+            &mut env
+        )
+        .unwrap(),
+        Value::Int(2)
+    ));
+    assert!(matches!(
+        call("net_send", vec![handle.clone(), s("Aé")], &mut env).unwrap(),
+        Value::Int(3)
+    ));
+    let mut received = Vec::new();
+    loop {
+        let Value::Record(result) =
+            call("net_recv", vec![handle.clone(), Value::Int(2)], &mut env).unwrap()
+        else {
+            panic!("record required")
+        };
+        let Value::Array(bytes) = &result["bytes"] else {
+            panic!("bytes required")
+        };
+        received.extend(bytes.iter().map(|v| {
+            if let Value::Int(n) = v {
+                *n
+            } else {
+                panic!("byte Int required")
+            }
+        }));
+        if matches!(result["eof"], Value::Bool(true)) {
+            assert!(bytes.is_empty());
+            break;
+        }
+        assert!(!bytes.is_empty());
+    }
+    assert_eq!(received, vec![0, 255, 65, 195, 169]);
+    server.join().unwrap();
+    assert!(matches!(
+        call("net_close", vec![handle.clone()], &mut env).unwrap(),
+        Value::Bool(true)
+    ));
+    for name in ["net_recv", "net_close"] {
+        code(call(name, vec![handle.clone()], &mut env), "E_BAD_STATE");
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let handle = call(
+        "net_connect",
+        vec![
+            s("127.0.0.1"),
+            Value::Int(listener.local_addr().unwrap().port() as i64),
+            Value::Int(30),
+        ],
+        &mut env,
+    )
+    .unwrap();
+    let (mut peer, _) = listener.accept().unwrap();
+    code(call("net_recv", vec![handle.clone()], &mut env), "E_IO");
+    // Timeout leaves the handle usable and does not report EOF.
+    peer.write_all(&[42]).unwrap();
+    let Value::Record(result) = call("net_recv", vec![handle.clone()], &mut env).unwrap() else {
+        panic!()
+    };
+    assert!(matches!(result["eof"], Value::Bool(false)));
+    call("net_close", vec![handle], &mut env).unwrap();
+}
+
+#[test]
+fn tcp_contracts_policy_and_transactions_gate_actual_peer() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::Duration;
+    let _lock = LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    let mut env = Env::default();
+    for args in [
+        vec![],
+        vec![s("localhost"), Value::Int(80)],
+        vec![s("127.0.0.1"), Value::Int(0)],
+        vec![s("127.0.0.1"), Value::Int(65536)],
+        vec![s("127.0.0.1"), Value::Int(80), Value::Int(10001)],
+    ] {
+        for name in ["net_connect", "net_listen"] {
+            code(call(name, args.clone(), &mut env), "E_BAD_ARG");
+        }
+    }
+    for data in [
+        Value::Bool(false),
+        Value::Array(vec![Value::Int(-1)]),
+        Value::Array(vec![Value::Int(256)]),
+        s(&"x".repeat(1048577)),
+    ] {
+        code(
+            call("net_send", vec![s("missing"), data], &mut env),
+            "E_BAD_ARG",
+        );
+    }
+    code(
+        call("net_recv", vec![s("missing"), Value::Int(0)], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call_with_input(
+            "net_close",
+            vec![s("missing")],
+            Some(s("ignored")),
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let args = vec![
+        s("127.0.0.1"),
+        Value::Int(listener.local_addr().unwrap().port() as i64),
+        Value::Int(50),
+    ];
+    aethershell::tx::begin().unwrap();
+    code(
+        call("net_connect", args.clone(), &mut env),
+        "E_UNIMPLEMENTED",
+    );
+    aethershell::tx::rollback().unwrap();
+    std::env::set_var("AETHER_NET_ALLOW", "192.0.2.1");
+    code(call("net_connect", args.clone(), &mut env), "E_POLICY_DENY");
+    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    let handle = call("net_connect", args, &mut env).unwrap();
+    let (mut peer, _) = listener.accept().unwrap();
+    peer.set_read_timeout(Some(Duration::from_millis(30)))
+        .unwrap();
+    std::env::set_var("AETHER_NET_ALLOW", "192.0.2.1");
+    code(
+        call("net_send", vec![handle.clone(), s("denied")], &mut env),
+        "E_POLICY_DENY",
+    );
+    code(
+        call("net_recv", vec![handle.clone()], &mut env),
+        "E_POLICY_DENY",
+    );
+    code(
+        call("net_close", vec![handle.clone()], &mut env),
+        "E_POLICY_DENY",
+    );
+    let mut byte = [0];
+    assert!(peer.read(&mut byte).is_err());
+    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    aethershell::tx::begin().unwrap();
+    code(
+        call("net_send", vec![handle.clone(), s("denied")], &mut env),
+        "E_UNIMPLEMENTED",
+    );
+    aethershell::tx::rollback().unwrap();
+    peer.write_all(&[99]).unwrap();
+    call("net_recv", vec![handle.clone()], &mut env).unwrap();
+    call("net_close", vec![handle], &mut env).unwrap();
+    let audit = std::fs::read_to_string(fixture.root.join("audit.log")).unwrap();
+    assert!(audit.contains("tcp://127.0.0.1:"));
+}
+
+#[test]
+fn tcp_one_shot_listener_accepts_and_releases_port_on_timeout() {
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::time::{Duration, Instant};
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = reservation.local_addr().unwrap();
+    drop(reservation);
+    let server = std::thread::spawn(move || {
+        let mut env = Env::default();
+        let handle = call(
+            "net_listen",
+            vec![
+                s("127.0.0.1"),
+                Value::Int(addr.port() as i64),
+                Value::Int(2000),
+            ],
+            &mut env,
+        )
+        .unwrap();
+        let Value::Record(result) = call("net_recv", vec![handle.clone()], &mut env).unwrap()
+        else {
+            panic!()
+        };
+        assert!(
+            matches!(&result["bytes"],Value::Array(bytes) if matches!(bytes.as_slice(),[Value::Int(7)]))
+        );
+        call(
+            "net_send",
+            vec![handle.clone(), Value::Array(vec![Value::Int(255)])],
+            &mut env,
+        )
+        .unwrap();
+        call("net_close", vec![handle], &mut env).unwrap();
+    });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut peer = loop {
+        match TcpStream::connect_timeout(&addr, Duration::from_millis(50)) {
+            Ok(peer) => break peer,
+            Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
+            Err(e) => panic!("listener not available: {e}"),
+        }
+    };
+    peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    std::thread::sleep(Duration::from_millis(30));
+    peer.write_all(&[7]).unwrap();
+    let mut byte = [0];
+    peer.read_exact(&mut byte).unwrap();
+    assert_eq!(byte, [255]);
+    server.join().unwrap();
+    drop(peer);
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = reservation.local_addr().unwrap();
+    drop(reservation);
+    let mut env = Env::default();
+    code(
+        call(
+            "net_listen",
+            vec![
+                s("127.0.0.1"),
+                Value::Int(addr.port() as i64),
+                Value::Int(20),
+            ],
+            &mut env,
+        ),
+        "E_IO",
+    );
+    assert!(TcpListener::bind(addr).is_ok());
+}
+#[test]
+fn tcp_handle_budget_releases_capacity_and_close_interrupts_reader() {
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    struct Handles(Vec<Value>);
+    impl Drop for Handles {
+        fn drop(&mut self) {
+            let mut env = Env::default();
+            for handle in self.0.drain(..) {
+                let _ = call("net_close", vec![handle], &mut env);
+            }
+        }
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let args = vec![
+        s("127.0.0.1"),
+        Value::Int(listener.local_addr().unwrap().port() as i64),
+        Value::Int(1000),
+    ];
+    let mut env = Env::default();
+    let mut handles = Handles(Vec::new());
+    let mut peers = Vec::new();
+    for _ in 0..128 {
+        handles
+            .0
+            .push(call("net_connect", args.clone(), &mut env).unwrap());
+        peers.push(listener.accept().unwrap().0);
+    }
+    code(
+        call("net_connect", args.clone(), &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    let closed = handles.0.pop().unwrap();
+    call("net_close", vec![closed], &mut env).unwrap();
+    let handle = call("net_connect", args, &mut env).unwrap();
+    peers.push(listener.accept().unwrap().0);
+    handles.0.push(handle.clone());
+    let read_handle = handle.clone();
+    let reader =
+        std::thread::spawn(move || call("net_recv", vec![read_handle], &mut Env::default()));
+    // Observe the stream mutex held by the reader before closing it. Empty
+    // sends transmit nothing and return zero until the read owns the stream.
+    let ready_deadline = Instant::now() + Duration::from_millis(500);
+    loop {
+        match call("net_send", vec![handle.clone(), s("")], &mut env) {
+            Err(e) if e.to_string().contains("E_BAD_STATE") => break,
+            Ok(Value::Int(0)) if Instant::now() < ready_deadline => {
+                std::thread::sleep(Duration::from_millis(1))
+            }
+            other => panic!("reader failed to enter blocking read: {other:?}"),
+        }
+    }
+    let started = Instant::now();
+    call("net_close", vec![handle], &mut env).unwrap();
+    match reader.join().unwrap() {
+        Ok(Value::Record(record)) => assert!(matches!(record["eof"], Value::Bool(true))),
+        Err(e) => assert!(
+            e.to_string().contains("E_BAD_STATE") || e.to_string().contains("E_IO"),
+            "{e}"
+        ),
+        other => panic!("unexpected read outcome: {other:?}"),
+    }
+    assert!(started.elapsed() < Duration::from_millis(750));
+    handles.0.pop();
+    drop(handles);
+    drop(peers);
+}
+
+#[test]
+fn tcp_waits_respect_short_and_expired_evaluation_deadlines() {
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+    let _lock = LOCK.lock().unwrap();
+    let _fixture = Fixture::new();
+    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut env = Env::default();
+    let args = vec![
+        s("127.0.0.1"),
+        Value::Int(listener.local_addr().unwrap().port() as i64),
+        Value::Int(5000),
+    ];
+    let handle = call("net_connect", args.clone(), &mut env).unwrap();
+    let _peer = listener.accept().unwrap().0;
+    {
+        let _deadline = aethershell::safety::enter_deadline(Duration::from_millis(20));
+        let started = Instant::now();
+        code(call("net_recv", vec![handle.clone()], &mut env), "E_IO");
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+    {
+        let _deadline = aethershell::safety::enter_deadline(Duration::ZERO);
+        code(
+            call("net_recv", vec![handle.clone()], &mut env),
+            "E_BUDGET_EXCEEDED",
+        );
+        code(
+            call("net_connect", args.clone(), &mut env),
+            "E_BUDGET_EXCEEDED",
+        );
+        // This address is already bound; deadline refusal must precede bind.
+        code(call("net_listen", args, &mut env), "E_BUDGET_EXCEEDED");
+    }
+    call("net_close", vec![handle], &mut env).unwrap();
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+    let _deadline = aethershell::safety::enter_deadline(Duration::from_millis(20));
+    let started = Instant::now();
+    code(
+        call(
+            "net_listen",
+            vec![s("127.0.0.1"), Value::Int(port as i64), Value::Int(5000)],
+            &mut env,
+        ),
+        "E_IO",
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
 }

@@ -24649,59 +24649,22 @@ fn bi_net_connections(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     Ok(Value::Array(vec![]))
 }
 
-fn bi_net_listen(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Socket listening requires async runtime - return stub
-    Ok(Value::Str("socket_stub".to_string()))
+#[path = "tcp_sockets.rs"]
+mod tcp_sockets;
+fn bi_net_listen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    tcp_sockets::guard_and_open("net_listen", args, input, true)
 }
-
-fn bi_net_connect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "net_connect",
-        "opening a socket is not implemented; NOTHING WAS DONE",
-        "use nc.connect, or http.get for HTTP",
-    ))
+fn bi_net_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    tcp_sockets::guard_and_open("net_connect", args, input, false)
 }
-
-fn bi_net_send(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returned `Ok(false)` for every call, ignoring its arguments: an
-    // agent could not tell "this did not work" from "this shell does
-    // not do that", and the catalogue advertised it either way.
-    Err(crate::safety::unimplemented(
-        "net_send",
-        "sending on a raw socket is not implemented; NOTHING WAS CHANGED",
-        "use nc.connect or http.post",
-    ))
+fn bi_net_send(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    tcp_sockets::guard_and_send(args, input)
 }
-
-fn bi_net_recv(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "net_recv",
-        "receiving from a socket is not implemented; NOTHING WAS DONE",
-        "use nc.connect, or http.get for HTTP",
-    ))
+fn bi_net_recv(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    tcp_sockets::guard_and_recv(args, input)
 }
-
-fn bi_net_close(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "net_close",
-        "closing a socket is not implemented; NOTHING WAS DONE",
-        "use nc.connect, or http.get for HTTP",
-    ))
+fn bi_net_close(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    tcp_sockets::guard_and_close(args, input)
 }
 
 fn bi_net_ports(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

@@ -3,13 +3,13 @@
 > Current release status, 2026-10-02: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
-> owners, evidence and release gates. Signature coverage is 585/1171
-> implementations and 710/1437 callable names; migration remains incomplete.
+> owners, evidence and release gates. Signature coverage is 590/1171
+> implementations and 715/1437 callable names; migration remains incomplete.
 > Measured evaluator improvements are recorded in the linked performance
 > report; final-tree cross-platform measurements remain pending.
 
 The user expanded the 13.0.0 implementation scope on 2026-10-02 to all unsupported
-builtins. Scheduler mutation adapters and DQN weight training now have working
+builtins. Scheduler mutation adapters, DQN weight training and native TCP socket lifecycle now have working
 implementations and targeted tests; disposable-platform scheduler validation
 remains open. Accounts/groups, ACL operations, mounting/watching, elevated
 execution and other unsupported operations remain implementation blockers. The completion plan separates those gaps

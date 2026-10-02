@@ -4127,6 +4127,11 @@ pub const SELF_GUARDED: &[&str] = &[
     "marketplace_info",
     "marketplace_search",
     "marketplace_update",
+    "net_close",
+    "net_connect",
+    "net_listen",
+    "net_recv",
+    "net_send",
     "pager",
     "perf_record",
     "perf_stat",
@@ -4591,6 +4596,30 @@ pub fn enter_deadline(limit: std::time::Duration) -> DeadlineGuard {
     DEADLINE.with(|d| d.set(Some(std::time::Instant::now() + limit)));
     STEPS.with(|s| s.set(0));
     DeadlineGuard { previous }
+}
+
+/// Limit blocking native I/O to the remaining evaluation deadline.
+/// Unlike the amortized evaluator check, this checks the clock on every call.
+#[cfg(feature = "native")]
+pub(crate) fn bounded_io_timeout(
+    builtin: &str,
+    requested: std::time::Duration,
+) -> anyhow::Result<std::time::Duration> {
+    DEADLINE.with(|d| match d.get() {
+        None => Ok(requested),
+        Some(at) => {
+            let remaining = at.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                Err(budget_exceeded(
+                    builtin,
+                    "evaluation deadline expired before socket I/O".into(),
+                    "use a sufficient evaluation time limit",
+                ))
+            } else {
+                Ok(requested.min(remaining))
+            }
+        }
+    })
 }
 
 /// Fail if this thread's evaluation deadline has passed.

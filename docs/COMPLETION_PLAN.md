@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 585/1,171 implementations; 710/1,437 callable names | 586 implementations and 727 callable names |
-| Latest targeted Windows validation | 721 unique tests across nine suites passed | Validate the complete final tree |
+| Signature migration | 590/1,171 implementations; 715/1,437 callable names | 581 implementations and 722 callable names |
+| Latest targeted Windows validation | 726 unique tests across nine suites passed | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -43,7 +43,7 @@ ignore and contains illustrative pseudocode. Provider/server checks remain open.
 - [x] Preserve the implemented evaluator latency and throughput improvements.
 - [x] Make a release-scope register: implemented, explicitly unsupported, or deferred, with evidence and an owner for each unresolved item.
 - [ ] Implement placeholder operations, including accounts, groups, ACLs, mounting, watching, scheduler mutations and elevated execution. The user selected all unsupported builtins on 2026-10-02; refusal contracts do not complete this scope.
-- [ ] Implement and test DQN weight updates and actual learning; the user expanded implementation scope on 2026-10-02.
+- [x] Implement and test DQN weight updates and actual learning; the user expanded implementation scope on 2026-10-02.
 - [x] Separate future roadmap features from release blockers. Reconcile the stale version, metrics and open-issue sections in ROADMAP.md using current evidence.
 
 **Gate:** every advertised capability has an implementation or an explicit,
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 585 implementations covered, 586 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 590 implementations covered, 581 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -85,7 +85,8 @@ removing their guards.
   - [x] Implement cron_add, at_schedule and at_remove; add Windows one-time task listing. Fixed registration code accepts UTF-8 JSON data on stdin and uses a limited interactive-user principal. Eight isolated tests passed, including all Windows trigger branches through process-local cmdlet stubs.
   - [ ] Verify actual mutations in disposable Windows and Unix environments; backend injection is not a native-platform mutation witness.
 - [ ] Implement services, users/groups, permissions/ACLs, mounting and watching with tested platform backends.
-- [ ] Implement native socket lifecycle and missing web/clipboard/UI/input operations.
+- [x] Implement bounded native TCP connect/listen/send/recv/close with strict contracts and actual loopback transfers; Linux/macOS native validation remains open.
+- [ ] Implement missing web/clipboard/UI/input operations.
 - [ ] Implement missing package-manager operations with checked tool adapters.
 - [ ] Implement source navigation, refactoring, search, tests, sessions and documentation operations.
 - [ ] Implement DQN training and remaining crypto operations/legacy verification where supported by the algorithm policy.
@@ -232,10 +233,11 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_fs_unwatch
 - [ ] bi_fs_mount
 - [ ] bi_fs_unmount
-- [ ] bi_net_connect
-- [ ] bi_net_send
-- [ ] bi_net_recv
-- [ ] bi_net_close
+- [x] bi_net_listen — placeholder discovered beyond explicit-refusal scan; native one-shot TCP accept implemented.
+- [x] bi_net_connect — native TCP implementation; final platform validation remains open.
+- [x] bi_net_send — native TCP implementation; final platform validation remains open.
+- [x] bi_net_recv — native TCP implementation; final platform validation remains open.
+- [x] bi_net_close — native TCP implementation; final platform validation remains open.
 - [ ] bi_sys_cpu_freq
 - [ ] bi_whoami
 - [ ] bi_svc_status

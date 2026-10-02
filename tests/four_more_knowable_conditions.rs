@@ -299,7 +299,6 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         "acl_set",
         "session_undo",
         "session_redo",
-        "net_send",
         // Answered an empty collection, which reads as a definitive result:
         // `code_references("foo")` said there were none.
         "code_references",
