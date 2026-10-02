@@ -1,4 +1,161 @@
-# Completion plan
+# AetherShell completion plan
+
+Updated 2026-10-01. Target: **13.0.0**, selected for the stricter builtin contracts.
+
+Completion means a validated, installable release with a declared contract for
+every dispatchable builtin, honest unsupported-feature reporting, reproducible
+performance evidence, and verified distribution artifacts. Future roadmap ideas
+have their own milestones; this checklist governs the current release.
+
+## Current checkpoint
+
+| Area | Verified state | Remaining gate |
+| --- | --- | --- |
+| Signature migration | 569/1,171 implementations; 694/1,437 callable names | 602 implementations and 743 callable names |
+| Latest targeted Windows validation | 738 unique tests across ten suites passed | Validate the complete final tree |
+| Earlier Windows workspace checkpoint | 2,633 passed across 186 suites; four ignored | Rerun after all remaining changes |
+| Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
+| Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
+| Package versions | Root and LSP remain 12.0.2 | Update the release metadata together |
+| Publication | No 13.0.0 tag or publication performed in this preparation | Approved publication and independent verification |
+
+Evidence: [release preparation](release/13.0.0.md),
+[performance report](../benches/agentic/results/perf-2026-09-29-followup.md), and
+`cargo run --example signature_inventory`. Performance figures are workload-
+and host-specific; they exclude process startup and transport overhead.
+
+## 1. Confirm release scope and unsupported features
+
+- [x] Select 13.0.0 for the compatibility changes.
+- [x] Preserve the implemented evaluator latency and throughput improvements.
+- [ ] Make a release-scope register: implemented, explicitly unsupported, or deferred, with evidence and an owner for each unresolved item.
+- [ ] Review placeholder operations, including accounts, groups, ACLs, mounting, watching and elevated execution; approve which remain explicitly unsupported for 13.0.0.
+- [ ] Resolve the DQN training decision: implement and test real weight updates, or retain the explicit unsupported contract and document that limitation.
+- [ ] Separate future roadmap features from release blockers. Reconcile the stale version, metrics and open-issue sections in ROADMAP.md using current evidence.
+
+**Gate:** every advertised capability has an implementation or an explicit,
+accepted limitation. No placeholder is described as successful work.
+
+## 2. Finish all builtin contracts — the critical path
+
+- [x] Add declaration uniqueness, alias inheritance and repeatable coverage inventory.
+- [x] Cover the E1/E2/E7 working set with declared contracts.
+- [ ] Finish the 602 remaining implementations, grouped by module and actual behavior. Refresh the inventory after every tranche.
+- [ ] Migrate sudo_check next: reject arguments and pipeline input, check subprocess status, validate output, and distinguish inspection failure from a genuine false result.
+- [ ] Read each body before authoring its declaration; record direct-call, pipeline, optional-argument and alias semantics without generating contracts from probes.
+- [ ] Reject surplus arguments, wrong types, conflicting input and invalid options before effects or expensive work begin.
+- [ ] Add executable examples for each declaration, witnessing optional parameters both absent and present. Use owned fixtures for mutations and explicit machine-dependent checks where necessary.
+- [ ] Check each return shape and refusal code on all applicable platforms; require unsupported behavior to remain explicit.
+- [ ] Complete containment, audit identity, effect classification, budget and transaction checks for effectful contracts. Refuse transaction use where rollback cannot restore the operation.
+- [ ] Reach full coverage for both implementations and callable names, using the final inventory totals rather than assuming the current denominator is fixed.
+- [ ] Remove interim undeclared-builtin assertions only after the inventory has no uncovered implementations or aliases.
+
+**Gate:** zero uncovered implementations and callable names; declaration examples
+and malformed-call regressions pass without broad skip lists masking failures.
+
+## 3. Close correctness and security gaps
+
+- [ ] Fix legacy password hash/verification consistency across platforms, including fresh salts, supported formats and FIPS behavior; test success, wrong passwords and malformed hashes.
+- [ ] Review remaining unchecked subprocess exits and false/zero/empty-result failure paths; lower the ratchet counts only with source review and meaningful tests.
+- [ ] Verify that unsupported, absent-tool, failed-tool, invalid-input and policy refusals remain distinct, coded outcomes.
+- [ ] Complete native Unix validation for ownership, modes, execute bits, symlink targets, dangling links and audit aliases. Validate Windows privilege and read-only behavior separately.
+- [ ] Verify bounded reads, allocations, edit batches, output sizes and time limits for the remaining contracts.
+- [ ] Verify atomic publication, owned temporary-file cleanup, preflight refusal without mutation, and transaction rollback for supported filesystem changes.
+- [ ] Recheck agent policy enforcement, effect provenance, aliases, audit protection and network restrictions after the catalogue is fully migrated.
+
+**Gate:** no open correctness or security defect can turn an unsuccessful operation
+into apparent success, bypass its effect gate, or make a documented mutation unsafe.
+
+## 4. Validate the complete release tree
+
+- [ ] Run cargo fmt --all -- --check and git diff --check.
+- [ ] Run cargo test --workspace --no-fail-fast on the complete final tree; preserve logs and account for every ignored test.
+- [ ] Temporarily clear inherited LC_ALL for the known locale-sensitive Windows check, restore it afterward, and record the environment adjustment.
+- [ ] Run cargo clippy --workspace --all-targets -- -D warnings.
+- [ ] Build ae, aimodel and the LSP in supported release configurations.
+- [ ] Validate the Rust 1.88 MSRV and the supported feature combinations, including optional local inference and WASM where advertised.
+- [ ] Run Linux, macOS and Windows CI, including the declared supported architectures and packaging targets.
+- [ ] Validate hardware, GUI, clipboard, service and other environment-dependent contracts on suitable hosts or disposable environments; document unavailable coverage.
+- [ ] Run uncoded-failure, second-path, discarded-argument, silent-success and network-egress probes in isolated environments; verify their non-vacuity checks and final thresholds.
+- [ ] Confirm CI gates execute the intended tests and fail on representative injected regressions.
+
+**Gate:** all required jobs pass on the exact release commit. A historical pass,
+a targeted suite or a started workflow does not satisfy this gate.
+
+## 5. Recheck performance and finish the response
+
+- [x] Record paired evaluator measurements and ownership/binding regression evidence.
+- [ ] Rebuild baseline and final optimized executables, identify them by commit/hash, and rerun the paired performance probe after compilation is complete.
+- [ ] Check module calls, map/filter/reduce, nested records and the recorded neutral or slower cases; investigate regressions before setting final acceptance thresholds.
+- [ ] Measure CLI cold startup and Agent API latency/throughput separately if claiming improvements for those paths; keep in-process results labeled accurately.
+- [ ] Rerun the applicable agentic corpora with pinned tools and reproducible fixtures. Reconcile every claim against its command and result artifact.
+- [ ] Finish E7 with an authorized model credential, or clearly mark live-model evidence as unavailable without treating it as measured.
+- [ ] Finalize docs/TYPED_SHELL_RESPONSE.md and choose its publication destination.
+
+**Gate:** every performance and correctness claim is traceable to final evidence;
+no speedup is inferred from a refactor alone.
+
+## 6. Prepare versions, documentation and packages
+
+- [ ] Update root and LSP manifests, lockfiles, SDK/extension/package metadata and API/OpenAPI versions to the intended release versions together.
+- [ ] Finalize CHANGELOG.md and release/13.0.0.md with breaking-call examples, migration guidance, supported platforms and accepted limitations.
+- [ ] Reconcile README, AGENTS.md, llms.txt, llms-full.txt, ROADMAP.md and generated discovery metadata with the final inventory and feature register.
+- [ ] Update installation, upgrade and troubleshooting instructions; verify every advertised channel's actual package name and expected version.
+- [ ] Run scripts/test_release_version.py and scripts/test-release-preflight.ps1 under PowerShell 5.1 and 7.
+- [ ] Inspect package file lists, license/source inclusion, artifact names and platform coverage; build and smoke-test the packages intended for publication.
+- [ ] Check credentials only for channels included in this release, including crates.io and any chosen SDK or extension registries; never record secrets in the plan or logs.
+- [ ] Prepare a concrete release commit, release notes, artifact checklist and recovery procedure for approval.
+
+**Gate:** metadata agrees, preflight passes, and the release candidate is reviewable
+without tagging or publishing it first.
+
+## 7. Authorize, publish and verify
+
+- [ ] Obtain explicit approval for the release push/tag, public release and each registry publication included in the release.
+- [ ] Publish the approved release commit and tag; verify that the tag identifies the validated commit.
+- [ ] Monitor every build and upload to completion. The current workflow creates a public release before binary jobs finish.
+- [ ] After the authorized tag exists, compute its real source-archive SHA-256 and update the Homebrew formula; do not invent a prepublication checksum.
+- [ ] Publish the chosen registry packages and independently verify their versions and artifacts in the registries.
+- [ ] Download the actual release assets and test clean installation on Windows, Linux and macOS, including the supported architectures and channels.
+- [ ] Smoke-test ae --version, representative typed pipelines, the Agent API, SDK/LSP integration, upgrades and uninstall instructions.
+- [ ] Verify published checksums, documentation links, notes and artifact completeness; resolve discrepancies before declaring the release finished.
+
+**Gate:** users can install the published 13.0.0 artifacts and reproduce the
+documented behavior. Workflow initiation alone is insufficient evidence.
+
+## Working checklist for each migration tranche
+
+- [ ] Read the implementation and all aliases; identify ignored input and hidden failure paths.
+- [ ] Author the declaration and safe executable examples.
+- [ ] Implement strict validation and coded refusals; add meaningful regression coverage.
+- [ ] Run the relevant contract, effect, containment and transaction checks.
+- [ ] Run formatting and Clippy for the affected code; broaden tests when changes or failures justify it.
+- [ ] Refresh coverage, record actual results and remaining limitations, then make a local commit.
+
+No automatic push, tag or publication is part of a migration tranche.
+
+## Dependencies and completion decision
+
+Work in this order: scope decisions → complete contracts and correctness fixes →
+final platform/CI validation → final performance and documentation evidence →
+release candidate → approved publication → clean-install verification.
+Preparation of fixtures, CI environments, documentation structure and credentials
+can proceed while the migration continues. Final checks follow the last relevant
+change. Check an item only when its evidence is recorded; reopen affected gates
+when the release tree changes.
+
+The principal execution dependency is the remaining contract review. External
+inputs are supported-platform/hardware access, an authorized model credential
+for E7, credentials for selected publication channels, and final release approval.
+There is no completion-date commitment until these dependencies and the remaining
+migration effort are resolved.
+
+## Historical plan and evidence — reference only
+
+The current checklists above govern 13.0.0. The material below preserves earlier
+investigations and checkpoints. Its historical totals and unchecked tasks require
+re-triage before action; they are not additional current release requirements.
+
 
 2026-10-01 update: the maintainer selected **13.0.0** for the stricter contracts.
 The source-reviewed migration currently has 569 declarations covering 569 of
@@ -31,7 +188,7 @@ that proves it has been run. Baseline at `b799289`:
 | Stubs that now refuse (`E_UNIMPLEMENTED`) | 84 |
 | Comparable builtins that discard extra arguments | 245 of 267 (91.8%) |
 
-## Phase 0 — Blocked on the maintainer
+#### Phase 0 — Blocked on the maintainer
 
 - [ ] Push the amended `infra` commit (`git push --force-with-lease`); the agent sandbox refuses force-pushes.
 - [ ] Decide the global git `user.email`; repositories without a local override inherit it.
@@ -40,7 +197,7 @@ that proves it has been run. Baseline at `b799289`:
 - [x] Choose the release version: the maintainer selected 13.0.0 for the stricter contracts on 2026-09-29.
 - [ ] Choose where the response is published.
 
-## Phase 1 — Finish the signature migration
+#### Phase 1 — Finish the signature migration
 
 - [ ] 1a. Declare the 156 real builtins that take no arguments, in tranches, read-only first. Builtins that change state need a disposable container, because gathering evidence means running them. Progress: 187 declarations (was 116). The fourth tranche added 71 read-only parameterless builtins, each type measured identically on Linux and Windows. Measuring them turned up four defects, all fixed: `whoami()` listed every account; `platform_cpu_freq` and `platform_libcpp` changed type by OS; and the narrowness harness leaked AETHER_MAX_NET=0 into later tests. Still undeclared among the parameterless ones: state-changing builtins (container needed), hardware and GUI builtins, and `docs_*`/`diag_config`, whose answer depends on the working directory. 2026-09-27: 14 more declared (docs_*, diag_config and config_reload in the machine-dependent tier; clear, governor_reset, session_start, telemetry_*, ui_clear strict). Reading them found `fs_watch` answering "watch_id_stub", `platform_memory_free` assuming 4 KB pages (a quarter of the truth on Apple Silicon), `sys_users` answering [] on failure and `config_reload` uncoded; all fixed. Still undeclared: state-changing (container needed), hw_battery/hw_gpu/hw_sensors (Phase 0 hardware check), GUI and clipboard.
 - [ ] 1b. Declare the ~700 builtins that take parameters, by reading each body; the E1/E2/E7 working set first. Never generate declarations from probe data. Progress: the working set is done. Every builtin the E1/E2 corpora or the E7 prompts use is declared (`each`, `echo`, `git_branch` were the last). Declaring them found that `each` swallowed its action's errors and that `echo` dropped its pipe input. Later tranches, 2026-09-26, took declarations from 190 to 283, each body read and each example measured. On the runner, discarded args fell from 231 to 136 of 343. Reading the bodies found defects worse than discarded arguments, all fixed with tests: `md5()` returned SHA-256, and an unknown hash algorithm silently became SHA-256; `proc_kill("name")` signalled pid 0 (the shell's own group) and `proc_kill(-1)` everything; `db_sqlite_count` always returned 0; `hex_decode` panicked; `role_create` dropped malformed permissions; `touch` did not touch; 13 `monitor_*` builtins ran programs while classified Pure, two of them running `sh -c`, which the effect ratchet missed because it matched names instead of dispatch rows; and six stubs returned advice as their answer. What remains is mostly environment-dependent (package managers, objdump/readelf, systemd, GUI, interactive input). Their examples cannot give the same answer on all three CI systems. The designed escape is the example test's `NEEDS_THE_WORLD` skip list, which keeps the call-shape check but not the result check; using it at scale is a judgement call. Resolved ("Proceed", 2026-09-26) with a stricter tier than the skip list: `MACHINE_DEPENDENT` in tests/declared_signatures.rs runs every such example and requires the declared return type or a code meaning absent-here (E_TOOL_MISSING, E_TOOL_FAILED, E_UNIMPLEMENTED, E_NOT_FOUND, E_NO_UI, E_IO); E_BAD_ARG or an uncoded failure still fails. Each entry names what it depends on.
@@ -48,7 +205,7 @@ that proves it has been run. Baseline at `b799289`:
 - [x] The effect ratchet (tests/effect_ratchet.rs) follows plain function calls, not method calls, so a builtin that reaches a process through `obj.method(...)` reads as Pure. That is how `mcp_call` ran catalogue programs (cp, make, deno, ...) unguarded in agent mode until 2026-09-27. It should resolve method calls whose name is unambiguous across the crate, or report builtins whose bodies construct a type that owns a spawn site. Done: a method call is followed when the receiver's type is stated in the body (`let s = Type::...`, `let s: Type`, or `self`). Following every same-named method reported five false HTTP callers, and following crate-unique names mapped `HashMap::remove` to `SyntaxKB::remove` (29 false reports), so neither is done. It found one real case, `config_set`, now WriteLocal.
 - [x] `rlm_stats()` with no argument returns constants (0 spawned, max_depth 5, ...) presented as "statistics from the last run"; nothing tracks runs. `examples/24_recursive_agents.ae` relies on it. It needs a real source of run statistics, or it should refuse with the example reworked around the record an RLM run returns. Done in ad3e03f: runs are recorded and it answers {runs, last_run}.
 
-## Phase 2 — Remaining correctness gaps
+#### Phase 2 — Remaining correctness gaps
 
 - [x] Search on Windows: the `search_*` family walks in-process instead of shelling out to `find`/`grep`, and the parameterless three are declared. Checked against GNU `find`/`grep` with the same exclusions: six of six result sets identical, and the same counts on Windows as on Linux.
   - Found on the way: `search_symbols` had never matched anything (`|` is literal in a basic regex), and `find` treated `?`, `[...]` and a middle `*` as exact names.
@@ -62,21 +219,21 @@ that proves it has been run. Baseline at `b799289`:
 - [x] Classify `ai` correctly. A new probe, `network-egress.mjs`, traces connect(2) for every builtin under `--agent --policy strict` with `AETHER_MAX_NET=0`. It found six builtins classified `pure` that open connections anyway: `ai`, `agent`, `swarm`, `rlm_agent`, `ai_backends` and `mcp_client`. All six, plus their aliases `recursive_agent` and `mcp_connect`, are now `Network`, and the probe runs as a fourth CI gate.
 - [x] `sh("git commit -m 'fix bug'")` split on every space, so the quoted message arrived as three arguments. It now uses POSIX word splitting with no expansions, and an unterminated quote is an E_BAD_ARG. `validate_http_url` returned bare prose, which reached agents as E_UNKNOWN. It now returns E_BAD_ARG for a malformed URL, E_POLICY_DENY for SSRF and E_NOT_FOUND for an unresolvable host.
 
-## Phase 3 — Make it stay done
+#### Phase 3 — Make it stay done
 
 - [x] Run the probes in CI as gates. The `agentic-probes` job runs the uncoded, second-path and discarded-args probes; every gate was shown to fail on an injected regression before being trusted to pass. Its first runs found problems WSL could not: five uncoded builtins that only fail on a host where the tool is installed, and a hang. Green at `c64a7bd` across 1,164 builtins: 0 uncoded and 0 hung on both paths; `discarded_args_max` calibrated from the runner to 318.
 - [x] Carry each probe's non-vacuity checks into CI, so a probe that stops testing anything fails the build (each exits 2 when it measured nothing, and the CI step fails on any non-zero exit).
 - [x] Check every builtin name that collides with a Windows system tool. The builtins invoke 202 distinct programs; 13 share a name with a System32 executable. After the `find` fix, none reaches a Windows tool with different semantics: `timeout`, `cmd`, `nslookup`, `where`, `mount` and `net` are all behind a platform check (several as runtime `cfg!`), and the ungated `curl` and `tar` calls get real curl and bsdtar, which accept the same flags.
 - [x] Fail the build on a stray control character in source (`tests/no_control_characters_in_source.rs`); a scripted edit had put a form feed into `signature.rs` and a backspace into a regex.
 
-## Phase 4 — Response document
+#### Phase 4 — Response document
 
 - [x] Bring `docs/TYPED_SHELL_RESPONSE.md` up to date with the findings since `07752c5`. A new part of section 7, "What the catalogue probes found", covers the four probes and their first and current CI figures, egress, silent answers, the stubs, OS-dependent types and discovery. The probes are added to "Reproducing". Every figure comes from a CI log, a probe run or a commit message; the final pass re-checks them.
 - [x] Re-run E1–E3 on a host with all four shells installed. Done on WSL, 2026-09-25, with pinned PowerShell 7.6.6 and nushell 0.115.1 unpacked into ~/tools, against a release build. Every engine was correct and byte-stable. The re-run exposed three harness defects, all fixed. The oracle was a pasted table attributed to an `oracle.mjs` that was never committed, so a fresh corpus scored all eight engines wrong; `oracle.mjs` now computes it, and it agrees with all eight engines. `prepare.mjs` broke under cmd.exe on the `&` in its URL. `report.mjs` built a relative manifest path on Linux. E2 was re-run from a clone on the Linux filesystem, because /mnt/c made every engine 5–17× slower. The response is updated throughout: section 3 table, section 4 (now 3.0×), section 5 table, and the README.
 - [ ] Run E7 against a live model.
 - [ ] Final pass: every number matches the command that produced it.
 
-## Phase 5 — Release
+#### Phase 5 — Release
 
 - [ ] Version, CHANGELOG, and the counts in `AGENTS.md` and `llms.txt`.
 - [ ] Publish to crates.io by hand; the repository has no Actions secrets, so the release pipeline has never published.
