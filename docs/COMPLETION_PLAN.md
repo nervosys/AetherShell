@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 615/1,171 implementations; 740/1,437 callable names | 556 implementations and 697 callable names |
-| Latest targeted Windows validation | 112 refactoring-batch tests passed across nine suites; prior 731-test broader checkpoint retained | Validate the complete final tree |
+| Signature migration | 618/1,171 implementations; 743/1,437 callable names | 553 implementations and 694 callable names |
+| Latest targeted Windows validation | 146 refactoring-batch tests passed across 13 suites; prior 731-test broader checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 615 implementations covered, 556 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 618 implementations covered, 553 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -320,12 +320,12 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_test_snapshot
 - [x] bi_test_generate
 - [x] bi_diag_suppress
-- [ ] bi_refactor_rename
-- [ ] bi_refactor_extract_function
+- [x] bi_refactor_rename
+- [x] bi_refactor_extract_function
 - [x] bi_refactor_extract_variable
 - [x] bi_refactor_extract_constant
 - [x] bi_refactor_inline
-- [ ] bi_refactor_move_to_file
+- [x] bi_refactor_move_to_file
 - [x] bi_refactor_change_signature
 - [x] bi_refactor_add_parameter
 - [x] bi_refactor_remove_parameter
@@ -753,3 +753,64 @@ these are fixed in a separate commit. No dependencies or package versions change
 Remaining refactorings are refactor_rename, refactor_extract_function and
 refactor_move_to_file. Final-tree workspace, cross-platform and release gates
 remain open. No version bump/publication.
+
+## Rust rename, function extraction and file move checkpoint, 2026-10-17
+
+Refactor_rename(source, old, new), refactor_extract_function(source, name, start,
+end) and refactor_move_to_file(source, item, destination) were unimplemented
+refusals and are now implemented. All three are Pure and direct-only, operate
+only on supplied source text, read and write no files and execute no code.
+
+Refactor_rename renames every identifier token in one whole Rust source file
+whose normalized text equals old (raw prefixes ignored) to new, using a syn
+visitor and token-formatted output. It is syntactic and whole-file: different
+items that share the name are all renamed. It refuses when new already occurs
+as an identifier, when old is absent or equals new, when either is self, Self,
+super, crate or _, and when old occurs in macro invocation tokens (new too),
+non-doc attributes or verbatim syntax. Other files, external crates, trait
+methods implemented for std or dependency traits, string contents and consumers
+of pub API are not updated.
+
+Refactor_extract_function moves the top-level statements [start, end) of one
+Rust function into a new private function NAME and leaves one call statement,
+or the tail call with the original return type when the range ends at a tail
+expression. Captured outer names are passed by value in first-use order with
+their declared types, which must be plain by-value parameters or top-level lets
+with type annotations before start. It refuses receivers, generics, macros,
+nested items, NAME already in the function, any identifier bound more than once
+(no shadowing), untyped captures, return, ?, .await and break or continue outside
+a loop in the range, assignments to captured variables, &mut of a captured
+variable, method calls on a captured receiver, and a name bound in the range
+that is used after end. It performs no type inference, borrow analysis or symbol
+resolution. A by-value capture can move a non-Copy value, so a later use fails
+to compile; a captured value that the range only borrowed and that is not used
+later is dropped when the new function returns, possibly earlier than before
+(for example a lock guard), with no compile error.
+
+Refactor_move_to_file moves one top-level fn, struct, enum, union, const, static,
+type alias, trait or inline mod from SOURCE to the end of DESTINATION and returns
+Record {source, destination}. Both texts are token-reformatted: ordinary
+comments are discarded and doc comments become doc attributes. Attributes are
+limited to doc, derive, allow, warn, deny, inline, must_use, cfg and repr;
+macro_rules and other attributes are refused. It refuses a SOURCE that does not
+define the name exactly once at top level, an impl block in SOURCE whose self
+type is that name (it would be orphaned), an out-of-line mod, a DESTINATION that
+already defines or imports the name, and a shebang. It adds no use statements,
+no pub and no path rewriting, so references in SOURCE stop resolving until the
+caller adds a use or visibility change. The sources are not compiled.
+
+Tests: 146 passed across 13 suites: rename 8, extract_function 6, move 10,
+expression_refactor 9, signature_refactor 6, four_more_knowable_conditions 10,
+declared_signatures 31, effect_ratchet 18, effect_coverage 2, effect_snapshot 1,
+effect_alias_agreement 3, module_aliases 3 and signature_migration 39. The
+four_more_knowable_conditions suite no longer lists rename or extract_function
+as unimplemented stubs. Owned fixtures compile and run renamed and moved code and
+extracted functions. All-target workspace Clippy with warnings denied and
+formatting passed. Rust 1.88 all-target workspace check passed.
+
+Live inventory is 618/1171 implementations and 743/1437 callable names, leaving
+553 implementations and 694 names undeclared. The syn dependency now enables its
+visit-mut feature in Cargo.toml; no new dependency and no package version changed.
+Remaining source-tooling placeholders include bi_test_watch and the
+session_end/history/undo/redo operations. Final-tree workspace, cross-platform
+and release gates remain open. No version bump/publication.

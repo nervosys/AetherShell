@@ -3,8 +3,8 @@
 > Current release status, 2026-10-17: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
-> owners, evidence and release gates. Signature coverage is 615/1171
-> implementations and 740/1437 callable names; migration remains incomplete.
+> owners, evidence and release gates. Signature coverage is 618/1171
+> implementations and 743/1437 callable names; migration remains incomplete.
 > Measured evaluator improvements are recorded in the linked performance
 > report; final-tree cross-platform measurements remain pending.
 
@@ -20,7 +20,11 @@ extraction now edit a function's top-level tail expression; caller compiler and
 semantic checks remain necessary. Rust `refactor_inline` now inlines one
 single-use top-level `let` into an immediately following, unconditionally
 evaluated by-value use, and rejects reorderings that could change effects or
-drop timing. Exact warning-code filtering of supplied
+drop timing. Rust `refactor_rename` now renames identifiers across one supplied
+source file syntactically, `refactor_extract_function` moves a top-level statement
+range into a private function, and `refactor_move_to_file` moves one top-level item
+between supplied texts; none updates other files or adds imports, and caller
+compilation remains necessary. Exact warning-code filtering of supplied
 rustc/Cargo JSON diagnostics is implemented without changing compiler policy.
 Disposable-platform scheduler validation
 remains open. Accounts/groups, ACL operations, mounting/watching, elevated
