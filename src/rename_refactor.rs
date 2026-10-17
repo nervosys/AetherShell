@@ -4,7 +4,7 @@
 use crate::{safety, value::Value};
 use anyhow::Result;
 use quote::ToTokens;
-use syn::visit::Visit;
+use syn::{visit::Visit, visit_mut::VisitMut};
 const RESERVED: [&str; 5] = ["self", "Self", "super", "crate", "_"];
 fn bad(name: &str, message: &str) -> anyhow::Error {
     safety::arg_err(format!("{name}: {message}"))
@@ -103,126 +103,19 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         syn::visit::visit_foreign_item(self, value);
     }
 }
-fn word_end(chars: &[char], start: usize) -> usize {
-    let mut end = start;
-    while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
-        end += 1;
-    }
-    end
+/// Renames every identifier whose normalized text is `old`. Lifetimes and
+/// labels are not identifiers in the source, so they are skipped.
+struct Rename<'a> {
+    old: &'a str,
+    new: &'a syn::Ident,
 }
-/// `start` is the opening quote of a normal string or byte/C string.
-fn string_end(chars: &[char], start: usize) -> usize {
-    let mut i = start + 1;
-    while i < chars.len() {
-        match chars[i] {
-            '\\' => i += 2,
-            '"' => return i + 1,
-            _ => i += 1,
+impl VisitMut for Rename<'_> {
+    fn visit_ident_mut(&mut self, ident: &mut syn::Ident) {
+        if normalized(ident) == self.old {
+            *ident = self.new.clone();
         }
     }
-    chars.len()
-}
-/// `start` is the first `#` or the opening quote of a raw string.
-fn raw_string_end(chars: &[char], start: usize) -> usize {
-    let hashes = chars[start..].iter().take_while(|c| **c == '#').count();
-    let mut i = start + hashes + 1;
-    while i < chars.len() {
-        if chars[i] == '"'
-            && i + hashes < chars.len()
-            && chars[i + 1..=i + hashes].iter().all(|c| *c == '#')
-        {
-            return i + hashes + 1;
-        }
-        i += 1;
-    }
-    chars.len()
-}
-/// `start` is a quote: a char literal, or else a lifetime or label whose
-/// identifier must not be treated as a name.
-fn quote_end(chars: &[char], start: usize) -> usize {
-    if chars.get(start + 1) == Some(&'\\') {
-        let mut i = start + 2;
-        while i < chars.len() && chars[i] != '\'' {
-            i += 1;
-        }
-        return (i + 1).min(chars.len());
-    }
-    if chars.get(start + 2) == Some(&'\'') {
-        return start + 3;
-    }
-    word_end(chars, start + 1)
-}
-/// Renames identifier tokens in token-formatted Rust text. Strings, raw
-/// strings, chars, lifetimes and numbers are copied verbatim; raw identifiers
-/// normalize before comparison; the caller reparses and verifies the result.
-fn rename_tokens(text: &str, old: &str, new: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        if c == '"' {
-            let end = string_end(&chars, i);
-            out.extend(&chars[i..end]);
-            i = end;
-        } else if c == '\'' {
-            let end = quote_end(&chars, i);
-            out.extend(&chars[i..end]);
-            i = end;
-        } else if c.is_ascii_digit() {
-            let mut end = i;
-            while end < chars.len()
-                && (chars[end].is_alphanumeric()
-                    || chars[end] == '_'
-                    || (chars[end] == '.' && chars.get(end + 1).is_some_and(char::is_ascii_digit)))
-            {
-                end += 1;
-            }
-            out.extend(&chars[i..end]);
-            i = end;
-        } else if c.is_alphabetic() || c == '_' {
-            let end = word_end(&chars, i);
-            let word: String = chars[i..end].iter().collect();
-            let hashes = chars[end..].iter().take_while(|c| **c == '#').count();
-            if matches!(word.as_str(), "b" | "c") && chars.get(end) == Some(&'"') {
-                let stop = string_end(&chars, end);
-                out.extend(&chars[i..stop]);
-                i = stop;
-            } else if word == "b" && chars.get(end) == Some(&'\'') {
-                let stop = quote_end(&chars, end);
-                out.extend(&chars[i..stop]);
-                i = stop;
-            } else if matches!(word.as_str(), "r" | "br" | "cr")
-                && chars.get(end + hashes) == Some(&'"')
-            {
-                let stop = raw_string_end(&chars, end);
-                out.extend(&chars[i..stop]);
-                i = stop;
-            } else if word == "r"
-                && chars.get(end) == Some(&'#')
-                && chars
-                    .get(end + 1)
-                    .is_some_and(|c| c.is_alphabetic() || *c == '_')
-            {
-                let stop = word_end(&chars, end + 1);
-                let name: String = chars[end + 1..stop].iter().collect();
-                if name == old {
-                    out.push_str(new);
-                } else {
-                    out.push_str("r#");
-                    out.push_str(&name);
-                }
-                i = stop;
-            } else {
-                out.push_str(if word == old { new } else { &word });
-                i = end;
-            }
-        } else {
-            out.push(c);
-            i += 1;
-        }
-    }
-    out
+    fn visit_lifetime_mut(&mut self, _: &mut syn::Lifetime) {}
 }
 fn identifier(name: &str, value: &str, what: &str) -> Result<syn::Ident> {
     let ident = syn::parse_str::<syn::Ident>(value)
@@ -249,7 +142,8 @@ pub(super) fn run(name: &str, args: Vec<Value>, input: Option<Value>) -> Result<
     if old == new {
         return Err(bad(name, "old and new names are equal"));
     }
-    let file = syn::parse_file(source).map_err(|_| bad(name, "expected one Rust source file"))?;
+    let mut file =
+        syn::parse_file(source).map_err(|_| bad(name, "expected one Rust source file"))?;
     let mut scan = Scan {
         old: &old,
         new: &new,
@@ -270,11 +164,12 @@ pub(super) fn run(name: &str, args: Vec<Value>, input: Option<Value>) -> Result<
             "old name occurs in a macro, non-doc attribute, or verbatim syntax",
         ));
     }
-    let output = rename_tokens(
-        &file.to_token_stream().to_string(),
-        &old,
-        &new_ident.to_string(),
-    );
+    Rename {
+        old: &old,
+        new: &new_ident,
+    }
+    .visit_file_mut(&mut file);
+    let output = file.to_token_stream().to_string();
     if output.len() > 2_097_152 {
         return Err(budget(name));
     }

@@ -271,7 +271,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 
 # Parse and traverse Rust source for pure documentation/refactoring; native only.
-syn = { version = "2", optional = true, features = ["full", "visit"] }
+syn = { version = "2", optional = true, features = ["full", "visit", "visit-mut"] }
 quote = { version = "1", optional = true }
 ring = { version = "=0.17.14", optional = true, default-features = false, features = ["std"] }
 

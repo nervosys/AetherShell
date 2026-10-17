@@ -301,12 +301,9 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         "session_redo",
         // Test outcome reporters now parse supplied completed libtest JSON.
         // Their malformed/truncated report failures have dedicated regressions.
-        // Answered the ADVICE as the return value. `refactor_rename` handed
-        // back the String "Use IDE rename functionality" at exit 0, which an
-        // agent cannot tell from renamed code, and `docs_api` returned a
-        // documentation path as though it had generated the documentation.
-        "refactor_rename",
-        "refactor_extract_function",
+        // refactor_rename and refactor_extract_function once answered advice
+        // as their return value; they are implemented now, with contracts in
+        // tests/{rename,extract_function}_refactor_contracts.rs.
         "input_form",
         "test_watch",
     ] {
