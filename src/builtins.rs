@@ -39482,14 +39482,8 @@ fn bi_refactor_extract_constant(args: Vec<Value>, input: Option<Value>) -> Resul
     expression_refactor::run("refactor_extract_constant", args, input)
 }
 
-fn bi_refactor_inline(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "refactor_inline",
-        "inlining a symbol is not implemented; NOTHING WAS DONE",
-        "use an IDE refactoring",
-    ))
+fn bi_refactor_inline(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    expression_refactor::run("refactor_inline", args, input)
 }
 
 fn bi_refactor_move_to_file(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

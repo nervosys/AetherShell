@@ -234,6 +234,7 @@ fn new_examples_and_aliases_execute_with_pure_effects() {
     for (name, alias) in [
         ("refactor_extract_variable", "refactor.extract_variable"),
         ("refactor_extract_constant", "refactor.extract_constant"),
+        ("refactor_inline", "refactor.inline"),
     ] {
         assert_eq!(
             aethershell::safety::effect_of(name),
@@ -253,4 +254,139 @@ fn new_examples_and_aliases_execute_with_pure_effects() {
             }
         }
     }
+}
+
+fn tokens(source: &str) -> String {
+    syn::parse_str::<syn::ItemFn>(source)
+        .unwrap()
+        .to_token_stream()
+        .to_string()
+}
+#[test]
+fn inline_inverts_extraction_and_keeps_precedence() {
+    let original =
+        "pub fn increment(n:&mut i32)->i32 { let before = *n; { *n += 1; before + *n } }";
+    let extracted = run("refactor_extract_variable", vec![s(original), s("result")]);
+    let restored = run("refactor_inline", vec![s(&extracted), s("result")]);
+    assert_eq!(tokens(&restored), tokens(original));
+    compile_and_run(
+        &restored,
+        "let mut n=3; assert_eq!(increment(&mut n),7); assert_eq!(n,4);",
+    );
+    // Without parentheses this would become a + b * 2.
+    let output = run(
+        "refactor_inline",
+        vec![
+            s("pub fn f(a:i32,b:i32)->i32 { let sum = a+b; sum*2 }"),
+            s("sum"),
+        ],
+    );
+    assert!(!output.contains("let sum"));
+    compile_and_run(&output, "assert_eq!(f(1,2),6);");
+}
+#[test]
+fn inline_preserves_evaluation_order_and_single_evaluation() {
+    // An effectful value evaluated first in the next statement may move.
+    let output = run(
+        "refactor_inline",
+        vec![
+            s("pub fn f(v:&mut Vec<i32>)->usize { let n = { v.push(1); v.len() }; let total = n + v.len(); total }"),
+            s("n"),
+        ],
+    );
+    compile_and_run(
+        &output,
+        "let mut v=vec![]; assert_eq!(f(&mut v),2); assert_eq!(v.len(),1);",
+    );
+    // An effect-free value may follow inert operands: i32::max is a path.
+    let output = run(
+        "refactor_inline",
+        vec![
+            s("pub fn g(x:i32)->i32 { let y = x+1; i32::max(10, y) }"),
+            s("y"),
+        ],
+    );
+    compile_and_run(&output, "assert_eq!(g(3),10); assert_eq!(g(20),21);");
+    // An effectful value may not: the textual inline compiles and is wrong.
+    let original = "pub fn h(mut x:i32)->i32 { let y = { x += 1; 5 }; x + y }";
+    error("refactor_inline", vec![s(original), s("y")], "E_BAD_ARG");
+    compile_and_run(original, "assert_eq!(h(3),9);");
+    compile_and_run(
+        "pub fn h(mut x:i32)->i32 { x + { x += 1; 5 + x - x } }",
+        "assert_eq!(h(3),8);",
+    );
+}
+#[test]
+fn inline_refuses_positions_that_change_order_count_or_drop_timing() {
+    for source in [
+        // borrowed: receiver, reference, comparison, field and index bases, scrutinee
+        "fn f()->usize { let s = String::new(); s.len() }",
+        "fn f()->bool { let a = 1; a == 1 }",
+        "fn f()->i32 { let a = (1,2); a.0 }",
+        "fn f()->i32 { let a = [1]; a[0] }",
+        "fn f()->i32 { let a = Some(1); match a { _ => 1 } }",
+        "fn f()->bool { let a = Some(1); if let Some(_) = a { true } else { false } }",
+        "fn f()->i32 { let a = 1; let r = &a; *r }",
+        // places that are not moved: the value would be dropped early
+        "fn f() { let a = g(); a; h() }",
+        "fn f() { let a = g(); let _ = a; h() }",
+        "fn f() { let a = (g(), 1); let (_, b) = a; h(b) }",
+        // conditional, repeated or deferred evaluation
+        "fn f(c:bool)->bool { let a = true; c && a }",
+        "fn f(c:bool)->i32 { let a = 1; if c { a } else { 0 } }",
+        "fn f()->i32 { let a = 1; let g = move || a; g() }",
+        "fn f()->i32 { let a = 1; loop { break a; } }",
+        "fn f()->i32 { let a = 1; { a } }",
+        // not the next statement, or not first
+        "fn f()->i32 { let a = 1; let b = 2; a + b }",
+        "fn f(v:&mut Vec<i32>)->i32 { let a = 1; v.push(0); a }",
+        "fn f(x:i32)->i32 { let a = g(); x.pow(1) + a }",
+        // binding forms and counts
+        "fn f()->i32 { let mut a = 1; a }",
+        "fn f()->i32 { let a: i32 = 1; a }",
+        "fn f()->i32 { let ref a = 1; *a }",
+        "fn f(o:Option<i32>)->i32 { let Some(a) = o else { return 0 }; a }",
+        "fn f()->i32 { let a = 1; a + a }",
+        "fn f()->i32 { let a = 1; let a = a; a }",
+        "fn f()->S { let a = 1; S { a } }",
+        "fn f()->i32 { 1 }",
+        "fn f()->i32 { let a = 1; }",
+        // opaque syntax
+        "fn f()->i32 { let a = 1; println!(\"{a}\"); 0 }",
+        "fn f()->i32 { #[allow(unused)] let a = 1; a }",
+    ] {
+        error("refactor_inline", vec![s(source), s("a")], "E_BAD_ARG");
+    }
+    for args in [
+        vec![],
+        vec![s("fn f()->i32 { let a = 1; a }")],
+        vec![Value::Int(1), s("a")],
+        vec![s("fn f()->i32 { let a = 1; a }"), s("bad-name")],
+        vec![s("fn f()->i32 { let a = 1; a }"), s("a"), s("extra")],
+    ] {
+        error("refactor_inline", args, "E_BAD_ARG");
+    }
+    error(
+        "refactor_inline",
+        vec![s(&"a".repeat(65537)), s("a")],
+        "E_BUDGET",
+    );
+    error(
+        "refactor_inline",
+        vec![s("fn f()->i32 { let a = 1; a }"), s(&"a".repeat(257))],
+        "E_BUDGET",
+    );
+    assert!(call_with_input(
+        "refactor_inline",
+        vec![s("fn f()->i32 { let a = 1; a }"), s("a")],
+        Some(s("input")),
+        &mut Env::default()
+    )
+    .is_err());
+    // Raw identifiers normalize, and the accepted forms still apply.
+    let output = run(
+        "refactor_inline",
+        vec![s("fn f()->i32 { let r#type = 1; -r#type }"), s("r#type")],
+    );
+    assert_eq!(tokens(&output), tokens("fn f()->i32 { -1 }"));
 }

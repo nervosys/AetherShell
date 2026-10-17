@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 614/1,171 implementations; 739/1,437 callable names | 557 implementations and 698 callable names |
-| Latest targeted Windows validation | 63 extraction-batch tests passed; prior 731-test broader checkpoint retained | Validate the complete final tree |
+| Signature migration | 615/1,171 implementations; 740/1,437 callable names | 556 implementations and 697 callable names |
+| Latest targeted Windows validation | 112 refactoring-batch tests passed across nine suites; prior 731-test broader checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 614 implementations covered, 557 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 615 implementations covered, 556 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -324,7 +324,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_refactor_extract_function
 - [x] bi_refactor_extract_variable
 - [x] bi_refactor_extract_constant
-- [ ] bi_refactor_inline
+- [x] bi_refactor_inline
 - [ ] bi_refactor_move_to_file
 - [x] bi_refactor_change_signature
 - [x] bi_refactor_add_parameter
@@ -574,7 +574,7 @@ temp/ae-perf/signatures-*.log. No version bump or publication was performed.
 Final batch validation also passed 48 signature-discovery/effect tests (140
 passed in five suites total) and the separately locked WASM browser wrapper.
 Three unchanged broad example sweeps were filtered; the new Ed25519 examples
-were executed directly. Formatting and diff checks passed. The web lockfile
+were executed directly. Formatting, diff and Rust 1.88 all-target workspace checks passed. The web lockfile
 remains unchanged because it does not enable the optional native dependency.
 
 
@@ -709,3 +709,47 @@ implementations and 739/1437 callable names, leaving 557 implementations and
 698 names undeclared (extract-inventory.log). No dependencies/package versions
 changed. Other refactorings, unsupported implementations, final-tree workspace,
 cross-platform and release gates remain open. No version bump/publication.
+
+## Rust expression inlining checkpoint, 2026-10-17
+
+Refactor_inline(source, name) (alias refactor.inline) was an unimplemented
+refusal and now transforms exactly one supplied Rust free function. It inlines
+one top-level let NAME = EXPR; with a plain identifier pattern into its single
+use and removes the binding. No mut, ref, subpattern, type annotation,
+attributes or let-else are accepted. The identifier must occur exactly twice in
+the parsed function, conservatively counting field names, struct shorthand and
+shadowing; normalized raw identifiers are compared. The use must be in the
+immediately following top-level statement and be evaluated first, once,
+unconditionally and consumed by value: operands of arithmetic/bitwise operators,
+call/method arguments, tuple/array/struct elements, index expressions, casts,
+unary -/!, ?, return/break values, if conditions and the left side of &&/||.
+Method receivers, borrows, comparisons, derefs, field/index bases, match/if-let
+scrutinees, closures, loops, blocks, conditional branches, and non-moving places
+(NAME;, let _ = NAME;, destructuring) reject. Literals and place reads may
+precede the use only when EXPR has no calls, assignments, blocks, mutable borrows
+or derefs; operator trait impls are assumed not to mutate unrelated locals.
+Operator operands are parenthesized unless EXPR is atomic. This does not resolve
+symbols, types or borrows, expand macros or cfg, edit files or execute code.
+Source <=64 KiB/256 punctuation; name <=256 bytes/32 punctuation; output <=1 MiB.
+The operation is Pure and direct-only.
+
+Tests in tests/expression_refactor_contracts.rs now total nine, including three
+new ones. Owned fixtures compile with warnings denied and run: extract_variable
+followed by inline restores the original tokens; (a+b)*2 precedence is preserved;
+an effectful value evaluated first moves; and an effect-free value follows the
+inert path i32::max. A witness shows that a naive textual inline of
+let y = { x += 1; 5 }; x + y compiles and returns 8 instead of 9; the builtin
+refuses it. Targeted Windows validation passed 112 tests across nine suites:
+expression_refactor 9, signature_refactor 6, declared_signatures 31,
+effect_ratchet 18, effect_coverage 2, effect_snapshot 1, effect_alias_agreement 3,
+module_aliases 3 and signature_migration 39. Formatting and diff checks passed.
+Live inventory is 615/1171 implementations and 740/1437 callable names, leaving
+556 implementations and 697 names undeclared.
+
+Clippy is not claimed for this tranche. On the local rustc 1.99 toolchain,
+all-target Clippy with warnings denied failed on 31 pre-existing toolchain lints
+in untouched files (29 clippy::double_must_use and 2 fetch_update deprecations);
+these are fixed in a separate commit. No dependencies or package versions changed.
+Remaining refactorings are refactor_rename, refactor_extract_function and
+refactor_move_to_file. Final-tree workspace, cross-platform and release gates
+remain open. No version bump/publication.
