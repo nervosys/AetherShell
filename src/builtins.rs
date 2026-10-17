@@ -39444,14 +39444,10 @@ fn bi_diag_config(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // Refactor module implementations
 #[path = "expression_refactor.rs"]
 mod expression_refactor;
-fn bi_refactor_rename(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "refactor_rename",
-        "renaming a symbol is not implemented; NOTHING WAS DONE",
-        "use an IDE refactoring, or file.replace for a literal rename",
-    ))
+#[path = "rename_refactor.rs"]
+mod rename_refactor;
+fn bi_refactor_rename(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    rename_refactor::run("refactor_rename", args, input)
 }
 
 fn bi_refactor_rename_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -39464,14 +39460,10 @@ fn bi_refactor_rename_file(args: Vec<Value>, _input: Option<Value>) -> Result<Va
     Ok(Value::Bool(true))
 }
 
-fn bi_refactor_extract_function(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "refactor_extract_function",
-        "extracting a function is not implemented; NOTHING WAS DONE",
-        "use an IDE refactoring",
-    ))
+#[path = "extract_function_refactor.rs"]
+mod extract_function_refactor;
+fn bi_refactor_extract_function(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    extract_function_refactor::run("refactor_extract_function", args, input)
 }
 
 fn bi_refactor_extract_variable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -39486,14 +39478,10 @@ fn bi_refactor_inline(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     expression_refactor::run("refactor_inline", args, input)
 }
 
-fn bi_refactor_move_to_file(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "refactor_move_to_file",
-        "moving a symbol to another file is not implemented; NOTHING WAS DONE",
-        "use an IDE refactoring",
-    ))
+#[path = "move_refactor.rs"]
+mod move_refactor;
+fn bi_refactor_move_to_file(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    move_refactor::run("refactor_move_to_file", args, input)
 }
 
 #[path = "signature_refactor.rs"]
