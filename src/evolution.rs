@@ -922,6 +922,8 @@ impl Evolvable for ConsensusNetwork {
 fn rand_f64() -> f64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static STATE: AtomicU64 = AtomicU64::new(54321);
+    // try_update replaces this from Rust 1.99; the MSRV (1.88) lacks it.
+    #[allow(deprecated)]
     let next = STATE
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |s| {
             Some(s.wrapping_mul(6364136223846793005).wrapping_add(1))

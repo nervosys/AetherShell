@@ -12,6 +12,8 @@ fn create_secure_client() -> Client {
 }
 
 /// Trait for AI model providers
+// async-trait 0.1.89 adds a bare #[must_use] to every method it expands; clippy flags it on the trait.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait ModelProvider: Send + Sync {
     async fn list_models(&self) -> Result<Vec<ModelInfo>>;

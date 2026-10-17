@@ -536,6 +536,8 @@ impl std::error::Error for ProviderError {}
 // ============================================================================
 
 /// The core trait that all LLM providers must implement
+// async-trait 0.1.89 adds a bare #[must_use] to every method it expands; clippy flags it on the trait.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait LLMProvider: Send + Sync {
     /// Get the provider type
@@ -582,6 +584,8 @@ pub trait LLMProvider: Send + Sync {
 }
 
 /// Extension trait for additional provider capabilities
+// async-trait 0.1.89 adds a bare #[must_use] to every method it expands; clippy flags it on the trait.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait LLMProviderExt: LLMProvider {
     /// Simple text completion

@@ -355,6 +355,8 @@ pub enum CheckpointType {
 // =============================================================================
 
 /// Storage backend for persistence
+// async-trait 0.1.89 adds a bare #[must_use] to every method it expands; clippy flags it on the trait.
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait PersistenceBackend: Send + Sync {
     /// Initialize the storage backend
