@@ -21,15 +21,31 @@ use aethershell::env::Env;
 use aethershell::signature::{signature_of, Ty, SIGNATURES};
 use aethershell::value::Value;
 
+/// An environment whose undo journal is this test process's own.
+///
+/// The journal is keyed by working directory, which here is the repository,
+/// and declared examples include `session_undo()` and `session_end()`: run
+/// against the default key they would rewind, then forget, whatever an agent
+/// session in this checkout had recorded. Every example is evaluated through
+/// this, so none can reach the real journal.
+fn env() -> Env {
+    static ISOLATED: std::sync::Once = std::sync::Once::new();
+    ISOLATED.call_once(|| {
+        let dir = std::env::temp_dir().join(format!("ae_declared_{}", std::process::id()));
+        std::env::set_var("AETHER_SESSION_DIR", dir);
+    });
+    Env::new()
+}
+
 fn err(name: &str, args: Vec<Value>) -> String {
-    match call(name, args, &mut Env::new()) {
+    match call(name, args, &mut env()) {
         Ok(v) => panic!("{name} accepted a call it should refuse, and answered {v:?}"),
         Err(e) => e.to_string(),
     }
 }
 
 fn ok(name: &str, args: Vec<Value>) -> Value {
-    call(name, args, &mut Env::new()).unwrap_or_else(|e| panic!("{name} refused a valid call: {e}"))
+    call(name, args, &mut env()).unwrap_or_else(|e| panic!("{name} refused a valid call: {e}"))
 }
 
 /// Builtins whose answer depends on the machine: an installed package
@@ -442,7 +458,7 @@ fn a_missing_required_argument_is_refused_with_the_signature() {
 
 #[test]
 fn a_lambda_parameter_will_not_accept_a_number() {
-    let mut env = Env::new();
+    let mut env = env();
     let e = call_with_input(
         "where",
         vec![Value::Int(5)],
@@ -455,7 +471,7 @@ fn a_lambda_parameter_will_not_accept_a_number() {
 
 #[test]
 fn a_wrongly_typed_subject_is_refused() {
-    let mut env = Env::new();
+    let mut env = env();
     let e = call_with_input(
         "sum",
         vec![],
@@ -488,7 +504,7 @@ fn the_calls_the_declarations_describe_all_run() {
         Value::Int(5)
     );
     // A subject-taking builtin called through the pipe.
-    let mut env = Env::new();
+    let mut env = env();
     assert_eq!(
         call_with_input(
             "sum",
@@ -549,28 +565,18 @@ fn non_vacuity_validation_is_reachable_and_discriminating() {
     // reason; if it refused everything, the success tests do.
     assert!(signature_of("round").is_some(), "round is not declared");
     assert!(
-        call(
-            "round",
-            vec![Value::Float(1.0), Value::Int(2)],
-            &mut Env::new()
-        )
-        .is_ok(),
+        call("round", vec![Value::Float(1.0), Value::Int(2)], &mut env()).is_ok(),
         "a valid declared call is being refused"
     );
     assert!(
-        call(
-            "round",
-            vec![Value::Float(1.0), Value::Int(99)],
-            &mut Env::new()
-        )
-        .is_err(),
+        call("round", vec![Value::Float(1.0), Value::Int(99)], &mut env()).is_err(),
         "an invalid declared call is being accepted"
     );
 
     // And the type lattice must discriminate, or every parameter check passes.
     assert!(Ty::Int.as_str() == "Int" && Ty::Lambda.as_str() == "Lambda");
     assert!(
-        call("where", vec![Value::Int(5)], &mut Env::new()).is_err(),
+        call("where", vec![Value::Int(5)], &mut env()).is_err(),
         "a Lambda parameter accepted an Int"
     );
 }
@@ -608,7 +614,7 @@ fn a_refusal_does_not_carry_its_signature_twice() {
     // Through the evaluator, because `catch` is what binds a failure to a value.
     let src = r#"diagnose(try { map() } catch e { e })"#;
     let stmts = aethershell::parser::parse_program(src).expect("parse");
-    let diag = aethershell::eval::eval_program(&stmts, &mut Env::new()).expect("eval");
+    let diag = aethershell::eval::eval_program(&stmts, &mut env()).expect("eval");
     let Value::Record(r) = &diag else {
         panic!("diagnose returned {diag:?}")
     };
@@ -795,7 +801,7 @@ fn the_forms_the_benchmark_corpora_use_are_all_accepted() {
     for (src, want) in cases {
         let stmts =
             aethershell::parser::parse_program(src).unwrap_or_else(|e| panic!("parse {src}: {e}"));
-        let got = aethershell::eval::eval_program(&stmts, &mut Env::new()).unwrap_or_else(|e| {
+        let got = aethershell::eval::eval_program(&stmts, &mut env()).unwrap_or_else(|e| {
             panic!("`{src}` was refused, so a declaration is narrower than the language: {e}")
         });
         let shown = format!("{got}");
@@ -813,7 +819,7 @@ fn non_vacuity_the_corpus_form_check_can_fail() {
     // returned Ok unconditionally would not slip through both.
     let stmts = aethershell::parser::parse_program("round(1.0, 99)").expect("parse");
     assert!(
-        aethershell::eval::eval_program(&stmts, &mut Env::new()).is_err(),
+        aethershell::eval::eval_program(&stmts, &mut env()).is_err(),
         "an out-of-range argument is being accepted; the checks above prove nothing"
     );
 }
@@ -837,7 +843,7 @@ fn every_declaration_accepts_its_own_examples() {
             let Ok(stmts) = aethershell::parser::parse_program(code) else {
                 panic!("{}'s example does not parse: {code}", sig.name);
             };
-            if let Err(e) = aethershell::eval::eval_program(&stmts, &mut Env::new()) {
+            if let Err(e) = aethershell::eval::eval_program(&stmts, &mut env()) {
                 let msg = e.to_string();
                 assert!(
                     !(msg.contains("E_BAD_ARG") && msg.contains(sig.name)),
@@ -891,14 +897,13 @@ fn a_self_contained_example_produces_the_result_it_claims() {
             }
             let stmts = aethershell::parser::parse_program(code)
                 .unwrap_or_else(|e| panic!("{}: {code}: {e}", sig.name));
-            let got =
-                aethershell::eval::eval_program(&stmts, &mut Env::new()).unwrap_or_else(|e| {
-                    panic!(
-                        "{}'s example failed to run: {code}
+            let got = aethershell::eval::eval_program(&stmts, &mut env()).unwrap_or_else(|e| {
+                panic!(
+                    "{}'s example failed to run: {code}
   {e}",
-                        sig.name
-                    )
-                });
+                    sig.name
+                )
+            });
             assert_eq!(
                 strip(&format!("{got}")),
                 strip(want),
@@ -924,7 +929,7 @@ fn a_declared_subject_replaces_an_uncoded_failure_with_a_coded_one() {
     //
     // Declaring the subject fixes that without touching the builtin: validation
     // refuses the call before the body runs, naming the type it wanted.
-    let mut env = Env::new();
+    let mut env = env();
     let e = call_with_input(
         "head",
         vec![],
@@ -978,13 +983,13 @@ fn a_variadic_parameter_accepts_any_number_of_arguments() {
             .iter()
             .map(|f| Value::Str((*f).to_string()))
             .collect();
-        let mut env = Env::new();
+        let mut env = env();
         call_with_input("pick", fields, Some(row()), &mut env)
             .unwrap_or_else(|e| panic!("pick with {n} field(s) was refused: {e}"));
     }
 
     // Non-vacuity: the variadic must still type-check what it absorbs.
-    let mut env = Env::new();
+    let mut env = env();
     assert!(
         call_with_input(
             "pick",
@@ -1064,7 +1069,7 @@ fn a_pipeline_only_builtin_says_so_before_the_body_does() {
     assert!(!e.contains("E_UNKNOWN"), "{e}");
 
     // The supported form is untouched.
-    let mut env = Env::new();
+    let mut env = env();
     let out = call_with_input(
         "uniq",
         vec![],
@@ -1188,7 +1193,7 @@ fn a_machine_dependent_example_answers_in_its_type_or_says_why_not() {
         for (code, _) in sig.examples {
             let stmts = aethershell::parser::parse_program(code)
                 .unwrap_or_else(|e| panic!("{name}: {code}: {e}"));
-            match aethershell::eval::eval_program(&stmts, &mut Env::new()) {
+            match aethershell::eval::eval_program(&stmts, &mut env()) {
                 Ok(v) => assert!(
                     has_declared_type(sig.returns, &v),
                     "{name}'s example answered {} where the declaration says {}: {code}",
