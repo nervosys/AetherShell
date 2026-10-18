@@ -39301,14 +39301,10 @@ fn bi_test_skipped(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     test_reports::outcomes("test_skipped", args, input)
 }
 
-fn bi_test_watch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "test_watch",
-        "watching and re-running tests is not implemented; NOTHING WAS DONE",
-        "use `cargo watch -x test`",
-    ))
+#[path = "test_watch.rs"]
+mod test_watch;
+fn bi_test_watch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    test_watch::run("test_watch", args, input)
 }
 
 fn bi_test_bench(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
