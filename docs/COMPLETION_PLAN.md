@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 623/1,171 implementations; 748/1,437 callable names | 548 implementations and 689 callable names |
-| Latest targeted Windows validation | 177 session and test_watch tests passed across 15 suites, plus three journal unit tests; prior 731-test broader checkpoint retained | Validate the complete final tree |
+| Signature migration | 624/1,171 implementations; 749/1,437 callable names | 547 implementations and 688 callable names |
+| Latest targeted Windows validation | 286 tests passed across 18 suites for the filesystem-watch, SHA-crypt, listener, permission and platform-branch checkpoint; prior 731-test broader checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,10 +57,10 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 623 implementations covered, 548 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 624 implementations covered, 547 not yet declared; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
-| Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
+| Accounts, groups, ACL mutation, mount/unmount, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions and fs_watch/fs_unwatch now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
 | DQN weight training | Implemented; final platform/release validation open | Batch SGD updates weights/biases; finite-difference checks cover all seven activations; terminal targets, delayed synchronization, budgets and complete rollback on arithmetic failure are tested | RL maintainer |
 | Other placeholder operations | Audit pending; blocker | Enumerate through remaining source-reviewed catalogue migration; do not infer support from registration | Runtime maintainer |
 | Platform/features/packaging | Validation pending; blocker | Complete stages 4 and 6 on final commit, including MSRV and supported feature builds | Platform and release maintainers |
@@ -229,8 +229,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_fs_chmod
 - [ ] bi_fs_chown
 - [ ] bi_fs_symlink
-- [ ] bi_fs_watch
-- [ ] bi_fs_unwatch
+- [x] bi_fs_watch
+- [x] bi_fs_unwatch
 - [ ] bi_fs_mount
 - [ ] bi_fs_unmount
 - [x] bi_net_listen — placeholder discovered beyond explicit-refusal scan; native one-shot TCP accept implemented.
@@ -238,12 +238,12 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_net_send — native TCP implementation; final platform validation remains open.
 - [x] bi_net_recv — native TCP implementation; final platform validation remains open.
 - [x] bi_net_close — native TCP implementation; final platform validation remains open.
-- [ ] bi_sys_cpu_freq
-- [ ] bi_whoami
-- [ ] bi_svc_status
+- [x] bi_sys_cpu_freq
+- [x] bi_whoami
+- [x] bi_svc_status
 - [ ] bi_svc_create
 - [ ] bi_svc_delete
-- [ ] bi_cron_list
+- [x] bi_cron_list
 - [x] bi_cron_add — working implementation added; final platform/release validation remains open.
 - [x] bi_cron_remove — native lifecycle backend implemented; disposable-platform verification remains open.
 - [x] bi_cron_enable — native lifecycle backend implemented; disposable-platform verification remains open.
@@ -251,7 +251,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_at_schedule — working implementation added; final platform/release validation remains open.
 - [x] bi_at_list — working implementation added; final platform/release validation remains open.
 - [x] bi_at_remove — working implementation added; final platform/release validation remains open.
-- [ ] bi_startup_list
+- [x] bi_startup_list
 - [ ] bi_archive_test
 - [ ] bi_user_add
 - [ ] bi_user_del
@@ -262,12 +262,12 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_group_add
 - [ ] bi_group_del
 - [ ] bi_group_mod
-- [ ] bi_perm_check
+- [x] bi_perm_check
 - [ ] bi_acl_get
 - [ ] bi_acl_set
-- [ ] bi_sudo_check
+- [x] bi_sudo_check
 - [ ] bi_sudo_exec
-- [ ] bi_capabilities
+- [x] bi_capabilities — Linux-only kernel concept; explicit coded refusal elsewhere.
 - [ ] bi_pkg_list
 - [ ] bi_pkg_install
 - [ ] bi_pkg_remove
@@ -284,13 +284,13 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_gui_find_image
 - [ ] bi_web_websocket
 - [ ] bi_web_xpath
-- [ ] bi_clipboard_types
+- [ ] bi_clipboard_types — no Linux/macOS implementation.
 - [ ] bi_input_timeout
 - [ ] bi_input_autocomplete
 - [ ] bi_crypto_decrypt
 - [x] bi_crypto_sign
 - [ ] bi_crypto_key_generate — native Ed25519 implemented; non-Unix RSA/EC remain open
-- [ ] bi_crypto_password_verify
+- [x] bi_crypto_password_verify
 - [ ] bi_crypto_cert_info
 - [ ] bi_clipboard_get_image
 - [ ] bi_clipboard_set_image
@@ -299,7 +299,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_input_progress
 - [ ] bi_input_table
 - [ ] bi_input_form
-- [ ] bi_crypto_cert_verify
+- [ ] bi_crypto_cert_verify — no Windows implementation; a missing trust store reads as false because openssl's exit status does not distinguish it.
 - [x] bi_crypto_verify_signature
 - [x] bi_code_references
 - [x] bi_code_definition
@@ -334,7 +334,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_session_undo
 - [x] bi_session_redo
 - [x] bi_docs_api
-- [ ] bi_platform_libcpp
+- [ ] bi_platform_libcpp — returns a constant on Windows and macOS without inspecting the system; Linux skips an unreadable library silently.
 - [ ] bi_blkid
 - [ ] bi_lsof
 - [ ] bi_tcpdump_capture
@@ -342,7 +342,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_perf_stat
 - [ ] bi_perf_record
 - [ ] bi_awk_process
-- [ ] bi_nc_listen
+- [x] bi_nc_listen
 - [ ] bi_iperf3_server
 - [ ] bi_lazygit_open
 - [ ] bi_entr_watch
@@ -868,3 +868,58 @@ documentation register item is checked: no unchecked bi_refactor_*, bi_test_*,
 bi_session_*, bi_docs_*, bi_diag_*, bi_nav_* or bi_search_* candidate remains.
 Final-tree workspace, cross-platform and release gates remain open. No version
 bump/publication.
+
+## Filesystem watch, SHA-crypt, listener and platform-branch checkpoint, 2026-10-17
+
+fs_watch(path, options?) and fs_unwatch(handle) are implemented over the existing
+notify dependency. Each watch has an explicit "watch-N" handle in a process-global
+registry of at most 64 watches. Each handle has a bounded event buffer (max_events),
+and later events are counted in dropped. Events are read by unwatching. Watches are
+process-local, so one `ae -c` invocation cannot keep a watch across calls. Their
+effects are corrected from Pure to ReadLocal.
+
+crypto_password_verify verifies SHA-crypt $5$ and $6$ hashes per Drepper's
+specification. It does not generate them. The vectors were fetched from the
+specification text, because two remembered strings were wrong, and were
+cross-checked against openssl passwd -6. Rounds above 1,000,000 are refused with
+E_BUDGET_EXCEEDED, and the comparison is constant-time. Under AETHER_FIPS the call
+is refused with E_POLICY_DENY, because only PBKDF2 is accepted there; review
+reversed the agent's choice to allow SHA-crypt under that policy.
+
+nc_listen(port, options?) is a one-shot loopback listener. The host option is
+accepted only where AETHER_NET_ALLOW permits it. timeout_ms bounds the whole call,
+and max_bytes with the truncated flag bounds the data. The bind address and the
+accepted peer are both checked by guard_network. nc_listen is in SELF_GUARDED, so
+guard_enforcement holds its body to a guard_network call. Its declared examples
+are refusals only, so no example binds a port.
+
+perm_check(path, "execute") on Windows is true only for a regular file whose
+extension is listed in PATHEXT (default .COM;.EXE;.BAT;.CMD). ACLs are not
+consulted.
+
+A platform-branch sweep of ten builtins is covered by tests/os_branch_contracts.rs.
+Silent failures became coded errors: sys_cpu_freq no longer returns Null when its
+source fails; svc_status on Linux no longer answers status "" for an empty
+ActiveState; and crypto_cert_verify no longer answers false for an existing file
+that cannot be read. On Windows, svc_status reports a missing service as E_NOT_FOUND,
+as declared; before this it was a tool failure.
+
+Validation on Windows passed 286 tests across 18 suites: declared_signatures 31,
+text_file_contracts 88, signature_migration 39, effect_ratchet 18,
+test_watch_contracts 16, guard_enforcement 14, os_branch_contracts 12,
+session_journal_contracts 11, reversible_sessions 10, four_more_knowable_conditions 10,
+fs_watch_contracts 8, sha_crypt_contracts 8, nc_perm_contracts 8, crypto_fail_closed 4,
+effect_alias_agreement 3, module_aliases 3, effect_coverage 2 and effect_snapshot 1.
+All-target Clippy with warnings denied and the Rust 1.88 all-target check passed.
+On Linux (WSL Debian), 193 tests passed across 11 suites: text_file_contracts 92,
+test_watch_contracts 16, guard_enforcement 14, os_branch_contracts 13,
+session_journal_contracts 11, reversible_sessions 10, four_more_knowable_conditions 10,
+fs_watch_contracts 8, sha_crypt_contracts 8, nc_perm_contracts 7 and
+crypto_fail_closed 4, and all-target Clippy passed, compiling the Unix-only branches.
+macOS was not run; its sys_cpu_freq and svc_status branches rely on stderr text that
+has not been verified on a Mac.
+
+Live inventory is 624/1171 implementations and 749/1437 callable names, leaving 547
+implementations and 688 names undeclared. The work was done by four parallel
+subagents in worktrees and a classification agent, then reviewed and merged. No
+dependencies or package versions changed. No version bump or publication.

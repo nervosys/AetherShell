@@ -3,8 +3,8 @@
 > Current release status, 2026-10-17: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
-> owners, evidence and release gates. Signature coverage is 623/1171
-> implementations and 748/1437 callable names; migration remains incomplete.
+> owners, evidence and release gates. Signature coverage is 624/1171
+> implementations and 749/1437 callable names; migration remains incomplete.
 > Measured evaluator improvements are recorded in the linked performance
 > report; final-tree cross-platform measurements remain pending.
 
@@ -29,6 +29,11 @@ compilation remains necessary. `session_undo`, `session_redo`, `session_history`
 an argv command on polled file changes with bounded deadlines and whole-process-tree
 kill on timeout; test_watch is classified Exec. Exact warning-code filtering of supplied
 rustc/Cargo JSON diagnostics is implemented without changing compiler policy.
+`fs_watch` and `fs_unwatch` now provide native, process-local filesystem watches with
+explicit handles, bounded event buffers and ReadLocal effects. `crypto_password_verify`
+verifies SHA-crypt `$5$` and `$6$` hashes per Drepper's specification and refuses them
+under AETHER_FIPS; `nc_listen` is a one-shot, bounded loopback listener, and ten platform
+branches now report coded errors instead of silent failures.
 Disposable-platform scheduler validation
 remains open. Accounts/groups, ACL operations, mounting/watching, elevated
 execution and other unsupported operations remain implementation blockers. The completion plan separates those gaps
