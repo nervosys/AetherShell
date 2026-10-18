@@ -297,8 +297,8 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         "user_lock",
         "user_unlock",
         "acl_set",
-        "session_undo",
-        "session_redo",
+        // session_undo and session_redo are implemented, with contracts in
+        // tests/session_journal_contracts.rs.
         // Test outcome reporters now parse supplied completed libtest JSON.
         // Their malformed/truncated report failures have dedicated regressions.
         // refactor_rename and refactor_extract_function once answered advice

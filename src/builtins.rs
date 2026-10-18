@@ -18703,41 +18703,59 @@ fn bi_undo(args: Vec<Value>) -> Result<Value> {
             .map_err(|_| crate::safety::bad_arg("undo", "a step count", "a non-integer"))?
             .max(0) as usize,
     };
-    let outcomes = crate::journal::undo(n);
-    let (mut restored, mut removed, mut skipped, mut failed) = (0, 0, 0, 0);
-    let rows: Vec<Value> = outcomes
-        .iter()
-        .map(|o| {
-            let mut m = std::collections::BTreeMap::new();
-            let (action, what, why) = match o {
-                crate::journal::Outcome::Restored(w) => {
-                    restored += 1;
-                    ("restored", w.clone(), String::new())
-                }
-                crate::journal::Outcome::Removed(w) => {
-                    removed += 1;
-                    ("removed", w.clone(), String::new())
-                }
-                crate::journal::Outcome::Skipped { what, why } => {
-                    skipped += 1;
-                    ("skipped", what.clone(), why.clone())
-                }
-                crate::journal::Outcome::Failed { what, why } => {
-                    failed += 1;
-                    ("failed", what.clone(), why.clone())
-                }
-            };
-            m.insert("action".to_string(), Value::Str(action.to_string()));
-            m.insert("what".to_string(), Value::Str(what));
-            if !why.is_empty() {
-                m.insert("why".to_string(), Value::Str(why));
+    Ok(Value::Record(rewind_record(
+        &crate::journal::undo(n),
+        "restored",
+    )))
+}
+
+/// The record shared by `undo` and `session_redo`: one count per outcome, the
+/// steps themselves, and `complete`. `applied_key` names the count of steps
+/// that were put back (`restored` for undo, `reapplied` for redo).
+///
+/// Every outcome is counted and listed, including the ones that could not be
+/// applied. The counts are kept apart because "3 restored" and "3 restored, 1
+/// skipped" call for different decisions.
+fn rewind_record(
+    outcomes: &[crate::journal::Outcome],
+    applied_key: &str,
+) -> std::collections::BTreeMap<String, Value> {
+    let (mut applied, mut removed, mut skipped, mut failed) = (0, 0, 0, 0);
+    let mut rows = Vec::with_capacity(outcomes.len());
+    for o in outcomes {
+        let mut m = std::collections::BTreeMap::new();
+        let (action, what, why) = match o {
+            crate::journal::Outcome::Restored(w) => {
+                applied += 1;
+                ("restored", w.clone(), String::new())
             }
-            Value::Record(m)
-        })
-        .collect();
+            crate::journal::Outcome::Reapplied(w) => {
+                applied += 1;
+                ("reapplied", w.clone(), String::new())
+            }
+            crate::journal::Outcome::Removed(w) => {
+                removed += 1;
+                ("removed", w.clone(), String::new())
+            }
+            crate::journal::Outcome::Skipped { what, why } => {
+                skipped += 1;
+                ("skipped", what.clone(), why.clone())
+            }
+            crate::journal::Outcome::Failed { what, why } => {
+                failed += 1;
+                ("failed", what.clone(), why.clone())
+            }
+        };
+        m.insert("action".to_string(), Value::Str(action.to_string()));
+        m.insert("what".to_string(), Value::Str(what));
+        if !why.is_empty() {
+            m.insert("why".to_string(), Value::Str(why));
+        }
+        rows.push(Value::Record(m));
+    }
 
     let mut out = std::collections::BTreeMap::new();
-    out.insert("restored".to_string(), Value::Int(restored));
+    out.insert(applied_key.to_string(), Value::Int(applied));
     out.insert("removed".to_string(), Value::Int(removed));
     out.insert("skipped".to_string(), Value::Int(skipped));
     out.insert("failed".to_string(), Value::Int(failed));
@@ -18748,14 +18766,12 @@ fn bi_undo(args: Vec<Value>) -> Result<Value> {
         "complete".to_string(),
         Value::Bool(skipped == 0 && failed == 0),
     );
-    Ok(Value::Record(out))
+    out
 }
 
-/// `journal()` — the recorded steps, and how many of them can be reversed.
-fn bi_journal() -> Result<Value> {
-    let entries = crate::journal::entries();
-    let reversible = crate::journal::reversible_count();
-    let rows: Vec<Value> = entries
+/// The rows `journal()` and `session_history()` report for done steps.
+fn journal_rows(entries: &[crate::journal::Entry]) -> Vec<Value> {
+    entries
         .iter()
         .map(|e| {
             let mut m = std::collections::BTreeMap::new();
@@ -18771,7 +18787,14 @@ fn bi_journal() -> Result<Value> {
             }
             Value::Record(m)
         })
-        .collect();
+        .collect()
+}
+
+/// `journal()` — the recorded steps, and how many of them can be reversed.
+fn bi_journal() -> Result<Value> {
+    let entries = crate::journal::entries();
+    let reversible = crate::journal::reversible_count();
+    let rows = journal_rows(&entries);
     let mut out = std::collections::BTreeMap::new();
     out.insert("steps".to_string(), Value::Int(entries.len() as i64));
     out.insert("reversible".to_string(), Value::Int(reversible as i64));
@@ -39540,50 +39563,127 @@ fn bi_session_start(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Int(id as i64))
 }
 
-fn bi_session_end(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "session_end",
-        "ending a session is not implemented; NOTHING WAS DONE",
-        "use sess_close, which is implemented",
-    ))
+/// Refuse arguments and pipeline input for a builtin that takes neither.
+fn no_args_or_input(name: &str, args: &[Value], input: &Option<Value>) -> Result<()> {
+    if !args.is_empty() {
+        return Err(crate::safety::bad_arg(
+            name,
+            "no arguments",
+            &format!("{} argument(s)", args.len()),
+        ));
+    }
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            name,
+            "no pipeline input",
+            "piped input",
+        ));
+    }
+    Ok(())
+}
+
+/// The optional step count of `session_undo` and `session_redo`: none means 1,
+/// otherwise one Int from 1 to 10000. Anything else is refused, not clamped.
+fn step_count_arg(name: &str, args: &[Value], input: &Option<Value>) -> Result<usize> {
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            name,
+            "no pipeline input",
+            "piped input",
+        ));
+    }
+    match args {
+        [] => Ok(1),
+        [Value::Int(n)] if (1..=10_000).contains(n) => Ok(*n as usize),
+        [Value::Int(n)] => Err(crate::safety::bad_arg(
+            name,
+            "a step count from 1 to 10000",
+            &n.to_string(),
+        )),
+        [other] => Err(crate::safety::bad_arg(
+            name,
+            "an Int step count",
+            other.type_name(),
+        )),
+        more => Err(crate::safety::bad_arg(
+            name,
+            "at most one step count",
+            &format!("{} arguments", more.len()),
+        )),
+    }
+}
+
+/// `session_end()` — keep every change and forget the journal. No files are
+/// touched; after this, nothing recorded can be undone or redone.
+fn bi_session_end(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("session_end", &args, &input)?;
+    let entries = crate::journal::entries();
+    let kept = entries.len();
+    let irreversible = entries.iter().filter(|e| !e.reversible()).count();
+    let discarded_redo = crate::journal::redo_count();
+    crate::journal::clear();
+    let mut m = std::collections::BTreeMap::new();
+    m.insert("kept".to_string(), Value::Int(kept as i64));
+    m.insert("irreversible".to_string(), Value::Int(irreversible as i64));
+    m.insert(
+        "discarded_redo".to_string(),
+        Value::Int(discarded_redo as i64),
+    );
+    m.insert(
+        "note".to_string(),
+        Value::Str("no files changed; these steps can no longer be undone or redone".to_string()),
+    );
+    Ok(Value::Record(m))
 }
 
 fn bi_session_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Int(SESSION_COUNTER.load(Ordering::SeqCst) as i64))
 }
 
-fn bi_session_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "session_history",
-        "a session command history is not implemented; NOTHING WAS DONE",
-        "use sess_usage, which is implemented",
-    ))
+/// `session_history()` — the steps that can be undone (`done`) and the steps
+/// that can be re-applied (`undone`, most recent last).
+fn bi_session_history(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("session_history", &args, &input)?;
+    let done = crate::journal::entries();
+    let undone: Vec<Value> = crate::journal::undone()
+        .iter()
+        .map(|r| {
+            let mut m = std::collections::BTreeMap::new();
+            m.insert("seq".to_string(), Value::Int(r.seq as i64));
+            m.insert("builtin".to_string(), Value::Str(r.builtin.clone()));
+            m.insert("effect".to_string(), Value::Str(r.effect.clone()));
+            if !r.path.is_empty() {
+                m.insert("path".to_string(), Value::Str(r.path.clone()));
+            }
+            Value::Record(m)
+        })
+        .collect();
+    let mut out = std::collections::BTreeMap::new();
+    out.insert(
+        "enabled".to_string(),
+        Value::Bool(crate::journal::enabled()),
+    );
+    out.insert("done".to_string(), Value::Array(journal_rows(&done)));
+    out.insert("undone".to_string(), Value::Array(undone));
+    Ok(Value::Record(out))
 }
 
-fn bi_session_undo(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returned `Ok(false)` for every call, ignoring its arguments: an
-    // agent could not tell "this did not work" from "this shell does
-    // not do that", and the catalogue advertised it either way.
-    Err(crate::safety::unimplemented(
-        "session_undo",
-        "undoing a session step is not implemented; NOTHING WAS CHANGED",
-        "use tx_begin/tx_rollback, which is implemented",
-    ))
+/// `session_undo(n = 1)` — the same record `undo(n)` returns.
+fn bi_session_undo(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let n = step_count_arg("session_undo", &args, &input)?;
+    Ok(Value::Record(rewind_record(
+        &crate::journal::undo(n),
+        "restored",
+    )))
 }
 
-fn bi_session_redo(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returned `Ok(false)` for every call, ignoring its arguments: an
-    // agent could not tell "this did not work" from "this shell does
-    // not do that", and the catalogue advertised it either way.
-    Err(crate::safety::unimplemented(
-        "session_redo",
-        "redoing a session step is not implemented; NOTHING WAS CHANGED",
-        "use tx_begin/tx_rollback, which is implemented",
-    ))
+/// `session_redo(n = 1)` — re-apply the last `n` undone steps.
+fn bi_session_redo(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let n = step_count_arg("session_redo", &args, &input)?;
+    Ok(Value::Record(rewind_record(
+        &crate::journal::redo(n),
+        "reapplied",
+    )))
 }
 
 fn bi_session_checkpoint(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
