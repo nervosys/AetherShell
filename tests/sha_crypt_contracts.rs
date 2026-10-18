@@ -172,14 +172,15 @@ fn wrong_password_is_false_not_an_error() {
 }
 
 #[test]
-fn sha_crypt_is_accepted_when_fips_is_on() {
-    // SHA-2 is FIPS-approved and SHA-crypt is built only from SHA-2, so the
-    // approved-algorithm policy does not refuse it.
+fn sha_crypt_is_refused_when_fips_is_on() {
+    // SHA-crypt uses SHA-2 but is not an approved password-hashing construction;
+    // under AETHER_FIPS only PBKDF2 is, as with the legacy hex and Argon2 forms.
+    // The refusal does not depend on whether the password matches.
     let _lock = lock();
     with_fips(Some("1"), || {
-        expect("Hello world!", SHA512_HELLO, true);
-        expect("Hello world!", SHA256_HELLO, true);
-        expect("Hello world?", SHA512_HELLO, false);
+        code("Hello world!", SHA512_HELLO, "E_POLICY_DENY");
+        code("Hello world!", SHA256_HELLO, "E_POLICY_DENY");
+        code("Hello world?", SHA512_HELLO, "E_POLICY_DENY");
     });
 }
 

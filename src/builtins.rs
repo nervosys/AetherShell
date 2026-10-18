@@ -34373,9 +34373,17 @@ fn bi_crypto_password_verify(args: Vec<Value>, input: Option<Value>) -> Result<V
                 == Output::new(&actual).map_err(|_| malformed())?,
         ));
     }
-    // SHA-crypt ($5$ / $6$) is verify-only and uses only SHA-2 primitives, which
-    // the AETHER_FIPS approved-algorithm policy allows, so it is accepted in both modes.
+    // SHA-crypt ($5$ / $6$) is verify-only. It is built from SHA-2, but it is not
+    // an approved password-hashing construction; under AETHER_FIPS only PBKDF2 is,
+    // as for the legacy hex and Argon2 branches.
     if values[1].starts_with("$5$") || values[1].starts_with("$6$") {
+        if crate::safety::fips_enabled() {
+            return Err(crate::safety::policy_deny(
+                name,
+                "SHA-crypt is outside the configured algorithm policy",
+                "rehash with crypto_password_hash",
+            ));
+        }
         return Ok(Value::Bool(sha_crypt::verify(name, values[0], values[1])?));
     }
     let hash = PasswordHash::new(values[1]).map_err(|_| malformed())?;
