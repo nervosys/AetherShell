@@ -327,13 +327,46 @@ impl Capture {
     }
 }
 
+/// Kills the child and every process it started, then reaps the child.
+///
+/// Unix: the child leads a process group of its own (see `run_once`), so the
+/// whole group is signalled. Windows: `taskkill /T` walks the process tree,
+/// which only works while the child is still alive, so it runs first.
+fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // SAFETY: a negative pid addresses the process group that
+        // `process_group(0)` made the child's own; kill has no memory effects.
+        unsafe {
+            libc::kill(-(child.id() as i32), libc::SIGKILL);
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn run_once(name: &str, argv: &[String], limit: Duration) -> Result<Finished> {
     let started = Instant::now();
-    let mut child = Command::new(&argv[0])
+    let mut command = Command::new(&argv[0]);
+    command
         .args(&argv[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = command
         .spawn()
         .map_err(|e| safety::spawn_error(name, &argv[0], &e))?;
     let out = capture(child.stdout.take());
@@ -344,8 +377,7 @@ fn run_once(name: &str, argv: &[String], limit: Duration) -> Result<Finished> {
             Ok(Some(status)) => break Some(status),
             Ok(None) => {}
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_tree(&mut child);
                 return Err(e.into());
             }
         }
@@ -357,8 +389,7 @@ fn run_once(name: &str, argv: &[String], limit: Duration) -> Result<Finished> {
     let (exit_code, timed_out) = match exited {
         Some(status) => (status.code(), false),
         None => {
-            let _ = child.kill();
-            let _ = child.wait();
+            kill_tree(&mut child);
             (None, true)
         }
     };

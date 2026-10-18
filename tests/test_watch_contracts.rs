@@ -334,3 +334,126 @@ fn a_program_that_does_not_exist_is_an_error() {
 fn test_watch_is_classified_as_exec() {
     assert!(matches!(effect_of("test_watch"), Effect::Exec));
 }
+
+fn stdout_of(result: &Value) -> String {
+    match field(&runs(result)[0], "stdout") {
+        Value::Str(text) => text.clone(),
+        other => panic!("stdout is not a String: {other:?}"),
+    }
+}
+
+fn first_pid(stdout: &str) -> u32 {
+    stdout
+        .lines()
+        .find_map(|line| line.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no pid printed in stdout: {stdout:?}"))
+}
+
+/// Force-kills a process when dropped, so a failed assertion cannot leave a
+/// grandchild running.
+struct Reaper(u32);
+
+impl Drop for Reaper {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        let mut kill = std::process::Command::new("kill");
+        #[cfg(unix)]
+        kill.args(["-9", &self.0.to_string()]);
+        #[cfg(windows)]
+        let mut kill = std::process::Command::new("taskkill");
+        #[cfg(windows)]
+        kill.args(["/PID", &self.0.to_string(), "/F"]);
+        let _ = kill
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+}
+
+fn wait_until(mut gone: impl FnMut() -> bool, within: Duration) -> bool {
+    let until = std::time::Instant::now() + within;
+    while std::time::Instant::now() < until {
+        if gone() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    gone()
+}
+
+/// True once the process has exited. A zombie has exited but still answers
+/// `kill -0`, so Linux's process state is consulted first.
+#[cfg(unix)]
+fn unix_process_is_gone(pid: u32) -> bool {
+    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        let state = stat
+            .rsplit(')')
+            .next()
+            .and_then(|rest| rest.trim_start().chars().next());
+        return state.is_none() || state == Some('Z');
+    }
+    !std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn windows_process_exists(pid: u32) -> bool {
+    // Unknown (tasklist failed) counts as alive, so the wait fails loudly.
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .output()
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .split_whitespace()
+                .any(|token| token == pid.to_string())
+        })
+        .unwrap_or(true)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_timed_out_run_takes_its_grandchildren_down_too() {
+    let result = ok_watch(
+        strs(&["sh", "-c", "sleep 30 & echo $!; wait"]),
+        strs(&["Cargo.toml"]),
+        Some(record(&[
+            ("max_runs", Value::Int(1)),
+            ("timeout_ms", Value::Int(500)),
+        ])),
+    );
+    let pid = first_pid(&stdout_of(&result));
+    let _reaper = Reaper(pid);
+    assert_eq!(field(&runs(&result)[0], "timed_out"), &Value::Bool(true));
+    assert!(
+        wait_until(|| unix_process_is_gone(pid), Duration::from_secs(2)),
+        "grandchild {pid} survived the timeout"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn a_timed_out_run_takes_its_grandchildren_down_too() {
+    // The outer PowerShell starts a second one, prints its pid, then sleeps.
+    // The second one is a descendant of the outer process, which is what
+    // `taskkill /T` walks.
+    let script = "$p = Start-Process powershell -ArgumentList '-NoProfile','-Command','Start-Sleep 30' -PassThru -WindowStyle Hidden; $p.Id; Start-Sleep 30";
+    let result = ok_watch(
+        strs(&["powershell", "-NoProfile", "-Command", script]),
+        strs(&["Cargo.toml"]),
+        Some(record(&[
+            ("max_runs", Value::Int(1)),
+            ("timeout_ms", Value::Int(5000)),
+        ])),
+    );
+    let pid = first_pid(&stdout_of(&result));
+    let _reaper = Reaper(pid);
+    assert_eq!(field(&runs(&result)[0], "timed_out"), &Value::Bool(true));
+    assert!(
+        wait_until(|| !windows_process_exists(pid), Duration::from_secs(5)),
+        "grandchild {pid} survived the timeout"
+    );
+}
