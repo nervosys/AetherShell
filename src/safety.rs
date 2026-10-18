@@ -362,6 +362,17 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // effect ratchet followed typed method calls.
         "config_set" => Some(Effect::WriteLocal),
         "monitor_tcpdump" => Some(Effect::Privileged),
+        // System administration: accounts, groups, mounts, services, ACLs,
+        // packages and elevation. Most were Pure while their bodies refused;
+        // implemented, each changes who may do what on the machine, or what
+        // runs on it, and needs root. An agent doing any of it unassisted is
+        // the privilege boundary.
+        "user_add" | "user_del" | "user_mod" | "user_passwd" | "user_lock" | "user_unlock"
+        | "group_add" | "group_del" | "group_mod" | "acl_set" | "fs_mount" | "fs_unmount"
+        | "svc_create" | "svc_delete" | "sudo_exec" | "pkg_install" | "pkg_remove"
+        | "pkg_update" | "pkg_upgrade" | "pkg_clean" | "pkg_add_source" | "pkg_hold"
+        | "pkg_unhold" | "pkg_autoremove" => Some(Effect::Privileged),
+        "acl_get" => Some(Effect::ReadLocal),
         // Run `sh -c <command>` under perf: arbitrary execution, exactly as the
         // `perf_stat`/`perf_record` spellings are classified.
         "monitor_perf_stat" | "monitor_perf_record" => Some(Effect::Exec),
@@ -395,7 +406,6 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "kubectl_delete"
         | "role_delete"
         | "cron_remove" | "at_remove"
-        | "svc_delete"
         | "terraform_destroy"
         | "helm_uninstall"
         | "marketplace_uninstall" => Some(Effect::Destructive),
@@ -446,7 +456,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // (CWE-494). Classifying these `Pure` told every consumer of `effect_of`
         // that `npm_install("anything")` was side-effect-free.
         | "npm_install" | "yarn_install" | "pnpm_install" | "bun_install"
-        | "pipx_install" | "poetry_install" | "pkg_install" | "asdf_install"
+        | "pipx_install" | "poetry_install" | "asdf_install"
         | "helm_install" | "marketplace_install" | "pre_commit_install" => Some(Effect::Exec),
         // Egress by name. `scp_*` moves bytes to/from another host; the
         // `marketplace_publish` case sends a package somewhere it cannot be
@@ -1034,7 +1044,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // `file_backup` copies onto `<path><suffix>`; the label said read.
         | "file_backup"
         | "write_file" | "write_json" | "text_write" | "save_json"
-        | "gui_dialog_file_save" | "fs_mount"
+        | "gui_dialog_file_save"
         | "chmod" | "fs_chmod" | "fs_chown"
         // Changes what every later relative path means; `pwd()` answers
         // differently afterwards, so it is emphatically not Pure.
