@@ -1054,7 +1054,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         "env" | "env_container" | "env_path" | "env_shell" |
         "env_var" | "env_vars" | "env_venv" | "fs_du" |
         "fs_glob" | "fs_lstat" | "fs_readlink" | "fs_realpath" |
-        "fs_stat" | "fs_tree" | "fs_walk" | "grep" |
+        "fs_stat" | "fs_tree" | "fs_walk" | "fs_watch" | "fs_unwatch" | "grep" |
         "head" | "ls" | "make_targets" | "pager" |
         "perm_check" | "perm_get" | "pkg_history" | "pkg_sources" |
         "platform_db_list" | "platform_db_load" | "platform_has_gui" | "platform_shell_type" |

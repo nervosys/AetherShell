@@ -23499,33 +23499,14 @@ fn bi_fs_tempdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(path.to_string_lossy().to_string()))
 }
 
+#[path = "fs_watch.rs"]
+mod fs_watch;
 fn bi_fs_watch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "fs_watch is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // This answered the String "watch_id_stub", as if a watch had been set up.
-    Err(crate::safety::unimplemented(
-        "fs_watch",
-        "watching files is not implemented; NOTHING IS WATCHED",
-        "poll with fs_stat, or run a watcher (entr, watchexec) in a terminal",
-    ))
+    fs_watch::watch(args, input)
 }
 
 fn bi_fs_unwatch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "fs_unwatch is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "fs_unwatch",
-        "cancelling a filesystem watch is not implemented; NOTHING WAS DONE",
-        "no watch handle exists; stop any external watcher through its own interface",
-    ))
+    fs_watch::unwatch(args, input)
 }
 
 /// The directory a glob's literal prefix names: everything before the first

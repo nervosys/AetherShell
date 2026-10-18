@@ -3039,7 +3039,7 @@ fn unsupported_filesystem_operations_refuse_without_mutation() {
     let mut env = Env::default();
     let path = fixture.path("owned");
     std::fs::write(&path, "unchanged").unwrap();
-    for name in ["fs_watch", "fs_unwatch", "fs_mount", "fs_unmount"] {
+    for name in ["fs_mount", "fs_unmount"] {
         code(call(name, vec![], &mut env), "E_UNIMPLEMENTED");
         for args in [
             vec![s(&path)],
@@ -3062,11 +3062,6 @@ fn unsupported_filesystem_operations_refuse_without_mutation() {
             );
         }
     }
-    let error = call("fs_unwatch", vec![], &mut env)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("no watch handle exists"));
-    assert!(!error.contains("returns a handle"));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
 }
 

@@ -446,9 +446,9 @@ fs_tempdir	WriteLocal
 fs_tempfile	WriteLocal
 fs_tree	ReadLocal
 fs_unmount	Pure
-fs_unwatch	Pure
+fs_unwatch	ReadLocal
 fs_walk	ReadLocal
-fs_watch	Pure
+fs_watch	ReadLocal
 fzf	Exec
 fzf_select	Exec
 gdb	Exec

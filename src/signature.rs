@@ -385,19 +385,17 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Set Unix mode bits; on Windows set the read-only attribute from the owner-write bit only. Return true or a coded failure. Resolve and guard the path before changing permissions. Refuse pipeline input and active filesystem transactions because their journal does not reliably restore permission metadata.",
         examples: &[(r#"let d = fs_tempdir("ae_chmod"); let f = d + "/x"; file_write(f, "hi"); let result = fs_chmod(f, "0644"); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_chmod_int"); let f = d + "/x"; file_write(f, "hi"); let result = chmod(f, 420); rmdir(d, true); result"#, "true")],
     },
-    // Unsupported operations declare their current refusal-only interface.
-    // No future arguments, handle types or successful behavior are invented.
     Signature {
         name: "fs_watch", category: None, subject_required: false, aliases: &[],
-        subject: None, params: &[], returns: "Any",
-        doc: "Unsupported placeholder: a parameterless call refuses with E_UNIMPLEMENTED after dispatch policy; no watcher or handle is created. Accept no arguments or pipeline input. Poll fs_stat or use an external watcher. There is no successful return value.",
-        examples: &[(r#"(try { fs_watch() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+        subject: None, params: &[req("path", Ty::Str, "existing file or directory to watch"), opt("options", Ty::Record, "Record with optional recursive Bool (default false) and max_events Int in 1..=10000 (default 1000)")], returns: "String",
+        doc: "Start a native filesystem watch on path and return its handle, a String such as \"watch-1\". Watches are process-local and end with the process, so `ae -c` run once per call cannot keep a watch across calls: keep the handle inside one script or session and read it with fs_unwatch before the process exits. Events are OS notifications from the notify crate. They arrive asynchronously, may be coalesced or duplicated, and changes made before the watch is established may not appear; wait for the changes to settle, then call fs_unwatch to collect them. Bounds: at most 64 watches may be live (the 65th is E_BUDGET_EXCEEDED); each handle buffers at most max_events events and counts later ones in dropped. Unknown option keys, wrong types, out-of-range values, pipeline input and wrong argument counts are E_BAD_ARG; a missing path is E_NOT_FOUND. The effect is ReadLocal: the watch observes the filesystem and holds OS watch resources, and changes nothing.",
+        examples: &[(r#"typeof(fs_unwatch(fs_watch(".")))"#, "Record"), (r#"fs_unwatch(fs_watch(".", {recursive: false, max_events: 10})).dropped"#, "0")],
     },
     Signature {
         name: "fs_unwatch", category: None, subject_required: false, aliases: &[],
-        subject: None, params: &[], returns: "Any",
-        doc: "Unsupported placeholder: a parameterless call refuses with E_UNIMPLEMENTED after dispatch policy; no watcher is stopped. Accept no arguments or pipeline input. No fs_watch handle exists; manage external watchers through their own interfaces. There is no successful return value.",
-        examples: &[(r#"(try { fs_unwatch() } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+        subject: None, params: &[req("handle", Ty::Str, "handle returned by fs_watch")], returns: "Record",
+        doc: "Stop the watch named by handle, drop its OS watcher so no further events are recorded, remove the handle, and return {path, events, dropped}. events is an Array of records {kind, paths} in arrival order; kind is one of create, modify, remove, rename, access, other or error, and paths is an Array of String. An error event has no paths and carries a message String instead. dropped counts the events that arrived after the buffer reached max_events and were not stored. Events are asynchronous and may be coalesced or duplicated, so wait for the changes to settle before unwatching. An unknown or already unwatched handle is E_BAD_ARG, and the message names how many handles are live. The effect is ReadLocal.",
+        examples: &[(r#"typeof(fs_unwatch(fs_watch(".")).events)"#, "Array")],
     },
     Signature {
         name: "fs_mount", category: None, subject_required: false, aliases: &[],
