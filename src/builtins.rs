@@ -25585,6 +25585,10 @@ fn bi_sys_cpu_count(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Null means the OS does not expose a frequency: no cpufreq driver, or
+    // Apple Silicon. A source that exists and fails -- PowerShell refusing, a
+    // file that cannot be read, a reading that is not a number -- is a coded
+    // error. It used to read as Null, the same answer as "not exposed".
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -25594,44 +25598,87 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ])
             .output()
             .map_err(|e| crate::safety::spawn_error("sys_cpu_freq", "powershell", &e))?;
-        if output.status.success() {
-            if let Ok(mhz) = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse::<i64>()
-            {
-                return Ok(Value::Int(mhz));
-            }
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "sys_cpu_freq",
+                "powershell Get-CimInstance Win32_Processor",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
         }
+        // One line per processor; the first is the package's maximum.
+        let text = String::from_utf8_lossy(&output.stdout);
+        let line = text
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or("");
+        return line.parse::<i64>().map(Value::Int).map_err(|_| {
+            crate::safety::bad_state(
+                "sys_cpu_freq",
+                &format!("Win32_Processor reported no clock speed: `{line}`"),
+                "a processor that reports MaxClockSpeed",
+            )
+        });
     }
     #[cfg(target_os = "linux")]
     {
-        if let Ok(freq) =
-            std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")
-        {
-            if let Ok(khz) = freq.trim().parse::<i64>() {
-                return Ok(Value::Int(khz / 1000)); // Return MHz
-            }
-        }
+        const PATH: &str = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq";
+        return match std::fs::read_to_string(PATH) {
+            // kHz to MHz
+            Ok(freq) => freq
+                .trim()
+                .parse::<i64>()
+                .map(|khz| Value::Int(khz / 1000))
+                .map_err(|_| {
+                    crate::safety::bad_state(
+                        "sys_cpu_freq",
+                        &format!("{PATH} does not hold a frequency: `{}`", freq.trim()),
+                        "a cpufreq driver that reports scaling_cur_freq in kHz",
+                    )
+                }),
+            // No cpufreq driver (many VMs): the kernel does not say.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Value::Null),
+            Err(e) => Err(crate::safety::fs_error("sys_cpu_freq", PATH, &e)),
+        };
     }
     #[cfg(target_os = "macos")]
     {
-        if let Ok(output) = std::process::Command::new("sysctl")
+        let output = std::process::Command::new("sysctl")
             .args(["-n", "hw.cpufrequency"])
             .output()
-        {
-            if output.status.success() {
-                if let Ok(hz) = String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .parse::<i64>()
-                {
-                    return Ok(Value::Int(hz / 1_000_000)); // Hz to MHz
-                }
+            .map_err(|e| crate::safety::spawn_error("sys_cpu_freq", "sysctl", &e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // Apple Silicon has no such OID: the OS does not expose a frequency.
+            if stderr.contains("unknown oid") {
+                return Ok(Value::Null);
             }
+            return Err(crate::safety::tool_failed(
+                "sys_cpu_freq",
+                "sysctl -n hw.cpufrequency",
+                output.status.code(),
+                &stderr,
+            ));
         }
+        let text = String::from_utf8_lossy(&output.stdout);
+        // Hz to MHz
+        return match text.trim().parse::<i64>() {
+            Ok(hz) => Ok(Value::Int(hz / 1_000_000)),
+            Err(_) => Err(crate::safety::bad_state(
+                "sys_cpu_freq",
+                &format!("sysctl reported no frequency: `{}`", text.trim()),
+                "a Mac whose hw.cpufrequency is an integer",
+            )),
+        };
     }
-    // Unknown: Apple Silicon has no hw.cpufrequency, many Linux VMs no
-    // cpufreq. This answered 0 MHz, which reads as a measurement.
-    Ok(Value::Null)
+    // Nothing was read on this OS, so this is a refusal, not a null.
+    #[allow(unreachable_code)]
+    Err(crate::safety::unimplemented(
+        "sys_cpu_freq",
+        "CPU frequency is read on Windows, Linux and macOS only; NOTHING WAS INSPECTED",
+        "read the clock speed with the platform's own tools",
+    ))
 }
 
 // Refresh only memory, not processes, CPUs, disks or networks.
@@ -26265,6 +26312,15 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         };
         if prop("LoadState") == "not-found" {
             return Err(crate::safety::not_found("svc_status", "service", &name));
+        }
+        // A loaded unit always reports its ActiveState; an empty one would
+        // answer "" as a status.
+        if prop("ActiveState").is_empty() {
+            return Err(crate::safety::bad_state(
+                "svc_status",
+                &format!("systemctl reported no ActiveState for `{name}`"),
+                "a systemd that reports ActiveState for every unit it loads",
+            ));
         }
         let mut rec = std::collections::BTreeMap::new();
         rec.insert("name".to_string(), Value::Str(name.clone()));
@@ -35306,6 +35362,15 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
                 "crypto_cert_verify",
                 "certificate file",
                 &cert_path,
+            ));
+        }
+        // A file that exists but cannot be opened makes openssl exit non-zero,
+        // which answered false: an unreadable certificate read as an invalid one.
+        if let Err(e) = std::fs::File::open(&cert_path) {
+            return Err(crate::safety::fs_error(
+                "crypto_cert_verify",
+                &cert_path,
+                &e,
             ));
         }
         let output = std::process::Command::new("openssl")

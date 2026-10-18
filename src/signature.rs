@@ -5909,7 +5909,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("path", Ty::Str, "a PEM certificate file")],
         returns: "Bool",
-        doc: "Whether a certificate verifies against the system trust store. A missing file is E_NOT_FOUND.",
+        doc: "Whether a certificate verifies against the system trust store. A missing file is E_NOT_FOUND; one that exists but cannot be read is a coded error, never false.",
         examples: &[
             (r#"crypto_cert_verify("/etc/ssl/certs/ca-certificates.crt")"#, r#"true"#),
         ],
@@ -6401,7 +6401,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Int | Null",
-        doc: "CPU frequency in MHz: the maximum on Windows, the current on Linux, the nominal on macOS. Null when the OS does not say (Apple Silicon, many VMs).",
+        doc: "CPU frequency in MHz: the maximum on Windows, the current on Linux, the nominal on macOS. Null when the OS does not say (Apple Silicon, many VMs); a source that exists and cannot be read is a coded error, never null.",
         examples: &[
             (r#"sys_cpu_freq()"#, r#"3200"#),
         ],
