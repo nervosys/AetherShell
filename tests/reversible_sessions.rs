@@ -24,6 +24,10 @@ impl Session {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         std::env::set_var("AETHER_JOURNAL", "on");
+        // The default journal is keyed by working directory, which is the
+        // repository: clearing it here deleted whatever an agent session in
+        // this checkout had recorded. Each session gets its own journal.
+        std::env::set_var("AETHER_SESSION_DIR", dir.join("state"));
         journal::clear();
         Self { dir }
     }
@@ -36,6 +40,7 @@ impl Drop for Session {
     fn drop(&mut self) {
         journal::clear();
         std::env::remove_var("AETHER_JOURNAL");
+        std::env::remove_var("AETHER_SESSION_DIR");
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
