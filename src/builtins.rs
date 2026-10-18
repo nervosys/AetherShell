@@ -26239,8 +26239,9 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = std::process::Command::new("powershell")
             .args([
                 "-Command",
+                // A missing service exits 3, distinct from every other failure.
                 &crate::ps_script!(
-                    "Get-Service {} | Select-Object Name,Status | ConvertTo-Json",
+                    "try {{ Get-Service -Name {} -ErrorAction Stop | Select-Object Name,Status | ConvertTo-Json }} catch {{ if ($_.FullyQualifiedErrorId -like 'NoServiceFoundForGivenName*') {{ exit 3 }} else {{ throw }} }}",
                     crate::safety::ps_quote(&name)
                 ),
             ])
@@ -26269,7 +26270,11 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 }
             }
         }
-        // A service that does not exist fell through to null.
+        // A service that does not exist fell through to null, then to a tool
+        // failure; the declaration promises E_NOT_FOUND, as on Linux.
+        if output.status.code() == Some(3) {
+            return Err(crate::safety::not_found("svc_status", "service", &name));
+        }
         return Err(crate::safety::tool_failed(
             "svc_status",
             "Get-Service",

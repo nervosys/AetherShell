@@ -208,11 +208,11 @@ fn svc_status_on_macos_answers_or_codes_the_absence_of_a_label() {
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn svc_status_refuses_an_unknown_service_with_e_not_found() {
-    // Windows: Get-Service's failure is reported as E_TOOL_FAILED, although the
-    // declaration says E_NOT_FOUND. That mismatch is recorded in the report,
-    // not hidden here; this accepts both codes on Windows only.
+    // Windows: Get-Service's NoServiceFoundForGivenName is E_NOT_FOUND, as the
+    // declaration says; nothing else is accepted, so a regression to a tool
+    // failure shows.
     let allowed: &[&str] = if cfg!(windows) {
-        &["E_NOT_FOUND", "E_TOOL_FAILED"]
+        &["E_NOT_FOUND"]
     } else {
         &["E_NOT_FOUND", "E_TOOL_FAILED", "E_TOOL_MISSING"]
     };
