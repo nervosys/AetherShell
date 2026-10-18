@@ -1282,7 +1282,7 @@ test_run_file	Exec
 test_run_function	Exec
 test_skipped	Pure
 test_snapshot	Pure
-test_watch	Pure
+test_watch	Exec
 text_edit	WriteLocal
 text_replace	ReadLocal
 text_write	WriteLocal

@@ -686,6 +686,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "test_run"
         | "test_run_file"
         | "test_run_function"
+        | "test_watch"
         | "uv_run"
         | "valgrind_memcheck"
         | "valgrind_run"

@@ -305,7 +305,7 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         // as their return value; they are implemented now, with contracts in
         // tests/{rename,extract_function}_refactor_contracts.rs.
         "input_form",
-        "test_watch",
+        // test_watch is implemented, with contracts in tests/test_watch_contracts.rs.
     ] {
         let mut env = aethershell::env::Env::new();
         // Declared refusal-only interfaces accept no arguments. Keep testing
