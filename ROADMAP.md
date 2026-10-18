@@ -3,8 +3,8 @@
 > Current release status, 2026-10-17: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
-> owners, evidence and release gates. Signature coverage is 618/1171
-> implementations and 743/1437 callable names; migration remains incomplete.
+> owners, evidence and release gates. Signature coverage is 623/1171
+> implementations and 748/1437 callable names; migration remains incomplete.
 > Measured evaluator improvements are recorded in the linked performance
 > report; final-tree cross-platform measurements remain pending.
 
@@ -24,7 +24,10 @@ drop timing. Rust `refactor_rename` now renames identifiers across one supplied
 source file syntactically, `refactor_extract_function` moves a top-level statement
 range into a private function, and `refactor_move_to_file` moves one top-level item
 between supplied texts; none updates other files or adds imports, and caller
-compilation remains necessary. Exact warning-code filtering of supplied
+compilation remains necessary. `session_undo`, `session_redo`, `session_history` and
+`session_end` now operate on the reversible-session journal, and `test_watch` reruns
+an argv command on polled file changes with bounded deadlines and whole-process-tree
+kill on timeout; test_watch is classified Exec. Exact warning-code filtering of supplied
 rustc/Cargo JSON diagnostics is implemented without changing compiler policy.
 Disposable-platform scheduler validation
 remains open. Accounts/groups, ACL operations, mounting/watching, elevated

@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 618/1,171 implementations; 743/1,437 callable names | 553 implementations and 694 callable names |
-| Latest targeted Windows validation | 146 refactoring-batch tests passed across 13 suites; prior 731-test broader checkpoint retained | Validate the complete final tree |
+| Signature migration | 623/1,171 implementations; 748/1,437 callable names | 548 implementations and 689 callable names |
+| Latest targeted Windows validation | 177 session and test_watch tests passed across 15 suites, plus three journal unit tests; prior 731-test broader checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 618 implementations covered, 553 pending; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 623 implementations covered, 548 pending; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, watch/unwatch, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -88,7 +88,7 @@ removing their guards.
 - [x] Implement bounded native TCP connect/listen/send/recv/close with strict contracts and actual loopback transfers; Linux/macOS native validation remains open.
 - [ ] Implement missing web/clipboard/UI/input operations.
 - [ ] Implement missing package-manager operations with checked tool adapters.
-- [ ] Implement source navigation, refactoring, search, tests, sessions and documentation operations.
+- [x] Implement source navigation, refactoring, search, tests, sessions and documentation operations.
 - [ ] Implement DQN training and remaining crypto operations/legacy verification where supported by the algorithm policy.
   - [x] Implement DQN batch SGD with detached targets and real weights/bias updates.
   - [ ] Implement remaining crypto operations and permitted legacy verification.
@@ -316,7 +316,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_test_failing
 - [x] bi_test_passing
 - [x] bi_test_skipped
-- [ ] bi_test_watch
+- [x] bi_test_watch
 - [x] bi_test_snapshot
 - [x] bi_test_generate
 - [x] bi_diag_suppress
@@ -329,10 +329,10 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_refactor_change_signature
 - [x] bi_refactor_add_parameter
 - [x] bi_refactor_remove_parameter
-- [ ] bi_session_end
-- [ ] bi_session_history
-- [ ] bi_session_undo
-- [ ] bi_session_redo
+- [x] bi_session_end
+- [x] bi_session_history
+- [x] bi_session_undo
+- [x] bi_session_redo
 - [x] bi_docs_api
 - [ ] bi_platform_libcpp
 - [ ] bi_blkid
@@ -811,6 +811,60 @@ formatting passed. Rust 1.88 all-target workspace check passed.
 Live inventory is 618/1171 implementations and 743/1437 callable names, leaving
 553 implementations and 694 names undeclared. The syn dependency now enables its
 visit-mut feature in Cargo.toml; no new dependency and no package version changed.
-Remaining source-tooling placeholders include bi_test_watch and the
-session_end/history/undo/redo operations. Final-tree workspace, cross-platform
-and release gates remain open. No version bump/publication.
+Test_watch and the session_end/history/undo/redo operations were implemented in
+the session operations and test_watch checkpoint below. Final-tree workspace,
+cross-platform and release gates remain open. No version bump/publication.
+
+## Session operations and test_watch checkpoint, 2026-10-17
+
+Session_undo(n?), session_redo(n?), session_history() and session_end() were
+unimplemented refusals and are now implemented over the existing reversible-session
+journal in src/journal.rs. Session_undo(n?) rewinds like undo(n) and keeps each
+reversed step on a persisted redo stack. Session_redo(n?) re-applies undone steps,
+journaling each one first so session_undo() can reverse it again. Session_history()
+lists the done and undone steps. Session_end() keeps all changes and forgets the
+journal and the redo stack; no files are touched. They cover local file contents
+only. Journalling is on in agent mode or with AETHER_JOURNAL=on. Any new recorded
+write discards the redo stack, including a write that is recorded and then refused.
+Each file is bounded to 8 MiB, and 64 MiB in total is shared with the redo stack.
+The effects remain Pure, as for undo and journal.
+
+Test_watch(command, paths, options?) runs an argv command once and again on polled
+file changes. Change detection compares length and modified time, so an edit that
+preserves both can be missed. It stops on max_runs, on idle, or at the total
+deadline, and it kills the whole process tree on timeout or deadline (the process
+group on Unix, taskkill /T on Windows). It was reclassified from Pure to Exec, and
+tests/effect_snapshot.txt was updated. The bare-form test_watch example waits out
+the 30 second default idle period, which lengthens declared_signatures.
+
+Safety incident: the undo journal is keyed by working directory. tests/reversible_sessions.rs
+cleared the default, repository-keyed journal on every run. On 2026-10-17 a
+validation run deleted a nine-entry journal recorded in this checkout on 2026-10-01.
+No files were rewound, because clear only forgets, and git status was clean.
+Fixed: reversible_sessions sets AETHER_SESSION_DIR per session (235fbbc);
+declared_signatures evaluates every example in an isolated session directory
+(55d12b1), which matters because session_undo() and session_end() examples now exist;
+session_journal_contracts was isolated from the start. A sentinel placed at the
+checkout's journal path survived reversible_sessions, session_journal_contracts,
+declared_signatures and four_more_knowable_conditions.
+
+Validation on Windows passed 177 tests across 15 suites: declared_signatures 31,
+effect_alias_agreement 3, effect_coverage 2, effect_ratchet 18, effect_snapshot 1,
+expression_refactor 9, extract_function_refactor 6, four_more_knowable_conditions 10,
+module_aliases 3, move_refactor 10, rename_refactor 8, reversible_sessions 10,
+session_journal_contracts 11, signature_migration 39 and test_watch_contracts 16,
+plus three journal unit tests. All-target workspace Clippy with warnings denied
+passed, formatting passed, and the Rust 1.88 all-target workspace check passed.
+On Linux (WSL Debian), test_watch_contracts 16, session_journal_contracts 11,
+reversible_sessions 10 and four_more_knowable_conditions 10 passed, including the
+Unix grandchild-kill test, and no stray child processes remained. macOS was not run.
+Review added the process-tree kill. The work was done by parallel subagents in
+worktrees and reviewed.
+
+Live inventory is 623/1171 implementations and 748/1437 callable names, leaving
+548 implementations and 689 names undeclared. No dependencies or package versions
+changed. The source navigation, refactoring, search, tests, sessions and
+documentation register item is checked: no unchecked bi_refactor_*, bi_test_*,
+bi_session_*, bi_docs_*, bi_diag_*, bi_nav_* or bi_search_* candidate remains.
+Final-tree workspace, cross-platform and release gates remain open. No version
+bump/publication.
