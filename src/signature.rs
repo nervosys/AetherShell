@@ -5255,7 +5255,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "crypto_password_verify", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("password", Ty::Str, "password"), req("hash", Ty::Str, "stored PHC hash, at most 1024 bytes")], returns: "Bool",
-        doc: "Verify stored salt and bounded Argon2id or PBKDF2-SHA256 parameters. False means mismatch; malformed, unsupported or excessive parameters produce coded errors. Legacy SHA256 hex is verify-only outside algorithm-policy mode and should be rehashed; SHA512-crypt refuses explicitly. Reject pipeline input and surplus arguments.",
+        doc: "Verify stored salt and bounded Argon2id or PBKDF2-SHA256 parameters, or a SHA-crypt $5$/$6$ hash per Drepper's specification (verify only; rounds above 1000000 are refused with E_BUDGET_EXCEEDED). False means mismatch; malformed, unsupported or excessive parameters produce coded errors. Legacy SHA256 hex is verify-only outside algorithm-policy mode and should be rehashed. Reject pipeline input and surplus arguments.",
         examples: &[(r#"crypto_password_verify("example", crypto_password_hash("example"))"#, "true")],
     },
     Signature {

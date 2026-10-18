@@ -3136,7 +3136,7 @@ fn password_hashes_use_stored_salts_and_bounded_parameters() {
             vec![s("x"), s("$6$legacy")],
             &mut env,
         ),
-        "E_UNIMPLEMENTED",
+        "E_BAD_ARG",
     );
     code(
         call_with_input(

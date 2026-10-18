@@ -34342,6 +34342,9 @@ fn bi_crypto_password_hash(args: Vec<Value>, input: Option<Value>) -> Result<Val
     Ok(Value::Str(hash.to_string()))
 }
 
+#[path = "sha_crypt.rs"]
+mod sha_crypt;
+
 fn bi_crypto_password_verify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use argon2::password_hash::{PasswordHash, PasswordVerifier};
     let name = "crypto_password_verify";
@@ -34370,12 +34373,10 @@ fn bi_crypto_password_verify(args: Vec<Value>, input: Option<Value>) -> Result<V
                 == Output::new(&actual).map_err(|_| malformed())?,
         ));
     }
-    if values[1].starts_with("$6$") {
-        return Err(crate::safety::unimplemented(
-            name,
-            "legacy SHA512-crypt verification is unsupported",
-            "verify with a trusted legacy implementation and rehash, or reset the password",
-        ));
+    // SHA-crypt ($5$ / $6$) is verify-only and uses only SHA-2 primitives, which
+    // the AETHER_FIPS approved-algorithm policy allows, so it is accepted in both modes.
+    if values[1].starts_with("$5$") || values[1].starts_with("$6$") {
+        return Ok(Value::Bool(sha_crypt::verify(name, values[0], values[1])?));
     }
     let hash = PasswordHash::new(values[1]).map_err(|_| malformed())?;
     let salt = hash.salt.ok_or_else(malformed)?;
