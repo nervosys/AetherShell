@@ -4128,6 +4128,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "marketplace_info",
     "marketplace_search",
     "marketplace_update",
+    "nc_listen",
     "net_close",
     "net_connect",
     "net_listen",

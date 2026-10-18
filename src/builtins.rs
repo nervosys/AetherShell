@@ -28683,7 +28683,13 @@ fn bi_perm_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 use std::os::unix::fs::PermissionsExt;
                 Ok(Value::Bool(metadata.permissions().mode() & 0o111 != 0))
             }
-            #[cfg(not(unix))]
+            #[cfg(windows)]
+            {
+                Ok(Value::Bool(
+                    metadata.is_file() && windows_pathext_executable(std::path::Path::new(&path)),
+                ))
+            }
+            #[cfg(not(any(unix, windows)))]
             {
                 Err(crate::safety::unimplemented(
                     "perm_check",
@@ -28694,6 +28700,24 @@ fn bi_perm_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
         _ => unreachable!("validated permission mode"),
     }
+}
+
+/// Windows executability is a naming rule, not an ACL check: a regular file
+/// whose extension appears in PATHEXT (default `.COM;.EXE;.BAT;.CMD`).
+#[cfg(windows)]
+fn windows_pathext_executable(path: &std::path::Path) -> bool {
+    let Some(extension) = path.extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    let pathext = std::env::var("PATHEXT")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".to_string());
+    pathext
+        .split(';')
+        .map(|entry| entry.trim().trim_start_matches('.'))
+        .filter(|entry| !entry.is_empty())
+        .any(|entry| entry.eq_ignore_ascii_case(extension))
 }
 
 fn bi_acl_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -53498,21 +53522,165 @@ fn bi_nc_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// nc listen — Listen on a port via netcat.
-fn bi_nc_listen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let port = match args.first() {
-        Some(Value::Int(n)) => n.to_string(),
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("nc_listen requires a port")),
+/// nc_listen — accept one TCP connection on a port, read it to EOF or a byte
+/// limit, then close both. Binds 127.0.0.1 unless `host` is given. The bind
+/// address and the accepted peer pass the same network policy as net_listen,
+/// and `timeout_ms` bounds the whole call (accept and read), so a stalled peer
+/// is an E_IO error rather than a silent short read.
+fn bi_nc_listen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "nc_listen";
+    if input.is_some() || !(1..=2).contains(&args.len()) {
+        return Err(crate::safety::arg_err(
+            "nc_listen requires a port and optional options Record, without pipeline input",
+        ));
+    }
+    let mut args = args.into_iter();
+    let port = match args.next() {
+        Some(Value::Int(n)) if (1..=65535).contains(&n) => n as u16,
+        _ => {
+            return Err(crate::safety::arg_err(
+                "nc_listen port must be an Int 1..65535",
+            ))
+        }
     };
-    // This returned a record whose "info" field told the caller to run the
-    // command themselves -- advice presented as a result. It is an interactive listener, which a
-    // shell call cannot host, so say that instead.
-    Err(crate::safety::unimplemented(
-        "nc_listen",
-        "nc_listen is an interactive listener and is not run by the shell; NOTHING WAS RUN",
-        &format!("run `nc -l {port}` in a terminal"),
-    ))
+    let mut host: std::net::IpAddr = std::net::Ipv4Addr::LOCALHOST.into();
+    let mut timeout_ms: i64 = 1000;
+    let mut max_bytes: i64 = 65536;
+    if let Some(options) = args.next() {
+        let Value::Record(fields) = options else {
+            return Err(crate::safety::arg_err("nc_listen options must be a Record"));
+        };
+        for (key, value) in fields {
+            match (key.as_str(), value) {
+                ("host", Value::Str(text)) => {
+                    host = text.parse().map_err(|_| {
+                        crate::safety::arg_err(
+                            "nc_listen host must be a literal IPv4 or IPv6 address; resolve hostnames separately",
+                        )
+                    })?;
+                }
+                ("timeout_ms", Value::Int(n)) if (1..=10000).contains(&n) => timeout_ms = n,
+                ("max_bytes", Value::Int(n)) if (1..=1048576).contains(&n) => max_bytes = n,
+                (other, _) => {
+                    return Err(crate::safety::arg_err(format!(
+                        "nc_listen unknown option or out-of-range value: {other} (options: host String, timeout_ms 1..10000, max_bytes 1..1048576)"
+                    )))
+                }
+            }
+        }
+    }
+    if crate::tx::is_active() {
+        return Err(crate::safety::unimplemented(
+            NAME,
+            "network effects and reads cannot be rolled back",
+            "finish the transaction first",
+        ));
+    }
+    let addr = std::net::SocketAddr::new(host, port);
+    guard_network(NAME, &format!("tcp://{addr}"))?;
+    let io_timeout = crate::safety::bounded_io_timeout(
+        NAME,
+        std::time::Duration::from_millis(timeout_ms as u64),
+    )?;
+    let deadline = std::time::Instant::now() + io_timeout;
+    let limit = max_bytes as usize;
+
+    let listener = std::net::TcpListener::bind(addr).map_err(|e| nc_io_error(NAME, e))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| nc_io_error(NAME, e))?;
+    let (mut stream, peer) = loop {
+        crate::safety::check_deadline()?;
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(nc_io_error(
+                NAME,
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "no connection accepted before timeout",
+                ),
+            ));
+        }
+        match listener.accept() {
+            Ok(pair) => break pair,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(remaining.min(std::time::Duration::from_millis(5)));
+            }
+            Err(e) => return Err(nc_io_error(NAME, e)),
+        }
+    };
+    drop(listener);
+    // The bind address does not authorize an arbitrary incoming peer.
+    guard_network(NAME, &format!("tcp://{peer}"))?;
+    stream
+        .set_nonblocking(false)
+        .map_err(|e| nc_io_error(NAME, e))?;
+
+    let mut data: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 8192];
+    let mut truncated = false;
+    loop {
+        crate::safety::check_deadline()?;
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(nc_io_error(
+                NAME,
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "read deadline exceeded before EOF",
+                ),
+            ));
+        }
+        stream
+            .set_read_timeout(Some(remaining.min(std::time::Duration::from_millis(50))))
+            .map_err(|e| nc_io_error(NAME, e))?;
+        match std::io::Read::read(&mut stream, &mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                // One byte past the limit proves more data existed, so truncated is exact.
+                let room = limit + 1 - data.len();
+                data.extend_from_slice(&chunk[..n.min(room)]);
+                if data.len() > limit {
+                    data.truncate(limit);
+                    truncated = true;
+                    break;
+                }
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::Interrupted
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::WouldBlock
+                ) => {}
+            Err(e) => return Err(nc_io_error(NAME, e)),
+        }
+    }
+    drop(stream);
+
+    let mut rec = BTreeMap::new();
+    rec.insert("peer".to_string(), Value::Str(format!("tcp://{peer}")));
+    rec.insert(
+        "data".to_string(),
+        Value::Str(String::from_utf8_lossy(&data).into_owned()),
+    );
+    rec.insert("bytes".to_string(), Value::Int(data.len() as i64));
+    rec.insert("truncated".to_string(), Value::Bool(truncated));
+    Ok(Value::Record(rec))
+}
+
+fn nc_io_error(name: &str, error: std::io::Error) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::Io,
+        builtin: name.into(),
+        message: format!("{name}: {error}"),
+        hint: "A timeout before EOF is an error, not a short read; the partial data was discarded."
+            .into(),
+        approval: None,
+        did_you_mean: vec![],
+        expected: "one complete TCP connection".into(),
+        got: format!("{:?}", error.kind()),
+    })
 }
 
 // --- socat (1025) ---

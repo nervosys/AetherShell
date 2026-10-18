@@ -5165,7 +5165,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "perm_check", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("path", Ty::Str, "existing filesystem path, following symlinks"), opt("mode", Ty::Str, "r/read (default), w/write or x/execute")], returns: "Bool",
-        doc: "Query permission metadata, not effective caller authorization or ACL access. Read returns true when metadata is available; write reports the inverse read-only attribute; execute reports whether any Unix execute bit is set, and is E_UNIMPLEMENTED elsewhere. Resolve workspace-relative paths and return coded filesystem errors. Refuse unknown modes, ignored arguments and pipeline input.",
+        doc: "Query permission metadata, not effective caller authorization or ACL access. Read returns true when metadata is available; write reports the inverse read-only attribute; execute on Unix reports whether any execute bit is set. On Windows execute is a naming rule, not an ACL check: it is true only for a regular file whose extension (case-insensitive) is listed in PATHEXT, defaulting to .COM;.EXE;.BAT;.CMD when PATHEXT is unset or empty, and it does not consult ACLs. Execute is E_UNIMPLEMENTED on other platforms. Resolve workspace-relative paths and return coded filesystem errors. Refuse unknown modes, ignored arguments and pipeline input.",
         examples: &[(r#"let d = fs_tempdir("ae_perm_check"); let f = d + "/x"; file_write(f, "hi"); let result = perm_check(f); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_perm_check_write"); let f = d + "/x"; file_write(f, "hi"); perm_set(f, 384); let result = perm_check(f, "write"); rmdir(d, true); result"#, "true")],
     },
     Signature {
@@ -6446,6 +6446,12 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"governor_reset()"#, r#"true"#),
         ],
+    },
+    Signature {
+        name: "nc_listen", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[Param { range: Some((1, 65535)), ..req("port", Ty::Int, "Port 1..65535") }, opt("options", Ty::Record, "optional {host: String literal IP default 127.0.0.1, timeout_ms: Int 1..10000 default 1000, max_bytes: Int 1..1048576 default 65536}")], returns: "Record",
+        doc: "Listen on 127.0.0.1 (or options.host) for one TCP connection, accept it before the timeout, read until EOF or max_bytes, then close the connection and listener. Returns {peer: String, data: String (lossy UTF-8), bytes: Int (bytes kept in data), truncated: Bool (true only when more data followed the limit)}. timeout_ms bounds the whole call; a timeout before EOF is E_IO and discards partial data. Network policy guards the bind address and the accepted peer, as net_listen does. Port zero, unknown options and pipeline input are refused.",
+        examples: &[(r#"(try { nc_listen("invalid") } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { nc_listen(0) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { nc_listen(8080, {bogus: 1}) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
         name: "session_start",

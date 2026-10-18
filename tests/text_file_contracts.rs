@@ -2830,7 +2830,10 @@ fn permission_checks_report_metadata_and_resolve_workspace_paths() {
     assert!(matches!(default_read.unwrap(), Value::Bool(true)));
     #[cfg(unix)]
     assert!(matches!(execute.unwrap(), Value::Bool(false)));
-    #[cfg(not(unix))]
+    // "input" has no PATHEXT extension, so Windows reports it non-executable.
+    #[cfg(windows)]
+    assert!(matches!(execute.unwrap(), Value::Bool(false)));
+    #[cfg(not(any(unix, windows)))]
     code(execute, "E_UNIMPLEMENTED");
 }
 
