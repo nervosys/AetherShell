@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 643 implementations covered, 528 not yet declared; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 644 implementations covered, 527 not yet declared; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, elevated execution, scheduler mutation | Linux implemented and verified in the disposable distro; Windows/macOS open; blocker only for those platforms | Linux accounts, groups, ACLs, mounts, services, sudo_exec and apt backends are verified as root in the disposable distro; Windows and macOS refuse with E_UNIMPLEMENTED and their backends remain open. All scheduler mutation functions and fs_watch/fs_unwatch have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -225,7 +225,7 @@ not that the entire function is nonfunctional. Generated from source headers and
 explicit refusal calls, without executing builtins or generating their contracts.
 
 - [x] bi_rl_dqn_step — working implementation added; final platform/release validation remains open.
-- [ ] bi_proc_kill
+- [x] bi_proc_kill
 - [x] bi_fs_chmod
 - [x] bi_fs_chown
 - [x] bi_fs_symlink
@@ -334,7 +334,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_session_undo
 - [x] bi_session_redo
 - [x] bi_docs_api
-- [ ] bi_platform_libcpp — returns a constant on Windows and macOS without inspecting the system; Linux skips an unreadable library silently.
+- [ ] bi_platform_libcpp — Windows reads msvcp140.dll's version and Linux codes unreadable libraries (40389de); macOS still answers libc++ without a version, untested here.
 - [x] bi_blkid
 - [x] bi_lsof
 - [x] bi_tcpdump_capture
