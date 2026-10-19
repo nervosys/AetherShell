@@ -51,6 +51,15 @@ fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<S
     })
 }
 
+/// Peak resident size in bytes, from VmHWM in /proc/<pid>/status.
+#[cfg(target_os = "linux")]
+fn vm_hwm(pid: u32) -> Option<u64> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let line = status.lines().find(|l| l.starts_with("VmHWM:"))?;
+    let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kib * 1024)
+}
+
 fn run_ae(expr: &str, input: Input, tag: &str) -> Run {
     run_args(&["-c", expr], input, tag)
 }
@@ -104,6 +113,12 @@ fn run_args(args: &[&str], input: Input, tag: &str) -> Run {
         sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
         if let Some(process) = sys.process(pid) {
             peak_rss = peak_rss.max(process.memory());
+        }
+        // Linux keeps the high-water mark itself, so a buffer freed between
+        // samples still counts.
+        #[cfg(target_os = "linux")]
+        if let Some(hwm) = vm_hwm(child.id()) {
+            peak_rss = peak_rss.max(hwm);
         }
         std::thread::sleep(Duration::from_millis(10));
     };
@@ -178,16 +193,12 @@ fn a_long_line_does_not_grow_the_process() {
         data.extend_from_slice(b"\n");
         data
     };
-    let small = run_ae(
-        r#"(try { input_timeout("", 5000) } catch e { e.error.code })"#,
-        Input::Piped(b"short\n".to_vec()),
-        "rss_small",
-    );
-    let large = run_ae(
-        r#"(try { input_timeout("", 5000) } catch e { e.error.code })"#,
-        Input::Piped(big),
-        "rss_large",
-    );
+    // The child stays alive half a second after the read, so the sampler sees
+    // it even when the read itself is quicker than one sample.
+    const HELD: &str =
+        r#"r = (try { input_timeout("", 5000) } catch e { e.error.code }); sleep(0.5); r"#;
+    let small = run_ae(HELD, Input::Piped(b"short\n".to_vec()), "rss_small");
+    let large = run_ae(HELD, Input::Piped(big), "rss_large");
     assert!(
         large.stdout.contains("E_BUDGET_EXCEEDED"),
         "stdout: {}",
