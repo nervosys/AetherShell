@@ -292,11 +292,11 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
     let jail = std::env::temp_dir().join(format!("ae_stub_{}", std::process::id()));
     std::fs::create_dir_all(&jail).expect("create jail");
 
+    // One placeholder is left; the list shrinks as they are implemented.
+    #[allow(clippy::single_element_loop)]
     for name in [
-        // Answered `false`.
-        "user_lock",
-        "user_unlock",
-        "acl_set",
+        // user_lock, user_unlock (tests/accounts_contracts.rs) and acl_set
+        // (tests/acl_mount_contracts.rs) are implemented on Linux now.
         // session_undo and session_redo are implemented, with contracts in
         // tests/session_journal_contracts.rs.
         // Test outcome reporters now parse supplied completed libtest JSON.
@@ -308,14 +308,9 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         // test_watch is implemented, with contracts in tests/test_watch_contracts.rs.
     ] {
         let mut env = aethershell::env::Env::new();
-        // Declared refusal-only interfaces accept no arguments. Keep testing
-        // their E_UNIMPLEMENTED message with a valid call; malformed-call
+        // Each remaining placeholder is called with one String; malformed-call
         // rejection is covered by the contract regressions.
-        let args = if matches!(name, "user_lock" | "user_unlock" | "acl_set") {
-            vec![]
-        } else {
-            vec![aethershell::value::Value::Str("anything".to_string())]
-        };
+        let args = vec![aethershell::value::Value::Str("anything".to_string())];
         let r = aethershell::builtins::call_with_input(name, args, None, &mut env);
         match r {
             Ok(v) => panic!("{name} answered {v:?} instead of saying it is not implemented"),

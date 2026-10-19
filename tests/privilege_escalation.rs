@@ -5,10 +5,9 @@
 //! all**. That is the `rm` bug inverted: policy that reads as coverage while
 //! governing nothing.
 //!
-//! Most of the privilege-shaped names (`sudo_exec`, `user_add`, `acl_set`,
-//! `fs_unmount`) turn out to be stubs that return "requires elevated
-//! privileges" and perform no effect, so `Pure` is honest for them — measured,
-//! not assumed. Two names are not stubs:
+//! Most of the privilege-shaped names (`sudo_exec`, `user_add`) turn out to be
+//! stubs that return "requires elevated privileges" and perform no effect, so
+//! `Pure` is honest for them — measured, not assumed. Two names are not stubs:
 //!
 //! - `rbac_grant(u, "effect:*")` writes a permission into the very store the
 //!   guard consults, and

@@ -23851,36 +23851,11 @@ fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_mount(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "fs_mount is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // This answered the String "mount requires elevated privileges" at exit
-    // 0, advice in place of a result.
-    Err(crate::safety::unimplemented(
-        "fs_mount",
-        "mounting is not implemented; NOTHING WAS MOUNTED",
-        "mount from an elevated shell (mount, or Mount-DiskImage on Windows)",
-    ))
+    acl_mount::fs_mount(args, input)
 }
 
 fn bi_fs_unmount(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "fs_unmount is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "fs_unmount",
-        "unmounting a filesystem is not implemented; NOTHING WAS DONE",
-        "use `umount`, which needs elevated privileges",
-    ))
+    acl_mount::fs_unmount(args, input)
 }
 
 fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -26798,30 +26773,15 @@ fn bi_svc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     bi_svc_status(args, None)
 }
 
-fn bi_svc_create(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "svc_create",
-        "creating a service is not implemented; NOTHING WAS DONE",
-        "use `systemctl`/`sc.exe`, which needs elevated privileges",
-    ))
+#[path = "services.rs"]
+mod services;
+
+fn bi_svc_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    services::svc_create(args, input)
 }
 
-fn bi_svc_delete(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "svc_delete",
-        "deleting a service is not implemented; NOTHING WAS DONE",
-        "use `systemctl`/`sc.exe`, which needs elevated privileges",
-    ))
+fn bi_svc_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    services::svc_delete(args, input)
 }
 
 fn bi_cron_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -28349,108 +28309,31 @@ fn bi_user_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     bi_sys_users(vec![], None)
 }
 
+#[path = "accounts.rs"]
+mod accounts;
+
 fn bi_user_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "user_add is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "user_add",
-        "creating a user account is not implemented; NOTHING WAS DONE",
-        "use `useradd`, which needs elevated privileges",
-    ))
+    accounts::user_add(args, input)
 }
 
 fn bi_user_del(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "user_del is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "user_del",
-        "deleting a user account is not implemented; NOTHING WAS DONE",
-        "use `userdel`, which needs elevated privileges",
-    ))
+    accounts::user_del(args, input)
 }
 
 fn bi_user_mod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "user_mod is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "user_mod",
-        "modifying a user account is not implemented; NOTHING WAS DONE",
-        "use `usermod`, which needs elevated privileges",
-    ))
+    accounts::user_mod(args, input)
 }
 
 fn bi_user_passwd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "user_passwd is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "user_passwd",
-        "changing a password is not implemented; NOTHING WAS DONE",
-        "use `passwd`, which needs elevated privileges",
-    ))
+    accounts::user_passwd(args, input)
 }
 
 fn bi_user_lock(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "user_lock is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Returned `Ok(false)` for every call, ignoring its arguments: an
-    // agent could not tell "this did not work" from "this shell does
-    // not do that", and the catalogue advertised it either way.
-    Err(crate::safety::unimplemented(
-        "user_lock",
-        "locking a user account is not implemented; NOTHING WAS CHANGED",
-        "use `usermod -L <user>`",
-    ))
+    accounts::user_lock(args, input)
 }
 
 fn bi_user_unlock(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "user_unlock is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Returned `Ok(false)` for every call, ignoring its arguments: an
-    // agent could not tell "this did not work" from "this shell does
-    // not do that", and the catalogue advertised it either way.
-    Err(crate::safety::unimplemented(
-        "user_unlock",
-        "unlocking a user account is not implemented; NOTHING WAS CHANGED",
-        "use `usermod -U <user>`",
-    ))
+    accounts::user_unlock(args, input)
 }
 
 fn bi_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -28458,57 +28341,15 @@ fn bi_group_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_group_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "group_add is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "group_add",
-        "creating a group is not implemented; NOTHING WAS DONE",
-        "use `groupadd`, which needs elevated privileges",
-    ))
+    accounts::group_add(args, input)
 }
 
 fn bi_group_del(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "group_del is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "group_del",
-        "deleting a group is not implemented; NOTHING WAS DONE",
-        "use `groupdel`, which needs elevated privileges",
-    ))
+    accounts::group_del(args, input)
 }
 
 fn bi_group_mod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "group_mod is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "group_mod",
-        "modifying a group is not implemented; NOTHING WAS DONE",
-        "use `groupmod`, which needs elevated privileges",
-    ))
+    accounts::group_mod(args, input)
 }
 
 fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -28706,38 +28547,14 @@ fn windows_pathext_executable(path: &std::path::Path) -> bool {
         .any(|entry| entry.eq_ignore_ascii_case(extension))
 }
 
+#[path = "acl_mount.rs"]
+mod acl_mount;
 fn bi_acl_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "acl_get is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "acl_get",
-        "reading a POSIX ACL is not implemented; NOTHING WAS DONE",
-        "use `getfacl`",
-    ))
+    acl_mount::acl_get(args, input)
 }
 
 fn bi_acl_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "acl_set is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Returned `Ok(false)` for every call, ignoring its arguments: an
-    // agent could not tell "this did not work" from "this shell does
-    // not do that", and the catalogue advertised it either way.
-    Err(crate::safety::unimplemented(
-        "acl_set",
-        "setting a POSIX ACL is not implemented; NOTHING WAS CHANGED",
-        "use `setfacl`",
-    ))
+    acl_mount::acl_set(args, input)
 }
 
 fn bi_sudo_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -28861,21 +28678,7 @@ mod sudo_check_contract_tests {
 }
 
 fn bi_sudo_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() || input.is_some() {
-        return Err(crate::safety::arg_err(
-            "sudo_exec is unsupported and accepts no arguments or pipeline input",
-        ));
-    }
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "sudo_exec",
-        "running a command with elevated privileges is not implemented; NOTHING WAS DONE",
-        "use `sudo` directly in a terminal",
-    ))
+    services::sudo_exec(args, input)
 }
 
 /// Capability numbers from `linux/capability.h`, in order. A bit beyond the
@@ -29360,69 +29163,27 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_pkg_install(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "pkg_install",
-        "installing a package is not implemented; NOTHING WAS DONE",
-        "use your package manager, which needs elevated privileges",
-    ))
+#[path = "pkg_admin.rs"]
+mod pkg_admin;
+
+fn bi_pkg_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_admin::install(args, input)
 }
 
-fn bi_pkg_remove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "pkg_remove",
-        "removing a package is not implemented; NOTHING WAS DONE",
-        "use your package manager, which needs elevated privileges",
-    ))
+fn bi_pkg_remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_admin::remove(args, input)
 }
 
-fn bi_pkg_update(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "pkg_update",
-        "refreshing the package index is not implemented; NOTHING WAS DONE",
-        "use your package manager, which needs elevated privileges",
-    ))
+fn bi_pkg_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_admin::update(args, input)
 }
 
-fn bi_pkg_upgrade(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "pkg_upgrade",
-        "upgrading packages is not implemented; NOTHING WAS DONE",
-        "use your package manager, which needs elevated privileges",
-    ))
+fn bi_pkg_upgrade(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_admin::upgrade(args, input)
 }
 
-fn bi_pkg_clean(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "pkg_clean",
-        "cleaning the package cache is not implemented; NOTHING WAS DONE",
-        "use your package manager, which needs elevated privileges",
-    ))
+fn bi_pkg_clean(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_admin::clean(args, input)
 }
 
 fn bi_pkg_sources(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -29464,17 +29225,8 @@ fn bi_pkg_sources(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(vec![]))
 }
 
-fn bi_pkg_add_source(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "pkg_add_source",
-        "adding a package source is not implemented; NOTHING WAS DONE",
-        "use your package manager, which needs elevated privileges",
-    ))
+fn bi_pkg_add_source(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_admin::add_source(args, input)
 }
 
 fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -29809,43 +29561,16 @@ fn bi_pkg_changelog(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_pkg_hold(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "pkg_hold",
-        "holding a package at its version is not implemented; NOTHING WAS DONE",
-        "use your package manager, which needs elevated privileges",
-    ))
+fn bi_pkg_hold(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_admin::hold(args, input)
 }
 
-fn bi_pkg_unhold(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "pkg_unhold",
-        "releasing a held package is not implemented; NOTHING WAS DONE",
-        "use your package manager, which needs elevated privileges",
-    ))
+fn bi_pkg_unhold(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_admin::unhold(args, input)
 }
 
-fn bi_pkg_autoremove(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "pkg_autoremove",
-        "removing unused packages is not implemented; NOTHING WAS DONE",
-        "use your package manager, which needs elevated privileges",
-    ))
+fn bi_pkg_autoremove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_admin::autoremove(args, input)
 }
 
 fn bi_pkg_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

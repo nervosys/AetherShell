@@ -2929,12 +2929,13 @@ fn unsupported_acl_operations_refuse_without_mutation() {
     let mut env = Env::default();
     let path = fixture.path("owned");
     std::fs::write(&path, "unchanged").unwrap();
+    // acl_get and acl_set are implemented on Linux (tests/acl_mount_contracts.rs).
+    // Malformed calls are still refused before any ACL is read or changed.
     for name in ["acl_get", "acl_set"] {
-        code(call(name, vec![], &mut env), "E_UNIMPLEMENTED");
+        code(call(name, vec![], &mut env), "E_BAD_ARG");
         for args in [
-            vec![s(&path)],
             vec![Value::Int(1)],
-            vec![s(&path), s("ignored")],
+            vec![s(&path), s("ignored"), Value::Int(1)],
         ] {
             code(call(name, args, &mut env), "E_BAD_ARG");
         }
@@ -2942,63 +2943,11 @@ fn unsupported_acl_operations_refuse_without_mutation() {
             call_with_input(name, vec![], Some(s(&path)), &mut env),
             "E_BAD_ARG",
         );
-        let signature = aethershell::signature::signature_of(name).unwrap();
-        assert!(signature.params.is_empty());
-        assert!(signature.doc.contains("Unsupported placeholder"));
-        for (source, _) in signature.examples {
-            let program = aethershell::parser::parse_program(source).unwrap();
-            assert!(
-                matches!(aethershell::eval::eval_program(&program, &mut env).unwrap(), Value::Str(code) if code == "E_UNIMPLEMENTED")
-            );
-        }
     }
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
-}
-
-#[test]
-fn unsupported_account_group_and_elevation_calls_are_strict() {
-    let _lock = LOCK.lock().unwrap();
-    let fixture = Fixture::new();
-    let mut env = Env::default();
-    let path = fixture.path("owned");
-    std::fs::write(&path, "unchanged").unwrap();
-    for name in [
-        "user_add",
-        "useradd",
-        "user_del",
-        "userdel",
-        "user_mod",
-        "user_passwd",
-        "user_lock",
-        "user_unlock",
-        "group_add",
-        "group_del",
-        "group_mod",
-        "sudo_exec",
-    ] {
-        code(call(name, vec![], &mut env), "E_UNIMPLEMENTED");
-        for args in [
-            vec![s(&path)],
-            vec![Value::Int(1)],
-            vec![Value::Null],
-            vec![s(&path), s("ignored")],
-        ] {
-            code(call(name, args, &mut env), "E_BAD_ARG");
-        }
-        code(
-            call_with_input(name, vec![], Some(s(&path)), &mut env),
-            "E_BAD_ARG",
-        );
-        let signature = aethershell::signature::signature_of(name).unwrap();
-        assert!(signature.params.is_empty());
-        assert!(signature.doc.contains("Unsupported placeholder"));
-        for (source, _) in signature.examples {
-            let program = aethershell::parser::parse_program(source).unwrap();
-            assert!(
-                matches!(aethershell::eval::eval_program(&program, &mut env).unwrap(), Value::Str(code) if code == "E_UNIMPLEMENTED")
-            );
-        }
-    }
+    code(
+        call("acl_set", vec![s(&path), s("ignored")], &mut env),
+        "E_BAD_ARG",
+    );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
 }
 
@@ -3039,28 +2988,35 @@ fn unsupported_filesystem_operations_refuse_without_mutation() {
     let mut env = Env::default();
     let path = fixture.path("owned");
     std::fs::write(&path, "unchanged").unwrap();
-    for name in ["fs_mount", "fs_unmount"] {
-        code(call(name, vec![], &mut env), "E_UNIMPLEMENTED");
-        for args in [
-            vec![s(&path)],
-            vec![Value::Int(1)],
-            vec![s(&path), s("ignored")],
-        ] {
+    // fs_mount and fs_unmount are implemented on Linux (tests/acl_mount_contracts.rs).
+    // Malformed calls are still refused before any mount or unmount is attempted.
+    for (name, cases) in [
+        (
+            "fs_mount",
+            vec![
+                vec![],
+                vec![s(&path)],
+                vec![Value::Int(1)],
+                vec![s("relative"), s(&path)],
+            ],
+        ),
+        (
+            "fs_unmount",
+            vec![
+                vec![],
+                vec![Value::Int(1)],
+                vec![s("relative")],
+                vec![s(&path), s("ignored")],
+            ],
+        ),
+    ] {
+        for args in cases {
             code(call(name, args, &mut env), "E_BAD_ARG");
         }
         code(
             call_with_input(name, vec![], Some(s(&path)), &mut env),
             "E_BAD_ARG",
         );
-        let signature = aethershell::signature::signature_of(name).unwrap();
-        assert!(signature.params.is_empty());
-        assert!(signature.doc.contains("Unsupported placeholder"));
-        for (source, _) in signature.examples {
-            let program = aethershell::parser::parse_program(source).unwrap();
-            assert!(
-                matches!(aethershell::eval::eval_program(&program, &mut env).unwrap(), Value::Str(code) if code == "E_UNIMPLEMENTED")
-            );
-        }
     }
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
 }
