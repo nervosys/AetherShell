@@ -15,7 +15,7 @@ use aethershell::{
     value::Value,
 };
 use std::{
-    process::{Child, Command, Stdio},
+    process::{Child, Command},
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -79,8 +79,8 @@ fn sleeper() -> Owned {
     #[cfg(windows)]
     let child = Command::new("ping")
         .args(["-n", "30", "127.0.0.1"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn();
     #[cfg(not(windows))]
     let child = Command::new("sleep").arg("30").spawn();
