@@ -11,8 +11,8 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 624/1,171 implementations; 749/1,437 callable names | 547 implementations and 688 callable names |
-| Latest targeted Windows validation | 286 tests passed across 18 suites for the filesystem-watch, SHA-crypt, listener, permission and platform-branch checkpoint; prior 731-test broader checkpoint retained | Validate the complete final tree |
+| Signature migration | 635/1,171 implementations; 762/1,437 callable names | 536 implementations and 675 callable names |
+| Latest targeted validation | Linux system-administration backends: 19 system-changing tests passed as root in the disposable distro; Windows and Linux each passed 16 suites, Clippy and (Windows) the Rust 1.88 check; prior 286-test filesystem-watch checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
@@ -57,10 +57,10 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 624 implementations covered, 547 not yet declared; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 635 implementations covered, 536 not yet declared; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
-| Accounts, groups, ACL mutation, mount/unmount, elevated execution, scheduler mutation | Implementation pending; blocker | Most bodies still refuse; all scheduler mutation functions and fs_watch/fs_unwatch now have native backends; owned-fixture/platform tests are required | Runtime maintainer |
+| Accounts, groups, ACL mutation, mount/unmount, elevated execution, scheduler mutation | Linux implemented and verified in the disposable distro; Windows/macOS open; blocker only for those platforms | Linux accounts, groups, ACLs, mounts, services, sudo_exec and apt backends are verified as root in the disposable distro; Windows and macOS refuse with E_UNIMPLEMENTED and their backends remain open. All scheduler mutation functions and fs_watch/fs_unwatch have native backends; owned-fixture/platform tests are required | Runtime maintainer |
 | DQN weight training | Implemented; final platform/release validation open | Batch SGD updates weights/biases; finite-difference checks cover all seven activations; terminal targets, delayed synchronization, budgets and complete rollback on arithmetic failure are tested | RL maintainer |
 | Other placeholder operations | Audit pending; blocker | Enumerate through remaining source-reviewed catalogue migration; do not infer support from registration | Runtime maintainer |
 | Platform/features/packaging | Validation pending; blocker | Complete stages 4 and 6 on final commit, including MSRV and supported feature builds | Platform and release maintainers |
@@ -84,7 +84,7 @@ removing their guards.
   - [x] Implement cron_remove, cron_enable and cron_disable using native Windows task operations and exact-entry Unix crontab updates. Injected backend tests cover successful changes, duplicate refusal, preserved unrelated text, native failures and Windows wildcard refusal.
   - [x] Implement cron_add, at_schedule and at_remove; add Windows one-time task listing. Fixed registration code accepts UTF-8 JSON data on stdin and uses a limited interactive-user principal. Eight isolated tests passed, including all Windows trigger branches through process-local cmdlet stubs.
   - [ ] Verify actual mutations in disposable Windows and Unix environments; backend injection is not a native-platform mutation witness.
-- [ ] Implement services, users/groups, permissions/ACLs, mounting and watching with tested platform backends.
+- [ ] Implement services, users/groups, permissions/ACLs, mounting and watching with tested platform backends. (Linux; Windows/macOS open)
 - [x] Implement bounded native TCP connect/listen/send/recv/close with strict contracts and actual loopback transfers; Linux/macOS native validation remains open.
 - [ ] Implement missing web/clipboard/UI/input operations.
 - [ ] Implement missing package-manager operations with checked tool adapters.
@@ -231,8 +231,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_fs_symlink
 - [x] bi_fs_watch
 - [x] bi_fs_unwatch
-- [ ] bi_fs_mount
-- [ ] bi_fs_unmount
+- [x] bi_fs_mount — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_fs_unmount — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_net_listen — placeholder discovered beyond explicit-refusal scan; native one-shot TCP accept implemented.
 - [x] bi_net_connect — native TCP implementation; final platform validation remains open.
 - [x] bi_net_send — native TCP implementation; final platform validation remains open.
@@ -241,8 +241,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_sys_cpu_freq
 - [x] bi_whoami
 - [x] bi_svc_status
-- [ ] bi_svc_create
-- [ ] bi_svc_delete
+- [x] bi_svc_create — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_svc_delete — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_cron_list
 - [x] bi_cron_add — working implementation added; final platform/release validation remains open.
 - [x] bi_cron_remove — native lifecycle backend implemented; disposable-platform verification remains open.
@@ -253,31 +253,31 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_at_remove — working implementation added; final platform/release validation remains open.
 - [x] bi_startup_list
 - [ ] bi_archive_test
-- [ ] bi_user_add
-- [ ] bi_user_del
-- [ ] bi_user_mod
-- [ ] bi_user_passwd
-- [ ] bi_user_lock
-- [ ] bi_user_unlock
-- [ ] bi_group_add
-- [ ] bi_group_del
-- [ ] bi_group_mod
+- [x] bi_user_add — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_user_del — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_user_mod — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_user_passwd — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_user_lock — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_user_unlock — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_group_add — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_group_del — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_group_mod — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_perm_check
-- [ ] bi_acl_get
-- [ ] bi_acl_set
+- [x] bi_acl_get — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_acl_set — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_sudo_check
-- [ ] bi_sudo_exec
+- [x] bi_sudo_exec — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_capabilities — Linux-only kernel concept; explicit coded refusal elsewhere.
 - [ ] bi_pkg_list
-- [ ] bi_pkg_install
-- [ ] bi_pkg_remove
-- [ ] bi_pkg_update
-- [ ] bi_pkg_upgrade
-- [ ] bi_pkg_clean
-- [ ] bi_pkg_add_source
-- [ ] bi_pkg_hold
-- [ ] bi_pkg_unhold
-- [ ] bi_pkg_autoremove
+- [x] bi_pkg_install — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_pkg_remove — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_pkg_update — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_pkg_upgrade — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_pkg_clean — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_pkg_add_source — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_pkg_hold — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_pkg_unhold — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_pkg_autoremove — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [ ] bi_pkg_history
 - [ ] bi_gui_screenshot
 - [ ] bi_gui_screenshot_window
@@ -923,3 +923,59 @@ Live inventory is 624/1171 implementations and 749/1437 callable names, leaving 
 implementations and 688 names undeclared. The work was done by four parallel
 subagents in worktrees and a classification agent, then reviewed and merged. No
 dependencies or package versions changed. No version bump or publication.
+
+## Linux system-administration backends checkpoint, 2026-10-19
+
+Linux backends now implement user_add, user_del, user_mod, user_passwd, user_lock,
+user_unlock, group_add, group_del, group_mod, acl_get, acl_set, fs_mount, fs_unmount,
+svc_create, svc_delete, sudo_exec, and the apt-only package operations pkg_install,
+pkg_remove, pkg_update, pkg_upgrade, pkg_clean, pkg_add_source, pkg_hold, pkg_unhold and
+pkg_autoremove. Each runs as argv without a shell and refuses inside transactions.
+Twenty-five builtins gained Linux backends (8a604bb, whose message says twenty-four). The twenty-four that change the system were classified Privileged in 97875f3 before any body was
+implemented; acl_get is ReadLocal because it only reads. Windows and macOS refuse all of
+them with E_UNIMPLEMENTED, and nothing is changed there.
+
+Safety rules: passwords reach chpasswd on stdin only and are blanked from errors.
+Accounts and groups below 1000, and the running user, are never deleted, modified, locked
+or given a password. Users are never added to a group below gid 1000. ACL entries use a
+strict syntax, with getfacl and setfacl run after --. Loop and bind mounts are used only
+when asked, and /, /proc, /sys, /dev, /run, /boot, /usr, /etc, /var and /home are never
+unmounted. Services live under ae-*, carry a marker line and are written atomically; a
+failed reload or start removes the half-made unit, and svc_delete removes only marked
+units. sudo_exec runs sudo -n and reports a password requirement as a refusal. Essential
+and required packages are never removed, sources must be https and live under ae-*, and
+apt runs in its own process group so a timeout kills dpkg too.
+
+Verification ran for real as root in a separate WSL distro, ae-disposable, built from the
+official Debian 13 (trixie) image. Its SHA-256 was verified against the OCI manifest layer
+digest, and it runs systemd from a clean snapshot at E:\wsl\images\ae-disposable-base.tar.
+scripts/disposable_linux_tests.sh builds the named tests as the developer and runs only
+those test binaries as root there. System-changing tests are #[ignore]d and refuse unless
+AETHER_DISPOSABLE=1, the /etc/ae-disposable marker and root are all present. 19 tests passed
+(accounts 3, ACL/mount 5, services 4, apt 6, smoke 1), each checking its effect
+independently with getent, passwd -S, getfacl, /proc/self/mounts, systemctl and dpkg.
+
+Verification found that apt-get update exits 0 when a source cannot be fetched, so
+pkg_add_source kept a broken source. --error-on=any now makes that an error, for pkg_update
+as well.
+
+Windows passed 16 suites: declared_signatures 31, text_file_contracts 87, signature_migration
+39, effect_ratchet 18, guard_enforcement 14, four_more_knowable_conditions 10, packages 6,
+accounts 5, acl_mount 5, privilege_escalation 5, services 3, effect_alias_agreement 3,
+module_aliases 3, effect_coverage 2, effect_snapshot 1 and disposable_smoke 1. Clippy and the
+Rust 1.88 check passed. Linux (WSL Debian) passed the same 16 suites, with text_file_contracts
+91, and Clippy. env_java was added to the machine-dependent list because the Debian test
+distro lacks java (12fb46e). The disposable runner now reports failed builds instead of
+exiting silently.
+
+Environment notes: WSL repeatedly failed with "Catastrophic failure", and builds were
+OOM-killed while another project's Kani/cbmc runs used about 15 GB of the 45 GB WSL VM. The
+user restarted WSL with wsl --shutdown. The shared E:\cargo-target\debug was cleared with the
+user's authorization to free space.
+
+Four parallel subagents worked in worktrees; their output was reviewed, merged, verified and
+fixed centrally.
+
+Live inventory is 635/1171 implementations and 762/1437 callable names, leaving 536
+implementations and 675 names undeclared. No dependencies or package versions changed. No
+version bump or publication.

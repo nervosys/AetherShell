@@ -1,10 +1,10 @@
 # AetherShell Roadmap
 
-> Current release status, 2026-10-17: workspace packages remain **12.0.2**;
+> Current release status, 2026-10-19: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
-> owners, evidence and release gates. Signature coverage is 624/1171
-> implementations and 749/1437 callable names; migration remains incomplete.
+> owners, evidence and release gates. Signature coverage is 635/1171
+> implementations and 762/1437 callable names; migration remains incomplete.
 > Measured evaluator improvements are recorded in the linked performance
 > report; final-tree cross-platform measurements remain pending.
 
@@ -35,8 +35,10 @@ verifies SHA-crypt `$5$` and `$6$` hashes per Drepper's specification and refuse
 under AETHER_FIPS; `nc_listen` is a one-shot, bounded loopback listener, and ten platform
 branches now report coded errors instead of silent failures.
 Disposable-platform scheduler validation
-remains open. Accounts/groups, ACL operations, mounting/watching, elevated
-execution and other unsupported operations remain implementation blockers. The completion plan separates those gaps
+remains open. Linux backends for accounts, groups, ACLs, mounts, systemd services, sudo_exec and apt
+are implemented and were verified as root in a disposable Debian distro; Windows and macOS
+refuse them explicitly, so those platform backends and other unsupported operations remain
+implementation blockers. The completion plan separates those gaps
 from legitimate platform, policy and transaction constraints. Refusal contracts
 alone do not close this implementation scope.
 
