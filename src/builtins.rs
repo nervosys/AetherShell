@@ -42326,7 +42326,76 @@ mod highest_symbol_version_tests {
     }
 }
 
-fn bi_platform_libcpp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// Largest C++ runtime library read on Linux; a larger file is refused.
+#[cfg(target_os = "linux")]
+const LIBSTDCXX_READ_LIMIT: u64 = 64 * 1024 * 1024;
+
+/// Most of msvcp140.dll that is read on Windows. The version resource sits
+/// well inside this bound; the read stops there rather than failing.
+#[cfg(target_os = "windows")]
+const MSVCP140_READ_LIMIT: u64 = 16 * 1024 * 1024;
+
+/// Open a candidate runtime library. `Ok(None)` means it does not exist, so the
+/// caller moves on to the next path. Any other failure to open is a coded error:
+/// a file that exists but cannot be read is never skipped.
+#[cfg(any(windows, target_os = "linux"))]
+fn open_candidate(path: &std::path::Path) -> Result<Option<std::fs::File>> {
+    match std::fs::File::open(path) {
+        Ok(file) => Ok(Some(file)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(crate::safety::fs_error("platform_libcpp", path, &e)),
+    }
+}
+
+/// Read at most `limit` bytes of an opened candidate.
+#[cfg(any(windows, target_os = "linux"))]
+fn read_up_to(file: std::fs::File, path: &std::path::Path, limit: u64) -> Result<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    file.take(limit)
+        .read_to_end(&mut bytes)
+        .map_err(|e| crate::safety::fs_error("platform_libcpp", path, &e))?;
+    Ok(bytes)
+}
+
+/// The file version of the Visual C++ STL runtime, read from the version
+/// resource of `%SystemRoot%\System32\msvcp140.dll`. Nothing is made up: a
+/// missing runtime or an unreadable version resource is a coded error.
+#[cfg(target_os = "windows")]
+fn msvcp140_version() -> Result<String> {
+    let system_root = std::env::var_os("SystemRoot")
+        .filter(|v| !v.is_empty())
+        .map_or_else(
+            || std::path::PathBuf::from("C:\\Windows"),
+            std::path::PathBuf::from,
+        );
+    let path = system_root.join("System32").join("msvcp140.dll");
+    let Some(file) = open_candidate(&path)? else {
+        return Err(crate::safety::bad_state(
+            "platform_libcpp",
+            "no MSVC C++ runtime (msvcp140.dll) was found",
+            "install the Visual C++ Redistributable",
+        ));
+    };
+    let bytes = read_up_to(file, &path, MSVCP140_READ_LIMIT)?;
+    pe_version::pe_file_version(&bytes).ok_or_else(|| {
+        crate::safety::bad_state(
+            "platform_libcpp",
+            "the version resource of msvcp140.dll could not be read",
+            "reinstall the Visual C++ Redistributable",
+        )
+    })
+}
+
+/// The C++ standard library: {name, version, abi}. The version and abi are
+/// null where the platform does not report them.
+///
+/// On Windows the MSVC STL version comes from msvcp140.dll's version resource.
+/// On Linux the libstdc++ symbol versions are read from the library, and an
+/// unreadable candidate is a coded error. On macOS the library lives in the
+/// dyld shared cache and is reported without a version.
+fn bi_platform_libcpp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("platform_libcpp", &args, &input)?;
     // One shape everywhere: {name, version, abi}. It was a Record of symbol
     // versions on Linux and a bare String elsewhere, so the same call had two
     // types depending on the OS. The Linux side also shelled out to
@@ -42352,20 +42421,38 @@ fn bi_platform_libcpp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             "/usr/lib/libstdc++.so.6",
             "/lib/x86_64-linux-gnu/libstdc++.so.6",
         ] {
-            if let Ok(bytes) = std::fs::read(path) {
-                return Ok(lib(
-                    "libstdc++",
-                    highest_symbol_version(&bytes, "GLIBCXX_"),
-                    highest_symbol_version(&bytes, "CXXABI_"),
+            let path = std::path::Path::new(path);
+            let Some(file) = open_candidate(path)? else {
+                continue;
+            };
+            let len = file
+                .metadata()
+                .map_err(|e| crate::safety::fs_error("platform_libcpp", path, &e))?
+                .len();
+            if len > LIBSTDCXX_READ_LIMIT {
+                return Err(crate::safety::budget_exceeded(
+                    "platform_libcpp",
+                    format!(
+                        "`{}` is {len} bytes, over the {LIBSTDCXX_READ_LIMIT}-byte read limit",
+                        path.display()
+                    ),
+                    "the C++ runtime is read only up to this bound; a larger file is refused",
                 ));
             }
+            let bytes = read_up_to(file, path, LIBSTDCXX_READ_LIMIT)?;
+            return Ok(lib(
+                "libstdc++",
+                highest_symbol_version(&bytes, "GLIBCXX_"),
+                highest_symbol_version(&bytes, "CXXABI_"),
+            ));
         }
         for path in [
             "/usr/lib/x86_64-linux-gnu/libc++.so.1",
             "/usr/lib/aarch64-linux-gnu/libc++.so.1",
             "/usr/lib/libc++.so.1",
         ] {
-            if std::path::Path::new(path).exists() {
+            // libc++ reports no version here, so opening it is the whole check.
+            if open_candidate(std::path::Path::new(path))?.is_some() {
                 return Ok(lib("libc++", None, None));
             }
         }
@@ -42377,11 +42464,14 @@ fn bi_platform_libcpp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
     #[cfg(target_os = "macos")]
     {
+        // On macOS the library lives in the dyld shared cache and is reported
+        // without a version. This branch is unchanged and has not been run here.
         return Ok(lib("libc++", None, None));
     }
     #[cfg(target_os = "windows")]
     {
-        return Ok(lib("MSVC STL", None, None));
+        let version = msvcp140_version()?;
+        return Ok(lib("MSVC STL", Some(version), Some("msvcp140".to_string())));
     }
     #[allow(unreachable_code)]
     Err(crate::safety::unimplemented(
@@ -53430,6 +53520,11 @@ fn bi_socat_relay(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Bounded runs of long-running tools (iperf3 server, entr, watchexec, nodemon).
 #[path = "tool_runs.rs"]
 mod tool_runs;
+
+/// PE file version from the VS_FIXEDFILEINFO of a Windows image (platform_libcpp).
+#[cfg(any(windows, test))]
+#[path = "pe_version.rs"]
+mod pe_version;
 
 /// iperf3 server — run one iperf3 test as a server, bounded by timeout_ms.
 fn bi_iperf3_server(args: Vec<Value>, input: Option<Value>) -> Result<Value> {

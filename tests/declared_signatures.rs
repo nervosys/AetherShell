@@ -62,6 +62,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("sudo_check", "current effective privilege state; Windows needs PowerShell; Unix uses native effective UID; the query never elevates"),
     ("fs_symlink", "native symlink support; Windows may require symbolic-link privilege (OS error 1314); examples use and clean owned temporary fixtures"),
     ("fs_chown", "native Unix ownership; non-Unix returns E_UNIMPLEMENTED; Unix examples use only owned temporary files and their existing owner/group"),
+    ("platform_libcpp", "the C++ runtime installed on this machine: msvcp140.dll on Windows (refused as E_BAD_STATE where the Visual C++ Redistributable is absent), libstdc++ or libc++ on Linux (E_BAD_STATE where neither is installed)"),
     ("sys_mem_info", "the OS memory query and current memory usage"),
     ("sys_swap_info", "the OS memory query and configured swap"),
     ("db_sqlite_import", "the sqlite3 CLI; example uses a disposable database"),
@@ -323,6 +324,12 @@ fn machine_absence(name: &str, msg: &str) -> bool {
         && matches!(code.as_deref(), Some("E_POLICY_DENY" | "E_IO"))
     {
         return msg.contains("os error 1314");
+    }
+    // E_BAD_STATE is not absence in general, so only the two messages that say
+    // the runtime is not installed count. An unreadable version resource on a
+    // machine that has the runtime is still a failure.
+    if name == "platform_libcpp" && code.as_deref() == Some("E_BAD_STATE") {
+        return msg.contains("no MSVC C++ runtime") || msg.contains("no C++ standard library");
     }
     code.as_deref().is_some_and(|c| ABSENT_HERE.contains(&c))
 }

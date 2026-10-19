@@ -3857,8 +3857,8 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "The C++ standard library: {name, version, abi}, with version and abi null where not reported.",
-        examples: &[(r#"typeof(platform_libcpp().name)"#, "String")],
+        doc: "The C++ standard library as {name, version, abi}, with version and abi null where the platform does not report them. Windows: name MSVC STL, version a.b.c.d from the version resource of %SystemRoot%\\System32\\msvcp140.dll (abi msvcp140); a missing runtime or unreadable version resource is a coded error. Linux: libstdc++ with its highest GLIBCXX_ version and CXXABI_ version as abi, or libc++ with both null; an existing candidate library that cannot be read is a coded error, and a library larger than 64 MiB is refused. On macOS the library lives in the dyld shared cache and is reported without a version. Reject surplus arguments and pipeline input.",
+        examples: &[(r#"platform_libcpp()"#, "Record")],
     },
     Signature {
         name: "platform_ssl_version",

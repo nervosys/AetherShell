@@ -378,8 +378,9 @@ fn sudo_check_refuses_on_other_platforms_with_a_coded_error() {
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn platform_libcpp_is_a_name_version_abi_record() {
-    // Linux finds the library by path and can refuse when none is installed.
-    let allowed: &[&str] = if cfg!(target_os = "linux") {
+    // Linux and Windows find the runtime on disk and can refuse when it is
+    // not installed (E_BAD_STATE); libcpp_contracts.rs checks the Windows version.
+    let allowed: &[&str] = if cfg!(any(windows, target_os = "linux")) {
         &["E_BAD_STATE"]
     } else {
         &[]
