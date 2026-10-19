@@ -5763,12 +5763,13 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[req("path", Ty::Str, "a .zip, .tar, .tar.gz/.tgz or .gz file")],
+        params: &[req("path", Ty::Str, "a .zip, .tar, .tar.gz/.tgz, .gz, .bz2, .xz, .zst, .tar.bz2, .tar.xz or .tar.zst file")],
         returns: "Bool",
-        doc: "Whether every entry decompresses (and, for zip, matches its CRC).",
+        doc: "Whether every entry decompresses (and, for zip, matches its CRC). bzip2, xz and zstd files, and the tar archives inside them, are tested with bzip2 -t, xz -t and zstd -t (tar: decompressed and read to the end); the file's magic bytes must match its extension or the call is refused. Corrupt data answers false; a missing tool is E_TOOL_MISSING.",
         examples: &[
             (r#"archive_test("tests/fixtures/archives/sample.zip")"#, r#"true"#),
             (r#"archive_test("tests/fixtures/archives/damaged.zip")"#, r#"false"#),
+            (r#"let d = fs_tempdir("ae_archive"); let f = d + "/notes.xz"; file_write(f, "not an archive\n"); let r = (try { archive_test(f) } catch e { e.error.code }); rmdir(d, true); r"#, "E_BAD_ARG"),
         ],
     },
     Signature {

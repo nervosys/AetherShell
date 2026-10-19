@@ -28001,11 +28001,38 @@ fn bi_archive_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-fn bi_archive_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+#[path = "archive_cli.rs"]
+mod archive_cli;
+
+fn bi_archive_test(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // Whether every entry decompresses and, for zip, matches its CRC. This
     // answered `true` for any zip on Windows without testing it, and for
     // any other format whenever the file merely existed.
+    if args.len() != 1 {
+        return Err(crate::safety::bad_arg(
+            "archive_test",
+            "exactly one path",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            "archive_test",
+            "a path argument",
+            "pipeline input; archive_test takes no piped value",
+        ));
+    }
     let path = archive_path_arg("archive_test", &args)?;
+    if let Some((codec, tar)) = archive_cli::named(&path) {
+        // bzip2, xz and zstd, and the tar archives inside them: the standard
+        // tools, checked against the file's magic bytes first.
+        return Ok(Value::Bool(archive_cli::test(
+            "archive_test",
+            &path,
+            codec,
+            tar,
+        )?));
+    }
     let kind = archive_kind(&path).ok_or_else(|| {
         crate::safety::bad_arg(
             "archive_test",
