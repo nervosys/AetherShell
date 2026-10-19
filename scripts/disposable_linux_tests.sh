@@ -33,8 +33,13 @@ exes=$(MSYS_NO_PATHCONV=1 wsl.exe -d "$build" bash -lc "cd '$src' && CARGO_TARGE
 # The JSON also names the binaries the tests depend on (ae, aimodel); keep only
 # the requested test executables, deps/<test>-<hash>.
 wanted=$(echo "$exes" | grep -E "/deps/($(IFS='|'; echo "$*"))-[0-9a-f]+$" || true)
+if [ -z "$wanted" ]; then
+    # Say what came back instead: a failed build, or WSL itself failing.
+    echo "build produced no test executables; output was:" >&2
+    echo "$exes" | tail -20 >&2
+    exit 1
+fi
 exes=$wanted
-[ -n "$exes" ] || { echo "build produced no test executables" >&2; exit 1; }
 
 MSYS_NO_PATHCONV=1 wsl.exe -d "$build" bash -c "mkdir -p '$stage' && cp $(echo $exes) '$stage/'"
 status=0

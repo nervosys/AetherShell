@@ -258,6 +258,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("env_docker", "an installed docker"),
     ("env_dotnet", "an installed dotnet"),
     ("env_go", "an installed go"),
+    ("env_java", "an installed java"),
     ("env_path", "this process's PATH"),
     ("env_python", "an installed python"),
     ("env_ruby", "an installed ruby"),
