@@ -23185,15 +23185,7 @@ fn guard_and_set_permission_mode(
         }
     };
     let path = guard_local_write(builtin, &path)?;
-    // The filesystem journal restores content, not permission metadata. Do not
-    // report a transactional operation that rollback cannot reliably undo.
-    if crate::tx::is_active() {
-        return Err(crate::safety::unimplemented(
-            builtin,
-            "permission changes within filesystem transactions are not implemented",
-            "change permissions outside the transaction",
-        ));
-    }
+    crate::tx::snapshot_metadata(&path);
     let metadata = fs::metadata(&path).map_err(|e| crate::safety::fs_error(builtin, &path, &e))?;
     let mut permissions = metadata.permissions();
     #[cfg(unix)]
@@ -23241,13 +23233,7 @@ fn bi_fs_chown(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .into_string()
         .map_err(|_| crate::safety::arg_err("fs_chown resolved target must be valid UTF-8"))?;
     let path = guard_local_write("fs_chown", &path)?;
-    if crate::tx::is_active() {
-        return Err(crate::safety::unimplemented(
-            "fs_chown",
-            "ownership changes within filesystem transactions are not implemented",
-            "change ownership outside the transaction",
-        ));
-    }
+    crate::tx::snapshot_metadata(&path);
     #[cfg(unix)]
     {
         std::os::unix::fs::chown(&path, Some(owner), group)
@@ -23374,13 +23360,6 @@ fn bi_fs_symlink(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         reversible: false,
         fs_paths: true,
     })?;
-    if crate::tx::is_active() {
-        return Err(crate::safety::unimplemented(
-            "fs_symlink",
-            "symbolic links within filesystem transactions are not implemented",
-            "create symbolic links outside the transaction",
-        ));
-    }
     match fs::symlink_metadata(&destination) {
         Ok(_) => {
             return Err(crate::safety::arg_err(
@@ -23390,6 +23369,7 @@ fn bi_fs_symlink(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(crate::safety::fs_error("fs_symlink", &destination, &e)),
     }
+    crate::tx::snapshot(&destination);
     #[cfg(unix)]
     std::os::unix::fs::symlink(&target, &destination)
         .map_err(|e| crate::safety::fs_error("fs_symlink", &destination, &e))?;

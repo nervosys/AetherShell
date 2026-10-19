@@ -39,6 +39,19 @@ struct Undo {
     existed: bool,
     /// Whether the snapshotted path was a directory tree (vs a single file).
     is_dir: bool,
+    /// Set for a metadata-only record (permissions and, on Unix, ownership):
+    /// no content is backed up and the content fields above are unused.
+    meta: Option<MetaSnap>,
+}
+
+/// Permissions (and on Unix uid/gid) of the path as resolved through symlinks,
+/// matching what `fs_chmod`/`fs_chown` change.
+struct MetaSnap {
+    permissions: std::fs::Permissions,
+    #[cfg(unix)]
+    uid: u32,
+    #[cfg(unix)]
+    gid: u32,
 }
 
 /// Recursively copy a directory tree `src` → `dst` (files and subdirectories;
@@ -66,6 +79,9 @@ struct Frame {
     id: String,
     start: usize,
     seen: HashSet<PathBuf>,
+    /// Separate dedup set for metadata snapshots, so a content snapshot of a path
+    /// never suppresses its metadata snapshot (or the reverse).
+    seen_meta: HashSet<PathBuf>,
     savepoints: Vec<(String, usize)>,
 }
 
@@ -82,6 +98,15 @@ struct TxState {
 /// Restore a single recorded path to its pre-modification state. Returns whether
 /// anything was restored. Shared by full `rollback`, `commit`-fold, and `rollback_to`.
 fn restore_one(u: &Undo) -> bool {
+    if let Some(m) = &u.meta {
+        // Owner first: chown can clear setuid/setgid bits, so the mode goes last.
+        #[cfg(unix)]
+        let owner_ok = std::os::unix::fs::chown(&u.original, Some(m.uid), Some(m.gid)).is_ok();
+        #[cfg(not(unix))]
+        let owner_ok = true;
+        let mode_ok = std::fs::set_permissions(&u.original, m.permissions.clone()).is_ok();
+        return owner_ok && mode_ok;
+    }
     if u.existed {
         if let Some(b) = &u.backup {
             if u.is_dir {
@@ -96,6 +121,8 @@ fn restore_one(u: &Undo) -> bool {
         } else {
             false
         }
+    } else if let Some(removed) = remove_created_symlink(&u.original) {
+        removed
     } else if u.original.is_file() {
         let _ = std::fs::remove_file(&u.original);
         true
@@ -105,6 +132,30 @@ fn restore_one(u: &Undo) -> bool {
     } else {
         false
     }
+}
+
+/// If `path` is itself a symlink, remove the link (never its target) and return
+/// `Some(true)`; return `None` when it is not a symlink. `is_file`/`is_dir`
+/// follow links, so a link to a directory would reach `remove_dir_all` on the
+/// link path and a dangling link would be left behind; `symlink_metadata`
+/// inspects the link itself and deletion must never follow it.
+fn remove_created_symlink(path: &Path) -> Option<bool> {
+    let md = std::fs::symlink_metadata(path).ok()?;
+    if !md.file_type().is_symlink() {
+        return None;
+    }
+    #[cfg(windows)]
+    let result = {
+        use std::os::windows::fs::FileTypeExt;
+        if md.file_type().is_symlink_dir() {
+            std::fs::remove_dir(path)
+        } else {
+            std::fs::remove_file(path)
+        }
+    };
+    #[cfg(not(windows))]
+    let result = std::fs::remove_file(path);
+    Some(result.is_ok())
 }
 
 lazy_static! {
@@ -164,6 +215,7 @@ pub fn begin() -> Result<String> {
                 id: id.clone(),
                 start,
                 seen: HashSet::new(),
+                seen_meta: HashSet::new(),
                 savepoints: Vec::new(),
             });
         }
@@ -182,6 +234,7 @@ pub fn begin() -> Result<String> {
                     id: id.clone(),
                     start: 0,
                     seen: HashSet::new(),
+                    seen_meta: HashSet::new(),
                     savepoints: Vec::new(),
                 }],
             });
@@ -212,7 +265,9 @@ pub fn snapshot(path: &str) {
     if already_captured {
         return;
     }
-    let existed = abs.exists();
+    // symlink_metadata: a dangling link exists (as a link) even though `exists()`
+    // follows it and says no.
+    let existed = std::fs::symlink_metadata(&abs).is_ok();
     let is_dir = existed && abs.is_dir();
     let backup = if existed && abs.is_file() {
         let bpath = tx.dir.join(format!("b{}", tx.n));
@@ -231,6 +286,54 @@ pub fn snapshot(path: &str) {
         backup,
         existed,
         is_dir,
+        meta: None,
+    });
+}
+
+/// Record the permissions (and, on Unix, uid/gid) of `path` in the innermost
+/// frame, without backing up content. Symlinks are followed, matching `fs_chmod`
+/// and `fs_chown`. No-op when inactive, when the frame already captured this
+/// path's metadata, or when the path cannot be inspected (the change will then
+/// fail on its own).
+pub fn snapshot_metadata(path: &str) {
+    let mut g = match TX.lock() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
+    let tx = match g.as_mut() {
+        Some(t) => t,
+        None => return,
+    };
+    let abs = absolutize(path);
+    let md = match std::fs::metadata(&abs) {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    match tx.frames.last_mut() {
+        Some(f) => {
+            if !f.seen_meta.insert(abs.clone()) {
+                return;
+            }
+        }
+        None => return,
+    }
+    #[cfg(unix)]
+    let (uid, gid) = {
+        use std::os::unix::fs::MetadataExt;
+        (md.uid(), md.gid())
+    };
+    tx.undos.push(Undo {
+        original: abs,
+        backup: None,
+        existed: true,
+        is_dir: false,
+        meta: Some(MetaSnap {
+            permissions: md.permissions(),
+            #[cfg(unix)]
+            uid,
+            #[cfg(unix)]
+            gid,
+        }),
     });
 }
 
@@ -330,7 +433,11 @@ pub fn rollback_to(name: &str) -> Result<usize> {
     {
         let frame = tx.frames.last_mut().unwrap();
         for u in tail.iter().rev() {
-            frame.seen.remove(&u.original);
+            if u.meta.is_some() {
+                frame.seen_meta.remove(&u.original);
+            } else {
+                frame.seen.remove(&u.original);
+            }
             if restore_one(u) {
                 restored += 1;
             }

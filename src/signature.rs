@@ -373,7 +373,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "fs_chown", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("path", Ty::Str, "filesystem path; symlinks affect their target"), req("owner", Ty::Int, "numeric Unix owner ID from 0 through 4294967294"), opt("group", Ty::Int, "numeric Unix group ID in the same range; omitted preserves the existing group")], returns: "Bool",
-        doc: "Set ownership through the native Unix API and return true or a coded filesystem refusal, without launching a process. Guard the resolved path. Refuse non-Unix platforms and active filesystem transactions with E_UNIMPLEMENTED; reject reserved IDs, malformed or ignored arguments and pipeline input. Native ownership changes may clear special mode bits and capabilities.",
+        doc: "Set ownership through the native Unix API and return true or a coded filesystem refusal, without launching a process. Guard the resolved path. Refuse non-Unix platforms with E_UNIMPLEMENTED. Inside a filesystem transaction, journal the prior owner and group so rollback restores them; reject reserved IDs, malformed or ignored arguments and pipeline input. Native ownership changes may clear special mode bits and capabilities.",
         examples: &[
             (r#"let d = fs_tempdir("ae_chown"); let f = d + "/x"; file_write(f, "hi"); let m = fs_stat(f); let result = if sys_os() == "windows" { [rmdir(d, true), fs_chown(f, 0)] } else { fs_chown(f, m.uid) }; rmdir(d, true); result"#, "true"),
             (r#"let d = fs_tempdir("ae_chown_group"); let f = d + "/x"; file_write(f, "hi"); let m = fs_stat(f); let result = if sys_os() == "windows" { [rmdir(d, true), fs_chown(f, 0, 0)] } else { fs_chown(f, m.uid, m.gid) }; rmdir(d, true); result"#, "true"),
@@ -382,7 +382,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "fs_chmod", category: None, subject_required: false, aliases: &["chmod"],
         subject: None, params: &[req("path", Ty::Str, "existing filesystem path"), req("mode", Ty::Any, "Int in 0..=07777 or octal String, optionally prefixed 0o")], returns: "Bool",
-        doc: "Set Unix mode bits; on Windows set the read-only attribute from the owner-write bit only. Return true or a coded failure. Resolve and guard the path before changing permissions. Refuse pipeline input and active filesystem transactions because their journal does not reliably restore permission metadata.",
+        doc: "Set Unix mode bits; on Windows set the read-only attribute from the owner-write bit only. Return true or a coded failure. Resolve and guard the path before changing permissions. Refuse pipeline input. Inside a filesystem transaction, journal the prior permissions (and owner on Unix) of the resolved path so rollback restores them.",
         examples: &[(r#"let d = fs_tempdir("ae_chmod"); let f = d + "/x"; file_write(f, "hi"); let result = fs_chmod(f, "0644"); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_chmod_int"); let f = d + "/x"; file_write(f, "hi"); let result = chmod(f, 420); rmdir(d, true); result"#, "true")],
     },
     Signature {
@@ -422,7 +422,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "fs_symlink", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("target", Ty::Str, "nonempty target; relative to the destination parent"), req("destination", Ty::Str, "nonempty new symbolic-link path")], returns: "Bool",
-        doc: "Create a symbolic link and return true or a coded refusal. Guard both the destination and referred target, including existing canonical audit aliases. Preserve relative target spelling. Refuse existing destinations, pipeline input and filesystem transactions. Windows requires an existing target to select file/directory kind and refuses drive-relative or root-relative targets; creation may require symbolic-link privilege. Unix permits dangling targets.",
+        doc: "Create a symbolic link and return true or a coded refusal. Guard both the destination and referred target, including existing canonical audit aliases. Preserve relative target spelling. Refuse existing destinations and pipeline input. Inside a filesystem transaction, rollback removes the created link itself, never its target. Windows requires an existing target to select file/directory kind and refuses drive-relative or root-relative targets; creation may require symbolic-link privilege. Unix permits dangling targets.",
         examples: &[
             (r#"let d = fs_tempdir("ae_symlink"); file_write(d + "/target", "hi"); let result = try { fs_symlink("target", d + "/link") } catch e { e }; rmdir(d, true); if typeof(result) == "Bool" { result } else { throw json_stringify(result) }"#, "true"),
             (r#"let d = fs_tempdir("ae_symlink_dir"); file_mkdir(d + "/target"); let result = try { fs_symlink(d + "/target", d + "/link") } catch e { e }; rmdir(d, true); if typeof(result) == "Bool" { result } else { throw json_stringify(result) }"#, "true"),
@@ -5242,7 +5242,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "perm_set", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("path", Ty::Str, "existing filesystem path"), req("mode", Ty::Any, "Int in 0..=07777 or octal String, optionally prefixed 0o")], returns: "Bool",
-        doc: "Set Unix mode bits; on Windows set the read-only attribute from the owner-write bit only. Share fs_chmod's strict validation and guarded native implementation while recording perm_set as the mutation name. Return true or a coded refusal. Reject pipeline input and active filesystem transactions because their journal does not reliably restore permissions.",
+        doc: "Set Unix mode bits; on Windows set the read-only attribute from the owner-write bit only. Share fs_chmod's strict validation and guarded native implementation while recording perm_set as the mutation name. Return true or a coded refusal. Reject pipeline input. Inside a filesystem transaction, journal the prior permissions so rollback restores them.",
         examples: &[(r#"let d = fs_tempdir("ae_perm_set"); let f = d + "/x"; file_write(f, "hi"); let result = perm_set(f, "0644"); rmdir(d, true); result"#, "true"), (r#"let d = fs_tempdir("ae_perm_set_int"); let f = d + "/x"; file_write(f, "hi"); let result = perm_set(f, 384); rmdir(d, true); result"#, "true")],
     },
     Signature {
