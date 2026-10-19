@@ -243,6 +243,19 @@ pub(crate) fn run_bounded(
     args: &[String],
     limit: Duration,
 ) -> Result<Run> {
+    run_bounded_capped(builtin, tool, program, args, limit, MAX_OUTPUT)
+}
+
+/// As [`run_bounded`], but keeping at most `max_output` bytes on each stream.
+/// A run that writes more sets `truncated`, and its output is cut there.
+pub(crate) fn run_bounded_capped(
+    builtin: &str,
+    tool: &str,
+    program: &str,
+    args: &[String],
+    limit: Duration,
+    max_output: usize,
+) -> Result<Run> {
     let started = Instant::now();
     let mut command = Command::new(program);
     command
@@ -258,8 +271,8 @@ pub(crate) fn run_bounded(
     let mut child = command
         .spawn()
         .map_err(|e| safety::spawn_error(builtin, tool, &e))?;
-    let (out, out_done) = drain(child.stdout.take());
-    let (err, err_done) = drain(child.stderr.take());
+    let (out, out_done) = drain(child.stdout.take(), max_output);
+    let (err, err_done) = drain(child.stderr.take(), max_output);
 
     let mut timed_out = false;
     let code = loop {
@@ -305,10 +318,13 @@ struct Kept {
     truncated: bool,
 }
 
-/// Read a pipe to its end on a thread, keeping at most `MAX_OUTPUT` bytes but
+/// Read a pipe to its end on a thread, keeping at most `max_output` bytes but
 /// draining the rest so the child never blocks on a full pipe. The receiver
 /// gets one message when the pipe reaches end-of-file.
-fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> (Arc<Mutex<Kept>>, mpsc::Receiver<()>) {
+fn drain<R: Read + Send + 'static>(
+    pipe: Option<R>,
+    max_output: usize,
+) -> (Arc<Mutex<Kept>>, mpsc::Receiver<()>) {
     let kept = Arc::new(Mutex::new(Kept {
         bytes: Vec::new(),
         truncated: false,
@@ -324,7 +340,7 @@ fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> (Arc<Mutex<Kept>>, mpsc::
                         Ok(0) => break,
                         Ok(n) => {
                             let mut k = shared.lock().unwrap_or_else(PoisonError::into_inner);
-                            let room = MAX_OUTPUT.saturating_sub(k.bytes.len());
+                            let room = max_output.saturating_sub(k.bytes.len());
                             if n > room {
                                 k.truncated = true;
                             }

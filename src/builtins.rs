@@ -28867,117 +28867,38 @@ fn detect_package_manager() -> &'static str {
     }
 }
 
-fn bi_pkg_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pm = detect_package_manager();
-
-    let output = match pm {
-        "apt" => std::process::Command::new("dpkg")
-            .args(["-l"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_list", "dpkg", &e))?,
-        "dnf" | "yum" => std::process::Command::new(pm)
-            .args(["list", "installed"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_list", pm, &e))?,
-        "pacman" => std::process::Command::new("pacman")
-            .args(["-Q"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_list", "pacman", &e))?,
-        "brew" => std::process::Command::new("brew")
-            .args(["list", "--versions"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_list", "brew", &e))?,
-        "winget" => std::process::Command::new("winget")
-            .args(["list"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_list", "winget", &e))?,
-        other => return Err(pkg_unsupported("pkg_list", other)),
-    };
-    let program = match pm {
-        "apt" => "dpkg",
-        "dnf" | "yum" => pm,
-        "pacman" => "pacman",
-        "brew" => "brew",
-        "winget" => "winget",
-        other => other,
-    };
-    pkg_succeeded("pkg_list", program, &output)?;
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    let packages: Vec<Value> = match pm {
-        "apt" => {
-            // dpkg -l: skip header lines (first 5), parse "ii  name  version  arch  description"
-            text.lines()
-                .filter(|l| l.starts_with("ii") || l.starts_with("rc"))
-                .filter_map(|l| {
-                    let parts: Vec<&str> = l.split_whitespace().collect();
-                    if parts.len() >= 4 {
-                        let mut rec = std::collections::BTreeMap::new();
-                        rec.insert("status".to_string(), Value::Str(parts[0].to_string()));
-                        rec.insert("name".to_string(), Value::Str(parts[1].to_string()));
-                        rec.insert("version".to_string(), Value::Str(parts[2].to_string()));
-                        rec.insert("arch".to_string(), Value::Str(parts[3].to_string()));
-                        Some(Value::Record(rec))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        }
-        "pacman" => {
-            // pacman -Q: "name version"
-            text.lines()
-                .filter(|l| !l.trim().is_empty())
-                .filter_map(|l| {
-                    let parts: Vec<&str> = l.splitn(2, ' ').collect();
-                    if parts.len() >= 2 {
-                        let mut rec = std::collections::BTreeMap::new();
-                        rec.insert("name".to_string(), Value::Str(parts[0].to_string()));
-                        rec.insert("version".to_string(), Value::Str(parts[1].to_string()));
-                        Some(Value::Record(rec))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        }
-        "brew" => {
-            // brew list --versions: "name version1 version2"
-            text.lines()
-                .filter(|l| !l.trim().is_empty())
-                .filter_map(|l| {
-                    let parts: Vec<&str> = l.splitn(2, ' ').collect();
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("name".to_string(), Value::Str(parts[0].to_string()));
-                    if parts.len() >= 2 {
-                        rec.insert(
-                            "version".to_string(),
-                            Value::Str(parts[1].trim().to_string()),
-                        );
-                    }
-                    Some(Value::Record(rec))
-                })
-                .collect()
-        }
-        _ => {
-            // dnf/yum/winget: parse as whitespace-separated lines
-            text.lines()
-                .filter(|l| !l.trim().is_empty())
-                .filter_map(|l| {
-                    let parts: Vec<&str> = l.split_whitespace().collect();
-                    if parts.len() >= 2 {
-                        let mut rec = std::collections::BTreeMap::new();
-                        rec.insert("name".to_string(), Value::Str(parts[0].to_string()));
-                        rec.insert("version".to_string(), Value::Str(parts[1].to_string()));
-                        Some(Value::Record(rec))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
+fn bi_pkg_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() {
+        return Err(crate::safety::arg_err(format!(
+            "pkg_list takes no arguments, got {}",
+            args.len()
+        )));
+    }
+    linux_diagnostics::no_pipeline_input("pkg_list", &input)?;
+    let packages = match detect_package_manager() {
+        "apt" => pkg_query::list_dpkg("pkg_list")?,
+        "pacman" => pkg_query::list_pacman("pkg_list")?,
+        other => {
+            return Err(crate::safety::unimplemented(
+                "pkg_list",
+                &format!(
+                    "pkg_list is not implemented for the {other} package manager in 13.0.0; NOTHING WAS LISTED"
+                ),
+                "list the packages with that manager directly (dnf list installed, brew list --versions, winget list)",
+            ))
         }
     };
-    Ok(Value::Array(packages))
+    Ok(Value::Array(
+        packages
+            .into_iter()
+            .map(|(name, version)| {
+                let mut rec = std::collections::BTreeMap::new();
+                rec.insert("name".to_string(), Value::Str(name));
+                rec.insert("version".to_string(), Value::Str(version));
+                Value::Record(rec)
+            })
+            .collect(),
+    ))
 }
 
 /// This package manager is not one the builtin knows how to query. These
@@ -29580,87 +29501,56 @@ fn bi_pkg_autoremove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     pkg_admin::autoremove(args, input)
 }
 
-fn bi_pkg_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "linux")]
-    {
-        // Try dpkg.log first
-        if let Ok(log) = std::fs::read_to_string("/var/log/dpkg.log") {
-            let entries: Vec<Value> = log
-                .lines()
-                .rev()
-                .take(200) // Last 200 entries
-                .filter(|l| !l.trim().is_empty())
-                .map(|line| {
-                    let mut rec = std::collections::BTreeMap::new();
-                    // dpkg.log format: "YYYY-MM-DD HH:MM:SS action package arch version"
-                    let parts: Vec<&str> = line.splitn(4, ' ').collect();
-                    if parts.len() >= 2 {
-                        rec.insert(
-                            "timestamp".to_string(),
-                            Value::Str(format!("{} {}", parts[0], parts[1])),
-                        );
-                    }
-                    if let Some(rest) = parts.get(2..).map(|s| s.join(" ")) {
-                        let tokens: Vec<&str> = rest.splitn(4, ' ').collect();
-                        if let Some(action) = tokens.first() {
-                            rec.insert("action".to_string(), Value::Str(action.to_string()));
-                        }
-                        if let Some(pkg) = tokens.get(1) {
-                            // Package may include :arch suffix
-                            let (name, arch) = pkg.split_once(':').unwrap_or((pkg, ""));
-                            rec.insert("package".to_string(), Value::Str(name.to_string()));
-                            if !arch.is_empty() {
-                                rec.insert("arch".to_string(), Value::Str(arch.to_string()));
-                            }
-                        }
-                        if let Some(ver) = tokens.get(2) {
-                            rec.insert("version".to_string(), Value::Str(ver.to_string()));
-                        }
-                    }
-                    Value::Record(rec)
-                })
-                .collect();
-            return Ok(Value::Array(entries));
-        }
-        // Try dnf.log
-        if let Ok(log) = std::fs::read_to_string("/var/log/dnf.log") {
-            let entries: Vec<Value> = log
-                .lines()
-                .rev()
-                .take(200)
-                .filter(|l| !l.trim().is_empty())
-                .map(|line| {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("raw".to_string(), Value::Str(line.to_string()));
-                    // dnf.log format varies, extract timestamp if present
-                    if let Some((ts, rest)) = line.split_once(' ') {
-                        rec.insert("timestamp".to_string(), Value::Str(ts.to_string()));
-                        rec.insert("message".to_string(), Value::Str(rest.to_string()));
-                    }
-                    Value::Record(rec)
-                })
-                .collect();
-            return Ok(Value::Array(entries));
-        }
-    }
-    // This answered [] -- "no history" -- on every OS but Linux, where it is
-    // not implemented, and on Linux when neither package log exists.
-    #[cfg(target_os = "linux")]
-    {
-        Err(crate::safety::not_found(
+/// The `limit` argument: absent is the default, otherwise an Int from 1 to 1000.
+/// Checked on every OS, before the platform refusal, so a bad call is E_BAD_ARG
+/// everywhere.
+fn pkg_history_limit(args: &[Value], input: &Option<Value>) -> Result<usize> {
+    linux_diagnostics::no_pipeline_input("pkg_history", input)?;
+    match args {
+        [] => Ok(pkg_query::HISTORY_DEFAULT),
+        [Value::Int(n)] if (1..=pkg_query::HISTORY_MAX as i64).contains(n) => Ok(*n as usize),
+        [Value::Int(n)] => Err(crate::safety::arg_err(format!(
+            "pkg_history: limit must be from 1 to {}, got {n}",
+            pkg_query::HISTORY_MAX
+        ))),
+        [other] => Err(crate::safety::bad_arg(
             "pkg_history",
-            "package log",
-            "/var/log/dpkg.log or /var/log/dnf.log",
-        ))
+            "an Int limit from 1 to 1000",
+            other.type_name(),
+        )),
+        more => Err(crate::safety::arg_err(format!(
+            "pkg_history takes at most one argument, got {}",
+            more.len()
+        ))),
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        Err(crate::safety::unimplemented(
-            "pkg_history",
-            "package history is read from dpkg/dnf logs, on Linux only; NOTHING WAS READ",
-            "ask the package manager directly (brew log, winget list)",
-        ))
-    }
+}
+
+fn bi_pkg_history(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let limit = pkg_history_limit(&args, &input)?;
+    pkg_history_read(limit)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn pkg_history_read(_limit: usize) -> Result<Value> {
+    // The apt history log exists only on Linux. Nothing is read here.
+    Err(crate::safety::unimplemented(
+        "pkg_history",
+        "package history is read from the apt log on Linux only; NOTHING WAS READ",
+        "ask the package manager directly (brew list, winget list)",
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn pkg_history_read(limit: usize) -> Result<Value> {
+    let text = pkg_query::read_history_tail("pkg_history", pkg_query::HISTORY_LOG)?;
+    let transactions = pkg_query::parse_history(&text, limit)
+        .map_err(|e| pkg_query::parse_failure("pkg_history", "apt history log", e))?;
+    Ok(Value::Array(
+        transactions
+            .into_iter()
+            .map(pkg_query::transaction_value)
+            .collect(),
+    ))
 }
 
 // ============================================================================
@@ -45466,6 +45356,9 @@ fn bi_lsblk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 #[path = "linux_diagnostics.rs"]
 mod linux_diagnostics;
+
+#[path = "pkg_query.rs"]
+mod pkg_query;
 
 /// 958: bi_blkid - Block device attributes (Linux only).
 fn bi_blkid(args: Vec<Value>, input: Option<Value>) -> Result<Value> {

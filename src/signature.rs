@@ -5404,6 +5404,20 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"rlm_stats({total_spawned: 2}).total_spawned"#, r#"2"#),
         ],
     },
+    Signature {
+        name: "pkg_list",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Array",
+        doc: "Installed packages as {name, version} Records, sorted by name. On apt systems it runs dpkg-query and on Arch it runs pacman -Q, each as an argv with no shell, under a 60 s limit and a 64 MiB output cap. Takes no arguments and no pipeline input. Other package managers (dnf, yum, brew, winget) are E_UNIMPLEMENTED and NOTHING WAS LISTED. A missing tool is E_TOOL_MISSING, a nonzero exit E_TOOL_FAILED, and a run over its limit or cap E_BUDGET_EXCEEDED.",
+        examples: &[
+            (r#"(try { pkg_list("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { pkg_list(1, 2) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
     // 1b: package-manager queries. Machine-dependent: see MACHINE_DEPENDENT in
     // tests/declared_signatures.rs; the results shown are Debian's.
     Signature {
@@ -6992,11 +7006,12 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[],
+        params: &[opt_range("limit", Ty::Int, 1, 1000, "how many of the newest transactions to return; default 50")],
         returns: "Array",
-        doc: "Package install/remove events from the package log.",
+        doc: "Transactions from the apt history log (/var/log/apt/history.log), newest first, at most limit (1 to 1000, default 50). Each is a Record {start, end, command, installed, upgraded, removed}: end and command are null when the log does not record them, and each package is named without its version. The last 64 MiB of an uncompressed log is read; a block cut at the front is dropped. A missing log is E_NOT_FOUND. Off Linux the call is E_UNIMPLEMENTED and NOTHING WAS READ.",
         examples: &[
-            (r#"pkg_history()"#, r#"[{action: install, package: curl, date: "2026-09-01 10:02:11", ...}]"#),
+            (r#"pkg_history()"#, r#"[{start: "2026-09-01  10:02:11", end: "2026-09-01  10:02:14", command: "apt install curl", installed: [curl:amd64, libcurl4:amd64], upgraded: [], removed: []}, ...]"#),
+            (r#"pkg_history(1)"#, r#"[{start: "2026-09-01  10:02:11", end: "2026-09-01  10:02:14", command: "apt install curl", installed: [curl:amd64, libcurl4:amd64], upgraded: [], removed: []}]"#),
         ],
     },
     // 1c: container, session and lint listings from the discarded-args

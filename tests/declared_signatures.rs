@@ -266,7 +266,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("hw_pci", "the PCI devices present and lspci (Linux)"),
     ("hw_usb", "the USB devices present and lsusb (Linux)"),
     ("pipx_list", "an installed pipx"),
-    ("pkg_history", "the dpkg or dnf log (Linux only)"),
+    ("pkg_history", "/var/log/apt/history.log (Linux only; a missing log is E_NOT_FOUND)"),
     ("buildah_images", "an installed buildah"),
     ("docker_ps", "a running docker daemon"),
     ("netstat", "netstat and the connections open on the host"),
