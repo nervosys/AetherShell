@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 642 implementations covered, 529 not yet declared; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 643 implementations covered, 528 not yet declared; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, elevated execution, scheduler mutation | Linux implemented and verified in the disposable distro; Windows/macOS open; blocker only for those platforms | Linux accounts, groups, ACLs, mounts, services, sudo_exec and apt backends are verified as root in the disposable distro; Windows and macOS refuse with E_UNIMPLEMENTED and their backends remain open. All scheduler mutation functions and fs_watch/fs_unwatch have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -226,9 +226,9 @@ explicit refusal calls, without executing builtins or generating their contracts
 
 - [x] bi_rl_dqn_step — working implementation added; final platform/release validation remains open.
 - [ ] bi_proc_kill
-- [ ] bi_fs_chmod
-- [ ] bi_fs_chown
-- [ ] bi_fs_symlink
+- [x] bi_fs_chmod
+- [x] bi_fs_chown
+- [x] bi_fs_symlink
 - [x] bi_fs_watch
 - [x] bi_fs_unwatch
 - [x] bi_fs_mount — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
@@ -268,7 +268,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_sudo_check
 - [x] bi_sudo_exec — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_capabilities — Linux-only kernel concept; explicit coded refusal elsewhere.
-- [ ] bi_pkg_list
+- [x] bi_pkg_list
 - [x] bi_pkg_install — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_pkg_remove — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_pkg_update — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
@@ -278,7 +278,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_pkg_hold — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_pkg_unhold — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_pkg_autoremove — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
-- [ ] bi_pkg_history
+- [x] bi_pkg_history
 - [ ] bi_gui_screenshot
 - [ ] bi_gui_screenshot_window
 - [ ] bi_gui_find_image
