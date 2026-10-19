@@ -7323,6 +7323,30 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Draw one progress line on stderr: a carriage return, the optional label, a 30-cell bar of # and -, and the percentage. The line is rewritten in place on each call, and a newline follows when current equals total. Answers {current, total, percent} with percent floored to an Int. Nothing is kept between calls. Refuses pipeline input, wrong argument counts, and non-finite, non-numeric, non-positive-total or out-of-range values with E_BAD_ARG before anything is drawn. Output goes to stderr only; the answer is unaffected.",
         examples: &[(r#"input_progress(1, 2).percent"#, "50"), (r#"input_progress(1, 4, "copy").percent"#, "25"), (r#"(try { input_progress(3, 2) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
+    Signature {
+        name: "input_form", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("fields", Ty::Array, "1 to 50 field Records: name (required; matches ^[A-Za-z_][A-Za-z0-9_]{0,63}$, unique), label?, default? and required? (Bool, default false); label and default are Strings of at most 1 KiB, and no other keys are allowed")],
+        returns: "Record",
+        doc: "Ask a form one line per field on the terminal and answer a Record mapping each field name to its answer, a String. Every field is validated before the first prompt, so a malformed form asks nothing. Each field prompts \"label: \", or \"label (default): \" when it has a default; label defaults to the name. An empty answer takes the default when there is one; an empty answer to a required field with no default prompts again, and after 3 empty answers the call refuses with E_BAD_ARG naming the field. An optional field with no default and an empty answer answers \"\". Reads stdin one line per prompt: with no UI attached (stdin closed) the call refuses with E_NO_UI. Direct-only: piped input and wrong argument shapes refuse with E_BAD_ARG before anything is printed.",
+        examples: &[(r#"(try { input_form([]) } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
+    Signature {
+        name: "input_table", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("rows", Ty::Array, "1 to 1000 Records; the columns are the union of their keys, sorted"), opt("prompt", Ty::Str, "the question asked; default \"Select a row (1-N): \"")],
+        returns: "Record",
+        doc: "Print the rows to stderr as a numbered table, then ask for a row number and answer that row, unchanged, as a Record. Each cell is the value's display text, cut to 40 characters with ...; at most 16 columns are shown, and the chosen row still carries every key. A reply that is not an integer in 1..=N asks again, and after 3 replies the call refuses with E_BAD_ARG. Reads one line per reply from stdin: with no UI attached (stdin closed) the call refuses with E_NO_UI. Direct-only: piped input, a non-Record row or wrong argument shapes refuse with E_BAD_ARG before anything is printed.",
+        examples: &[
+            (r#"(try { input_table([]) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_table([], "Pick: ") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "input_autocomplete", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("prompt", Ty::Str, "the question asked"), req("choices", Ty::Array, "1 to 10000 unique, non-empty Strings of at most 1 KiB")],
+        returns: "String",
+        doc: "Ask a question on the terminal and answer one of the choices. An answer that equals a choice exactly wins; otherwise a case-insensitive prefix that matches exactly one choice wins. An ambiguous prefix lists up to 20 matches on stderr and asks again; no match says so and asks again. After 5 answers that win nothing the call refuses with E_BAD_ARG. Reads one line per answer from stdin: with no UI attached (stdin closed) the call refuses with E_NO_UI. Direct-only: piped input and wrong argument shapes refuse with E_BAD_ARG before anything is printed.",
+        examples: &[(r#"(try { input_autocomplete("Pick: ", []) } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

@@ -33223,16 +33223,102 @@ fn bi_input_timeout(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_input_autocomplete(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
-    Err(crate::safety::unimplemented(
-        "input_autocomplete",
-        "autocompleting input is not implemented; NOTHING WAS DONE",
-        "use `ae --tui`",
+/// Asks for one of `choices`. An exact match wins; otherwise a prefix that
+/// matches exactly one choice, ignoring case, wins. Anything else lists the
+/// candidates (or says there are none) and asks again.
+fn bi_input_autocomplete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_autocomplete";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "a direct call; the answer comes from the terminal, not piped input",
+            "a piped value",
+        ));
+    }
+    let [prompt, choices] = args.as_slice() else {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "prompt: String, choices: Array of Strings",
+            &format!("{} argument(s)", args.len()),
+        ));
+    };
+    let Value::Str(prompt) = prompt else {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "prompt: String",
+            prompt.type_name(),
+        ));
+    };
+    let Value::Array(choices) = choices else {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "choices: Array of Strings",
+            choices.type_name(),
+        ));
+    };
+    if choices.is_empty() || choices.len() > INPUT_AUTOCOMPLETE_MAX_CHOICES {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            &format!("1..={INPUT_AUTOCOMPLETE_MAX_CHOICES} choices"),
+            &format!("{} choice(s)", choices.len()),
+        ));
+    }
+    let mut texts: Vec<&str> = Vec::with_capacity(choices.len());
+    let mut seen = std::collections::BTreeSet::new();
+    for (i, choice) in choices.iter().enumerate() {
+        let Value::Str(text) = choice else {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                &format!("choice {}: a String", i + 1),
+                choice.type_name(),
+            ));
+        };
+        if text.is_empty() || text.len() > INPUT_TEXT_MAX_BYTES {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                &format!("choice {}: 1 to {INPUT_TEXT_MAX_BYTES} bytes", i + 1),
+                &format!("{} bytes", text.len()),
+            ));
+        }
+        if !seen.insert(text.as_str()) {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "choices that are unique",
+                &format!("duplicate {text:?}"),
+            ));
+        }
+        texts.push(text.as_str());
+    }
+
+    for _ in 0..INPUT_AUTOCOMPLETE_MAX_ATTEMPTS {
+        let answer = read_answer(NAME, prompt)?;
+        if let Some(exact) = texts.iter().find(|c| **c == answer) {
+            return Ok(Value::Str((*exact).to_string()));
+        }
+        let lower = answer.to_lowercase();
+        let matches: Vec<&str> = texts
+            .iter()
+            .copied()
+            .filter(|c| c.to_lowercase().starts_with(lower.as_str()))
+            .collect();
+        match matches.as_slice() {
+            [only] => return Ok(Value::Str((*only).to_string())),
+            [] => eprintln!("{NAME}: no match for {answer:?}"),
+            many => {
+                eprintln!("{NAME}: {} matches for {answer:?}:", many.len());
+                for m in many.iter().take(INPUT_AUTOCOMPLETE_LIST) {
+                    eprintln!("  {m}");
+                }
+                if many.len() > INPUT_AUTOCOMPLETE_LIST {
+                    eprintln!("  ... and {} more", many.len() - INPUT_AUTOCOMPLETE_LIST);
+                }
+            }
+        }
+    }
+    Err(crate::safety::bad_arg(
+        NAME,
+        "one of the choices, or a prefix that matches exactly one",
+        &format!("no valid answer in {INPUT_AUTOCOMPLETE_MAX_ATTEMPTS} attempts"),
     ))
 }
 
@@ -35160,23 +35246,304 @@ fn bi_input_progress(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(record))
 }
 
-fn bi_input_table(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "input_table",
-        "an interactive table is not implemented; NOTHING WAS DONE",
-        "use `ae --tui`",
-    ))
+/// Most fields one `input_form` asks about.
+const INPUT_FORM_MAX_FIELDS: usize = 50;
+/// Longest label, default or choice text a line prompt accepts.
+const INPUT_TEXT_MAX_BYTES: usize = 1024;
+/// Invalid answers a line prompt tolerates before it refuses.
+const INPUT_MAX_ATTEMPTS: usize = 3;
+/// Most rows one `input_table` lists.
+const INPUT_TABLE_MAX_ROWS: usize = 1000;
+/// Columns one `input_table` shows; the chosen row still carries every key.
+const INPUT_TABLE_MAX_COLUMNS: usize = 16;
+/// Characters of one table cell shown before it is cut with `...`.
+const INPUT_TABLE_CELL_CHARS: usize = 40;
+/// Most choices one `input_autocomplete` accepts.
+const INPUT_AUTOCOMPLETE_MAX_CHOICES: usize = 10000;
+/// Matches one `input_autocomplete` lists when a prefix is ambiguous.
+const INPUT_AUTOCOMPLETE_LIST: usize = 20;
+/// Answers one `input_autocomplete` accepts before it refuses.
+const INPUT_AUTOCOMPLETE_MAX_ATTEMPTS: usize = 5;
+
+/// A form field name: `^[A-Za-z_][A-Za-z0-9_]{0,63}$`.
+fn is_form_field_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    matches!(bytes.first(), Some(b) if b.is_ascii_alphabetic() || *b == b'_')
+        && bytes.len() <= 64
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || *b == b'_')
 }
 
-fn bi_input_form(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "input_form",
-        "a multi-field input form is not implemented; NOTHING WAS DONE",
-        "use `ae --tui`",
+/// One table cell or column title: control characters become spaces, and text
+/// over the cell width is cut with `...`.
+fn input_table_cell(text: &str) -> String {
+    let flat: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    if flat.chars().count() <= INPUT_TABLE_CELL_CHARS {
+        return flat;
+    }
+    let mut cut: String = flat.chars().take(INPUT_TABLE_CELL_CHARS - 3).collect();
+    cut.push_str("...");
+    cut
+}
+
+/// A form of named fields, asked one line each. Every field is validated
+/// before the first prompt, so a malformed form asks nothing.
+fn bi_input_form(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_form";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "a direct call; the answers come from the terminal, not piped input",
+            "a piped value",
+        ));
+    }
+    let [fields] = args.as_slice() else {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "fields: Array of field Records",
+            &format!("{} argument(s)", args.len()),
+        ));
+    };
+    let Value::Array(specs) = fields else {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "fields: Array of field Records",
+            fields.type_name(),
+        ));
+    };
+    if specs.is_empty() || specs.len() > INPUT_FORM_MAX_FIELDS {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            &format!("1..={INPUT_FORM_MAX_FIELDS} fields"),
+            &format!("{} field(s)", specs.len()),
+        ));
+    }
+
+    // (name, label, default, required), validated in full before any prompt.
+    let mut checked: Vec<(String, String, Option<String>, bool)> = Vec::with_capacity(specs.len());
+    let mut seen = std::collections::BTreeSet::new();
+    for (i, spec) in specs.iter().enumerate() {
+        let position = i + 1;
+        let Value::Record(rec) = spec else {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                &format!("field {position}: a Record"),
+                spec.type_name(),
+            ));
+        };
+        if let Some(key) = rec
+            .keys()
+            .find(|k| !matches!(k.as_str(), "name" | "label" | "default" | "required"))
+        {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                &format!("field {position}: keys name, label, default, required"),
+                &format!("unknown key {key:?}"),
+            ));
+        }
+        let name = match rec.get("name") {
+            Some(Value::Str(s)) if is_form_field_name(s) => s.clone(),
+            Some(Value::Str(s)) => {
+                return Err(crate::safety::bad_arg(
+                    NAME,
+                    &format!("field {position}: name matching ^[A-Za-z_][A-Za-z0-9_]{{0,63}}$"),
+                    &format!("{s:?}"),
+                ))
+            }
+            Some(other) => {
+                return Err(crate::safety::bad_arg(
+                    NAME,
+                    &format!("field {position}: name as a String"),
+                    other.type_name(),
+                ))
+            }
+            None => {
+                return Err(crate::safety::bad_arg(
+                    NAME,
+                    &format!("field {position}: a name"),
+                    "no name",
+                ))
+            }
+        };
+        if !seen.insert(name.clone()) {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "field names that are unique",
+                &format!("duplicate {name:?}"),
+            ));
+        }
+        let text = |key: &str| -> Result<Option<String>> {
+            match rec.get(key) {
+                None => Ok(None),
+                Some(Value::Str(s)) if s.len() <= INPUT_TEXT_MAX_BYTES => Ok(Some(s.clone())),
+                Some(Value::Str(s)) => Err(crate::safety::bad_arg(
+                    NAME,
+                    &format!("field {position}: {key} of at most {INPUT_TEXT_MAX_BYTES} bytes"),
+                    &format!("{} bytes", s.len()),
+                )),
+                Some(other) => Err(crate::safety::bad_arg(
+                    NAME,
+                    &format!("field {position}: {key} as a String"),
+                    other.type_name(),
+                )),
+            }
+        };
+        let label = text("label")?
+            .filter(|l| !l.is_empty())
+            .unwrap_or_else(|| name.clone());
+        let default = text("default")?;
+        let required = match rec.get("required") {
+            None => false,
+            Some(Value::Bool(b)) => *b,
+            Some(other) => {
+                return Err(crate::safety::bad_arg(
+                    NAME,
+                    &format!("field {position}: required as a Bool"),
+                    other.type_name(),
+                ))
+            }
+        };
+        checked.push((name, label, default, required));
+    }
+
+    let mut answers = BTreeMap::new();
+    for (name, label, default, required) in &checked {
+        let prompt = match default {
+            Some(d) => format!("{label} ({d}): "),
+            None => format!("{label}: "),
+        };
+        let mut empty_answers = 0usize;
+        let answer = loop {
+            let raw = read_answer(NAME, &prompt)?;
+            if !raw.is_empty() {
+                break raw;
+            }
+            if let Some(d) = default {
+                break d.clone();
+            }
+            if !required {
+                break String::new();
+            }
+            empty_answers += 1;
+            if empty_answers == INPUT_MAX_ATTEMPTS {
+                return Err(crate::safety::bad_arg(
+                    NAME,
+                    &format!("a non-empty answer for required field `{name}`"),
+                    &format!("{empty_answers} empty answers"),
+                ));
+            }
+            eprintln!("{NAME}: `{name}` is required");
+        };
+        answers.insert(name.clone(), Value::Str(answer));
+    }
+    Ok(Value::Record(answers))
+}
+
+/// Lists rows as a numbered table on stderr, then answers the row the user
+/// picks, as it was given.
+fn bi_input_table(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_table";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "a direct call; the choice comes from the terminal, not piped input",
+            "a piped value",
+        ));
+    }
+    if args.is_empty() || args.len() > 2 {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "rows: Array of Records, prompt?: String",
+            &format!("{} argument(s)", args.len()),
+        ));
+    }
+    let Value::Array(rows) = &args[0] else {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "rows: Array of Records",
+            args[0].type_name(),
+        ));
+    };
+    let prompt = match args.get(1) {
+        None => None,
+        Some(Value::Str(p)) => Some(p.clone()),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "prompt: String",
+                other.type_name(),
+            ))
+        }
+    };
+    if rows.is_empty() || rows.len() > INPUT_TABLE_MAX_ROWS {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            &format!("1..={INPUT_TABLE_MAX_ROWS} rows"),
+            &format!("{} row(s)", rows.len()),
+        ));
+    }
+    let mut columns = std::collections::BTreeSet::new();
+    for (i, row) in rows.iter().enumerate() {
+        let Value::Record(rec) = row else {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                &format!("row {}: a Record", i + 1),
+                row.type_name(),
+            ));
+        };
+        columns.extend(rec.keys().map(String::as_str));
+    }
+
+    let shown: Vec<&str> = columns
+        .iter()
+        .copied()
+        .take(INPUT_TABLE_MAX_COLUMNS)
+        .collect();
+    let hidden = columns.len() - shown.len();
+    let mut table = String::from("   #");
+    for column in &shown {
+        table.push_str(" | ");
+        table.push_str(&input_table_cell(column));
+    }
+    if hidden > 0 {
+        table.push_str(&format!(" | (+{hidden} more columns)"));
+    }
+    table.push('\n');
+    for (i, row) in rows.iter().enumerate() {
+        table.push_str(&format!("{:>4}", i + 1));
+        if let Value::Record(rec) = row {
+            for column in &shown {
+                let cell = rec
+                    .get(*column)
+                    .map(|v| v.to_display_string())
+                    .unwrap_or_default();
+                table.push_str(" | ");
+                table.push_str(&input_table_cell(&cell));
+            }
+        }
+        table.push('\n');
+    }
+    eprint!("{table}");
+
+    let question = prompt.unwrap_or_else(|| format!("Select a row (1-{}): ", rows.len()));
+    for _ in 0..INPUT_MAX_ATTEMPTS {
+        let answer = read_answer(NAME, &question)?;
+        match answer.trim().parse::<usize>() {
+            Ok(n) if (1..=rows.len()).contains(&n) => return Ok(rows[n - 1].clone()),
+            _ => eprintln!(
+                "{NAME}: {answer:?} is not a row number in 1..={}",
+                rows.len()
+            ),
+        }
+    }
+    Err(crate::safety::bad_arg(
+        NAME,
+        &format!("a row number in 1..={}", rows.len()),
+        &format!("no valid answer in {INPUT_MAX_ATTEMPTS} attempts"),
     ))
 }
 

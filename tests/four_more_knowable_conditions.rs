@@ -292,8 +292,9 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
     let jail = std::env::temp_dir().join(format!("ae_stub_{}", std::process::id()));
     std::fs::create_dir_all(&jail).expect("create jail");
 
-    // One placeholder is left; the list shrinks as they are implemented.
-    #[allow(clippy::single_element_loop)]
+    // No placeholder is left: input_form, input_table and input_autocomplete
+    // are implemented, with contracts in tests/form_input_contracts.rs. The
+    // loop stays so the next stub joins it.
     for name in [
         // user_lock, user_unlock (tests/accounts_contracts.rs) and acl_set
         // (tests/acl_mount_contracts.rs) are implemented on Linux now.
@@ -304,7 +305,6 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         // refactor_rename and refactor_extract_function once answered advice
         // as their return value; they are implemented now, with contracts in
         // tests/{rename,extract_function}_refactor_contracts.rs.
-        "input_form",
         // test_watch is implemented, with contracts in tests/test_watch_contracts.rs.
     ] {
         let mut env = aethershell::env::Env::new();
