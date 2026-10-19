@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 635 implementations covered, 536 not yet declared; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 642 implementations covered, 529 not yet declared; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, elevated execution, scheduler mutation | Linux implemented and verified in the disposable distro; Windows/macOS open; blocker only for those platforms | Linux accounts, groups, ACLs, mounts, services, sudo_exec and apt backends are verified as root in the disposable distro; Windows and macOS refuse with E_UNIMPLEMENTED and their backends remain open. All scheduler mutation functions and fs_watch/fs_unwatch have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -252,7 +252,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_at_list — working implementation added; final platform/release validation remains open.
 - [x] bi_at_remove — working implementation added; final platform/release validation remains open.
 - [x] bi_startup_list
-- [ ] bi_archive_test
+- [x] bi_archive_test
 - [x] bi_user_add — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_user_del — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_user_mod — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
@@ -335,19 +335,19 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_session_redo
 - [x] bi_docs_api
 - [ ] bi_platform_libcpp — returns a constant on Windows and macOS without inspecting the system; Linux skips an unreadable library silently.
-- [ ] bi_blkid
-- [ ] bi_lsof
-- [ ] bi_tcpdump_capture
-- [ ] bi_ethtool_info
-- [ ] bi_perf_stat
-- [ ] bi_perf_record
-- [ ] bi_awk_process
+- [x] bi_blkid
+- [x] bi_lsof
+- [x] bi_tcpdump_capture
+- [x] bi_ethtool_info
+- [x] bi_perf_stat
+- [x] bi_perf_record
+- [x] bi_awk_process
 - [x] bi_nc_listen
-- [ ] bi_iperf3_server
+- [x] bi_iperf3_server
 - [ ] bi_lazygit_open
-- [ ] bi_entr_watch
-- [ ] bi_watchexec_run
-- [ ] bi_nodemon_run
+- [x] bi_entr_watch
+- [x] bi_watchexec_run
+- [x] bi_nodemon_run
 
 ## Historical plan and evidence — reference only
 
