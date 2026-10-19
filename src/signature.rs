@@ -7309,6 +7309,20 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"(strings("tests/fixtures/sample.db", 8) | len) > 0"#, r#"true"#),
         ],
     },
+    Signature {
+        name: "input_timeout", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("prompt", Ty::Str, "text printed to stderr before reading; may be empty"), req("timeout_ms", Ty::Int, "milliseconds from 1 through 3600000 to wait for one line")],
+        returns: "String | Null",
+        doc: "Print prompt to stderr and read one line from stdin, waiting at most timeout_ms. Answers the line with CR and LF stripped, or null when the time passes first. A line typed after a timeout is not discarded: it answers the next prompt or input read. Lines are capped at 64 KiB; a longer one is discarded to its newline and refused with E_BUDGET_EXCEEDED. Closed stdin is E_NO_UI. Refuses pipeline input, surplus or missing arguments, non-String prompts and timeouts outside the range with E_BAD_ARG, all before anything is printed or read.",
+        examples: &[(r#"(try { input_timeout("x", 0) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { input_timeout("x", 3600001) } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
+    Signature {
+        name: "input_progress", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("current", Ty::Numeric, "finished amount; finite and from 0 through total"), req("total", Ty::Numeric, "whole amount; finite and greater than 0"), opt("label", Ty::Str, "text drawn before the bar")],
+        returns: "Record",
+        doc: "Draw one progress line on stderr: a carriage return, the optional label, a 30-cell bar of # and -, and the percentage. The line is rewritten in place on each call, and a newline follows when current equals total. Answers {current, total, percent} with percent floored to an Int. Nothing is kept between calls. Refuses pipeline input, wrong argument counts, and non-finite, non-numeric, non-positive-total or out-of-range values with E_BAD_ARG before anything is drawn. Output goes to stderr only; the answer is unaffected.",
+        examples: &[(r#"input_progress(1, 2).percent"#, "50"), (r#"input_progress(1, 4, "copy").percent"#, "25"), (r#"(try { input_progress(3, 2) } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

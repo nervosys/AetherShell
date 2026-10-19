@@ -32964,24 +32964,13 @@ fn bi_clipboard_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
 }
 
-/// One line from stdin. Closed stdin (EOF) answered "" -- an empty answer to
-/// the question, a `false` from input_confirm, a null from input_number --
-/// when nobody was there to answer at all.
+/// One line from stdin, through the shared bounded reader. Closed stdin (EOF)
+/// is `E_NO_UI`: it used to answer "", which read as a real answer.
 fn read_answer(builtin: &str, prompt: &str) -> Result<String> {
     if !prompt.is_empty() {
         eprint!("{}", prompt);
     }
-    let mut line = String::new();
-    let n = std::io::stdin()
-        .read_line(&mut line)
-        .map_err(|e| crate::safety::fs_error(builtin, "stdin", &e))?;
-    if n == 0 {
-        return Err(crate::safety::no_ui(builtin));
-    }
-    Ok(line
-        .trim_end_matches('\n')
-        .trim_end_matches('\r')
-        .to_string())
+    stdin_lines::read_blocking(builtin)
 }
 
 fn bi_input_read_line(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -33031,13 +33020,11 @@ $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
         eprint!("{}", prompt);
         let output = std::process::Command::new("stty").args(["-echo"]).status();
 
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-
+        let input = stdin_lines::read_blocking("input_read_password");
         let _ = std::process::Command::new("stty").args(["echo"]).status();
         eprintln!();
 
-        return Ok(Value::Str(input.trim().to_string()));
+        return Ok(Value::Str(input?.trim().to_string()));
     }
     #[cfg(not(any(unix, target_os = "windows")))]
     {
@@ -33080,8 +33067,7 @@ fn bi_input_select(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     eprint!("Choice: ");
 
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
+    let input = read_answer("input_select", "")?;
     let choice: usize = input.trim().parse().unwrap_or(0);
 
     if choice > 0 && choice <= options.len() {
@@ -33113,8 +33099,7 @@ fn bi_input_multi_select(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     }
     eprint!("Choices: ");
 
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
+    let input = read_answer("input_multiselect", "")?;
 
     let selected: Vec<Value> = input
         .trim()
@@ -33194,17 +33179,48 @@ fn bi_input_editor(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Null)
 }
 
-fn bi_input_timeout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // This ignored its timeout and waited for a line indefinitely, so a
-    // caller relying on the timeout hung. A timed stdin read needs a reader
-    // thread, and an abandoned one would swallow the next line typed at a
-    // later prompt, so it is refused rather than half-done.
-    let _ = &args;
-    Err(crate::safety::unimplemented(
-        "input_timeout",
-        "a timed read is not implemented; NOTHING WAS READ",
-        "prompt(text) reads a line without a timeout",
-    ))
+/// `input_timeout(prompt, timeout_ms)`: one stdin line, or null when
+/// `timeout_ms` passes first. The line typed after the timeout is not lost;
+/// it answers the next prompt.
+fn bi_input_timeout(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const BUILTIN: &str = "input_timeout";
+    const MAX_MS: i64 = 3_600_000;
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "no pipeline input",
+            "a piped value",
+        ));
+    }
+    let [prompt, timeout] = args.as_slice() else {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "input_timeout(prompt: String, timeout_ms: Int)",
+            &format!("{} arguments", args.len()),
+        ));
+    };
+    let Value::Str(prompt) = prompt else {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "a String prompt",
+            &format!("{prompt:?}"),
+        ));
+    };
+    let ms = match timeout {
+        Value::Int(ms) if (1..=MAX_MS).contains(ms) => *ms,
+        other => {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                "an Int timeout_ms from 1 through 3600000",
+                &format!("{other:?}"),
+            ))
+        }
+    };
+    eprint!("{prompt}");
+    match stdin_lines::read_line(BUILTIN, Some(std::time::Duration::from_millis(ms as u64)))? {
+        Some(line) => Ok(Value::Str(line)),
+        None => Ok(Value::Null),
+    }
 }
 
 fn bi_input_autocomplete(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -35055,14 +35071,93 @@ fn bi_input_spinner(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_input_progress(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "input_progress",
-        "a progress bar is not implemented; NOTHING WAS DONE",
-        "use `ae --tui`",
-    ))
+/// `input_progress(current, total, label?)`: draws one progress line on stderr
+/// and answers `{current, total, percent}`. Nothing is kept between calls.
+fn bi_input_progress(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const BUILTIN: &str = "input_progress";
+    const WIDTH: usize = 30;
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "no pipeline input",
+            "a piped value",
+        ));
+    }
+    if !(2..=3).contains(&args.len()) {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "input_progress(current: Number, total: Number, label?: String)",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    let number = |v: &Value, what: &str| -> Result<f64> {
+        let n = match v {
+            Value::Int(i) => *i as f64,
+            Value::Float(f) => *f,
+            other => {
+                return Err(crate::safety::bad_arg(
+                    BUILTIN,
+                    &format!("a Number {what}"),
+                    &format!("{other:?}"),
+                ))
+            }
+        };
+        if !n.is_finite() {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                &format!("a finite Number {what}"),
+                &format!("{n}"),
+            ));
+        }
+        Ok(n)
+    };
+    let current_value = &args[0];
+    let total_value = &args[1];
+    let current = number(current_value, "current")?;
+    let total = number(total_value, "total")?;
+    if total <= 0.0 {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "a total greater than 0",
+            &format!("{total}"),
+        ));
+    }
+    if current < 0.0 || current > total {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "0 <= current <= total",
+            &format!("current {current} of total {total}"),
+        ));
+    }
+    let label = match args.get(2) {
+        None => None,
+        Some(Value::Str(s)) => Some(s.as_str()),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                "a String label",
+                &format!("{other:?}"),
+            ))
+        }
+    };
+    let fraction = (current / total).clamp(0.0, 1.0);
+    let percent = (fraction * 100.0).floor() as i64;
+    let filled = ((fraction * WIDTH as f64).floor() as usize).min(WIDTH);
+    let bar = format!("{}{}", "#".repeat(filled), "-".repeat(WIDTH - filled));
+    let prefix = match label {
+        Some(text) => format!("{text} "),
+        None => String::new(),
+    };
+    let finished = current == total;
+    eprint!("\r{prefix}[{bar}] {percent}%");
+    if finished {
+        eprintln!();
+    }
+    let mut record = std::collections::BTreeMap::new();
+    record.insert("current".to_string(), current_value.clone());
+    record.insert("total".to_string(), total_value.clone());
+    record.insert("percent".to_string(), Value::Int(percent));
+    Ok(Value::Record(record))
 }
 
 fn bi_input_table(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -45570,6 +45665,9 @@ fn bi_lsblk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 #[path = "linux_diagnostics.rs"]
 mod linux_diagnostics;
+
+#[path = "stdin_lines.rs"]
+mod stdin_lines;
 
 #[path = "pkg_query.rs"]
 mod pkg_query;
