@@ -4977,8 +4977,8 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     // 1b: environment and process lookups, the search family, tree, CSV.
-    // proc_kill/proc_info are not declared here: an example would kill, or
-    // read a pid whose existence differs across CI systems.
+    // proc_kill's examples are refusals, which send nothing; proc_info is
+    // declared below, its examples read a pid that exists everywhere.
     // search_symbols is declared further down, in the machine-dependent tier.
     Signature {
         name: "env_var",
@@ -5672,6 +5672,23 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "A process as {pid, name, state, ppid, memory_bytes, start_time, exe}. An unknown pid is E_NOT_FOUND.",
         examples: &[
             (r#"proc_info(1)"#, r#"{name: systemd, pid: 1, ppid: null, state: Sleeping, ...}"#),
+        ],
+    },
+    Signature {
+        name: "proc_kill",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("pid", Ty::Any, "a positive process id, Int or numeric String"),
+            opt("signal", Ty::Any, "TERM (default), KILL, HUP, INT, QUIT, STOP or CONT, by name or number"),
+        ],
+        returns: "Record",
+        doc: "Sends a signal to a process: {pid, signal, sent: true} on success. Unix uses kill(2) directly; Windows sends TERM (graceful, which a console process refuses) or KILL (forced, taskkill /F), and other signals are E_UNIMPLEMENTED there. A pid of 0 or less, a pid that does not fit the OS, this shell's own pid, and pipeline input are E_BAD_ARG; a process that does not exist is E_NOT_FOUND; a process owned by another user is E_POLICY_DENY.",
+        examples: &[
+            (r#"(try { proc_kill(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
+            (r#"(try { proc_kill(1, "BOGUS") } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
         ],
     },
     Signature {

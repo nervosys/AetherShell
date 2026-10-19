@@ -22100,7 +22100,41 @@ fn pid_arg(builtin: &str, v: Option<&Value>) -> Result<i64> {
     }
 }
 
-fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// A coded `E_TOOL_FAILED` for a signal the OS or `taskkill` refused.
+///
+/// `tool_failed` describes an exit status, which a signal has no equivalent
+/// of, so this states the refusal in its own words.
+fn proc_kill_failed(message: String, hint: &str, got: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::ToolFailed,
+        message,
+        builtin: "proc_kill".to_string(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "the signal to be delivered".to_string(),
+        got: got.to_string(),
+    })
+}
+
+/// The Record a successful `proc_kill` answers.
+fn proc_kill_sent(pid: i64, signal: &str) -> Value {
+    let mut rec = BTreeMap::new();
+    rec.insert("pid".to_string(), Value::Int(pid));
+    rec.insert("signal".to_string(), Value::Str(signal.to_string()));
+    rec.insert("sent".to_string(), Value::Bool(true));
+    Value::Record(rec)
+}
+
+fn bi_proc_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // A piped subject would be silently ignored; refuse it before anything runs.
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            "proc_kill",
+            "no pipeline input",
+            "pipeline input",
+        ));
+    }
     let pid = pid_arg("proc_kill", args.first())?;
     // Parsed once, before anything runs, on every OS. A numeric signal was
     // ignored (only strings were read) and sent as TERM, and an unknown name
@@ -22134,6 +22168,29 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
     let signal = name;
+    // `num` is the kill(1) spelling; neither OS path below uses it any more.
+    let _ = num;
+
+    // Refused before the guard: these pids address groups of processes or this
+    // shell itself, and a pid that does not fit the OS's pid type is no process.
+    #[cfg(unix)]
+    let fits = libc::pid_t::try_from(pid).is_ok();
+    #[cfg(not(unix))]
+    let fits = u32::try_from(pid).is_ok();
+    if !fits {
+        return Err(crate::safety::bad_arg(
+            "proc_kill",
+            "a process id that fits the operating system's pid type",
+            &pid.to_string(),
+        ));
+    }
+    if pid == i64::from(std::process::id()) {
+        return Err(crate::safety::bad_arg(
+            "proc_kill",
+            "a process other than this shell",
+            &format!("its own pid {pid}"),
+        ));
+    }
 
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "proc_kill",
@@ -22145,10 +22202,9 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         fs_paths: false,
     })?;
 
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
-        let _ = num; // kill(1) numbering; taskkill has none
-                     // taskkill has a graceful close and a forced one; nothing else maps.
+        // taskkill has a graceful close and a forced one; nothing else maps.
         let force = match signal {
             "TERM" => false,
             "KILL" => true,
@@ -22168,16 +22224,84 @@ fn bi_proc_kill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let output = cmd
             .output()
             .map_err(|e| crate::safety::spawn_error("proc_kill", "taskkill", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        if output.status.success() {
+            return Ok(proc_kill_sent(pid, signal));
+        }
+        let said = format!(
+            "{} {}",
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        // taskkill's exit 128 is "no such process"; the lookup confirms it
+        // where the code is not stable across Windows releases.
+        let mut sys = System::new();
+        let spid = sysinfo::Pid::from_u32(pid as u32);
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[spid]), true);
+        if output.status.code() == Some(128) || sys.process(spid).is_none() {
+            return Err(crate::safety::not_found(
+                "proc_kill",
+                "process",
+                &pid.to_string(),
+            ));
+        }
+        if said.contains("forcefully") {
+            return Err(proc_kill_failed(
+                format!(
+                    "proc_kill: process {pid} is a console process and cannot take {signal}; NOTHING WAS SENT"
+                ),
+                "a console process only ends when forced: call proc_kill with signal KILL",
+                "a process that refuses a graceful close",
+            ));
+        }
+        Err(crate::safety::tool_failed(
+            "proc_kill",
+            &format!("taskkill /PID {pid}"),
+            output.status.code(),
+            &said,
+        ))
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(unix)]
     {
-        let sig = num;
-        let output = std::process::Command::new("kill")
-            .args([sig, &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_kill", "kill", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+        let sig = match signal {
+            "TERM" => libc::SIGTERM,
+            "KILL" => libc::SIGKILL,
+            "HUP" => libc::SIGHUP,
+            "INT" => libc::SIGINT,
+            "QUIT" => libc::SIGQUIT,
+            "STOP" => libc::SIGSTOP,
+            "CONT" => libc::SIGCONT,
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "proc_kill",
+                    "signal TERM, KILL, HUP, INT, QUIT, STOP or CONT (or its number)",
+                    other,
+                ))
+            }
+        };
+        // The fit was checked above. kill(2) reads only its two arguments.
+        let native = libc::pid_t::try_from(pid).unwrap_or(libc::pid_t::MAX);
+        // SAFETY: kill(2) takes a pid and a signal number and touches no memory.
+        if unsafe { libc::kill(native, sig) } != 0 {
+            let err = std::io::Error::last_os_error();
+            return Err(match err.raw_os_error() {
+                Some(libc::ESRCH) => {
+                    crate::safety::not_found("proc_kill", "process", &pid.to_string())
+                }
+                Some(libc::EPERM) => crate::safety::policy_deny(
+                    "proc_kill",
+                    format!(
+                        "proc_kill: the operating system denied {signal} to process {pid} (EPERM)"
+                    ),
+                    "the process belongs to another user or is protected; signal a process this user owns",
+                ),
+                _ => proc_kill_failed(
+                    format!("proc_kill: kill({pid}, {signal}) failed: {err}"),
+                    "the OS refused the signal; the message names the errno",
+                    &err.to_string(),
+                ),
+            });
+        }
+        Ok(proc_kill_sent(pid, signal))
     }
 }
 
