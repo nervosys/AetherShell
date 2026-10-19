@@ -5982,7 +5982,7 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Without a path: this machine's network connections as lsof -i reports them. With a path: the processes holding that file open (an empty array when none). One record per line. Linux and macOS only; Windows refuses with E_UNIMPLEMENTED and lists nothing.",
         examples: &[
             (r#"lsof()"#, r#"[{command: sshd, pid: "812", ...}, ...]"#),
-            (r#"(try { lsof("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"lsof("/etc/hosts")"#, r#"[] (no process holds it open)"#),
         ],
     },
     Signature {
@@ -5996,7 +5996,6 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Linux only. A block device's attributes (uuid, type, label), read with blkid -o export. A device under /dev/ that blkid cannot identify, or that does not exist, is E_NOT_FOUND. Other platforms refuse with E_UNIMPLEMENTED and change nothing.",
         examples: &[
             (r#"blkid("/dev/sda1")"#, r#"{type: ext4, uuid: "...", ...}"#),
-            (r#"(try { blkid("sda1") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -6147,7 +6146,6 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Linux only. An interface's driver-level settings (speed, duplex, link), read with ethtool. A failing ethtool is E_TOOL_FAILED with its stderr. Other platforms refuse with E_UNIMPLEMENTED and inspect nothing.",
         examples: &[
             (r#"monitor_ethtool("eth0")"#, r#"{device: eth0, speed: 10000Mb/s, link_detected: yes, ...}"#),
-            (r#"(try { monitor_ethtool("eth0; id") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {

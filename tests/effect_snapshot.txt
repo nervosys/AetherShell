@@ -351,8 +351,8 @@ echo	Pure
 edit_file	WriteLocal
 ends_with	Pure
 entities	Pure
-entr	Pure
-entr_watch	Pure
+entr	Exec
+entr_watch	Exec
 env	ReadLocal
 env_activate	Pure
 env_container	ReadLocal
@@ -598,7 +598,7 @@ insert_lines	WriteLocal
 inspect	Pure
 iperf3	Network
 iperf3_client	Network
-iperf3_server	Pure
+iperf3_server	Network
 irongate	Network
 is_bsd	Pure
 is_error	Pure
@@ -816,8 +816,8 @@ nn_mutate	Pure
 nn_params	Pure
 nn_set_params	Pure
 node_run	Exec
-nodemon	Pure
-nodemon_run	Pure
+nodemon	Exec
+nodemon_run	Exec
 nodes	Pure
 notify_user	Pure
 now	Pure
@@ -1366,8 +1366,8 @@ vault-models	Exec
 vault_conversions	Exec
 vault_convert	Exec
 vault_models	Exec
-watchexec	Pure
-watchexec_run	Pure
+watchexec	Exec
+watchexec_run	Exec
 wc	ReadLocal
 web_browser_open	Network
 web_build_query	Network

@@ -2261,9 +2261,11 @@ fn awk_bounds_field_reference_expansion() {
     let _lock = LOCK.lock().unwrap();
     let _fixture = Fixture::new();
     let mut env = Env::default();
-    let program = std::iter::repeat_n("$1", 10000)
-        .collect::<Vec<_>>()
-        .join(",");
+    // A bare `$1,$1` is a range pattern in awk, which the subset refuses; a
+    // field list is a print statement, bounded by the 64 KiB program limit
+    // rather than by a count of field references.
+    let fields = |n| std::iter::repeat_n("$1", n).collect::<Vec<_>>().join(",");
+    let program = format!("{{print {}}}", fields(10000));
     let Value::Array(result) = call("awk", vec![s(&program), s("a")], &mut env).unwrap() else {
         panic!("expected rows")
     };
@@ -2271,10 +2273,11 @@ fn awk_bounds_field_reference_expansion() {
         result[0],
         s(&std::iter::repeat_n("a", 10000)
             .collect::<Vec<_>>()
-            .join("\t"))
+            .join(" "))
     );
+    let oversized = format!("{{print {}}}", fields(30000));
     code(
-        call("awk", vec![s(&(program + ",$1")), s("a")], &mut env),
+        call("awk", vec![s(&oversized), s("a")], &mut env),
         "E_BUDGET_EXCEEDED",
     );
 }

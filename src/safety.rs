@@ -534,7 +534,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "file_move" | "file_rename"
         | "session_rollback" => Some(Effect::Destructive),
 
-        // ---- Network (24) ----
+        // ---- Network (25) ----
         | "gh_issue"
         | "gh_pr"
         | "gh_repo_cmd"
@@ -545,6 +545,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "glab_mr"
         | "host_lookup"
         | "iperf3_client"
+        | "iperf3_server"
         | "mtr_trace"
         | "nmap_quick"
         | "nmap_scan"
@@ -628,7 +629,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "zstd_compress"
         | "zstd_decompress" => Some(Effect::WriteLocal),
 
-        // ---- Exec (72) ----
+        // ---- Exec (75) ----
         | "act_run"
         | "apply"
         | "buildah_build"
@@ -644,6 +645,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "diag_lint"
         | "diag_warnings"
         | "docker_run"
+        | "entr_watch"
         | "eslint_check"
         | "fzf_select"
         | "gdb_bt"
@@ -684,6 +686,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "multitail_open"
         | "ninja_build"
         | "node_run"
+        | "nodemon_run"
         | "npm_run"
         | "pnpm_run"
         | "podman_run"
@@ -700,6 +703,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "uv_run"
         | "valgrind_memcheck"
         | "valgrind_run"
+        | "watchexec_run"
         | "yarn_run"
         | "yq_query" => Some(Effect::Exec),
 
