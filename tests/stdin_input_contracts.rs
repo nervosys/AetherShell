@@ -52,8 +52,13 @@ fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<S
 }
 
 fn run_ae(expr: &str, input: Input, tag: &str) -> Run {
+    run_args(&["-c", expr], input, tag)
+}
+
+fn run_args(args: &[&str], input: Input, tag: &str) -> Run {
+    let expr = args.join(" ");
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ae"));
-    cmd.args(["-c", expr])
+    cmd.args(args)
         .env("AETHER_SESSION_DIR", session_dir(tag))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -275,4 +280,20 @@ fn refused_arguments_are_coded_and_never_read_stdin() {
         assert!(r.status.success(), "`{expr}` stderr: {}", r.stderr);
         assert_eq!(r.stdout.trim_end(), "E_BAD_ARG", "`{expr}`");
     }
+}
+
+/// The piped REPL reads its own lines from stdin. A `prompt` answered in the
+/// middle must take exactly its one line and leave stdin free, or the REPL
+/// blocks on the stdin lock (or loses the line read ahead) and never runs
+/// the rest.
+#[test]
+fn the_piped_repl_reads_on_after_a_prompt() {
+    let script = "x = prompt(\"\")\nanswered\nprint(\"got \" + x)\nprint(\"after\")\n";
+    let r = run_args(&[], Input::Piped(script.as_bytes().to_vec()), "repl");
+    assert!(
+        r.stdout.contains("got answered") && r.stdout.contains("after"),
+        "stdout: {}\nstderr: {}",
+        r.stdout,
+        r.stderr
+    );
 }

@@ -2,9 +2,9 @@
 //!
 //! Every interactive builtin reads its answer through this module, so there is
 //! exactly one owner of stdin. A single reader thread, started on first use,
-//! reads line by line and hands each item to the caller over a channel. The
-//! channel has no buffer: the thread holds at most one line ahead, so a large
-//! piped input cannot grow memory without limit.
+//! reads one line each time a caller asks for one, and holds the stdin lock
+//! only while that read is in progress. It never reads ahead, so the REPL and
+//! the POSIX runner, which read stdin directly, still get every line after it.
 //!
 //! Lines are capped at [`MAX_LINE_BYTES`]. An over-long line is read to its
 //! newline and discarded, and the caller gets [`LineError::TooLong`]; the next
@@ -97,30 +97,44 @@ fn finish(mut line: Vec<u8>) -> Item {
     Ok(String::from_utf8_lossy(&line).into_owned())
 }
 
-/// The shared channel and the thread behind it, or the reason it could not
-/// start.
-static READER: OnceLock<Result<Mutex<Receiver<Item>>, String>> = OnceLock::new();
+/// The reader thread's two channels.
+struct Reader {
+    /// One message asks for one line.
+    request: SyncSender<()>,
+    reply: Receiver<Item>,
+    /// A request whose line has not been taken: a timed read gave up on it.
+    /// The next read takes that line instead of asking for another.
+    outstanding: bool,
+}
 
-fn receiver() -> std::result::Result<&'static Mutex<Receiver<Item>>, String> {
+/// The shared reader, or the reason its thread could not start.
+static READER: OnceLock<Result<Mutex<Reader>, String>> = OnceLock::new();
+
+fn reader() -> std::result::Result<&'static Mutex<Reader>, String> {
     READER
         .get_or_init(|| {
-            // Capacity zero: the thread blocks in `send` until a caller takes
-            // the item, so one line is held at a time and never more.
-            let (tx, rx): (SyncSender<Item>, Receiver<Item>) = mpsc::sync_channel(0);
+            let (request, requests): (SyncSender<()>, Receiver<()>) = mpsc::sync_channel(1);
+            let (replies, reply): (SyncSender<Item>, Receiver<Item>) = mpsc::sync_channel(1);
             std::thread::Builder::new()
                 .name("ae-stdin-reader".to_string())
                 .spawn(move || {
                     let stdin = std::io::stdin();
-                    let mut lock = stdin.lock();
-                    loop {
-                        let item = read_item(&mut lock);
+                    while requests.recv().is_ok() {
+                        // Locked per line, so stdin is free between requests.
+                        let item = read_item(&mut stdin.lock());
                         let last = matches!(item, Err(LineError::Eof | LineError::Io(_)));
-                        if tx.send(item).is_err() || last {
+                        if replies.send(item).is_err() || last {
                             break;
                         }
                     }
                 })
-                .map(|_| Mutex::new(rx))
+                .map(|_| {
+                    Mutex::new(Reader {
+                        request,
+                        reply,
+                        outstanding: false,
+                    })
+                })
                 .map_err(|e| e.to_string())
         })
         .as_ref()
@@ -135,8 +149,8 @@ fn receiver() -> std::result::Result<&'static Mutex<Receiver<Item>>, String> {
 /// Errors: an over-long line is `E_BUDGET_EXCEEDED`; end of input, or no
 /// reader, is `E_NO_UI`; a read failure is `E_IO`.
 pub(crate) fn read_line(builtin: &str, timeout: Option<Duration>) -> Result<Option<String>> {
-    let rx = match receiver() {
-        Ok(rx) => rx,
+    let reader = match reader() {
+        Ok(reader) => reader,
         Err(msg) => {
             return Err(crate::safety::fs_error(
                 builtin,
@@ -145,18 +159,24 @@ pub(crate) fn read_line(builtin: &str, timeout: Option<Duration>) -> Result<Opti
             ))
         }
     };
-    let rx = rx.lock().unwrap_or_else(|e| e.into_inner());
+    let mut reader = reader.lock().unwrap_or_else(|e| e.into_inner());
+    // A send fails only once the thread has ended at end of input or an
+    // error; the reply channel is then empty and reports Disconnected.
+    if !reader.outstanding && reader.request.send(()).is_ok() {
+        reader.outstanding = true;
+    }
     let item = match timeout {
-        None => match rx.recv() {
+        None => match reader.reply.recv() {
             Ok(item) => item,
             Err(_) => Err(LineError::Eof),
         },
-        Some(limit) => match rx.recv_timeout(limit) {
+        Some(limit) => match reader.reply.recv_timeout(limit) {
             Ok(item) => item,
             Err(RecvTimeoutError::Timeout) => return Ok(None),
             Err(RecvTimeoutError::Disconnected) => Err(LineError::Eof),
         },
     };
+    reader.outstanding = false;
     match item {
         Ok(line) => Ok(Some(line)),
         Err(LineError::TooLong) => Err(crate::safety::budget_exceeded(
