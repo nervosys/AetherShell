@@ -282,9 +282,9 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "awk", category: None, subject_required: false, aliases: &["awk_process"], subject: None,
-        params: &[req("program", Ty::Str, "print, print $N,... or $N,..., optionally braced and prefixed with a literal /text/ line filter"), opt("text_or_options", Ty::Any, "required String text in direct calls; optional {fs: String} in pipeline calls"), opt("options", Ty::Record, "direct-call {fs: String}; default one space")], returns: "Array<String>",
-        doc: "Process text lines with a limited native field-selection dialect. Direct awk(program,text,options?) or text | awk(program,options?). print returns whole lines; $0 selects a whole line, positive fields are one-based, missing fields are omitted, selections preserve order and duplicates and join with tabs. A single-space separator splits Unicode whitespace; every other separator, including empty and multi-character strings, is literal. /text/ filters by literal substring, without regex semantics; a filter without an action prints matching lines. Bound field lists to 10000 references. Reject malformed fields, braces and filters, invalid or unknown options and conflicting direct/piped text. Unsupported programs return E_UNIMPLEMENTED. Preserve line contents, normalize CRLF boundaries and omit a trailing empty line. Consume owned text and borrow selected fields without per-field String copies.",
-        examples: &[(r#"awk("{print $2, $1}", "a b\nc d")"#, "[\"b\ta\", \"d\tc\"]"), (r#""keep a\nskip b" | awk("/keep/{print $2}")"#, r#"["a"]"#), (r#"awk("{print $2}", "a::b", {fs: "::"})"#, r#"["b"]"#), (r#""a,b" | awk("{print $2}", {fs: ","})"#, r#"["b"]"#)],
+        params: &[req("program", Ty::Str, "awk program: BEGIN/END blocks, pattern-action rules (/re/, comparisons, && || !), if/else, print and printf, assignments, fields, NR/NF/FS/OFS, and length/substr/index/tolower/toupper"), opt("text_or_options", Ty::Any, "required String text in direct calls; optional {fs: String} in pipeline calls"), opt("options", Ty::Record, "direct-call {fs: String}; default one space")], returns: "Array<String>",
+        doc: "Run a bounded awk subset over text lines, in process and without a shell. Direct awk(program,text,options?) or text | awk(program,options?). Supports BEGIN and END, pattern-action rules with POSIX ERE /re/ patterns (no backreferences), comparison and logical patterns, if/else, print (OFS between arguments, newline ORS) and printf with %s %d %i %x %c %f (optional .N on %f) and %%, assignments and ++/--, $0 through $NF, NF, NR, FS and OFS, concatenation, + - * / %, and length, substr, index, tolower and toupper. Strings from input compare numerically when they look like numbers. FS is one space (blanks split), one character, or a regex of several characters; an empty FS is refused. Output lines are the Array<String>. Anything outside the subset (getline, system, redirection, pipes, user functions, arrays, split/sub/gsub/match, ?:, loops, exit, next) is refused with E_BAD_ARG naming the construct. Bounds: program 64 KiB, input 64 MiB or 10,000,000 lines, output 64 MiB, and a step budget; exceeding one returns E_BUDGET_EXCEEDED. Input lines end at LF with a trailing CR removed.",
+        examples: &[(r#"awk("{print $2, $1}", "a b\nc d")"#, "[\"b a\", \"d c\"]"), (r#""keep a\nskip b" | awk("/keep/{print $2}")"#, r#"["a"]"#), (r#"awk("{print $2}", "a::b", {fs: "::"})"#, r#"["b"]"#), (r#""a,b" | awk("{print $2}", {fs: ","})"#, r#"["b"]"#)],
     },
     Signature {
         name: "cut", category: None, subject_required: false, aliases: &["cut_columns"], subject: None,
@@ -5977,11 +5977,12 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[],
+        params: &[opt("path", Ty::Str, "an existing file; lists the processes that hold it open")],
         returns: "Array",
-        doc: "This machine's network connections as lsof -i reports them, one record per line.",
+        doc: "Without a path: this machine's network connections as lsof -i reports them. With a path: the processes holding that file open (an empty array when none). One record per line. Linux and macOS only; Windows refuses with E_UNIMPLEMENTED and lists nothing.",
         examples: &[
             (r#"lsof()"#, r#"[{command: sshd, pid: "812", ...}, ...]"#),
+            (r#"(try { lsof("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -5992,9 +5993,10 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("device", Ty::Str, "a block device such as /dev/sda1")],
         returns: "Record",
-        doc: "A block device's attributes (uuid, type, label). An unidentifiable device is E_NOT_FOUND.",
+        doc: "Linux only. A block device's attributes (uuid, type, label), read with blkid -o export. A device under /dev/ that blkid cannot identify, or that does not exist, is E_NOT_FOUND. Other platforms refuse with E_UNIMPLEMENTED and change nothing.",
         examples: &[
             (r#"blkid("/dev/sda1")"#, r#"{type: ext4, uuid: "...", ...}"#),
+            (r#"(try { blkid("sda1") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -6142,9 +6144,10 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("device", Ty::Str, "an interface such as eth0")],
         returns: "Record",
-        doc: "An interface's driver-level settings (speed, duplex, link).",
+        doc: "Linux only. An interface's driver-level settings (speed, duplex, link), read with ethtool. A failing ethtool is E_TOOL_FAILED with its stderr. Other platforms refuse with E_UNIMPLEMENTED and inspect nothing.",
         examples: &[
             (r#"monitor_ethtool("eth0")"#, r#"{device: eth0, speed: 10000Mb/s, link_detected: yes, ...}"#),
+            (r#"(try { monitor_ethtool("eth0; id") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -6565,6 +6568,98 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Record",
         doc: "Linux only. Removes /etc/systemd/system/ae-<name>.service only when the file carries the AetherShell marker line; a unit without it is refused with E_POLICY_DENY and left alone, and a missing unit is E_NOT_FOUND. Stops the unit if running, disables it if enabled, removes the file and runs systemctl daemon-reload. Returns {name: \"ae-<name>\", stopped: Bool (was running), disabled: Bool (was enabled), removed: true}. Refused inside a transaction. Other platforms refuse with E_UNIMPLEMENTED and change nothing.",
         examples: &[(r#"(try { svc_delete("Bad Name") } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
+    Signature {
+        name: "iperf3_server", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt("options", Ty::Record, "optional {bind: String literal IP default 127.0.0.1, port: Int 1024..65535 default 5201, timeout_ms: Int 1000..600000 default 60000}")],
+        returns: "Record",
+        doc: "Runs `iperf3 -s -1 -J` for one test, then exits, bound to options.bind and options.port, in its own process group. Returns {received_bytes: Int, seconds: Float, bits_per_second: Float (from end.sum_received), timed_out: false, exit_code: Int, duration_ms: Int, stdout: String, stderr: String}. If no client completes a test before timeout_ms, the server and its process tree are killed and the result is timed_out true with received_bytes, seconds and bits_per_second null; that is a result, not an error. A nonzero exit is E_TOOL_FAILED. A bind address other than loopback passes the network policy, as nc_listen does. A missing iperf3 is E_TOOL_MISSING. Pipeline input and unknown options are refused.",
+        examples: &[
+            (r#"(try { [1] | iperf3_server() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { iperf3_server({port: 80}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "entr_watch", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("paths", Ty::Array, "existing files or directories to watch, as Strings with no line break"), req("command", Ty::Array, "argv: absolute existing executable or plain name without '/' or a leading '-', then String arguments"), opt("options", Ty::Record, "optional {timeout_ms: Int 100..600000 default 30000}")],
+        returns: "Record",
+        doc: "Runs `entr -n -- <command>` with the paths written to entr's stdin, so the command runs once at start and again on every change to a listed path. entr is not postponed (-p), so the first run is immediate. The run is bounded by timeout_ms: at the deadline entr and the command's process tree are killed, so entr re-runs on change until then and nothing is left watching. Returns {exit_code: Int or null, timed_out: Bool, duration_ms: Int, stdout: String, stderr: String}; a deadline kill is timed_out true with exit_code null. No shell is used. A nonzero exit of entr itself is E_TOOL_FAILED; a missing entr is E_TOOL_MISSING.",
+        examples: &[
+            (r#"(try { entr_watch(["/nonexistent-ae-path"], ["true"]) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { entr_watch(["/nonexistent-ae-path"], ["true"], {timeout_ms: 1}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "watchexec_run", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("paths", Ty::Array, "existing files or directories to watch, as Strings; a leading '-' is refused"), req("command", Ty::Array, "argv: absolute existing executable or plain name without '/' or a leading '-', then String arguments"), opt("options", Ty::Record, "optional {timeout_ms: Int 100..600000 default 30000}")],
+        returns: "Record",
+        doc: "Runs `watchexec --shell=none -w <path>... -- <command>`: the command runs once at start and again on each change under the given paths, with no shell. The run is bounded by timeout_ms; at the deadline watchexec and the command's process tree are killed, so the command re-runs on change until then and nothing is left watching. Returns {exit_code: Int or null, timed_out: Bool, duration_ms: Int, stdout: String, stderr: String}; a deadline kill is timed_out true with exit_code null. A nonzero exit of watchexec itself is E_TOOL_FAILED; a missing watchexec is E_TOOL_MISSING.",
+        examples: &[
+            (r#"(try { watchexec_run(["/nonexistent-ae-path"], ["true"]) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { watchexec_run(["/nonexistent-ae-path"], ["true"], {timeout_ms: 1}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "nodemon_run", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("script", Ty::Str, "path to an existing .js file; it is the watched directory's entry point"), opt("options", Ty::Record, "optional {timeout_ms: Int 100..600000 default 30000}")],
+        returns: "Record",
+        doc: "Runs `nodemon --exitcrash --watch <script's directory> <script>` without stdin: the script runs at start and again on each change in its directory. A crash ends nodemon early. The run is bounded by timeout_ms; at the deadline nodemon and the script's process tree are killed, so nothing is left watching. Returns {exit_code: Int or null, timed_out: Bool, duration_ms: Int, stdout: String, stderr: String}; a deadline kill is timed_out true with exit_code null. A nonzero exit of nodemon itself is E_TOOL_FAILED; a missing nodemon is E_TOOL_MISSING.",
+        examples: &[
+            (r#"(try { nodemon_run("/nonexistent-ae-path/app.js") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { nodemon_run("/nonexistent-ae-path/app.js", {timeout_ms: 1}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "monitor_tcpdump",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            opt("interface", Ty::Str, "a capture interface such as lo or eth0; defaults to any"),
+            opt_range("count", Ty::Int, 1, 1000, "packets to capture before stopping; defaults to 10"),
+            opt_range("seconds", Ty::Int, 1, 60, "the duration cap; the capture is killed after this many seconds; defaults to 10"),
+        ],
+        returns: "Record",
+        doc: "Linux only (macOS also runs it). Captures up to count packets on interface with tcpdump -nn -q, for at most seconds, then kills tcpdump and its process group. Returns {interface, count, captured, timed_out: Bool, packets: [{line}]}; timed_out is true when the duration cap stopped it first. Needs root for most interfaces. Other platforms refuse with E_UNIMPLEMENTED and capture nothing.",
+        examples: &[
+            (r#"(try { monitor_tcpdump("-i") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { monitor_tcpdump("lo", 0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "monitor_perf_stat",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("argv", Ty::Array, "the program and its arguments as an Array of Strings, e.g. [\"/usr/bin/true\"]"),
+            opt("events", Ty::Str, "comma-separated perf events; defaults to cycles,instructions,cache-misses"),
+        ],
+        returns: "Record",
+        doc: "Linux only. Runs argv under perf stat -e events (no shell) and returns {command, events, counters: [{value, name}], raw_output}. A command string is E_BAD_ARG. A run past 120s is killed with its group and is E_BUDGET_EXCEEDED; a failing perf or command is E_TOOL_FAILED with its stderr. Other platforms refuse with E_UNIMPLEMENTED and run nothing.",
+        examples: &[
+            (r#"(try { monitor_perf_stat("sleep 1") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { monitor_perf_stat(["/usr/bin/true"], "-e") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "monitor_perf_record",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("argv", Ty::Array, "the program and its arguments as an Array of Strings, e.g. [\"/usr/bin/true\"]"),
+            opt("output", Ty::Str, "the file perf writes its profile to; defaults to perf.data in the working directory"),
+        ],
+        returns: "Record",
+        doc: "Linux only. Runs argv under perf record -o output (no shell) and returns {command, output_file, bytes, success: true, details, hint}. The output's directory must exist and the path must not begin with '-'. A run past 120s is killed with its group and is E_BUDGET_EXCEEDED; a failing perf or command is E_TOOL_FAILED. Other platforms refuse with E_UNIMPLEMENTED and run nothing.",
+        examples: &[
+            (r#"(try { monitor_perf_record("sleep 1") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { monitor_perf_record(["/usr/bin/true"], "-o") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
     },
     Signature {
         name: "session_start",

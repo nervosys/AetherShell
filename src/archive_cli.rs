@@ -286,10 +286,7 @@ impl<R: Read> Read for Capped<'_, R> {
                 return Ok(0);
             }
             self.hit.store(true, Ordering::SeqCst);
-            return Err(std::io::Error::new(
-                ErrorKind::Other,
-                "decompressed size cap reached",
-            ));
+            return Err(std::io::Error::other("decompressed size cap reached"));
         }
         let max = buf
             .len()

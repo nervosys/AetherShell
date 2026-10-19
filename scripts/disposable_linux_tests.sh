@@ -14,6 +14,7 @@
 #   AE_BUILD_DISTRO   distro that builds (default: Debian)
 #   AE_TEST_DISTRO    disposable distro that runs (default: ae-disposable)
 #   AE_STAGE          Windows-visible staging dir as seen from WSL (default: /mnt/e/wsl/stage)
+#   AE_TEST_MEMORY_MAX  memory ceiling per test binary, a systemd size (default: 4G)
 set -euo pipefail
 src=$1 target=$2
 shift 2
@@ -43,10 +44,16 @@ exes=$wanted
 
 MSYS_NO_PATHCONV=1 wsl.exe -d "$build" bash -c "mkdir -p '$stage' && cp $(echo $exes) '$stage/'"
 status=0
+# Each binary runs in its own cgroup with a hard memory ceiling that covers the
+# processes it starts. The WSL VM shares memory with the host; one runaway test
+# (an awk_contracts parser loop, 2026-10-19) grew past 80 GB and took the host
+# down with it.
+memory_max=${AE_TEST_MEMORY_MAX:-4G}
 for exe in $exes; do
     name=$(basename "$exe")
     echo "### $name"
-    MSYS_NO_PATHCONV=1 wsl.exe -d "$disposable" -u root env AETHER_DISPOSABLE=1 \
-        "$stage/$name" --ignored --test-threads=1 || status=1
+    MSYS_NO_PATHCONV=1 wsl.exe -d "$disposable" -u root systemd-run --scope --quiet \
+        -p MemoryMax="$memory_max" -p MemorySwapMax=0 \
+        env AETHER_DISPOSABLE=1 timeout 1800 "$stage/$name" --ignored --test-threads=1 || status=1
 done
 exit $status

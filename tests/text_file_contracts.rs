@@ -2116,7 +2116,7 @@ fn awk_preserves_fields_whole_lines_and_literal_filter_semantics() {
                 &mut env
             )
             .unwrap(),
-            Value::Array(vec![s("b\ta\tb"), s("d\tc\td")])
+            Value::Array(vec![s("b a b "), s("d c d ")])
         );
         assert_eq!(
             call_with_input(
@@ -2126,19 +2126,19 @@ fn awk_preserves_fields_whole_lines_and_literal_filter_semantics() {
                 &mut env
             )
             .unwrap(),
-            Value::Array(vec![s("a.b x\tx")])
+            Value::Array(vec![s("a.b x x"), s("axb y y")])
         );
         assert_eq!(
             call(name, vec![s("/keep/"), s("keep a\nskip b")], &mut env).unwrap(),
             Value::Array(vec![s("keep a")])
         );
         assert_eq!(
-            call(name, vec![s("print"), s("  a  b  ")], &mut env).unwrap(),
+            call(name, vec![s("{print}"), s("  a  b  ")], &mut env).unwrap(),
             Value::Array(vec![s("  a  b  ")])
         );
         assert_eq!(
-            call(name, vec![s("$2,$1"), s("a\u{2003}b")], &mut env).unwrap(),
-            Value::Array(vec![s("b\ta")])
+            call(name, vec![s("{print $2,$1}"), s("a\u{2003}b")], &mut env).unwrap(),
+            Value::Array(vec![s(" a\u{2003}b")])
         );
     }
 }
@@ -2147,7 +2147,20 @@ fn awk_honours_optional_separators_in_direct_and_piped_forms() {
     let _lock = LOCK.lock().unwrap();
     let _fixture = Fixture::new();
     let mut env = Env::default();
-    for separator in [",", "::", ""] {
+    // An empty separator is outside the awk subset and is refused.
+    code(
+        call(
+            "awk",
+            vec![
+                s("{print $2}"),
+                s("ab"),
+                Value::Record(std::collections::BTreeMap::from([("fs".into(), s(""))])),
+            ],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    for separator in [",", "::"] {
         let input = if separator.is_empty() {
             "ab".to_string()
         } else {
@@ -2184,21 +2197,19 @@ fn awk_refuses_unhandled_programs_invalid_options_and_conflicts() {
     let _lock = LOCK.lock().unwrap();
     let _fixture = Fixture::new();
     let mut env = Env::default();
+    // Unsupported constructs and malformed programs are all coded bad arguments.
     for program in [
         "",
         "{exit}",
-        "{print 1}",
         "{print $1; exit}",
         "printf",
-        "/a/{}",
+        "{getline}",
+        "{x=system(\"ls\")}",
+        "{print > \"f\"}",
+        "{a[1]=2}",
+        "function f(x){return x}",
     ] {
-        // A malformed field token is a bad argument; unsupported actions are explicit refusals.
-        let expected = if program.contains("$1;") {
-            "E_BAD_ARG"
-        } else {
-            "E_UNIMPLEMENTED"
-        };
-        code(call("awk", vec![s(program), s("a")], &mut env), expected);
+        code(call("awk", vec![s(program), s("a")], &mut env), "E_BAD_ARG");
     }
     for program in [
         "/missing",

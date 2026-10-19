@@ -45484,51 +45484,71 @@ fn bi_lsblk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(entries))
 }
 
+#[path = "linux_diagnostics.rs"]
+mod linux_diagnostics;
+
 /// 958: bi_blkid - Block device attributes (Linux only).
-fn bi_blkid(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_blkid(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    linux_diagnostics::no_pipeline_input("blkid", &input)?;
+    let device = match args.as_slice() {
+        [Value::Str(s)] => s.clone(),
+        [other] => {
+            return Err(crate::safety::bad_arg(
+                "blkid",
+                "a device path String such as /dev/sda1",
+                other.type_name(),
+            ))
+        }
+        _ => {
+            return Err(crate::safety::arg_err(
+                "blkid: expected exactly one device path",
+            ))
+        }
+    };
+    linux_diagnostics::device_path("blkid", &device)?;
     #[cfg(target_os = "linux")]
     {
-        let device = match args.first() {
-            Some(Value::Str(s)) => s.clone(),
-            _ => return Err(crate::safety::arg_err("blkid: expected device path")),
-        };
-        crate::safety::reject_option_like("blkid", std::slice::from_ref(&device))?;
-        let out = Command::new("blkid")
-            .args(&["-o", "export", &device])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("blkid", "blkid", &e))?;
-        // blkid exits 2 for a device it cannot identify; that answered {}.
-        if out.status.code() == Some(2) {
+        let limit = std::time::Duration::from_secs(20);
+        let run = linux_diagnostics::run_bounded(
+            "blkid",
+            "blkid",
+            "blkid",
+            &["-o".to_string(), "export".to_string(), device.clone()],
+            limit,
+        )?;
+        // blkid exits 2 for a device it cannot identify.
+        if !run.timed_out && !run.truncated && run.code == Some(2) {
             return Err(crate::safety::not_found(
                 "blkid",
                 "identifiable device",
                 &device,
             ));
         }
-        if !out.status.success() {
-            return Err(crate::safety::tool_failed(
-                "blkid",
-                "blkid",
-                out.status.code(),
-                &String::from_utf8_lossy(&out.stderr),
-            ));
-        }
-        let text = String::from_utf8_lossy(&out.stdout);
+        linux_diagnostics::require_success("blkid", "blkid", &run, limit)?;
         let mut rec = BTreeMap::new();
-        for line in text.lines() {
+        for line in run.stdout.lines() {
             if let Some((k, v)) = line.split_once('=') {
-                rec.insert(k.to_lowercase(), Value::Str(v.to_string()));
+                let k = k.trim().to_lowercase();
+                if !k.is_empty() {
+                    rec.insert(k, Value::Str(v.to_string()));
+                }
             }
+        }
+        if rec.is_empty() {
+            return Err(crate::safety::not_found(
+                "blkid",
+                "identifiable device",
+                &device,
+            ));
         }
         Ok(Value::Record(rec))
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = &args;
         Err(crate::safety::unimplemented(
             "blkid",
-            "blkid is Linux-only; NOTHING WAS INSPECTED",
-            "lsblk() lists disks on every OS",
+            "blkid is Linux only; NOTHING WAS DONE on this operating system",
+            "lsblk() lists block devices on every OS",
         ))
     }
 }
@@ -45570,55 +45590,77 @@ fn bi_journalctl(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// 961: bi_lsof - List open files.
-fn bi_lsof(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        let out = Command::new("lsof")
-            .args(&["-i", "-P", "-n"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("lsof", "lsof", &e))?;
-        // lsof exits 1 with nothing on stdout when there is nothing to list;
-        // anything on stderr with a failure is a real error.
-        if !out.status.success() && !out.stderr.is_empty() {
-            return Err(crate::safety::tool_failed(
-                "lsof",
-                "lsof",
-                out.status.code(),
-                &String::from_utf8_lossy(&out.stderr),
-            ));
+fn bi_lsof(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    linux_diagnostics::no_pipeline_input("lsof", &input)?;
+    let path = match args.as_slice() {
+        [] => None,
+        [Value::Str(p)] => {
+            linux_diagnostics::file_path("lsof", p)?;
+            Some(p.clone())
         }
-        let text = String::from_utf8_lossy(&out.stdout);
-        let lines: Vec<&str> = text.lines().collect();
-        if lines.is_empty() {
+        [other] => {
+            return Err(crate::safety::bad_arg(
+                "lsof",
+                "a file path String, or no argument",
+                other.type_name(),
+            ))
+        }
+        _ => {
+            return Err(crate::safety::arg_err(
+                "lsof: expected no argument, or one file path",
+            ))
+        }
+    };
+    #[cfg(unix)]
+    {
+        let limit = std::time::Duration::from_secs(30);
+        let mut argv = vec!["-P".to_string(), "-n".to_string()];
+        match &path {
+            Some(p) => {
+                if !std::path::Path::new(p).exists() {
+                    return Err(crate::safety::not_found("lsof", "file", p));
+                }
+                argv.push(p.clone());
+            }
+            None => argv.push("-i".to_string()),
+        }
+        let run = linux_diagnostics::run_bounded("lsof", "lsof", "lsof", &argv, limit)?;
+        // lsof exits 1 when nothing matched; with nothing on stderr that is an
+        // empty answer, not a failure.
+        if run.code == Some(1)
+            && !run.timed_out
+            && !run.truncated
+            && run.stdout.trim().is_empty()
+            && run.stderr.trim().is_empty()
+        {
             return Ok(Value::Array(vec![]));
         }
-        let headers: Vec<&str> = lines[0].split_whitespace().collect();
-        let entries: Vec<Value> = lines[1..]
-            .iter()
+        linux_diagnostics::require_success("lsof", "lsof", &run, limit)?;
+        let mut lines = run.stdout.lines();
+        let headers: Vec<String> = match lines.next() {
+            Some(h) => h.split_whitespace().map(|h| h.to_lowercase()).collect(),
+            None => return Ok(Value::Array(vec![])),
+        };
+        let entries: Vec<Value> = lines
+            .filter(|line| !line.trim().is_empty())
             .map(|line| {
-                let cols: Vec<&str> = line.splitn(headers.len(), char::is_whitespace).collect();
+                let cols = linux_diagnostics::columns(line, headers.len());
                 let mut rec = BTreeMap::new();
-                for (i, h) in headers.iter().enumerate() {
-                    rec.insert(
-                        h.to_lowercase(),
-                        Value::Str(cols.get(i).unwrap_or(&"").to_string()),
-                    );
+                for (header, col) in headers.iter().zip(cols) {
+                    rec.insert(header.clone(), Value::Str(col.to_string()));
                 }
                 Value::Record(rec)
             })
             .collect();
         Ok(Value::Array(entries))
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(not(unix))]
     {
-        // This returned the first 50 processes with handle counts: a
-        // different answer to a different question from the network
-        // connections `lsof -i` lists on Unix, under the same name.
-        let _ = &args;
+        let _ = path;
         Err(crate::safety::unimplemented(
             "lsof",
-            "lsof is not available on Windows; NOTHING WAS LISTED",
-            "netstat_info() lists this machine's network connections",
+            "lsof runs on Linux and macOS only; NOTHING WAS LISTED on this operating system",
+            "netstat_info() lists this machine's network connections on every OS",
         ))
     }
 }
@@ -47090,123 +47132,120 @@ fn chrono_timestamp() -> String {
 // ---------------------------------------------------------------------------
 // 1021: bi_tcpdump_capture — Packet capture
 // ---------------------------------------------------------------------------
-fn bi_tcpdump_capture(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let iface = if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            _ => "any".to_string(),
-        }
-    } else {
-        "any".to_string()
-    };
-    let count = if args.len() > 1 {
-        match &args[1] {
-            Value::Int(n) => *n,
-            _ => 10,
-        }
-    } else {
-        10
-    };
-
-    #[cfg(target_os = "linux")]
-    {
-        let output = Command::new("tcpdump")
-            .args(["-c", &count.to_string(), "-i", &iface, "-nn", "-q"])
-            .output();
-        match output {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let mut records = Vec::new();
-                let text = if stdout.trim().is_empty() {
-                    stderr.to_string()
-                } else {
-                    stdout.to_string()
-                };
-                for line in text.lines() {
-                    if !line.trim().is_empty()
-                        && !line.contains("listening on")
-                        && !line.contains("packets captured")
-                    {
-                        let mut rec = BTreeMap::new();
-                        rec.insert("line".to_string(), Value::Str(line.trim().to_string()));
-                        records.push(Value::Record(rec));
-                    }
-                }
-                let mut result = BTreeMap::new();
-                result.insert("interface".to_string(), Value::Str(iface));
-                result.insert("count".to_string(), Value::Int(count));
-                result.insert("packets".to_string(), Value::Array(records));
-                Ok(Value::Record(result))
-            }
-            Ok(out) => Err(crate::safety::tool_failed(
-                "monitor_tcpdump",
-                "tcpdump",
-                out.status.code(),
-                &String::from_utf8_lossy(&out.stderr),
-            )),
-            Err(e) => {
-                // This answered {available: false, reason} at exit 0: a failure
-                // presented as data.
-                Err(crate::safety::spawn_error("monitor_tcpdump", "tcpdump", &e))
-            }
-        }
+fn bi_tcpdump_capture(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_tcpdump";
+    linux_diagnostics::no_pipeline_input(B, &input)?;
+    if args.len() > 3 {
+        return Err(crate::safety::arg_err(
+            "monitor_tcpdump: expected at most (interface, count, seconds)",
+        ));
     }
-
-    #[cfg(target_os = "macos")]
-    {
-        // tcpdump ships with macOS natively
-        let output = Command::new("tcpdump")
-            .args(["-c", &count.to_string(), "-i", &iface, "-nn", "-q"])
-            .output();
-        match output {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let mut records = Vec::new();
-                let text = if stdout.trim().is_empty() {
-                    stderr.to_string()
-                } else {
-                    stdout.to_string()
-                };
-                for line in text.lines() {
-                    if !line.trim().is_empty()
-                        && !line.contains("listening on")
-                        && !line.contains("packets captured")
-                    {
-                        let mut rec = BTreeMap::new();
-                        rec.insert("line".to_string(), Value::Str(line.trim().to_string()));
-                        records.push(Value::Record(rec));
-                    }
-                }
-                let mut result = BTreeMap::new();
-                result.insert("interface".to_string(), Value::Str(iface));
-                result.insert("count".to_string(), Value::Int(count));
-                result.insert("packets".to_string(), Value::Array(records));
-                Ok(Value::Record(result))
-            }
-            Ok(out) => Err(crate::safety::tool_failed(
-                "monitor_tcpdump",
-                "tcpdump",
-                out.status.code(),
-                &String::from_utf8_lossy(&out.stderr),
-            )),
-            Err(e) => {
-                // This answered {available: false, reason} at exit 0: a failure
-                // presented as data.
-                Err(crate::safety::spawn_error("monitor_tcpdump", "tcpdump", &e))
-            }
+    let iface = match args.first() {
+        None => "any".to_string(),
+        Some(Value::Str(s)) => s.clone(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "an interface name String",
+                other.type_name(),
+            ))
         }
-    }
-
-    #[cfg(target_os = "windows")]
+    };
+    let count = match args.get(1) {
+        None => 10,
+        Some(Value::Int(n)) if (1..=1000).contains(n) => *n,
+        Some(Value::Int(n)) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "a packet count from 1 to 1000",
+                &n.to_string(),
+            ))
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "a packet count Int",
+                other.type_name(),
+            ))
+        }
+    };
+    let seconds = match args.get(2) {
+        None => 10,
+        Some(Value::Int(n)) if (1..=60).contains(n) => *n,
+        Some(Value::Int(n)) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "a duration in seconds from 1 to 60",
+                &n.to_string(),
+            ))
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "a duration Int in seconds",
+                other.type_name(),
+            ))
+        }
+    };
+    linux_diagnostics::interface_name(B, &iface)?;
+    #[cfg(unix)]
     {
-        let _ = (iface, count);
-        // This answered {available: false, reason} at exit 0: a failure
-        // presented as data.
+        // The deadline is the capture's duration: tcpdump stops at `count`
+        // packets or is killed (with its group) at `seconds`.
+        let limit = std::time::Duration::from_secs(seconds as u64);
+        let argv = vec![
+            "-l".to_string(),
+            "-nn".to_string(),
+            "-q".to_string(),
+            "-i".to_string(),
+            iface.clone(),
+            "-c".to_string(),
+            count.to_string(),
+        ];
+        let run = linux_diagnostics::run_bounded(B, "tcpdump", "tcpdump", &argv, limit)?;
+        if run.truncated {
+            return Err(crate::safety::budget_exceeded(
+                B,
+                format!(
+                    "tcpdump wrote more than {} bytes",
+                    linux_diagnostics::MAX_OUTPUT
+                ),
+                "use a smaller packet count",
+            ));
+        }
+        if !run.timed_out && run.code != Some(0) {
+            return Err(crate::safety::tool_failed(
+                B,
+                "tcpdump",
+                run.code,
+                &run.stderr,
+            ));
+        }
+        let packets: Vec<Value> = run
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                let mut rec = BTreeMap::new();
+                rec.insert("line".to_string(), Value::Str(line.to_string()));
+                Value::Record(rec)
+            })
+            .collect();
+        let mut result = BTreeMap::new();
+        result.insert("interface".to_string(), Value::Str(iface));
+        result.insert("count".to_string(), Value::Int(count));
+        result.insert("captured".to_string(), Value::Int(packets.len() as i64));
+        result.insert("timed_out".to_string(), Value::Bool(run.timed_out));
+        result.insert("packets".to_string(), Value::Array(packets));
+        Ok(Value::Record(result))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (iface, count, seconds);
         Err(crate::safety::unimplemented(
-            "monitor_tcpdump",
-            "tcpdump_capture is not available on Windows; NOTHING WAS RUN",
+            B,
+            "tcpdump_capture runs on Linux and macOS only; NOTHING WAS CAPTURED on this operating system",
             "run it on Linux",
         ))
     }
@@ -47687,64 +47726,54 @@ fn bi_ip_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1026: bi_ethtool_info — Ethernet device info (Linux only)
 // ---------------------------------------------------------------------------
-fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let device = if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "ethtool_info: device name required as string argument",
-                ))
-            }
+fn bi_ethtool_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    linux_diagnostics::no_pipeline_input("monitor_ethtool", &input)?;
+    let device = match args.as_slice() {
+        [Value::Str(s)] => s.clone(),
+        [other] => {
+            return Err(crate::safety::bad_arg(
+                "monitor_ethtool",
+                "a device name String such as \"eth0\"",
+                other.type_name(),
+            ))
         }
-    } else {
-        return Err(crate::safety::arg_err(
-            "ethtool_info: device name required (e.g., \"eth0\")",
-        ));
+        _ => {
+            return Err(crate::safety::arg_err(
+                "monitor_ethtool: expected one device name, e.g. \"eth0\"",
+            ))
+        }
     };
-
+    linux_diagnostics::interface_name("monitor_ethtool", &device)?;
     #[cfg(target_os = "linux")]
     {
-        let output = Command::new("ethtool").arg(&device).output();
-        match output {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let mut rec = BTreeMap::new();
-                rec.insert("device".to_string(), Value::Str(device));
-                for line in stdout.lines() {
-                    let trimmed = line.trim();
-                    if let Some((key, val)) = trimmed.split_once(':') {
-                        let k = key
-                            .trim()
-                            .to_lowercase()
-                            .replace(' ', "_")
-                            .replace('-', "_");
-                        let v = val.trim();
-                        if !k.is_empty() && !v.is_empty() {
-                            rec.insert(k, Value::Str(v.to_string()));
-                        }
-                    }
+        let limit = std::time::Duration::from_secs(15);
+        let run = linux_diagnostics::run_bounded(
+            "monitor_ethtool",
+            "ethtool",
+            "ethtool",
+            std::slice::from_ref(&device),
+            limit,
+        )?;
+        linux_diagnostics::require_success("monitor_ethtool", "ethtool", &run, limit)?;
+        let mut rec = BTreeMap::new();
+        rec.insert("device".to_string(), Value::Str(device));
+        for line in run.stdout.lines() {
+            if let Some((key, val)) = line.trim().split_once(':') {
+                let k = key.trim().to_lowercase().replace([' ', '-'], "_");
+                let v = val.trim();
+                if !k.is_empty() && !v.is_empty() {
+                    rec.insert(k, Value::Str(v.to_string()));
                 }
-                Ok(Value::Record(rec))
             }
-            Ok(out) => Err(crate::safety::tool_failed(
-                "monitor_ethtool",
-                &format!("ethtool {device}"),
-                out.status.code(),
-                &String::from_utf8_lossy(&out.stderr),
-            )),
-            // A missing ethtool answered {available: false} at exit 0: a
-            // failure presented as data.
-            Err(e) => Err(crate::safety::spawn_error("monitor_ethtool", "ethtool", &e)),
         }
+        Ok(Value::Record(rec))
     }
-
     #[cfg(not(target_os = "linux"))]
     {
         let _ = device;
         Err(crate::safety::unimplemented(
             "monitor_ethtool",
-            "ethtool is Linux-only; NOTHING WAS INSPECTED",
+            "ethtool is Linux only; NOTHING WAS INSPECTED on this operating system",
             "monitor_ip_link() lists interfaces on every OS",
         ))
     }
@@ -47753,77 +47782,90 @@ fn bi_ethtool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1027: bi_perf_stat — Performance counters (Linux only)
 // ---------------------------------------------------------------------------
-fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let command = if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            _ => return Err(crate::safety::arg_err("perf_stat: command string required")),
-        }
-    } else {
-        return Err(anyhow!(
-            "perf_stat: command string required (e.g., \"sleep 1\")"
+fn bi_perf_stat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    linux_diagnostics::no_pipeline_input("perf_stat", &input)?;
+    if args.is_empty() || args.len() > 2 {
+        return Err(crate::safety::arg_err(
+            "perf_stat: expected an argv array and optionally an event list, e.g. perf_stat([\"/usr/bin/true\"], \"cycles\")",
         ));
-    };
-    let events = if args.len() > 1 {
-        match &args[1] {
-            Value::Str(s) => s.clone(),
-            _ => "cycles,instructions,cache-misses".to_string(),
+    }
+    let argv = linux_diagnostics::argv_arg("perf_stat", &args[0])?;
+    let events = match args.get(1) {
+        None => "cycles,instructions,cache-misses".to_string(),
+        Some(Value::Str(s)) => s.clone(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "perf_stat",
+                "an event list String such as \"cycles,instructions\"",
+                other.type_name(),
+            ))
         }
-    } else {
-        "cycles,instructions,cache-misses".to_string()
     };
-    crate::safety::guard_exec("perf_stat", &command)?;
-
+    linux_diagnostics::event_list("perf_stat", &events)?;
+    let command = argv.join(" ");
+    crate::safety::guard_exec("perf_stat", command.clone())?;
     #[cfg(target_os = "linux")]
     {
-        let output = Command::new("perf")
-            .args(["stat", "-e", &events, "--", "sh", "-c", &command])
-            .output();
-        match output {
-            Ok(out) => {
-                // perf stat outputs to stderr
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let mut rec = BTreeMap::new();
-                rec.insert("command".to_string(), Value::Str(command));
-                rec.insert("events".to_string(), Value::Str(events));
-                let mut counters = Vec::new();
-                for line in stderr.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty()
-                        || trimmed.starts_with("Performance")
-                        || trimmed.starts_with("#")
-                    {
-                        continue;
-                    }
-                    // Parse lines like "  1,234,567      cycles"
-                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                    if parts.len() >= 2 {
-                        let mut counter = BTreeMap::new();
-                        counter.insert("value".to_string(), Value::Str(parts[0].to_string()));
-                        counter.insert("name".to_string(), Value::Str(parts[1..].join(" ")));
-                        counters.push(Value::Record(counter));
-                    }
+        let limit = std::time::Duration::from_secs(120);
+        let mut pargs = vec![
+            "stat".to_string(),
+            "-e".to_string(),
+            events.clone(),
+            "--".to_string(),
+        ];
+        pargs.extend(argv.iter().cloned());
+        let run = linux_diagnostics::run_bounded("perf_stat", "perf", "perf", &pargs, limit)?;
+        linux_diagnostics::require_success("perf_stat", "perf stat", &run, limit)?;
+        // perf stat writes its report to stderr.
+        let mut counters = Vec::new();
+        for line in run.stderr.lines() {
+            let line = line.trim();
+            if line.is_empty()
+                || line.starts_with('#')
+                || line.starts_with("Performance counter stats")
+            {
+                continue;
+            }
+            // "value  event  # comment", or "<not supported> event".
+            let body = line.split('#').next().unwrap_or("").trim();
+            let (value, name) = if let Some(rest) = body.strip_prefix("<not") {
+                let (what, name) = rest.split_once('>').unwrap_or(("", rest));
+                (format!("<not{what}>"), name.trim().to_string())
+            } else {
+                match body.split_once(char::is_whitespace) {
+                    Some((v, n)) => (v.to_string(), n.trim().to_string()),
+                    None => continue,
                 }
-                rec.insert("counters".to_string(), Value::Array(counters));
-                rec.insert("raw_output".to_string(), Value::Str(stderr.to_string()));
-                Ok(Value::Record(rec))
+            };
+            if name.is_empty() {
+                continue;
             }
-            Err(e) => {
-                // This answered {available: false, reason} at exit 0: a failure
-                // presented as data.
-                Err(crate::safety::spawn_error("perf_stat", "perf", &e))
-            }
+            let mut counter = BTreeMap::new();
+            counter.insert("value".to_string(), Value::Str(value));
+            counter.insert("name".to_string(), Value::Str(name));
+            counters.push(Value::Record(counter));
         }
+        if counters.is_empty() {
+            return Err(crate::safety::tool_failed(
+                "perf_stat",
+                "perf stat",
+                run.code,
+                &format!("no counters were reported; stderr was: {}", run.stderr),
+            ));
+        }
+        let mut rec = BTreeMap::new();
+        rec.insert("command".to_string(), Value::Str(command));
+        rec.insert("events".to_string(), Value::Str(events));
+        rec.insert("counters".to_string(), Value::Array(counters));
+        rec.insert("raw_output".to_string(), Value::Str(run.stderr));
+        Ok(Value::Record(rec))
     }
-
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (command, events);
-        // This answered {available: false, reason} at exit 0: a failure
-        // presented as data.
         Err(crate::safety::unimplemented(
             "perf_stat",
-            "perf stat is only available on Linux; NOTHING WAS RUN",
+            "perf stat is Linux only; NOTHING WAS RUN on this operating system",
             "run it on Linux",
         ))
     }
@@ -47832,66 +47874,74 @@ fn bi_perf_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1028: bi_perf_record — Performance recording info (Linux only)
 // ---------------------------------------------------------------------------
-fn bi_perf_record(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let command = if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "perf_record: command string required",
-                ))
-            }
-        }
-    } else {
-        return Err(anyhow!(
-            "perf_record: command string required (e.g., \"sleep 1\")"
+fn bi_perf_record(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    linux_diagnostics::no_pipeline_input("perf_record", &input)?;
+    if args.is_empty() || args.len() > 2 {
+        return Err(crate::safety::arg_err(
+            "perf_record: expected an argv array and optionally an output path, e.g. perf_record([\"/usr/bin/true\"], \"/tmp/x.data\")",
         ));
-    };
-    let output_file = if args.len() > 1 {
-        match &args[1] {
-            Value::Str(s) => s.clone(),
-            _ => "perf.data".to_string(),
+    }
+    let argv = linux_diagnostics::argv_arg("perf_record", &args[0])?;
+    let output_file = match args.get(1) {
+        None => "perf.data".to_string(),
+        Some(Value::Str(s)) => s.clone(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "perf_record",
+                "an output path String",
+                other.type_name(),
+            ))
         }
-    } else {
-        "perf.data".to_string()
     };
-    crate::safety::guard_exec("perf_record", &command)?;
-
+    linux_diagnostics::output_path("perf_record", &output_file)?;
+    let command = argv.join(" ");
+    crate::safety::guard_exec("perf_record", command.clone())?;
     #[cfg(target_os = "linux")]
     {
-        let output = Command::new("perf")
-            .args(["record", "-o", &output_file, "--", "sh", "-c", &command])
-            .output();
-        match output {
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let mut rec = BTreeMap::new();
-                rec.insert("command".to_string(), Value::Str(command));
-                rec.insert("output_file".to_string(), Value::Str(output_file));
-                rec.insert("success".to_string(), Value::Bool(out.status.success()));
-                rec.insert("details".to_string(), Value::Str(stderr.trim().to_string()));
-                rec.insert(
-                    "hint".to_string(),
-                    Value::Str("Use 'perf report' to analyze the recorded data".to_string()),
-                );
-                Ok(Value::Record(rec))
+        let limit = std::time::Duration::from_secs(120);
+        let mut pargs = vec![
+            "record".to_string(),
+            "-o".to_string(),
+            output_file.clone(),
+            "--".to_string(),
+        ];
+        pargs.extend(argv.iter().cloned());
+        let run = linux_diagnostics::run_bounded("perf_record", "perf", "perf", &pargs, limit)?;
+        linux_diagnostics::require_success("perf_record", "perf record", &run, limit)?;
+        let bytes = match std::fs::metadata(&output_file) {
+            Ok(meta) => meta.len(),
+            Err(_) => {
+                return Err(crate::safety::tool_failed(
+                    "perf_record",
+                    "perf record",
+                    Some(0),
+                    &format!("perf exited 0 but wrote no file at {output_file}"),
+                ))
             }
-            Err(e) => {
-                // This answered {available: false, reason} at exit 0: a failure
-                // presented as data.
-                Err(crate::safety::spawn_error("perf_record", "perf", &e))
-            }
-        }
+        };
+        let mut rec = BTreeMap::new();
+        rec.insert("command".to_string(), Value::Str(command));
+        rec.insert("output_file".to_string(), Value::Str(output_file.clone()));
+        rec.insert("bytes".to_string(), Value::Int(bytes as i64));
+        rec.insert("success".to_string(), Value::Bool(true));
+        rec.insert(
+            "details".to_string(),
+            Value::Str(run.stderr.trim().to_string()),
+        );
+        rec.insert(
+            "hint".to_string(),
+            Value::Str(format!(
+                "Use 'perf report -i {output_file}' to analyze the recorded data"
+            )),
+        );
+        Ok(Value::Record(rec))
     }
-
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (command, output_file);
-        // This answered {available: false, reason} at exit 0: a failure
-        // presented as data.
         Err(crate::safety::unimplemented(
             "perf_record",
-            "perf record is only available on Linux; NOTHING WAS RUN",
+            "perf record is Linux only; NOTHING WAS RUN on this operating system",
             "run it on Linux",
         ))
     }
@@ -51040,9 +51090,12 @@ fn bi_sed_replace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// awk — Text processing with field extraction (cross-platform, native Rust).
-/// Usage: awk(program, input_text) or piped: text | awk(program)
-/// Supports simple awk patterns: '{print $N}', '/pattern/{print $N}', field separator via {fs: ","}
+/// awk — bounded in-process awk subset (see src/awk.rs for the grammar and limits).
+/// Usage: awk(program, input_text, options?) or piped: text | awk(program, options?)
+/// Options: {fs: String} sets the initial field separator (default one space).
+#[path = "awk.rs"]
+mod awk;
+
 fn bi_awk_process(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let mut args = args.into_iter();
     let program = match args.next() {
@@ -51082,98 +51135,8 @@ fn bi_awk_process(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             separator = value;
         }
     }
-    let (filter, indices) = parse_simple_awk(&program)?;
-    let mut results = Vec::new();
-    for line in text.lines() {
-        if filter
-            .as_ref()
-            .is_some_and(|pattern| !line.contains(pattern))
-        {
-            continue;
-        }
-        if indices.is_empty() {
-            results.push(Value::Str(line.to_string()));
-            continue;
-        }
-        let fields: Vec<_> = if separator == " " {
-            line.split_whitespace().collect()
-        } else {
-            line.split(&separator).collect()
-        };
-        let selected: Vec<_> = indices
-            .iter()
-            .filter_map(|&i| {
-                if i == 0 {
-                    Some(line)
-                } else {
-                    fields.get(i - 1).copied()
-                }
-            })
-            .collect();
-        results.push(Value::Str(selected.join("\t")));
-    }
-    Ok(Value::Array(results))
-}
-
-/// The deliberately limited awk dialect uses a literal line filter, not regex.
-fn parse_simple_awk(program: &str) -> Result<(Option<String>, Vec<usize>)> {
-    let mut body = program.trim();
-    let mut filter = None;
-    if let Some(rest) = body.strip_prefix('/') {
-        let Some(end) = rest.find('/') else {
-            return Err(crate::safety::arg_err("awk unterminated literal filter"));
-        };
-        filter = Some(rest[..end].to_string());
-        body = rest[end + 1..].trim();
-    }
-    let braced = body.starts_with('{') || body.ends_with('}');
-    if braced {
-        body = body
-            .strip_prefix('{')
-            .and_then(|b| b.strip_suffix('}'))
-            .ok_or_else(|| crate::safety::arg_err("awk requires matched action braces"))?
-            .trim();
-    }
-    if body == "print" || (body.is_empty() && filter.is_some() && !braced) {
-        return Ok((filter, vec![]));
-    }
-    if let Some(rest) = body.strip_prefix("print") {
-        if !rest.starts_with(char::is_whitespace) {
-            return Err(crate::safety::unimplemented(
-                "awk",
-                "only print field selections are supported",
-                "use print $N",
-            ));
-        }
-        body = rest.trim();
-    }
-    let mut fields = Vec::new();
-    for part in body.split(',') {
-        let Some(number) = part.trim().strip_prefix('$') else {
-            return Err(crate::safety::unimplemented(
-                "awk",
-                "only print field selections and literal /text/ filters are supported",
-                "use print $N or print",
-            ));
-        };
-        if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(crate::safety::arg_err(
-                "awk field references must be nonnegative representable integers",
-            ));
-        }
-        let index = number
-            .parse::<usize>()
-            .map_err(|_| crate::safety::arg_err("awk field index is not representable"))?;
-        if fields.len() >= 10000 {
-            return Err(crate::safety::budget_exceeded(
-                "awk",
-                "field selection exceeds 10000 entries".into(),
-                "select fewer fields",
-            ));
-        }
-        fields.push(index);
-    }
-    Ok((filter, fields))
+    let lines = awk::run(&program, &text, &separator)?;
+    Ok(Value::Array(lines.into_iter().map(Value::Str).collect()))
 }
 
 /// cut — Extract columns/fields from text (cross-platform, native Rust).
@@ -53467,20 +53430,13 @@ fn bi_socat_relay(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- iperf3 (1026-1027) ---
 
-/// iperf3 server — Start iperf3 in server mode (info only).
-fn bi_iperf3_server(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let port = match args.first() {
-        Some(Value::Int(n)) => n.to_string(),
-        _ => "5201".to_string(),
-    };
-    // This returned a record whose "info" field told the caller to run the
-    // command themselves -- advice presented as a result. It is a long-running server, which a
-    // shell call cannot host, so say that instead.
-    Err(crate::safety::unimplemented(
-        "iperf3_server",
-        "iperf3_server is a long-running server and is not run by the shell; NOTHING WAS RUN",
-        &format!("run `iperf3 -s -p {port}` in a terminal"),
-    ))
+/// Bounded runs of long-running tools (iperf3 server, entr, watchexec, nodemon).
+#[path = "tool_runs.rs"]
+mod tool_runs;
+
+/// iperf3 server — run one iperf3 test as a server, bounded by timeout_ms.
+fn bi_iperf3_server(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    tool_runs::iperf3_server(args, input)
 }
 
 /// iperf3 client — Run iperf3 client bandwidth test.
@@ -53912,38 +53868,18 @@ fn bi_tokei_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- entr (1039) ---
 
-/// entr — Run a command when files change.
-fn bi_entr_watch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let command = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("entr requires a command to run")),
-    };
-    // This returned a record whose "info" field told the caller to run the
-    // command themselves -- advice presented as a result. It is a long-running file watcher, which a
-    // shell call cannot host, so say that instead.
-    Err(crate::safety::unimplemented(
-        "entr",
-        "entr is a long-running file watcher and is not run by the shell; NOTHING WAS RUN",
-        &format!("run `find . | entr {command}` in a terminal"),
-    ))
+/// entr — Run a command at start and again on each change to the watched paths,
+/// bounded by timeout_ms.
+fn bi_entr_watch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    tool_runs::entr_watch(args, input)
 }
 
 // --- watchexec (1040) ---
 
-/// watchexec — Execute commands in response to file changes.
-fn bi_watchexec_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let command = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("watchexec requires a command")),
-    };
-    // This returned a record whose "info" field told the caller to run the
-    // command themselves -- advice presented as a result. It is a long-running file watcher, which a
-    // shell call cannot host, so say that instead.
-    Err(crate::safety::unimplemented(
-        "watchexec",
-        "watchexec is a long-running file watcher and is not run by the shell; NOTHING WAS RUN",
-        &format!("run `watchexec -- {command}` in a terminal"),
-    ))
+/// watchexec — Run a command at start and on each change under the watched
+/// paths (no shell), bounded by timeout_ms.
+fn bi_watchexec_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    tool_runs::watchexec_run(args, input)
 }
 
 // --- just (1041-1042) ---
@@ -56031,20 +55967,10 @@ fn bi_pytest_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- nodemon (1103) ---
 
-/// nodemon — Auto-restart Node.js app on changes.
-fn bi_nodemon_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let script = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("nodemon requires a script path")),
-    };
-    // This returned a record whose "info" field told the caller to run the
-    // command themselves -- advice presented as a result. It is a long-running file watcher, which a
-    // shell call cannot host, so say that instead.
-    Err(crate::safety::unimplemented(
-        "nodemon",
-        "nodemon is a long-running file watcher and is not run by the shell; NOTHING WAS RUN",
-        &format!("run `nodemon {script}` in a terminal"),
-    ))
+/// nodemon — Run a .js script and restart it on changes in its directory,
+/// bounded by timeout_ms.
+fn bi_nodemon_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    tool_runs::nodemon_run(args, input)
 }
 
 #[cfg(test)]

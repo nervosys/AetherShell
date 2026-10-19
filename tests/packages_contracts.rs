@@ -8,6 +8,7 @@
 //! distro.
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg(target_os = "linux")]
 #[path = "support/disposable.rs"]
 mod disposable;
 

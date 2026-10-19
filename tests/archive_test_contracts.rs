@@ -8,6 +8,7 @@
 //! (scripts/disposable_linux_tests.sh). Each one checks the verdict against the
 //! tool run directly, so the expected answer does not come from this crate.
 
+#[cfg(target_os = "linux")]
 #[path = "support/disposable.rs"]
 mod disposable;
 
