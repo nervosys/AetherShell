@@ -41240,16 +41240,14 @@ fn search_grep(builtin: &str, pattern: &str) -> Result<Vec<String>> {
         if !e.is_file {
             return Ok(());
         }
-        let Ok(bytes) = std::fs::read(&e.path) else {
+        let Some(text) = search_read_text(builtin, &e.path, &e.shown)? else {
             return Ok(());
         };
-        // `grep -I`: a NUL in the first block means binary.
-        if bytes.iter().take(8000).any(|&b| b == 0) {
-            return Ok(());
-        }
-        let text = String::from_utf8_lossy(&bytes);
         for (i, line) in text.lines().enumerate() {
             if re.is_match(line) {
+                if out.len() >= SEARCH_MAX_RESULTS {
+                    return Err(search_budget(builtin));
+                }
                 out.push(format!("{}:{}:{}", e.shown, i + 1, line));
             }
         }
@@ -41326,28 +41324,20 @@ fn search_find(builtin: &str, predicates: &[&str]) -> Result<Vec<String>> {
 }
 
 // Search module implementations
-fn bi_search_code(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pattern = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
-    let found = search_grep("search_code", &pattern)?;
-    let matches: Vec<Value> = found
-        .iter()
-        .take(100)
-        .map(|l| Value::Str(l.to_string()))
-        .collect();
-    Ok(Value::Array(matches))
+fn bi_search_code(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    search_pattern_builtin("search_code", args, input)
 }
 
 fn bi_search_grep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    bi_search_code(args, input)
+    search_pattern_builtin("search_grep", args, input)
 }
 
 fn bi_search_regex(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    bi_search_code(args, input)
+    search_pattern_builtin("search_regex", args, input)
 }
+
+/// The content search behind `search_code`, `search_grep` and `search_regex`:
+/// one regular expression, under the workspace, capped at [`SEARCH_MAX_RESULTS`].
 
 fn bi_search_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pattern = args
@@ -41419,15 +41409,26 @@ fn bi_search_by_type(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(files))
 }
 
-fn bi_search_by_size(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let size = args
-        .first()
-        .map(|v| expect_string("search_by_size", v).map(str::to_string))
-        .transpose()?
-        .unwrap_or("+1M".to_string());
-    let found = search_find("search_by_size", &["-type", "f", "-size", &size])?;
-    let files: Vec<Value> = found.iter().map(|l| Value::Str(l.to_string())).collect();
-    Ok(Value::Array(files))
+fn bi_search_by_size(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "search_by_size";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let size = match args.first() {
+        None => "+1M".to_string(),
+        Some(Value::Str(s)) => s.clone(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "a find-style size such as +1M, -10k or 100c",
+                other.type_name(),
+            ))
+        }
+    };
+    // Checked before the walk: an empty tree would otherwise answer [] for a
+    // size that was never understood.
+    find_size_matches(B, &size, 0)?;
+    let found = search_find(B, &["-type", "f", "-size", size.as_str()])?;
+    search_list(B, found)
 }
 
 #[path = "code_search.rs"]
@@ -55752,117 +55753,124 @@ fn bi_age_keygen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// ripgrep (rg) — Fast regex-based code search.
 /// Usage: rg(pattern) or rg(pattern, path) or rg(pattern, path, flags_record)
-/// Cross-platform: tries `rg` first, falls back to native grep.
+/// Runs `rg --json --regexp=PATTERN PATH` with no shell. Exit 1 is "no matches"; any other
+/// nonzero exit is E_TOOL_FAILED. A missing rg is E_TOOL_MISSING (no native fallback: a
+/// different matcher would answer a different question). Over 1000 matches is E_BUDGET_EXCEEDED.
 fn bi_rg_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let pattern = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("rg requires a search pattern")),
-    };
-    let path = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    // Extract flags from optional record arg
-    let ignore_case = match args.get(2) {
-        Some(Value::Record(r)) => r
-            .get("ignore_case")
-            .map(|v| matches!(v, Value::Bool(true)))
-            .unwrap_or(false),
-        _ => false,
-    };
-    let mut cmd_args = vec!["--json".to_string()];
-    if ignore_case {
-        cmd_args.push("-i".to_string());
-    }
-    cmd_args.push(pattern.clone());
-    cmd_args.push(path.clone());
-
-    let result = std::process::Command::new("rg").args(&cmd_args).output();
-    match result {
-        Ok(out) if out.status.success() || out.status.code() == Some(1) => {
-            // rg --json outputs one JSON object per line
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let mut matches = Vec::new();
-            for line in stdout.lines() {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line) {
-                    if parsed.get("type").and_then(|t| t.as_str()) == Some("match") {
-                        if let Some(data) = parsed.get("data") {
-                            let mut rec = BTreeMap::new();
-                            if let Some(p) = data
-                                .get("path")
-                                .and_then(|p| p.get("text"))
-                                .and_then(|t| t.as_str())
-                            {
-                                rec.insert("file".to_string(), Value::Str(p.to_string()));
-                            }
-                            if let Some(n) = data.get("line_number").and_then(|n| n.as_i64()) {
-                                rec.insert("line".to_string(), Value::Int(n));
-                            }
-                            if let Some(t) = data
-                                .get("lines")
-                                .and_then(|l| l.get("text"))
-                                .and_then(|t| t.as_str())
-                            {
-                                rec.insert(
-                                    "text".to_string(),
-                                    Value::Str(t.trim_end().to_string()),
-                                );
-                            }
-                            matches.push(Value::Record(rec));
-                        }
-                    }
-                }
+    const B: &str = "rg_search";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 3)?;
+    let pattern = k8s_need(B, "a search pattern", &args, 0, search_text_check)?;
+    let path = pkg_path_arg(B, &args, 1, ".")?;
+    let ignore_case =
+        match devtool_options(B, &args, 2, &["ignore_case"])?.and_then(|o| o.get("ignore_case")) {
+            None => false,
+            Some(Value::Bool(b)) => *b,
+            Some(other) => {
+                return Err(crate::safety::arg_err(format!(
+                    "{B}: ignore_case must be a Bool, got {}",
+                    other.type_name()
+                )))
             }
-            Ok(Value::Array(matches))
-        }
-        _ => {
-            // Fallback to native grep implementation
-            bi_grep(vec![Value::Str(pattern), Value::Str(path)], input)
-        }
+        };
+    let regexp = format!("--regexp={pattern}");
+    let mut argv = vec!["--json"];
+    if ignore_case {
+        argv.push("-i");
     }
+    argv.push(regexp.as_str());
+    argv.push(path.as_str());
+    let run = tool_run(
+        B,
+        "rg",
+        None,
+        &argv,
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let command = run.command.clone();
+    let text = stdout_with_exit1(B, run)?;
+    let mut matches = Vec::new();
+    for line in text.lines().filter(|l| !l.is_empty()) {
+        let parsed = serde_json::from_str::<serde_json::Value>(line).map_err(|e| {
+            crate::safety::tool_failed(
+                B,
+                &command,
+                Some(0),
+                &format!("printed a line that is not JSON ({e})"),
+            )
+        })?;
+        if parsed.get("type").and_then(|t| t.as_str()) != Some("match") {
+            continue;
+        }
+        let Some(data) = parsed.get("data") else {
+            continue;
+        };
+        if matches.len() >= SEARCH_MAX_RESULTS {
+            return Err(search_budget(B));
+        }
+        let mut rec = BTreeMap::new();
+        if let Some(p) = data
+            .get("path")
+            .and_then(|p| p.get("text"))
+            .and_then(|t| t.as_str())
+        {
+            rec.insert("file".to_string(), Value::Str(p.to_string()));
+        }
+        if let Some(n) = data.get("line_number").and_then(|n| n.as_i64()) {
+            rec.insert("line".to_string(), Value::Int(n));
+        }
+        if let Some(t) = data
+            .get("lines")
+            .and_then(|l| l.get("text"))
+            .and_then(|t| t.as_str())
+        {
+            rec.insert("text".to_string(), Value::Str(t.trim_end().to_string()));
+        }
+        matches.push(Value::Record(rec));
+    }
+    Ok(Value::Array(matches))
 }
 
 /// fd — Fast, user-friendly file finder.
 /// Usage: fd(pattern) or fd(pattern, path) or fd(pattern, path, {type?, extension?})
-/// Cross-platform: tries `fd` first, falls back to native find.
+/// Runs `fd` with the pattern after `--`, so a leading '-' is never a flag. A missing fd is
+/// E_TOOL_MISSING; there is no native fallback, since find's glob is not fd's regex.
 fn bi_fd_find(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let pattern = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("fd requires a search pattern")),
-    };
-    let path = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let mut cmd_args = vec![pattern.clone()];
-    cmd_args.push(path.clone());
-    // Extract type/extension from optional record arg
-    if let Some(Value::Record(r)) = args.get(2) {
-        if let Some(Value::Str(t)) = r.get("type") {
-            cmd_args.insert(0, t.clone());
-            cmd_args.insert(0, "-t".to_string());
-        }
-        if let Some(Value::Str(ext)) = r.get("extension") {
-            cmd_args.insert(0, ext.clone());
-            cmd_args.insert(0, "-e".to_string());
-        }
+    const B: &str = "fd_find";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 3)?;
+    let pattern = k8s_need(B, "a search pattern", &args, 0, search_text_check)?;
+    let path = pkg_path_arg(B, &args, 1, ".")?;
+    let options = devtool_options(B, &args, 2, &["type", "extension"])?;
+    let kind = devtool_opt_str(B, "type", options, "type", fd_kind_check)?;
+    let extension = devtool_opt_str(B, "extension", options, "extension", fd_ext_check)?;
+    let mut argv: Vec<&str> = Vec::new();
+    if let Some(kind) = kind.as_deref() {
+        argv.extend(["--type", kind]);
     }
-    let result = std::process::Command::new("fd").args(&cmd_args).output();
-    match result {
-        Ok(out) if out.status.success() => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let files: Vec<Value> = stdout
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|l| Value::Str(l.to_string()))
-                .collect();
-            Ok(Value::Array(files))
-        }
-        _ => {
-            // Fallback to native find
-            bi_find(vec![Value::Str(path), Value::Str(pattern)], input)
-        }
+    if let Some(extension) = extension.as_deref() {
+        argv.extend(["--extension", extension]);
     }
+    // fd's pattern is positional: `--` keeps a pattern that begins with '-' from
+    // being read as a flag.
+    argv.extend(["--", pattern.as_str(), path.as_str()]);
+    let run = tool_run(
+        B,
+        "fd",
+        None,
+        &argv,
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let text = tool_text(B, run)?;
+    search_list(
+        B,
+        text.lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
 }
 
 /// sed — Stream editor for text substitution (cross-platform, native Rust).
@@ -56368,49 +56376,49 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
 
 /// yq — Query/transform YAML, TOML, XML data.
 /// Usage: yq(expression, input_string) or piped input.
-/// Shells out to `yq` if available, otherwise parses as YAML natively via serde.
-fn bi_yq_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let expr = match args.first() {
+/// Runs `yq EXPRESSION FILE`, where FILE holds the document (a temporary file, since the
+/// runner gives a child no stdin). A missing yq is E_TOOL_MISSING; nothing is parsed natively.
+fn bi_yq_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "yq_query";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    let expr = k8s_need(B, "an expression", &args, 0, pkg_plain)?;
+    let document = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("yq requires an expression")),
-    };
-    let input_str = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("yq requires input data")),
-    };
-    // Try external yq first
-    let result = std::process::Command::new("yq")
-        .arg(&expr)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn();
-    match result {
-        Ok(mut child) => {
-            use std::io::Write;
-            if let Some(ref mut stdin) = child.stdin {
-                let _ = stdin.write_all(input_str.as_bytes());
-            }
-            let output = child.wait_with_output()?;
-            if output.status.success() {
-                Ok(Value::Str(
-                    String::from_utf8_lossy(&output.stdout).trim().to_string(),
-                ))
-            } else {
-                Err(anyhow!(
-                    "yq error: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ))
-            }
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{B}: the document must be a String, got {}",
+                other.type_name()
+            )))
         }
-        Err(_) => {
-            // Fallback: try to parse as JSON and apply query
-            let parsed: serde_json::Value = serde_json::from_str(&input_str)
-                .map_err(|e| anyhow!("Cannot parse input (install yq for YAML support): {}", e))?;
-            let result = eval_jq_expr(&expr, &parsed)?;
-            Ok(json_to_value(result))
+        None => {
+            return Err(crate::safety::arg_err(format!(
+                "{B} requires the document text"
+            )))
         }
+    };
+    if document.len() > TOOL_MAX_TEXT {
+        return Err(crate::safety::budget_exceeded(
+            B,
+            format!("the document is larger than {TOOL_MAX_TEXT} bytes"),
+            "pass a smaller document",
+        ));
     }
+    // yq reads its document from a file here, because the runner gives a child
+    // no stdin. The file lives in a directory of its own, removed afterwards.
+    let file = scratch_file(B, "document.yaml", document.as_bytes())?;
+    let path = file.display().to_string();
+    let run = tool_run(
+        B,
+        "yq",
+        None,
+        &[expr.as_str(), path.as_str()],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    );
+    scratch_remove(&file);
+    let text = tool_text(B, run?)?;
+    Ok(Value::Str(text.trim().to_string()))
 }
 
 /// pager/less — Display text with pagination (cross-platform).
@@ -57140,43 +57148,199 @@ fn bi_cmake_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
+// ---------------------------------------------------------------------------
+// Lint, format and search builtins: the checks and bounded results they share
+// ---------------------------------------------------------------------------
+
+/// The most results one search returns. A search with more is refused with
+/// E_BUDGET_EXCEEDED, because a list cut at a cap reads as the whole answer.
+const SEARCH_MAX_RESULTS: usize = 1000;
+/// The most bytes of one text file a content search reads.
+const SEARCH_MAX_FILE: u64 = 64 * 1024 * 1024;
+/// The leading bytes a content search inspects for a NUL, as `grep -I` does.
+const SEARCH_BINARY_PROBE: u64 = 8000;
+
+/// A search pattern or other search text: non-empty, no NUL byte. It reaches
+/// the tool as `--regexp=` or as a value, so a leading '-' is data, not a flag.
+fn search_text_check(builtin: &str, what: &str, value: &str) -> Result<String> {
+    if value.is_empty() || value.contains('\0') {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be a non-empty string with no NUL byte"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+/// The refusal for a search whose results would pass the cap.
+fn search_budget(builtin: &str) -> anyhow::Error {
+    crate::safety::budget_exceeded(
+        builtin,
+        format!("more than {SEARCH_MAX_RESULTS} results"),
+        "narrow the pattern or the path so that fewer results match",
+    )
+}
+
+/// Found paths or lines as the Array a search returns, refused past the cap.
+fn search_list(builtin: &str, found: Vec<String>) -> Result<Value> {
+    if found.len() > SEARCH_MAX_RESULTS {
+        return Err(search_budget(builtin));
+    }
+    Ok(Value::Array(found.into_iter().map(Value::Str).collect()))
+}
+
+/// The stdout of a tool whose exit 1 is an answer rather than a failure: ripgrep
+/// (and rga, which runs it) exit 1 for "no matches", mypy for "type errors".
+/// Any other nonzero exit is E_TOOL_FAILED with the stderr tail.
+fn stdout_with_exit1(builtin: &str, mut run: ToolRun) -> Result<String> {
+    if run.code == Some(1) {
+        run.success = true;
+    }
+    tool_text(builtin, run)
+}
+
+/// A tool whose exit 0 and exit `answer` both print a JSON report, which is the
+/// answer. Any other exit is E_TOOL_FAILED, and output that is not JSON is too.
+fn findings_json(builtin: &str, mut run: ToolRun, answer: i32) -> Result<Value> {
+    if run.code == Some(answer) {
+        run.success = true;
+    }
+    let command = run.command.clone();
+    let code = run.code;
+    let stderr = run.stderr.clone();
+    let text = tool_text(builtin, run)?;
+    serde_json::from_str::<serde_json::Value>(&text)
+        .map(json_to_value)
+        .map_err(|e| {
+            let detail = if stderr.is_empty() {
+                format!("printed output that is not JSON ({e})")
+            } else {
+                stderr
+            };
+            crate::safety::tool_failed(builtin, &command, code, &detail)
+        })
+}
+
+/// Writes `bytes` to a new file, in a new directory under the system temporary
+/// directory, for a tool that reads its input from a file rather than a pipe.
+/// The caller removes the directory with [`scratch_remove`].
+fn scratch_file(builtin: &str, file_name: &str, bytes: &[u8]) -> Result<std::path::PathBuf> {
+    let dir = std::env::temp_dir().join(format!("ae_{builtin}_{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir(&dir).map_err(|e| crate::safety::fs_error(builtin, &dir, &e))?;
+    let file = dir.join(file_name);
+    if let Err(e) = std::fs::write(&file, bytes) {
+        scratch_remove(&file);
+        return Err(crate::safety::fs_error(builtin, &file, &e));
+    }
+    Ok(file)
+}
+
+/// Removes the directory that [`scratch_file`] made for `file`.
+fn scratch_remove(file: &std::path::Path) {
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+/// An fd entry kind: one of fd's type letters.
+fn fd_kind_check(builtin: &str, what: &str, value: &str) -> Result<String> {
+    match value {
+        "f" | "d" | "l" | "x" | "e" | "s" | "p" => Ok(value.to_string()),
+        _ => Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is one of f, d, l, x, e, s, p (got {value:?})"
+        ))),
+    }
+}
+
+/// A file extension for fd: letters, digits and `_+-`, not starting with '-'.
+fn fd_ext_check(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let well_formed = !value.is_empty()
+        && value.len() <= 32
+        && !value.starts_with('-')
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_+-".contains(c));
+    if well_formed {
+        Ok(value.to_string())
+    } else {
+        Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is an extension such as rs (letters, digits and _+- only), got {value:?}"
+        )))
+    }
+}
+
+/// The text of one file that a content search reads. A file with a NUL in its
+/// first bytes is binary and is skipped, as `grep -I` skips it. A text file past
+/// the size limit is refused rather than read in part.
+fn search_read_text(builtin: &str, path: &std::path::Path, shown: &str) -> Result<Option<String>> {
+    use std::io::Read;
+    let mut file =
+        std::fs::File::open(path).map_err(|e| crate::safety::fs_error(builtin, shown, &e))?;
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(SEARCH_BINARY_PROBE)
+        .read_to_end(&mut bytes)
+        .map_err(|e| crate::safety::fs_error(builtin, shown, &e))?;
+    if bytes.contains(&0) {
+        return Ok(None);
+    }
+    (&mut file)
+        .take(SEARCH_MAX_FILE + 1 - bytes.len() as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|e| crate::safety::fs_error(builtin, shown, &e))?;
+    if bytes.len() as u64 > SEARCH_MAX_FILE {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("`{shown}` is larger than {} MiB", SEARCH_MAX_FILE >> 20),
+            "search a narrower directory",
+        ));
+    }
+    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+}
+
+fn search_pattern_builtin(builtin: &str, args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input(builtin, &input)?;
+    k8s_max_args(builtin, &args, 1)?;
+    let pattern = k8s_need(builtin, "a regular expression", &args, 0, search_text_check)?;
+    let found = search_grep(builtin, &pattern)?;
+    search_list(builtin, found)
+}
+
 /// ninja — Fast build system.
 /// Usage: ninja_build() or ninja_build({dir?, target?, jobs?})
-fn bi_ninja_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("ninja");
-    if let Some(Value::Record(r)) = args.first() {
-        if let Some(Value::Str(d)) = r.get("dir") {
-            cmd.args(["-C", d]);
-        }
-        if let Some(Value::Str(t)) = r.get("target") {
-            cmd.arg(t);
-        }
-        if let Some(Value::Int(j)) = r.get("jobs") {
-            cmd.arg(format!("-j{}", j));
-        }
-    } else if let Some(Value::Str(dir)) = args.first() {
-        cmd.args(["-C", dir]);
+fn bi_ninja_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "ninja_build";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let mut dir = None;
+    let mut options = None;
+    match args.first() {
+        None => {}
+        Some(Value::Str(d)) => dir = Some(pkg_plain(B, "dir", d)?),
+        Some(_) => options = devtool_options(B, &args, 0, &["dir", "target", "jobs"])?,
     }
-    let out = cmd
-        .output()
-        .map_err(|e| crate::safety::tool_missing("ninja", "ninja", &e.to_string()))?;
-    let mut rec = BTreeMap::new();
-    rec.insert("success".to_string(), Value::Bool(out.status.success()));
-    rec.insert(
-        "exit_code".to_string(),
-        Value::Int(out.status.code().unwrap_or(-1) as i64),
-    );
-    rec.insert(
-        "stdout".to_string(),
-        Value::Str(String::from_utf8_lossy(&out.stdout).to_string()),
-    );
-    if !out.stderr.is_empty() {
-        rec.insert(
-            "stderr".to_string(),
-            Value::Str(String::from_utf8_lossy(&out.stderr).to_string()),
-        );
+    if dir.is_none() {
+        dir = devtool_opt_str(B, "dir", options, "dir", pkg_plain)?;
     }
-    Ok(Value::Record(rec))
+    let target = devtool_opt_str(B, "target", options, "target", pkg_plain)?;
+    let jobs = devtool_opt_int(B, "jobs", options, "jobs", 1, DEVTOOL_MAX_JOBS)?;
+    let workdir = devtool_dir(B, dir.as_deref())?;
+    let mut argv: Vec<String> = Vec::new();
+    if let Some(j) = jobs {
+        argv.push(format!("-j{j}"));
+    }
+    if let Some(t) = target {
+        argv.push(t);
+    }
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = tool_run(
+        B,
+        "ninja",
+        Some(workdir.as_path()),
+        &refs,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    pkg_done(B, run, Vec::new())
 }
 
 /// netstat — Display network connections and socket information (cross-platform).
@@ -58861,36 +59025,32 @@ fn bi_bat_view(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // --- eza (1029) ---
 
 /// eza — Modern replacement for ls.
-fn bi_eza_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("eza")
-        .args(["-la", "--git", "--no-user", "--time-style=long-iso", &path])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let entries: Vec<Value> = stdout
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|line| Value::Str(line.to_string()))
-                .collect();
-            Ok(Value::Array(entries))
-        }
-        // These were one `_` arm reporting "eza not found", which is right
-        // for only one of them: a non-zero exit means eza IS installed and
-        // rejected the call, so advising an install is advice that cannot
-        // work.
-        Ok(o) => Err(crate::safety::tool_failed(
-            "eza",
-            "eza -la --git",
-            o.status.code(),
-            &String::from_utf8_lossy(&o.stderr),
-        )),
-        Err(e) => Err(crate::safety::tool_missing("eza", "eza", &e.to_string())),
-    }
+fn bi_eza_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "eza_list";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = pkg_path_arg(B, &args, 0, ".")?;
+    let run = tool_run(
+        B,
+        "eza",
+        None,
+        &[
+            "-la",
+            "--git",
+            "--no-user",
+            "--time-style=long-iso",
+            path.as_str(),
+        ],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let text = tool_text(B, run)?;
+    search_list(
+        B,
+        text.lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
 }
 
 // --- zoxide (1030-1031) ---
@@ -58961,36 +59121,33 @@ fn bi_zoxide_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // --- delta (1032) ---
 
 /// delta — Syntax-highlighting diff viewer.
-fn bi_delta_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file_a = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("delta requires two file paths")),
-    };
-    let file_b = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("delta requires two file paths")),
-    };
-    let output = std::process::Command::new("delta")
-        .args([&file_a, &file_b])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("file_a".to_string(), Value::Str(file_a));
-            rec.insert("file_b".to_string(), Value::Str(file_b));
-            rec.insert(
-                "diff".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).to_string()),
-            );
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            Ok(Value::Record(rec))
+fn bi_delta_diff(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "delta_diff";
+    pkg_shape(B, &args, &input, 2)?;
+    let file_a = k8s_need(B, "two file paths", &args, 0, pkg_plain)?;
+    let file_b = k8s_need(B, "two file paths", &args, 1, pkg_plain)?;
+    for file in [&file_a, &file_b] {
+        pkg_inside(B, file)?;
+        let meta = std::fs::metadata(file).map_err(|e| devtool_io(B, "file", file, &e))?;
+        if !meta.is_file() {
+            return Err(crate::safety::not_found(B, "file", file));
         }
-        Err(e) => Err(crate::safety::tool_missing(
-            "delta",
-            "delta",
-            &e.to_string(),
-        )),
     }
+    let run = tool_run(
+        B,
+        "delta",
+        None,
+        &[file_a.as_str(), file_b.as_str()],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let diff = tool_text(B, run)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("file_a".to_string(), Value::Str(file_a));
+    rec.insert("file_b".to_string(), Value::Str(file_b));
+    rec.insert("diff".to_string(), Value::Str(diff));
+    rec.insert("success".to_string(), Value::Bool(true));
+    Ok(Value::Record(rec))
 }
 
 // --- lazygit (1033) ---
@@ -59069,106 +59226,102 @@ fn bi_lazygit_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // --- fzf (1034) ---
 
-/// fzf — Fuzzy finder. Searches input or files.
+/// fzf — Filters piped items by a case-insensitive substring of the query. No fzf process
+/// is started, so this is not fuzzy matching and offers no interactive picker: it never
+/// needs a terminal and never blocks. Items must be piped in (E_BAD_ARG otherwise).
 fn bi_fzf_select(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let query = args.first().and_then(|a| match a {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    });
-    let items: Vec<String> = match &input {
-        Some(Value::Array(arr)) => arr.iter().map(|v| format!("{}", v)).collect(),
-        Some(Value::Str(s)) => s.lines().map(|l| l.to_string()).collect(),
-        _ => vec![],
+    const B: &str = "fzf_select";
+    k8s_max_args(B, &args, 1)?;
+    let query = match args.first() {
+        None => None,
+        Some(Value::Str(q)) => {
+            devtool_text_arg(B, "the query", q)?;
+            Some(q.to_lowercase())
+        }
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{B}: the query must be a String, got {}",
+                other.type_name()
+            )))
+        }
     };
-    if items.is_empty() {
-        let mut cmd = std::process::Command::new("fzf");
-        if let Some(q) = &query {
-            cmd.args(["--query", q]);
+    let items: Vec<String> = match &input {
+        // Display colours and quotes its output; a string item is its own text.
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => s.clone(),
+                other => other.to_json().to_string(),
+            })
+            .collect(),
+        Some(Value::Str(s)) => s.lines().map(str::to_string).collect(),
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{B}: piped input must be an Array or a String, got {}",
+                other.type_name()
+            )))
         }
-        cmd.arg("--filter").arg(query.as_deref().unwrap_or(""));
-        let output = cmd.output();
-        match output {
-            Ok(o) => {
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                let results: Vec<Value> =
-                    stdout.lines().map(|l| Value::Str(l.to_string())).collect();
-                Ok(Value::Array(results))
-            }
-            Err(e) => Err(crate::safety::tool_missing("fzf", "fzf", &e.to_string())),
+        None => {
+            return Err(crate::safety::arg_err(format!(
+                "{B} needs piped items, as in `items | {B}(query)`; it does not start an interactive picker"
+            )))
         }
-    } else {
-        // Filter items with the query
-        if let Some(q) = &query {
-            let q_lower = q.to_lowercase();
-            let filtered: Vec<Value> = items
-                .iter()
-                .filter(|item| item.to_lowercase().contains(&q_lower))
-                .map(|item| Value::Str(item.clone()))
-                .collect();
-            Ok(Value::Array(filtered))
-        } else {
-            Ok(Value::Array(items.into_iter().map(Value::Str).collect()))
+    };
+    // A case-insensitive substring filter over the piped items. No process is
+    // started, so no terminal is needed and nothing can block.
+    let mut out = Vec::new();
+    for item in items {
+        let keep = match &query {
+            Some(q) => item.to_lowercase().contains(q.as_str()),
+            None => true,
+        };
+        if keep {
+            out.push(Value::Str(item));
         }
     }
+    Ok(Value::Array(out))
 }
 
 // --- rga (1035) ---
 
 /// rga — ripgrep-all: search in PDFs, archives, etc.
-fn bi_rga_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pattern = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("rga requires a search pattern")),
-    };
-    let path = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("rga")
-        .args(["--json", &pattern, &path])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let lines: Vec<Value> = stdout
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(
-                    |line| match serde_json::from_str::<serde_json::Value>(line) {
-                        Ok(json) => json_to_value(json),
-                        Err(_) => Value::Str(line.to_string()),
-                    },
-                )
-                .collect();
-            Ok(Value::Array(lines))
-        }
-        _ => {
-            // Fallback to ripgrep
-            let output = std::process::Command::new("rg")
-                .args(["--json", &pattern, &path])
-                .output();
-            match output {
-                Ok(o) => {
-                    let stdout = String::from_utf8_lossy(&o.stdout);
-                    let lines: Vec<Value> = stdout
-                        .lines()
-                        .filter(|l| !l.is_empty())
-                        .filter_map(|line| {
-                            serde_json::from_str::<serde_json::Value>(line)
-                                .ok()
-                                .map(json_to_value)
-                        })
-                        .collect();
-                    Ok(Value::Array(lines))
-                }
-                Err(e) => Err(crate::safety::tool_missing(
-                    "rga",
-                    "rga (or rg)",
-                    &e.to_string(),
-                )),
+fn bi_rga_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "rga_search";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    let pattern = k8s_need(B, "a search pattern", &args, 0, search_text_check)?;
+    let path = pkg_path_arg(B, &args, 1, ".")?;
+    let regexp = format!("--regexp={pattern}");
+    let run = tool_run(
+        B,
+        "rga",
+        None,
+        &["--json", regexp.as_str(), path.as_str()],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let command = run.command.clone();
+    let text = stdout_with_exit1(B, run)?;
+    let mut out = Vec::new();
+    let mut matches = 0usize;
+    for line in text.lines().filter(|l| !l.is_empty()) {
+        let value = serde_json::from_str::<serde_json::Value>(line).map_err(|e| {
+            crate::safety::tool_failed(
+                B,
+                &command,
+                Some(0),
+                &format!("printed a line that is not JSON ({e})"),
+            )
+        })?;
+        if value.get("type").and_then(|t| t.as_str()) == Some("match") {
+            matches += 1;
+            if matches > SEARCH_MAX_RESULTS {
+                return Err(search_budget(B));
             }
         }
+        out.push(json_to_value(value));
     }
+    Ok(Value::Array(out))
 }
 
 // --- sd (1036) ---
@@ -59211,81 +59364,57 @@ fn regex_substitute(re: &regex::Regex, replacement: &str, source: String, global
 // --- hyperfine (1037) ---
 
 /// hyperfine — Command-line benchmarking tool.
-fn bi_hyperfine_bench(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let commands: Vec<String> = args
-        .iter()
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
+fn bi_hyperfine_bench(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "hyperfine_bench";
+    k8s_no_input(B, &input)?;
+    let commands = pkg_each(B, "a command", &args, pkg_plain)?;
     if commands.is_empty() {
         return Err(crate::safety::arg_err(
-            "hyperfine requires at least one command to benchmark",
+            "hyperfine_bench requires at least one command to benchmark",
         ));
     }
-    let mut cmd = std::process::Command::new("hyperfine");
-    cmd.arg("--export-json").arg("/dev/stdout");
-    for c in &commands {
-        cmd.arg(c);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
-            }
-        }
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "hyperfine",
-            "hyperfine",
-            &e.to_string(),
-        )),
-    }
+    // --shell=none runs each command without a shell: hyperfine splits it into
+    // words and runs the first, so no shell syntax is interpreted. The results
+    // come back through a file, since a Windows host has no /dev/stdout.
+    let export = scratch_file(B, "export.json", &[])?;
+    let export_path = export.display().to_string();
+    let mut argv: Vec<&str> = vec!["--shell=none", "--export-json", export_path.as_str()];
+    argv.extend(commands.iter().map(String::as_str));
+    let outcome = (|| -> Result<Value> {
+        let run = pkg_run(B, "hyperfine", &argv, PKG_RUN_DEADLINE_SECS)?;
+        pkg_output(B, run)?;
+        let text = devtool_read_text(B, "export file", &export_path)?;
+        serde_json::from_str::<serde_json::Value>(&text)
+            .map(json_to_value)
+            .map_err(|e| {
+                crate::safety::tool_failed(
+                    B,
+                    "hyperfine",
+                    Some(0),
+                    &format!("exported output that is not JSON ({e})"),
+                )
+            })
+    })();
+    scratch_remove(&export);
+    outcome
 }
 
 // --- tokei (1038) ---
 
 /// tokei — Count lines of code by language.
-fn bi_tokei_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("tokei")
-        .args(["--output", "json", &path])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
-            }
-        }
-        Ok(o) => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stdout).trim().to_string(),
-        )),
-        Err(e) => Err(crate::safety::tool_missing(
-            "tokei",
-            "tokei",
-            &e.to_string(),
-        )),
-    }
+fn bi_tokei_count(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "tokei_count";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = pkg_path_arg(B, &args, 0, ".")?;
+    let run = tool_run(
+        B,
+        "tokei",
+        None,
+        &["--output", "json", path.as_str()],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    tool_json(B, run)
 }
 
 // --- entr (1039) ---
@@ -59812,6 +59941,8 @@ fn node_tool(name: &'static str) -> &'static str {
         "npm" if cfg!(windows) => "npm.cmd",
         "pnpm" if cfg!(windows) => "pnpm.cmd",
         "yarn" if cfg!(windows) => "yarn.cmd",
+        "prettier" if cfg!(windows) => "prettier.cmd",
+        "eslint" if cfg!(windows) => "eslint.cmd",
         _ => name,
     }
 }
@@ -59973,41 +60104,30 @@ fn bi_poetry_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // --- node (1058) ---
 
 /// node — Run a Node.js script.
-fn bi_node_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_node_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "node_run";
+    pkg_shape(B, &args, &input, 1)?;
     let script = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
+        Some(Value::Str(s)) if !s.trim().is_empty() && !s.contains('\0') => s.clone(),
         _ => {
             return Err(crate::safety::arg_err(
                 "node_run requires a script path or expression",
             ))
         }
     };
-    let output = if script.ends_with(".js") || script.ends_with(".mjs") || script.ends_with(".ts") {
-        std::process::Command::new("node").arg(&script).output()
+    let run = if [".js", ".mjs", ".ts"]
+        .iter()
+        .any(|ext| script.ends_with(ext))
+    {
+        // A script file: a plain path inside the workspace, never a flag.
+        let path = pkg_plain(B, "script path", &script)?;
+        pkg_inside(B, &path)?;
+        pkg_run(B, "node", &[path.as_str()], PKG_RUN_DEADLINE_SECS)?
     } else {
-        std::process::Command::new("node")
-            .args(["-e", &script])
-            .output()
+        // An expression: the text after -e is the program, whatever it begins with.
+        pkg_run(B, "node", &["-e", script.as_str()], PKG_RUN_DEADLINE_SECS)?
     };
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("node", "node", &e.to_string())),
-    }
+    pkg_done(B, run, Vec::new())
 }
 
 // --- npm (1059-1060) ---
@@ -60208,32 +60328,12 @@ fn bi_go_test(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // --- mage (1073) ---
 
 /// mage — Run a mage target (Go task runner).
-fn bi_mage_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let target = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("mage_run requires a target name")),
-    };
-    let output = std::process::Command::new("mage").arg(&target).output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("target".to_string(), Value::Str(target));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("mage", "mage", &e.to_string())),
-    }
+fn bi_mage_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "mage_run";
+    pkg_shape(B, &args, &input, 1)?;
+    let target = k8s_need(B, "a target name", &args, 0, pkg_plain)?;
+    let run = pkg_run(B, "mage", &[target.as_str()], PKG_RUN_DEADLINE_SECS)?;
+    pkg_done(B, run, vec![("target", Value::Str(target))])
 }
 
 // --- bun (1074-1075) ---
@@ -60789,33 +60889,23 @@ fn bi_trivy_image(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // --- hadolint (1092) ---
 
 /// hadolint — Lint Dockerfiles.
-fn bi_hadolint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "Dockerfile".to_string(),
-    };
-    let output = std::process::Command::new("hadolint")
-        .args(["--format", "json", &path])
-        .output();
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => {
-                    let mut rec = BTreeMap::new();
-                    rec.insert("success".to_string(), Value::Bool(o.status.success()));
-                    rec.insert("output".to_string(), Value::Str(stdout.trim().to_string()));
-                    Ok(Value::Record(rec))
-                }
-            }
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "hadolint",
-            "hadolint",
-            &e.to_string(),
-        )),
+fn bi_hadolint_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "hadolint_check";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = pkg_path_arg(B, &args, 0, "Dockerfile")?;
+    if !std::path::Path::new(&path).is_file() {
+        return Err(crate::safety::not_found(B, "file", &path));
     }
+    let run = tool_run(
+        B,
+        "hadolint",
+        None,
+        &["--format", "json", path.as_str()],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    // hadolint exits 1 when it reports findings: that is the answer.
+    findings_json(B, run, 1)
 }
 
 // --- shellcheck (1093) ---
@@ -60865,26 +60955,21 @@ fn bi_shellcheck_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // --- shfmt (1094) ---
 
 /// shfmt — Format shell scripts.
-fn bi_shfmt_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("shfmt requires a script path")),
-    };
-    let output = std::process::Command::new("shfmt").arg(&path).output();
-    match output {
-        Ok(o) if o.status.success() => {
-            Ok(Value::Str(String::from_utf8_lossy(&o.stdout).to_string()))
-        }
-        Ok(o) => Err(anyhow!(
-            "shfmt error: {}",
-            String::from_utf8_lossy(&o.stderr)
-        )),
-        Err(e) => Err(crate::safety::tool_missing(
-            "shfmt",
-            "shfmt",
-            &e.to_string(),
-        )),
-    }
+fn bi_shfmt_format(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "shfmt_format";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = k8s_need(B, "a script path", &args, 0, pkg_plain)?;
+    pkg_inside(B, &path)?;
+    // Without -w shfmt writes the formatted script to stdout and changes no file.
+    let run = tool_run(
+        B,
+        "shfmt",
+        None,
+        &[path.as_str()],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    tool_text(B, run).map(Value::Str)
 }
 
 // --- yamllint (1095) ---
@@ -60933,69 +61018,60 @@ fn bi_yamllint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // --- prettier (1096) ---
 
 /// prettier — Format code with Prettier.
-fn bi_prettier_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("prettier requires a file path")),
-    };
-    let write_flag = args
-        .iter()
-        .any(|a| matches!(a, Value::Str(s) if s == "--write"));
-    let mut cmd = std::process::Command::new("prettier");
-    if write_flag {
-        cmd.arg("--write");
-    }
-    cmd.arg(&path);
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
+fn bi_prettier_format(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "prettier_format";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    let path = k8s_need(B, "a file path", &args, 0, pkg_plain)?;
+    pkg_inside(B, &path)?;
+    let write = match args.get(1) {
+        None => false,
+        Some(Value::Str(s)) if s == "--write" => true,
+        Some(Value::Str(s)) => {
+            return Err(crate::safety::arg_err(format!(
+                "{B}: the only option is \"--write\", got {s:?}"
+            )))
         }
-        Err(e) => Err(crate::safety::tool_missing(
-            "prettier",
-            "prettier",
-            &e.to_string(),
-        )),
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{B}: the option must be a String, got {}",
+                other.type_name()
+            )))
+        }
+    };
+    let mut argv: Vec<&str> = Vec::new();
+    if write {
+        argv.push("--write");
     }
+    argv.push(path.as_str());
+    let run = tool_run(
+        B,
+        node_tool("prettier"),
+        None,
+        &argv,
+        Keep::Head(TOOL_MAX_TEXT),
+        PKG_RUN_DEADLINE_SECS,
+    )?;
+    pkg_done(B, run, vec![("path", Value::Str(path))])
 }
 
 // --- eslint (1097) ---
 
 /// eslint — Lint JavaScript/TypeScript files.
-fn bi_eslint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("eslint")
-        .args(["--format=json", &path])
-        .output();
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => {
-                    let mut rec = BTreeMap::new();
-                    rec.insert("success".to_string(), Value::Bool(o.status.success()));
-                    rec.insert("output".to_string(), Value::Str(stdout.trim().to_string()));
-                    Ok(Value::Record(rec))
-                }
-            }
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "eslint",
-            "eslint",
-            &e.to_string(),
-        )),
-    }
+fn bi_eslint_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "eslint_check";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = pkg_path_arg(B, &args, 0, ".")?;
+    let run = tool_run(
+        B,
+        node_tool("eslint"),
+        None,
+        &["--format=json", path.as_str()],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    // eslint exits 1 when it reports problems: that is the answer.
+    findings_json(B, run, 1)
 }
 
 // --- ruff (1098-1099) ---
@@ -61044,70 +61120,51 @@ fn bi_black_format(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // --- mypy (1101) ---
 
 /// mypy — Type check Python code.
-fn bi_mypy_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("mypy").arg(&path).output();
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let issues: Vec<Value> = stdout
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|line| Value::Str(line.to_string()))
-                .collect();
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert("issues".to_string(), Value::Array(issues));
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("mypy", "mypy", &e.to_string())),
-    }
+fn bi_mypy_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "mypy_check";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = pkg_path_arg(B, &args, 0, ".")?;
+    let run = tool_run(
+        B,
+        "mypy",
+        None,
+        &[path.as_str()],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    let clean = run.code == Some(0);
+    let text = stdout_with_exit1(B, run)?;
+    let issues: Vec<Value> = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.is_empty() && !l.starts_with("Success:") && !l.starts_with("Found "))
+        .map(|l| Value::Str(l.to_string()))
+        .collect();
+    let mut rec = BTreeMap::new();
+    rec.insert("success".to_string(), Value::Bool(clean));
+    rec.insert("issues".to_string(), Value::Array(issues));
+    Ok(Value::Record(rec))
 }
 
 // --- pytest (1102) ---
 
 /// pytest — Run Python tests.
-fn bi_pytest_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let extra: Vec<String> = args
-        .iter()
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("pytest");
-    cmd.arg("-v");
-    for a in &extra {
-        cmd.arg(a);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
+fn bi_pytest_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "pytest_run";
+    k8s_no_input(B, &input)?;
+    // Options and test selectors pass through as given. A path-shaped value
+    // that is not an option must lie inside the workspace.
+    let extra = pkg_trailing(B, &args)?;
+    for value in extra.iter().filter(|v| !v.starts_with('-')) {
+        if pkg_is_pathlike(value) {
+            pkg_inside(B, value)?;
         }
-        Err(e) => Err(crate::safety::tool_missing(
-            "pytest",
-            "pytest",
-            &e.to_string(),
-        )),
     }
+    let mut argv: Vec<&str> = vec!["-v"];
+    argv.extend(extra.iter().map(String::as_str));
+    let run = pkg_run(B, "pytest", &argv, PKG_RUN_DEADLINE_SECS)?;
+    // A failing test is a nonzero exit, so it is E_TOOL_FAILED with the output tail.
+    pkg_done(B, run, Vec::new())
 }
 
 // --- nodemon (1103) ---
