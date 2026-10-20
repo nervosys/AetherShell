@@ -331,7 +331,7 @@ fn capabilities_answers_the_five_sets_and_ids_from_the_kernel() {
     assert!(matches!(rec.get("euid"), Some(Value::Int(_))));
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 #[test]
 fn capabilities_refuses_off_linux_instead_of_answering_null() {
     assert_eq!(

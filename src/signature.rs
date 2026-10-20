@@ -1163,7 +1163,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "ai_routes", category: Some("AI"), subject_required: false, aliases: &["ai-routes"],
         subject: None, params: &[], returns: "Record",
-        doc: "Read registry totals, registered provider count, default provider and router enabled flag.",
+        doc: "Read the routing rules the provider registry checks, highest priority first, as {name, priority, condition, target, allow_fallback} records, with rule_count, registry totals, registered provider count, default provider and router enabled flag. A rule with no target is listed with target null and is skipped by routing. With no rule registered, rules is empty and note says so. No provider is contacted.",
         examples: &[("ai_routes() | type_of", "Record")],
     },
     Signature {
@@ -5140,8 +5140,11 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "Cloud instances registered in this session, as records.",
-        examples: &[("typeof(cloud_instances())", "Array")],
+        doc: "Not implemented: no cloud provider is wired in, so no instance list is read. A valid call answers E_UNIMPLEMENTED; it takes no arguments and no pipeline input.",
+        examples: &[
+            (r#"(try { cloud_instances() } catch e { e.error.code })"#, "E_UNIMPLEMENTED"),
+            (r#"(try { cloud_instances("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
     },
     Signature {
         name: "cloud_regions",
@@ -5151,8 +5154,11 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "A fixed list of well-known cloud regions, as {code, name} records.",
-        examples: &[("typeof(cloud_regions())", "Array")],
+        doc: "Not implemented: no cloud provider is wired in, so no region list is read; the old fixed list was not a provider's answer. A valid call answers E_UNIMPLEMENTED; it takes no arguments and no pipeline input.",
+        examples: &[
+            (r#"(try { cloud_regions() } catch e { e.error.code })"#, "E_UNIMPLEMENTED"),
+            (r#"(try { cloud_regions("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
     },
     Signature {
         name: "config_path",
@@ -7209,7 +7215,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt("name", Ty::Str, "a non-empty cluster name of at most 128 bytes; defaults to default")],
         returns: "Record",
-        doc: "Answer a cluster record {name, status: created, node_count: 0, created_at}. It contacts no node and stores the name nowhere: nodes added with cluster_add_node join one process-wide registry that does not record which cluster they belong to. Refused with E_BAD_ARG for a name that is not a non-empty string, or more than one argument.",
+        doc: "Store a cluster in this process and answer its record {name, status: created, created_at}. In-process; nothing is started or contacted. cluster_status counts the stored clusters. Nodes added with cluster_add_node are kept in a separate registry that does not record their cluster. Refused with E_BAD_ARG for a name that is not a non-empty string of at most 128 bytes, a name already stored, or more than one argument; E_BUDGET_EXCEEDED above 64 stored clusters, since this process has no removal.",
         examples: &[
             (r#"(try { cluster_create("a", "b") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { cluster_create(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -7227,7 +7233,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("capabilities", Ty::Array, "an Array of String capabilities; defaults to compute and storage"),
         ],
         returns: "Record",
-        doc: "Register a node in this process's cluster registry and return {id, address, capabilities, status: registered}. Nothing contacts the node, so it is registered, not online; no heartbeat or liveness is checked. Takes id and address as arguments, or a piped Record {id, address}. Refused with E_BAD_ARG for an empty id, an address that is empty or has whitespace, a capabilities value that is not an Array of strings, or more than three arguments.",
+        doc: "Register a node in this process's cluster registry and return {id, address, capabilities, status: registered}. Nothing contacts the node, so it is registered, not online; no heartbeat or liveness is checked, and cluster_status counts it under registered_nodes, never online_nodes. Takes id and address as arguments, or a piped Record {id, address}. Refused with E_BAD_ARG for an empty id, an address that is empty or has whitespace, a capabilities value that is not an Array of strings, or more than three arguments.",
         examples: &[
             (r#"(try { cluster_add_node() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { cluster_add_node("node-1", "bad address") } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -7254,7 +7260,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "Node and job counts for the cluster.",
+        doc: "Node, job and stored-cluster counts for this process: clusters and cluster_names come from cluster_create; registered_nodes counts nodes from cluster_add_node, which nothing has checked, and online_nodes counts only nodes whose status is online (none is set by cluster_add_node); the job counts come from the job table. In-process; nothing is contacted.",
         examples: &[
             (r#"typeof(cluster_status())"#, r#"Record"#),
         ],
@@ -11725,9 +11731,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "This process's Linux capability sets as {effective, permitted, ...}.",
+        doc: "On Linux, this process's capability sets as {effective, permitted, inheritable, bounding, ambient, uid, euid, gid, egid}, read from /proc/self/status. On Windows, {privileges: [{name, description, state}]} from whoami /priv, read-only and run without a shell. Elsewhere it is E_UNIMPLEMENTED.",
         examples: &[
-            (r#"capabilities()"#, r#"{ambient: [], bounding: [...], effective: [], ...}"#),
+            (r#"capabilities()"#, r#"a Record of capability sets on Linux, or of privileges on Windows"#),
         ],
     },
     Signature {

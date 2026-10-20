@@ -269,7 +269,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ),
     (
         "capabilities",
-        "Linux process capabilities (E_UNIMPLEMENTED elsewhere)",
+        "process privileges: Linux capability masks or Windows whoami /priv (E_UNIMPLEMENTED elsewhere)",
     ),
     ("config_reload", "the user's config file"),
     (

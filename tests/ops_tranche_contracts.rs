@@ -403,16 +403,11 @@ fn a_valid_cloud_call_is_not_implemented_and_creates_nothing() {
         ("cloud_instance_status", vec![s("i-1")]),
         ("cloud_instance_connect", vec![s("i-1")]),
         ("cloud_instance_destroy", vec![s("i-1")]),
+        ("cloud_instances", vec![]),
+        ("cloud_regions", vec![]),
     ] {
         assert_refused(name, args, "E_UNIMPLEMENTED");
     }
-    let listed = call_with_input("cloud_instances", vec![], None, &mut env())
-        .expect("cloud_instances answers");
-    assert_eq!(
-        listed,
-        Value::Array(vec![]),
-        "a refused cloud call left an instance behind"
-    );
 }
 
 #[test]

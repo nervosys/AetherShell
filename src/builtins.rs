@@ -1624,6 +1624,11 @@ lazy_static::lazy_static! {
         std::sync::RwLock::new(HashMap::new())
     };
 
+    /// Clusters made by cluster_create, keyed by name. In-process only.
+    static ref CLUSTERS: std::sync::RwLock<BTreeMap<String, String>> = {
+        std::sync::RwLock::new(BTreeMap::new())
+    };
+
     /// Distributed jobs registry
     static ref DISTRIBUTED_JOBS: std::sync::RwLock<HashMap<String, DistributedJob>> = {
         std::sync::RwLock::new(HashMap::new())
@@ -1687,11 +1692,6 @@ lazy_static::lazy_static! {
 
     // ===================== Cloud & Scale Storage =====================
 
-    /// Cloud instances registry
-    static ref CLOUD_INSTANCES: std::sync::RwLock<HashMap<String, CloudInstance>> = {
-        std::sync::RwLock::new(HashMap::new())
-    };
-
     /// Cloud platform configuration
     static ref CLOUD_CONFIG: std::sync::RwLock<Option<CloudConfig>> = {
         std::sync::RwLock::new(None)
@@ -1742,6 +1742,8 @@ struct ClusterNode {
 
 #[derive(Debug, Clone, PartialEq)]
 enum NodeStatus {
+    /// Added with cluster_add_node. Nothing has checked that the node is up.
+    Registered,
     Online,
     Offline,
     Busy,
@@ -1751,6 +1753,7 @@ enum NodeStatus {
 impl NodeStatus {
     fn as_str(&self) -> &'static str {
         match self {
+            NodeStatus::Registered => "registered",
             NodeStatus::Online => "online",
             NodeStatus::Offline => "offline",
             NodeStatus::Busy => "busy",
@@ -1795,41 +1798,6 @@ impl JobStatus {
 }
 
 // ===================== Cloud & Scale Types =====================
-
-/// Cloud instance representation
-#[derive(Debug, Clone)]
-struct CloudInstance {
-    id: String,
-    name: String,
-    region: String,
-    instance_type: String,
-    status: CloudInstanceStatus,
-    address: Option<String>,
-    created_at: String,
-    owner: String,
-    workspace_id: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum CloudInstanceStatus {
-    Provisioning,
-    Running,
-    Stopped,
-    Terminated,
-    Error(String),
-}
-
-impl CloudInstanceStatus {
-    fn as_str(&self) -> &str {
-        match self {
-            CloudInstanceStatus::Provisioning => "provisioning",
-            CloudInstanceStatus::Running => "running",
-            CloudInstanceStatus::Stopped => "stopped",
-            CloudInstanceStatus::Terminated => "terminated",
-            CloudInstanceStatus::Error(_) => "error",
-        }
-    }
-}
 
 /// Cloud platform configuration
 #[derive(Debug, Clone)]
@@ -2411,11 +2379,6 @@ impl FinetuneStatus {
     }
 }
 
-/// noop - Reserved placeholder function
-fn bi_noop(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Null)
-}
-
 // Fast dispatch table for builtin functions
 static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Value>] = &[
     // 0-9: General and file system functions
@@ -2802,9 +2765,23 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_zstd_decompress(args, input),
     |args, input, _| bi_archive_info(args, input),
     |args, input, _| bi_archive_test(args, input),
-    |args, input, _| bi_noop(args, input),
-    |args, input, _| bi_noop(args, input),
-    |args, input, _| bi_noop(args, input),
+    // 347-349: reserved slots. No name is registered at these indices, so
+    // dispatch never reaches them; they keep the numbering of the entries after.
+    |_, _, _| {
+        Err(anyhow!(
+            "reserved builtin slot: no builtin is registered at this index"
+        ))
+    },
+    |_, _, _| {
+        Err(anyhow!(
+            "reserved builtin slot: no builtin is registered at this index"
+        ))
+    },
+    |_, _, _| {
+        Err(anyhow!(
+            "reserved builtin slot: no builtin is registered at this index"
+        ))
+    },
     // 350-369: User & Permission Management
     |args, input, _| bi_user_list(args, input),
     |args, input, _| bi_user_add(args, input),
@@ -6739,20 +6716,41 @@ fn bi_cluster_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
-    // This answers a record and starts nothing: no node is contacted and the
-    // name is not stored anywhere. Nodes added with cluster_add_node join one
-    // process-wide registry that does not know which cluster they belong to.
-    let mut record = BTreeMap::new();
-    record.insert("name".to_string(), Value::Str(name.clone()));
-    record.insert("status".to_string(), Value::Str("created".to_string()));
-    record.insert("node_count".to_string(), Value::Int(0));
-    record.insert(
-        "created_at".to_string(),
-        Value::Str(chrono::Utc::now().to_rfc3339()),
-    );
+    // The cluster is stored in this process's registry, where cluster_status
+    // counts it. Nothing is started and no node is contacted. Nodes added with
+    // cluster_add_node join a separate process-wide node registry that does not
+    // record which cluster they belong to.
+    let created_at = chrono::Utc::now().to_rfc3339();
+    {
+        let mut clusters = CLUSTERS
+            .write()
+            .map_err(|e| anyhow!("cluster_create: lock error: {}", e))?;
+        if clusters.contains_key(&name) {
+            return Err(crate::safety::bad_arg(
+                "cluster_create",
+                "a cluster name not already in use in this process",
+                &format!("{name:?}, which is already a cluster"),
+            ));
+        }
+        if clusters.len() >= CLUSTER_MAX {
+            return Err(crate::safety::budget_exceeded(
+                "cluster_create",
+                format!("{CLUSTER_MAX} clusters are already stored in this process"),
+                "this process has no cluster removal; start a new process to reset the registry",
+            ));
+        }
+        clusters.insert(name.clone(), created_at.clone());
+    }
 
+    let mut record = BTreeMap::new();
+    record.insert("name".to_string(), Value::Str(name));
+    record.insert("status".to_string(), Value::Str("created".to_string()));
+    record.insert("created_at".to_string(), Value::Str(created_at));
     Ok(Value::Record(record))
 }
+
+/// Most clusters one process stores. The registry has no removal builtin.
+const CLUSTER_MAX: usize = 64;
 
 /// cluster_add_node(id, address, capabilities?) - Add a node to the cluster
 /// Args:
@@ -6832,7 +6830,7 @@ fn bi_cluster_add_node(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         id: id.clone(),
         address: address.clone(),
         capabilities: capabilities.clone(),
-        status: NodeStatus::Online,
+        status: NodeStatus::Registered,
         load: 0.0,
         last_heartbeat: std::time::Instant::now(),
     };
@@ -6882,6 +6880,9 @@ fn bi_cluster_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let jobs = DISTRIBUTED_JOBS
         .read()
         .map_err(|e| anyhow!("cluster_status: lock error: {}", e))?;
+    let clusters = CLUSTERS
+        .read()
+        .map_err(|e| anyhow!("cluster_status: lock error: {}", e))?;
 
     let online_count = nodes
         .values()
@@ -6890,6 +6891,12 @@ fn bi_cluster_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let busy_count = nodes
         .values()
         .filter(|n| n.status == NodeStatus::Busy)
+        .count();
+    // Nodes added by cluster_add_node are registered, not checked, so they are
+    // counted here and not as online.
+    let registered_count = nodes
+        .values()
+        .filter(|n| n.status == NodeStatus::Registered)
         .count();
     let pending_jobs = jobs
         .values()
@@ -6906,8 +6913,17 @@ fn bi_cluster_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     let mut record = BTreeMap::new();
+    record.insert("clusters".to_string(), Value::Int(clusters.len() as i64));
+    record.insert(
+        "cluster_names".to_string(),
+        Value::Array(clusters.keys().map(|k| Value::Str(k.clone())).collect()),
+    );
     record.insert("total_nodes".to_string(), Value::Int(nodes.len() as i64));
     record.insert("online_nodes".to_string(), Value::Int(online_count as i64));
+    record.insert(
+        "registered_nodes".to_string(),
+        Value::Int(registered_count as i64),
+    );
     record.insert("busy_nodes".to_string(), Value::Int(busy_count as i64));
     record.insert("total_jobs".to_string(), Value::Int(jobs.len() as i64));
     record.insert("pending_jobs".to_string(), Value::Int(pending_jobs as i64));
@@ -10208,15 +10224,52 @@ fn bi_ai_providers() -> Result<Value> {
 /// Example:
 ///   ai_routes()
 fn bi_ai_routes() -> Result<Value> {
-    // The routing rules are inside the RwLock — we read via stats or re-expose
-    // Since RoutingRule is not directly exposed by the registry API,
-    // we provide a placeholder that shows the registry is wired up
+    // The rules the registry checks, in the order it checks them, and the
+    // registry's totals. Nothing here contacts a provider.
     use crate::providers::registry::PROVIDER_REGISTRY;
 
     let stats = PROVIDER_REGISTRY.stats();
     let providers = PROVIDER_REGISTRY.list();
+    let rules = PROVIDER_REGISTRY.routing_rules();
+
+    let rule_values: Vec<Value> = rules
+        .iter()
+        .map(|rule| {
+            let mut r = std::collections::BTreeMap::new();
+            r.insert("name".to_string(), Value::Str(rule.name.clone()));
+            r.insert("priority".to_string(), Value::Int(i64::from(rule.priority)));
+            r.insert(
+                "condition".to_string(),
+                Value::Str(rule.condition.describe()),
+            );
+            // A rule with no target matches but returns nothing, so route
+            // skips it: Null says so instead of guessing a provider.
+            r.insert(
+                "target".to_string(),
+                rule.target_provider
+                    .map(|p| Value::Str(p.scheme().to_string()))
+                    .unwrap_or(Value::Null),
+            );
+            r.insert(
+                "allow_fallback".to_string(),
+                Value::Bool(rule.allow_fallback),
+            );
+            Value::Record(r)
+        })
+        .collect();
 
     let mut rec = std::collections::BTreeMap::new();
+    rec.insert("rule_count".to_string(), Value::Int(rules.len() as i64));
+    if rules.is_empty() {
+        rec.insert(
+            "note".to_string(),
+            Value::Str(
+                "no routing rules are registered; a request goes to the provider its model names when that provider is registered, and to the default provider otherwise"
+                    .to_string(),
+            ),
+        );
+    }
+    rec.insert("rules".to_string(), Value::Array(rule_values));
     rec.insert(
         "total_requests".to_string(),
         Value::Int(stats.total_requests as i64),
@@ -30778,6 +30831,12 @@ fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
         return Ok(Value::Record(rec));
     }
+    // Windows has no capability bitmasks; its privileges are listed by
+    // `whoami /priv`, a read-only system tool run without a shell.
+    #[cfg(windows)]
+    {
+        return windows_privileges();
+    }
     // Linux capability sets are a Linux concept. Everywhere else this fell
     // through to `Ok(Value::Null)`, which a caller reads as "this process
     // has no capabilities" -- a claim about privilege, made without looking.
@@ -30785,8 +30844,219 @@ fn bi_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Err(crate::safety::unimplemented(
         "capabilities",
         "Linux capability sets do not exist on this operating system; NOTHING WAS INSPECTED",
-        "use whoami /priv on Windows, or `id` elsewhere",
+        "use `id` on this system",
     ))
+}
+
+/// The privileges of this Windows process, from `whoami /priv /fo csv`, as
+/// `{privileges: [{name, description, state}]}`. The shape differs from the
+/// Linux record because Windows has no capability masks.
+#[cfg(windows)]
+fn windows_privileges() -> Result<Value> {
+    let run = tool_run(
+        "capabilities",
+        "whoami",
+        None,
+        &["/priv", "/fo", "csv"],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    if !run.success {
+        return Err(crate::safety::tool_failed(
+            "capabilities",
+            &run.command,
+            run.code,
+            &run.stderr,
+        ));
+    }
+    let rows = parse_whoami_priv_csv("capabilities", &run.stdout)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("privileges".to_string(), Value::Array(rows));
+    Ok(Value::Record(rec))
+}
+
+/// Parses the CSV that `whoami /priv /fo csv` prints. Lines before the header
+/// that have one field (a title) are skipped. The header must name the three
+/// columns in English; any other layout is refused, not guessed at. Every line
+/// after it must hold exactly three fields, or the whole answer is refused.
+#[cfg(any(windows, test))]
+fn parse_whoami_priv_csv(builtin: &str, text: &str) -> Result<Vec<Value>> {
+    const HEADER: [&str; 3] = ["Privilege Name", "Description", "State"];
+    let mut rows = Vec::new();
+    let mut seen_header = false;
+    for line in text.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Some(fields) = csv_fields(line) else {
+            return Err(crate::safety::bad_state(
+                builtin,
+                &format!("whoami /priv printed a malformed CSV line: {line:?}"),
+                "this host's whoami output is not the CSV layout this shell reads",
+            ));
+        };
+        if !seen_header {
+            if fields.len() == 1 {
+                continue;
+            }
+            if fields.iter().map(String::as_str).eq(HEADER) {
+                seen_header = true;
+                continue;
+            }
+            return Err(crate::safety::bad_state(
+                builtin,
+                &format!("whoami /priv printed an unexpected header: {line:?}"),
+                "the privilege table is read only in its English layout",
+            ));
+        }
+        if fields.len() != 3 {
+            return Err(crate::safety::bad_state(
+                builtin,
+                &format!(
+                    "whoami /priv printed a line with {} fields, not 3: {line:?}",
+                    fields.len()
+                ),
+                "this host's whoami output is not the CSV layout this shell reads",
+            ));
+        }
+        let mut rec = BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(fields[0].clone()));
+        rec.insert("description".to_string(), Value::Str(fields[1].clone()));
+        rec.insert("state".to_string(), Value::Str(fields[2].clone()));
+        rows.push(Value::Record(rec));
+    }
+    if !seen_header {
+        return Err(crate::safety::bad_state(
+            builtin,
+            "whoami /priv printed no privilege table",
+            "this host's whoami output is not the CSV layout this shell reads",
+        ));
+    }
+    Ok(rows)
+}
+
+/// Splits one CSV line into fields. A field may be quoted, and a quoted field
+/// may hold commas and doubled quotes (""). None for an unterminated quote or
+/// text between a closing quote and the next comma.
+#[cfg(any(windows, test))]
+fn csv_fields(line: &str) -> Option<Vec<String>> {
+    let mut fields = Vec::new();
+    let mut chars = line.chars().peekable();
+    loop {
+        let mut field = String::new();
+        if chars.peek() == Some(&'"') {
+            chars.next();
+            loop {
+                match chars.next() {
+                    None => return None,
+                    Some('"') => {
+                        if chars.peek() == Some(&'"') {
+                            chars.next();
+                            field.push('"');
+                        } else {
+                            break;
+                        }
+                    }
+                    Some(c) => field.push(c),
+                }
+            }
+            match chars.next() {
+                None => {
+                    fields.push(field);
+                    return Some(fields);
+                }
+                Some(',') => {}
+                Some(_) => return None,
+            }
+        } else {
+            loop {
+                match chars.next() {
+                    None => {
+                        fields.push(field);
+                        return Some(fields);
+                    }
+                    Some(',') => break,
+                    Some(c) => field.push(c),
+                }
+            }
+        }
+        fields.push(field);
+    }
+}
+
+#[cfg(test)]
+mod whoami_csv_tests {
+    use super::*;
+
+    const SAMPLE: &str = "\"Privilege Name\",\"Description\",\"State\"\r\n\
+\"SeShutdownPrivilege\",\"Shut down the system\",\"Disabled\"\r\n\
+\"SeChangeNotifyPrivilege\",\"Bypass traverse checking, for any user\",\"Enabled\"\r\n\
+\"SeUndockPrivilege\",\"Say \"\"undock\"\"\",\"Disabled\"\r\n";
+
+    fn field(v: &Value, key: &str) -> String {
+        match v {
+            Value::Record(r) => match r.get(key) {
+                Some(Value::Str(s)) => s.clone(),
+                other => panic!("{key}: {other:?}"),
+            },
+            other => panic!("not a record: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_names_descriptions_and_states_including_quoted_commas() {
+        let rows = parse_whoami_priv_csv("capabilities", SAMPLE).expect("sample parses");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(field(&rows[0], "name"), "SeShutdownPrivilege");
+        assert_eq!(field(&rows[0], "state"), "Disabled");
+        assert_eq!(
+            field(&rows[1], "description"),
+            "Bypass traverse checking, for any user"
+        );
+        assert_eq!(field(&rows[2], "description"), "Say \"undock\"");
+    }
+
+    #[test]
+    fn skips_a_title_line_before_the_header() {
+        let text = format!("\"PRIVILEGES INFORMATION\"\n\n{SAMPLE}");
+        assert_eq!(
+            parse_whoami_priv_csv("capabilities", &text).unwrap().len(),
+            3
+        );
+    }
+
+    #[test]
+    fn a_malformed_line_refuses_the_whole_answer() {
+        let text = "\"Privilege Name\",\"Description\",\"State\"\n\
+\"SeShutdownPrivilege\",\"Shut down the system\",\"Disabled\"\n\
+\"SeBroken\",\"unterminated,\"Enabled\n";
+        let err = parse_whoami_priv_csv("capabilities", text).expect_err("malformed");
+        assert!(err.to_string().contains("E_BAD_STATE"), "{err}");
+    }
+
+    #[test]
+    fn a_line_with_the_wrong_field_count_refuses() {
+        let text = "\"Privilege Name\",\"Description\",\"State\"\n\"SeOnly\",\"Enabled\"\n";
+        let err = parse_whoami_priv_csv("capabilities", text).expect_err("two fields");
+        assert!(err.to_string().contains("E_BAD_STATE"), "{err}");
+    }
+
+    #[test]
+    fn a_localised_header_refuses_rather_than_guessing() {
+        let err = parse_whoami_priv_csv("capabilities", "\"Name\",\"Desc\",\"Status\"\n")
+            .expect_err("header");
+        assert!(err.to_string().contains("E_BAD_STATE"), "{err}");
+    }
+
+    #[test]
+    fn csv_fields_rejects_text_after_a_closing_quote() {
+        assert_eq!(csv_fields("\"a\"b,c"), None);
+        assert_eq!(
+            csv_fields("a,\"b,c\",d"),
+            Some(vec!["a".to_string(), "b,c".to_string(), "d".to_string()])
+        );
+    }
 }
 
 // ============================================================================
@@ -55829,40 +56099,14 @@ fn bi_cloud_deploy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// List all cloud instances.
 /// Usage: cloud.instances()
-fn bi_cloud_instances(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let instances = CLOUD_INSTANCES
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    let entries: Vec<Value> = instances
-        .values()
-        .map(|inst| {
-            let mut rec = BTreeMap::new();
-            rec.insert("id".to_string(), Value::Str(inst.id.clone()));
-            rec.insert("name".to_string(), Value::Str(inst.name.clone()));
-            rec.insert("region".to_string(), Value::Str(inst.region.clone()));
-            rec.insert(
-                "instance_type".to_string(),
-                Value::Str(inst.instance_type.clone()),
-            );
-            rec.insert(
-                "status".to_string(),
-                Value::Str(inst.status.as_str().to_string()),
-            );
-            if let Some(ref addr) = inst.address {
-                rec.insert("address".to_string(), Value::Str(addr.clone()));
-            }
-            rec.insert(
-                "created_at".to_string(),
-                Value::Str(inst.created_at.clone()),
-            );
-            rec.insert("owner".to_string(), Value::Str(inst.owner.clone()));
-            if let Some(ref ws) = inst.workspace_id {
-                rec.insert("workspace_id".to_string(), Value::Str(ws.clone()));
-            }
-            Value::Record(rec)
-        })
-        .collect();
-    Ok(Value::Array(entries))
+///
+/// Not implemented. Nothing ever recorded an instance in this process, so the
+/// old answer was always an empty list, which read as "no instances exist".
+fn bi_cloud_instances(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "cloud_instances";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 0)?;
+    Err(cloud_unimplemented(B))
 }
 
 /// 846 – cloud_instance_create(name, [options]): not implemented, so no instance
@@ -55917,27 +56161,14 @@ fn bi_cloud_instance_connect(args: Vec<Value>, input: Option<Value>) -> Result<V
 
 /// List available cloud regions.
 /// Usage: cloud.regions()
-fn bi_cloud_regions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let regions = [
-        ("us-east-1", "US East (N. Virginia)"),
-        ("us-west-2", "US West (Oregon)"),
-        ("eu-west-1", "EU West (Ireland)"),
-        ("eu-central-1", "EU Central (Frankfurt)"),
-        ("ap-southeast-1", "Asia Pacific (Singapore)"),
-        ("ap-northeast-1", "Asia Pacific (Tokyo)"),
-        ("sa-east-1", "South America (São Paulo)"),
-        ("af-south-1", "Africa (Cape Town)"),
-    ];
-    let entries: Vec<Value> = regions
-        .iter()
-        .map(|(code, name)| {
-            let mut rec = BTreeMap::new();
-            rec.insert("code".to_string(), Value::Str(code.to_string()));
-            rec.insert("name".to_string(), Value::Str(name.to_string()));
-            Value::Record(rec)
-        })
-        .collect();
-    Ok(Value::Array(entries))
+///
+/// Not implemented. The old answer was a fixed AWS-style list that no provider
+/// had supplied, so it was presented as this host's regions when it was not.
+fn bi_cloud_regions(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "cloud_regions";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 0)?;
+    Err(cloud_unimplemented(B))
 }
 
 /// Get or set cloud platform configuration.

@@ -260,6 +260,11 @@ impl ProviderRegistry {
         rules.sort_by(|a, b| b.priority.cmp(&a.priority));
     }
 
+    /// The routing rules, in the order `route` checks them (highest priority first).
+    pub fn routing_rules(&self) -> Vec<RoutingRule> {
+        self.routing_rules.read().unwrap().clone()
+    }
+
     /// Set the load balancing strategy
     pub fn set_load_balancing(&self, strategy: LoadBalancingStrategy) {
         self.load_balancer.set_strategy(strategy);
@@ -400,6 +405,44 @@ pub enum RoutingCondition {
 }
 
 impl RoutingCondition {
+    /// The condition in the spelling `ai_add_route` accepts for the simple
+    /// forms (`always`, `has_tools`, `model:<pattern>`, `tokens_over:<n>`); the
+    /// compound and other forms are written out in full.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Always => "always".to_string(),
+            Self::Never => "never".to_string(),
+            Self::All { conditions } => format!(
+                "all({})",
+                conditions
+                    .iter()
+                    .map(Self::describe)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::Any { conditions } => format!(
+                "any({})",
+                conditions
+                    .iter()
+                    .map(Self::describe)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::Not { condition } => format!("not({})", condition.describe()),
+            Self::ModelPattern { pattern } => format!("model:{pattern}"),
+            Self::HasTools => "has_tools".to_string(),
+            Self::HasVision => "has_vision".to_string(),
+            Self::TokenCountOver { threshold } => format!("tokens_over:{threshold}"),
+            Self::User { user_id } => format!("user:{user_id}"),
+            Self::TimeRange {
+                start_hour,
+                end_hour,
+            } => format!("time:{start_hour}-{end_hour}"),
+            Self::CostUnder { max_cost_per_1k } => format!("cost_under:{max_cost_per_1k}"),
+            Self::LatencyUnder { max_ms } => format!("latency_under:{max_ms}"),
+        }
+    }
+
     /// Check if this condition matches a request
     pub fn matches(&self, request: &ChatRequest) -> bool {
         match self {
