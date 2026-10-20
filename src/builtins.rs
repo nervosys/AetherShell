@@ -25,8 +25,8 @@ use crate::{
     },
     rlm::{run_recursive, run_recursive_with_model, RlmConfig},
     security::{
-        check_file_size_limit, check_rate_limit, create_secure_http_client, validate_ai_prompt,
-        validate_hostname_or_ip, validate_http_url, validate_read_path, validate_sh_allowed,
+        check_file_size_limit, check_rate_limit, validate_ai_prompt, validate_hostname_or_ip,
+        validate_http_url, validate_read_path, validate_sh_allowed,
     },
     shell_features::{Parameter, ParameterSet, ParameterType, PipelineInputType},
     value::{Lambda, Value},
@@ -4849,48 +4849,74 @@ fn bi_print(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(strip_ansi(&pretty)))
 }
 
+/// http_get — fetch one http(s) URL. Usage: http_get(url) or url | http_get.
+/// Returns {url, status, headers, body}. The URL passes the network guard and
+/// the SSRF rules, and each redirect target passes the same rules before it is
+/// followed, at most 5 of them. A non-2xx status is an answer, not a failure.
+/// The body is read up to 16 MiB; more is E_BUDGET_EXCEEDED. A request that gets
+/// no answer is a coded E_IO, never an empty body. Invalid UTF-8 is replaced.
 fn bi_http_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let url_val = if let Some(v) = input {
-        v
-    } else {
-        args.into_iter()
-            .next()
-            .ok_or_else(|| crate::safety::arg_err("http_get expects URL string/uri"))?
+    use std::io::Read as _;
+    net_refuse_in_transaction("http_get")?;
+    if args.len() > 1 {
+        return Err(crate::safety::arg_err(format!(
+            "http_get takes one URL, got {}",
+            args.len()
+        )));
+    }
+    let url_val = match (input, args.into_iter().next()) {
+        (Some(_), Some(_)) => {
+            return Err(crate::safety::arg_err(
+                "http_get takes its URL either as an argument or piped in, not both",
+            ))
+        }
+        (Some(v), None) | (None, Some(v)) => v,
+        (None, None) => return Err(crate::safety::arg_err("http_get expects URL string/uri")),
     };
     let url = match url_val {
         Value::Str(s) | Value::Uri(s) => s,
         other => {
-            return Err(crate::safety::arg_err(format!(
-                "http_get expects URL string/uri, got {:?}",
-                other
-            )))
+            return Err(crate::safety::bad_arg(
+                "http_get",
+                "a URL String",
+                other.type_name(),
+            ))
         }
     };
-
-    // Meter + audit network egress (governor: AETHER_MAX_NET).
     guard_network("http_get", &url)?;
-
-    // SECURITY FIX (MED-008): Validate URL to prevent SSRF
     let validated_url = validate_http_url("http_get", &url)?;
-
-    // SECURITY FIX (HIGH-005): Use secure HTTP client
-    let client = create_secure_http_client().context("Failed to create HTTP client")?;
-    let resp = client.get(&validated_url).send()?;
-    let status = resp.status().as_u16() as i64;
+    let client = http_redirect_client()?;
+    let mut resp = client
+        .get(&validated_url)
+        .send()
+        .map_err(|e| net_io_error("http_get", "request", &e))?;
+    let status = i64::from(resp.status().as_u16());
     let mut headers_rec = BTreeMap::<String, Value>::new();
     for (k, v) in resp.headers().iter() {
         headers_rec.insert(
             k.to_string(),
-            Value::Str(v.to_str().unwrap_or("").to_string()),
+            Value::Str(String::from_utf8_lossy(v.as_bytes()).into_owned()),
         );
     }
-    let body_text = resp.text().unwrap_or_default();
-
+    let mut bytes = Vec::new();
+    std::io::Read::take(&mut resp, HTTP_BODY_MAX + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| net_io_error("http_get", "reading the body", &e))?;
+    if bytes.len() as u64 > HTTP_BODY_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "http_get",
+            format!("the body is more than {HTTP_BODY_MAX} bytes"),
+            "fetch a smaller resource",
+        ));
+    }
     let mut out = BTreeMap::<String, Value>::new();
     out.insert("url".into(), Value::Str(validated_url));
     out.insert("status".into(), Value::Int(status));
     out.insert("headers".into(), Value::Record(headers_rec));
-    out.insert("body".into(), Value::Str(body_text));
+    out.insert(
+        "body".into(),
+        Value::Str(String::from_utf8_lossy(&bytes).into_owned()),
+    );
     Ok(Value::Record(out))
 }
 
@@ -49065,39 +49091,495 @@ fn bi_blkid(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// 960: bi_journalctl - Systemd journal (Linux only).
-fn bi_journalctl(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "linux")]
-    {
-        let count = match args.first() {
-            Some(Value::Int(n)) => n.to_string(),
-            _ => "50".to_string(),
-        };
-        let unit = match args.get(1) {
-            Some(Value::Str(u)) => Some(u.clone()),
+/// Longest host name a network tool accepts.
+const NET_HOST_MAX: usize = 253;
+/// Most words a command line may hold once split into argv.
+const NET_ARGV_MAX: usize = 256;
+/// Stderr kept from a network or debug tool, for a failure message or a report.
+const NET_ERR_MAX: usize = 4096;
+/// Most items one xargs_exec call may run.
+const XARGS_MAX_ITEMS: usize = 256;
+/// Output kept from one run of xargs_exec, on each stream.
+const XARGS_ITEM_OUT: usize = 16 * 1024;
+/// Wall-clock limit on one xargs_exec call, all of its items together.
+const XARGS_TOTAL_SECS: u64 = 600;
+/// Redirects http_get follows, each one checked before it is taken.
+const HTTP_MAX_REDIRECTS: usize = 5;
+/// Largest response body http_get reads.
+const HTTP_BODY_MAX: u64 = 16 * 1024 * 1024;
+/// Largest file wget_download writes.
+const WGET_FILE_MAX: u64 = 1024 * 1024 * 1024;
+/// Largest logrotate configuration that is read.
+const LOGROTATE_CONFIG_MAX: u64 = 1024 * 1024;
+/// Most log files multitail_open opens at once.
+const MULTITAIL_MAX_FILES: usize = 16;
+/// The port iperf3 listens on when none is given.
+const IPERF3_PORT: i64 = 5201;
+/// The nmap flags nmap_scan passes through. Every other nmap option is refused:
+/// --script runs scripts, -oN/-oG/--log-file write files, and the rest change
+/// what nmap reads or runs.
+const NMAP_FLAGS: &[&str] = &[
+    "-sT", "-sS", "-sU", "-sV", "-Pn", "-n", "-T0", "-T1", "-T2", "-T3", "-T4", "-T5",
+];
+/// logrotate directives that run a program or send mail. A configuration that
+/// names one is refused, because the command it would run is out of sight here.
+const LOGROTATE_REFUSED: &[&str] = &[
+    "prerotate",
+    "postrotate",
+    "firstaction",
+    "lastaction",
+    "preremove",
+    "mail",
+    "mailfirst",
+    "maillast",
+];
+
+/// A host name or IP literal given to a network tool as an argument: letters,
+/// digits, '.', '-' and ':', at most NET_HOST_MAX bytes. A leading '-' is
+/// refused as an option, and every other character is refused by the rule.
+fn net_target_host(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    let well_formed = !value.is_empty()
+        && value.len() <= NET_HOST_MAX
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':'));
+    if well_formed {
+        Ok(value.to_string())
+    } else {
+        Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be a host name or IP literal of letters, digits, '.', '-' and ':' (at most {NET_HOST_MAX} bytes), got {value:?}"
+        )))
+    }
+}
+
+/// A TCP or UDP port: an Int in 1..=65535.
+fn net_port(builtin: &str, n: i64) -> Result<i64> {
+    if (1..=65535).contains(&n) {
+        Ok(n)
+    } else {
+        Err(crate::safety::arg_err(format!(
+            "{builtin}: port must be 1..=65535, got {n}"
+        )))
+    }
+}
+
+/// A systemd unit name for journalctl: letters, digits, and '-', '_', '.', '@'.
+fn journal_unit(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    let well_formed = !value.is_empty()
+        && value.len() <= 256
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'@'));
+    if well_formed {
+        Ok(value.to_string())
+    } else {
+        Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be a systemd unit name (letters, digits and - _ . @), got {value:?}"
+        )))
+    }
+}
+
+/// A command line split into argv on whitespace. There is no quoting and no
+/// shell: each word is one argument, and shell metacharacters are inert. The
+/// program word may not begin with '-'.
+fn argv_words(builtin: &str, command: &str) -> Result<Vec<String>> {
+    let words: Vec<String> = command.split_whitespace().map(str::to_string).collect();
+    let Some(program) = words.first() else {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: the command is empty"
+        )));
+    };
+    crate::safety::reject_option_like(builtin, std::slice::from_ref(program))?;
+    if words.len() > NET_ARGV_MAX {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!(
+                "the command has {} words; the limit is {NET_ARGV_MAX}",
+                words.len()
+            ),
+            "pass a shorter command line",
+        ));
+    }
+    Ok(words)
+}
+
+/// The exit code of a finished run; a run ended by a signal has none, and is -1.
+fn exit_code_of(run: &ToolRun) -> i64 {
+    run.code.map_or(-1, i64::from)
+}
+
+/// A network request that failed before any answer came back: a coded E_IO
+/// that says what was attempted.
+fn net_io_error(builtin: &str, what: &str, detail: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::Io,
+        message: format!("{builtin}: {what}: {detail}"),
+        builtin: builtin.to_string(),
+        hint: "no answer came back; check the address and the network, then retry".to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: format!("{what} to complete"),
+        got: "no answer".to_string(),
+    })
+}
+
+/// The client http_get uses. Its timeouts are those of the secure client, and
+/// every redirect target passes the same SSRF and scheme rules as the first URL
+/// before it is followed. A refused hop ends the request with the refusal.
+fn http_redirect_client() -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= HTTP_MAX_REDIRECTS {
+                return attempt.error(format!("more than {HTTP_MAX_REDIRECTS} redirects"));
+            }
+            let next = attempt.url().to_string();
+            match validate_http_url("http_get", &next) {
+                Ok(_) => attempt.follow(),
+                Err(e) => attempt.error(format!("redirect to {next} refused: {e}")),
+            }
+        }))
+        .build()
+        .context("Failed to create HTTP client")
+}
+
+/// Whether netcat's failure text says the port was closed or did not answer: a
+/// determined "not open", as opposed to netcat itself failing.
+fn nc_refusal(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("refused") || lower.contains("timed out") || lower.contains("timeout")
+}
+
+/// One socat address for socat_relay. Only an outbound TCP or UDP connection to
+/// a host name or IPv4 literal and a port is allowed, with no options. EXEC,
+/// SYSTEM and SHELL run programs, OPEN and CREATE write files, and every LISTEN
+/// form opens a listener, so each of those is refused by policy.
+fn socat_address(builtin: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    let Some((kind, rest)) = value.split_once(':') else {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "an address such as TCP:host:port",
+            value,
+        ));
+    };
+    let kind_up = kind.to_ascii_uppercase();
+    if !matches!(kind_up.as_str(), "TCP" | "TCP4" | "UDP" | "UDP4") {
+        return Err(crate::safety::policy_deny(
+            builtin,
+            format!("{builtin}: socat address type `{kind}` is refused"),
+            "only outbound TCP, TCP4, UDP and UDP4 connections to a host and port are allowed; EXEC, SYSTEM and SHELL run programs, OPEN and CREATE write files, and LISTEN forms open listeners",
+        ));
+    }
+    let Some((host, port)) = rest.rsplit_once(':') else {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "TCP:host:port or UDP:host:port",
+            value,
+        ));
+    };
+    let host = net_target_host(builtin, "the socat address host", host)?;
+    if host.contains(':') {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a host name or IPv4 literal without ':' in the address",
+            value,
+        ));
+    }
+    let port = if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) {
+        port.parse::<i64>().ok()
+    } else {
+        None
+    };
+    let Some(port) = port else {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a port number with no options after it",
+            value,
+        ));
+    };
+    let port = net_port(builtin, port)?;
+    Ok(format!("{kind_up}:{host}:{port}"))
+}
+
+/// The ports nmap_scan may scan: digits, ',' and '-', with every number in
+/// 1..=65535 and every range low <= high.
+fn nmap_ports(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let ok = !value.is_empty()
+        && value.len() <= 1024
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b',' | b'-'))
+        && value.split(',').all(|item| {
+            let mut bounds = item.splitn(2, '-');
+            let lo = bounds.next().and_then(|s| s.parse::<u32>().ok());
+            let hi = match bounds.next() {
+                Some(s) => s.parse::<u32>().ok(),
+                None => lo,
+            };
+            matches!((lo, hi), (Some(l), Some(h)) if (1..=65535).contains(&l) && (1..=65535).contains(&h) && l <= h)
+        });
+    if ok {
+        Ok(value.to_string())
+    } else {
+        Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be ports or ranges such as \"22,80,1000-1100\", each 1..=65535 (got {value:?})"
+        )))
+    }
+}
+
+/// The nmap flags nmap_scan accepts, whitespace-separated. Anything not in
+/// NMAP_FLAGS is refused by policy.
+fn nmap_flags(builtin: &str, what: &str, value: &str) -> Result<String> {
+    for word in value.split_whitespace() {
+        if !NMAP_FLAGS.contains(&word) {
+            return Err(crate::safety::policy_deny(
+                builtin,
+                format!("{builtin}: {what} `{word}` is not an allowed nmap flag"),
+                format!(
+                    "allowed flags: {}; scripts (--script) and output files (-oN, -oG, --log-file) are refused",
+                    NMAP_FLAGS.join(" ")
+                ),
+            ));
+        }
+    }
+    Ok(value.to_string())
+}
+
+/// The items xargs_exec runs: an Array of scalars, or a String read as lines
+/// with empty lines skipped. Each item is one argument, so an item that begins
+/// with '-' is refused as an option.
+fn xargs_items(builtin: &str, value: &Value) -> Result<Vec<String>> {
+    let items: Vec<String> = match value {
+        Value::Array(arr) => arr
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => Ok(s.clone()),
+                Value::Int(n) => Ok(n.to_string()),
+                Value::Float(f) => Ok(f.to_string()),
+                Value::Bool(b) => Ok(b.to_string()),
+                other => Err(crate::safety::bad_arg(
+                    builtin,
+                    "scalar items (String, Int, Float or Bool)",
+                    other.type_name(),
+                )),
+            })
+            .collect::<Result<Vec<String>>>()?,
+        Value::Str(s) => s
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "an Array or a String of items",
+                other.type_name(),
+            ))
+        }
+    };
+    if items.len() > XARGS_MAX_ITEMS {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("{} items; the limit is {XARGS_MAX_ITEMS}", items.len()),
+            "run the items in more than one call",
+        ));
+    }
+    for item in &items {
+        if item.len() > 4096 || item.contains('\0') {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: each item is at most 4096 bytes and has no NUL"
+            )));
+        }
+        crate::safety::reject_option_like(builtin, std::slice::from_ref(item))?;
+    }
+    Ok(items)
+}
+
+/// One `strace -c` summary row, read from its default columns: percent,
+/// seconds, usecs/call, calls, errors, syscall. A row with any other shape is
+/// counted and returned as the second value, never dropped.
+fn strace_summary(text: &str) -> (Vec<Value>, usize) {
+    let mut rows = Vec::new();
+    let mut unparsed = 0usize;
+    let mut in_table = false;
+    let mut after_rule = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with("% time") {
+            in_table = true;
+            continue;
+        }
+        if !in_table {
+            continue;
+        }
+        if t.starts_with("------") {
+            if after_rule {
+                break;
+            }
+            after_rule = true;
+            continue;
+        }
+        if t.is_empty() {
+            continue;
+        }
+        let cols: Vec<&str> = t.split_whitespace().collect();
+        if cols.last() == Some(&"total") {
+            continue;
+        }
+        let parsed = match cols.as_slice() {
+            [pct, secs, _usecs, calls, errors, name] => {
+                match (
+                    pct.parse::<f64>(),
+                    secs.parse::<f64>(),
+                    calls.parse::<i64>(),
+                    errors.parse::<i64>(),
+                ) {
+                    (Ok(pct), Ok(secs), Ok(calls), Ok(errors)) => {
+                        Some((pct, secs, calls, errors, *name))
+                    }
+                    _ => None,
+                }
+            }
             _ => None,
         };
-        let mut cmd = Command::new("journalctl");
-        cmd.args(&["-n", &count, "-o", "json"]);
-        if let Some(u) = &unit {
-            cmd.args(&["-u", u]);
+        match parsed {
+            Some((pct, secs, calls, errors, name)) => {
+                let mut rec = BTreeMap::new();
+                rec.insert("percent".to_string(), Value::Float(pct));
+                rec.insert("seconds".to_string(), Value::Float(secs));
+                rec.insert("calls".to_string(), Value::Int(calls));
+                rec.insert("errors".to_string(), Value::Int(errors));
+                rec.insert("name".to_string(), Value::Str(name.to_string()));
+                rows.push(Value::Record(rec));
+            }
+            None => unparsed += 1,
         }
-        let out = cmd.output().map_err(|e| anyhow!("journalctl: {}", e))?;
-        // journalctl -o json outputs one JSON object per line
-        let text = String::from_utf8_lossy(&out.stdout);
-        let entries: Vec<Value> = text
-            .lines()
-            .filter_map(|line| {
-                serde_json::from_str::<serde_json::Value>(line)
-                    .ok()
-                    .map(|j| json_to_value(j))
-            })
-            .collect();
+    }
+    (rows, unparsed)
+}
+
+/// One line of `nm --demangle` output: `address type name`, or `type name` for
+/// an undefined symbol, whose address is null. A demangled name may contain
+/// spaces, so only the first fields are split off.
+fn nm_record(line: &str) -> Value {
+    let mut rec = BTreeMap::new();
+    let t = line.trim();
+    let (address, rest) = match t.split_once(' ') {
+        Some((first, rest)) if first.len() >= 8 && first.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            (Value::Str(first.to_string()), rest.trim_start())
+        }
+        _ => (Value::Null, t),
+    };
+    match rest.split_once(' ') {
+        Some((ty, name)) if ty.len() == 1 && !name.trim().is_empty() => {
+            rec.insert("address".to_string(), address);
+            rec.insert("type".to_string(), Value::Str(ty.to_string()));
+            rec.insert("name".to_string(), Value::Str(name.trim().to_string()));
+        }
+        _ => {
+            rec.insert("line".to_string(), Value::Str(line.to_string()));
+        }
+    }
+    Value::Record(rec)
+}
+
+/// Directives in a logrotate configuration are checked before the tool runs.
+/// A path that is absolute, starts with '~', or contains '..' could reach
+/// outside the workspace, and a directive in LOGROTATE_REFUSED runs a program.
+fn logrotate_config_check(builtin: &str, text: &str) -> Result<()> {
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        for token in line.split_whitespace() {
+            let word = token.trim_matches(|c| c == '"' || c == '\'');
+            if LOGROTATE_REFUSED.contains(&word) {
+                return Err(crate::safety::policy_deny(
+                    builtin,
+                    format!("{builtin}: the configuration uses `{word}`, which runs a program or sends mail"),
+                    "remove that directive; this call runs logrotate without a shell and cannot see the commands it would run",
+                ));
+            }
+            let absolute = word.starts_with('/')
+                || word.starts_with('\\')
+                || word.starts_with('~')
+                || word.as_bytes().get(1) == Some(&b':');
+            if absolute || word.contains("..") {
+                return Err(crate::safety::policy_deny(
+                    builtin,
+                    format!("{builtin}: the configuration names `{word}`, which may lie outside the workspace"),
+                    "use paths relative to the configuration file, with no '..', so every file it touches is inside the workspace",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// journalctl — the most recent entries of the systemd journal, optionally of one unit.
+/// Usage: journalctl(), journalctl(count) or journalctl(count, unit). count is
+/// 1..=1000 and defaults to 50. Returns an Array of entries, each a Record of
+/// the journal's JSON fields. Linux only; elsewhere the call is E_UNIMPLEMENTED
+/// after its arguments are checked. A line that is not JSON is E_TOOL_FAILED,
+/// never skipped, and output past 16 MiB is E_BUDGET_EXCEEDED.
+fn bi_journalctl(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("journalctl", &input)?;
+    k8s_max_args("journalctl", &args, 2)?;
+    let count = match args.first() {
+        None => 50,
+        Some(Value::Int(n)) if (1..=1000).contains(n) => *n,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "journalctl",
+                "count: Int 1..=1000",
+                other.type_name(),
+            ))
+        }
+    };
+    let unit = k8s_arg("journalctl", "unit", &args, 1, journal_unit)?;
+    #[cfg(target_os = "linux")]
+    {
+        let count_s = count.to_string();
+        let mut argv: Vec<&str> = vec!["-n", count_s.as_str(), "-o", "json", "--no-pager"];
+        if let Some(u) = unit.as_deref() {
+            argv.extend(["-u", u]);
+        }
+        let run = tool_run(
+            "journalctl",
+            "journalctl",
+            None,
+            &argv,
+            Keep::Head(TOOL_MAX_JSON),
+            TOOL_DEADLINE_SECS,
+        )?;
+        let text = tool_text("journalctl", run)?;
+        let mut entries = Vec::new();
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            let json = serde_json::from_str::<serde_json::Value>(line).map_err(|e| {
+                crate::safety::tool_failed(
+                    "journalctl",
+                    "journalctl -o json",
+                    Some(0),
+                    &format!("printed a line that is not JSON ({e})"),
+                )
+            })?;
+            entries.push(json_to_value(json));
+        }
         Ok(Value::Array(entries))
     }
     #[cfg(not(target_os = "linux"))]
     {
-        Err(anyhow!("journalctl: only supported on Linux with systemd"))
+        let _ = (count, unit);
+        Err(crate::safety::unimplemented(
+            "journalctl",
+            "journalctl reads the systemd journal, which exists only on Linux; NOTHING WAS READ on this operating system",
+            "cat(path) reads a log file on every OS",
+        ))
     }
 }
 
@@ -49177,8 +49659,16 @@ fn bi_lsof(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// 962: bi_strace_cmd - Trace system calls.
-fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// strace_cmd — trace the system calls of one program and summarise them.
+/// Usage: strace_cmd(command). The command is split on whitespace into a program
+/// and its arguments and run directly, with no shell; the program may not begin
+/// with '-'. Returns {command, exit_code, stdout, raw, syscalls, unparsed_rows}.
+/// The exit code is the traced program's, which is the answer here, so it is
+/// data and not a failure of the trace. macOS uses dtruss; elsewhere strace, and
+/// where it is not installed the call is E_TOOL_MISSING.
+fn bi_strace_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("strace_cmd", &input)?;
+    k8s_max_args("strace_cmd", &args, 1)?;
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -49187,111 +49677,62 @@ fn bi_strace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    let words = argv_words("strace_cmd", &command)?;
     crate::safety::guard_exec("strace", &command)?;
-    #[cfg(target_os = "linux")]
-    {
-        let out = Command::new("strace")
-            .args(&["-c", "-e", "trace=all"])
-            .arg(&command)
-            .output()
-            .map_err(|e| anyhow!("strace_cmd: {}", e))?;
-        // strace -c outputs summary to stderr
-        let text = String::from_utf8_lossy(&out.stderr).to_string();
-        let mut rec = BTreeMap::new();
-        rec.insert("command".to_string(), Value::Str(command));
-        rec.insert(
-            "exit_code".to_string(),
-            Value::Int(out.status.code().unwrap_or(-1) as i64),
-        );
-        // Parse strace -c summary table
-        let mut syscalls = Vec::new();
-        let mut in_table = false;
-        for line in text.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("------") || trimmed.starts_with("% time") {
-                in_table = true;
-                continue;
-            }
-            if in_table && trimmed.starts_with("------") {
-                break;
-            }
-            if in_table && !trimmed.is_empty() {
-                let cols: Vec<&str> = trimmed.split_whitespace().collect();
-                if cols.len() >= 5 {
-                    let mut srec = BTreeMap::new();
-                    srec.insert(
-                        "percent".to_string(),
-                        Value::Float(cols[0].parse().unwrap_or(0.0)),
-                    );
-                    srec.insert(
-                        "time_us".to_string(),
-                        Value::Float(cols[1].parse().unwrap_or(0.0)),
-                    );
-                    srec.insert(
-                        "calls".to_string(),
-                        Value::Int(cols[3].parse().unwrap_or(0)),
-                    );
-                    srec.insert(
-                        "errors".to_string(),
-                        Value::Int(cols.get(4).and_then(|s| s.parse().ok()).unwrap_or(0)),
-                    );
-                    srec.insert(
-                        "name".to_string(),
-                        Value::Str(cols.last().unwrap_or(&"").to_string()),
-                    );
-                    syscalls.push(Value::Record(srec));
-                }
-            }
-        }
-        rec.insert("syscalls".to_string(), Value::Array(syscalls));
-        rec.insert("raw".to_string(), Value::Str(text));
-        Ok(Value::Record(rec))
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let out = Command::new("dtruss")
-            .arg(&command)
-            .output()
-            .map_err(|e| anyhow!("strace_cmd: {}", e))?;
-        let text = String::from_utf8_lossy(&out.stderr).to_string();
-        let mut rec = BTreeMap::new();
-        rec.insert("command".to_string(), Value::Str(command));
-        rec.insert(
-            "exit_code".to_string(),
-            Value::Int(out.status.code().unwrap_or(-1) as i64),
-        );
-        let syscalls: Vec<Value> = text
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| {
-                let mut srec = BTreeMap::new();
-                srec.insert("raw".to_string(), Value::Str(l.to_string()));
-                if let Some((call, rest)) = l.split_once('(') {
-                    srec.insert("name".to_string(), Value::Str(call.trim().to_string()));
-                    if let Some((_, ret)) = rest.rsplit_once('=') {
-                        srec.insert("result".to_string(), Value::Str(ret.trim().to_string()));
-                    }
-                }
-                Value::Record(srec)
-            })
-            .collect();
-        rec.insert("syscalls".to_string(), Value::Array(syscalls));
-        rec.insert("raw".to_string(), Value::Str(text));
-        Ok(Value::Record(rec))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        Err(anyhow!("strace_cmd: not supported on Windows"))
-    }
+    let macos = cfg!(target_os = "macos");
+    let tracer = if macos { "dtruss" } else { "strace" };
+    let mut argv: Vec<&str> = if macos {
+        Vec::new()
+    } else {
+        vec!["-c", "-e", "trace=all", "--"]
+    };
+    argv.extend(words.iter().map(String::as_str));
+    let run = tool_run_stderr(
+        "strace_cmd",
+        tracer,
+        None,
+        &argv,
+        Keep::Tail(TOOL_MAX_TEXT),
+        TOOL_MAX_TEXT,
+        TOOL_DEADLINE_SECS,
+    )?;
+    let (syscalls, unparsed) = if macos {
+        (Vec::new(), 0)
+    } else {
+        strace_summary(&run.stderr)
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("command".to_string(), Value::Str(command));
+    rec.insert("exit_code".to_string(), Value::Int(exit_code_of(&run)));
+    rec.insert("stdout".to_string(), Value::Str(run.stdout.clone()));
+    rec.insert("raw".to_string(), Value::Str(run.stderr.clone()));
+    rec.insert("syscalls".to_string(), Value::Array(syscalls));
+    rec.insert("unparsed_rows".to_string(), Value::Int(unparsed as i64));
+    Ok(Value::Record(rec))
 }
 
-/// 966: bi_top_snapshot - Process snapshot (cross-platform via sysinfo).
-fn bi_top_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// top — Process snapshot, largest resident memory first (cross-platform via sysinfo).
+/// Usage: top_snapshot() or top_snapshot(count), count 1..=10000, default 30.
+/// Each entry is {pid, name, cpu_percent, memory_bytes, memory_mb}. CPU use is a
+/// difference between two samples, so the call takes one sampling interval.
+fn bi_top_snapshot(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("top_snapshot", &input)?;
+    k8s_max_args("top_snapshot", &args, 1)?;
     let count = match args.first() {
-        Some(Value::Int(n)) => *n as usize,
-        _ => 30,
+        None => 30,
+        Some(Value::Int(n)) if (1..=10_000).contains(n) => *n as usize,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "top_snapshot",
+                "count: Int 1..=10000",
+                other.type_name(),
+            ))
+        }
     };
     let mut sys = System::new_all();
+    sys.refresh_all();
+    // CPU use is measured between two samples; one sample reads 0 for every process.
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
     sys.refresh_all();
     let mut procs: Vec<_> = sys.processes().iter().collect();
     procs.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
@@ -55010,64 +55451,110 @@ fn bi_telemetry_reset(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 // CLI Tool Wrappers — New cross-platform implementations (965-987)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// wget — Download a file from a URL.
-/// Usage: wget(url) or wget(url, output_path)
-/// Cross-platform: uses curl on all platforms as fallback, native HTTP when possible.
-fn bi_wget_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// wget_download — download one http(s) URL to a file in the workspace.
+/// Usage: wget_download(url) or wget_download(url, output). Without an output,
+/// the file is the last path segment of the URL. The transfer is curl, limited
+/// to http and https for the first request and for every redirect, with at most
+/// 5 redirects, a 1 GiB size limit and a 15 s connect limit; wget cannot limit
+/// the schemes it follows, so it is not used. An existing output is refused, and
+/// a failed transfer removes its partial file. Returns {url, output, size, status, tool}.
+fn bi_wget_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    net_refuse_in_transaction("wget_download")?;
+    k8s_no_input("wget_download", &input)?;
+    if args.len() > 2 {
+        return Err(crate::safety::arg_err(
+            "wget_download takes a URL and an optional output path",
+        ));
+    }
     let url = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("wget requires a URL string")),
     };
+    let parsed = url::Url::parse(&url).map_err(|e| {
+        crate::safety::bad_arg("wget_download", "an absolute http(s) URL", &e.to_string())
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(crate::safety::bad_arg(
+            "wget_download",
+            "an http or https URL",
+            &format!("the scheme {}", parsed.scheme()),
+        ));
+    }
     guard_network("wget_download", &url)?;
     let output = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => {
-            // Extract filename from URL
-            url.split('/').next_back().unwrap_or("download").to_string()
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "wget_download",
+                "an output path String",
+                other.type_name(),
+            ))
         }
+        None => parsed
+            .path_segments()
+            .and_then(|segs| {
+                segs.rev()
+                    .find(|s| !s.is_empty() && *s != "." && *s != "..")
+            })
+            .map(str::to_string)
+            .ok_or_else(|| {
+                crate::safety::arg_err("wget_download: the URL names no file; pass an output path")
+            })?,
     };
-    // Same two-effect problem as `web_download`: the URL was gated and the file
-    // was not.
-    let output = guard_local_write("wget_download", &output)?;
-    // Try wget first, fall back to curl
-    let result = std::process::Command::new("wget")
-        .args(["-q", "-O", &output, &url])
-        .output();
-    match result {
-        Ok(out) if out.status.success() => {
-            let size = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
-            let mut rec = BTreeMap::new();
-            rec.insert("url".to_string(), Value::Str(url));
-            rec.insert("output".to_string(), Value::Str(output));
-            rec.insert("size".to_string(), Value::Int(size as i64));
-            rec.insert("status".to_string(), Value::Str("downloaded".to_string()));
-            Ok(Value::Record(rec))
-        }
-        _ => {
-            // Fallback to curl
-            let out = std::process::Command::new("curl")
-                .args(["-sS", "-L", "-o", &output, &url])
-                .output()
-                .map_err(|e| anyhow!("Neither wget nor curl available: {}", e))?;
-            if !out.status.success() {
-                return Err(anyhow!(
-                    "Download failed: {}",
-                    String::from_utf8_lossy(&out.stderr)
-                ));
-            }
-            let size = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
-            let mut rec = BTreeMap::new();
-            rec.insert("url".to_string(), Value::Str(url));
-            rec.insert("output".to_string(), Value::Str(output));
-            rec.insert("size".to_string(), Value::Int(size as i64));
-            rec.insert("status".to_string(), Value::Str("downloaded".to_string()));
-            rec.insert(
-                "tool".to_string(),
-                Value::Str("curl (fallback)".to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
+    crate::safety::reject_option_like("wget_download", std::slice::from_ref(&output))?;
+    if output.trim().is_empty() || output.len() > 4096 || output.contains('\0') {
+        return Err(crate::safety::arg_err(
+            "wget_download: the output path must be 1 to 4096 bytes without NUL",
+        ));
     }
+    let output = guard_local_write("wget_download", &output)?;
+    if std::path::Path::new(&output).exists() {
+        return Err(crate::safety::arg_err(format!(
+            "wget_download: `{output}` already exists; remove it or choose another output path"
+        )));
+    }
+    let max = WGET_FILE_MAX.to_string();
+    let argv = [
+        "-sS",
+        "-f",
+        "-L",
+        "--max-redirs",
+        "5",
+        "--proto",
+        "=http,https",
+        "--proto-redir",
+        "=http,https",
+        "--connect-timeout",
+        "15",
+        "--max-filesize",
+        max.as_str(),
+        "-o",
+        output.as_str(),
+        url.as_str(),
+    ];
+    if let Err(e) = tool_run(
+        "wget_download",
+        "curl",
+        None,
+        &argv,
+        Keep::Tail(TOOL_STDERR_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )
+    .and_then(|run| finished("wget_download", run))
+    {
+        let _ = std::fs::remove_file(&output);
+        return Err(e);
+    }
+    let size = std::fs::metadata(&output)
+        .map_err(|e| crate::safety::fs_error("wget_download", &output, &e))?
+        .len();
+    let mut rec = BTreeMap::new();
+    rec.insert("url".to_string(), Value::Str(url));
+    rec.insert("output".to_string(), Value::Str(output));
+    rec.insert("size".to_string(), Value::Int(size as i64));
+    rec.insert("status".to_string(), Value::Str("downloaded".to_string()));
+    rec.insert("tool".to_string(), Value::Str("curl".to_string()));
+    Ok(Value::Record(rec))
 }
 
 /// An age recipient: an age1… key or an ssh- public key, and no other text.
@@ -55597,70 +56084,64 @@ fn parse_field_spec(spec: &str) -> Result<Vec<usize>> {
     Ok(indices)
 }
 
-/// xargs — Execute a command for each line of input (cross-platform).
-/// Usage: xargs(command, input_array) or piped: array | xargs(command)
+/// xargs — Run one program once per item, with the item as its last argument.
+/// Usage: xargs_exec(command, items) or items | xargs_exec(command). items is an
+/// Array of scalars, or a String read as lines. The command is split on whitespace
+/// and run directly, with no shell; its program may not begin with '-', and no
+/// item may either. At most 256 items, each run has a 120 s deadline, and the call
+/// as a whole 600 s. Returns one Record per item: {item, exit_code, stdout, stderr}.
+/// A nonzero exit is that item's exit code, which is data here.
 fn bi_xargs_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_max_args("xargs_exec", &args, 2)?;
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("xargs requires a command string")),
     };
-    let items: Vec<String> = match args.get(1) {
-        Some(Value::Array(arr)) => arr.iter().map(|v| format!("{}", v)).collect(),
-        Some(Value::Str(s)) => s.lines().map(|l| l.to_string()).collect(),
-        None => match &input {
-            Some(Value::Array(arr)) => arr.iter().map(|v| format!("{}", v)).collect(),
-            Some(Value::Str(s)) => s.lines().map(|l| l.to_string()).collect(),
-            _ => return Err(crate::safety::arg_err("xargs requires input items")),
-        },
-        _ => {
+    let items = match (args.get(1), &input) {
+        (Some(_), Some(_)) => {
             return Err(crate::safety::arg_err(
-                "xargs input must be an array or string",
+                "xargs_exec takes its items either as an argument or piped in, not both",
             ))
         }
+        (Some(v), None) | (None, Some(v)) => xargs_items("xargs_exec", v)?,
+        (None, None) => return Err(crate::safety::arg_err("xargs requires input items")),
     };
-    // Gate once on the command template rather than per item: the capability
-    // being granted is "run this command", and prompting N times for N items
-    // trains an operator to approve without reading.
+    let words = argv_words("xargs_exec", &command)?;
     crate::safety::guard_exec("xargs", &command)?;
-    let mut results = Vec::new();
+    let started = std::time::Instant::now();
+    let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        let full_cmd = format!("{} {}", command, item);
-        let out = if cfg!(target_os = "windows") {
-            std::process::Command::new("cmd")
-                .args(["/C", &full_cmd])
-                .output()
-        } else {
-            std::process::Command::new("sh")
-                .args(["-c", &full_cmd])
-                .output()
-        };
-        match out {
-            Ok(output) => {
-                let mut rec = BTreeMap::new();
-                rec.insert("item".to_string(), Value::Str(item.clone()));
-                rec.insert(
-                    "exit_code".to_string(),
-                    Value::Int(output.status.code().unwrap_or(-1) as i64),
-                );
-                rec.insert(
-                    "stdout".to_string(),
-                    Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()),
-                );
-                if !output.stderr.is_empty() {
-                    rec.insert(
-                        "stderr".to_string(),
-                        Value::Str(String::from_utf8_lossy(&output.stderr).trim().to_string()),
-                    );
-                }
-                results.push(Value::Record(rec));
-            }
-            Err(e) => {
-                let mut rec = BTreeMap::new();
-                rec.insert("item".to_string(), Value::Str(item.clone()));
-                rec.insert("error".to_string(), Value::Str(e.to_string()));
-                results.push(Value::Record(rec));
-            }
+        if started.elapsed() > std::time::Duration::from_secs(XARGS_TOTAL_SECS) {
+            return Err(crate::safety::budget_exceeded(
+                "xargs_exec",
+                format!(
+                    "the items took more than {XARGS_TOTAL_SECS} s; {} of {} ran",
+                    results.len(),
+                    items.len()
+                ),
+                "run the remaining items in a separate call",
+            ));
         }
+        let mut argv: Vec<&str> = words.iter().skip(1).map(String::as_str).collect();
+        argv.push(item.as_str());
+        let run = tool_run_stderr(
+            "xargs_exec",
+            &words[0],
+            None,
+            &argv,
+            Keep::Tail(XARGS_ITEM_OUT),
+            XARGS_ITEM_OUT,
+            TOOL_DEADLINE_SECS,
+        )?;
+        let mut rec = BTreeMap::new();
+        rec.insert("item".to_string(), Value::Str(item.clone()));
+        rec.insert("exit_code".to_string(), Value::Int(exit_code_of(&run)));
+        rec.insert(
+            "stdout".to_string(),
+            Value::Str(run.stdout.trim().to_string()),
+        );
+        rec.insert("stderr".to_string(), Value::Str(run.stderr.clone()));
+        results.push(Value::Record(rec));
     }
     Ok(Value::Array(results))
 }
@@ -56802,95 +57283,96 @@ fn bi_netstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// nmap — Network port scanning.
-/// Usage: nmap_scan(host) or nmap_scan(host, {ports?, flags?})
-fn bi_nmap_scan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let host = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("nmap_scan requires a host")),
-    };
-    let mut cmd_args = vec!["-oX".to_string(), "-".to_string()];
-    if let Some(Value::Record(r)) = args.get(1) {
-        if let Some(Value::Str(ports)) = r.get("ports") {
-            cmd_args.push("-p".to_string());
-            cmd_args.push(ports.clone());
-        }
-        if let Some(Value::Str(flags)) = r.get("flags") {
-            for flag in flags.split_whitespace() {
-                cmd_args.push(flag.to_string());
-            }
-        }
+/// Usage: nmap_scan(host) or nmap_scan(host, {ports?, flags?}). ports is a list
+/// such as "22,80,1000-1100" with every port in 1..=65535. flags is a
+/// whitespace-separated list drawn from NMAP_FLAGS; any other flag is refused by
+/// policy, because nmap's other options run scripts or write files. The host may
+/// not begin with '-'. Returns {host, ports}, one Record per port, with its
+/// state and service. A nonzero exit is E_TOOL_FAILED; a missing nmap is E_TOOL_MISSING.
+fn bi_nmap_scan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    net_refuse_in_transaction("nmap_scan")?;
+    k8s_no_input("nmap_scan", &input)?;
+    k8s_max_args("nmap_scan", &args, 2)?;
+    let host = k8s_need("nmap_scan", "a host", &args, 0, net_target_host)?;
+    let options = devtool_options("nmap_scan", &args, 1, &["ports", "flags"])?;
+    let ports = devtool_opt_str("nmap_scan", "ports", options, "ports", nmap_ports)?;
+    let flags = devtool_opt_str("nmap_scan", "flags", options, "flags", nmap_flags)?;
+    let mut argv: Vec<String> = vec!["-oX".to_string(), "-".to_string()];
+    if let Some(p) = ports {
+        argv.push("-p".to_string());
+        argv.push(p);
     }
-    cmd_args.push(host.clone());
-    let out = std::process::Command::new("nmap")
-        .args(&cmd_args)
-        .output()
-        .map_err(|e| anyhow!("nmap not found: {}. Install from https://nmap.org", e))?;
-    if !out.status.success() {
-        return Err(anyhow!(
-            "nmap failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        ));
+    if let Some(f) = flags {
+        argv.extend(f.split_whitespace().map(str::to_string));
     }
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    // Parse XML output for structured results
-    let mut ports = Vec::new();
-    for line in stdout.lines() {
+    argv.push(host.clone());
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = tool_run(
+        "nmap_scan",
+        "nmap",
+        None,
+        &refs,
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    let xml = tool_text("nmap_scan", run)?;
+    let mut port_rows: Vec<Value> = Vec::new();
+    for line in xml.lines() {
         let line = line.trim();
         if line.starts_with("<port ") {
             let mut rec = BTreeMap::new();
-            // Extract portid and protocol
             if let Some(portid) = extract_xml_attr(line, "portid") {
                 rec.insert(
                     "port".to_string(),
-                    Value::Int(portid.parse::<i64>().unwrap_or(0)),
+                    portid.parse::<i64>().map_or(Value::Null, Value::Int),
                 );
             }
             if let Some(proto) = extract_xml_attr(line, "protocol") {
                 rec.insert("protocol".to_string(), Value::Str(proto));
             }
-            ports.push(Value::Record(rec));
+            port_rows.push(Value::Record(rec));
         }
         if line.starts_with("<state ") {
-            if let Some(last) = ports.last_mut() {
-                if let Value::Record(ref mut rec) = last {
-                    if let Some(state) = extract_xml_attr(line, "state") {
-                        rec.insert("state".to_string(), Value::Str(state));
-                    }
-                    if let Some(reason) = extract_xml_attr(line, "reason") {
-                        rec.insert("reason".to_string(), Value::Str(reason));
-                    }
+            if let Some(Value::Record(rec)) = port_rows.last_mut() {
+                if let Some(state) = extract_xml_attr(line, "state") {
+                    rec.insert("state".to_string(), Value::Str(state));
+                }
+                if let Some(reason) = extract_xml_attr(line, "reason") {
+                    rec.insert("reason".to_string(), Value::Str(reason));
                 }
             }
         }
         if line.starts_with("<service ") {
-            if let Some(last) = ports.last_mut() {
-                if let Value::Record(ref mut rec) = last {
-                    if let Some(name) = extract_xml_attr(line, "name") {
-                        rec.insert("service".to_string(), Value::Str(name));
-                    }
+            if let Some(Value::Record(rec)) = port_rows.last_mut() {
+                if let Some(name) = extract_xml_attr(line, "name") {
+                    rec.insert("service".to_string(), Value::Str(name));
                 }
             }
         }
     }
     let mut result = BTreeMap::new();
     result.insert("host".to_string(), Value::Str(host));
-    result.insert("ports".to_string(), Value::Array(ports));
+    result.insert("ports".to_string(), Value::Array(port_rows));
     Ok(Value::Record(result))
 }
 
-/// nmap — Quick scan (common ports only).
-/// Usage: nmap_quick(host)
-fn bi_nmap_quick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let host = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("nmap_quick requires a host")),
-    };
-    let out = std::process::Command::new("nmap")
-        .args(["-F", "--open", &host])
-        .output()
-        .map_err(|e| crate::safety::tool_missing("nmap", "nmap", &e.to_string()))?;
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    // Parse text output
+/// nmap — Quick scan of the common ports, open ones only.
+/// Usage: nmap_quick(host). The host may not begin with '-'. Returns {host,
+/// ports, scan_type}. A nonzero exit is E_TOOL_FAILED; a missing nmap is E_TOOL_MISSING.
+fn bi_nmap_quick(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    net_refuse_in_transaction("nmap_quick")?;
+    k8s_no_input("nmap_quick", &input)?;
+    k8s_max_args("nmap_quick", &args, 1)?;
+    let host = k8s_need("nmap_quick", "a host", &args, 0, net_target_host)?;
+    let run = tool_run(
+        "nmap_quick",
+        "nmap",
+        None,
+        &["-F", "--open", host.as_str()],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    let stdout = tool_text("nmap_quick", run)?;
     let mut ports = Vec::new();
     for line in stdout.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -56899,7 +57381,7 @@ fn bi_nmap_quick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let mut rec = BTreeMap::new();
             rec.insert(
                 "port".to_string(),
-                Value::Int(port_proto[0].parse::<i64>().unwrap_or(0)),
+                port_proto[0].parse::<i64>().map_or(Value::Null, Value::Int),
             );
             rec.insert(
                 "protocol".to_string(),
@@ -57170,60 +57652,53 @@ fn bi_screen_attach(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // --- timeout (1002) ---
 
-/// timeout — Run a command with a time limit.
-/// Usage: timeout(seconds, command)
-fn bi_timeout_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// timeout — Run one program with a time limit, and return its result.
+/// Usage: timeout_cmd(seconds, command). seconds is 1..=3600. The command is split
+/// on whitespace into a program and its arguments and run directly, with no shell;
+/// the program may not begin with '-'. Returns {command, exit_code, stdout,
+/// stderr, stdout_truncated}. The exit code is the program's and is data. A
+/// program still running at the limit is killed and the call is E_BUDGET_EXCEEDED.
+fn bi_timeout_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("timeout_cmd", &input)?;
+    k8s_max_args("timeout_cmd", &args, 2)?;
     let seconds = match args.first() {
-        Some(Value::Int(n)) => *n,
-        Some(Value::Float(f)) => *f as i64,
+        Some(Value::Int(n)) if (1..=3600).contains(n) => *n as u64,
         _ => {
             return Err(crate::safety::arg_err(
-                "timeout requires seconds as first argument",
+                "timeout_cmd requires seconds as an Int 1..=3600 first",
             ))
         }
     };
     let command = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("timeout requires a command string")),
-    };
-    crate::safety::guard_exec("timeout", &command)?;
-    let timeout_str = seconds.to_string();
-    let output = if cfg!(target_os = "windows") {
-        // Windows: use Start-Process with timeout via powershell
-        std::process::Command::new("powershell")
-            .args(["-Command", &crate::ps_script!(
-                "$p = Start-Process -FilePath cmd -ArgumentList {} -PassThru -NoNewWindow; if(!$p.WaitForExit({}000)){{ $p.Kill(); 'TIMEOUT' }} else {{ $p.ExitCode }}",
-                crate::safety::ps_quote(&format!("/C {}", command)), seconds
-            )])
-            .output()
-    } else {
-        std::process::Command::new("timeout")
-            .args([&timeout_str, "sh", "-c", &command])
-            .output()
-    };
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            rec.insert(
-                "timed_out".to_string(),
-                Value::Bool(o.status.code() == Some(124)),
-            );
-            Ok(Value::Record(rec))
+        _ => {
+            return Err(crate::safety::arg_err(
+                "timeout_cmd requires a command string second",
+            ))
         }
-        Err(e) => Err(anyhow!("timeout failed: {}", e)),
-    }
+    };
+    let words = argv_words("timeout_cmd", &command)?;
+    crate::safety::guard_exec("timeout", &command)?;
+    let argv: Vec<&str> = words.iter().skip(1).map(String::as_str).collect();
+    let run = tool_run_stderr(
+        "timeout_cmd",
+        &words[0],
+        None,
+        &argv,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_KEEP_TAIL,
+        seconds,
+    )?;
+    let mut rec = BTreeMap::new();
+    rec.insert("command".to_string(), Value::Str(command));
+    rec.insert("exit_code".to_string(), Value::Int(exit_code_of(&run)));
+    rec.insert("stdout".to_string(), Value::Str(run.stdout.clone()));
+    rec.insert("stderr".to_string(), Value::Str(run.stderr.clone()));
+    rec.insert(
+        "stdout_truncated".to_string(),
+        Value::Bool(run.stdout_truncated),
+    );
+    Ok(Value::Record(rec))
 }
 
 // --- pkill (1003) ---
@@ -57358,146 +57833,197 @@ fn bi_pgrep(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- lnav (1005) ---
 
-/// lnav — Open log files in lnav viewer.
-fn bi_lnav_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("lnav_open requires a log file path")),
-    };
-    let output = std::process::Command::new("lnav").arg(&path).output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("lnav", "lnav", &e.to_string())),
+/// lnav — Open one log file in the lnav viewer.
+/// Usage: lnav_open(path). The file must exist, and its path may not begin with
+/// '-'. lnav is interactive, so it needs a terminal on stdin and stdout and a
+/// person at it. Without both, or in agent mode, the call is E_NO_UI before
+/// anything is started. With a terminal the viewer runs until the person quits,
+/// and the result is {path}.
+fn bi_lnav_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("lnav_open", &input)?;
+    k8s_max_args("lnav_open", &args, 1)?;
+    let path = k8s_need("lnav_open", "a log file path", &args, 0, tf_plain)?;
+    if !std::path::Path::new(&path).is_file() {
+        return Err(crate::safety::not_found("lnav_open", "log file", &path));
     }
+    devtool_terminal("lnav_open")?;
+    devtool_attach("lnav_open", "lnav", &[path.as_str()], "lnav")?;
+    let mut rec = BTreeMap::new();
+    rec.insert("path".to_string(), Value::Str(path));
+    Ok(Value::Record(rec))
 }
 
 // --- multitail (1006) ---
 
-/// multitail — Tail multiple files simultaneously.
-fn bi_multitail_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let files: Vec<String> = args
-        .iter()
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    if files.is_empty() {
+/// multitail — Tail several files at once in the multitail viewer.
+/// Usage: multitail_open(file, ...), one to 16 existing files, none beginning
+/// with '-'. multitail is interactive, so it needs a terminal on stdin and stdout
+/// and a person at it. Without both, or in agent mode, the call is E_NO_UI before
+/// anything is started. With a terminal the viewer runs until the person quits,
+/// and the result is {files}.
+fn bi_multitail_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("multitail_open", &input)?;
+    if args.is_empty() {
         return Err(crate::safety::arg_err(
-            "multitail requires at least one file path",
+            "multitail_open requires at least one file path",
         ));
     }
-    let output = std::process::Command::new("multitail")
-        .args(&files)
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "files".to_string(),
-                Value::Array(files.iter().map(|f| Value::Str(f.clone())).collect()),
-            );
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "multitail",
-            "multitail",
-            &e.to_string(),
-        )),
+    if args.len() > MULTITAIL_MAX_FILES {
+        return Err(crate::safety::budget_exceeded(
+            "multitail_open",
+            format!("{} files; the limit is {MULTITAIL_MAX_FILES}", args.len()),
+            "open fewer files at once",
+        ));
     }
+    let mut files: Vec<String> = Vec::with_capacity(args.len());
+    for a in &args {
+        let Value::Str(s) = a else {
+            return Err(crate::safety::bad_arg(
+                "multitail_open",
+                "a file path String",
+                a.type_name(),
+            ));
+        };
+        let f = tf_plain("multitail_open", "a file path", s)?;
+        if !std::path::Path::new(&f).is_file() {
+            return Err(crate::safety::not_found("multitail_open", "log file", &f));
+        }
+        files.push(f);
+    }
+    devtool_terminal("multitail_open")?;
+    let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+    devtool_attach("multitail_open", "multitail", &refs, "multitail")?;
+    let mut rec = BTreeMap::new();
+    rec.insert(
+        "files".to_string(),
+        Value::Array(files.iter().map(|f| Value::Str(f.clone())).collect()),
+    );
+    Ok(Value::Record(rec))
 }
 
 // --- logrotate (1007) ---
 
-/// logrotate — Run logrotate with a config file.
-fn bi_logrotate_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let config = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "logrotate requires a config file path",
+/// logrotate — Run logrotate with a configuration file inside the workspace.
+/// Usage: logrotate_run(config) or logrotate_run(config, force). The configuration
+/// must be an existing file inside the workspace, and its path may not begin with
+/// '-'. Its paths must be relative and without '..', and it may not contain a
+/// directive that runs a program or sends mail (prerotate, postrotate, firstaction,
+/// lastaction, preremove, mail, mailfirst, maillast); each is refused by policy.
+/// The state file is <config>.state beside it, so no system state is written.
+/// force is a Bool. A nonzero exit is E_TOOL_FAILED.
+fn bi_logrotate_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("logrotate_run", &input)?;
+    k8s_max_args("logrotate_run", &args, 2)?;
+    let config = k8s_need(
+        "logrotate_run",
+        "a configuration file path",
+        &args,
+        0,
+        tf_plain,
+    )?;
+    let force = match args.get(1) {
+        None => false,
+        Some(Value::Bool(b)) => *b,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "logrotate_run",
+                "force: Bool",
+                other.type_name(),
             ))
         }
     };
-    let mut cmd_args = vec![config.as_str()];
-    if args
-        .iter()
-        .any(|a| matches!(a, Value::Str(s) if s == "--force" || s == "-f"))
-    {
-        cmd_args.insert(0, "-f");
+    let config_path = workspace_path("logrotate_run", &config, &workspace_root_abs())?;
+    if !config_path.is_file() {
+        return Err(crate::safety::not_found(
+            "logrotate_run",
+            "configuration file",
+            &config,
+        ));
     }
-    let output = std::process::Command::new("logrotate")
-        .args(&cmd_args)
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("config".to_string(), Value::Str(config));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "logrotate",
-            "logrotate",
-            &e.to_string(),
-        )),
+    let size = std::fs::metadata(&config_path)
+        .map_err(|e| crate::safety::fs_error("logrotate_run", &config_path, &e))?
+        .len();
+    if size > LOGROTATE_CONFIG_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "logrotate_run",
+            format!("the configuration is {size} bytes; the limit is {LOGROTATE_CONFIG_MAX}"),
+            "split the configuration or shorten it",
+        ));
     }
+    let text = std::fs::read_to_string(&config_path)
+        .map_err(|e| crate::safety::fs_error("logrotate_run", &config_path, &e))?;
+    logrotate_config_check("logrotate_run", &text)?;
+    let dir = config_path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(workspace_root_abs);
+    let mut state_os = config_path.clone().into_os_string();
+    state_os.push(".state");
+    let state_arg = std::path::PathBuf::from(state_os).display().to_string();
+    let config_arg = config_path.display().to_string();
+    let mut argv: Vec<&str> = vec!["-s", state_arg.as_str()];
+    if force {
+        argv.push("-f");
+    }
+    argv.push(config_arg.as_str());
+    let run = tool_run(
+        "logrotate_run",
+        "logrotate",
+        Some(dir.as_path()),
+        &argv,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let run = finished("logrotate_run", run)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("config".to_string(), Value::Str(config));
+    rec.insert("state".to_string(), Value::Str(state_arg));
+    rec.insert("forced".to_string(), Value::Bool(force));
+    rec.insert(
+        "stdout".to_string(),
+        Value::Str(run.stdout.trim().to_string()),
+    );
+    rec.insert("stderr".to_string(), Value::Str(run.stderr.clone()));
+    Ok(Value::Record(rec))
 }
 
 // --- ltrace (1008) ---
 
-/// ltrace — Trace library calls of a program.
-fn bi_ltrace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// ltrace — Trace library calls of one program, counted with ltrace -c.
+/// Usage: ltrace_cmd(command). The command is split on whitespace and run
+/// directly, with no shell; the program may not begin with '-'. Returns
+/// {command, exit_code, stdout, trace, stdout_truncated}. The exit code is the
+/// traced program's and is data. A missing ltrace is E_TOOL_MISSING.
+fn bi_ltrace_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("ltrace_cmd", &input)?;
+    k8s_max_args("ltrace_cmd", &args, 1)?;
     let command = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("ltrace requires a command to trace")),
     };
+    let words = argv_words("ltrace_cmd", &command)?;
     crate::safety::guard_exec("ltrace", &command)?;
-    let output = std::process::Command::new("ltrace")
-        .args(["-c", &command])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("command".to_string(), Value::Str(command));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "trace".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "ltrace",
-            "ltrace",
-            &e.to_string(),
-        )),
-    }
+    let mut argv: Vec<&str> = vec!["-c", "--"];
+    argv.extend(words.iter().map(String::as_str));
+    let run = tool_run_stderr(
+        "ltrace_cmd",
+        "ltrace",
+        None,
+        &argv,
+        Keep::Tail(TOOL_MAX_TEXT),
+        TOOL_MAX_TEXT,
+        TOOL_DEADLINE_SECS,
+    )?;
+    let mut rec = BTreeMap::new();
+    rec.insert("command".to_string(), Value::Str(command));
+    rec.insert("exit_code".to_string(), Value::Int(exit_code_of(&run)));
+    rec.insert("stdout".to_string(), Value::Str(run.stdout.clone()));
+    rec.insert("trace".to_string(), Value::Str(run.stderr.clone()));
+    rec.insert(
+        "stdout_truncated".to_string(),
+        Value::Bool(run.stdout_truncated),
+    );
+    Ok(Value::Record(rec))
 }
 
 // --- valgrind (1009-1010) ---
@@ -57601,31 +58127,41 @@ fn bi_gdb_bt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // --- lldb (1013) ---
 
-/// lldb — Run a program under LLDB.
-fn bi_lldb_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let program = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("lldb_run requires a program path")),
-    };
-    let output = std::process::Command::new("lldb")
-        .args(["--batch", "-o", "run", "-o", "bt", "-o", "quit", &program])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("program".to_string(), Value::Str(program));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "output".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("lldb", "lldb", &e.to_string())),
+/// lldb — Run a program under LLDB in batch mode and return LLDB's report.
+/// Usage: lldb_run(program). The program must be an existing file, and its path
+/// may not begin with '-'. LLDB runs the program, prints a backtrace if it stops,
+/// and quits. Stdin is closed, and the call has a 120 s deadline. A nonzero exit
+/// is E_TOOL_FAILED with the tail of stderr; a missing lldb is E_TOOL_MISSING.
+fn bi_lldb_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("lldb_run", &input)?;
+    k8s_max_args("lldb_run", &args, 1)?;
+    let program = k8s_need("lldb_run", "a program path", &args, 0, tf_plain)?;
+    if !std::path::Path::new(&program).is_file() {
+        return Err(crate::safety::not_found("lldb_run", "program", &program));
     }
+    let argv = [
+        "--batch",
+        "-o",
+        "run",
+        "-o",
+        "bt",
+        "-o",
+        "quit",
+        program.as_str(),
+    ];
+    let run = tool_run(
+        "lldb_run",
+        "lldb",
+        None,
+        &argv,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let output = tool_text("lldb_run", run)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("program".to_string(), Value::Str(program));
+    rec.insert("output".to_string(), Value::Str(output.trim().to_string()));
+    Ok(Value::Record(rec))
 }
 
 // --- objdump (1014-1015) ---
@@ -57714,48 +58250,33 @@ fn bi_objdump_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
 // --- nm (1016) ---
 
-/// nm — List symbols from an object file.
-fn bi_nm_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "nm_symbols requires an object file path",
-            ))
-        }
-    };
-    let output = std::process::Command::new("nm")
-        .args(["--demangle", &path])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let symbols: Vec<Value> = stdout
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|line| {
-                    let parts: Vec<&str> = line.splitn(3, ' ').collect();
-                    let mut rec = BTreeMap::new();
-                    if parts.len() >= 3 {
-                        rec.insert("address".to_string(), Value::Str(parts[0].to_string()));
-                        rec.insert("type".to_string(), Value::Str(parts[1].to_string()));
-                        rec.insert("name".to_string(), Value::Str(parts[2].to_string()));
-                    } else {
-                        rec.insert("line".to_string(), Value::Str(line.to_string()));
-                    }
-                    Value::Record(rec)
-                })
-                .collect();
-            Ok(Value::Array(symbols))
-        }
-        Ok(o) => Err(crate::safety::tool_failed(
-            "nm",
-            "nm",
-            o.status.code(),
-            &String::from_utf8_lossy(&o.stderr),
-        )),
-        Err(e) => Err(crate::safety::tool_missing("nm", "nm", &e.to_string())),
+/// nm — list the symbols of an object file or executable.
+/// Usage: nm_symbols(path). Returns an Array of {address, type, name}, with the
+/// demangled name. An undefined symbol has no address, so its address is null.
+/// The path must be an existing file and may not begin with '-'. Output past
+/// 4 MiB is E_BUDGET_EXCEEDED; a missing nm is E_TOOL_MISSING.
+fn bi_nm_symbols(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("nm_symbols", &input)?;
+    k8s_max_args("nm_symbols", &args, 1)?;
+    let path = k8s_need("nm_symbols", "an object file path", &args, 0, tf_plain)?;
+    if !std::path::Path::new(&path).is_file() {
+        return Err(crate::safety::not_found("nm_symbols", "object file", &path));
     }
+    let run = tool_run(
+        "nm_symbols",
+        "nm",
+        None,
+        &["--demangle", path.as_str()],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let text = tool_text("nm_symbols", run)?;
+    Ok(Value::Array(
+        text.lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(nm_record)
+            .collect(),
+    ))
 }
 
 // --- readelf (1017-1018) ---
@@ -57930,98 +58451,127 @@ fn bi_chgrp(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // --- mtr (1021) ---
 
 /// mtr — Network diagnostic tool combining traceroute and ping.
-fn bi_mtr_trace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let host = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("mtr requires a hostname")),
-    };
-    let count = match args.get(1) {
-        Some(Value::Int(n)) => n.to_string(),
-        _ => "5".to_string(),
-    };
-    let output = std::process::Command::new("mtr")
-        .args(["--report", "--report-cycles", &count, &host])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("host".to_string(), Value::Str(host));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "report".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
+/// Usage: mtr_trace(host) or mtr_trace(host, cycles). The host is a name or IP
+/// literal and may not begin with '-'. cycles is 1..=100 and defaults to 5. The
+/// result is {host, report}. A nonzero exit is E_TOOL_FAILED; a missing mtr is
+/// E_TOOL_MISSING. The run has a 120 s deadline.
+fn bi_mtr_trace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    net_refuse_in_transaction("mtr_trace")?;
+    k8s_no_input("mtr_trace", &input)?;
+    k8s_max_args("mtr_trace", &args, 2)?;
+    let host = k8s_need("mtr_trace", "a hostname", &args, 0, net_target_host)?;
+    let cycles = match args.get(1) {
+        None => 5,
+        Some(Value::Int(n)) if (1..=100).contains(n) => *n,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "mtr_trace",
+                "cycles: Int 1..=100",
+                other.type_name(),
+            ))
         }
-        Err(e) => Err(crate::safety::tool_missing("mtr", "mtr", &e.to_string())),
-    }
+    };
+    let cycles_s = cycles.to_string();
+    let run = tool_run(
+        "mtr_trace",
+        "mtr",
+        None,
+        &[
+            "--report",
+            "--report-cycles",
+            cycles_s.as_str(),
+            host.as_str(),
+        ],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let report = tool_text("mtr_trace", run)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("host".to_string(), Value::Str(host));
+    rec.insert("report".to_string(), Value::Str(report.trim().to_string()));
+    Ok(Value::Record(rec))
 }
 
 // --- host (1022) ---
 
 /// host — DNS lookup utility.
-fn bi_host_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let hostname = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("host requires a hostname")),
-    };
-    let output = if cfg!(target_os = "windows") {
-        std::process::Command::new("nslookup")
-            .arg(&hostname)
-            .output()
-    } else {
-        std::process::Command::new("host").arg(&hostname).output()
-    };
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("hostname".to_string(), Value::Str(hostname));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "result".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(anyhow!("host lookup failed: {}", e)),
-    }
+/// Usage: host_lookup(hostname). The name is a host name or IP literal and may
+/// not begin with '-'. Returns {hostname, result}, where result is the resolver
+/// tool's text. A lookup the resolver reports as failed is E_TOOL_FAILED; a
+/// missing resolver tool is E_TOOL_MISSING.
+fn bi_host_lookup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    net_refuse_in_transaction("host_lookup")?;
+    k8s_no_input("host_lookup", &input)?;
+    k8s_max_args("host_lookup", &args, 1)?;
+    let hostname = k8s_need("host_lookup", "a hostname", &args, 0, net_target_host)?;
+    let tool = if cfg!(windows) { "nslookup" } else { "host" };
+    let run = tool_run(
+        "host_lookup",
+        tool,
+        None,
+        &[hostname.as_str()],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let result = tool_text("host_lookup", run)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("hostname".to_string(), Value::Str(hostname));
+    rec.insert("result".to_string(), Value::Str(result.trim().to_string()));
+    Ok(Value::Record(rec))
 }
 
 // --- nc/netcat (1023-1024) ---
 
-/// nc connect — Connect to a host:port via netcat.
-fn bi_nc_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let host = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("nc_connect requires a host")),
-    };
+/// nc connect — Test whether a TCP port accepts a connection, using netcat.
+/// Usage: nc_connect(host, port). The port is an Int 1..=65535 and the host is a
+/// name or IP literal that may not begin with '-'. Returns {host, port, open,
+/// output}. A refused or unanswered connection is open false: that is the answer.
+/// Any other netcat failure is E_TOOL_FAILED, and a missing netcat is E_TOOL_MISSING.
+fn bi_nc_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    net_refuse_in_transaction("nc_connect")?;
+    k8s_no_input("nc_connect", &input)?;
+    k8s_max_args("nc_connect", &args, 2)?;
+    let host = k8s_need("nc_connect", "a host", &args, 0, net_target_host)?;
     let port = match args.get(1) {
-        Some(Value::Int(n)) => n.to_string(),
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("nc_connect requires a port")),
-    };
-    let output = std::process::Command::new("nc")
-        .args(["-z", "-v", "-w", "5", &host, &port])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("host".to_string(), Value::Str(host));
-            rec.insert("port".to_string(), Value::Str(port));
-            rec.insert("open".to_string(), Value::Bool(o.status.success()));
-            let combined = format!(
-                "{}{}",
-                String::from_utf8_lossy(&o.stdout),
-                String::from_utf8_lossy(&o.stderr)
-            );
-            rec.insert(
-                "output".to_string(),
-                Value::Str(combined.trim().to_string()),
-            );
-            Ok(Value::Record(rec))
+        Some(Value::Int(n)) => net_port("nc_connect", *n)?,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "nc_connect",
+                "port: Int 1..=65535",
+                other.type_name(),
+            ))
         }
-        Err(e) => Err(anyhow!("nc/netcat not found: {}", e)),
-    }
+        None => return Err(crate::safety::arg_err("nc_connect requires a port")),
+    };
+    let port_s = port.to_string();
+    let run = tool_run_stderr(
+        "nc_connect",
+        "nc",
+        None,
+        &["-z", "-v", "-w", "5", host.as_str(), port_s.as_str()],
+        Keep::Tail(NET_ERR_MAX),
+        NET_ERR_MAX,
+        TOOL_DEADLINE_SECS,
+    )?;
+    let text = format!("{}{}", run.stdout, run.stderr).trim().to_string();
+    let open = if run.success {
+        true
+    } else if nc_refusal(&text) {
+        false
+    } else {
+        return Err(crate::safety::tool_failed(
+            "nc_connect",
+            &run.command,
+            run.code,
+            &run.stderr,
+        ));
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("host".to_string(), Value::Str(host));
+    rec.insert("port".to_string(), Value::Int(port));
+    rec.insert("open".to_string(), Value::Bool(open));
+    rec.insert("output".to_string(), Value::Str(text));
+    Ok(Value::Record(rec))
 }
 
 /// nc_listen — accept one TCP connection on a port, read it to EOF or a byte
@@ -58187,37 +58737,50 @@ fn nc_io_error(name: &str, error: std::io::Error) -> anyhow::Error {
 
 // --- socat (1025) ---
 
-/// socat — Multipurpose relay (socket + socket).
-fn bi_socat_relay(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let addr1 = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("socat requires a first address")),
-    };
-    let addr2 = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("socat requires a second address")),
-    };
-    let output = std::process::Command::new("socat")
-        .args([&addr1, &addr2])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("addr1".to_string(), Value::Str(addr1));
-            rec.insert("addr2".to_string(), Value::Str(addr2));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "socat",
-            "socat",
-            &e.to_string(),
-        )),
+/// socat — Multipurpose relay between two outbound connections.
+/// Usage: socat_relay(address1, address2), with addresses such as "TCP:host:port"
+/// or "UDP4:host:port". Only TCP, TCP4, UDP and UDP4 connections to a host and
+/// port are accepted, with no options; EXEC, SYSTEM and SHELL run programs, OPEN
+/// and CREATE write files, and LISTEN forms open listeners, so they are refused.
+/// The relay has a 120 s deadline and is killed at it, so no relay outlives the
+/// call. Returns {addr1, addr2, stdout, stdout_truncated}.
+fn bi_socat_relay(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    net_refuse_in_transaction("socat_relay")?;
+    k8s_no_input("socat_relay", &input)?;
+    if args.len() != 2 {
+        return Err(crate::safety::arg_err(
+            "socat_relay takes exactly two addresses",
+        ));
     }
+    let (Some(Value::Str(a)), Some(Value::Str(b))) = (args.first(), args.get(1)) else {
+        return Err(crate::safety::arg_err(
+            "socat_relay addresses must be Strings",
+        ));
+    };
+    let first = socat_address("socat_relay", a)?;
+    let second = socat_address("socat_relay", b)?;
+    let run = tool_run_stderr(
+        "socat_relay",
+        "socat",
+        None,
+        &[first.as_str(), second.as_str()],
+        Keep::Tail(TOOL_MAX_TEXT),
+        NET_ERR_MAX,
+        TOOL_DEADLINE_SECS,
+    )?;
+    let run = finished("socat_relay", run)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("addr1".to_string(), Value::Str(first));
+    rec.insert("addr2".to_string(), Value::Str(second));
+    rec.insert(
+        "stdout".to_string(),
+        Value::Str(run.stdout.trim().to_string()),
+    );
+    rec.insert(
+        "stdout_truncated".to_string(),
+        Value::Bool(run.stdout_truncated),
+    );
+    Ok(Value::Record(rec))
 }
 
 // --- iperf3 (1026-1027) ---
@@ -58236,42 +58799,38 @@ fn bi_iperf3_server(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     tool_runs::iperf3_server(args, input)
 }
 
-/// iperf3 client — Run iperf3 client bandwidth test.
-fn bi_iperf3_client(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let host = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "iperf3_client requires a server host",
+/// iperf3_client — run one iperf3 bandwidth test against a server, as a client.
+/// Usage: iperf3_client(host) or iperf3_client(host, port). The port is 1..=65535
+/// and defaults to 5201. The host may not begin with '-'. The test runs with
+/// JSON output, and its report is returned as a Record. A failed test is
+/// E_TOOL_FAILED; a missing iperf3 is E_TOOL_MISSING; the run has a 120 s deadline.
+fn bi_iperf3_client(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    net_refuse_in_transaction("iperf3_client")?;
+    k8s_no_input("iperf3_client", &input)?;
+    k8s_max_args("iperf3_client", &args, 2)?;
+    let host = k8s_need("iperf3_client", "a server host", &args, 0, net_target_host)?;
+    let port = match args.get(1) {
+        None => IPERF3_PORT,
+        Some(Value::Int(n)) => net_port("iperf3_client", *n)?,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "iperf3_client",
+                "port: Int 1..=65535",
+                other.type_name(),
             ))
         }
     };
-    let output = std::process::Command::new("iperf3")
-        .args(["-c", &host, "-J"])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => {
-                    let mut rec = BTreeMap::new();
-                    rec.insert("host".to_string(), Value::Str(host));
-                    rec.insert("output".to_string(), Value::Str(stdout.trim().to_string()));
-                    Ok(Value::Record(rec))
-                }
-            }
-        }
-        Ok(o) => Err(anyhow!(
-            "iperf3 failed: {}",
-            String::from_utf8_lossy(&o.stderr)
-        )),
-        Err(e) => Err(crate::safety::tool_missing(
-            "iperf3",
-            "iperf3",
-            &e.to_string(),
-        )),
-    }
+    let port_s = port.to_string();
+    let run = tool_run_stderr(
+        "iperf3_client",
+        "iperf3",
+        None,
+        &["-c", host.as_str(), "-p", port_s.as_str(), "-J"],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_STDERR_TAIL,
+        TOOL_DEADLINE_SECS,
+    )?;
+    tool_json("iperf3_client", run)
 }
 
 // --- bat (1028) ---

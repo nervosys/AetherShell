@@ -743,6 +743,42 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#""a\nb\nc" | tail"#, "\"a\nb\nc\""), (r#""a\nb\nc" | tail(2)"#, "\"b\nc\""), (r#"let d = fs_tempdir("ae_tail"); let f = d + "/x"; file_write(f, "a\nb\nc"); let result = tail(1, f); rmdir(d, true); result"#, r#""c""#)],
     },
     Signature {
+        name: "journalctl", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt_range("count", Ty::Int, 1, 1000, "entries to return, default 50"), opt("unit", Ty::Str, "systemd unit name such as sshd.service; a leading '-' is refused")], returns: "Array",
+        doc: "The most recent entries of the systemd journal as an Array of Records of the journal's JSON fields, optionally of one unit. Linux only; elsewhere the call is E_UNIMPLEMENTED after its arguments are checked. A line that is not JSON is E_TOOL_FAILED, never skipped. Output past 16 MiB is E_BUDGET_EXCEEDED. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { journalctl(0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { journalctl(5, "-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "lnav_open", category: None, subject_required: false, aliases: &["lnav"], subject: None,
+        params: &[req("path", Ty::Str, "an existing log file; a leading '-' is refused")], returns: "Record",
+        doc: "Open one log file in the lnav viewer. lnav is interactive: without a terminal on stdin and stdout, or in agent mode, the call is E_NO_UI and nothing is started. With a terminal the viewer runs until the person quits, and the result is {path}.",
+        examples: &[
+            (r#"(try { lnav_open("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { lnav_open(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "multitail_open", category: None, subject_required: false, aliases: &["multitail"], subject: None,
+        params: &[rest("files", Ty::Str, "existing log files, one to 16; a leading '-' is refused")], returns: "Record",
+        doc: "Tail several log files at once in the multitail viewer. multitail is interactive: without a terminal on stdin and stdout, or in agent mode, the call is E_NO_UI and nothing is started. With a terminal the viewer runs until the person quits, and the result is {files}.",
+        examples: &[
+            (r#"(try { multitail_open("-y", "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { multitail_open("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "logrotate_run", category: None, subject_required: false, aliases: &["logrotate"], subject: None,
+        params: &[req("config", Ty::Str, "configuration file inside the workspace; a leading '-' is refused"), opt("force", Ty::Bool, "rotate even when not due, default false")], returns: "Record",
+        doc: "Run logrotate with a configuration file inside the workspace, returning {config, state, forced, stdout, stderr}. The configuration may not name a path that is absolute or contains '..', and may not use prerotate, postrotate, firstaction, lastaction, preremove, mail, mailfirst or maillast, which run programs or send mail. The state file is <config>.state beside it. A nonzero exit is E_TOOL_FAILED.",
+        examples: &[
+            (r#"(try { logrotate_run("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { logrotate_run("x", 1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "tee", category: None, subject_required: false, aliases: &["tee_output"], subject: None,
         params: &[req("path", Ty::Str, "destination"), opt("data_or_options", Ty::Any, "required data for direct calls; optional {append: Bool} for piped calls"), opt("options", Ty::Record, "direct-call {append: Bool}; default false")], returns: "String",
         doc: "Write data to a file and return its text. Direct: tee(path,data,options?); piped: data | tee(path,options?). Strings are unchanged; other values use their display representation. Refuse missing data, wrong options, unknown keys, non-Bool append and conflicting direct data in piped calls. Guard the actual destination, including newly created files, and snapshot for active transactions. Overwrite atomically by default; append with an append-only file handle when append is true. Filesystem failures are coded.",
@@ -1240,6 +1276,15 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"(try { web_get("ftp://example.invalid/x") } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { web_get(5) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
+        name: "http_get", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Str),
+        params: &[], returns: "Record",
+        doc: "Fetch one http or https URL, given directly or piped in, and return {url, status, headers, body}. The URL passes the network guard and the SSRF rules, and every redirect target passes the same rules before it is followed, at most 5. A non-2xx status is an answer, not a failure. The body is read up to 16 MiB, and more is E_BUDGET_EXCEEDED. A request that gets no answer is E_IO. Refused inside a transaction.",
+        examples: &[
+            (r#"(try { http_get("file:///etc/hosts") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { http_get(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "web_post", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("url", Ty::Str, "absolute http or https URL"), opt("data", Ty::Any, "a String sent as is, or any other value sent as JSON; default empty")], returns: "String",
         doc: "POST data to an http or https URL and return the response body as text. The data is sent literally: a value starting with @ is never read as a file. Same refusals and limits as web_fetch.",
@@ -1268,6 +1313,15 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None, params: &[req("url", Ty::Str, "absolute http or https URL"), opt("path", Ty::Str, "local file to write; default is the URL's last path segment")], returns: "Bool",
         doc: "Download an http or https URL to a local file and return true. The file path goes through the workspace write jail that file_write uses. An HTTP error status writes nothing and is E_TOOL_FAILED; a file over 512 MiB is E_BUDGET_EXCEEDED. Writes a local file and makes a request: use a temporary directory in tests.",
         examples: &[(r#"(try { web_download("file:///etc/hosts") } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { web_download("file:///etc/hosts", "hosts.txt") } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
+    Signature {
+        name: "wget_download", category: None, subject_required: false, aliases: &["wget"], subject: None,
+        params: &[req("url", Ty::Str, "http or https URL"), opt("output", Ty::Str, "output path inside the workspace; default is the URL's last path segment")], returns: "Record",
+        doc: "Download one http or https URL to a file in the workspace, through curl with protocols limited to http and https for the request and every redirect. At most 5 redirects, a 1 GiB size limit, a 15 s connect limit and a 900 s deadline. An existing output is refused, and a failed transfer removes its partial file. Returns {url, output, size, status, tool}. Refused inside a transaction.",
+        examples: &[
+            (r#"(try { wget_download("file:///etc/hosts") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { wget_download("ftp://example.invalid/f", "f.txt") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
     },
     Signature {
         name: "web_headers", category: None, subject_required: false, aliases: &[],
@@ -3926,6 +3980,15 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"(try { net_dns_lookup("-f") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
+        name: "host_lookup", category: None, subject_required: false, aliases: &["host"], subject: None,
+        params: &[req("hostname", Ty::Str, "a host name or IP literal; a leading '-' and characters outside host syntax are refused")], returns: "Record",
+        doc: "DNS lookup through the platform resolver: host on Unix, nslookup on Windows. Returns {hostname, result}, where result is the resolver's text. Takes no pipeline input. Output past 4 MiB is E_BUDGET_EXCEEDED. A lookup the resolver reports as failed is E_TOOL_FAILED and a missing resolver is E_TOOL_MISSING. Refused inside a transaction, because traffic cannot be rolled back.",
+        examples: &[
+            (r#"(try { host_lookup("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { host_lookup(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "net_dns_reverse", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("ip", Ty::Str, "IPv4 or IPv6 address literal; names are refused")],
         returns: "String",
@@ -3952,6 +4015,15 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Array",
         doc: "Trace the route to a host with tracert or traceroute, without name resolution, and return Array of Records hop, ip and rtt_ms. ip is * for a hop that did not answer. At most max_hops hops (1..30, default 30). The run is bounded at 120 s. Network policy applies. Transactions and pipeline input are refused.",
         examples: &[(r#"(try { net_traceroute("-f") } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { net_traceroute("-f", 0) } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
+    Signature {
+        name: "mtr_trace", category: None, subject_required: false, aliases: &["mtr"], subject: None,
+        params: &[req("host", Ty::Str, "a host name or IP literal; a leading '-' is refused"), opt_range("cycles", Ty::Int, 1, 100, "probe cycles, default 5")], returns: "Record",
+        doc: "mtr --report for one host, returning {host, report}. The run has a 120 s deadline and its report is bounded to 4 MiB. A nonzero exit is E_TOOL_FAILED and a missing mtr is E_TOOL_MISSING. Refused inside a transaction.",
+        examples: &[
+            (r#"(try { mtr_trace("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { mtr_trace("x", 0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
     },
     Signature {
         name: "net_connections", category: None, subject_required: false, aliases: &[], subject: None,
@@ -4001,6 +4073,24 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Array",
         doc: "Probe a TCP port range on this machine and return Array of Records port and state, where state is open (accepted), closed (refused) or filtered (no answer within timeout_ms, 1..10000, default 3000). Ports are probed 128 at a time, each batch sharing one wait. Only localhost, 127.0.0.1 and ::1 are probed; another host is E_POLICY_DENY whatever AETHER_NET_ALLOW says. At most 1024 ports per call; a larger range is E_BAD_ARG. The whole call is bounded at 30 s. Connect failures other than refusal are coded I/O errors. Network policy applies. Transactions and pipeline input are refused.",
         examples: &[(r#"(try { net_scan("example.com", 1, 2) } catch e { e.error.code })"#, "E_POLICY_DENY"), (r#"(try { net_scan("127.0.0.1", 1, 2000, 50) } catch e { e.error.code })"#, "E_BAD_ARG")],
+    },
+    Signature {
+        name: "nmap_scan", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("host", Ty::Str, "host name or IP literal; a leading '-' is refused"), opt("options", Ty::Record, "{ports?: port list such as 22,80,1000-1100; flags?: whitespace-separated scan flags from -sT -sS -sU -sV -Pn -n -T0..-T5}")], returns: "Record",
+        doc: "Scan one host with nmap, returning {host, ports}: one Record per port with its protocol, state, reason and service. Ports must be 1..65535 and given as a list or ranges. Flags come only from the allowlist; every other nmap option is refused by policy, because --script runs scripts and -oN, -oG and --log-file write files. Unknown option keys are refused. A nonzero exit is E_TOOL_FAILED and a missing nmap is E_TOOL_MISSING. The run has a 900 s deadline. Refused inside a transaction.",
+        examples: &[
+            (r#"(try { nmap_scan("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { nmap_scan("x", {ports: "0"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "nmap_quick", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("host", Ty::Str, "host name or IP literal; a leading '-' is refused")], returns: "Record",
+        doc: "Quick nmap scan of the common ports, open ones only, returning {host, ports, scan_type}. A nonzero exit is E_TOOL_FAILED and a missing nmap is E_TOOL_MISSING. Refused inside a transaction.",
+        examples: &[
+            (r#"(try { nmap_quick("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { nmap_quick(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
     },
     Signature {
         name: "net_whois", category: None, subject_required: false, aliases: &[], subject: None,
@@ -7591,6 +7681,42 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "strace_cmd", category: None, subject_required: false, aliases: &["strace"], subject: None,
+        params: &[req("command", Ty::Str, "program and arguments separated by spaces; no shell and no quoting")], returns: "Record",
+        doc: "Trace the system calls of one program with strace -c, and summarise them as {command, exit_code, stdout, raw, syscalls, unparsed_rows}. The command is split on whitespace and run directly; its program may not begin with '-'. The exit code is the traced program's and is data. macOS uses dtruss. A missing tracer is E_TOOL_MISSING. The run has a 120 s deadline.",
+        examples: &[
+            (r#"(try { strace_cmd("-p 1") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { strace_cmd("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ltrace_cmd", category: None, subject_required: false, aliases: &["ltrace"], subject: None,
+        params: &[req("command", Ty::Str, "program and arguments separated by spaces; no shell and no quoting")], returns: "Record",
+        doc: "Trace the library calls of one program with ltrace -c, returning {command, exit_code, stdout, trace, stdout_truncated}. The command is split on whitespace and run directly; its program may not begin with '-'. The exit code is the traced program's and is data. A missing ltrace is E_TOOL_MISSING. The run has a 120 s deadline.",
+        examples: &[
+            (r#"(try { ltrace_cmd("-p 1") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ltrace_cmd("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "lldb_run", category: None, subject_required: false, aliases: &["lldb"], subject: None,
+        params: &[req("program", Ty::Str, "path of an existing program; a leading '-' is refused")], returns: "Record",
+        doc: "Run one program under LLDB in batch mode, and return {program, output} with the backtrace if it stops. The program runs with stdin closed and a 120 s deadline. Running a program is an execution effect. A nonzero exit is E_TOOL_FAILED and a missing lldb is E_TOOL_MISSING.",
+        examples: &[
+            (r#"(try { lldb_run("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { lldb_run("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "nm_symbols", category: None, subject_required: false, aliases: &["nm"], subject: None,
+        params: &[req("path", Ty::Str, "an existing object file or executable; a leading '-' is refused")], returns: "Array",
+        doc: "List the symbols of an object file with nm --demangle, as an Array of {address, type, name}. An undefined symbol has no address, so its address is null. Output past 4 MiB is E_BUDGET_EXCEEDED, and a missing nm is E_TOOL_MISSING.",
+        examples: &[
+            (r#"(try { nm_symbols("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { nm_symbols("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "rustup_show",
         category: None,
         subject_required: false,
@@ -7849,6 +7975,15 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "top_snapshot", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt_range("count", Ty::Int, 1, 10000, "processes to return, largest resident memory first, default 30")], returns: "Array",
+        doc: "A process snapshot as an Array of {pid, name, cpu_percent, memory_bytes, memory_mb}, largest resident memory first. CPU use is measured across one sampling interval. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { top_snapshot(0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { top_snapshot(1, 2) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "proc_children",
         category: None,
         subject_required: false,
@@ -8040,6 +8175,24 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"(try { proc_spawn(5) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { "x" | proc_spawn("hostname") } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
+        ],
+    },
+    Signature {
+        name: "timeout_cmd", category: None, subject_required: false, aliases: &["timeout"], subject: None,
+        params: &[Param { range: Some((1, 3600)), ..req("seconds", Ty::Int, "time limit in seconds, 1..3600") }, req("command", Ty::Str, "program and arguments separated by spaces; no shell and no quoting")], returns: "Record",
+        doc: "Run one program with a time limit, returning {command, exit_code, stdout, stderr, stdout_truncated}. The command is split on whitespace and run directly; its program may not begin with '-'. The exit code is the program's and is data. A program still running at the limit is killed and the call is E_BUDGET_EXCEEDED.",
+        examples: &[
+            (r#"(try { timeout_cmd(0, "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { timeout_cmd(1, "-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "xargs_exec", category: None, subject_required: false, aliases: &["xargs"], subject: None,
+        params: &[req("command", Ty::Str, "program and fixed arguments separated by spaces; no shell"), opt("items", Ty::Sequence, "Array of scalars or a String of lines; piped input is also accepted")], returns: "Array",
+        doc: "Run one program once per item, with the item as its last argument, and return one Record per item: {item, exit_code, stdout, stderr}. The command is split on whitespace and run directly. Its program and each item may not begin with '-'. At most 256 items, each run has a 120 s deadline, and the call has 600 s in all. A nonzero exit is that item's exit code, which is data.",
+        examples: &[
+            (r#"(try { xargs_exec("-x", ["a"]) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { xargs_exec("x", 5) } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -9309,6 +9462,24 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"(try { nc_listen("invalid") } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { nc_listen(0) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { nc_listen(8080, {bogus: 1}) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
+        name: "nc_connect", category: None, subject_required: false, aliases: &["nc", "netcat"], subject: None,
+        params: &[req("host", Ty::Str, "a host name or IP literal; a leading '-' is refused"), Param { range: Some((1, 65535)), ..req("port", Ty::Int, "TCP port 1..65535") }], returns: "Record",
+        doc: "Test whether a TCP port accepts a connection with netcat (nc -z). Returns {host, port, open, output}. A refused or unanswered connection is open false, which is the answer; any other netcat failure is E_TOOL_FAILED and a missing netcat is E_TOOL_MISSING. The run is bounded by netcat's own 5 s wait and a 120 s deadline. Refused inside a transaction.",
+        examples: &[
+            (r#"(try { nc_connect("-e", 1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { nc_connect("x", 0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "socat_relay", category: None, subject_required: false, aliases: &["socat"], subject: None,
+        params: &[req("address1", Ty::Str, "outbound TCP, TCP4, UDP or UDP4 address: TCP:host:port"), req("address2", Ty::Str, "outbound TCP, TCP4, UDP or UDP4 address: TCP:host:port")], returns: "Record",
+        doc: "Relay data between two outbound connections with socat. Only TCP, TCP4, UDP and UDP4 to a host name or IPv4 literal and a port are accepted, with no options. EXEC, SYSTEM and SHELL run programs, OPEN and CREATE write files, and every LISTEN form opens a listener; each is refused by policy. The relay is killed at its 120 s deadline, so it cannot outlive the call. Returns {addr1, addr2, stdout, stdout_truncated}. Refused inside a transaction.",
+        examples: &[
+            (r#"(try { socat_relay("EXEC:/bin/sh", "TCP:127.0.0.1:1") } catch e { e.error.code })"#, "E_POLICY_DENY"),
+            (r#"(try { socat_relay("TCP-LISTEN:1", "STDIO") } catch e { e.error.code })"#, "E_POLICY_DENY"),
+        ],
+    },
+    Signature {
         name: "svc_create", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("name", Ty::Str, "unit name matching ^[a-z0-9][a-z0-9_-]{0,63}$; the unit is ae-<name>.service"), req("command", Ty::Array, "argv: absolute existing executable first, then String arguments without newline, carriage return or '%'"), opt("options", Ty::Record, "optional {description: String single line, user: existing account name, restart: \"no\"|\"on-failure\"|\"always\" default \"no\", enable: Bool default false, start: Bool default false}")],
         returns: "Record",
@@ -9333,6 +9504,15 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"(try { [1] | iperf3_server() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { iperf3_server({port: 80}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "iperf3_client", category: None, subject_required: false, aliases: &["iperf3"], subject: None,
+        params: &[req("host", Ty::Str, "iperf3 server host; a leading '-' is refused"), opt_range("port", Ty::Int, 1, 65535, "server port, default 5201")], returns: "Record",
+        doc: "Run one iperf3 bandwidth test as a client, with JSON output, and return iperf3's report as a Record. A failed test is E_TOOL_FAILED, a missing iperf3 is E_TOOL_MISSING, and the run has a 120 s deadline. Refused inside a transaction.",
+        examples: &[
+            (r#"(try { iperf3_client("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { iperf3_client("x", 0) } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {

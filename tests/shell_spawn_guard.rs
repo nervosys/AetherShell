@@ -184,7 +184,7 @@ fn every_shell_spawn_that_takes_a_value_gates_on_exec() {
     }
 
     assert!(
-        total >= 6,
+        total >= 5,
         "only {total} shell spawn sites found across {SOURCES:?}; the scanner has \
          drifted and this test is checking almost nothing"
     );
@@ -212,7 +212,7 @@ fn the_scanner_sees_the_sites_it_claims_to() {
     let src = source("src/builtins.rs").expect("src/builtins.rs is readable");
     let sites = shell_spawn_sites(&src);
     assert!(
-        sites.len() >= 6,
+        sites.len() >= 5,
         "only {} shell spawn sites parsed in builtins.rs",
         sites.len()
     );
@@ -221,7 +221,9 @@ fn the_scanner_sees_the_sites_it_claims_to() {
     // `bi_nohup_run` and `bi_ulimit_info` were here until their families were
     // deleted as unreachable -- the sixth fixture this session found naming
     // something that no longer exists.
-    for expected in ["bi_xargs_exec", "bi_hw_sensors"] {
+    // `bi_xargs_exec` once parsed as a shell site; it now runs its program
+    // from argv with no shell, so it is no longer one.
+    for expected in ["bi_hw_sensors"] {
         assert!(
             names.contains(&expected),
             "{expected} should be among the parsed spawn sites, got {names:?}"
