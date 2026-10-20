@@ -28,6 +28,13 @@ use aethershell::value::Value;
 /// against the default key they would rewind, then forget, whatever an agent
 /// session in this checkout had recorded. Every example is evaluated through
 /// this, so none can reach the real journal.
+/// Runs `f` on the evaluation stack `ae` itself uses (`with_eval_stack`).
+/// These loops evaluate every example on one thread; on libtest's default
+/// stack, a deep example intermittently overflowed it (exit 0xC00000FD).
+fn on_eval_stack(f: fn()) {
+    aethershell::safety::with_eval_stack(f);
+}
+
 fn env() -> Env {
     static ISOLATED: std::sync::Once = std::sync::Once::new();
     ISOLATED.call_once(|| {
@@ -864,6 +871,10 @@ fn non_vacuity_the_corpus_form_check_can_fail() {
 
 #[test]
 fn every_declaration_accepts_its_own_examples() {
+    on_eval_stack(every_declaration_accepts_its_own_examples_body);
+}
+
+fn every_declaration_accepts_its_own_examples_body() {
     // The examples are the part an agent copies, and they are also the cheapest
     // possible check that a declaration is not narrower than the builtin: if a
     // declaration rejects its own documented form, it will reject the agent's.
@@ -897,6 +908,10 @@ fn every_declaration_accepts_its_own_examples() {
 
 #[test]
 fn a_self_contained_example_produces_the_result_it_claims() {
+    on_eval_stack(a_self_contained_example_produces_the_result_it_claims_body);
+}
+
+fn a_self_contained_example_produces_the_result_it_claims_body() {
     // An example with a wrong expected value is a lie in the catalogue, which
     // is the one place an agent has no way to check.
     //
@@ -1216,6 +1231,10 @@ fn sqlite_query_no_longer_answers_calls_it_cannot_honour() {
 
 #[test]
 fn a_machine_dependent_example_answers_in_its_type_or_says_why_not() {
+    on_eval_stack(a_machine_dependent_example_answers_in_its_type_or_says_why_not_body);
+}
+
+fn a_machine_dependent_example_answers_in_its_type_or_says_why_not_body() {
     for (name, why) in MACHINE_DEPENDENT {
         assert!(
             !why.trim().is_empty(),

@@ -522,11 +522,17 @@ fn remote_and_container_executors_require_approval_in_agent_mode() {
         ),
         (
             "docker_exec",
-            vec![Value::Str("c1".into()), Value::Str("sh -c id".into())],
+            vec![
+                Value::Str("c1".into()),
+                Value::Array(vec![Value::Str("id".into())]),
+            ],
         ),
         (
             "podman_exec",
-            vec![Value::Str("c1".into()), Value::Str("sh -c id".into())],
+            vec![
+                Value::Str("c1".into()),
+                Value::Array(vec![Value::Str("id".into())]),
+            ],
         ),
         (
             "k8s_exec",

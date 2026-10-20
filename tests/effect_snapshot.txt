@@ -704,15 +704,15 @@ marketplace_update	Network
 max	Pure
 mcp-cache-clear	Pure
 mcp-cache-status	Pure
-mcp-detect	Pure
-mcp-servers	Pure
+mcp-detect	Network
+mcp-servers	Network
 mcp_cache_clear	Pure
 mcp_cache_status	Pure
 mcp_call	Exec
 mcp_call_tool	Exec
 mcp_client	Network
 mcp_connect	Network
-mcp_detect	Pure
+mcp_detect	Network
 mcp_list_prompts	Pure
 mcp_list_resources	Pure
 mcp_list_tools	Pure
@@ -720,7 +720,7 @@ mcp_prompts	Pure
 mcp_resources	Pure
 mcp_server	Pure
 mcp_server_start	Pure
-mcp_servers	Pure
+mcp_servers	Network
 mcp_tools	Pure
 md5	Pure
 mean	Pure

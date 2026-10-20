@@ -47057,15 +47057,9 @@ fn bi_k8s_apply(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     let ns = k8s_arg(B, "namespace", &args, 1, k8s_object_name)?;
     let resolved = crate::safety::resolve_path_str(file);
-    crate::safety::guard(crate::safety::GuardCtx {
-        builtin: B,
-        effect: crate::safety::Effect::ReadLocal,
-        what: "read manifest",
-        targets: vec![resolved.clone()],
-        blast_radius: serde_json::json!({ "files": 1 }),
-        reversible: true,
-        fs_paths: true,
-    })?;
+    // No guard call here: listing k8s_apply as self-guarded would skip the
+    // dispatcher's Network guard (metering, allowlist, audit) for the cluster
+    // call. The manifest read is checked by validate_read_path.
     let path = crate::security::validate_read_path(&resolved)?;
     let meta = std::fs::metadata(&path).map_err(|e| crate::safety::fs_error(B, &path, &e))?;
     if !meta.is_file() {
