@@ -46949,41 +46949,402 @@ fn k8s_list(
     kubectl_json(builtin, &cmd, K8S_MAX_JSON)
 }
 
-// Helper: run helm with JSON output and parse the result
-fn helm_json(args: &[&str]) -> Result<Value> {
-    let output = std::process::Command::new("helm")
-        .args(args)
-        .output()
-        .map_err(|e| crate::safety::tool_missing("helm", "helm", &e.to_string()))?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "helm {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr)
+// ---------------------------------------------------------------------------
+// Helm and Terraform: one bounded runner, and the argument checks both share
+// ---------------------------------------------------------------------------
+
+/// Deadline for the quick calls: reads of local or cluster state.
+const TOOL_DEADLINE_SECS: u64 = 120;
+/// Deadline for calls that can run for minutes: provider downloads, plans that
+/// refresh, applies, destroys, and helm installs and upgrades.
+const TOOL_LONG_DEADLINE_SECS: u64 = 900;
+/// The most output a call that prints JSON may produce.
+const TOOL_MAX_JSON: usize = 16 * 1024 * 1024;
+/// The most output a read-only text call may produce.
+const TOOL_MAX_TEXT: usize = 4 * 1024 * 1024;
+/// Output kept from a call that changes state. Its work is finished by the time
+/// its report is read, so an oversized report keeps its end and says so.
+const TOOL_KEEP_TAIL: usize = 256 * 1024;
+/// Stderr kept for a failure message.
+const TOOL_STDERR_TAIL: usize = 2048;
+/// The most `--set` overrides one helm call passes.
+const HELM_MAX_SET: usize = 256;
+/// The longest Terraform workspace name.
+const TF_MAX_WORKSPACE: usize = 90;
+
+/// How much of a call's output is kept.
+#[derive(Clone, Copy)]
+enum Keep {
+    /// The first `n` bytes. More is an error: a read cut short would look whole.
+    Head(usize),
+    /// The last `n` bytes, with a note when earlier output was dropped.
+    Tail(usize),
+}
+
+/// One finished call: how it ended and what it printed.
+struct ToolRun {
+    command: String,
+    keep: Keep,
+    success: bool,
+    code: Option<i32>,
+    stdout: String,
+    stdout_truncated: bool,
+    stderr: String,
+}
+
+/// Read a pipe to its end, keeping its last `keep` bytes, and report whether
+/// more than that was printed.
+fn tool_read_tail(mut pipe: impl std::io::Read, keep: usize) -> (Vec<u8>, bool) {
+    let mut buf: Vec<u8> = Vec::new();
+    let mut total: usize = 0;
+    let mut chunk = [0u8; 8192];
+    loop {
+        match pipe.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                total = total.saturating_add(n);
+                buf.extend_from_slice(&chunk[..n]);
+                if buf.len() > 2 * keep {
+                    let cut = buf.len() - keep;
+                    buf.drain(..cut);
+                }
+            }
+        }
+    }
+    let truncated = total > keep;
+    if buf.len() > keep {
+        let cut = buf.len() - keep;
+        buf.drain(..cut);
+    }
+    (buf, truncated)
+}
+
+/// Run `program` with `args` in `dir` (the process's directory when `None`),
+/// directly and never through a shell, with stdin closed. Past `deadline_secs`
+/// the child is killed and the call is refused. Nothing is judged here: the
+/// caller decides what a finished call means.
+fn tool_run(
+    builtin: &str,
+    program: &str,
+    dir: Option<&std::path::Path>,
+    args: &[&str],
+    keep: Keep,
+    deadline_secs: u64,
+) -> Result<ToolRun> {
+    use std::process::Stdio;
+    let command = format!("{program} {}", args.join(" "));
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(dir) = dir {
+        cmd.current_dir(dir);
+    }
+    if program == "terraform" {
+        // Automation mode drops the interactive "run terraform apply" hints.
+        cmd.env("TF_IN_AUTOMATION", "1");
+    }
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| crate::safety::spawn_error(builtin, program, &e))?;
+    let out_pipe = child.stdout.take();
+    let err_pipe = child.stderr.take();
+    let out_h = std::thread::spawn(move || match out_pipe {
+        Some(pipe) => match keep {
+            Keep::Head(max) => k8s_read_head(pipe, max),
+            Keep::Tail(max) => tool_read_tail(pipe, max),
+        },
+        None => (Vec::new(), false),
+    });
+    let err_h = std::thread::spawn(move || match err_pipe {
+        Some(pipe) => k8s_read_tail(pipe, TOOL_STDERR_TAIL),
+        None => Vec::new(),
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(deadline_secs);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::safety::budget_exceeded(
+                    builtin,
+                    format!("`{command}` did not finish within {deadline_secs} s"),
+                    "a killed call can leave work half done; check the state with the matching read builtin before retrying",
+                ));
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            Err(e) => {
+                return Err(crate::safety::tool_failed(
+                    builtin,
+                    &command,
+                    None,
+                    &e.to_string(),
+                ))
+            }
+        }
+    };
+    let (stdout, stdout_truncated) = out_h.join().unwrap_or_else(|_| (Vec::new(), false));
+    let stderr = err_h.join().unwrap_or_default();
+    Ok(ToolRun {
+        command,
+        keep,
+        success: status.success(),
+        code: status.code(),
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stdout_truncated,
+        stderr: strip_ansi(&String::from_utf8_lossy(&stderr))
+            .trim()
+            .to_string(),
+    })
+}
+
+/// Text with terminal colour sequences removed. Terraform colours some errors on
+/// stderr even under -no-color, and a failure message should not carry them.
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for d in chars.by_ref() {
+                    if d.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The text of a finished call, or the coded failure it reports.
+fn tool_text(builtin: &str, run: ToolRun) -> Result<String> {
+    if !run.success {
+        return Err(crate::safety::tool_failed(
+            builtin,
+            &run.command,
+            run.code,
+            &run.stderr,
         ));
     }
-    let json_str = String::from_utf8_lossy(&output.stdout);
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-        Ok(json_to_value(json))
-    } else {
-        Ok(Value::Str(json_str.to_string()))
+    match run.keep {
+        Keep::Head(max) if run.stdout_truncated => Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("`{}` printed more than {max} bytes", run.command),
+            "narrow the call so that it prints less",
+        )),
+        Keep::Tail(max) if run.stdout_truncated => Ok(format!(
+            "[earlier output dropped; the last {max} bytes follow]\n{}",
+            run.stdout
+        )),
+        _ => Ok(run.stdout),
     }
 }
 
-// Helper: run helm and return stdout as a plain string
-fn helm_text(args: &[&str]) -> Result<String> {
-    let output = std::process::Command::new("helm")
-        .args(args)
-        .output()
-        .map_err(|e| crate::safety::tool_missing("helm", "helm", &e.to_string()))?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "helm {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr)
+/// The JSON a finished call printed. Output that is not JSON is a coded
+/// failure, never a string handed back in place of the answer.
+fn tool_json(builtin: &str, run: ToolRun) -> Result<Value> {
+    let command = run.command.clone();
+    let text = tool_text(builtin, run)?;
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(json) => Ok(json_to_value(json)),
+        Err(e) => Err(crate::safety::tool_failed(
+            builtin,
+            &command,
+            Some(0),
+            &format!("printed output that is not JSON ({e})"),
+        )),
+    }
+}
+
+/// A helm call, run in the process's directory.
+fn helm_call(builtin: &str, args: &[String], keep: Keep, deadline_secs: u64) -> Result<ToolRun> {
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    tool_run(builtin, "helm", None, &refs, keep, deadline_secs)
+}
+
+/// A terraform call, run in `dir`.
+fn tf_call(
+    builtin: &str,
+    dir: &std::path::Path,
+    args: &[&str],
+    keep: Keep,
+    deadline_secs: u64,
+) -> Result<ToolRun> {
+    tool_run(builtin, "terraform", Some(dir), args, keep, deadline_secs)
+}
+
+/// The workspace root as an absolute path. `AETHER_WORKSPACE`, or the process's
+/// directory when it is unset.
+fn workspace_root_abs() -> std::path::PathBuf {
+    let root = crate::safety::workspace_root();
+    if root.is_absolute() {
+        root
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(&root))
+            .unwrap_or(root)
+    }
+}
+
+/// `value` resolved against `base` and required to lie inside the workspace.
+/// Every path a helm or terraform call is given passes here first.
+fn workspace_path(
+    builtin: &str,
+    value: &str,
+    base: &std::path::Path,
+) -> Result<std::path::PathBuf> {
+    let given = std::path::Path::new(value);
+    let path = if given.is_absolute() {
+        given.to_path_buf()
+    } else {
+        base.join(given)
+    };
+    if !crate::safety::within_workspace(&path.to_string_lossy()) {
+        return Err(crate::safety::outside_workspace(builtin, value));
+    }
+    Ok(path)
+}
+
+/// A plain text argument: not empty and never option-like. Used where the
+/// value goes to a tool as an argument, so a leading `-` would be a flag.
+fn tf_plain(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    if value.trim().is_empty() || value.contains('\0') {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must not be empty"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+/// A Terraform directory: the workspace root, or `value` inside it. Refused
+/// when it is outside the workspace, or when it is not a directory. Without
+/// that second check a missing directory would surface as E_TOOL_MISSING.
+fn tf_dir(builtin: &str, value: Option<&str>) -> Result<std::path::PathBuf> {
+    let root = workspace_root_abs();
+    let dir = match value {
+        None => root,
+        Some(v) => workspace_path(builtin, v, &root)?,
+    };
+    if !dir.is_dir() {
+        return Err(crate::safety::not_found(
+            builtin,
+            "directory",
+            &dir.display().to_string(),
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Ok(dir)
+}
+
+/// `-var-file=<path>` for a variable file inside the workspace, when one is given.
+fn tf_var_file(builtin: &str, args: &[Value], index: usize) -> Result<Option<String>> {
+    let Some(name) = k8s_arg(builtin, "variable file", args, index, tf_plain)? else {
+        return Ok(None);
+    };
+    let path = workspace_path(builtin, &name, &workspace_root_abs())?;
+    if !path.is_file() {
+        return Err(crate::safety::not_found(builtin, "variable file", &name));
+    }
+    Ok(Some(format!("-var-file={}", path.display())))
+}
+
+/// A Terraform workspace name: letters, digits, `-` and `_`.
+fn tf_workspace_name(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    let well_formed = !value.is_empty()
+        && value.chars().count() <= TF_MAX_WORKSPACE
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !well_formed {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is 1-{TF_MAX_WORKSPACE} letters, digits, '-' or '_' (got {value:?})"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+/// A helm chart: a repository chart name, an OCI or URL reference, or a local
+/// path. A local path that exists must lie inside the workspace.
+fn helm_chart(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let chart = k8s_token(builtin, what, value)?;
+    if std::path::Path::new(&chart).exists() {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        workspace_path(builtin, &chart, &cwd)?;
+    }
+    Ok(chart)
+}
+
+/// A helm values key: letters, digits, and `._-[]`, not starting with `-`.
+fn helm_set_key(builtin: &str, key: &str) -> Result<String> {
+    let well_formed = !key.is_empty()
+        && key.len() <= 253
+        && !key.starts_with('-')
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-[]".contains(c));
+    if !well_formed {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: a values key is letters, digits and ._-[] and does not start with '-' (got {key:?})"
+        )));
+    }
+    Ok(key.to_string())
+}
+
+/// `--set=key=value` for each override in a values Record. Each override is one
+/// argv element, so a value cannot become a flag. A comma in a string value is
+/// escaped, because helm splits `--set` on commas.
+fn helm_set_flags(builtin: &str, values: Option<&Value>) -> Result<Vec<String>> {
+    let overrides = match values {
+        None => return Ok(Vec::new()),
+        Some(Value::Record(map)) => map,
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: values must be a Record, got {}",
+                other.type_name()
+            )))
+        }
+    };
+    if overrides.len() > HELM_MAX_SET {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: at most {HELM_MAX_SET} values, got {}",
+            overrides.len()
+        )));
+    }
+    let mut flags = Vec::with_capacity(overrides.len());
+    for (key, value) in overrides {
+        let key = helm_set_key(builtin, key)?;
+        let text = match value {
+            Value::Str(s) if s.chars().any(char::is_control) => {
+                return Err(crate::safety::arg_err(format!(
+                    "{builtin}: the value for {key} contains a control character"
+                )))
+            }
+            Value::Str(s) => s.replace(',', "\\,"),
+            Value::Int(n) => n.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Float(f) if f.is_finite() => f.to_string(),
+            other => {
+                return Err(crate::safety::arg_err(format!(
+                    "{builtin}: the value for {key} must be a String, Int, Float or Bool, got {}",
+                    other.type_name()
+                )))
+            }
+        };
+        flags.push(format!("--set={key}={text}"));
+    }
+    Ok(flags)
+}
+
+/// `--namespace=<ns>` when a namespace was given.
+fn helm_ns_flag(ns: Option<String>) -> Option<String> {
+    ns.map(|n| format!("--namespace={n}"))
 }
 
 // Helper: parse tabular kubectl output (e.g. `kubectl top`) into Records
@@ -47394,165 +47755,121 @@ fn bi_k8s_cluster_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
 }
 
 // ---------------------------------------------------------------------------
-// 873: bi_helm_list - helm list [-n namespace] -o json
+// 873: bi_helm_list - helm list [namespace] -o json
 // ---------------------------------------------------------------------------
-fn bi_helm_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args = vec!["list", "-o", "json"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.first() {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    helm_json(&cmd_args)
+fn bi_helm_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "helm_list";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let ns = k8s_arg(B, "namespace", &args, 0, k8s_object_name)?;
+    let mut cmd: Vec<String> = vec!["list".into(), "-o".into(), "json".into()];
+    cmd.extend(helm_ns_flag(ns));
+    let run = helm_call(B, &cmd, Keep::Head(TOOL_MAX_JSON), TOOL_DEADLINE_SECS)?;
+    tool_json(B, run)
 }
 
 // ---------------------------------------------------------------------------
-// 874: bi_helm_install - helm install <release> <chart> [-n ns] [--set from Record]
+// 874 and 875: bi_helm_install / bi_helm_upgrade - helm <verb> [flags] -- release chart
 // ---------------------------------------------------------------------------
-fn bi_helm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let release = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "helm.install requires release name as first argument",
-            ))
-        }
-    };
-    let chart = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "helm.install requires chart name as second argument",
-            ))
-        }
-    };
-    let mut cmd_args = vec!["install".to_string(), release, chart];
-    if let Some(Value::Str(ns)) = args.get(2) {
-        cmd_args.push("-n".to_string());
-        cmd_args.push(ns.clone());
-    }
-    // If a Record is provided, convert entries to --set key=value
-    if let Some(Value::Record(overrides)) = args.get(3) {
-        for (k, v) in overrides {
-            cmd_args.push("--set".to_string());
-            let val_str = match v {
-                Value::Str(s) => s.clone(),
-                Value::Int(n) => n.to_string(),
-                Value::Float(f) => f.to_string(),
-                Value::Bool(b) => b.to_string(),
-                other => format!("{:?}", other),
-            };
-            cmd_args.push(format!("{}={}", k, val_str));
-        }
-    }
-    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-    let text = helm_text(&refs)?;
-    Ok(Value::Str(text.trim().to_string()))
+fn helm_deploy(builtin: &str, verb: &str, args: &[Value], input: &Option<Value>) -> Result<Value> {
+    k8s_no_input(builtin, input)?;
+    k8s_max_args(builtin, args, 4)?;
+    let release = k8s_need(builtin, "a release name", args, 0, k8s_object_name)?;
+    let chart = k8s_need(builtin, "a chart", args, 1, helm_chart)?;
+    let ns = k8s_arg(builtin, "namespace", args, 2, k8s_object_name)?;
+    let sets = helm_set_flags(builtin, args.get(3))?;
+    let mut cmd: Vec<String> = vec![verb.into()];
+    cmd.extend(helm_ns_flag(ns));
+    cmd.extend(sets);
+    cmd.extend(["--".into(), release, chart]);
+    let run = helm_call(
+        builtin,
+        &cmd,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    Ok(Value::Str(tool_text(builtin, run)?.trim().to_string()))
+}
+
+/// 874 – bi_helm_install: helm install <release> <chart> [namespace] [values]
+fn bi_helm_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    helm_deploy("helm_install", "install", &args, &input)
+}
+
+/// 875 – bi_helm_upgrade: helm upgrade <release> <chart> [namespace] [values]
+fn bi_helm_upgrade(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    helm_deploy("helm_upgrade", "upgrade", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
-// 875: bi_helm_upgrade - helm upgrade <release> <chart> [-n namespace]
+// 876: bi_helm_uninstall - helm uninstall [namespace] -- release
 // ---------------------------------------------------------------------------
-fn bi_helm_upgrade(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let release = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "helm.upgrade requires release name as first argument",
-            ))
-        }
-    };
-    let chart = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "helm.upgrade requires chart name as second argument",
-            ))
-        }
-    };
-    let mut cmd_args = vec!["upgrade".to_string(), release, chart];
-    if let Some(Value::Str(ns)) = args.get(2) {
-        cmd_args.push("-n".to_string());
-        cmd_args.push(ns.clone());
-    }
-    // Optional --set overrides from Record
-    if let Some(Value::Record(overrides)) = args.get(3) {
-        for (k, v) in overrides {
-            cmd_args.push("--set".to_string());
-            let val_str = match v {
-                Value::Str(s) => s.clone(),
-                Value::Int(n) => n.to_string(),
-                Value::Float(f) => f.to_string(),
-                Value::Bool(b) => b.to_string(),
-                other => format!("{:?}", other),
-            };
-            cmd_args.push(format!("{}={}", k, val_str));
-        }
-    }
-    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-    let text = helm_text(&refs)?;
-    Ok(Value::Str(text.trim().to_string()))
-}
-
-// ---------------------------------------------------------------------------
-// 876: bi_helm_uninstall - helm uninstall <release> [-n namespace]
-// ---------------------------------------------------------------------------
-fn bi_helm_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let release = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "helm.uninstall requires release name",
-            ))
-        }
-    };
-    let mut cmd_args = vec!["uninstall", &release];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.get(1) {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    let text = helm_text(&cmd_args)?;
-    Ok(Value::Str(text.trim().to_string()))
+fn bi_helm_uninstall(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "helm_uninstall";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    let release = k8s_need(B, "a release name", &args, 0, k8s_object_name)?;
+    let ns = k8s_arg(B, "namespace", &args, 1, k8s_object_name)?;
+    let mut cmd: Vec<String> = vec!["uninstall".into()];
+    cmd.extend(helm_ns_flag(ns));
+    cmd.extend(["--".into(), release]);
+    let run = helm_call(B, &cmd, Keep::Tail(TOOL_KEEP_TAIL), TOOL_LONG_DEADLINE_SECS)?;
+    Ok(Value::Str(tool_text(B, run)?.trim().to_string()))
 }
 
 // ---------------------------------------------------------------------------
 // 877: bi_helm_repos - helm repo list -o json
 // ---------------------------------------------------------------------------
-fn bi_helm_repos(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    helm_json(&["repo", "list", "-o", "json"])
+fn bi_helm_repos(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "helm_repos";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 0)?;
+    let cmd: Vec<String> = vec!["repo".into(), "list".into(), "-o".into(), "json".into()];
+    let run = helm_call(B, &cmd, Keep::Head(TOOL_MAX_JSON), TOOL_DEADLINE_SECS)?;
+    // With no repository file helm exits 1 to say there is nothing to list.
+    // That is an empty answer, not a failure.
+    if !run.success && run.stderr.contains("no repositories to show") {
+        return Ok(Value::Array(Vec::new()));
+    }
+    tool_json(B, run)
 }
 
 // ---------------------------------------------------------------------------
 // 878: bi_helm_search - helm search repo <keyword> -o json
 // ---------------------------------------------------------------------------
-fn bi_helm_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let keyword = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("helm.search requires a keyword")),
-    };
-    helm_json(&["search", "repo", &keyword, "-o", "json"])
+fn bi_helm_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "helm_search";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let keyword = k8s_need(B, "a keyword", &args, 0, k8s_token)?;
+    // `search repo` reads the index of the repositories already added. It does
+    // not contact the Artifact Hub; that search is deliberately not offered.
+    let cmd: Vec<String> = vec![
+        "search".into(),
+        "repo".into(),
+        "-o".into(),
+        "json".into(),
+        "--".into(),
+        keyword,
+    ];
+    let run = helm_call(B, &cmd, Keep::Head(TOOL_MAX_JSON), TOOL_DEADLINE_SECS)?;
+    tool_json(B, run)
 }
 
 // ---------------------------------------------------------------------------
-// 879: bi_helm_status - helm status <release> [-n namespace] -o json
+// 879: bi_helm_status - helm status [namespace] -o json -- release
 // ---------------------------------------------------------------------------
-fn bi_helm_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let release = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("helm.status requires release name")),
-    };
-    let mut cmd_args = vec!["status", &release, "-o", "json"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.get(1) {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    helm_json(&cmd_args)
+fn bi_helm_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "helm_status";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    let release = k8s_need(B, "a release name", &args, 0, k8s_object_name)?;
+    let ns = k8s_arg(B, "namespace", &args, 1, k8s_object_name)?;
+    let mut cmd: Vec<String> = vec!["status".into(), "-o".into(), "json".into()];
+    cmd.extend(helm_ns_flag(ns));
+    cmd.extend(["--".into(), release]);
+    let run = helm_call(B, &cmd, Keep::Head(TOOL_MAX_JSON), TOOL_DEADLINE_SECS)?;
+    tool_json(B, run)
 }
 
 // ---------------------------------------------------------------------------
@@ -47766,107 +48083,187 @@ fn cloud_run_cmd_json(program: &str, args: &[&str], dir: Option<&str>) -> Result
 }
 
 // ===========================================================================
-// Terraform (920-927)
+// Terraform (951-958)
 // ===========================================================================
 
-/// 920 – terraform init in optional directory
-fn bi_terraform_init(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let dir = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.as_str()),
-        _ => None,
-    });
-    let out = cloud_run_cmd("terraform", &["init"], dir.map(|s| s))?;
-    Ok(Value::Str(out))
+/// 951 – terraform_init([dir]): terraform init -input=false -no-color in dir.
+/// Downloads the providers the configuration names.
+fn bi_terraform_init(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "terraform_init";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let dir = tf_dir(B, k8s_arg(B, "directory", &args, 0, tf_plain)?.as_deref())?;
+    let run = tf_call(
+        B,
+        &dir,
+        &["init", "-input=false", "-no-color"],
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    Ok(Value::Str(tool_text(B, run)?.trim().to_string()))
 }
 
-/// 921 – terraform plan with optional -var-file
-fn bi_terraform_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args: Vec<String> = vec!["plan".into()];
-    if let Some(Value::Str(var_file)) = args.first() {
-        cmd_args.push(format!("-var-file={}", var_file));
+/// 952 – terraform_plan([var_file]): terraform plan in the workspace root.
+fn bi_terraform_plan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "terraform_plan";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let var = tf_var_file(B, &args, 0)?;
+    let root = tf_dir(B, None)?;
+    let mut cmd: Vec<&str> = vec!["plan", "-input=false", "-no-color"];
+    if let Some(flag) = var.as_deref() {
+        cmd.push(flag);
     }
-    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-    let out = cloud_run_cmd("terraform", &refs, None)?;
-    Ok(Value::Str(out))
+    let run = tf_call(
+        B,
+        &root,
+        &cmd,
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    Ok(Value::Str(tool_text(B, run)?.trim().to_string()))
 }
 
-/// 922 – terraform apply -auto-approve with optional -var-file
-fn bi_terraform_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args: Vec<String> = vec!["apply".into(), "-auto-approve".into()];
-    if let Some(Value::Str(var_file)) = args.first() {
-        cmd_args.push(format!("-var-file={}", var_file));
+/// 953 – terraform_apply([var_file]): terraform apply -auto-approve in the
+/// workspace root. Changes infrastructure; agent mode needs approval first
+/// (the call is Exec under the central guard).
+fn bi_terraform_apply(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "terraform_apply";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let var = tf_var_file(B, &args, 0)?;
+    let root = tf_dir(B, None)?;
+    let mut cmd: Vec<&str> = vec!["apply", "-input=false", "-no-color", "-auto-approve"];
+    if let Some(flag) = var.as_deref() {
+        cmd.push(flag);
     }
-    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-    let out = cloud_run_cmd("terraform", &refs, None)?;
-    Ok(Value::Str(out))
+    let run = tf_call(
+        B,
+        &root,
+        &cmd,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    Ok(Value::Str(tool_text(B, run)?.trim().to_string()))
 }
 
-/// 923 – terraform destroy -auto-approve
-fn bi_terraform_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let dir = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.as_str()),
-        _ => None,
-    });
-    // `-auto-approve` means Terraform will not ask; the approval has to happen
-    // here or it happens nowhere.
+/// 923 – terraform_destroy([dir]): terraform destroy -auto-approve in dir.
+/// `-auto-approve` means Terraform never asks, so the approval has to happen
+/// here. The directory is resolved and checked against the workspace first, so
+/// the approval names the directory that will actually be destroyed.
+fn bi_terraform_destroy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "terraform_destroy";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let dir = tf_dir(B, k8s_arg(B, "directory", &args, 0, tf_plain)?.as_deref())?;
+    let shown = dir.display().to_string();
     crate::safety::guard(crate::safety::GuardCtx {
-        builtin: "terraform_destroy",
+        builtin: B,
         effect: crate::safety::Effect::Destructive,
-        what: "terraform_destroy",
-        targets: vec![dir.unwrap_or(".").to_string()],
-        blast_radius: serde_json::json!({ "dir": dir.unwrap_or("."), "auto_approve": true }),
+        what: B,
+        targets: vec![shown.clone()],
+        blast_radius: serde_json::json!({ "dir": shown, "auto_approve": true }),
         reversible: false,
         fs_paths: false,
     })?;
-    let out = cloud_run_cmd("terraform", &["destroy", "-auto-approve"], dir.map(|s| s))?;
-    Ok(Value::Str(out))
+    let run = tf_call(
+        B,
+        &dir,
+        &["destroy", "-input=false", "-no-color", "-auto-approve"],
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    Ok(Value::Str(tool_text(B, run)?.trim().to_string()))
 }
 
-/// 924 – terraform state list → array of strings
-fn bi_terraform_state(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let dir = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.as_str()),
-        _ => None,
-    });
-    let out = cloud_run_cmd("terraform", &["state", "list"], dir.map(|s| s))?;
-    let items: Vec<Value> = out
+/// 924 – terraform_state([dir]): terraform state list, one Array element per resource.
+fn bi_terraform_state(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "terraform_state";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let dir = tf_dir(B, k8s_arg(B, "directory", &args, 0, tf_plain)?.as_deref())?;
+    let run = tf_call(
+        B,
+        &dir,
+        &["state", "list"],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let text = tool_text(B, run)?;
+    let items: Vec<Value> = text
         .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| Value::Str(l.trim().to_string()))
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| Value::Str(l.to_string()))
         .collect();
     Ok(Value::Array(items))
 }
 
-/// 925 – terraform output -json → parsed Value
-fn bi_terraform_output(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let dir = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.as_str()),
-        _ => None,
-    });
-    cloud_run_cmd_json("terraform", &["output", "-json"], dir.map(|s| s))
+/// 925 – terraform_output([dir]): terraform output -json as a Record.
+fn bi_terraform_output(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "terraform_output";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let dir = tf_dir(B, k8s_arg(B, "directory", &args, 0, tf_plain)?.as_deref())?;
+    let run = tf_call(
+        B,
+        &dir,
+        &["output", "-json"],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    tool_json(B, run)
 }
 
-/// 926 – terraform workspace: no args → show, with arg → select <name>
-fn bi_terraform_workspace(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    match args.first() {
-        Some(Value::Str(name)) => {
-            let out = cloud_run_cmd("terraform", &["workspace", "select", name.as_str()], None)?;
-            Ok(Value::Str(out))
-        }
-        _ => {
-            let out = cloud_run_cmd("terraform", &["workspace", "show"], None)?;
-            Ok(Value::Str(out.trim().to_string()))
+/// 926 – terraform_workspace([name]): no name shows the current workspace;
+/// a name selects it.
+fn bi_terraform_workspace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "terraform_workspace";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let root = tf_dir(B, None)?;
+    let run = match k8s_arg(B, "workspace name", &args, 0, tf_workspace_name)? {
+        Some(name) => tf_call(
+            B,
+            &root,
+            &["workspace", "select", name.as_str()],
+            Keep::Head(TOOL_MAX_TEXT),
+            TOOL_DEADLINE_SECS,
+        )?,
+        None => tf_call(
+            B,
+            &root,
+            &["workspace", "show"],
+            Keep::Head(TOOL_MAX_TEXT),
+            TOOL_DEADLINE_SECS,
+        )?,
+    };
+    Ok(Value::Str(tool_text(B, run)?.trim().to_string()))
+}
+
+/// 927 – terraform_validate([dir]): terraform validate -json as a Record. An
+/// invalid configuration is an answer: its diagnostics come back with
+/// `valid: false`, not as a failure.
+fn bi_terraform_validate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "terraform_validate";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let dir = tf_dir(B, k8s_arg(B, "directory", &args, 0, tf_plain)?.as_deref())?;
+    let run = tf_call(
+        B,
+        &dir,
+        &["validate", "-json"],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    if !run.success {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&run.stdout) {
+            if json.get("valid").is_some() {
+                return Ok(json_to_value(json));
+            }
         }
     }
-}
-
-/// 927 – terraform validate -json
-fn bi_terraform_validate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let dir = args.first().and_then(|v| match v {
-        Value::Str(s) => Some(s.as_str()),
-        _ => None,
-    });
-    cloud_run_cmd_json("terraform", &["validate", "-json"], dir.map(|s| s))
+    tool_json(B, run)
 }
 
 // ===========================================================================
