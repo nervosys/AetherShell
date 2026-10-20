@@ -497,90 +497,15 @@ pub fn eval_stmt(stmt: &Stmt, env: &mut Env) -> Result<Value> {
             source,
             alias,
         } => {
-            // Import statements are handled by the ImportResolver
-            // This is a fallback for when imports are evaluated directly
-            #[cfg(feature = "native")]
-            {
-                use crate::packages::ImportResolver;
-
-                let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                let mut resolver = ImportResolver::new(cwd);
-
-                resolver.process_import(items, source, alias, env, |stmts, module_env| {
-                    eval_program(stmts, module_env)
-                })?;
-
-                Ok(Value::Null)
-            }
-            #[cfg(not(feature = "native"))]
-            {
-                let _ = (items, source, alias);
-                Err(crate::safety::unimplemented(
-                    "import",
-                    "import statements are not supported in this build",
-                    "use the builtin modules directly (file.read, sys.hostname, ...)",
-                ))
-            }
+            crate::module_loader::import(items, source, alias.as_deref(), env)?;
+            Ok(Value::Null)
         }
         Stmt::Export { items, from_source } => {
-            #[cfg(feature = "native")]
-            {
-                if let Some(source) = from_source {
-                    // Re-export from another module
-                    use crate::packages::ImportResolver;
-
-                    let cwd =
-                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                    let mut resolver = ImportResolver::new(cwd);
-
-                    // Load the source module
-                    let module_env = resolver.load_module(source, eval_program)?;
-
-                    // Import and re-export specified items
-                    for item in items {
-                        let value = module_env.get_var(&item.name).cloned().ok_or_else(|| {
-                            crate::safety::not_found(
-                                "import",
-                                &format!("item in module '{source}'"),
-                                &item.name,
-                            )
-                        })?;
-
-                        let export_name = item.alias.as_ref().unwrap_or(&item.name);
-                        env.set_var_unchecked(export_name.clone(), value);
-                        env.add_export(export_name);
-                    }
-                } else {
-                    // Export local items
-                    for item in items {
-                        if env.get_var(&item.name).is_none() {
-                            return Err(crate::safety::not_found(
-                                "export",
-                                "definition",
-                                &item.name,
-                            ));
-                        }
-
-                        let export_name = item.alias.as_ref().unwrap_or(&item.name);
-                        if let Some(alias) = &item.alias {
-                            // Create alias for the exported value
-                            let value = env.get_var(&item.name).cloned().unwrap();
-                            env.set_var_unchecked(alias.clone(), value);
-                        }
-                        env.add_export(export_name);
-                    }
-                }
-                Ok(Value::Null)
+            match from_source {
+                Some(source) => crate::module_loader::reexport(items, source, env)?,
+                None => crate::module_loader::export_local(items, env)?,
             }
-            #[cfg(not(feature = "native"))]
-            {
-                let _ = (items, from_source);
-                Err(crate::safety::unimplemented(
-                    "export",
-                    "export statements are not supported in this build",
-                    "define the value where it is used",
-                ))
-            }
+            Ok(Value::Null)
         }
         Stmt::Cfg { condition, body } => {
             // Evaluate the cfg condition at runtime

@@ -1,10 +1,10 @@
 # Standard Library Tests
 # Run this file to verify all standard library functions work
 
-import "lib/prelude.ae"
-import "lib/math.ae"
-import "lib/string.ae"
-import "lib/collection.ae"
+import "prelude.ae"
+import "math.ae"
+import "string.ae"
+import "collection.ae"
 
 # ===== Prelude Tests =====
 # Note: Higher-order functions that return lambdas (compose, flip, pipe_fn)

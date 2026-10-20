@@ -204,7 +204,7 @@ agent "repo tidy" ["ls","!"] 3
 
 * Macro hygiene & AST transforms
 * Async pipelines with cancellation
-* Module system with typed exports
+* Typed module exports (file modules with `import`/`export` work; exports are untyped)
 * Exhaustiveness checks for matches
 * Streaming AI tokens
 

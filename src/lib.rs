@@ -178,6 +178,8 @@ pub mod metrics;
 /// IronVault (model store and conversion).
 #[cfg(feature = "native")]
 pub mod model_plane;
+/// `import` / `export` of `.ae` file modules.
+pub mod module_loader;
 /// Module system — maps module.function() syntax to builtin dispatch.
 #[cfg(feature = "native")]
 pub mod modules;

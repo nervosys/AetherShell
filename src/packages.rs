@@ -1,36 +1,18 @@
 //! AetherShell Package Management
 //!
 //! This module provides package management capabilities including:
-//! - Local module imports from `.ae` files
 //! - Package registry integration
 //! - Dependency resolution
 //! - Version management
 //!
-//! ## Import Syntax
-//! ```aethershell
-//! # Import entire module
-//! import "path/to/module.ae"
-//! import "path/to/module.ae" as mymod
-//!
-//! # Import specific items
-//! import { func1, func2 } from "path/to/module.ae"
-//! import { func1 as f1, func2 } from "path/to/module.ae"
-//!
-//! # Import from package registry
-//! import "pkg:math-utils@1.0"
-//! import { sin, cos } from "pkg:math-utils"
-//! ```
+//! `import` and `export` of `.ae` files are implemented in
+//! `crate::module_loader`; package-name imports (`pkg:`) are not wired to it yet.
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
-
-use crate::ast::{ImportItem, Stmt};
-use crate::env::Env;
-use crate::parser::parse_program;
-use crate::value::Value;
 
 /// Package manifest (aether.toml)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,58 +61,6 @@ pub struct DependencySpec {
     pub path: Option<String>,
     #[serde(default)]
     pub optional: bool,
-}
-
-/// Module cache for avoiding re-evaluation
-#[derive(Debug, Default)]
-pub struct ModuleCache {
-    /// Cached module environments by absolute path
-    modules: HashMap<PathBuf, Env>,
-    /// Modules currently being loaded (for cycle detection)
-    loading: Vec<PathBuf>,
-}
-
-impl ModuleCache {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Check if a module is cached
-    pub fn get(&self, path: &Path) -> Option<&Env> {
-        self.modules.get(path)
-    }
-
-    /// Cache a module's environment
-    pub fn insert(&mut self, path: PathBuf, env: Env) {
-        self.modules.insert(path, env);
-    }
-
-    /// Check for import cycles
-    pub fn check_cycle(&self, path: &Path) -> Result<()> {
-        if self.loading.contains(&path.to_path_buf()) {
-            let cycle: Vec<_> = self
-                .loading
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect();
-            return Err(anyhow!(
-                "circular import detected: {} -> {}",
-                cycle.join(" -> "),
-                path.display()
-            ));
-        }
-        Ok(())
-    }
-
-    /// Mark a module as currently loading
-    pub fn start_loading(&mut self, path: PathBuf) {
-        self.loading.push(path);
-    }
-
-    /// Mark a module as finished loading
-    pub fn finish_loading(&mut self) {
-        self.loading.pop();
-    }
 }
 
 /// Package registry client
@@ -697,180 +627,6 @@ impl RegistryClient {
     }
 }
 
-/// Import resolver
-pub struct ImportResolver {
-    /// Current working directory for relative imports
-    pub cwd: PathBuf,
-    /// Module cache
-    pub cache: ModuleCache,
-    /// Package registry
-    pub registry: PackageRegistry,
-    /// Search paths for modules
-    pub search_paths: Vec<PathBuf>,
-}
-
-impl Default for ImportResolver {
-    fn default() -> Self {
-        Self {
-            cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-            cache: ModuleCache::new(),
-            registry: PackageRegistry::default(),
-            search_paths: vec![],
-        }
-    }
-}
-
-impl ImportResolver {
-    pub fn new(cwd: PathBuf) -> Self {
-        Self {
-            cwd,
-            ..Default::default()
-        }
-    }
-
-    /// Add a search path for modules
-    pub fn add_search_path(&mut self, path: PathBuf) {
-        if !self.search_paths.contains(&path) {
-            self.search_paths.push(path);
-        }
-    }
-
-    /// Resolve an import source to an absolute file path
-    pub fn resolve_path(&self, source: &str) -> Result<PathBuf> {
-        // Check for package reference: "pkg:name" or "pkg:name@version"
-        if let Some(pkg_spec) = source.strip_prefix("pkg:") {
-            return self.registry.resolve(pkg_spec);
-        }
-
-        // Relative or absolute path
-        let source_path = Path::new(source);
-
-        // If absolute, use directly
-        if source_path.is_absolute() {
-            if source_path.exists() {
-                return Ok(source_path.to_path_buf());
-            }
-            return Err(anyhow!("module not found: {}", source));
-        }
-
-        // Try relative to cwd
-        let relative_path = self.cwd.join(source_path);
-        if relative_path.exists() {
-            return Ok(relative_path.canonicalize()?);
-        }
-
-        // Try with .ae extension
-        let with_ext = relative_path.with_extension("ae");
-        if with_ext.exists() {
-            return Ok(with_ext.canonicalize()?);
-        }
-
-        // Try search paths
-        for search_path in &self.search_paths {
-            let try_path = search_path.join(source_path);
-            if try_path.exists() {
-                return Ok(try_path.canonicalize()?);
-            }
-            let with_ext = try_path.with_extension("ae");
-            if with_ext.exists() {
-                return Ok(with_ext.canonicalize()?);
-            }
-        }
-
-        Err(anyhow!("module not found: {}", source))
-    }
-
-    /// Load and evaluate a module, returning its environment
-    pub fn load_module(
-        &mut self,
-        source: &str,
-        eval_fn: impl Fn(&[Stmt], &mut Env) -> Result<Value>,
-    ) -> Result<Env> {
-        let path = self.resolve_path(source)?;
-
-        // Check cache
-        if let Some(env) = self.cache.get(&path) {
-            return Ok(env.clone());
-        }
-
-        // Check for cycles
-        self.cache.check_cycle(&path)?;
-
-        // Mark as loading
-        self.cache.start_loading(path.clone());
-
-        // Read and parse
-        let content = fs::read_to_string(&path)
-            .with_context(|| format!("failed to read module: {}", path.display()))?;
-
-        let stmts = parse_program(&content)
-            .with_context(|| format!("failed to parse module: {}", path.display()))?;
-
-        // Create module environment and evaluate
-        let mut module_env = Env::default();
-        eval_fn(&stmts, &mut module_env)?;
-
-        // Finish loading and cache
-        self.cache.finish_loading();
-        self.cache.insert(path, module_env.clone());
-
-        Ok(module_env)
-    }
-
-    /// Process an import statement
-    ///
-    /// Only public (exported) items from the module are importable.
-    /// Private items cannot be accessed from outside the module.
-    pub fn process_import(
-        &mut self,
-        items: &[ImportItem],
-        source: &str,
-        alias: &Option<String>,
-        target_env: &mut Env,
-        eval_fn: impl Fn(&[Stmt], &mut Env) -> Result<Value>,
-    ) -> Result<()> {
-        let module_env = self.load_module(source, eval_fn)?;
-
-        if items.is_empty() {
-            // Import entire module
-            if let Some(alias_name) = alias {
-                // import "path" as name -> Create a record with exported items only
-                let exports = module_env.exported_vars();
-                target_env.set_var_unchecked(alias_name.clone(), Value::Record(exports));
-            } else {
-                // import "path" -> Import all exported names into current scope
-                let exports = module_env.exported_vars();
-                for (name, value) in exports {
-                    target_env.set_var_unchecked(name, value);
-                }
-            }
-        } else {
-            // Import specific items - must be exported
-            for item in items {
-                // Check if the item exists in the module
-                let value = module_env
-                    .get_var(&item.name)
-                    .cloned()
-                    .ok_or_else(|| anyhow!("'{}' not found in module '{}'", item.name, source))?;
-
-                // Check if the item is exported (public)
-                if !module_env.is_exported(&item.name) {
-                    return Err(anyhow!(
-                        "'{}' is private in module '{}'. Only `pub` items can be imported.",
-                        item.name,
-                        source
-                    ));
-                }
-
-                let target_name = item.alias.as_ref().unwrap_or(&item.name);
-                target_env.set_var_unchecked(target_name.clone(), value);
-            }
-        }
-
-        Ok(())
-    }
-}
-
 /// Parse dependency version requirement
 pub fn parse_version_req(req: &str) -> Result<semver::VersionReq> {
     semver::VersionReq::parse(req)
@@ -1025,16 +781,5 @@ mod tests {
         assert_eq!(manifest.package.name, "my-package");
         assert_eq!(manifest.package.version, "1.0.0");
         assert!(manifest.dependencies.contains_key("utils"));
-    }
-
-    #[test]
-    fn test_module_cache_cycle_detection() {
-        let mut cache = ModuleCache::new();
-        let path = PathBuf::from("/test/module.ae");
-
-        cache.start_loading(path.clone());
-        assert!(cache.check_cycle(&path).is_err());
-        cache.finish_loading();
-        assert!(cache.check_cycle(&path).is_ok());
     }
 }

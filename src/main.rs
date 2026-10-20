@@ -1149,6 +1149,8 @@ fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
         };
     }
 
+    // `import` paths in this file resolve against its own directory.
+    let _entry = aethershell::module_loader::enter_entry_file(std::path::Path::new(path));
     run_code(&code)
 }
 
