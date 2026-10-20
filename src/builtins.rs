@@ -26,8 +26,7 @@ use crate::{
     rlm::{run_recursive, run_recursive_with_model, RlmConfig},
     security::{
         check_file_size_limit, check_rate_limit, create_secure_http_client, validate_ai_prompt,
-        validate_hostname_or_ip, validate_http_url, validate_integer_param, validate_read_path,
-        validate_sh_allowed,
+        validate_hostname_or_ip, validate_http_url, validate_read_path, validate_sh_allowed,
     },
     shell_features::{Parameter, ParameterSet, ParameterType, PipelineInputType},
     value::{Lambda, Value},
@@ -21976,104 +21975,289 @@ fn bi_a2ui_agent_thinking(args: Vec<Value>, input: Option<Value>) -> Result<Valu
 // 230-249: Process Management
 // ============================================================================
 
-fn bi_proc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
+/// Refuses pipeline input and more arguments than a builtin takes.
+///
+/// These builtins ignored a piped subject, and `proc_list(1, 2)` answered as
+/// if no arguments had been given.
+fn proc_check(builtin: &str, args: &[Value], input: &Option<Value>, max_args: usize) -> Result<()> {
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "no pipeline input",
+            "pipeline input",
+        ));
+    }
+    if args.len() > max_args {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            &format!("at most {max_args} argument(s)"),
+            &args.len().to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// A process's `sysinfo` record, refreshed for that one pid. The pid must
+/// already have been checked to fit `u32` (see `proc_pid`).
+fn proc_sys(pid: i64) -> System {
+    let spid = sysinfo::Pid::from_u32(pid as u32);
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[spid]), true);
+    sys
+}
+
+/// Whether a process with this pid is live now.
+fn proc_live(pid: i64) -> bool {
+    proc_sys(pid)
+        .process(sysinfo::Pid::from_u32(pid as u32))
+        .is_some()
+}
+
+/// E_NOT_FOUND unless the process is live. Every reader asks this first, so
+/// a pid that does not exist is one coded error, never a null, a zero, an
+/// empty record or an empty array.
+fn proc_require(builtin: &str, pid: i64) -> Result<()> {
+    if proc_live(pid) {
+        Ok(())
+    } else {
+        Err(crate::safety::not_found(
+            builtin,
+            "process",
+            &pid.to_string(),
+        ))
+    }
+}
+
+fn proc_is_self(pid: i64) -> bool {
+    pid == i64::from(std::process::id())
+}
+
+/// Refuses this shell's own pid. Stopping it would stop the caller too.
+fn proc_refuse_self(builtin: &str, pid: i64) -> Result<()> {
+    if proc_is_self(pid) {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a process other than this shell",
+            &format!("its own pid {pid}"),
+        ));
+    }
+    Ok(())
+}
+
+/// A pid for a builtin that reads or acts on one process: a positive integer,
+/// or its spelling, that the operating system's pid type can hold.
+///
+/// `pid_arg` admits any positive i64, and the sysinfo lookup casts it to
+/// `u32`, which would turn 4294967297 into pid 1.
+fn proc_pid(builtin: &str, v: Option<&Value>) -> Result<i64> {
+    let pid = pid_arg(builtin, v)?;
+    #[cfg(unix)]
+    let fits = libc::pid_t::try_from(pid).is_ok();
+    #[cfg(not(unix))]
+    let fits = u32::try_from(pid).is_ok();
+    if !fits {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a process id that fits the operating system's pid type",
+            &pid.to_string(),
+        ));
+    }
+    Ok(pid)
+}
+
+/// Runs a host tool for a reader. A tool that cannot start is E_TOOL_MISSING;
+/// one that runs and fails is E_TOOL_FAILED with its stderr.
+fn proc_tool(
+    builtin: &str,
+    tool: &str,
+    cmd: &mut std::process::Command,
+) -> Result<std::process::Output> {
+    let out = cmd
+        .output()
+        .map_err(|e| crate::safety::spawn_error(builtin, tool, &e))?;
+    if out.status.success() {
+        return Ok(out);
+    }
+    Err(crate::safety::tool_failed(
+        builtin,
+        tool,
+        out.status.code(),
+        &String::from_utf8_lossy(&out.stderr),
+    ))
+}
+
+/// Reads one value a host tool printed. Text that is not the value is a
+/// coded failure, never a zero.
+fn proc_parse<T: std::str::FromStr>(builtin: &str, tool: &str, text: &str) -> Result<T> {
+    text.trim().parse::<T>().map_err(|_| {
+        crate::safety::tool_failed(
+            builtin,
+            tool,
+            Some(0),
+            &format!(
+                "its output was not a value this builtin reads: {:?}",
+                text.trim()
+            ),
+        )
+    })
+}
+
+/// A refused priority change or signal: a permission refusal is E_POLICY_DENY,
+/// anything else E_TOOL_FAILED with the tool's own words.
+fn proc_refused(
+    builtin: &str,
+    tool: &str,
+    pid: i64,
+    stderr: &[u8],
+    status: Option<i32>,
+) -> anyhow::Error {
+    let said = String::from_utf8_lossy(stderr).trim().to_string();
+    let lower = said.to_ascii_lowercase();
+    if [
+        "permission",
+        "not permitted",
+        "access is denied",
+        "access denied",
+    ]
+    .iter()
+    .any(|w| lower.contains(w))
     {
-        let output = std::process::Command::new("powershell")
-            .args([
+        return crate::safety::policy_deny(
+            builtin,
+            format!("{builtin}: the operating system refused to change process {pid}: {said}"),
+            "the process belongs to another user, or this change needs elevated rights; change a process this user owns",
+        );
+    }
+    crate::safety::tool_failed(builtin, tool, status, &said)
+}
+
+/// A /proc entry that could not be read, coded by the reason: a missing entry
+/// is E_NOT_FOUND and a refused one E_POLICY_DENY.
+#[cfg(target_os = "linux")]
+fn proc_read_failed(builtin: &str, pid: i64, what: &str, e: &std::io::Error) -> anyhow::Error {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => {
+            crate::safety::not_found(builtin, "process", &pid.to_string())
+        }
+        std::io::ErrorKind::PermissionDenied => crate::safety::policy_deny(
+            builtin,
+            format!("{builtin}: the operating system denied reading {what} of process {pid}"),
+            "the process belongs to another user; read processes this user owns",
+        ),
+        _ => crate::safety::tool_failed(
+            builtin,
+            &format!("reading {what} of process {pid}"),
+            Some(0),
+            &e.to_string(),
+        ),
+    }
+}
+
+/// The items of a PowerShell `ConvertTo-Json`: an array, a single object (one
+/// item is not wrapped in an array), or nothing.
+#[cfg(windows)]
+fn proc_json_items(builtin: &str, text: &str) -> Result<Vec<serde_json::Value>> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(vec![]);
+    }
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(serde_json::Value::Array(items)) => Ok(items),
+        Ok(obj @ serde_json::Value::Object(_)) => Ok(vec![obj]),
+        _ => Err(crate::safety::tool_failed(
+            builtin,
+            "powershell",
+            Some(0),
+            "its output was not JSON this builtin reads",
+        )),
+    }
+}
+
+/// A numeric field of a Windows process listing. A null field is Null, not zero.
+#[cfg(windows)]
+fn proc_json_field(item: &serde_json::Value, key: &str) -> Value {
+    item.get(key)
+        .and_then(|v| v.as_f64())
+        .map(Value::Float)
+        .unwrap_or(Value::Null)
+}
+
+fn bi_proc_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_list", &args, &input, 0)?;
+    #[cfg(windows)]
+    let procs = {
+        let out = proc_tool(
+            "proc_list",
+            "powershell",
+            Command::new("powershell").args([
                 "-Command",
                 "Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_list", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                // Normalize PascalCase keys to canonical lowercase field names
-                if let serde_json::Value::Array(arr) = json {
-                    let procs: Vec<Value> = arr
-                        .into_iter()
-                        .map(|item| {
-                            let mut rec = std::collections::BTreeMap::new();
-                            if let serde_json::Value::Object(obj) = item {
-                                rec.insert(
-                                    "pid".to_string(),
-                                    Value::Int(obj.get("Id").and_then(|v| v.as_i64()).unwrap_or(0)),
-                                );
-                                rec.insert(
-                                    "name".to_string(),
-                                    Value::Str(
-                                        obj.get("ProcessName")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                    ),
-                                );
-                                rec.insert(
-                                    "cpu".to_string(),
-                                    Value::Float(
-                                        obj.get("CPU").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                    ),
-                                );
-                                rec.insert(
-                                    "mem".to_string(),
-                                    Value::Float(
-                                        obj.get("WorkingSet64")
-                                            .and_then(|v| v.as_f64())
-                                            .unwrap_or(0.0),
-                                    ),
-                                );
-                                rec.insert(
-                                    "command".to_string(),
-                                    Value::Str(
-                                        obj.get("ProcessName")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                    ),
-                                );
-                            }
-                            Value::Record(rec)
-                        })
-                        .collect();
-                    return Ok(Value::Array(procs));
-                }
-                return Ok(json_to_value(serde_json::Value::Array(vec![])));
-            }
+            ]),
+        )?;
+        let mut procs = Vec::new();
+        for item in proc_json_items("proc_list", &String::from_utf8_lossy(&out.stdout))? {
+            let pid = item.get("Id").and_then(|v| v.as_i64()).ok_or_else(|| {
+                crate::safety::tool_failed(
+                    "proc_list",
+                    "powershell",
+                    Some(0),
+                    "a process had no Id",
+                )
+            })?;
+            let name = item
+                .get("ProcessName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mut rec = BTreeMap::new();
+            rec.insert("pid".to_string(), Value::Int(pid));
+            rec.insert("name".to_string(), Value::Str(name.clone()));
+            rec.insert("cpu".to_string(), proc_json_field(&item, "CPU"));
+            rec.insert(
+                "mem".to_string(),
+                item.get("WorkingSet64")
+                    .and_then(|v| v.as_i64())
+                    .map(Value::Int)
+                    .unwrap_or(Value::Null),
+            );
+            rec.insert("command".to_string(), Value::Str(name));
+            procs.push(Value::Record(rec));
         }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        // ps aux works on both Linux and macOS
-        let output = std::process::Command::new("ps")
-            .args(["aux"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_list", "ps", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut procs = Vec::new();
-            for line in text.lines().skip(1) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 11 {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("pid".to_string(), Value::Int(parts[1].parse().unwrap_or(0)));
-                    rec.insert("name".to_string(), Value::Str(parts[10..].join(" ")));
-                    rec.insert(
-                        "cpu".to_string(),
-                        Value::Float(parts[2].parse().unwrap_or(0.0)),
-                    );
-                    rec.insert(
-                        "mem".to_string(),
-                        Value::Float(parts[3].parse().unwrap_or(0.0)),
-                    );
-                    rec.insert("command".to_string(), Value::Str(parts[10..].join(" ")));
-                    procs.push(Value::Record(rec));
-                }
+        procs
+    };
+    #[cfg(not(windows))]
+    let procs = {
+        let out = proc_tool("proc_list", "ps", Command::new("ps").arg("aux"))?;
+        let mut procs = Vec::new();
+        for line in String::from_utf8_lossy(&out.stdout).lines().skip(1) {
+            if line.trim().is_empty() {
+                continue;
             }
-            return Ok(Value::Array(procs));
+            // USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND...
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() < 11 {
+                return Err(crate::safety::tool_failed(
+                    "proc_list",
+                    "ps",
+                    Some(0),
+                    &format!("a process line had {} fields, not 11 or more", parts.len()),
+                ));
+            }
+            let pid: i64 = proc_parse("proc_list", "ps", parts[1])?;
+            let cpu: f64 = proc_parse("proc_list", "ps", parts[2])?;
+            let rss_kb: i64 = proc_parse("proc_list", "ps", parts[5])?;
+            let command = parts[10..].join(" ");
+            let mut rec = BTreeMap::new();
+            rec.insert("pid".to_string(), Value::Int(pid));
+            rec.insert("name".to_string(), Value::Str(command.clone()));
+            rec.insert("cpu".to_string(), Value::Float(cpu));
+            rec.insert("mem".to_string(), Value::Int(rss_kb.saturating_mul(1024)));
+            rec.insert("command".to_string(), Value::Str(command));
+            procs.push(Value::Record(rec));
         }
-    }
-    Ok(Value::Array(vec![]))
+        procs
+    };
+    Ok(Value::Array(procs))
 }
 
 /// A process id: a positive integer, or a string of one.
@@ -22342,48 +22526,89 @@ fn bi_proc_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-fn bi_proc_spawn(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// Pids this shell spawned and has not yet seen end. proc_wait answers true
+/// for one of them that ended before the call (a fast child is gone by the
+/// time it is waited for); any other absent pid is E_NOT_FOUND. Bounded, so an
+/// agent that spawns without waiting cannot grow it without limit.
+static SPAWNED: std::sync::Mutex<Vec<i64>> = std::sync::Mutex::new(Vec::new());
+const SPAWNED_CAP: usize = 1024;
+
+fn spawned_note(pid: i64) {
+    if let Ok(mut pids) = SPAWNED.lock() {
+        if pids.len() >= SPAWNED_CAP {
+            pids.remove(0);
+        }
+        pids.push(pid);
+    }
+}
+
+/// Removes a pid from the spawned set; true when it was there.
+fn spawned_take(pid: i64) -> bool {
+    match SPAWNED.lock() {
+        Ok(mut pids) => match pids.iter().position(|p| *p == pid) {
+            Some(i) => {
+                pids.remove(i);
+                true
+            }
+            None => false,
+        },
+        Err(_) => false,
+    }
+}
+
+fn bi_proc_spawn(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // A piped subject would be silently ignored; refuse it before anything runs.
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            "proc_spawn",
+            "no pipeline input",
+            "pipeline input",
+        ));
+    }
     let cmd = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
             return Err(crate::safety::bad_arg(
                 "proc_spawn",
-                "String",
+                "a program name (String)",
                 other.map(|v| v.type_name()).unwrap_or("nothing"),
             ))
         }
     };
-
-    // Security: reject null bytes and validate command length
     if cmd.contains('\0') {
-        return Err(anyhow!(
-            "proc.spawn: command contains null byte - potential attack"
+        return Err(crate::safety::bad_arg(
+            "proc_spawn",
+            "a program name with no NUL byte",
+            "a NUL byte",
         ));
     }
     if cmd.len() > 4096 {
-        return Err(anyhow!(
-            "proc.spawn: command too long ({} chars, max 4096)",
-            cmd.len()
+        return Err(crate::safety::bad_arg(
+            "proc_spawn",
+            "a program name of at most 4096 bytes",
+            &format!("{} bytes", cmd.len()),
         ));
     }
 
-    let spawn_args: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-
-    // Security: validate args for null bytes
-    for (i, arg) in spawn_args.iter().enumerate() {
-        if arg.contains('\0') {
-            return Err(anyhow!(
-                "proc.spawn: argument {} contains null byte - potential attack",
-                i
+    // Every argument is a string. A non-string one was dropped, and the
+    // program ran with the rest.
+    let mut spawn_args: Vec<String> = Vec::with_capacity(args.len().saturating_sub(1));
+    for (i, v) in args.iter().enumerate().skip(1) {
+        let Value::Str(s) = v else {
+            return Err(crate::safety::bad_arg(
+                "proc_spawn",
+                "String arguments",
+                &format!("{} at argument {}", v.type_name(), i + 1),
+            ));
+        };
+        if s.contains('\0') {
+            return Err(crate::safety::bad_arg(
+                "proc_spawn",
+                "arguments with no NUL byte",
+                &format!("a NUL byte in argument {}", i + 1),
             ));
         }
+        spawn_args.push(s.clone());
     }
 
     // Avoiding shell interpolation (below) stops argument injection, but the
@@ -22397,61 +22622,88 @@ fn bi_proc_spawn(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         cmd, spawn_args
     );
 
-    // FIXED: Execute command directly without shell interpolation (CWE-78)
+    // Executed directly, never through a shell (CWE-78). The child is not
+    // waited for here; proc_wait reaps it.
     let child = std::process::Command::new(&cmd)
         .args(&spawn_args)
         .spawn()
-        .with_context(|| format!("proc.spawn: failed to execute '{}'", cmd))?;
-    Ok(Value::Int(child.id() as i64))
+        .map_err(|e| crate::safety::spawn_error("proc_spawn", &cmd, &e))?;
+    let pid = i64::from(child.id());
+    spawned_note(pid);
+    Ok(Value::Int(pid))
 }
 
-fn bi_proc_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p as u32,
-        other => {
+/// Whether a process has ended. A child this process spawned is reaped here,
+/// so a finished child is not left a zombie that `kill(pid, 0)` would still
+/// find and report as running.
+fn proc_has_ended(pid: i64) -> bool {
+    #[cfg(unix)]
+    {
+        let native = libc::pid_t::try_from(pid).unwrap_or(libc::pid_t::MAX);
+        let mut status: libc::c_int = 0;
+        // SAFETY: waitpid writes only to `status`, which lives for the call.
+        let reaped = unsafe { libc::waitpid(native, &mut status, libc::WNOHANG) };
+        if reaped == native {
+            return true;
+        }
+        if reaped == 0 {
+            return false;
+        }
+        // Not this process's child (ECHILD): ask whether the pid is still there.
+        // SAFETY: signal 0 sends nothing and touches no memory.
+        let alive = unsafe { libc::kill(native, 0) } == 0
+            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+        !alive
+    }
+    #[cfg(not(unix))]
+    {
+        !proc_live(pid)
+    }
+}
+
+fn bi_proc_wait(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_wait", &args, &input, 2)?;
+    let pid = proc_pid("proc_wait", args.first())?;
+    let timeout_ms: u64 = match args.get(1) {
+        None => 30_000,
+        Some(Value::Int(t)) if *t >= 0 => *t as u64,
+        Some(other) => {
             return Err(crate::safety::bad_arg(
                 "proc_wait",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+                "a timeout: a non-negative Int of milliseconds",
+                &other.to_display_string(),
             ))
         }
     };
-    let timeout_ms = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Int(t) => Some(*t as u64),
-            _ => None,
-        })
-        .unwrap_or(30000);
-
-    let start = std::time::Instant::now();
-    while start.elapsed().as_millis() < timeout_ms as u128 {
-        #[cfg(target_os = "windows")]
-        {
-            let output = std::process::Command::new("powershell")
-                .args([
-                    "-Command",
-                    &crate::ps_script!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
-                ])
-                .output()
-                .map_err(|e| crate::safety::spawn_error("proc_wait", "powershell", &e))?;
-            if !output.status.success() || output.stdout.is_empty() {
-                return Ok(Value::Bool(true));
-            }
+    // A pid that is not running now was never waited for: E_NOT_FOUND. A
+    // process that ends while waited for is true.
+    if !proc_live(pid) {
+        if spawned_take(pid) {
+            return Ok(Value::Bool(true));
         }
-        #[cfg(not(target_os = "windows"))]
-        {
-            let output = std::process::Command::new("kill")
-                .args(["-0", &pid.to_string()])
-                .output()
-                .map_err(|e| crate::safety::spawn_error("proc_wait", "kill", &e))?;
-            if !output.status.success() {
-                return Ok(Value::Bool(true));
-            }
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        return Err(crate::safety::not_found(
+            "proc_wait",
+            "process",
+            &pid.to_string(),
+        ));
     }
-    Ok(Value::Bool(false))
+
+    // Checked at least once, so a zero timeout still answers for a live
+    // process; the loop ends because `waited` grows every pass.
+    let started = std::time::Instant::now();
+    loop {
+        if proc_has_ended(pid) {
+            spawned_take(pid);
+            return Ok(Value::Bool(true));
+        }
+        let waited = started.elapsed().as_millis();
+        let budget = u128::from(timeout_ms);
+        if waited >= budget {
+            return Ok(Value::Bool(false));
+        }
+        let left = (budget - waited).min(100) as u64;
+        std::thread::sleep(std::time::Duration::from_millis(left));
+    }
 }
 
 fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -22480,194 +22732,146 @@ fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_proc_children(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_children",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let cmd = crate::ps_script!(
-            "Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {} }} | Select-Object ProcessId | ConvertTo-Json",
-            pid
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_children", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let children: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| obj.as_object()?.get("ProcessId")?.as_i64().map(Value::Int))
-                    .collect();
-                return Ok(Value::Array(children));
-            }
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("pgrep")
-            .args(["-P", &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_children", "pgrep", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let children: Vec<Value> = text
-                .lines()
-                .filter_map(|l| l.parse::<i64>().ok())
-                .map(Value::Int)
-                .collect();
-            return Ok(Value::Array(children));
-        }
-    }
-    Ok(Value::Array(vec![]))
+/// The child process ids of a live process, from the host's own tree query.
+#[cfg(windows)]
+fn proc_child_pids(pid: i64) -> Result<Vec<i64>> {
+    let cmd = crate::ps_script!(
+        "Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {} }} | Select-Object ProcessId | ConvertTo-Json",
+        pid
+    );
+    let out = proc_tool(
+        "proc_children",
+        "powershell",
+        Command::new("powershell").args(["-Command", &cmd]),
+    )?;
+    proc_json_items("proc_children", &String::from_utf8_lossy(&out.stdout))?
+        .iter()
+        .map(|item| {
+            item.get("ProcessId")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| {
+                    crate::safety::tool_failed(
+                        "proc_children",
+                        "powershell",
+                        Some(0),
+                        "a child had no ProcessId",
+                    )
+                })
+        })
+        .collect()
 }
 
-fn bi_proc_parent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_parent",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let cmd = crate::ps_script!(
-            "(Get-CimInstance Win32_Process -Filter \"ProcessId={}\" ).ParentProcessId",
-            pid
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_parent", "powershell", &e))?;
-        if output.status.success() {
-            let ppid: i64 = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0);
-            return Ok(Value::Int(ppid));
-        }
+#[cfg(not(windows))]
+fn proc_child_pids(pid: i64) -> Result<Vec<i64>> {
+    let out = Command::new("pgrep")
+        .args(["-P", &pid.to_string()])
+        .output()
+        .map_err(|e| crate::safety::spawn_error("proc_children", "pgrep", &e))?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    match out.status.code() {
+        Some(0) => text
+            .lines()
+            .map(|l| proc_parse::<i64>("proc_children", "pgrep", l))
+            .collect(),
+        // pgrep's 1 means nothing matched: a live process with no children.
+        Some(1) => Ok(vec![]),
+        code => Err(crate::safety::tool_failed(
+            "proc_children",
+            "pgrep",
+            code,
+            &String::from_utf8_lossy(&out.stderr),
+        )),
     }
-    #[cfg(target_os = "linux")]
-    {
-        let stat_path = format!("/proc/{}/stat", pid);
-        if let Ok(stat) = std::fs::read_to_string(&stat_path) {
-            let parts: Vec<&str> = stat.split_whitespace().collect();
-            if parts.len() > 3 {
-                let ppid: i64 = parts[3].parse().unwrap_or(0);
-                return Ok(Value::Int(ppid));
-            }
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("ps")
-            .args(["-p", &pid.to_string(), "-o", "ppid="])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_parent", "ps", &e))?;
-        if output.status.success() {
-            let ppid: i64 = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0);
-            return Ok(Value::Int(ppid));
-        }
-    }
-    Ok(Value::Null)
 }
 
-fn bi_proc_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_priority",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+fn bi_proc_children(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_children", &args, &input, 1)?;
+    let pid = proc_pid("proc_children", args.first())?;
+    proc_require("proc_children", pid)?;
+    let children = proc_child_pids(pid)?;
+    Ok(Value::Array(children.into_iter().map(Value::Int).collect()))
+}
 
-    // Returns a consistent Record {nice: Int, class: String} on all platforms
-    #[cfg(target_os = "windows")]
-    {
+fn bi_proc_parent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_parent", &args, &input, 1)?;
+    let pid = proc_pid("proc_parent", args.first())?;
+    let sys = proc_sys(pid);
+    let process = sys
+        .process(sysinfo::Pid::from_u32(pid as u32))
+        .ok_or_else(|| crate::safety::not_found("proc_parent", "process", &pid.to_string()))?;
+    Ok(process
+        .parent()
+        .map(|p| Value::Int(i64::from(p.as_u32())))
+        .unwrap_or(Value::Null))
+}
+
+fn bi_proc_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_priority", &args, &input, 1)?;
+    let pid = proc_pid("proc_priority", args.first())?;
+    proc_require("proc_priority", pid)?;
+
+    // One record on every OS: nice from -20 (highest) to 19 (lowest), and the
+    // Windows priority class it corresponds to.
+    #[cfg(windows)]
+    let (nice, class) = {
         let cmd = crate::ps_script!("(Get-Process -Id {}).PriorityClass", pid);
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_priority", "powershell", &e))?;
-        if output.status.success() {
-            let class = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let nice: i64 = match class.as_str() {
-                "Idle" => 19,
-                "BelowNormal" => 10,
-                "Normal" => 0,
-                "AboveNormal" => -5,
-                "High" => -10,
-                "RealTime" => -20,
-                _ => 0,
-            };
-            let mut rec = std::collections::BTreeMap::new();
-            rec.insert("nice".to_string(), Value::Int(nice));
-            rec.insert("class".to_string(), Value::Str(class));
-            return Ok(Value::Record(rec));
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("ps")
-            .args(["-o", "ni=", "-p", &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_priority", "ps", &e))?;
-        if output.status.success() {
-            let nice: i64 = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0);
-            let class = match nice {
-                n if n >= 15 => "Idle",
-                n if n >= 5 => "BelowNormal",
-                n if n > -5 => "Normal",
-                n if n > -10 => "AboveNormal",
-                n if n > -15 => "High",
-                _ => "RealTime",
-            };
-            let mut rec = std::collections::BTreeMap::new();
-            rec.insert("nice".to_string(), Value::Int(nice));
-            rec.insert("class".to_string(), Value::Str(class.to_string()));
-            return Ok(Value::Record(rec));
-        }
-    }
-    Ok(Value::Null)
+        let out = proc_tool(
+            "proc_priority",
+            "powershell",
+            Command::new("powershell").args(["-Command", &cmd]),
+        )?;
+        let class = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let nice: i64 = match class.as_str() {
+            "Idle" => 19,
+            "BelowNormal" => 10,
+            "Normal" => 0,
+            "AboveNormal" => -5,
+            "High" => -10,
+            "RealTime" => -20,
+            _ => {
+                return Err(crate::safety::tool_failed(
+                    "proc_priority",
+                    "powershell",
+                    Some(0),
+                    &format!("priority class {class:?} is not one this builtin knows"),
+                ))
+            }
+        };
+        (nice, class)
+    };
+    #[cfg(not(windows))]
+    let (nice, class) = {
+        let out = proc_tool(
+            "proc_priority",
+            "ps",
+            Command::new("ps").args(["-o", "ni=", "-p", &pid.to_string()]),
+        )?;
+        let nice: i64 = proc_parse("proc_priority", "ps", &String::from_utf8_lossy(&out.stdout))?;
+        let class = match nice {
+            n if n >= 15 => "Idle",
+            n if n >= 5 => "BelowNormal",
+            n if n > -5 => "Normal",
+            n if n > -10 => "AboveNormal",
+            n if n > -15 => "High",
+            _ => "RealTime",
+        };
+        (nice, class.to_string())
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("nice".to_string(), Value::Int(nice));
+    rec.insert("class".to_string(), Value::Str(class));
+    Ok(Value::Record(rec))
 }
 
-fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = pid_arg("proc_set_priority", args.first())?;
+fn bi_proc_set_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_set_priority", &args, &input, 2)?;
+    let pid = proc_pid("proc_set_priority", args.first())?;
     let priority = match args.get(1) {
         Some(Value::Int(p)) => *p,
-        // A non-numeric priority became 0 (normal), silently.
+        // A non-numeric string was refused, and a missing priority was 0.
         Some(Value::Str(s)) => s
             .trim()
-            .parse()
+            .parse::<i64>()
             .map_err(|_| crate::safety::bad_arg("proc_set_priority", "an integer priority", s))?,
         other => {
             return Err(crate::safety::bad_arg(
@@ -22677,14 +22881,19 @@ fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value
             ))
         }
     };
+    // nice's range. Outside it the OS clamps the value and says nothing.
+    if !(-20..=19).contains(&priority) {
+        return Err(crate::safety::bad_arg(
+            "proc_set_priority",
+            "a priority from -20 (highest) to 19 (lowest)",
+            &priority.to_string(),
+        ));
+    }
+    proc_require("proc_set_priority", pid)?;
 
-    // Security: validate integer parameters before shell interpolation
-    validate_integer_param(pid, "PID")?;
-    validate_integer_param(priority, "priority")?;
-
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
-        let priority_class = match priority {
+        let class = match priority {
             p if p < -10 => "High",
             p if p < 0 => "AboveNormal",
             0 => "Normal",
@@ -22694,479 +22903,496 @@ fn bi_proc_set_priority(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         let cmd = crate::ps_script!(
             "(Get-Process -Id {}).PriorityClass = {}",
             pid,
-            crate::safety::ps_quote(&priority_class)
+            crate::safety::ps_quote(class)
         );
-        let output = std::process::Command::new("powershell")
+        let out = Command::new("powershell")
             .args(["-Command", &cmd])
             .output()
             .map_err(|e| crate::safety::spawn_error("proc_set_priority", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        if !out.status.success() {
+            return Err(proc_refused(
+                "proc_set_priority",
+                "powershell",
+                pid,
+                &out.stderr,
+                out.status.code(),
+            ));
+        }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(windows))]
     {
-        let output = std::process::Command::new("renice")
-            .args([&priority.to_string(), "-p", &pid.to_string()])
+        let out = Command::new("renice")
+            .args(["-n", &priority.to_string(), "-p", &pid.to_string()])
             .output()
             .map_err(|e| crate::safety::spawn_error("proc_set_priority", "renice", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+        if !out.status.success() {
+            return Err(proc_refused(
+                "proc_set_priority",
+                "renice",
+                pid,
+                &out.stderr,
+                out.status.code(),
+            ));
+        }
     }
+    Ok(Value::Bool(true))
 }
 
-fn bi_proc_cpu_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // A missing or non-integer pid answered 0.0: an idle process.
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_cpu_usage",
-                "a process id (Int)",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
+fn bi_proc_cpu_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_cpu_usage", &args, &input, 1)?;
+    let pid = proc_pid("proc_cpu_usage", args.first())?;
+    proc_require("proc_cpu_usage", pid)?;
+    // Units differ by OS: ps %CPU (percent of one CPU) on Unix, total CPU
+    // seconds from Get-Process on Windows. The builtin says so in its doc.
+    #[cfg(windows)]
+    let cpu: f64 = {
         let cmd = crate::ps_script!("(Get-Process -Id {}).CPU", pid);
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_cpu_usage", "powershell", &e))?;
-        if output.status.success() {
-            let cpu: f64 = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0.0);
-            return Ok(Value::Float(cpu));
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("ps")
-            .args(["-o", "%cpu=", "-p", &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_cpu_usage", "ps", &e))?;
-        if output.status.success() {
-            let cpu: f64 = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0.0);
-            return Ok(Value::Float(cpu));
-        }
-    }
-    Ok(Value::Float(0.0))
+        let out = proc_tool(
+            "proc_cpu_usage",
+            "powershell",
+            Command::new("powershell").args(["-Command", &cmd]),
+        )?;
+        proc_parse(
+            "proc_cpu_usage",
+            "powershell",
+            &String::from_utf8_lossy(&out.stdout),
+        )?
+    };
+    #[cfg(not(windows))]
+    let cpu: f64 = {
+        let out = proc_tool(
+            "proc_cpu_usage",
+            "ps",
+            // LC_ALL=C: a decimal comma would not parse.
+            Command::new("ps")
+                .env("LC_ALL", "C")
+                .args(["-o", "%cpu=", "-p", &pid.to_string()]),
+        )?;
+        proc_parse(
+            "proc_cpu_usage",
+            "ps",
+            &String::from_utf8_lossy(&out.stdout),
+        )?
+    };
+    Ok(Value::Float(cpu))
 }
 
-fn bi_proc_mem_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_mem_usage",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
+fn bi_proc_mem_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_mem_usage", &args, &input, 1)?;
+    let pid = proc_pid("proc_mem_usage", args.first())?;
+    proc_require("proc_mem_usage", pid)?;
+    #[cfg(windows)]
+    let bytes: i64 = {
         let cmd = crate::ps_script!("(Get-Process -Id {}).WorkingSet64", pid);
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_mem_usage", "powershell", &e))?;
-        if output.status.success() {
-            let mem: i64 = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0);
-            return Ok(Value::Int(mem));
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("ps")
-            .args(["-o", "rss=", "-p", &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_mem_usage", "ps", &e))?;
-        if output.status.success() {
-            let mem: i64 = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0);
-            return Ok(Value::Int(mem * 1024)); // Convert KB to bytes
-        }
-    }
-    Ok(Value::Int(0))
+        let out = proc_tool(
+            "proc_mem_usage",
+            "powershell",
+            Command::new("powershell").args(["-Command", &cmd]),
+        )?;
+        proc_parse(
+            "proc_mem_usage",
+            "powershell",
+            &String::from_utf8_lossy(&out.stdout),
+        )?
+    };
+    #[cfg(not(windows))]
+    let bytes: i64 = {
+        let out = proc_tool(
+            "proc_mem_usage",
+            "ps",
+            Command::new("ps").args(["-o", "rss=", "-p", &pid.to_string()]),
+        )?;
+        // ps reports resident kilobytes.
+        proc_parse::<i64>(
+            "proc_mem_usage",
+            "ps",
+            &String::from_utf8_lossy(&out.stdout),
+        )?
+        .saturating_mul(1024)
+    };
+    Ok(Value::Int(bytes))
 }
 
-fn bi_proc_threads(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_threads",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
+fn bi_proc_threads(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_threads", &args, &input, 1)?;
+    let pid = proc_pid("proc_threads", args.first())?;
+    proc_require("proc_threads", pid)?;
+    #[cfg(windows)]
+    let threads: i64 = {
         let cmd = crate::ps_script!("(Get-Process -Id {}).Threads.Count", pid);
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_threads", "powershell", &e))?;
-        if output.status.success() {
-            let threads: i64 = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0);
-            return Ok(Value::Int(threads));
-        }
-    }
+        let out = proc_tool(
+            "proc_threads",
+            "powershell",
+            Command::new("powershell").args(["-Command", &cmd]),
+        )?;
+        proc_parse(
+            "proc_threads",
+            "powershell",
+            &String::from_utf8_lossy(&out.stdout),
+        )?
+    };
     #[cfg(target_os = "linux")]
-    {
-        let task_path = format!("/proc/{}/task", pid);
-        if let Ok(entries) = std::fs::read_dir(&task_path) {
-            return Ok(Value::Int(entries.count() as i64));
+    let threads: i64 = {
+        let entries = std::fs::read_dir(format!("/proc/{pid}/task"))
+            .map_err(|e| proc_read_failed("proc_threads", pid, "its threads", &e))?;
+        let mut n: i64 = 0;
+        for entry in entries {
+            entry.map_err(|e| proc_read_failed("proc_threads", pid, "its threads", &e))?;
+            n += 1;
         }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("ps")
-            .args(["-M", "-p", &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_threads", "ps", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            // ps -M shows one line per thread; subtract 1 for the header
-            let count = text.lines().count().saturating_sub(1);
-            return Ok(Value::Int(count as i64));
-        }
-    }
-    Ok(Value::Int(0))
+        n
+    };
+    #[cfg(all(not(windows), not(target_os = "linux")))]
+    let threads: i64 = {
+        let out = proc_tool(
+            "proc_threads",
+            "ps",
+            Command::new("ps").args(["-M", "-p", &pid.to_string()]),
+        )?;
+        // ps -M prints a header, then one line per thread.
+        let lines = String::from_utf8_lossy(&out.stdout).lines().count();
+        i64::try_from(lines.saturating_sub(1)).unwrap_or(i64::MAX)
+    };
+    Ok(Value::Int(threads))
 }
 
-fn bi_proc_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // A missing or non-integer pid answered {}: a process with no environment.
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_env",
-                "a process id (Int)",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+#[cfg(target_os = "linux")]
+fn proc_env_of(pid: i64) -> Result<BTreeMap<String, Value>> {
+    let data = std::fs::read(format!("/proc/{pid}/environ"))
+        .map_err(|e| proc_read_failed("proc_env", pid, "its environment", &e))?;
+    Ok(data
+        .split(|&b| b == 0)
+        .filter(|entry| !entry.is_empty())
+        .filter_map(|entry| {
+            let text = String::from_utf8_lossy(entry);
+            let (k, v) = text.split_once('=')?;
+            Some((k.to_string(), Value::Str(v.to_string())))
+        })
+        .collect())
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        // Windows: use WMI to get process environment (requires elevation for other processes)
-        let cmd = crate::ps_script!(
-            "(Get-CimInstance Win32_Process -Filter \"ProcessId={}\").GetOwner() | Out-Null; [System.Environment]::GetEnvironmentVariables() | ConvertTo-Json",
-            pid
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_env", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if let serde_json::Value::Object(obj) = json {
-                    let mut rec = std::collections::BTreeMap::new();
-                    for (k, v) in obj {
-                        rec.insert(k, Value::Str(v.as_str().unwrap_or("").to_string()));
-                    }
-                    return Ok(Value::Record(rec));
+#[cfg(not(target_os = "linux"))]
+fn proc_env_of(pid: i64) -> Result<BTreeMap<String, Value>> {
+    Err(crate::safety::unimplemented(
+        "proc_env",
+        &format!("reading the environment of process {pid} on this OS"),
+        "this shell's own environment is available from env() and sys_env_all(); other processes' environments are readable on Linux",
+    ))
+}
+
+fn bi_proc_env(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_env", &args, &input, 1)?;
+    let pid = proc_pid("proc_env", args.first())?;
+    if proc_is_self(pid) {
+        // This shell's own environment, answered in-process on every OS.
+        let rec = std::env::vars_os()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    Value::Str(v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect::<BTreeMap<String, Value>>();
+        return Ok(Value::Record(rec));
+    }
+    proc_require("proc_env", pid)?;
+    Ok(Value::Record(proc_env_of(pid)?))
+}
+
+#[cfg(target_os = "linux")]
+fn proc_cwd_of(pid: i64) -> Result<String> {
+    let path = std::fs::read_link(format!("/proc/{pid}/cwd"))
+        .map_err(|e| proc_read_failed("proc_cwd", pid, "its working directory", &e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[cfg(target_os = "macos")]
+fn proc_cwd_of(pid: i64) -> Result<String> {
+    let out = proc_tool(
+        "proc_cwd",
+        "lsof",
+        Command::new("lsof").args(["-p", &pid.to_string(), "-Fn", "-d", "cwd"]),
+    )?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let named = text
+        .lines()
+        .find_map(|l| l.strip_prefix('n').map(str::to_string));
+    named.ok_or_else(|| {
+        crate::safety::tool_failed(
+            "proc_cwd",
+            "lsof",
+            Some(0),
+            "its output named no working directory",
+        )
+    })
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn proc_cwd_of(pid: i64) -> Result<String> {
+    Err(crate::safety::unimplemented(
+        "proc_cwd",
+        &format!("the working directory of process {pid} on this OS"),
+        "this shell's own working directory is pwd()",
+    ))
+}
+
+fn bi_proc_cwd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_cwd", &args, &input, 1)?;
+    let pid = proc_pid("proc_cwd", args.first())?;
+    if proc_is_self(pid) {
+        let dir = std::env::current_dir().map_err(|e| {
+            crate::safety::tool_failed("proc_cwd", "current_dir", Some(0), &e.to_string())
+        })?;
+        return Ok(Value::Str(dir.to_string_lossy().into_owned()));
+    }
+    proc_require("proc_cwd", pid)?;
+    Ok(Value::Str(proc_cwd_of(pid)?))
+}
+
+#[cfg(windows)]
+fn proc_exe_of(pid: i64) -> Result<String> {
+    let cmd = crate::ps_script!("(Get-Process -Id {}).Path", pid);
+    let out = proc_tool(
+        "proc_exe",
+        "powershell",
+        Command::new("powershell").args(["-Command", &cmd]),
+    )?;
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if path.is_empty() {
+        return Err(crate::safety::policy_deny(
+            "proc_exe",
+            format!("proc_exe: the path of process {pid} is not readable"),
+            "the process is protected or belongs to another user; read the path of a process this user owns",
+        ));
+    }
+    Ok(path)
+}
+
+#[cfg(target_os = "linux")]
+fn proc_exe_of(pid: i64) -> Result<String> {
+    let path = std::fs::read_link(format!("/proc/{pid}/exe"))
+        .map_err(|e| proc_read_failed("proc_exe", pid, "its executable", &e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
+fn proc_exe_of(pid: i64) -> Result<String> {
+    let out = proc_tool(
+        "proc_exe",
+        "ps",
+        Command::new("ps").args(["-p", &pid.to_string(), "-o", "comm="]),
+    )?;
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if path.is_empty() {
+        return Err(crate::safety::tool_failed(
+            "proc_exe",
+            "ps",
+            Some(0),
+            "its output named no executable",
+        ));
+    }
+    Ok(path)
+}
+
+fn bi_proc_exe(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_exe", &args, &input, 1)?;
+    let pid = proc_pid("proc_exe", args.first())?;
+    proc_require("proc_exe", pid)?;
+    Ok(Value::Str(proc_exe_of(pid)?))
+}
+
+/// Splits a Windows command line into its arguments. Whitespace separates
+/// them except inside double quotes, and the quotes are not part of an
+/// argument. This covers the common cases of CommandLineToArgvW; a backslash
+/// before a quote is taken literally.
+#[cfg(windows)]
+fn proc_split_windows(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut in_word = false;
+    let mut quoted = false;
+    for c in line.chars() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                in_word = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                if in_word {
+                    out.push(std::mem::take(&mut cur));
+                    in_word = false;
                 }
+            }
+            c => {
+                cur.push(c);
+                in_word = true;
             }
         }
     }
-    #[cfg(target_os = "linux")]
-    {
-        let env_path = format!("/proc/{}/environ", pid);
-        if let Ok(env_data) = std::fs::read(&env_path) {
-            let mut rec = std::collections::BTreeMap::new();
-            for entry in env_data.split(|&b| b == 0) {
-                if let Ok(s) = std::str::from_utf8(entry) {
-                    if let Some((k, v)) = s.split_once('=') {
-                        rec.insert(k.to_string(), Value::Str(v.to_string()));
-                    }
-                }
-            }
-            return Ok(Value::Record(rec));
-        }
+    if in_word {
+        out.push(cur);
     }
-    #[cfg(target_os = "macos")]
-    {
-        // macOS: use ps to get command environment (limited)
-        let output = std::process::Command::new("ps")
-            .args(["-p", &pid.to_string(), "-E", "-o", "command="])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_env", "ps", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut rec = std::collections::BTreeMap::new();
-            for part in text.split_whitespace() {
-                if let Some((k, v)) = part.split_once('=') {
-                    rec.insert(k.to_string(), Value::Str(v.to_string()));
-                }
-            }
-            return Ok(Value::Record(rec));
-        }
-    }
-    Ok(Value::Record(std::collections::BTreeMap::new()))
+    out
 }
 
-fn bi_proc_cwd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_cwd",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        // Windows doesn't easily expose CWD
-        return Ok(Value::Null);
+#[cfg(windows)]
+fn proc_cmdline_of(pid: i64) -> Result<Vec<String>> {
+    let cmd = crate::ps_script!(
+        "(Get-CimInstance Win32_Process -Filter \"ProcessId={}\").CommandLine",
+        pid
+    );
+    let out = proc_tool(
+        "proc_cmdline",
+        "powershell",
+        Command::new("powershell").args(["-Command", &cmd]),
+    )?;
+    let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if line.is_empty() {
+        return Err(crate::safety::policy_deny(
+            "proc_cmdline",
+            format!("proc_cmdline: the command line of process {pid} is not readable"),
+            "the process is protected or belongs to another user; read the command line of a process this user owns",
+        ));
     }
-    #[cfg(target_os = "linux")]
-    {
-        let cwd_path = format!("/proc/{}/cwd", pid);
-        if let Ok(cwd) = std::fs::read_link(&cwd_path) {
-            return Ok(Value::Str(cwd.to_string_lossy().to_string()));
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("lsof")
-            .args(["-p", &pid.to_string(), "-Fn", "-d", "cwd"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_cwd", "lsof", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            for line in text.lines() {
-                if let Some(path) = line.strip_prefix('n') {
-                    return Ok(Value::Str(path.to_string()));
-                }
-            }
-        }
-    }
-    Ok(Value::Null)
+    Ok(proc_split_windows(&line))
 }
 
-fn bi_proc_exe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_exe",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let cmd = crate::ps_script!("(Get-Process -Id {}).Path", pid);
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_exe", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+#[cfg(target_os = "linux")]
+fn proc_cmdline_of(pid: i64) -> Result<Vec<String>> {
+    let data = std::fs::read(format!("/proc/{pid}/cmdline"))
+        .map_err(|e| proc_read_failed("proc_cmdline", pid, "its command line", &e))?;
+    // A zombie or kernel thread has no arguments at all.
+    if data.is_empty() {
+        return Ok(vec![]);
     }
-    #[cfg(target_os = "linux")]
-    {
-        let exe_path = format!("/proc/{}/exe", pid);
-        if let Ok(exe) = std::fs::read_link(&exe_path) {
-            return Ok(Value::Str(exe.to_string_lossy().to_string()));
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("ps")
-            .args(["-p", &pid.to_string(), "-o", "comm="])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_exe", "ps", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-    }
-    Ok(Value::Null)
+    // Every argument ends in a NUL, so drop the one trailing terminator and
+    // split on the rest. An empty argument is a real argument, not noise.
+    let body: &[u8] = data.strip_suffix(&[0u8][..]).unwrap_or(&data[..]);
+    Ok(body
+        .split(|&b| b == 0)
+        .map(|arg| String::from_utf8_lossy(arg).into_owned())
+        .collect())
 }
 
-fn bi_proc_cmdline(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_cmdline",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    // Always returns Array<String> on all platforms
-    #[cfg(target_os = "windows")]
-    {
-        let cmd = crate::ps_script!(
-            "(Get-CimInstance Win32_Process -Filter \"ProcessId={}\").CommandLine",
-            pid
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_cmdline", "powershell", &e))?;
-        if output.status.success() {
-            let cmdline = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            // Split command line into args (simple split; Windows command lines are complex)
-            let args: Vec<Value> = cmdline
-                .split_whitespace()
-                .map(|s| Value::Str(s.to_string()))
-                .collect();
-            return Ok(Value::Array(args));
-        }
+#[cfg(all(not(windows), not(target_os = "linux")))]
+fn proc_cmdline_of(pid: i64) -> Result<Vec<String>> {
+    let out = proc_tool(
+        "proc_cmdline",
+        "ps",
+        Command::new("ps").args(["-p", &pid.to_string(), "-o", "args="]),
+    )?;
+    let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if line.is_empty() {
+        return Err(crate::safety::tool_failed(
+            "proc_cmdline",
+            "ps",
+            Some(0),
+            "its output named no command line",
+        ));
     }
-    #[cfg(target_os = "linux")]
-    {
-        let cmdline_path = format!("/proc/{}/cmdline", pid);
-        if let Ok(cmdline_data) = std::fs::read(&cmdline_path) {
-            let args: Vec<Value> = cmdline_data
-                .split(|&b| b == 0)
-                .filter(|s| !s.is_empty())
-                .map(|s| Value::Str(String::from_utf8_lossy(s).to_string()))
-                .collect();
-            return Ok(Value::Array(args));
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("ps")
-            .args(["-p", &pid.to_string(), "-o", "args="])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_cmdline", "ps", &e))?;
-        if output.status.success() {
-            let cmdline = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let args: Vec<Value> = cmdline
-                .split_whitespace()
-                .map(|s| Value::Str(s.to_string()))
-                .collect();
-            return Ok(Value::Array(args));
-        }
-    }
-    Ok(Value::Array(vec![]))
+    // ps does not quote its output, so an argument with a space is split.
+    let argv: Vec<String> = line.split_whitespace().map(str::to_string).collect();
+    Ok(argv)
 }
 
-fn bi_proc_start_time(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
+fn bi_proc_cmdline(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_cmdline", &args, &input, 1)?;
+    let pid = proc_pid("proc_cmdline", args.first())?;
+    proc_require("proc_cmdline", pid)?;
+    let argv = proc_cmdline_of(pid)?;
+    Ok(Value::Array(argv.into_iter().map(Value::Str).collect()))
+}
+
+/// Seconds since the Unix epoch, as UTC ISO 8601 to the second. One form on
+/// every OS: `ps lstart` and `ToString('o')` gave three different spellings,
+/// and the Unix one changed with the locale.
+fn proc_utc_iso(pid: i64, secs: u64) -> Result<String> {
+    let at = i64::try_from(secs)
+        .ok()
+        .and_then(|s| chrono::DateTime::<chrono::Utc>::from_timestamp(s, 0))
+        .ok_or_else(|| {
+            crate::safety::tool_failed(
                 "proc_start_time",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let cmd = crate::ps_script!("(Get-Process -Id {}).StartTime.ToString('o')", pid);
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_start_time", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("ps")
-            .args(["-o", "lstart=", "-p", &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_start_time", "ps", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-    }
-    Ok(Value::Null)
+                "sysinfo",
+                Some(0),
+                &format!("the start time of process {pid} is out of range"),
+            )
+        })?;
+    Ok(at.format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 
-fn bi_proc_suspend(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_suspend",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        // Windows doesn't have a direct suspend; using debug API requires more setup
-        Ok(Value::Bool(false))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("kill")
-            .args(["-STOP", &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_suspend", "kill", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
+fn bi_proc_start_time(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_start_time", &args, &input, 1)?;
+    let pid = proc_pid("proc_start_time", args.first())?;
+    let sys = proc_sys(pid);
+    let secs = sys
+        .process(sysinfo::Pid::from_u32(pid as u32))
+        .ok_or_else(|| crate::safety::not_found("proc_start_time", "process", &pid.to_string()))?
+        .start_time();
+    Ok(Value::Str(proc_utc_iso(pid, secs)?))
 }
 
-fn bi_proc_resume(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pid = match args.first() {
-        Some(Value::Int(p)) => *p,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "proc_resume",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+/// Sends a stop or continue signal. Unix sends it with kill(2), as proc_kill
+/// does. Windows has no such signal in this shell, so it is refused as
+/// unimplemented rather than answered false.
+#[cfg(unix)]
+fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
+    let sig = if name == "STOP" {
+        libc::SIGSTOP
+    } else {
+        libc::SIGCONT
     };
+    let native = libc::pid_t::try_from(pid).map_err(|_| {
+        crate::safety::bad_arg(
+            builtin,
+            "a process id that fits the operating system's pid type",
+            &pid.to_string(),
+        )
+    })?;
+    // SAFETY: kill(2) takes a pid and a signal number and touches no memory.
+    if unsafe { libc::kill(native, sig) } == 0 {
+        return Ok(Value::Bool(true));
+    }
+    let err = std::io::Error::last_os_error();
+    Err(match err.raw_os_error() {
+        Some(libc::ESRCH) => crate::safety::not_found(builtin, "process", &pid.to_string()),
+        Some(libc::EPERM) => crate::safety::policy_deny(
+            builtin,
+            format!("{builtin}: the operating system denied SIG{name} to process {pid} (EPERM)"),
+            "the process belongs to another user or is protected; signal a process this user owns",
+        ),
+        _ => crate::safety::tool_failed(
+            builtin,
+            &format!("kill({pid}, SIG{name})"),
+            None,
+            &err.to_string(),
+        ),
+    })
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        Ok(Value::Bool(false))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("kill")
-            .args(["-CONT", &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_resume", "kill", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
+#[cfg(not(unix))]
+fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
+    Err(crate::safety::unimplemented(
+        builtin,
+        &format!("sending the {name} signal to process {pid}: Windows has no such signal, and this shell does not call its suspend or resume API"),
+        "on Windows, proc_kill sends TERM (graceful) or KILL (forced)",
+    ))
+}
+
+fn bi_proc_suspend(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_suspend", &args, &input, 1)?;
+    let pid = proc_pid("proc_suspend", args.first())?;
+    proc_refuse_self("proc_suspend", pid)?;
+    proc_require("proc_suspend", pid)?;
+    proc_signal("proc_suspend", pid, "STOP")
+}
+
+fn bi_proc_resume(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    proc_check("proc_resume", &args, &input, 1)?;
+    let pid = proc_pid("proc_resume", args.first())?;
+    proc_refuse_self("proc_resume", pid)?;
+    proc_require("proc_resume", pid)?;
+    proc_signal("proc_resume", pid, "CONT")
 }
 
 // ============================================================================

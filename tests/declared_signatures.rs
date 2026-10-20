@@ -130,6 +130,21 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "proc_info",
         "which process ids exist (pid 1 does not on Windows)",
     ),
+    // proc_*: the process table changes from call to call. The examples for
+    // proc_children and proc_parent name pid 1, which is live on Unix and
+    // absent on Windows (E_NOT_FOUND, an absent-here code).
+    (
+        "proc_list",
+        "the process table, which changes from call to call (ps on Unix, Get-Process on Windows)",
+    ),
+    (
+        "proc_children",
+        "the children of pid 1, which exist only on Unix; pid 1 is absent on Windows",
+    ),
+    (
+        "proc_parent",
+        "the parent of pid 1, which exists only on Unix; pid 1 is absent on Windows",
+    ),
     ("diag_explain", "an installed rustc"),
     ("docs_search", "generated documentation in target/doc"),
     (
