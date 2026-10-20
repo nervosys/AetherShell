@@ -22274,7 +22274,8 @@ fn pid_arg(builtin: &str, v: Option<&Value>) -> Result<i64> {
         _ => None,
     };
     match pid {
-        Some(p) if p > 0 => Ok(p),
+        // Above u32::MAX a pid is no process; `as u32` would wrap it onto one.
+        Some(p) if p > 0 && p <= i64::from(u32::MAX) => Ok(p),
         _ => Err(crate::safety::bad_arg(
             builtin,
             "a process id: a positive integer (0 and negatives address groups of processes)",

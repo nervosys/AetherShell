@@ -418,6 +418,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         "workflow_cancel" | "workflow_pause" | "workflow_resume"
         | "workflow_create" | "circuit_breaker_create"
         | "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check"
+        | "proc_suspend" | "proc_resume" | "proc_set_priority"
         | "cron_disable"
         | "svc_restart" | "k8s_rollout_restart" => Some(Effect::Process),
         // Every builtin whose argument *is* a command to run. These are the

@@ -727,3 +727,10 @@ fn set_priority_refused_for_a_lower_nice_is_policy_deny_not_a_false() {
         .expect_err("a non-root raise of priority");
     assert_eq!(code_of(&e), "E_POLICY_DENY", "{e}");
 }
+
+/// 2^32 + 1 is no process. `pid as u32` wrapped it to pid 1, so proc_info
+/// described init (or whatever held pid 1) for a pid that does not exist.
+#[test]
+fn a_pid_above_u32_is_refused_not_wrapped() {
+    expect_code("proc_info", vec![Value::Int(4_294_967_297)], "E_BAD_ARG");
+}

@@ -982,11 +982,11 @@ proc_list	ReadLocal
 proc_mem_usage	ReadLocal
 proc_parent	ReadLocal
 proc_priority	ReadLocal
-proc_resume	ReadLocal
-proc_set_priority	ReadLocal
+proc_resume	Process
+proc_set_priority	Process
 proc_spawn	Exec
 proc_start_time	ReadLocal
-proc_suspend	ReadLocal
+proc_suspend	Process
 proc_threads	ReadLocal
 proc_wait	ReadLocal
 product	Pure
