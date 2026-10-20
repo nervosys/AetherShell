@@ -35130,16 +35130,130 @@ fn bi_clipboard_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     ))
 }
 
-fn bi_input_read_char(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
+/// `input_read_char(timeout_ms?)`: one keypress from the terminal, answered as
+/// a String. Needs stdin and stderr to be terminals; otherwise it refuses with
+/// E_NO_UI without reading anything, so piped stdin is left for the next read.
+/// Ctrl+C is refused (E_POLICY_DENY), not answered: raw mode delivers it as a
+/// key, and answering it as a character would hide that the user cancelled.
+fn bi_input_read_char(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const BUILTIN: &str = "input_read_char";
+    const MAX_MS: i64 = 3_600_000;
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "no pipeline input",
+            "a piped value",
+        ));
+    }
+    let timeout = match args.as_slice() {
+        [] => None,
+        [Value::Int(ms)] if (1..=MAX_MS).contains(ms) => {
+            Some(std::time::Duration::from_millis(*ms as u64))
+        }
+        [other] => {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                "an Int timeout_ms from 1 through 3600000",
+                &format!("{other:?}"),
+            ))
+        }
+        more => {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                "input_read_char(timeout_ms?: Int)",
+                &format!("{} arguments", more.len()),
+            ))
+        }
+    };
+    use std::io::IsTerminal;
+    if !(std::io::stdin().is_terminal() && std::io::stderr().is_terminal()) {
+        return Err(crate::safety::no_ui(BUILTIN));
+    }
+    read_key_native(BUILTIN, timeout)
+}
+
+#[cfg(feature = "native")]
+fn read_key_native(builtin: &str, timeout: Option<std::time::Duration>) -> Result<Value> {
+    use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+    use crossterm::terminal;
+
+    let io = |e: std::io::Error| crate::safety::fs_error(builtin, "the terminal", &e);
+
+    // Same discipline as line_editor::terminal::read_line: raw mode is
+    // restored on every path, including a failed read, before the result
+    // is returned.
+    terminal::enable_raw_mode().map_err(io)?;
+    let outcome = (|| -> Result<Option<String>> {
+        let deadline = timeout.map(|t| std::time::Instant::now() + t);
+        loop {
+            if let Some(deadline) = deadline {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() || !event::poll(remaining).map_err(io)? {
+                    return Ok(None);
+                }
+            }
+            let Event::Key(key) = event::read().map_err(io)? else {
+                continue;
+            };
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            if let KeyCode::Char('c' | 'C') = key.code {
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    return Err(crate::safety::policy_deny(
+                        builtin,
+                        format!(
+                            "{builtin}: Ctrl+C was pressed; the key was cancelled, not answered"
+                        ),
+                        "the user cancelled this read; ask again only if they want to answer",
+                    ));
+                }
+            }
+            // Keys with no name here (modifier-only presses, media keys) are
+            // skipped, so the answer is always a key an agent can match.
+            if let Some(name) = key_name(key.code) {
+                return Ok(Some(name));
+            }
+        }
+    })();
+    let restored = terminal::disable_raw_mode();
+    let answer = outcome?;
+    restored.map_err(io)?;
+    Ok(answer.map_or(Value::Null, Value::Str))
+}
+
+#[cfg(feature = "native")]
+fn key_name(code: crossterm::event::KeyCode) -> Option<String> {
+    use crossterm::event::KeyCode;
+    Some(match code {
+        KeyCode::Char(c) => c.to_string(),
+        KeyCode::Enter => "Enter".to_string(),
+        KeyCode::Esc => "Esc".to_string(),
+        KeyCode::Tab => "Tab".to_string(),
+        KeyCode::BackTab => "BackTab".to_string(),
+        KeyCode::Backspace => "Backspace".to_string(),
+        KeyCode::Delete => "Delete".to_string(),
+        KeyCode::Insert => "Insert".to_string(),
+        KeyCode::Home => "Home".to_string(),
+        KeyCode::End => "End".to_string(),
+        KeyCode::PageUp => "PageUp".to_string(),
+        KeyCode::PageDown => "PageDown".to_string(),
+        KeyCode::Up => "Up".to_string(),
+        KeyCode::Down => "Down".to_string(),
+        KeyCode::Left => "Left".to_string(),
+        KeyCode::Right => "Right".to_string(),
+        KeyCode::F(n) => format!("F{n}"),
+        _ => return None,
+    })
+}
+
+#[cfg(not(feature = "native"))]
+fn read_key_native(builtin: &str, timeout: Option<std::time::Duration>) -> Result<Value> {
+    let _ = timeout;
     Err(crate::safety::unimplemented(
-        "input_read_char",
-        "reading a single keypress is not implemented; NOTHING WAS DONE",
-        "use `ae --tui`",
+        builtin,
+        "reading a keypress needs the `native` feature (crossterm); NOTHING WAS READ",
+        "build with default features, or use `ae --tui`",
     ))
 }
 
@@ -35147,14 +35261,82 @@ fn bi_input_multiselect(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     bi_input_multi_select(args, None)
 }
 
-fn bi_input_spinner(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value, so an agent could not tell
-    // this apart from a result. Nothing here was implemented.
-    Err(crate::safety::unimplemented(
-        "input_spinner",
-        "a spinner is not implemented; NOTHING WAS DONE",
-        "use `ae --tui`",
-    ))
+/// `input_spinner(label, duration_ms)`: animates `| / - \` on stderr for
+/// `duration_ms`, then clears its line and answers `{label, duration_ms}`.
+/// When stderr is not a terminal nothing is drawn (no CR or escape bytes reach
+/// a log), but the call still waits the full duration. Control characters in
+/// the label are drawn as `?`; the answer carries the label unchanged.
+fn bi_input_spinner(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const BUILTIN: &str = "input_spinner";
+    const MAX_MS: i64 = 600_000;
+    const MAX_LABEL_BYTES: usize = 1024;
+    const FRAME_MS: u64 = 100;
+    const FRAMES: [char; 4] = ['|', '/', '-', '\\'];
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "no pipeline input",
+            "a piped value",
+        ));
+    }
+    let [label, duration] = args.as_slice() else {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "input_spinner(label: String, duration_ms: Int)",
+            &format!("{} arguments", args.len()),
+        ));
+    };
+    let Value::Str(label) = label else {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "a String label",
+            &format!("{label:?}"),
+        ));
+    };
+    if label.len() > MAX_LABEL_BYTES {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "a label of at most 1024 bytes",
+            &format!("{} bytes", label.len()),
+        ));
+    }
+    let ms = match duration {
+        Value::Int(ms) if (1..=MAX_MS).contains(ms) => *ms as u64,
+        other => {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                "an Int duration_ms from 1 through 600000",
+                &format!("{other:?}"),
+            ))
+        }
+    };
+    use std::io::IsTerminal;
+    let draw = std::io::stderr().is_terminal();
+    let shown: String = label
+        .chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect();
+    let total = std::time::Duration::from_millis(ms);
+    let start = std::time::Instant::now();
+    let mut frame = 0usize;
+    loop {
+        let elapsed = start.elapsed();
+        if elapsed >= total {
+            break;
+        }
+        if draw {
+            eprint!("\r{} {}", FRAMES[frame % FRAMES.len()], shown);
+        }
+        frame += 1;
+        std::thread::sleep((total - elapsed).min(std::time::Duration::from_millis(FRAME_MS)));
+    }
+    if draw {
+        eprint!("\r{}\r", " ".repeat(shown.chars().count() + 2));
+    }
+    let mut rec = std::collections::BTreeMap::new();
+    rec.insert("label".to_string(), Value::Str(label.clone()));
+    rec.insert("duration_ms".to_string(), Value::Int(ms as i64));
+    Ok(Value::Record(rec))
 }
 
 /// `input_progress(current, total, label?)`: draws one progress line on stderr
@@ -54186,20 +54368,77 @@ fn bi_delta_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- lazygit (1033) ---
 
-/// lazygit — Launch lazygit terminal UI (interactive).
-fn bi_lazygit_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
+/// `lazygit_open(path?)`: runs `lazygit -p <path>` with the terminal inherited
+/// and waits for it to exit. Needs stdin and stdout to be terminals; otherwise
+/// it refuses with E_NO_UI. The path is validated first, so a bad path is
+/// refused the same way with or without a terminal.
+fn bi_lazygit_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const BUILTIN: &str = "lazygit_open";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "no pipeline input",
+            "a piped value",
+        ));
+    }
+    let path = match args.as_slice() {
+        [] => ".".to_string(),
+        [Value::Str(s)] => s.clone(),
+        [other] => {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                "lazygit_open(path?: String)",
+                &format!("{other:?}"),
+            ))
+        }
+        more => {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                "lazygit_open(path?: String)",
+                &format!("{} arguments", more.len()),
+            ))
+        }
     };
-    // This returned a record whose "info" field told the caller to run the
-    // command themselves -- advice presented as a result. It is an interactive terminal UI, which a
-    // shell call cannot host, so say that instead.
-    Err(crate::safety::unimplemented(
-        "lazygit",
-        "lazygit is an interactive terminal UI and is not run by the shell; NOTHING WAS RUN",
-        &format!("run `lazygit` in {path} from a terminal"),
-    ))
+    crate::safety::reject_option_like(BUILTIN, std::slice::from_ref(&path))?;
+    let meta = match std::fs::metadata(&path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(crate::safety::not_found(BUILTIN, "directory", &path))
+        }
+        Err(e) => return Err(crate::safety::fs_error(BUILTIN, &path, &e)),
+    };
+    if !meta.is_dir() {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "a directory path",
+            &format!("{path}, which is not a directory"),
+        ));
+    }
+    use std::io::IsTerminal;
+    if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
+        return Err(crate::safety::no_ui(BUILTIN));
+    }
+    crate::safety::guard_exec(BUILTIN, format!("lazygit -p {path}"))?;
+    // stdio is inherited, so lazygit draws on the user's terminal. Its stderr
+    // therefore cannot be captured for a tail; the failure carries only the
+    // exit status.
+    let status = std::process::Command::new("lazygit")
+        .arg("-p")
+        .arg(&path)
+        .status()
+        .map_err(|e| crate::safety::spawn_error(BUILTIN, "lazygit", &e))?;
+    if !status.success() {
+        return Err(crate::safety::tool_failed(
+            BUILTIN,
+            "lazygit",
+            status.code(),
+            "",
+        ));
+    }
+    let mut rec = std::collections::BTreeMap::new();
+    rec.insert("path".to_string(), Value::Str(path));
+    rec.insert("exit_code".to_string(), Value::Int(0));
+    Ok(Value::Record(rec))
 }
 
 // --- fzf (1034) ---

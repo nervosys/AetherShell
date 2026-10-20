@@ -7324,6 +7324,36 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"input_progress(1, 2).percent"#, "50"), (r#"input_progress(1, 4, "copy").percent"#, "25"), (r#"(try { input_progress(3, 2) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
+        name: "input_read_char", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt_range("timeout_ms", Ty::Int, 1, 3_600_000, "milliseconds to wait for a key; absent waits without limit")],
+        returns: "String | Null",
+        doc: "Read one keypress from the terminal and answer it as a String: the character for a printable key, or a name such as Enter, Esc, Tab, BackTab, Backspace, Delete, Insert, Home, End, PageUp, PageDown, Up, Down, Left, Right and F1 to F12. Raw mode is entered for the read and restored on every path. With timeout_ms, answers null when the time passes first. Keys with no name are skipped. Needs stdin and stderr to be terminals: otherwise the call refuses with E_NO_UI without reading anything, so piped stdin is left for the next read. Ctrl+C is refused with E_POLICY_DENY and never answered as a character. Refuses pipeline input, surplus arguments and timeouts outside 1 through 3600000 with E_BAD_ARG, before anything is read.",
+        examples: &[
+            (r#"(try { "x" | input_read_char() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_read_char(0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "input_spinner", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("label", Ty::Str, "text drawn after the spinner frame; at most 1 KiB; control characters are drawn as ?"), Param { name: "duration_ms", ty: Ty::Int, required: true, range: Some((1, 600_000)), variadic: false, doc: "how long to spin, from 1 through 600000 milliseconds" }],
+        returns: "Record",
+        doc: "Animate a spinner on stderr (| / - \\ every 100 ms, drawn as a carriage return and the label) for duration_ms, then clear its line and answer {label, duration_ms} once the duration has passed. Only a terminal stderr is drawn: otherwise nothing is written and the call still waits the full duration, so logs get no escape or carriage-return bytes. Refuses pipeline input, wrong argument counts, a non-String label, a label over 1 KiB, and durations outside 1 through 600000 with E_BAD_ARG before anything is drawn or waited.",
+        examples: &[
+            (r#"(try { input_spinner("working", 0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_spinner("working", 600001) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "lazygit_open", category: None, subject_required: false, aliases: &["lazygit"], subject: None,
+        params: &[opt("path", Ty::Str, "the repository directory to open; default \".\"; must be an existing directory and not start with -")],
+        returns: "Record",
+        doc: "Run `lazygit -p <path>` with the terminal inherited and wait for it to exit, answering {path, exit_code: 0}. Needs stdin and stdout to be terminals: otherwise the call refuses with E_NO_UI and runs nothing. The path is checked first: an option-like path is refused with E_BAD_ARG, a missing path with E_NOT_FOUND and a non-directory with E_BAD_ARG. A missing lazygit is E_TOOL_MISSING; a nonzero exit is E_TOOL_FAILED. Refuses pipeline input and surplus arguments with E_BAD_ARG.",
+        examples: &[
+            (r#"(try { "x" | lazygit_open() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { lazygit_open("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "input_form", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("fields", Ty::Array, "1 to 50 field Records: name (required; matches ^[A-Za-z_][A-Za-z0-9_]{0,63}$, unique), label?, default? and required? (Bool, default false); label and default are Strings of at most 1 KiB, and no other keys are allowed")],
         returns: "Record",
