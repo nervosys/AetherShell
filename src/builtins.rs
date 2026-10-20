@@ -33158,6 +33158,11 @@ fn bi_clipboard_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
 }
 
+/// Most options one `input_select` or `input_multiselect` offers.
+const INPUT_CHOICE_MAX_OPTIONS: usize = 1000;
+/// Largest text `input_editor` starts with or answers.
+const INPUT_EDITOR_MAX_BYTES: usize = 1024 * 1024;
+
 /// One line from stdin, through the shared bounded reader. Closed stdin (EOF)
 /// is `E_NO_UI`: it used to answer "", which read as a real answer.
 fn read_answer(builtin: &str, prompt: &str) -> Result<String> {
@@ -33167,210 +33172,551 @@ fn read_answer(builtin: &str, prompt: &str) -> Result<String> {
     stdin_lines::read_blocking(builtin)
 }
 
-fn bi_input_read_line(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_default();
-
-    Ok(Value::Str(read_answer("prompt", &prompt)?))
+/// Refuses piped input, and an argument count outside `min..=max`, before
+/// anything is printed or read. `shape` is the signature the refusal names.
+fn direct_args(
+    name: &str,
+    args: &[Value],
+    piped: bool,
+    min: usize,
+    max: usize,
+    shape: &str,
+) -> Result<()> {
+    if piped {
+        return Err(crate::safety::bad_arg(
+            name,
+            "a direct call; the answer comes from the terminal, not piped input",
+            "a piped value",
+        ));
+    }
+    if !(min..=max).contains(&args.len()) {
+        return Err(crate::safety::bad_arg(
+            name,
+            shape,
+            &format!("{} argument(s)", args.len()),
+        ));
+    }
+    Ok(())
 }
 
-fn bi_input_read_password(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "Password: ".to_string());
+/// A prompt: a String of at most `INPUT_TEXT_MAX_BYTES` bytes.
+fn prompt_text(name: &str, value: &Value) -> Result<String> {
+    match value {
+        Value::Str(s) if s.len() <= INPUT_TEXT_MAX_BYTES => Ok(s.clone()),
+        Value::Str(s) => Err(crate::safety::bad_arg(
+            name,
+            &format!("prompt of at most {INPUT_TEXT_MAX_BYTES} bytes"),
+            &format!("{} bytes", s.len()),
+        )),
+        other => Err(crate::safety::bad_arg(
+            name,
+            "prompt: String",
+            other.type_name(),
+        )),
+    }
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        let ps_script = crate::ps_script!(
-            r#"
+/// The optional first argument as a prompt, or `default` when it is absent.
+fn optional_prompt(name: &str, args: &[Value], default: &str) -> Result<String> {
+    match args.first() {
+        None => Ok(default.to_string()),
+        Some(value) => prompt_text(name, value),
+    }
+}
+
+/// An answer as a refusal shows it: its first 64 characters, quoted.
+fn echo_answer(answer: &str) -> String {
+    const SHOWN: usize = 64;
+    if answer.chars().count() <= SHOWN {
+        return format!("{answer:?}");
+    }
+    let head: String = answer.chars().take(SHOWN).collect();
+    format!("{head:?}...")
+}
+
+/// Asks `question` until `accept` takes the answer. A rejected answer is
+/// reported on stderr and asked again, at most `INPUT_MAX_ATTEMPTS` times. After
+/// the last one the call refuses with E_BAD_ARG: no value is answered for an
+/// answer that was not accepted.
+fn ask_until<T>(
+    name: &str,
+    question: &str,
+    expected: &str,
+    mut accept: impl FnMut(&str) -> Option<T>,
+) -> Result<T> {
+    for _ in 0..INPUT_MAX_ATTEMPTS {
+        let answer = read_answer(name, question)?;
+        if let Some(value) = accept(&answer) {
+            return Ok(value);
+        }
+        eprintln!("{name}: {} is not {expected}", echo_answer(&answer));
+    }
+    Err(crate::safety::bad_arg(
+        name,
+        expected,
+        &format!("no valid answer in {INPUT_MAX_ATTEMPTS} attempts"),
+    ))
+}
+
+/// The options a select offers: 1 through `INPUT_CHOICE_MAX_OPTIONS` values,
+/// each a String of 1 through `INPUT_TEXT_MAX_BYTES` bytes, or an Int, Float
+/// or Bool. Each comes back with the text its menu line shows; control
+/// characters in that text are drawn as spaces.
+fn choice_options(name: &str, value: &Value) -> Result<Vec<(Value, String)>> {
+    let Value::Array(items) = value else {
+        return Err(crate::safety::bad_arg(
+            name,
+            "options: Array of choices",
+            value.type_name(),
+        ));
+    };
+    if items.is_empty() || items.len() > INPUT_CHOICE_MAX_OPTIONS {
+        return Err(crate::safety::bad_arg(
+            name,
+            &format!("1..={INPUT_CHOICE_MAX_OPTIONS} options"),
+            &format!("{} option(s)", items.len()),
+        ));
+    }
+    let mut out = Vec::with_capacity(items.len());
+    for (i, item) in items.iter().enumerate() {
+        let text = match item {
+            Value::Str(s) if s.is_empty() || s.len() > INPUT_TEXT_MAX_BYTES => {
+                return Err(crate::safety::bad_arg(
+                    name,
+                    &format!("option {}: 1 to {INPUT_TEXT_MAX_BYTES} bytes", i + 1),
+                    &format!("{} bytes", s.len()),
+                ));
+            }
+            Value::Str(s) => s.clone(),
+            Value::Int(_) | Value::Float(_) | Value::Bool(_) => item.to_display_string(),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    name,
+                    &format!("option {}: a String, Int, Float or Bool", i + 1),
+                    other.type_name(),
+                ));
+            }
+        };
+        let shown: String = text
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        out.push((item.clone(), shown));
+    }
+    Ok(out)
+}
+
+/// A multi-select answer: 1-based numbers separated by commas, each in
+/// `1..=count`, answered in the order given with repeats dropped. An empty
+/// answer is the deliberate choice of nothing. Anything else is `None`.
+fn parse_picks(answer: &str, count: usize) -> Option<Vec<usize>> {
+    let text = answer.trim();
+    let mut picks = Vec::new();
+    if text.is_empty() {
+        return Some(picks);
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for token in text.split(',') {
+        let n: usize = token.trim().parse().ok()?;
+        if !(1..=count).contains(&n) {
+            return None;
+        }
+        if seen.insert(n) {
+            picks.push(n - 1);
+        }
+    }
+    Some(picks)
+}
+
+/// A number answer: an Int when it parses as one, else a finite Float. NaN and
+/// the infinities are not numbers an answer can give.
+fn parse_number(text: &str) -> Option<Value> {
+    if let Ok(n) = text.parse::<i64>() {
+        return Some(Value::Int(n));
+    }
+    text.parse::<f64>()
+        .ok()
+        .filter(|f| f.is_finite())
+        .map(Value::Float)
+}
+
+/// A date written `YYYY-MM-DD` that the calendar accepts, answered as its text.
+fn parse_date(text: &str) -> Option<String> {
+    let shaped = text.len() == 10
+        && text.bytes().enumerate().all(|(i, b)| {
+            if i == 4 || i == 7 {
+                b == b'-'
+            } else {
+                b.is_ascii_digit()
+            }
+        });
+    if !shaped {
+        return None;
+    }
+    chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d")
+        .ok()
+        .map(|_| text.to_string())
+}
+
+/// `input_read_line(prompt?)`: one line from stdin, without its terminator.
+fn bi_input_read_line(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_read_line";
+    direct_args(
+        NAME,
+        &args,
+        input.is_some(),
+        0,
+        1,
+        "input_read_line(prompt?: String)",
+    )?;
+    let prompt = optional_prompt(NAME, &args, "")?;
+    Ok(Value::Str(read_answer(NAME, &prompt)?))
+}
+
+/// `input_read_password(prompt?)`. Piped or closed stdin is read as any other
+/// line, so a closed stdin is `E_NO_UI` and nothing is echoed. Only a terminal
+/// gets a hidden read, through `read_terminal_password`.
+fn bi_input_read_password(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_read_password";
+    direct_args(
+        NAME,
+        &args,
+        input.is_some(),
+        0,
+        1,
+        "input_read_password(prompt?: String)",
+    )?;
+    let prompt = optional_prompt(NAME, &args, "Password: ")?;
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        return Ok(Value::Str(read_answer(NAME, &prompt)?));
+    }
+    Ok(Value::Str(read_terminal_password(NAME, &prompt)?))
+}
+
+/// A hidden read from a terminal on Windows: PowerShell's `Read-Host
+/// -AsSecureString`. Only the line terminator is removed from the answer.
+#[cfg(target_os = "windows")]
+fn read_terminal_password(name: &str, prompt: &str) -> Result<String> {
+    let ps_script = crate::ps_script!(
+        r#"
 $password = Read-Host -Prompt {} -AsSecureString
 $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
 [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
 "#,
-            crate::safety::ps_quote(prompt.trim_end_matches(": ").trim_end_matches(":"))
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("input_read_password", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-        Ok(Value::Null)
+        crate::safety::ps_quote(prompt.trim_end_matches(": ").trim_end_matches(':'))
+    );
+    let output = std::process::Command::new("powershell")
+        .args(["-Command", &ps_script])
+        .output()
+        .map_err(|e| crate::safety::spawn_error(name, "powershell", &e))?;
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            name,
+            "powershell",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
-    #[cfg(unix)]
-    {
-        eprint!("{}", prompt);
-        let output = std::process::Command::new("stty").args(["-echo"]).status();
-
-        let input = stdin_lines::read_blocking("input_read_password");
-        let _ = std::process::Command::new("stty").args(["echo"]).status();
-        eprintln!();
-
-        return Ok(Value::Str(input?.trim().to_string()));
-    }
-    #[cfg(not(any(unix, target_os = "windows")))]
-    {
-        return bi_input_read_line(args, None);
-    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .trim_end_matches(['\r', '\n'])
+        .to_string())
 }
 
-fn bi_input_confirm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
+/// A hidden read from a terminal on Unix: echo is off for the one line.
+#[cfg(unix)]
+fn read_terminal_password(name: &str, prompt: &str) -> Result<String> {
+    eprint!("{prompt}");
+    let _ = std::process::Command::new("stty").arg("-echo").status();
+    let answer = stdin_lines::read_blocking(name);
+    let _ = std::process::Command::new("stty").arg("echo").status();
+    eprintln!();
+    answer
+}
+
+/// Other platforms have no hidden read, so the line is read as any other.
+#[cfg(not(any(unix, target_os = "windows")))]
+fn read_terminal_password(name: &str, prompt: &str) -> Result<String> {
+    read_answer(name, prompt)
+}
+
+/// `input_confirm(prompt?)`: `y` or `yes` answers true; `n`, `no` or an empty
+/// answer answers false. Anything else is asked again.
+fn bi_input_confirm(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_confirm";
+    direct_args(
+        NAME,
+        &args,
+        input.is_some(),
+        0,
+        1,
+        "input_confirm(prompt?: String)",
+    )?;
+    let prompt = optional_prompt(NAME, &args, "Confirm? [y/N]: ")?;
+    ask_until(
+        NAME,
+        &prompt,
+        "y, yes, n, no or an empty answer",
+        |answer| match answer.trim().to_lowercase().as_str() {
+            "y" | "yes" => Some(true),
+            "" | "n" | "no" => Some(false),
             _ => None,
-        })
-        .unwrap_or_else(|| "Confirm? [y/N]: ".to_string());
-
-    let response = read_answer("input_confirm", &prompt)?.trim().to_lowercase();
-    Ok(Value::Bool(response == "y" || response == "yes"))
+        },
+    )
+    .map(Value::Bool)
 }
 
-fn bi_input_select(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "Select: ".to_string(),
-    };
-    let options = match args.get(1) {
-        Some(Value::Array(arr)) => arr.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "input_select",
-                "Array",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    eprintln!("{}", prompt);
-    for (i, opt) in options.iter().enumerate() {
-        eprintln!("  {}. {:?}", i + 1, opt);
+/// `input_select(prompt, options)`: lists the options numbered, then answers
+/// the one picked, as it was given. An answer that is not a number in 1..=N is
+/// asked again; after the last attempt the call refuses with E_BAD_ARG.
+fn bi_input_select(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_select";
+    direct_args(
+        NAME,
+        &args,
+        input.is_some(),
+        2,
+        2,
+        "input_select(prompt: String, options: Array)",
+    )?;
+    let prompt = prompt_text(NAME, &args[0])?;
+    let options = choice_options(NAME, &args[1])?;
+    eprintln!("{prompt}");
+    for (i, (_, text)) in options.iter().enumerate() {
+        eprintln!("  {}. {text}", i + 1);
     }
-    eprint!("Choice: ");
-
-    let input = read_answer("input_select", "")?;
-    let choice: usize = input.trim().parse().unwrap_or(0);
-
-    if choice > 0 && choice <= options.len() {
-        Ok(options[choice - 1].clone())
-    } else {
-        Ok(Value::Null)
-    }
+    let count = options.len();
+    let index = ask_until(
+        NAME,
+        "Choice: ",
+        &format!("a number in 1..={count}"),
+        |answer| {
+            answer
+                .trim()
+                .parse::<usize>()
+                .ok()
+                .filter(|n| (1..=count).contains(n))
+                .map(|n| n - 1)
+        },
+    )?;
+    Ok(options[index].0.clone())
 }
 
-fn bi_input_multi_select(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "Select (comma-separated): ".to_string(),
-    };
-    let options = match args.get(1) {
-        Some(Value::Array(arr)) => arr.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "input_multi_select",
-                "Array",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    eprintln!("{}", prompt);
-    for (i, opt) in options.iter().enumerate() {
-        eprintln!("  {}. {:?}", i + 1, opt);
+/// `input_multiselect(prompt, options)`: lists the options numbered, then
+/// answers the picked ones, in the order given, as an Array. An empty answer
+/// answers `[]`. An invalid answer is asked again; after the last attempt the
+/// call refuses with E_BAD_ARG.
+fn bi_input_multiselect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_multiselect";
+    direct_args(
+        NAME,
+        &args,
+        input.is_some(),
+        2,
+        2,
+        "input_multiselect(prompt: String, options: Array)",
+    )?;
+    let prompt = prompt_text(NAME, &args[0])?;
+    let options = choice_options(NAME, &args[1])?;
+    eprintln!("{prompt}");
+    for (i, (_, text)) in options.iter().enumerate() {
+        eprintln!("  {}. {text}", i + 1);
     }
-    eprint!("Choices: ");
-
-    let input = read_answer("input_multiselect", "")?;
-
-    let selected: Vec<Value> = input
-        .trim()
-        .split(',')
-        .filter_map(|s| s.trim().parse::<usize>().ok())
-        .filter_map(|i| {
-            if i > 0 && i <= options.len() {
-                Some(options[i - 1].clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    Ok(Value::Array(selected))
-}
-
-fn bi_input_number(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "Enter number: ".to_string());
-
-    let answer = read_answer("input_number", &prompt)?;
-    if let Ok(n) = answer.trim().parse::<i64>() {
-        return Ok(Value::Int(n));
-    }
-    if let Ok(f) = answer.trim().parse::<f64>() {
-        return Ok(Value::Float(f));
-    }
-    // Text that is not a number answered null.
-    Err(crate::safety::bad_arg(
-        "input_number",
-        "a number",
-        &format!("{answer:?}"),
+    let count = options.len();
+    let picks = ask_until(
+        NAME,
+        "Choices: ",
+        &format!("numbers in 1..={count} separated by commas, or an empty answer"),
+        |answer| parse_picks(answer, count),
+    )?;
+    Ok(Value::Array(
+        picks.into_iter().map(|i| options[i].0.clone()).collect(),
     ))
 }
 
-fn bi_input_editor(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let initial_text = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_default();
+/// `input_number(prompt?)`: an Int or a finite Float. Other text is asked again;
+/// after the last attempt the call refuses with E_BAD_ARG.
+fn bi_input_number(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_number";
+    direct_args(
+        NAME,
+        &args,
+        input.is_some(),
+        0,
+        1,
+        "input_number(prompt?: String)",
+    )?;
+    let prompt = optional_prompt(NAME, &args, "Enter number: ")?;
+    ask_until(NAME, &prompt, "a number", |answer| {
+        parse_number(answer.trim())
+    })
+}
 
-    let editor = std::env::var("EDITOR").unwrap_or_else(|_| {
-        if cfg!(target_os = "windows") {
-            "notepad".to_string()
-        } else {
-            "vi".to_string()
+/// `input_editor(initial?)`: opens the editor named by `EDITOR` on a temporary
+/// file that starts as `initial`, waits for it to exit, and answers the text
+/// saved. It needs a terminal on stdin and stdout; without one it refuses with
+/// E_NO_UI and runs nothing. An editor that exits unsuccessfully is a coded
+/// E_TOOL_FAILED.
+fn bi_input_editor(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_editor";
+    direct_args(
+        NAME,
+        &args,
+        input.is_some(),
+        0,
+        1,
+        "input_editor(initial?: String)",
+    )?;
+    let initial = match args.first() {
+        None => String::new(),
+        Some(Value::Str(s)) if s.len() <= INPUT_EDITOR_MAX_BYTES => s.clone(),
+        Some(Value::Str(s)) => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                &format!("initial text of at most {INPUT_EDITOR_MAX_BYTES} bytes"),
+                &format!("{} bytes", s.len()),
+            ))
         }
-    });
-
-    // Create temp file
-    let temp_path = std::env::temp_dir().join(format!("aether_edit_{}.txt", std::process::id()));
-    std::fs::write(&temp_path, &initial_text)?;
-
-    // Open editor
-    let status = std::process::Command::new(&editor)
-        .arg(&temp_path)
-        .status()
-        .map_err(|e| crate::safety::spawn_error("input_editor", &editor, &e))?;
-
-    if status.success() {
-        let content = std::fs::read_to_string(&temp_path)
-            .map_err(|e| crate::safety::fs_error("input_editor", &temp_path, &e))?;
-        let _ = std::fs::remove_file(&temp_path);
-        return Ok(Value::Str(content));
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "initial: String",
+                other.type_name(),
+            ))
+        }
+    };
+    use std::io::IsTerminal;
+    if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
+        return Err(crate::safety::no_ui(NAME));
     }
+    let editor = editor_program(NAME)?;
+    let path = create_edit_file(NAME, &initial)?;
+    let answer = run_editor(NAME, &editor, &path).and_then(|()| read_edit_file(NAME, &path));
+    let _ = std::fs::remove_file(&path);
+    answer.map(Value::Str)
+}
 
-    let _ = std::fs::remove_file(&temp_path);
-    Ok(Value::Null)
+/// The editor program: the `EDITOR` variable, or notepad on Windows and vi
+/// elsewhere. It names one program, run without a shell, so its text is not
+/// split into arguments. A value that starts with `-` is refused, since the
+/// editor would read it as an option.
+fn editor_program(name: &str) -> Result<String> {
+    let configured = match std::env::var("EDITOR") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => String::new(),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(crate::safety::bad_arg(
+                name,
+                "EDITOR as Unicode text naming one program",
+                "non-Unicode bytes",
+            ))
+        }
+    };
+    let editor = match configured.trim() {
+        "" if cfg!(target_os = "windows") => "notepad".to_string(),
+        "" => "vi".to_string(),
+        value => value.to_string(),
+    };
+    if editor.starts_with('-') {
+        return Err(crate::safety::bad_arg(
+            name,
+            "EDITOR naming a program, not an option",
+            &echo_answer(&editor),
+        ));
+    }
+    if editor.chars().any(char::is_control) {
+        return Err(crate::safety::bad_arg(
+            name,
+            "EDITOR without control characters",
+            "a control character",
+        ));
+    }
+    Ok(editor)
+}
+
+/// Writes `text` to a new file in the temporary directory, under a name no
+/// other file holds. The file is created exclusively and, on Unix, readable
+/// only by its owner.
+fn create_edit_file(name: &str, text: &str) -> Result<std::path::PathBuf> {
+    use std::io::Write;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    for attempt in 0..16u32 {
+        let path = std::env::temp_dir().join(format!(
+            "aether_edit_{}_{stamp}_{attempt}.txt",
+            std::process::id()
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&path) {
+            Ok(mut file) => {
+                if let Err(e) = file.write_all(text.as_bytes()) {
+                    let _ = std::fs::remove_file(&path);
+                    return Err(crate::safety::fs_error(name, &path, &e));
+                }
+                return Ok(path);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(crate::safety::fs_error(name, &path, &e)),
+        }
+    }
+    Err(crate::safety::fs_error(
+        name,
+        std::env::temp_dir(),
+        &std::io::Error::other("no free temporary file name"),
+    ))
+}
+
+/// Runs `editor` on `path` with the terminal inherited, without a shell.
+fn run_editor(name: &str, editor: &str, path: &std::path::Path) -> Result<()> {
+    let status = std::process::Command::new(editor)
+        .arg(path)
+        .status()
+        .map_err(|e| crate::safety::spawn_error(name, editor, &e))?;
+    if status.success() {
+        return Ok(());
+    }
+    Err(crate::safety::tool_failed(
+        name,
+        editor,
+        status.code(),
+        "the editor exited without a successful status; nothing was answered",
+    ))
+}
+
+/// The text saved in the temporary file, read through a bounded reader. A
+/// file longer than `INPUT_EDITOR_MAX_BYTES` is refused, not truncated.
+fn read_edit_file(name: &str, path: &std::path::Path) -> Result<String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).map_err(|e| crate::safety::fs_error(name, path, &e))?;
+    let mut bytes = Vec::new();
+    file.take(INPUT_EDITOR_MAX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| crate::safety::fs_error(name, path, &e))?;
+    if bytes.len() > INPUT_EDITOR_MAX_BYTES {
+        return Err(crate::safety::budget_exceeded(
+            name,
+            format!(
+                "an edited text of at most {} KiB",
+                INPUT_EDITOR_MAX_BYTES / 1024
+            ),
+            "the text was not answered; save a shorter text",
+        ));
+    }
+    String::from_utf8(bytes).map_err(|_| {
+        crate::safety::fs_error(
+            name,
+            path,
+            &std::io::Error::new(std::io::ErrorKind::InvalidData, "the text is not UTF-8"),
+        )
+    })
 }
 
 /// `input_timeout(prompt, timeout_ms)`: one stdin line, or null when
@@ -35451,10 +35797,6 @@ fn read_key_native(builtin: &str, timeout: Option<std::time::Duration>) -> Resul
     ))
 }
 
-fn bi_input_multiselect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    bi_input_multi_select(args, None)
-}
-
 /// `input_spinner(label, duration_ms)`: animates `| / - \` on stderr for
 /// `duration_ms`, then clears its line and answers `{label, duration_ms}`.
 /// When stderr is not a terminal nothing is drawn (no CR or escape bytes reach
@@ -35923,21 +36265,24 @@ fn bi_input_table(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_input_date(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let prompt = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "Enter date (YYYY-MM-DD): ".to_string());
-
-    // Any text was accepted as a date.
-    let answer = read_answer("input_date", &prompt)?;
-    chrono::NaiveDate::parse_from_str(answer.trim(), "%Y-%m-%d").map_err(|_| {
-        crate::safety::bad_arg("input_date", "a date as YYYY-MM-DD", &format!("{answer:?}"))
-    })?;
-    Ok(Value::Str(answer.trim().to_string()))
+/// `input_date(prompt?)`: a `YYYY-MM-DD` date the calendar accepts, answered as
+/// its text. Anything else is asked again; after the last attempt the call
+/// refuses with E_BAD_ARG.
+fn bi_input_date(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "input_date";
+    direct_args(
+        NAME,
+        &args,
+        input.is_some(),
+        0,
+        1,
+        "input_date(prompt?: String)",
+    )?;
+    let prompt = optional_prompt(NAME, &args, "Enter date (YYYY-MM-DD): ")?;
+    ask_until(NAME, &prompt, "a date as YYYY-MM-DD", |answer| {
+        parse_date(answer.trim())
+    })
+    .map(Value::Str)
 }
 
 // ============================================================================

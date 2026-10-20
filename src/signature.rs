@@ -7330,6 +7330,86 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"input_progress(1, 2).percent"#, "50"), (r#"input_progress(1, 4, "copy").percent"#, "25"), (r#"(try { input_progress(3, 2) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
+        name: "input_read_line", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt("prompt", Ty::Str, "text printed to stderr before the read; default none")],
+        returns: "String",
+        doc: "Read one line from stdin and answer it as a String, without its line terminator. Lines are capped at 64 KiB; a longer one is discarded to its newline and refused with E_BUDGET_EXCEEDED. Closed stdin is E_NO_UI. Refuses pipeline input, surplus arguments and a non-String prompt with E_BAD_ARG, before anything is printed or read.",
+        examples: &[
+            (r#"(try { input_read_line(0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_read_line("a", "b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "input_read_password", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt("prompt", Ty::Str, "text printed to stderr before the read; default \"Password: \"")],
+        returns: "String",
+        doc: "Read one line from stdin as a password, without echo when stdin is a terminal: stty on Unix, PowerShell Read-Host -AsSecureString on Windows. Piped stdin is read as any other line. Only the line terminator is removed, so every other character is kept. Closed stdin is E_NO_UI. Refuses pipeline input, surplus arguments and a non-String prompt with E_BAD_ARG before anything is printed or read.",
+        examples: &[
+            (r#"(try { input_read_password(0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_read_password("a", "b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "input_confirm", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt("prompt", Ty::Str, "question printed to stderr; default \"Confirm? [y/N]: \"")],
+        returns: "Bool",
+        doc: "Ask a yes-or-no question on stderr and read one answer from stdin. y or yes (any case) answers true; n, no or an empty answer answers false. Any other answer is asked again, and after 3 such answers the call refuses with E_BAD_ARG. Closed stdin is E_NO_UI. Refuses pipeline input, surplus arguments and a non-String prompt with E_BAD_ARG before anything is printed or read.",
+        examples: &[
+            (r#"(try { input_confirm(0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_confirm("a", "b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "input_select", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("prompt", Ty::Str, "question printed above the numbered options"), req("options", Ty::Array, "1 to 1000 choices: Strings of 1 to 1024 bytes, or Int, Float or Bool values")],
+        returns: "Any",
+        doc: "List the options numbered on stderr, then read the number of the one chosen and answer that option, as it was given. An answer that is not a number in 1..=N is asked again; after 3 such answers the call refuses with E_BAD_ARG. Closed stdin is E_NO_UI. Options that are not choices (Records, Arrays, Lambdas, Null, empty or over-long Strings, more than 1000 options) refuse with E_BAD_ARG before anything is printed. Refuses pipeline input and wrong argument shapes with E_BAD_ARG.",
+        examples: &[
+            (r#"(try { input_select("Pick", []) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_select(0, ["a"]) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "input_multiselect", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("prompt", Ty::Str, "question printed above the numbered options"), req("options", Ty::Array, "1 to 1000 choices: Strings of 1 to 1024 bytes, or Int, Float or Bool values")],
+        returns: "Array",
+        doc: "List the options numbered on stderr, then read the numbers of the ones chosen, separated by commas, and answer them as an Array in the order given. A repeated number is answered once. An empty answer answers [], the deliberate choice of nothing. Any other answer, including a number outside 1..=N, is asked again; after 3 such answers the call refuses with E_BAD_ARG. Closed stdin is E_NO_UI. Option validation is the same as input_select's. Refuses pipeline input and wrong argument shapes with E_BAD_ARG.",
+        examples: &[
+            (r#"(try { input_multiselect("Pick", []) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_multiselect(0, ["a"]) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "input_number", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt("prompt", Ty::Str, "question printed to stderr; default \"Enter number: \"")],
+        returns: "Int | Float",
+        doc: "Read one line from stdin as a number: an Int when it is a whole number that fits, otherwise a finite Float. NaN and infinities are not answers. Any other answer is asked again; after 3 such answers the call refuses with E_BAD_ARG. Closed stdin is E_NO_UI. Refuses pipeline input, surplus arguments and a non-String prompt with E_BAD_ARG before anything is printed or read.",
+        examples: &[
+            (r#"(try { input_number(0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_number("a", "b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "input_date", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt("prompt", Ty::Str, "question printed to stderr; default \"Enter date (YYYY-MM-DD): \"")],
+        returns: "String",
+        doc: "Read one line from stdin as a date written YYYY-MM-DD that the calendar accepts (2028-02-29 is accepted, 2026-02-30 is not), and answer its text. Any other answer is asked again; after 3 such answers the call refuses with E_BAD_ARG. Closed stdin is E_NO_UI. Refuses pipeline input, surplus arguments and a non-String prompt with E_BAD_ARG before anything is printed or read.",
+        examples: &[
+            (r#"(try { input_date(0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_date("a", "b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "input_editor", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt("initial", Ty::Str, "text the temporary file starts with, at most 1 MiB; default empty")],
+        returns: "String",
+        doc: "Open the editor named by the EDITOR variable (notepad on Windows, vi elsewhere) on a new temporary file that starts with initial, wait for it to exit, and answer the text saved. EDITOR names one program, run without a shell, so arguments in it are not split; a value that starts with - or holds a control character refuses with E_BAD_ARG. Needs stdin and stdout to be terminals: otherwise the call refuses with E_NO_UI and runs nothing. An editor that exits unsuccessfully is E_TOOL_FAILED and answers nothing; a missing editor is E_TOOL_MISSING. A saved text over 1 MiB is E_BUDGET_EXCEEDED. Refuses pipeline input, surplus arguments and a non-String initial with E_BAD_ARG before anything is written or run.",
+        examples: &[
+            (r#"(try { input_editor(0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { input_editor("a", "b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "input_read_char", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[opt_range("timeout_ms", Ty::Int, 1, 3_600_000, "milliseconds to wait for a key; absent waits without limit")],
         returns: "String | Null",
