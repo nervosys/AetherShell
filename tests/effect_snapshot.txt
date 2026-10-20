@@ -886,7 +886,7 @@ platform_cpu_count	Pure
 platform_cpu_freq	ReadLocal
 platform_cuda_version	ReadLocal
 platform_databases	ReadLocal
-platform_db_compare	Pure
+platform_db_compare	ReadLocal
 platform_db_delete	Destructive
 platform_db_export	WriteLocal
 platform_db_import	WriteLocal

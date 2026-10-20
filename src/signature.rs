@@ -3757,7 +3757,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "String",
-        doc: "A 64-bit hash of this host's platform snapshot, without its timestamp: stable on one machine, different when the OS, arch, tools or environment differ. Not cryptographic.",
+        doc: "A 64-bit hash of this host's identity from its platform snapshot: OS, arch, family, hostname, kernel or Windows version, and build. Stable on one machine; tool versions, environment and the timestamp are not part of it. Not cryptographic.",
         examples: &[("platform_fingerprint()", "a String: a 16-digit hexadecimal hash")],
     },
     Signature {

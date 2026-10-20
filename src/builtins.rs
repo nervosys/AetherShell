@@ -42457,11 +42457,19 @@ fn bi_platform_snapshot(_args: Vec<Value>, input: Option<Value>) -> Result<Value
     }
     snapshot.insert("env".to_string(), Value::Record(env_map));
 
-    // The fingerprint names the platform, so it must not include the moment the
-    // snapshot was taken. With the timestamp inside it, the same machine gave a
-    // different fingerprint on every call.
-    let mut identity = snapshot.clone();
-    identity.remove("timestamp");
+    // The fingerprint names the platform, so it hashes only the host's identity.
+    // With the timestamp inside it, the same machine gave a different
+    // fingerprint on every call; the tool probes are time-bounded and one can
+    // miss under load, which did the same.
+    let identity: std::collections::BTreeMap<&String, &Value> = snapshot
+        .iter()
+        .filter(|(k, _)| {
+            matches!(
+                k.as_str(),
+                "os" | "arch" | "family" | "hostname" | "kernel" | "os_version" | "build"
+            )
+        })
+        .collect();
     let fp = format!("{:?}", identity);
     let hash = format!("{:x}", md5_simple(&fp));
     snapshot.insert("fingerprint".to_string(), Value::Str(hash));
