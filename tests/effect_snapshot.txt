@@ -39,9 +39,9 @@ acl_set	Privileged
 act	Exec
 act_run	Exec
 activation	Pure
-add_entity	Pure
-add_node	Pure
-add_relation	Pure
+add_entity	WriteLocal
+add_node	WriteLocal
+add_relation	WriteLocal
 aecon	Pure
 aecon_decode	Pure
 age_decrypt	WriteLocal
@@ -152,8 +152,8 @@ bun_install	Exec
 bun_run	Exec
 bzip2_compress	WriteLocal
 bzip2_decompress	WriteLocal
-cache_ai	Pure
-cache_clear_ai	Pure
+cache_ai	WriteLocal
+cache_clear_ai	WriteLocal
 cache_get	Pure
 call	Pure
 cancel_finetune	Pure
@@ -187,9 +187,9 @@ cloud_instance_destroy	Destructive
 cloud_instance_status	Pure
 cloud_instances	Pure
 cloud_regions	Pure
-cluster	Pure
-cluster_add_node	Pure
-cluster_create	Pure
+cluster	WriteLocal
+cluster_add_node	WriteLocal
+cluster_create	WriteLocal
 cluster_nodes	Pure
 cluster_remove_node	Pure
 cluster_status	Pure
@@ -577,7 +577,7 @@ hyperfine	Exec
 hyperfine_bench	Exec
 ifconfig	Network
 in	Pure
-index_docs	Pure
+index_docs	WriteLocal
 init_sso	WriteLocal
 input_autocomplete	Pure
 input_confirm	Pure
@@ -649,10 +649,10 @@ k8s_services	Network
 k8s_top_nodes	Network
 k8s_top_pods	Network
 keys	Pure
-kg_add	Pure
+kg_add	WriteLocal
 kg_entities	Pure
 kg_query	Pure
-kg_relate	Pure
+kg_relate	WriteLocal
 kg_relations	Pure
 kill	Process
 kubectl_apply	Network
@@ -1020,7 +1020,7 @@ query_audit	Pure
 query_kg	Pure
 rag	Pure
 rag_clear	Pure
-rag_index	Pure
+rag_index	WriteLocal
 rag_query	Pure
 rag_search	Pure
 range	Pure
@@ -1137,8 +1137,8 @@ select	Pure
 select-object	Pure
 select_user	Pure
 selection_strategy	Pure
-semantic_cache	Pure
-semantic_cache_clear	Pure
+semantic_cache	WriteLocal
+semantic_cache_clear	WriteLocal
 semantic_cache_get	Pure
 service	ReadLocal
 sess_close	Pure
@@ -1261,7 +1261,7 @@ telemetry_disable	Pure
 telemetry_enable	Pure
 telemetry_events	Pure
 telemetry_report	Pure
-telemetry_reset	Pure
+telemetry_reset	WriteLocal
 telemetry_status	Pure
 terraform_apply	Exec
 terraform_destroy	Destructive

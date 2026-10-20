@@ -589,7 +589,10 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "svc_stop"
         | "tmux_attach" => Some(Effect::Process),
 
-        // ---- WriteLocal (54) ----
+        // ---- WriteLocal (67) ----
+        | "add_entity"
+        | "add_node"
+        | "add_relation"
         | "age_decrypt"
         | "age_encrypt"
         | "age_keygen"
@@ -597,8 +600,11 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "black_format"
         | "bzip2_compress"
         | "bzip2_decompress"
+        | "cache_ai"
         | "chgrp"
         | "clipboard_set"
+        | "cluster_add_node"
+        | "cluster_create"
         | "code_format"
         | "config_init"
         | "crypto_decrypt"
@@ -612,6 +618,9 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "gui_screenshot_window"
         | "gzip_compress"
         | "gzip_decompress"
+        | "index_docs"
+        | "kg_add"
+        | "kg_relate"
         | "marketplace_rate"
         | "mypy_check"
         | "platform_db_export"
@@ -622,10 +631,13 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "plugin_enable"
         | "plugin_load"
         | "plugin_unload"
+        | "rag_index"
         | "refactor_rename_file"
         | "ruff_check"
         | "ruff_format"
         | "sed_replace"
+        | "semantic_cache"
+        | "semantic_cache_clear"
         | "session_checkpoint"
         | "session_restore"
         | "set_env"
@@ -635,6 +647,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "tar_create"
         | "tar_extract"
         | "tee_output"
+        | "telemetry_reset"
         | "uv_venv"
         | "xz_compress"
         | "xz_decompress"
@@ -4136,6 +4149,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "at_remove",
     "at_schedule",
     "bat_view",
+    "bzip2_decompress",
     "cd",
     "cloud_instance_destroy",
     "cron_add",
@@ -4197,6 +4211,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "rlm_spawn",
     "rm",
     "rmdir",
+    "save_json",
     "scp_download",
     "sed_replace",
     "session_export",
@@ -4204,6 +4219,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "ssh_exec",
     "ssh_keygen",
     "strace_cmd",
+    "tar_create",
     "tar_extract",
     "tee_output",
     "terraform_destroy",
