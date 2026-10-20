@@ -586,7 +586,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "svc_stop"
         | "tmux_attach" => Some(Effect::Process),
 
-        // ---- WriteLocal (51) ----
+        // ---- WriteLocal (48) ----
         | "age_decrypt"
         | "age_encrypt"
         | "age_keygen"
@@ -595,14 +595,12 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "bzip2_decompress"
         | "chgrp"
         | "clipboard_set"
-        | "cmake_configure"
         | "code_format"
         | "config_init"
         | "crypto_decrypt"
         | "crypto_encrypt"
         | "db_sqlite_backup"
         | "diag_fix"
-        | "direnv_allow"
         | "docs_generate"
         | "fs_tempdir"
         | "fs_tempfile"
@@ -610,7 +608,6 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "gui_screenshot_window"
         | "gzip_compress"
         | "gzip_decompress"
-        | "mise_use"
         | "mypy_check"
         | "platform_db_export"
         | "platform_db_import"
@@ -639,7 +636,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "zstd_compress"
         | "zstd_decompress" => Some(Effect::WriteLocal),
 
-        // ---- Exec (75) ----
+        // ---- Exec (78) ----
         | "act_run"
         | "apply"
         | "buildah_build"
@@ -648,12 +645,14 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "cargo_run"
         | "cargo_test_cmd"
         | "cmake_build"
+        | "cmake_configure"
         | "deno_run"
         | "deno_task"
         | "diag_check"
         | "diag_errors"
         | "diag_lint"
         | "diag_warnings"
+        | "direnv_allow"
         | "docker_run"
         | "entr_watch"
         | "eslint_check"
@@ -695,6 +694,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "logrotate_run"
         | "mage_run"
         | "make_run"
+        | "mise_use"
         | "multitail_open"
         | "ninja_build"
         | "node_run"
@@ -4112,6 +4112,9 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
 /// `tests/guard_enforcement.rs`, so it cannot drift as call sites are added or
 /// removed.
 pub const SELF_GUARDED: &[&str] = &[
+    "age_decrypt",
+    "age_encrypt",
+    "age_keygen",
     "apply",
     "at_remove",
     "at_schedule",
@@ -4144,6 +4147,8 @@ pub const SELF_GUARDED: &[&str] = &[
     "fs_chown",
     "fs_link",
     "fs_symlink",
+    "gpg_decrypt",
+    "gpg_encrypt",
     "gui_screenshot",
     "gzip_compress",
     "gzip_decompress",
@@ -4160,6 +4165,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "net_listen",
     "net_recv",
     "net_send",
+    "openssl_genrsa",
     "pager",
     "perf_record",
     "perf_stat",
@@ -4174,6 +4180,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "rlm_spawn",
     "rm",
     "rmdir",
+    "scp_download",
     "sed_replace",
     "session_export",
     "sh",
@@ -4204,7 +4211,13 @@ pub const SELF_GUARDED: &[&str] = &[
     "web_upload_file",
     "wget_download",
     "xargs_exec",
+    "xz_compress",
+    "xz_decompress",
+    "zip_add",
+    "zip_create",
     "zip_extract",
+    "zstd_compress",
+    "zstd_decompress",
 ];
 
 /// Whether an effect is one the policy table can refuse.

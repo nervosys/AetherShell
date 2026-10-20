@@ -1573,7 +1573,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("tool", Ty::Str, "a tool and optional version, one word such as node@20; not starting with '-'")],
         returns: "Record",
-        doc: "mise use <tool@version> in the process's directory: pins the version in that directory's .mise.toml, answering {tool, exit_code, success, stdout, stderr}. mise installs the version and writes the config. The effect table classes mise_use as write_local, so nothing asks for approval here; that classification is reported, not changed. The directory must lie inside the workspace; the option that would write the global config is refused as an option. A nonzero exit is E_TOOL_FAILED. Takes no pipeline input.",
+        doc: "mise use <tool@version> in the process's directory: pins the version in that directory's .mise.toml, answering {tool, exit_code, success, stdout, stderr}. mise installs the version and writes the config. The effect is Exec, so agent mode asks for approval. The directory must lie inside the workspace; the option that would write the global config is refused as an option. A nonzero exit is E_TOOL_FAILED. Takes no pipeline input.",
         examples: &[
             (r#"(try { mise_use("-g") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { mise_use("node 20") } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -5662,7 +5662,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt("path", Ty::Str, "a directory holding an .envrc, or an .envrc file; inside the workspace; defaults to the process's directory")],
         returns: "Record",
-        doc: "direnv allow <path>: authorises the .envrc so direnv loads it, answering {path, exit_code, success, stdout, stderr}. Allowing an .envrc lets its code run on every cd into that directory. The effect table classes direnv_allow as write_local, so nothing asks for approval here; that classification is reported, not changed. The path must exist and lie inside the workspace; a missing path is E_NOT_FOUND. Takes no pipeline input.",
+        doc: "direnv allow <path>: authorises the .envrc so direnv loads it, answering {path, exit_code, success, stdout, stderr}. Allowing an .envrc lets its code run on every cd into that directory. The effect is Exec, so agent mode asks for approval. The path must exist and lie inside the workspace; a missing path is E_NOT_FOUND. Takes no pipeline input.",
         examples: &[
             (r#"(try { direnv_allow("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { direnv_allow(["x"]) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -6189,7 +6189,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("options", Ty::Record, "optional {generator?: String, defines?: Record of String, Int or Bool values}"),
         ],
         returns: "Record",
-        doc: "cmake -S <source> -B <build> [-G generator] [-Dname=value...] with no shell, answering {source_dir, build_dir, exit_code, success, stdout, stderr}. Option names other than generator and defines are refused by name; a define name is letters, digits and _.- and a Bool define is ON or OFF. Configure runs the project's CMakeLists code, but the effect table classes cmake_configure as write_local, so nothing asks for approval here; that classification is reported, not changed. A nonzero exit is E_TOOL_FAILED with the stderr tail. Takes no pipeline input.",
+        doc: "cmake -S <source> -B <build> [-G generator] [-Dname=value...] with no shell, answering {source_dir, build_dir, exit_code, success, stdout, stderr}. Option names other than generator and defines are refused by name; a define name is letters, digits and _.- and a Bool define is ON or OFF. Configure runs the project's CMakeLists code, but the effect is Exec, so agent mode asks for approval. A nonzero exit is E_TOOL_FAILED with the stderr tail. Takes no pipeline input.",
         examples: &[
             (r#"(try { cmake_configure("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { cmake_configure(".", "-B") } catch e { e.error.code })"#, "E_BAD_ARG"),

@@ -194,7 +194,7 @@ cluster_nodes	Pure
 cluster_remove_node	Pure
 cluster_status	Pure
 cmake_build	Exec
-cmake_configure	WriteLocal
+cmake_configure	Exec
 code_callees	Pure
 code_callers	Pure
 code_comments	ReadLocal
@@ -315,7 +315,7 @@ diagnose	Pure
 diff_files	ReadLocal
 digest	Pure
 direnv	ReadLocal
-direnv_allow	WriteLocal
+direnv_allow	Exec
 direnv_status	ReadLocal
 docker_build	Exec
 docker_compose_down	Destructive
@@ -729,7 +729,7 @@ measure-object	Pure
 min	Pure
 mise	ReadLocal
 mise_list	ReadLocal
-mise_use	WriteLocal
+mise_use	Exec
 mkdir	WriteLocal
 mkdirp	WriteLocal
 monitor_alert_create	WriteLocal

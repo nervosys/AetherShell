@@ -50277,6 +50277,9 @@ fn bi_scp_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     scp_remote_arg("scp_download", &remote)?;
     refuse_option("scp_download", &local_path)?;
+    // Self-guarded for the local write, so the fetch is guarded here too, as
+    // `web_download` does: otherwise the central Network gate is skipped.
+    guard_network("scp_download", &remote)?;
     let local_path = guard_local_write("scp_download", &local_path)?;
     scp_local_arg("scp_download", &local_path)?;
     refuse_existing("scp_download", &local_path)?;
