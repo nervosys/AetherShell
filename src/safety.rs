@@ -465,6 +465,8 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // that `npm_install("anything")` was side-effect-free.
         | "npm_install" | "yarn_install" | "pnpm_install" | "bun_install"
         | "pipx_install" | "poetry_install" | "asdf_install"
+        // `uv pip install` builds sdists, running their build backends.
+        | "uv_pip"
         | "helm_install" | "helm_upgrade" | "marketplace_install" | "pre_commit_install" => Some(Effect::Exec),
         // Egress by name. `scp_*` moves bytes to/from another host; the
         // `marketplace_publish` case sends a package somewhere it cannot be
@@ -543,7 +545,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "file_move" | "file_rename"
         | "session_rollback" => Some(Effect::Destructive),
 
-        // ---- Network (25) ----
+        // ---- Network (24) ----
         | "gh_issue"
         | "gh_pr"
         | "gh_repo_cmd"
@@ -567,8 +569,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "ssh_copy_id"
         | "ssh_tunnel"
         | "trivy_image"
-        | "trivy_scan"
-        | "uv_pip" => Some(Effect::Network),
+        | "trivy_scan" => Some(Effect::Network),
 
         // ---- Process (13) ----
         | "gui_close_window"

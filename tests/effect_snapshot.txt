@@ -1352,7 +1352,7 @@ user_unlock	Privileged
 useradd	Privileged
 userdel	Privileged
 uuid	ReadLocal
-uv_pip	Network
+uv_pip	Exec
 uv_run	Exec
 uv_venv	WriteLocal
 valgrind	Exec
