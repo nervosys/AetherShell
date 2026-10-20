@@ -3847,6 +3847,56 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[(r#"typeof(refactor_remove_parameter("fn f(a:i32,_extra:i32)->i32 {a}", "_extra"))"#, "String")],
     },
     Signature {
+        name: "test_bench", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "String",
+        doc: "Run cargo bench in the project directory dir and return its output, the last 256 KiB kept. dir is required: there is no default directory. dir must be an existing directory inside the workspace that holds Cargo.toml, and is refused with E_OUTSIDE_WORKSPACE or E_NOT_FOUND before any process starts. The run has a 900 s deadline and is killed past it (E_BUDGET_EXCEEDED). A failing benchmark run is E_TOOL_FAILED, carrying the stderr tail and the end of stdout. Only the cargo process is killed at the deadline, not rustc or benchmark children it started. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { test_bench() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { test_bench("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "test_list", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "Array",
+        doc: "List the test names of the project in directory dir, from cargo test -- --list, as an Array of String. dir is required and checked as for test_bench. The listing is read whole: output over 4 MiB is E_BUDGET_EXCEEDED rather than a partial list. Only the names of tests are kept; the counts and benchmark lines cargo prints are not. A failing build is E_TOOL_FAILED. The run has a 900 s deadline. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { test_list() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { test_list("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "test_run", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "String",
+        doc: "Run cargo test in the project directory dir and return its output, the last 256 KiB kept. This executes the project's test code, its build scripts and its procedural macros, so it is classified Exec and gated. dir is required and checked as for test_bench. A test failure is E_TOOL_FAILED, carrying the stderr tail and the end of stdout where the failing test output is printed. The run has a 900 s deadline and only the cargo process is killed at it. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { test_run() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { test_run("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "test_run_file", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml"), req("file", Ty::Str, "name of an integration test target, without .rs; letters, digits, '_' or '-'")],
+        returns: "String",
+        doc: "Run cargo test --test <file> in the project directory dir and return its output, the last 256 KiB kept. file names an integration test target and is not a path: a path, a leading '-', or anything outside letters, digits, '_' and '-' is E_BAD_ARG before any process starts. dir is checked as for test_bench. A test failure is E_TOOL_FAILED, carrying the stderr tail and the end of stdout. The run has a 900 s deadline. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { test_run_file("", "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { test_run_file("", "-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "test_run_function", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml"), req("name", Ty::Str, "test name or path filter, e.g. parser::tests::empty; letters, digits, '_' and ':'")],
+        returns: "String",
+        doc: "Run the tests of the project in directory dir whose names match the filter name, through cargo test <name>, and return the output, the last 256 KiB kept. The filter is a substring match on test names, as cargo's own is. A name with characters outside letters, digits, '_' and ':', or one starting with '-', is E_BAD_ARG before any process starts. dir is checked as for test_bench. A test failure is E_TOOL_FAILED, carrying the stderr tail and the end of stdout. The run has a 900 s deadline. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { test_run_function("", "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { test_run_function("", "-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "test_watch", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("command", Ty::Array, "Nonempty argv Array of String: program then arguments, run directly without a shell"), req("paths", Ty::Array, "Nonempty Array of String paths, each of which must exist; directories are scanned recursively"), opt("options", Ty::Record, "Optional Record whose Int fields are max_runs, poll_ms, idle_ms, timeout_ms and total_ms; unknown keys reject")], returns: "Record",
         doc: "Run the program named by command once in the current directory, then run it again whenever the watched paths change, and return Record {runs, stopped, passed}. The command is an argv array run directly with no shell, stdin null and stdout and stderr captured, and it is executed on every run, so the builtin is classified Exec and is gated like other process-running builtins. Each run is {trigger: initial or change, changed: sorted Array<String> of the paths added, removed or modified since the previous snapshot (at most 32 listed), changed_count: Int, exit_code: Int, or Null when the run timed out or the process ended by signal, timed_out: Bool, duration_ms: Int, stdout: String, stderr: String}; stdout and stderr each keep only the last 65536 bytes, decoded lossily as UTF-8. A nonzero exit is reported in the run, not raised as an error. Change detection polls rather than using OS notifications: every poll_ms the paths are rescanned, directories recursively, skipping entries named target, .git and node_modules, following no symlinks, and each file is compared by relative path, length and modified time, so a change that keeps both length and modified time can be missed. stopped is max_runs when the run count is reached, idle when no change has been seen for idle_ms after the last run finished, or deadline when total_ms elapses; a run still going at the deadline is killed. passed is true only when the last run exited 0 and did not time out. Options: max_runs 1..=20 (default 2), poll_ms 50..=5000 (default 200), idle_ms 100..=600000 (default 30000), timeout_ms 100..=1800000 per run (default 300000), total_ms 100..=3600000 overall (default 900000). A run that exceeds timeout_ms, or is still going at the deadline, has its whole process tree killed (on Unix the process group the run was started in; on Windows taskkill /T) and is then reaped, so no child or grandchild is left running. Output is read on separate threads; after the child exits, at most 2 seconds are waited for those readers to reach end of output, so output held open by a process that survives returns only what arrived by then. Limits: command at most 64 elements of 4096 bytes each, no NUL; paths at most 64 entries; at most 10000 files scanned across all paths. Refused with E_BAD_ARG: pipeline input, a malformed or empty command or paths, a nonexistent path, unknown or out-of-range options; a program that cannot be started is an error (E_TOOL_MISSING). Direct-only.",
@@ -6616,6 +6666,16 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "feature_set", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Str),
+        params: &[req("enabled", Ty::Bool, "true to enable the flag, false to disable it")],
+        returns: "Bool",
+        doc: "Set a runtime feature flag on or off and return true. Called as feature_set(name, enabled), or piped as name | feature_set(enabled). A name that is empty, longer than 128 bytes, or contains anything but letters, digits, '_', '-', '.' or ':' is E_BAD_ARG; surplus arguments are refused rather than dropped. The flag is process-wide state read by feature_enabled and the features that check it, and is not transactional.",
+        examples: &[
+            (r#"(try { feature_set("", true) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { feature_set("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "feature_enable",
         category: None,
         subject_required: false,
@@ -6640,6 +6700,26 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Turn a runtime feature flag off, reporting whether it was on.",
         examples: &[
             (r#"feature_disable("never_enabled_flag")"#, r#"false"#),
+        ],
+    },
+    Signature {
+        name: "set_env", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("key", Ty::Str, "variable name: 1 to 1024 bytes, no '=' and no NUL"), req("value", Ty::Str, "value: at most 32767 bytes, no NUL")],
+        returns: "Null",
+        doc: "Set an environment variable of this shell process and return null. It has the same checks as env_set, with the same E_BAD_ARG refusals, made before the environment changes. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { set_env("", "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { set_env("A=B", "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "env_set", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "variable name: 1 to 1024 bytes, no '=' and no NUL"), req("value", Ty::Str, "value: at most 32767 bytes, no NUL")],
+        returns: "Bool",
+        doc: "Set an environment variable of this shell process to value and return true. A name that is empty or contains '=' or NUL, or a value containing NUL or longer than 32767 bytes, is E_BAD_ARG before the environment changes; the underlying call would panic on them. The change is process-local and is not transactional. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { env_set("A=B", "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { env_set("", "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -7277,6 +7357,16 @@ pub static SIGNATURES: &[Signature] = &[
     // proc_kill's examples are refusals, which send nothing; proc_info is
     // declared below, its examples read a pid that exists everywhere.
     // search_symbols is declared further down, in the machine-dependent tier.
+    Signature {
+        name: "env_vars", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "Every environment variable of this process as a Record from name to value. In agent mode a value whose name looks like a secret (containing SECRET, TOKEN, PASSWORD, _KEY, CREDENTIAL and similar) is replaced with a [REDACTED:<name>] marker unless AETHER_SECRETS=allow; human mode shows values. The redaction is by name only: a secret held under an ordinary name, or inside a URL such as postgres://user:pass@host, is shown. Names and values that are not UTF-8 are shown with replacement characters. Takes no arguments and no pipeline input.",
+        examples: &[
+            (r#"typeof(env_vars())"#, "Record"),
+            (r#"(try { env_vars("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
     Signature {
         name: "env_var",
         category: None,
@@ -8466,6 +8556,66 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "diag_all", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "Array",
+        doc: "cargo check --all-targets over the project in directory dir: its library, binaries, tests, examples and benches. Returns an Array of Records {level, code, file, line, message}, one per error or warning; notes and help are left out. Errors and warnings are the answer, so a build with errors returns them rather than failing. A build that never finished, such as a broken manifest or a missing toolchain, is E_TOOL_FAILED. dir is required and checked as for test_bench. The run has a 900 s deadline; the cargo process is killed at it. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { diag_all() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { diag_all("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "diag_check", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "Array",
+        doc: "cargo check over the default targets of the project in directory dir. Returns an Array of Records {level, code, file, line, message} for each error and warning, as diag_all does, over the default targets only. dir is required and checked as for test_bench. A build that never finished is E_TOOL_FAILED; the run has a 900 s deadline. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { diag_check() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { diag_check("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "diag_errors", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "Array",
+        doc: "The error-level diagnostics of cargo check over the project in directory dir, as an Array of Records {level, code, file, line, message}. Warnings are left out. An empty Array means the check ran and found no errors; a build that never finished is E_TOOL_FAILED and is not an empty Array. dir is required and checked as for test_bench. The run has a 900 s deadline. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { diag_errors() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { diag_errors("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "diag_fix", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "Bool",
+        doc: "Run cargo fix over the project in directory dir, which rewrites the project's source files with the compiler's machine-applicable suggestions. It writes only inside dir, which must lie in the workspace. It does not pass --allow-dirty: cargo refuses a version-controlled tree with uncommitted changes, and that refusal is E_TOOL_FAILED with cargo's reason, so commit or stash first. Without version control, cargo also refuses unless told otherwise. Returns true when cargo finished. Because cargo compiles the project, it runs build scripts and procedural macros; the builtin is classified WriteLocal in the effect table and should be Exec. The run has a 900 s deadline. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { diag_fix() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { diag_fix("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "diag_lint", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "Array",
+        doc: "cargo clippy over the project in directory dir. Returns an Array of Records {level, code, file, line, message} for each clippy error and warning. A build that never finished, including clippy not being installed, is E_TOOL_FAILED. dir is required and checked as for test_bench. The run has a 900 s deadline. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { diag_lint() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { diag_lint("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "diag_warnings", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "Array",
+        doc: "The warning-level diagnostics of cargo check over the project in directory dir, as an Array of Records {level, code, file, line, message}. Errors are left out. A build that never finished is E_TOOL_FAILED and is not an empty Array. dir is required and checked as for test_bench. The run has a 900 s deadline. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { diag_warnings() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { diag_warnings("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "diag_explain",
         category: None,
         subject_required: false,
@@ -8476,6 +8626,16 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "rustc's explanation of an error code. A code rustc does not know is E_TOOL_FAILED.",
         examples: &[
             (r#"diag_explain("E0308")"#, r#"Expected type did not match the received type. ..."#),
+        ],
+    },
+    Signature {
+        name: "docs_generate", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "Bool",
+        doc: "Run cargo doc --no-deps over the project in directory dir and return true when it finished. Documentation is written to the project's target directory. dir is required and checked as for test_bench. A failing build is E_TOOL_FAILED with cargo's stderr tail. Because cargo runs the project's build scripts and procedural macros, the builtin should be classified Exec; the effect table has it as WriteLocal. The run has a 900 s deadline. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { docs_generate() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { docs_generate("") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -9418,6 +9578,26 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "refactor_remove_unused", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
+        returns: "Bool",
+        doc: "Run cargo fix over the project in directory dir. This is not a targeted removal of unused code: cargo fix applies every machine-applicable suggestion the compiler makes, and removing unused imports is one kind of them. It does not pass --allow-dirty, so a version-controlled tree with uncommitted changes is refused with E_TOOL_FAILED. Returns true when cargo finished. The builtin rewrites files and compiles the project, which is Exec in substance; the effect table has it as WriteLocal. dir is required and checked as for test_bench. The run has a 900 s deadline. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { refactor_remove_unused() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { refactor_remove_unused("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "refactor_rename_file", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("from", Ty::Str, "existing file or directory inside the workspace"), req("to", Ty::Str, "new path inside the workspace; must not exist yet")],
+        returns: "Bool",
+        doc: "Rename the file or directory from to to, both inside the workspace, and return true. Refused before anything changes: E_BAD_ARG for a bad or identical path or an existing destination, E_OUTSIDE_WORKSPACE for a path outside the workspace, E_NOT_FOUND for a missing source. The destination must not exist, because the rename would silently replace it. Filesystem failures are E_IO. The write is recorded for an active transaction, so rollback restores the source and removes the destination. The existence check and the rename are not atomic; another process creating the destination in between is not detected. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { refactor_rename_file("", "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { refactor_rename_file("a", "a") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "refactor_organize_imports",
         category: None,
         subject_required: false,
@@ -9585,6 +9765,16 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"(try { "x" | pnpm_install("left-pad") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { pnpm_install("-g") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "syntax_add", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
+        params: &[],
+        returns: "Bool",
+        doc: "Add one entry to the syntax knowledge base, which is saved to ~/.aethershell/syntax_kb.json, and return true. The entry is a Record with fields id (required; letters, digits, '_', '-' or '.', at most 128), name (required, non-blank), specification (required String), category (protocol, language, encoding, command or query; any other non-empty value makes a custom category; default custom) and examples (Array of String, optional). Piped or as the argument, never both. A misspelt field, a field of the wrong type, or an id already in the knowledge base is E_BAD_ARG, and nothing is saved in those cases. The file is under the home directory and not AETHER_DATA_HOME; a failure to save is E_IO.",
+        examples: &[
+            (r#"(try { syntax_add({id: "x"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { syntax_add({id: "x", name: "X", specification: "s", exmples: []}) } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -10141,6 +10331,15 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "config_init", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[],
+        returns: "String",
+        doc: "Create the config directories and, when config.toml does not yet exist, write the default config file. Returns the text 'Created config file: <path>' or 'Config file already exists: <path>'. The directory comes from AETHER_CONFIG_HOME when set. Takes no arguments and no pipeline input. Writes are not transactional: the file is created outside any rollback.",
+        examples: &[
+            (r#"(try { config_init("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "config_reload",
         category: None,
         subject_required: false,
@@ -10151,6 +10350,16 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Reload the shell configuration from disk. A config that cannot be read is E_BAD_STATE.",
         examples: &[
             (r#"config_reload()"#, r#"true"#),
+        ],
+    },
+    Signature {
+        name: "config_set", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("path", Ty::Str, "a settable config path, such as ai.max_tokens or colors.theme"), req("value", Ty::Any, "a value of the path's type: Bool, String or Int as the path requires")],
+        returns: "String",
+        doc: "Set one config value and save the config file, returning 'Config saved: <path> = <value>'. Settable paths: colors.enabled, colors.force, colors.true_color (Bool); colors.theme (String of 1 to 64 letters, digits, '_' or '-'); shell.show_banner, shell.show_tips, shell.vi_mode, shell.auto_cd (Bool); ai.default_model, ai.default_provider (non-blank String of at most 256 bytes, no control characters); ai.max_tokens (Int 1 to 4294967295); ai.streaming (Bool); history.enabled (Bool); history.max_size (Int 1 to 1000000). An unknown path, a value of the wrong type, or one out of range is E_BAD_ARG, and the file is neither read nor written. The change takes effect after config_reload. The file is written under AETHER_CONFIG_HOME when set; a failure to read or write it is E_BAD_STATE. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { config_set("ai.max_tokens", -1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { config_set("no.such.path", true) } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {

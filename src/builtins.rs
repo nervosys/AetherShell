@@ -2584,7 +2584,7 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_config_get(args, input),
     |args, input, _| bi_config_set(args, input),
     |_, _, _| bi_config_path(),
-    |_, _, _| bi_config_init(),
+    |args, input, _| bi_config_init(args, input),
     |_, _, _| bi_config_reload(),
     |_, _, _| bi_themes(),
     // 144-150: Plugin functions
@@ -5537,64 +5537,147 @@ fn bi_config_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// Set a config value (saves to config file)
 /// Note: This modifies the config file but changes only take effect after reload
-fn bi_config_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err(
-            "config_set: requires path and value arguments",
-        ));
-    }
+/// The settable paths, for the refusal that names them.
+const CONFIG_SETTABLE: &str = "colors.enabled|theme|force|true_color, shell.show_banner|show_tips|vi_mode|auto_cd, ai.default_model|default_provider|max_tokens|streaming, history.enabled|max_size";
 
-    let path = match &args[0] {
-        Value::Str(s) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "config_set",
-                "path: String",
-                other.type_name(),
+/// Refuse a value the config path cannot hold, before the file is read. Every
+/// settable path has a fixed type and range; `max_tokens` used to be cast with
+/// `as u32`, so -1 became 4294967295 and was saved.
+fn config_value_ok(path: &str, value: &Value) -> Result<()> {
+    const B: &str = "config_set";
+    const BOOL_PATHS: &[&str] = &[
+        "colors.enabled",
+        "colors.force",
+        "colors.true_color",
+        "shell.show_banner",
+        "shell.show_tips",
+        "shell.vi_mode",
+        "shell.auto_cd",
+        "ai.streaming",
+        "history.enabled",
+    ];
+    let refuse = |expected: String| {
+        crate::safety::bad_arg(B, &expected, &format!("{} {value}", value.type_name()))
+    };
+    if BOOL_PATHS.contains(&path) {
+        return match value {
+            Value::Bool(_) => Ok(()),
+            _ => Err(refuse(format!("{path}: Bool"))),
+        };
+    }
+    match path {
+        "colors.theme" => match value {
+            Value::Str(s)
+                if (1..=64).contains(&s.len())
+                    && s.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
+            {
+                Ok(())
+            }
+            _ => Err(refuse(
+                "colors.theme: a String of 1 to 64 letters, digits, '_' or '-'".to_string(),
+            )),
+        },
+        "ai.default_model" | "ai.default_provider" => match value {
+            Value::Str(s)
+                if !s.trim().is_empty() && s.len() <= 256 && !s.chars().any(char::is_control) =>
+            {
+                Ok(())
+            }
+            _ => Err(refuse(format!(
+                "{path}: a non-blank String of at most 256 bytes without control characters"
+            ))),
+        },
+        "ai.max_tokens" => match value {
+            Value::Int(n) if (1..=i64::from(u32::MAX)).contains(n) => Ok(()),
+            _ => Err(refuse(
+                "ai.max_tokens: an Int in 1..=4294967295".to_string(),
+            )),
+        },
+        "history.max_size" => match value {
+            Value::Int(n) if (1..=1_000_000).contains(n) => Ok(()),
+            _ => Err(refuse(
+                "history.max_size: an Int in 1..=1000000".to_string(),
+            )),
+        },
+        _ => Err(crate::safety::bad_arg(
+            B,
+            &format!("a settable path: {CONFIG_SETTABLE}"),
+            path,
+        )),
+    }
+}
+
+/// config_set(path, value) - set one config value and save the config file.
+/// The path and value are checked before the file is read; a value of the
+/// wrong type or outside its range is E_BAD_ARG and nothing is saved.
+fn bi_config_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "config_set";
+    k8s_no_input(B, &input)?;
+    let path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        Some(other) => return Err(crate::safety::bad_arg(B, "path: String", other.type_name())),
+        None => {
+            return Err(crate::safety::arg_err(
+                "config_set requires path and value arguments",
             ))
         }
     };
+    let value = args
+        .get(1)
+        .ok_or_else(|| crate::safety::arg_err("config_set requires path and value arguments"))?;
+    config_value_ok(&path, value)?;
 
-    // Load current config, modify it, and save
-    let mut config = ShellConfig::load()?;
-    let parts: Vec<&str> = path.split('.').collect();
+    let mut config = ShellConfig::load().map_err(|e| {
+        crate::safety::bad_state(
+            B,
+            &format!("the config file could not be read: {e}"),
+            "config_path",
+        )
+    })?;
+    match (path.as_str(), value) {
+        ("colors.enabled", Value::Bool(v)) => config.colors.enabled = *v,
+        ("colors.theme", Value::Str(v)) => config.colors.theme = v.clone(),
+        ("colors.force", Value::Bool(v)) => config.colors.force = *v,
+        ("colors.true_color", Value::Bool(v)) => config.colors.true_color = *v,
 
-    match (parts.as_slice(), &args[1]) {
-        // Color settings (most commonly changed)
-        (["colors", "enabled"], Value::Bool(v)) => config.colors.enabled = *v,
-        (["colors", "theme"], Value::Str(v)) => config.colors.theme = v.clone(),
-        (["colors", "force"], Value::Bool(v)) => config.colors.force = *v,
-        (["colors", "true_color"], Value::Bool(v)) => config.colors.true_color = *v,
+        ("shell.show_banner", Value::Bool(v)) => config.shell.show_banner = *v,
+        ("shell.show_tips", Value::Bool(v)) => config.shell.show_tips = *v,
+        ("shell.vi_mode", Value::Bool(v)) => config.shell.vi_mode = *v,
+        ("shell.auto_cd", Value::Bool(v)) => config.shell.auto_cd = *v,
 
-        // Shell settings
-        (["shell", "show_banner"], Value::Bool(v)) => config.shell.show_banner = *v,
-        (["shell", "show_tips"], Value::Bool(v)) => config.shell.show_tips = *v,
-        (["shell", "vi_mode"], Value::Bool(v)) => config.shell.vi_mode = *v,
-        (["shell", "auto_cd"], Value::Bool(v)) => config.shell.auto_cd = *v,
+        ("ai.default_model", Value::Str(v)) => config.ai.default_model = v.clone(),
+        ("ai.default_provider", Value::Str(v)) => config.ai.default_provider = v.clone(),
+        ("ai.max_tokens", Value::Int(v)) => config.ai.max_tokens = *v as u32,
+        ("ai.streaming", Value::Bool(v)) => config.ai.streaming = *v,
 
-        // AI settings
-        (["ai", "default_model"], Value::Str(v)) => config.ai.default_model = v.clone(),
-        (["ai", "default_provider"], Value::Str(v)) => config.ai.default_provider = v.clone(),
-        (["ai", "max_tokens"], Value::Int(v)) => config.ai.max_tokens = *v as u32,
-        (["ai", "streaming"], Value::Bool(v)) => config.ai.streaming = *v,
-
-        // History settings
-        (["history", "enabled"], Value::Bool(v)) => config.history.enabled = *v,
-        (["history", "max_size"], Value::Int(v)) => config.history.max_size = *v as usize,
-
+        ("history.enabled", Value::Bool(v)) => config.history.enabled = *v,
+        ("history.max_size", Value::Int(v)) => config.history.max_size = *v as usize,
+        // config_value_ok admits only the pairs above; a refusal here would be
+        // a coded one rather than a panic.
         _ => {
-            return Err(anyhow!(
-                "config_set: cannot set path '{}' or invalid value type",
-                path
+            return Err(crate::safety::bad_arg(
+                B,
+                &format!("a settable path: {CONFIG_SETTABLE}"),
+                &path,
             ))
         }
     }
 
-    config.save()?;
-    Ok(Value::Str(format!(
-        "Config saved: {} = {:?}",
-        path, args[1]
-    )))
+    config.save().map_err(|e| {
+        crate::safety::bad_state(
+            B,
+            &format!("the config file could not be written: {e}"),
+            "config_path",
+        )
+    })?;
+    let shown = match value {
+        Value::Str(s) => s.clone(),
+        Value::Bool(b) => b.to_string(),
+        Value::Int(n) => n.to_string(),
+        other => other.type_name().to_string(),
+    };
+    Ok(Value::Str(format!("Config saved: {path} = {shown}")))
 }
 
 /// Get config file paths
@@ -5632,13 +5715,30 @@ fn bi_config_path() -> Result<Value> {
 }
 
 /// Initialize config directories and create default config file
-fn bi_config_init() -> Result<Value> {
-    ShellConfig::init_dirs()?;
+fn bi_config_init(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "config_init";
+    // Takes no arguments (declared so) and no pipeline input.
+    k8s_no_input(B, &input)?;
+    if !args.is_empty() {
+        return Err(crate::safety::bad_arg(
+            B,
+            "no arguments",
+            &format!("{} argument(s)", args.len()),
+        ));
+    }
+    ShellConfig::init_dirs().map_err(|e| {
+        crate::safety::bad_state(
+            B,
+            &format!("the config directories could not be created: {e}"),
+            "config_path",
+        )
+    })?;
 
     let config_file = ShellConfig::config_dir().join("config.toml");
     if !config_file.exists() {
         let default_config = ShellConfig::generate_default_config();
-        fs::write(&config_file, default_config)?;
+        fs::write(&config_file, default_config)
+            .map_err(|e| crate::safety::fs_error(B, &config_file, &e))?;
         Ok(Value::Str(format!(
             "Created config file: {}",
             config_file.display()
@@ -6527,61 +6627,64 @@ fn bi_feature_disable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   feature_set("ai", true)       # Enable "ai" feature
 ///   feature_set("debug", false)   # Disable "debug" feature
 fn bi_feature_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let (name, enabled) = if let Some(input_val) = input {
-        // Piped: input is name, arg 0 is enabled
-        let name = match input_val {
-            Value::Str(s) => s,
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "feature_set",
-                    "feature name: String",
-                    other.type_name(),
-                ))
+    const B: &str = "feature_set";
+    // Piped: the name is the subject and the one argument is `enabled`.
+    // Direct: name and enabled are both arguments. Surplus arguments are
+    // refused in either form, not dropped.
+    let (name_value, enabled_value) = match input {
+        Some(subject) => match args.as_slice() {
+            [enabled] => (subject, enabled.clone()),
+            _ => {
+                return Err(crate::safety::arg_err(format!(
+                    "{B}: piped, it takes exactly one argument (enabled), got {}",
+                    args.len()
+                )))
             }
-        };
-        let enabled = args
-            .first()
-            .ok_or_else(|| crate::safety::arg_err("feature_set: requires enabled argument"))?;
-        let enabled = match enabled {
-            Value::Bool(b) => *b,
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "feature_set",
-                    "enabled: Bool",
-                    other.type_name(),
-                ))
+        },
+        None => match args.as_slice() {
+            [name, enabled] => (name.clone(), enabled.clone()),
+            _ => {
+                return Err(crate::safety::arg_err(format!(
+                    "{B} requires name and enabled arguments, got {}",
+                    args.len()
+                )))
             }
-        };
-        (name, enabled)
-    } else if args.len() >= 2 {
-        // Two args: name, enabled
-        let name = match &args[0] {
-            Value::Str(s) => s.clone(),
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "feature_set",
-                    "feature name: String",
-                    other.type_name(),
-                ))
-            }
-        };
-        let enabled = match &args[1] {
-            Value::Bool(b) => *b,
-            other => {
-                return Err(crate::safety::bad_arg(
-                    "feature_set",
-                    "enabled: Bool",
-                    other.type_name(),
-                ))
-            }
-        };
-        (name, enabled)
-    } else {
-        return Err(crate::safety::arg_err(
-            "feature_set: requires name and enabled arguments",
-        ));
+        },
     };
-
+    let name = match name_value {
+        Value::Str(s) => s,
+        other => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "feature name: String",
+                other.type_name(),
+            ))
+        }
+    };
+    let enabled = match enabled_value {
+        Value::Bool(b) => b,
+        other => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "enabled: Bool",
+                other.type_name(),
+            ))
+        }
+    };
+    // A flag name is a short identifier. Anything else is refused rather than
+    // stored, where it could never be matched by the feature it was meant for.
+    if name.is_empty()
+        || name.len() > 128
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
+    {
+        return Err(crate::safety::bad_arg(
+            B,
+            "feature name: 1 to 128 letters, digits, '_', '-', '.' or ':'",
+            &format!("{name:?}"),
+        ));
+    }
     let mut features = FEATURE_FLAGS
         .write()
         .map_err(|e| anyhow!("feature_set: lock error: {}", e))?;
@@ -12812,18 +12915,46 @@ fn gate_env_secret(key: &str, val: String) -> Value {
 ///
 /// Example:
 ///   set_env("MY_VAR", "value")
-fn bi_set_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_set_env(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "set_env";
+    k8s_no_input(B, &input)?;
     if args.len() < 2 {
         return Err(crate::safety::arg_err(
             "set_env requires key and value arguments",
         ));
     }
-
-    let key = expect_string("set_env", &args[0])?;
-    let value = expect_string("set_env", &args[1])?;
-
+    let key = env_name(B, &args[0])?;
+    let value = env_value(B, &args[1])?;
     std::env::set_var(key, value);
     Ok(Value::Null)
+}
+
+/// An environment variable name. `set_var` panics on an empty name, one with
+/// '=' or NUL, and a value with NUL, so each is refused here as E_BAD_ARG.
+fn env_name(builtin: &str, value: &Value) -> Result<String> {
+    let name = expect_string(builtin, value)?;
+    if name.is_empty() || name.len() > 1024 || name.contains(['=', '\0']) {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a name of 1 to 1024 bytes with no '=' and no NUL",
+            &format!("{name:?}"),
+        ));
+    }
+    Ok(name.to_string())
+}
+
+/// An environment variable value: a string with no NUL, at most 32767 bytes
+/// (the Windows limit per variable).
+fn env_value(builtin: &str, value: &Value) -> Result<String> {
+    let text = expect_string(builtin, value)?;
+    if text.contains('\0') || text.len() > 32_767 {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a value of at most 32767 bytes with no NUL",
+            "a value that is too long or has NUL",
+        ));
+    }
+    Ok(text.to_string())
 }
 
 /// sleep(seconds) - Sleep for specified duration
@@ -13050,62 +13181,125 @@ fn bi_syntax_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// Example:
 ///   syntax_add({id: "mysyntax", name: "My Syntax", category: "custom", specification: "..."})
 fn bi_syntax_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let entry_val = input
-        .or_else(|| args.first().cloned())
-        .ok_or_else(|| crate::safety::arg_err("syntax_add requires entry record"))?;
+    const B: &str = "syntax_add";
+    // The entry comes either piped or as the argument, never both: the piped
+    // form used to win and drop the argument without a word.
+    let entry_val = match (input, args.as_slice()) {
+        (Some(piped), []) => piped,
+        (None, [direct]) => direct.clone(),
+        (Some(_), [_, ..]) => {
+            return Err(crate::safety::arg_err(
+                "syntax_add takes its entry piped or as its argument, not both",
+            ))
+        }
+        (None, []) => return Err(crate::safety::arg_err("syntax_add requires entry record")),
+        (None, _) => return Err(crate::safety::arg_err("syntax_add takes one entry record")),
+    };
 
     let record = match entry_val {
         Value::Record(r) => r,
-        _ => return Err(crate::safety::arg_err("syntax_add requires Record type")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "entry: Record",
+                other.type_name(),
+            ))
+        }
     };
+    // A misspelt field (`exmples`) used to be dropped, and the entry saved
+    // without it.
+    if let Some(unknown) = record.keys().find(|k| {
+        !matches!(
+            k.as_str(),
+            "id" | "name" | "category" | "specification" | "examples"
+        )
+    }) {
+        return Err(crate::safety::bad_arg(
+            B,
+            "a Record with only the fields id, name, category, specification, examples",
+            &format!("the field {unknown:?}"),
+        ));
+    }
 
-    // Extract required fields
-    let id = match record.get("id") {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("syntax_add requires 'id' field")),
+    // A present field of the wrong type is refused; an absent one falls to its
+    // default or to the required-field message below.
+    let text_field = |key: &str| -> Result<Option<String>> {
+        match record.get(key) {
+            None => Ok(None),
+            Some(Value::Str(s)) => Ok(Some(s.clone())),
+            Some(other) => Err(crate::safety::bad_arg(
+                B,
+                &format!("{key}: String"),
+                other.type_name(),
+            )),
+        }
     };
-
-    let name = match record.get("name") {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("syntax_add requires 'name' field")),
-    };
-
-    let category_str = match record.get("category") {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "custom".to_string(),
-    };
-
+    let id = text_field("id")?
+        .ok_or_else(|| crate::safety::arg_err("syntax_add requires 'id' field"))?;
+    let well_formed_id = !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+    if !well_formed_id {
+        return Err(crate::safety::bad_arg(
+            B,
+            "id: 1 to 128 letters, digits, '_', '-' or '.'",
+            &format!("{id:?}"),
+        ));
+    }
+    let name = text_field("name")?
+        .ok_or_else(|| crate::safety::arg_err("syntax_add requires 'name' field"))?;
+    if name.trim().is_empty() {
+        return Err(crate::safety::bad_arg(
+            B,
+            "name: a non-blank String",
+            "a blank name",
+        ));
+    }
+    let category_str = text_field("category")?.unwrap_or_else(|| "custom".to_string());
     let category = match category_str.to_lowercase().as_str() {
         "protocol" => SyntaxCategory::Protocol,
         "language" => SyntaxCategory::Language,
         "encoding" => SyntaxCategory::Encoding,
         "command" => SyntaxCategory::Command,
         "query" => SyntaxCategory::Query,
+        "" => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "category: a nonblank String",
+                "an empty category",
+            ))
+        }
         other => SyntaxCategory::Custom(other.to_string()),
     };
+    let specification = text_field("specification")?
+        .ok_or_else(|| crate::safety::arg_err("syntax_add requires 'specification' field"))?;
 
-    let specification = match record.get("specification") {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "syntax_add requires 'specification' field",
+    let examples: Vec<String> = match record.get("examples") {
+        None => Vec::new(),
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => Ok(s.clone()),
+                other => Err(crate::safety::bad_arg(
+                    B,
+                    "examples: Array of String",
+                    other.type_name(),
+                )),
+            })
+            .collect::<Result<_>>()?,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "examples: Array of String",
+                other.type_name(),
             ))
         }
     };
 
-    let examples = match record.get("examples") {
-        Some(Value::Array(arr)) => arr
-            .iter()
-            .filter_map(|v| match v {
-                Value::Str(s) => Some(s.clone()),
-                _ => None,
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
-
     let entry = SyntaxEntry {
-        id,
+        id: id.clone(),
         name,
         category,
         specification,
@@ -13114,8 +13308,25 @@ fn bi_syntax_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         metadata: std::collections::HashMap::new(),
     };
 
-    let mut kb = get_syntax_kb().lock().unwrap();
-    kb.add_entry(entry)?;
+    let mut kb = get_syntax_kb().lock().map_err(|_| {
+        crate::safety::bad_state(
+            B,
+            "the syntax knowledge base is poisoned by an earlier failure",
+            "syntax_list",
+        )
+    })?;
+    // add_entry replaces an entry with the same id and lists the id twice in
+    // its category, so an existing id is refused rather than overwritten.
+    if kb.get(&id).is_some() {
+        return Err(crate::safety::bad_arg(
+            B,
+            "an id not yet in the syntax knowledge base",
+            &format!("the existing id {id:?}"),
+        ));
+    }
+    kb.add_entry(entry).map_err(|e| {
+        crate::safety::fs_error(B, "syntax_kb.json", &std::io::Error::other(e.to_string()))
+    })?;
 
     Ok(Value::Bool(true))
 }
@@ -41466,56 +41677,100 @@ fn bi_search_similar(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     code_search::run("search_similar", args, input)
 }
 
+// Test and diagnostics builtins run cargo on an explicit project directory
+// inside the workspace; see cargo_project.rs for the checks and the deadline.
+#[path = "cargo_project.rs"]
+mod cargo_project;
+use cargo_project::{at_level, cargo_done, cargo_text, diagnostics, is_error_level, project_dir};
+
+/// A cargo test selector (a test target or a test-name filter), checked
+/// against `allowed` characters beyond letters, digits and `_`. A leading `-`
+/// would be read by cargo as an option, so it is refused by the charset.
+fn test_selector(
+    builtin: &str,
+    what: &str,
+    value: Option<&Value>,
+    allowed: &str,
+) -> Result<String> {
+    let s = match value {
+        Some(Value::Str(s)) => s.clone(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                &format!("{what}: String"),
+                other.type_name(),
+            ))
+        }
+        None => return Err(crate::safety::arg_err(format!("{builtin} requires {what}"))),
+    };
+    let well_formed = !s.is_empty()
+        && s.len() <= 256
+        && !s.starts_with('-')
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || allowed.contains(c));
+    if !well_formed {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: 1 to 256 letters, digits, '_' or {allowed:?}, not starting with '-'"),
+            &format!("{s:?}"),
+        ));
+    }
+    crate::safety::reject_option_like(builtin, std::slice::from_ref(&s))?;
+    Ok(s)
+}
+
 // Test module implementations
-fn bi_test_run(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("cargo")
-        .args(["test"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("test_run", "cargo", &e))?;
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
-    ))
+fn bi_test_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "test_run";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    let out = cargo_text(B, &dir, &["test"], Keep::Tail(TOOL_KEEP_TAIL))?;
+    Ok(Value::Str(out))
 }
 
-fn bi_test_run_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| crate::safety::arg_err("file required"))?;
-    let output = std::process::Command::new("cargo")
-        .args(["test", "--test", &file])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("test_run_file", "cargo", &e))?;
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
-    ))
+fn bi_test_run_file(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "test_run_file";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    let file = test_selector(
+        B,
+        "file: the name of an integration test target",
+        args.get(1),
+        "-",
+    )?;
+    let out = cargo_text(
+        B,
+        &dir,
+        &["test", "--test", &file],
+        Keep::Tail(TOOL_KEEP_TAIL),
+    )?;
+    Ok(Value::Str(out))
 }
 
-fn bi_test_run_function(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let func = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| crate::safety::arg_err("function name required"))?;
-    let output = std::process::Command::new("cargo")
-        .args(["test", &func])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("test_run_function", "cargo", &e))?;
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
-    ))
+fn bi_test_run_function(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "test_run_function";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    let name = test_selector(B, "name: a test name or path filter", args.get(1), ":")?;
+    let out = cargo_text(B, &dir, &["test", &name], Keep::Tail(TOOL_KEEP_TAIL))?;
+    Ok(Value::Str(out))
 }
 
-fn bi_test_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("cargo")
-        .args(["test", "--", "--list"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("test_list", "cargo", &e))?;
-    let tests: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+fn bi_test_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "test_list";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    // Head, not tail: a listing cut short would look like a complete one.
+    let out = cargo_text(
+        B,
+        &dir,
+        &["test", "--", "--list"],
+        Keep::Head(TOOL_MAX_TEXT),
+    )?;
+    let tests: Vec<Value> = out
         .lines()
-        .filter(|l| l.contains(": test"))
-        .map(|l| Value::Str(l.split(':').next().unwrap_or("").to_string()))
+        .filter_map(|l| l.strip_suffix(": test"))
+        .map(|name| Value::Str(name.to_string()))
         .collect();
     Ok(Value::Array(tests))
 }
@@ -41541,14 +41796,12 @@ fn bi_test_watch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     test_watch::run("test_watch", args, input)
 }
 
-fn bi_test_bench(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("cargo")
-        .args(["bench"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("test_bench", "cargo", &e))?;
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
-    ))
+fn bi_test_bench(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "test_bench";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    let out = cargo_text(B, &dir, &["bench"], Keep::Tail(TOOL_KEEP_TAIL))?;
+    Ok(Value::Str(out))
 }
 
 #[path = "testing_backend.rs"]
@@ -41563,70 +41816,63 @@ fn bi_test_generate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 // Diagnostics module implementations
-fn bi_diag_check(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("cargo")
-        .args(["check", "--message-format=short"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("diag_check", "cargo", &e))?;
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stderr).to_string(),
-    ))
+/// diag_check(dir) - cargo check's errors and warnings, as Records.
+fn bi_diag_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "diag_check";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    Ok(Value::Array(diagnostics(B, &dir, &["check"])?))
 }
 
-fn bi_diag_lint(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("cargo")
-        .args(["clippy", "--message-format=short"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("diag_lint", "cargo", &e))?;
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stderr).to_string(),
-    ))
+/// diag_lint(dir) - cargo clippy's errors and warnings, as Records.
+fn bi_diag_lint(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "diag_lint";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    Ok(Value::Array(diagnostics(B, &dir, &["clippy"])?))
 }
 
-fn bi_diag_errors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("cargo")
-        .args(["check", "--message-format=short"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("diag_errors", "cargo", &e))?;
-    let errors: Vec<Value> = String::from_utf8_lossy(&output.stderr)
-        .lines()
-        .filter(|l| l.contains("error"))
-        .map(|l| Value::Str(l.to_string()))
-        .collect();
-    Ok(Value::Array(errors))
+/// diag_errors(dir) - only the errors of cargo check.
+fn bi_diag_errors(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "diag_errors";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    let found = diagnostics(B, &dir, &["check"])?;
+    Ok(Value::Array(at_level(found, is_error_level)))
 }
 
-fn bi_diag_warnings(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("cargo")
-        .args(["check", "--message-format=short"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("diag_warnings", "cargo", &e))?;
-    let warnings: Vec<Value> = String::from_utf8_lossy(&output.stderr)
-        .lines()
-        .filter(|l| l.contains("warning"))
-        .map(|l| Value::Str(l.to_string()))
-        .collect();
-    Ok(Value::Array(warnings))
+/// diag_warnings(dir) - only the warnings of cargo check.
+fn bi_diag_warnings(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "diag_warnings";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    let found = diagnostics(B, &dir, &["check"])?;
+    Ok(Value::Array(at_level(found, |l| l == "warning")))
 }
 
-fn bi_diag_all(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    bi_diag_check(_args, _input)
+/// diag_all(dir) - cargo check over every target: library, binaries, tests,
+/// examples and benches. Compiler errors in test code appear here and not in
+/// diag_check, which checks the default targets.
+fn bi_diag_all(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "diag_all";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    Ok(Value::Array(diagnostics(
+        B,
+        &dir,
+        &["check", "--all-targets"],
+    )?))
 }
 
-fn bi_diag_fix(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("cargo")
-        .args(["fix", "--allow-dirty"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("diag_fix", "cargo", &e))?;
-    // A failure was a bare `false`, with cargo's reason discarded.
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "diag_fix",
-            "cargo fix",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
+/// diag_fix(dir) - cargo fix, which applies the compiler's machine-applicable
+/// suggestions to the project's files. It refuses a version-controlled tree
+/// with uncommitted changes, as cargo does by default; --allow-dirty is not
+/// passed, so the rewrite never lands on uncommitted work silently.
+fn bi_diag_fix(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "diag_fix";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    cargo_done(B, &dir, &["fix"])?;
     Ok(Value::Bool(true))
 }
 
@@ -41680,13 +41926,38 @@ fn bi_refactor_rename(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     rename_refactor::run("refactor_rename", args, input)
 }
 
-fn bi_refactor_rename_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err("old and new path required"));
+/// refactor_rename_file(from, to) - rename a file or directory inside the
+/// workspace. The destination must not exist: the rename would otherwise
+/// replace it without a word. Both paths are inside the workspace, checked
+/// before anything changes, and the rename is recorded for an active
+/// transaction.
+fn bi_refactor_rename_file(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "refactor_rename_file";
+    k8s_no_input(B, &input)?;
+    let from = cargo_project::in_workspace_path(B, "from", args.first())?;
+    let to = cargo_project::in_workspace_path(B, "to", args.get(1))?;
+    if from == to {
+        return Err(crate::safety::bad_arg(
+            B,
+            "a destination that differs from the source",
+            "the same path",
+        ));
     }
-    let old = args[0].as_str().unwrap_or("").to_string();
-    let new = args[1].as_str().unwrap_or("").to_string();
-    std::fs::rename(&old, &new)?;
+    if std::fs::symlink_metadata(&from).is_err() {
+        return Err(crate::safety::not_found(B, "file or directory", &from));
+    }
+    if std::fs::symlink_metadata(&to).is_ok() {
+        return Err(crate::safety::bad_arg(
+            B,
+            "a destination that does not exist yet",
+            &format!("the existing path {to}"),
+        ));
+    }
+    // The workspace containment above is this builtin's jail; WriteLocal is not
+    // a centrally enforced effect, so it is not also passed through `guard`.
+    crate::tx::snapshot(&from);
+    crate::tx::snapshot(&to);
+    std::fs::rename(&from, &to).map_err(|e| crate::safety::fs_error(B, &from, &e))?;
     Ok(Value::Bool(true))
 }
 
@@ -41744,24 +42015,18 @@ fn bi_refactor_organize_imports(args: Vec<Value>, _input: Option<Value>) -> Resu
     ))
 }
 
-fn bi_refactor_remove_unused(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // This ran `cargo fix --edition`: a migration to the next Rust edition,
-    // not a removal of unused code, applied over uncommitted work
-    // (--allow-dirty). `cargo fix` applies the compiler's machine-applicable
-    // suggestions, which include removing unused imports.
-    let output = std::process::Command::new("cargo")
-        .args(["fix", "--allow-dirty"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("refactor_remove_unused", "cargo", &e))?;
-    // A failure was a bare `false`, with cargo's reason discarded.
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "refactor_remove_unused",
-            "cargo fix",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
+/// refactor_remove_unused(dir) - cargo fix over one project.
+///
+/// This is not a targeted removal. `cargo fix` applies every machine-applicable
+/// suggestion the compiler gives, and removing unused imports is one of them; so
+/// are the other fixes for the lints that are enabled. The earlier body also
+/// passed --allow-dirty, so it rewrote uncommitted work. Like diag_fix, this
+/// refuses a version-controlled tree with uncommitted changes.
+fn bi_refactor_remove_unused(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "refactor_remove_unused";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    cargo_done(B, &dir, &["fix"])?;
     Ok(Value::Bool(true))
 }
 
@@ -42036,20 +42301,13 @@ fn bi_session_export(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 // Docs module implementations
-fn bi_docs_generate(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("cargo")
-        .args(["doc", "--no-deps"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("docs_generate", "cargo", &e))?;
-    // A failure was a bare `false`, with cargo's reason discarded.
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "docs_generate",
-            "cargo doc",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
+/// docs_generate(dir) - cargo doc --no-deps for one project. Like every cargo
+/// call here it runs in that directory, under the long deadline.
+fn bi_docs_generate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "docs_generate";
+    k8s_no_input(B, &input)?;
+    let dir = project_dir(B, args.first())?;
+    cargo_done(B, &dir, &["doc", "--no-deps"])?;
     Ok(Value::Bool(true))
 }
 
@@ -42477,22 +42735,39 @@ fn bi_env_var(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     })
 }
 
-fn bi_env_vars(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let vars: BTreeMap<String, Value> = std::env::vars()
+/// env_vars() - every variable as a Record. In agent mode a value whose name
+/// looks like a secret is replaced with a redaction marker, as env_var does.
+/// Non-UTF-8 names and values are shown lossily: `std::env::vars` panics on
+/// them, so this reads the OS strings.
+fn bi_env_vars(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "env_vars";
+    k8s_no_input(B, &input)?;
+    if !args.is_empty() {
+        return Err(crate::safety::bad_arg(
+            B,
+            "no arguments",
+            &format!("{} argument(s)", args.len()),
+        ));
+    }
+    let vars: BTreeMap<String, Value> = std::env::vars_os()
         .map(|(k, v)| {
-            let gated = gate_env_secret(&k, v);
+            let k = k.to_string_lossy().into_owned();
+            let gated = gate_env_secret(&k, v.to_string_lossy().into_owned());
             (k, gated)
         })
         .collect();
     Ok(Value::Record(vars))
 }
 
-fn bi_env_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// env_set(name, value) - set an environment variable of this process.
+fn bi_env_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "env_set";
+    k8s_no_input(B, &input)?;
     if args.len() < 2 {
         return Err(crate::safety::arg_err("name and value required"));
     }
-    let name = args[0].as_str().unwrap_or("").to_string();
-    let value = args[1].as_str().unwrap_or("").to_string();
+    let name = env_name(B, &args[0])?;
+    let value = env_value(B, &args[1])?;
     std::env::set_var(&name, &value);
     Ok(Value::Bool(true))
 }
