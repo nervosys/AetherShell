@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 39 of 1,318 dispatch names undeclared (BUILTIN_LOOKUP at run time), all gui_* and clipboard_*; these wait on a decision about touching the real desktop in tests | Runtime maintainer |
+| Strict builtin signatures | Implemented; platform validation open | All 1,318 dispatch names declared (BUILTIN_LOOKUP at run time, 2026-10-20). gui_* and clipboard_* are tested by refusal only; their desktop paths are unverified on every OS | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, elevated execution, scheduler mutation | Linux implemented and verified in the disposable distro; Windows/macOS open; blocker only for those platforms | Linux accounts, groups, ACLs, mounts, services, sudo_exec and apt backends are verified as root in the disposable distro; Windows and macOS refuse with E_UNIMPLEMENTED and their backends remain open. All scheduler mutation functions and fs_watch/fs_unwatch have native backends; owned-fixture/platform tests are required | Runtime maintainer |
