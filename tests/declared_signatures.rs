@@ -316,6 +316,16 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("search_by_type", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
     ("search_modified", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
     ("search_symbols", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
+    // net_*: readers of this machine's network state. Each example answers
+    // in the declared type where the tool exists; where it does not, the
+    // coded absence (E_TOOL_MISSING, E_TOOL_FAILED, E_NOT_FOUND) is accepted.
+    ("net_interfaces", "the network adapters present (Get-NetAdapter, ip, ifconfig)"),
+    ("net_ip", "the addresses this host holds; E_NOT_FOUND on a host with no IPv4 address"),
+    ("net_connections", "the sockets open on this machine (Get-NetTCPConnection, ss, netstat)"),
+    ("net_ports", "the sockets listening on this machine, which change as services start and stop"),
+    ("net_arp", "this machine's neighbour table (arp -a)"),
+    ("net_route", "this machine's routing table (Get-NetRoute, ip, netstat -rn)"),
+    ("net_stats", "this machine's protocol counters since boot (netstat -s)"),
 ];
 
 /// The codes that honestly mean "not on this machine", as opposed to a

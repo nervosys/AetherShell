@@ -24296,353 +24296,546 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // ============================================================================
 // 270-289: Network Operations
+//
+// Every builtin here reads a host tool or the kernel's tables and answers with
+// a typed value, or refuses with a code. Nothing runs through a shell: each
+// tool gets an argument vector, and every host argument is checked to be a
+// hostname or address literal that cannot be read as an option.
 // ============================================================================
 
-fn bi_net_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returns Array of Records with consistent {name, status} fields
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-NetAdapter | Select-Object Name,InterfaceDescription,MacAddress,Status,LinkSpeed | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("net_interfaces", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                // Normalize to lowercase fields
-                let normalize = |item: &serde_json::Value| -> Value {
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let serde_json::Value::Object(obj) = item {
-                        rec.insert(
-                            "name".to_string(),
-                            Value::Str(
-                                obj.get("Name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                            ),
-                        );
-                        rec.insert(
-                            "description".to_string(),
-                            Value::Str(
-                                obj.get("InterfaceDescription")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                            ),
-                        );
-                        rec.insert(
-                            "mac".to_string(),
-                            Value::Str(
-                                obj.get("MacAddress")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                            ),
-                        );
-                        rec.insert(
-                            "status".to_string(),
-                            Value::Str(
-                                obj.get("Status")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                            ),
-                        );
-                        rec.insert(
-                            "speed".to_string(),
-                            Value::Str(
-                                obj.get("LinkSpeed")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                            ),
-                        );
-                    }
-                    Value::Record(rec)
-                };
-                match &json {
-                    serde_json::Value::Array(arr) => {
-                        return Ok(Value::Array(arr.iter().map(normalize).collect()));
-                    }
-                    obj @ serde_json::Value::Object(_) => {
-                        return Ok(Value::Array(vec![normalize(obj)]));
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        // Parse ip addr show into structured data
-        let output = std::process::Command::new("ip")
-            .args(["-j", "addr", "show"])
-            .output();
-        if let Ok(output) = output {
-            if output.status.success() {
-                let json_str = String::from_utf8_lossy(&output.stdout);
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    return Ok(json_to_value(json));
-                }
-            }
-        }
-        // Fallback: text parsing
-        let output = std::process::Command::new("ip")
-            .args(["addr", "show"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_interfaces", "ip", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut interfaces = Vec::new();
-            let mut current: Option<std::collections::BTreeMap<String, Value>> = None;
-            for line in text.lines() {
-                if !line.starts_with(' ') && line.contains(":  ") {
-                    if let Some(rec) = current.take() {
-                        interfaces.push(Value::Record(rec));
-                    }
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(name) = line.split(':').nth(1) {
-                        rec.insert("name".to_string(), Value::Str(name.trim().to_string()));
-                    }
-                    let status = if line.contains("UP") { "Up" } else { "Down" };
-                    rec.insert("status".to_string(), Value::Str(status.to_string()));
-                    current = Some(rec);
-                }
-            }
-            if let Some(rec) = current {
-                interfaces.push(Value::Record(rec));
-            }
-            return Ok(Value::Array(interfaces));
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // macOS: use ifconfig (ip command not available by default)
-        let output = std::process::Command::new("ifconfig")
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_interfaces", "ifconfig", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut interfaces = Vec::new();
-            let mut current: Option<std::collections::BTreeMap<String, Value>> = None;
-            for line in text.lines() {
-                if !line.starts_with('\t') && !line.starts_with(' ') && line.contains(':') {
-                    if let Some(rec) = current.take() {
-                        interfaces.push(Value::Record(rec));
-                    }
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(name) = line.split(':').next() {
-                        rec.insert("name".to_string(), Value::Str(name.to_string()));
-                    }
-                    let status = if line.contains("UP") { "Up" } else { "Down" };
-                    rec.insert("status".to_string(), Value::Str(status.to_string()));
-                    current = Some(rec);
-                }
-            }
-            if let Some(rec) = current {
-                interfaces.push(Value::Record(rec));
-            }
-            return Ok(Value::Array(interfaces));
-        }
-    }
-    Ok(Value::Array(vec![]))
-}
+/// Records one net_* table may return. A longer table is refused, not cut.
+const NET_MAX_RECORDS: usize = 4096;
+/// Bytes of whois text kept in `raw`; a longer answer is cut and flagged in
+/// `raw_truncated`, because the fields it was parsed for are near the top.
+const WHOIS_RAW_MAX: usize = 64 * 1024;
+/// Bytes of `netstat -s` text returned; a longer answer is refused.
+const NET_STATS_MAX: usize = 1024 * 1024;
+/// Ports one net_scan call may probe.
+const NET_SCAN_MAX_PORTS: i64 = 1024;
+/// Wall-clock bound on one whole net_scan call.
+const NET_SCAN_DEADLINE_SECS: u64 = 30;
+/// Bound on any single host-tool run that is not otherwise sized.
+const NET_TOOL_SECS: u64 = 30;
 
-fn bi_net_ip(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-NetIPAddress | Where-Object {$_.AddressFamily -eq 'IPv4'} | Select-Object IPAddress,InterfaceAlias | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("net_ip", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let addrs: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("IPAddress") {
-                            rec.insert("ip".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("InterfaceAlias") {
-                            rec.insert("interface".to_string(), json_to_value(v.clone()));
-                        }
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                if addrs.len() == 1 {
-                    // Single interface: return just the IP string for consistency with Linux/macOS
-                    if let Some(Value::Record(rec)) = addrs.first() {
-                        if let Some(ip) = rec.get("ip") {
-                            return Ok(ip.clone());
-                        }
-                    }
-                }
-                return Ok(Value::Array(addrs));
-            }
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let output = std::process::Command::new("hostname")
-            .args(["-I"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_ip", "hostname", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // macOS: hostname -I doesn't exist; use ipconfig getifaddr en0
-        let output = std::process::Command::new("ipconfig")
-            .args(["getifaddr", "en0"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_ip", "ipconfig", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-    }
-    Ok(Value::Null)
-}
+type NetRecord = BTreeMap<String, Value>;
 
-fn bi_net_dns_lookup(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let hostname = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "net_dns_lookup",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+/// An Int argument at `idx`: `default` when absent (and given), otherwise
+/// required. Anything outside `lo..=hi` is refused, never clamped.
+fn net_int(
+    name: &str,
+    args: &[Value],
+    idx: usize,
+    default: Option<i64>,
+    lo: i64,
+    hi: i64,
+) -> Result<i64> {
+    let n = match args.get(idx) {
+        None => match default {
+            Some(d) => return Ok(d),
+            None => {
+                return Err(crate::safety::bad_arg(
+                    name,
+                    "a required Int argument",
+                    "nothing",
+                ))
+            }
+        },
+        Some(Value::Int(n)) => *n,
+        Some(other) => return Err(crate::safety::bad_arg(name, "an Int", other.type_name())),
     };
-
-    // Security: validate hostname to prevent command injection
-    let hostname = validate_hostname_or_ip(&hostname)?;
-
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!(
-                    "Resolve-DnsName {} | Select-Object IPAddress | ConvertTo-Json",
-                    crate::safety::ps_quote(&hostname)
-                ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_dns_lookup", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let ips: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        obj.as_object()?
-                            .get("IPAddress")?
-                            .as_str()
-                            .map(|s| Value::Str(s.to_string()))
-                    })
-                    .collect();
-                return Ok(Value::Array(ips));
-            }
-        }
+    if !(lo..=hi).contains(&n) {
+        return Err(crate::safety::bad_arg(
+            name,
+            &format!("an Int in {lo}..={hi}"),
+            &n.to_string(),
+        ));
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("dig")
-            .args(["+short", &hostname])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_dns_lookup", "dig", &e))?;
-        if output.status.success() {
-            let ips: Vec<Value> = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(|l| Value::Str(l.to_string()))
-                .collect();
-            return Ok(Value::Array(ips));
-        }
-    }
-    Ok(Value::Array(vec![]))
+    Ok(n)
 }
 
-fn bi_net_dns_reverse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let ip = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "net_dns_reverse",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+/// A hostname or IP address argument at `idx`. Option-like text (a leading
+/// `-` or `+`) is refused before anything else, and the rest must pass the
+/// hostname validator, so no host can reach a tool as a flag.
+fn net_host(name: &str, args: &[Value], idx: usize) -> Result<String> {
+    let Some(value) = args.get(idx) else {
+        return Err(crate::safety::bad_arg(
+            name,
+            "a hostname or IP address String",
+            "nothing",
+        ));
     };
+    let Value::Str(host) = value else {
+        return Err(crate::safety::bad_arg(
+            name,
+            "a hostname or IP address String",
+            value.type_name(),
+        ));
+    };
+    crate::safety::reject_option_like(name, std::slice::from_ref(host))?;
+    validate_hostname_or_ip(host).map_err(|e| {
+        crate::safety::bad_arg(name, "a hostname or IP address", &format!("{host}: {e}"))
+    })
+}
 
-    // Security: validate IP to prevent command injection
-    let ip = validate_hostname_or_ip(&ip)?;
+/// An IPv4 or IPv6 literal argument at `idx`. Names are not accepted here, so
+/// a reverse lookup cannot be asked for a host it was not given an address for.
+fn net_ip_literal(name: &str, args: &[Value], idx: usize) -> Result<std::net::IpAddr> {
+    let Some(value) = args.get(idx) else {
+        return Err(crate::safety::bad_arg(
+            name,
+            "an IPv4 or IPv6 address String",
+            "nothing",
+        ));
+    };
+    let Value::Str(text) = value else {
+        return Err(crate::safety::bad_arg(
+            name,
+            "an IPv4 or IPv6 address String",
+            value.type_name(),
+        ));
+    };
+    text.parse::<std::net::IpAddr>()
+        .map_err(|_| crate::safety::bad_arg(name, "an IPv4 or IPv6 address literal", text))
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!(
-                    "Resolve-DnsName {} | Select-Object NameHost | ConvertTo-Json",
-                    crate::safety::ps_quote(&ip)
-                ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_dns_reverse", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                for obj in &items {
-                    if let Some(name) = obj
-                        .as_object()
-                        .and_then(|o| o.get("NameHost"))
-                        .and_then(|v| v.as_str())
-                    {
-                        return Ok(Value::Str(name.to_string()));
-                    }
-                }
+/// Refuse a network-effect call inside a transaction, which cannot roll back
+/// traffic that has already left the machine.
+fn net_refuse_in_transaction(name: &str) -> Result<()> {
+    if crate::tx::is_active() {
+        return Err(crate::safety::unimplemented(
+            name,
+            "network traffic cannot be rolled back",
+            "finish the transaction first",
+        ));
+    }
+    Ok(())
+}
+
+/// Run a host tool with an argument vector (never through a shell) under a
+/// wall-clock bound. A missing tool is E_TOOL_MISSING; no answer in time is a
+/// coded budget stop.
+fn net_run(name: &str, tool: &str, argv: &[&str], secs: u64) -> Result<std::process::Output> {
+    let mut cmd = std::process::Command::new(tool);
+    cmd.args(argv);
+    crate::safety::output_with_timeout(cmd, secs).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            crate::safety::budget_exceeded(
+                name,
+                format!("`{tool}` gave no result within {secs} s"),
+                "retry with less work, or check the host",
+            )
+        } else {
+            crate::safety::spawn_error(name, tool, &e)
+        }
+    })
+}
+
+fn tail_chars(text: &str, n: usize) -> String {
+    let count = text.chars().count();
+    if count <= n {
+        text.to_string()
+    } else {
+        text.chars().skip(count - n).collect()
+    }
+}
+
+/// What a failed tool said: its stderr, or else its last non-empty stdout line.
+fn net_diag(out: &std::process::Output) -> String {
+    let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    let text = if err.is_empty() {
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    } else {
+        err
+    };
+    tail_chars(&text, 400)
+}
+
+/// A nonzero exit is a coded tool failure carrying the tool's own words.
+fn net_checked(name: &str, tool: &str, out: &std::process::Output) -> Result<()> {
+    if out.status.success() {
+        return Ok(());
+    }
+    Err(crate::safety::tool_failed(
+        name,
+        tool,
+        out.status.code(),
+        &net_diag(out),
+    ))
+}
+
+/// The tool ran and exited cleanly, but its output is not in a form this
+/// builtin reads. Coded, so the caller learns the answer is unavailable here
+/// rather than receiving an empty one.
+fn net_unparsed(name: &str, tool: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::ToolFailed,
+        message: format!("{name}: the output of `{tool}` is not in a form this builtin reads"),
+        builtin: name.to_string(),
+        hint: format!(
+            "`{tool}` ran, but this host prints its output in a form this builtin does not parse"
+        ),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: format!("`{tool}` output this builtin reads"),
+        got: "unreadable output".to_string(),
+    })
+}
+
+/// Refuse a table longer than the record bound. A table is never cut silently.
+fn net_cap(name: &str, rows: Vec<Value>) -> Result<Value> {
+    if rows.len() > NET_MAX_RECORDS {
+        return Err(crate::safety::budget_exceeded(
+            name,
+            format!(
+                "{} records exceed the {NET_MAX_RECORDS}-record limit",
+                rows.len()
+            ),
+            "the table is too large to return whole; use a narrower reader",
+        ));
+    }
+    Ok(Value::Array(rows))
+}
+
+/// The items of a `ConvertTo-Json` result. Empty output is a real empty answer
+/// (PowerShell prints nothing for an empty pipeline); other non-JSON output is
+/// unreadable and is refused.
+#[cfg(windows)]
+fn net_ps_items(name: &str, stdout: &[u8]) -> Result<Vec<serde_json::Value>> {
+    let text = String::from_utf8_lossy(stdout);
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(serde_json::Value::Array(items)) => Ok(items),
+        Ok(obj @ serde_json::Value::Object(_)) => Ok(vec![obj]),
+        _ => Err(net_unparsed(name, "powershell")),
+    }
+}
+
+fn net_float(rec: &Value, key: &str) -> Option<f64> {
+    match rec {
+        Value::Record(r) => match r.get(key) {
+            Some(Value::Float(f)) => Some(*f),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn net_has(rec: &Value, key: &str) -> bool {
+    matches!(rec, Value::Record(r) if r.contains_key(key))
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+fn net_str_field(obj: &serde_json::Map<String, serde_json::Value>, key: &str) -> String {
+    obj.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn net_record(pairs: Vec<(&str, Value)>) -> Value {
+    let mut rec = NetRecord::new();
+    for (key, value) in pairs {
+        rec.insert(key.to_string(), value);
+    }
+    Value::Record(rec)
+}
+
+fn bi_net_interfaces(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_interfaces";
+    no_args_or_input(NAME, &args, &input)?;
+    net_cap(NAME, net_interface_rows(NAME)?)
+}
+
+#[cfg(windows)]
+fn net_interface_rows(name: &str) -> Result<Vec<Value>> {
+    let script = "Get-NetAdapter | Select-Object Name,InterfaceDescription,MacAddress,Status,LinkSpeed | ConvertTo-Json";
+    let out = net_run(
+        name,
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script],
+        NET_TOOL_SECS,
+    )?;
+    net_checked(name, "powershell", &out)?;
+    let mut rows = Vec::new();
+    for item in net_ps_items(name, &out.stdout)? {
+        let Some(o) = item.as_object() else {
+            return Err(net_unparsed(name, "powershell"));
+        };
+        rows.push(net_record(vec![
+            ("name", Value::Str(net_str_field(o, "Name"))),
+            (
+                "description",
+                Value::Str(net_str_field(o, "InterfaceDescription")),
+            ),
+            ("mac", Value::Str(net_str_field(o, "MacAddress"))),
+            ("status", Value::Str(net_str_field(o, "Status"))),
+            ("speed", Value::Str(net_str_field(o, "LinkSpeed"))),
+        ]));
+    }
+    Ok(rows)
+}
+
+#[cfg(target_os = "linux")]
+fn net_interface_rows(name: &str) -> Result<Vec<Value>> {
+    let out = net_run(name, "ip", &["-j", "addr", "show"], NET_TOOL_SECS)?;
+    net_checked(name, "ip", &out)?;
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|_| net_unparsed(name, "ip"))?;
+    let serde_json::Value::Array(links) = json else {
+        return Err(net_unparsed(name, "ip"));
+    };
+    let mut rows = Vec::new();
+    for link in &links {
+        let Some(o) = link.as_object() else {
+            return Err(net_unparsed(name, "ip"));
+        };
+        let addresses: Vec<Value> = o
+            .get("addr_info")
+            .and_then(|v| v.as_array())
+            .map(|infos| {
+                infos
+                    .iter()
+                    .filter_map(|i| i.get("local").and_then(|v| v.as_str()))
+                    .map(|s| Value::Str(s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        rows.push(net_record(vec![
+            ("name", Value::Str(net_str_field(o, "ifname"))),
+            ("mac", Value::Str(net_str_field(o, "address"))),
+            ("status", Value::Str(net_str_field(o, "operstate"))),
+            (
+                "mtu",
+                Value::Int(o.get("mtu").and_then(|v| v.as_i64()).unwrap_or(0)),
+            ),
+            ("addresses", Value::Array(addresses)),
+        ]));
+    }
+    Ok(rows)
+}
+
+#[cfg(target_os = "macos")]
+fn net_interface_rows(name: &str) -> Result<Vec<Value>> {
+    let out = net_run(name, "ifconfig", &[], NET_TOOL_SECS)?;
+    net_checked(name, "ifconfig", &out)?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut rows: Vec<NetRecord> = Vec::new();
+    for line in text.lines() {
+        if !line.starts_with(['\t', ' ']) && line.contains(':') {
+            // A header such as `en0: flags=8863<UP,BROADCAST,...> mtu 1500`.
+            let mut rec = NetRecord::new();
+            let iface = line.split(':').next().unwrap_or("").to_string();
+            rec.insert("name".to_string(), Value::Str(iface));
+            rec.insert("mac".to_string(), Value::Str(String::new()));
+            let status = if line.contains("UP") { "Up" } else { "Down" };
+            rec.insert("status".to_string(), Value::Str(status.to_string()));
+            rows.push(rec);
+        } else if let Some(mac) = line.trim().strip_prefix("ether ") {
+            if let Some(last) = rows.last_mut() {
+                last.insert("mac".to_string(), Value::Str(mac.trim().to_string()));
             }
         }
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("dig")
-            .args(["+short", "-x", &ip])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_dns_reverse", "dig", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+    Ok(rows.into_iter().map(Value::Record).collect())
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn net_interface_rows(name: &str) -> Result<Vec<Value>> {
+    Err(crate::safety::unimplemented(
+        name,
+        "interfaces are not read on this platform",
+        "run on Windows, Linux or macOS",
+    ))
+}
+
+fn bi_net_ip(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_ip";
+    no_args_or_input(NAME, &args, &input)?;
+    net_address(NAME)
+}
+
+#[cfg(windows)]
+fn net_address(name: &str) -> Result<Value> {
+    let script = "Get-NetIPAddress -AddressFamily IPv4 | Select-Object IPAddress,InterfaceAlias | ConvertTo-Json";
+    let out = net_run(
+        name,
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script],
+        NET_TOOL_SECS,
+    )?;
+    net_checked(name, "powershell", &out)?;
+    let mut rows = Vec::new();
+    for item in net_ps_items(name, &out.stdout)? {
+        let Some(o) = item.as_object() else {
+            return Err(net_unparsed(name, "powershell"));
+        };
+        rows.push(net_record(vec![
+            ("ip", Value::Str(net_str_field(o, "IPAddress"))),
+            ("interface", Value::Str(net_str_field(o, "InterfaceAlias"))),
+        ]));
     }
-    Ok(Value::Null)
+    if rows.is_empty() {
+        return Err(crate::safety::not_found(
+            name,
+            "IPv4 address",
+            "on this host",
+        ));
+    }
+    // One address is the address itself, as on the other platforms; several
+    // are listed with the interface each belongs to.
+    if let [Value::Record(rec)] = rows.as_slice() {
+        return Ok(rec.get("ip").cloned().unwrap_or(Value::Null));
+    }
+    Ok(Value::Array(rows))
+}
+
+#[cfg(target_os = "linux")]
+fn net_address(name: &str) -> Result<Value> {
+    net_address_text(name, "hostname", &["-I"])
+}
+
+#[cfg(target_os = "macos")]
+fn net_address(name: &str) -> Result<Value> {
+    net_address_text(name, "ipconfig", &["getifaddr", "en0"])
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn net_address_text(name: &str, tool: &str, argv: &[&str]) -> Result<Value> {
+    let out = net_run(name, tool, argv, NET_TOOL_SECS)?;
+    net_checked(name, tool, &out)?;
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if text.is_empty() {
+        return Err(crate::safety::not_found(
+            name,
+            "IPv4 address",
+            "on this host",
+        ));
+    }
+    Ok(Value::Str(text))
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn net_address(name: &str) -> Result<Value> {
+    Err(crate::safety::unimplemented(
+        name,
+        "the address is not read on this platform",
+        "run on Windows, Linux or macOS",
+    ))
+}
+
+fn bi_net_dns_lookup(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_dns_lookup";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "no pipeline input",
+            "piped input",
+        ));
+    }
+    let host = net_host(NAME, &args, 0)?;
+    net_refuse_in_transaction(NAME)?;
+    net_cap(NAME, net_resolve(NAME, &host)?)
+}
+
+#[cfg(windows)]
+fn net_resolve(name: &str, host: &str) -> Result<Vec<Value>> {
+    let script = crate::ps_script!(
+        "Resolve-DnsName {} | Select-Object IPAddress | ConvertTo-Json",
+        crate::safety::ps_quote(host)
+    );
+    let out = net_run(
+        name,
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script.as_str()],
+        NET_TOOL_SECS,
+    )?;
+    net_checked(name, "powershell", &out)?;
+    // A name can answer with CNAME records, which carry no address.
+    Ok(net_ps_items(name, &out.stdout)?
+        .iter()
+        .filter_map(|item| item.get("IPAddress").and_then(|v| v.as_str()))
+        .map(|ip| Value::Str(ip.to_string()))
+        .collect())
+}
+
+#[cfg(not(windows))]
+fn net_resolve(name: &str, host: &str) -> Result<Vec<Value>> {
+    let out = net_run(name, "dig", &["+short", host], NET_TOOL_SECS)?;
+    net_checked(name, "dig", &out)?;
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| Value::Str(l.to_string()))
+        .collect())
+}
+
+fn bi_net_dns_reverse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_dns_reverse";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "no pipeline input",
+            "piped input",
+        ));
+    }
+    let ip = net_ip_literal(NAME, &args, 0)?;
+    net_refuse_in_transaction(NAME)?;
+    match net_reverse(NAME, &ip)?.into_iter().next() {
+        Some(name) => Ok(Value::Str(name)),
+        None => Err(crate::safety::not_found(
+            NAME,
+            "PTR record",
+            &ip.to_string(),
+        )),
+    }
+}
+
+#[cfg(windows)]
+fn net_reverse(name: &str, ip: &std::net::IpAddr) -> Result<Vec<String>> {
+    let script = crate::ps_script!(
+        "Resolve-DnsName {} | Select-Object NameHost | ConvertTo-Json",
+        crate::safety::ps_quote(&ip.to_string())
+    );
+    let out = net_run(
+        name,
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script.as_str()],
+        NET_TOOL_SECS,
+    )?;
+    net_checked(name, "powershell", &out)?;
+    Ok(net_ps_items(name, &out.stdout)?
+        .iter()
+        .filter_map(|item| item.get("NameHost").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .collect())
+}
+
+#[cfg(not(windows))]
+fn net_reverse(name: &str, ip: &std::net::IpAddr) -> Result<Vec<String>> {
+    let target = ip.to_string();
+    let out = net_run(
+        name,
+        "dig",
+        &["+short", "-x", target.as_str()],
+        NET_TOOL_SECS,
+    )?;
+    net_checked(name, "dig", &out)?;
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect())
 }
 
 /// Parse ping output into a structured Record with host, packets_sent, packets_received,
@@ -24715,253 +24908,266 @@ fn parse_ping_output(text: &str, host: &str) -> Value {
     Value::Record(rec)
 }
 
-fn bi_net_ping(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let host = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "net_ping",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+#[cfg(any(windows, target_os = "linux"))]
+fn net_str_field_value(obj: &serde_json::Map<String, serde_json::Value>, key: &str) -> Value {
+    obj.get(key).cloned().map_or(Value::Null, json_to_value)
+}
 
-    // Security: validate host to prevent command injection
-    let host = validate_hostname_or_ip(&host)?;
-
-    let count = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Int(c) => Some(*c),
-            _ => None,
-        })
-        .unwrap_or(4);
-
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("ping")
-            .args(["-n", &count.to_string(), &host])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_ping", "ping", &e))?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        Ok(parse_ping_output(&text, &host))
+fn bi_net_ping(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_ping";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "no pipeline input",
+            "piped input",
+        ));
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("ping")
-            .args(["-c", &count.to_string(), &host])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_ping", "ping", &e))?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        return Ok(parse_ping_output(&text, &host));
+    let host = net_host(NAME, &args, 0)?;
+    let count = net_int(NAME, &args, 1, Some(4), 1, 100)?;
+    net_refuse_in_transaction(NAME)?;
+    let flag = if cfg!(windows) { "-n" } else { "-c" };
+    let count_text = count.to_string();
+    // One probe per second on Unix, so the bound grows with the count.
+    let secs = NET_TOOL_SECS + 2 * count as u64;
+    let out = net_run(
+        NAME,
+        "ping",
+        &[flag, count_text.as_str(), host.as_str()],
+        secs,
+    )?;
+    let rec = parse_ping_output(&String::from_utf8_lossy(&out.stdout), &host);
+    // A host that does not answer exits nonzero yet still reports its loss, so
+    // that report is the answer. Only a run with no statistics is a failure.
+    if !out.status.success() && !net_has(&rec, "packets_received") {
+        return Err(crate::safety::tool_failed(
+            NAME,
+            "ping",
+            out.status.code(),
+            &net_diag(&out),
+        ));
+    }
+    Ok(rec)
+}
+
+fn bi_net_latency(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_latency";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "no pipeline input",
+            "piped input",
+        ));
+    }
+    let host = net_host(NAME, &args, 0)?;
+    net_refuse_in_transaction(NAME)?;
+    let flag = if cfg!(windows) { "-n" } else { "-c" };
+    let out = net_run(NAME, "ping", &[flag, "1", host.as_str()], NET_TOOL_SECS)?;
+    if !out.status.success() {
+        return Err(crate::safety::tool_failed(
+            NAME,
+            "ping",
+            out.status.code(),
+            &net_diag(&out),
+        ));
+    }
+    // The round-trip time the probe reported, in milliseconds. Timing the
+    // ping process itself would measure process start-up as well.
+    let rec = parse_ping_output(&String::from_utf8_lossy(&out.stdout), &host);
+    match net_float(&rec, "avg_rtt") {
+        Some(ms) => Ok(Value::Float(ms)),
+        None => Err(net_unparsed(NAME, "ping")),
     }
 }
 
-fn bi_net_traceroute(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let host = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "net_traceroute",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+/// One traceroute or tracert line: the hop number, the address that answered
+/// (`*` when none did) and the round-trip times in milliseconds. Lines that
+/// do not begin with a hop number, such as the header, are not hops.
+fn net_hop(line: &str) -> Option<Value> {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    let hop = parts.first()?.parse::<i64>().ok()?;
+    let is_addr = |t: &str| t.parse::<std::net::IpAddr>().is_ok();
+    // tracert -d prints the address last; traceroute -n prints it after the hop.
+    let addr = if cfg!(windows) {
+        parts.last().copied().filter(|t| is_addr(t))
+    } else {
+        parts.iter().skip(1).copied().find(|t| is_addr(t))
     };
-
-    // Security: validate host to prevent command injection
-    let host = validate_hostname_or_ip(&host)?;
-
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("tracert")
-            .args(["-d", &host])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_traceroute", "tracert", &e))?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        let hops: Vec<Value> = text
-            .lines()
-            .filter(|l| {
-                let trimmed = l.trim();
-                !trimmed.is_empty() && trimmed.chars().next().is_some_and(|c| c.is_ascii_digit())
-            })
-            .filter_map(|l| {
-                let parts: Vec<&str> = l.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("hop".to_string(), Value::Int(parts[0].parse().unwrap_or(0)));
-                    // Last token is the IP
-                    rec.insert(
-                        "ip".to_string(),
-                        Value::Str(parts.last().unwrap_or(&"").to_string()),
-                    );
-                    // RTT values (ms) — typically 3 values between hop number and IP
-                    let rtts: Vec<Value> = parts[1..parts.len() - 1]
-                        .iter()
-                        .filter_map(|s| s.trim_end_matches("ms").parse::<f64>().ok())
-                        .map(Value::Float)
-                        .collect();
-                    rec.insert("rtt_ms".to_string(), Value::Array(rtts));
-                    Some(Value::Record(rec))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        Ok(Value::Array(hops))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("traceroute")
-            .args(["-n", &host])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_traceroute", "traceroute", &e))?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        let hops: Vec<Value> = text
-            .lines()
-            .filter(|l| {
-                let trimmed = l.trim();
-                !trimmed.is_empty() && trimmed.chars().next().map_or(false, |c| c.is_ascii_digit())
-            })
-            .filter_map(|l| {
-                let parts: Vec<&str> = l.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("hop".to_string(), Value::Int(parts[0].parse().unwrap_or(0)));
-                    // Find IP (not a number ending in 'ms' and not '*')
-                    let ip = parts
-                        .iter()
-                        .skip(1)
-                        .find(|s| !s.ends_with("ms") && **s != "*" && s.contains('.'))
-                        .unwrap_or(&"*");
-                    rec.insert("ip".to_string(), Value::Str(ip.to_string()));
-                    let rtts: Vec<Value> = parts
-                        .iter()
-                        .skip(1)
-                        .filter_map(|s| s.trim_end_matches("ms").parse::<f64>().ok())
-                        .map(Value::Float)
-                        .collect();
-                    rec.insert("rtt_ms".to_string(), Value::Array(rtts));
-                    Some(Value::Record(rec))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        return Ok(Value::Array(hops));
-    }
+    let rtts: Vec<Value> = parts
+        .iter()
+        .skip(1)
+        .copied()
+        .filter(|t| Some(*t) != addr)
+        .filter_map(|t| t.trim_end_matches("ms").parse::<f64>().ok())
+        .map(Value::Float)
+        .collect();
+    let mut rec = NetRecord::new();
+    rec.insert("hop".to_string(), Value::Int(hop));
+    rec.insert(
+        "ip".to_string(),
+        Value::Str(addr.unwrap_or("*").to_string()),
+    );
+    rec.insert("rtt_ms".to_string(), Value::Array(rtts));
+    Some(Value::Record(rec))
 }
 
-fn bi_net_connections(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-NetTCPConnection | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("net_connections", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let conns: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        // Map Windows State codes to readable strings
-                        let state = match o.get("State").and_then(|v| v.as_i64()) {
-                            Some(1) => "closed",
-                            Some(2) => "listen",
-                            Some(3) => "syn_sent",
-                            Some(4) => "syn_received",
-                            Some(5) => "established",
-                            Some(6) => "fin_wait_1",
-                            Some(7) => "fin_wait_2",
-                            Some(8) => "close_wait",
-                            Some(9) => "closing",
-                            Some(10) => "last_ack",
-                            Some(11) => "time_wait",
-                            Some(12) => "delete_tcb",
-                            _ => "unknown",
-                        };
-                        rec.insert("state".to_string(), Value::Str(state.to_string()));
-                        let local_addr =
-                            o.get("LocalAddress").and_then(|v| v.as_str()).unwrap_or("");
-                        let local_port = o.get("LocalPort").and_then(|v| v.as_i64()).unwrap_or(0);
-                        rec.insert(
-                            "local".to_string(),
-                            Value::Str(format!("{}:{}", local_addr, local_port)),
-                        );
-                        let remote_addr = o
-                            .get("RemoteAddress")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        let remote_port = o.get("RemotePort").and_then(|v| v.as_i64()).unwrap_or(0);
-                        rec.insert(
-                            "peer".to_string(),
-                            Value::Str(format!("{}:{}", remote_addr, remote_port)),
-                        );
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                return Ok(Value::Array(conns));
-            }
-        }
+fn bi_net_traceroute(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_traceroute";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "no pipeline input",
+            "piped input",
+        ));
     }
-    #[cfg(target_os = "linux")]
-    {
-        // Try ss with JSON output first
-        let output = std::process::Command::new("ss")
-            .args(["-tuln"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_connections", "ss", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut conns = Vec::new();
-            for line in text.lines().skip(1) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 5 {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("state".to_string(), Value::Str(parts[0].to_string()));
-                    rec.insert("local".to_string(), Value::Str(parts[4].to_string()));
-                    if parts.len() >= 6 {
-                        rec.insert("peer".to_string(), Value::Str(parts[5].to_string()));
-                    }
-                    conns.push(Value::Record(rec));
-                }
-            }
-            return Ok(Value::Array(conns));
-        }
+    let host = net_host(NAME, &args, 0)?;
+    // Thirty is the usual ceiling for a route; a larger request is refused.
+    let max_hops = net_int(NAME, &args, 1, Some(30), 1, 30)?;
+    net_refuse_in_transaction(NAME)?;
+    let hops_text = max_hops.to_string();
+    let (tool, argv): (&str, [&str; 4]) = if cfg!(windows) {
+        ("tracert", ["-d", "-h", hops_text.as_str(), host.as_str()])
+    } else {
+        (
+            "traceroute",
+            ["-n", "-m", hops_text.as_str(), host.as_str()],
+        )
+    };
+    let out = net_run(NAME, tool, &argv, 120)?;
+    net_checked(NAME, tool, &out)?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let hops: Vec<Value> = text
+        .lines()
+        .filter_map(net_hop)
+        .take(max_hops as usize)
+        .collect();
+    Ok(Value::Array(hops))
+}
+
+// ---- socket tables -------------------------------------------------------
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn net_socket_record(protocol: &str, state: &str, local: String, peer: String) -> Value {
+    net_record(vec![
+        ("protocol", Value::Str(protocol.to_string())),
+        ("state", Value::Str(state.to_string())),
+        ("local", Value::Str(local)),
+        ("peer", Value::Str(peer)),
+    ])
+}
+
+/// The state names of the TCP table, as `Get-NetTCPConnection` reports them by
+/// number. Every platform reports states in upper case, as `ss` and `netstat` do.
+#[cfg(windows)]
+fn windows_state_name(code: i64) -> String {
+    let name = match code {
+        1 => "CLOSED",
+        2 => "LISTEN",
+        3 => "SYN_SENT",
+        4 => "SYN_RECEIVED",
+        5 => "ESTABLISHED",
+        6 => "FIN_WAIT_1",
+        7 => "FIN_WAIT_2",
+        8 => "CLOSE_WAIT",
+        9 => "CLOSING",
+        10 => "LAST_ACK",
+        11 => "TIME_WAIT",
+        12 => "DELETE_TCB",
+        _ => "UNKNOWN",
+    };
+    name.to_string()
+}
+
+#[cfg(windows)]
+fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
+    let script = "Get-NetTCPConnection | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State | ConvertTo-Json";
+    let out = net_run(
+        name,
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script],
+        NET_TOOL_SECS,
+    )?;
+    net_checked(name, "powershell", &out)?;
+    let mut rows = Vec::new();
+    for item in net_ps_items(name, &out.stdout)? {
+        let Some(o) = item.as_object() else {
+            return Err(net_unparsed(name, "powershell"));
+        };
+        let state = match o.get("State") {
+            Some(serde_json::Value::Number(n)) => windows_state_name(n.as_i64().unwrap_or(0)),
+            Some(serde_json::Value::String(s)) => s.to_ascii_uppercase().replace('-', "_"),
+            _ => "UNKNOWN".to_string(),
+        };
+        let port = |key: &str| o.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
+        let local = format!("{}:{}", net_str_field(o, "LocalAddress"), port("LocalPort"));
+        let peer = format!(
+            "{}:{}",
+            net_str_field(o, "RemoteAddress"),
+            port("RemotePort")
+        );
+        rows.push(net_socket_record("tcp", &state, local, peer));
     }
-    #[cfg(target_os = "macos")]
-    {
-        // macOS: use netstat (ss not available)
-        let output = std::process::Command::new("netstat")
-            .args(["-an", "-p", "tcp"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_connections", "netstat", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut conns = Vec::new();
-            for line in text.lines().skip(2) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 6 {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("local".to_string(), Value::Str(parts[3].to_string()));
-                    rec.insert("peer".to_string(), Value::Str(parts[4].to_string()));
-                    rec.insert("state".to_string(), Value::Str(parts[5].to_string()));
-                    conns.push(Value::Record(rec));
-                }
-            }
-            return Ok(Value::Array(conns));
+    Ok(rows)
+}
+
+#[cfg(target_os = "linux")]
+fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
+    // All TCP and UDP sockets, numeric; `ss` prints one header line first.
+    let out = net_run(name, "ss", &["-tuan"], NET_TOOL_SECS)?;
+    net_checked(name, "ss", &out)?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut rows = Vec::new();
+    for line in text.lines().skip(1).filter(|l| !l.trim().is_empty()) {
+        // Netid State Recv-Q Send-Q Local:Port Peer:Port [Process]
+        let p: Vec<&str> = line.split_whitespace().collect();
+        if p.len() < 6 {
+            return Err(net_unparsed(name, "ss"));
         }
+        rows.push(net_socket_record(
+            &p[0].to_ascii_lowercase(),
+            &p[1].to_ascii_uppercase(),
+            p[4].to_string(),
+            p[5].to_string(),
+        ));
     }
-    Ok(Value::Array(vec![]))
+    Ok(rows)
+}
+
+#[cfg(target_os = "macos")]
+fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
+    let out = net_run(name, "netstat", &["-an", "-p", "tcp"], NET_TOOL_SECS)?;
+    net_checked(name, "netstat", &out)?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut rows = Vec::new();
+    // Two header lines: the title and the column names.
+    for line in text.lines().skip(2).filter(|l| !l.trim().is_empty()) {
+        // Proto Recv-Q Send-Q Local Foreign State
+        let p: Vec<&str> = line.split_whitespace().collect();
+        if p.len() < 6 {
+            return Err(net_unparsed(name, "netstat"));
+        }
+        rows.push(net_socket_record(
+            "tcp",
+            &p[5].to_ascii_uppercase(),
+            p[3].to_string(),
+            p[4].to_string(),
+        ));
+    }
+    Ok(rows)
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
+    Err(crate::safety::unimplemented(
+        name,
+        "sockets are not read on this platform",
+        "run on Windows, Linux or macOS",
+    ))
+}
+
+fn bi_net_connections(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_connections";
+    no_args_or_input(NAME, &args, &input)?;
+    net_cap(NAME, net_socket_rows(NAME)?)
 }
 
 #[path = "tcp_sockets.rs"]
@@ -24982,486 +25188,512 @@ fn bi_net_close(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     tcp_sockets::guard_and_close(args, input)
 }
 
-fn bi_net_ports(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Delegate to net_connections which already returns structured data
-    bi_net_connections(vec![], None)
+/// The sockets that are listening: TCP in LISTEN and UDP sockets bound and
+/// waiting for datagrams (UNCONN).
+fn bi_net_ports(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_ports";
+    no_args_or_input(NAME, &args, &input)?;
+    let listening: Vec<Value> = net_socket_rows(NAME)?
+        .into_iter()
+        .filter(net_is_listening)
+        .collect();
+    net_cap(NAME, listening)
 }
 
-fn bi_net_arp(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("arp")
-        .args(["-a"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("net_arp", "arp", &e))?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let entries: Vec<Value> = text
-        .lines()
-        .filter(|l| !l.trim().is_empty())
+fn net_is_listening(row: &Value) -> bool {
+    match row {
+        Value::Record(r) => matches!(
+            r.get("state"),
+            Some(Value::Str(s)) if s == "LISTEN" || s == "UNCONN"
+        ),
+        _ => false,
+    }
+}
+
+// ---- neighbours, routes and counters -------------------------------------
+
+/// The ARP table. Unix prints `host (ip) at mac ... on iface`; Windows prints
+/// `ip mac type` under an `Interface:` header, which is skipped.
+fn net_arp_rows(text: &str) -> Vec<Value> {
+    text.lines()
         .filter_map(|l| {
             let parts: Vec<&str> = l.split_whitespace().collect();
             if parts.len() < 2 {
                 return None;
             }
-            let mut rec = std::collections::BTreeMap::new();
-            // Unix format: "hostname (ip) at mac [ether] on interface"
-            // Windows format: "ip  mac  type"
-            if l.contains('(') && l.contains(')') {
-                // Unix format
-                if let Some(start) = l.find('(') {
-                    if let Some(end) = l.find(')') {
-                        rec.insert("ip".to_string(), Value::Str(l[start + 1..end].to_string()));
-                    }
+            let mut rec = NetRecord::new();
+            if let (Some(start), Some(end)) = (l.find('('), l.find(')')) {
+                if start < end {
+                    rec.insert("ip".to_string(), Value::Str(l[start + 1..end].to_string()));
                 }
-                // MAC is typically after "at"
-                if let Some(at_pos) = parts.iter().position(|&p| p == "at") {
-                    if let Some(mac) = parts.get(at_pos + 1) {
+                if let Some(at) = parts.iter().position(|&p| p == "at") {
+                    if let Some(mac) = parts.get(at + 1) {
                         rec.insert("mac".to_string(), Value::Str(mac.to_string()));
                     }
                 }
-                // Interface is after "on"
-                if let Some(on_pos) = parts.iter().position(|&p| p == "on") {
-                    if let Some(iface) = parts.get(on_pos + 1) {
+                if let Some(on) = parts.iter().position(|&p| p == "on") {
+                    if let Some(iface) = parts.get(on + 1) {
                         rec.insert("interface".to_string(), Value::Str(iface.to_string()));
                     }
                 }
-            } else if parts.len() >= 3 {
-                // Windows format: "IP  MAC  Type" (skip header lines)
-                let ip = parts[0];
-                // Skip header and separator lines
-                if ip.contains('.') || ip.contains(':') {
-                    rec.insert("ip".to_string(), Value::Str(ip.to_string()));
-                    rec.insert("mac".to_string(), Value::Str(parts[1].to_string()));
-                    rec.insert("type".to_string(), Value::Str(parts[2].to_string()));
-                } else {
-                    return None;
-                }
+            } else if parts.len() >= 3 && (parts[0].contains('.') || parts[0].contains(':')) {
+                rec.insert("ip".to_string(), Value::Str(parts[0].to_string()));
+                rec.insert("mac".to_string(), Value::Str(parts[1].to_string()));
+                rec.insert("type".to_string(), Value::Str(parts[2].to_string()));
             }
-            if rec.is_empty() {
-                None
-            } else {
-                Some(Value::Record(rec))
-            }
+            (!rec.is_empty()).then_some(Value::Record(rec))
+        })
+        .collect()
+}
+
+fn bi_net_arp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_arp";
+    no_args_or_input(NAME, &args, &input)?;
+    let out = net_run(NAME, "arp", &["-a"], NET_TOOL_SECS)?;
+    net_checked(NAME, "arp", &out)?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    net_cap(NAME, net_arp_rows(&text))
+}
+
+fn bi_net_route(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_route";
+    no_args_or_input(NAME, &args, &input)?;
+    net_cap(NAME, net_route_rows(NAME)?)
+}
+
+#[cfg(windows)]
+fn net_route_rows(name: &str) -> Result<Vec<Value>> {
+    let script = "Get-NetRoute | Select-Object DestinationPrefix,NextHop,InterfaceAlias,RouteMetric | ConvertTo-Json";
+    let out = net_run(
+        name,
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script],
+        NET_TOOL_SECS,
+    )?;
+    net_checked(name, "powershell", &out)?;
+    let mut rows = Vec::new();
+    for item in net_ps_items(name, &out.stdout)? {
+        let Some(o) = item.as_object() else {
+            return Err(net_unparsed(name, "powershell"));
+        };
+        rows.push(net_record(vec![
+            ("destination", net_str_field_value(o, "DestinationPrefix")),
+            ("gateway", net_str_field_value(o, "NextHop")),
+            ("interface", net_str_field_value(o, "InterfaceAlias")),
+            ("metric", net_str_field_value(o, "RouteMetric")),
+        ]));
+    }
+    Ok(rows)
+}
+
+#[cfg(target_os = "linux")]
+fn net_route_rows(name: &str) -> Result<Vec<Value>> {
+    let out = net_run(name, "ip", &["-j", "route"], NET_TOOL_SECS)?;
+    net_checked(name, "ip", &out)?;
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|_| net_unparsed(name, "ip"))?;
+    let serde_json::Value::Array(routes) = json else {
+        return Err(net_unparsed(name, "ip"));
+    };
+    let mut rows = Vec::new();
+    for route in &routes {
+        let Some(o) = route.as_object() else {
+            return Err(net_unparsed(name, "ip"));
+        };
+        rows.push(net_record(vec![
+            ("destination", net_str_field_value(o, "dst")),
+            ("gateway", net_str_field_value(o, "gateway")),
+            ("interface", net_str_field_value(o, "dev")),
+            ("metric", net_str_field_value(o, "metric")),
+        ]));
+    }
+    Ok(rows)
+}
+
+#[cfg(target_os = "macos")]
+fn net_route_rows(name: &str) -> Result<Vec<Value>> {
+    let out = net_run(name, "netstat", &["-rn"], NET_TOOL_SECS)?;
+    net_checked(name, "netstat", &out)?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    // Four header lines precede the table.
+    let rows = text
+        .lines()
+        .skip(4)
+        .filter_map(|l| {
+            let parts: Vec<&str> = l.split_whitespace().collect();
+            (parts.len() >= 4).then(|| {
+                net_record(vec![
+                    ("destination", Value::Str(parts[0].to_string())),
+                    ("gateway", Value::Str(parts[1].to_string())),
+                    ("flags", Value::Str(parts[2].to_string())),
+                    ("interface", Value::Str(parts[parts.len() - 1].to_string())),
+                ])
+            })
         })
         .collect();
-    Ok(Value::Array(entries))
+    Ok(rows)
 }
 
-fn bi_net_route(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-NetRoute | Select-Object DestinationPrefix,NextHop,InterfaceAlias,RouteMetric | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("net_route", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let routes: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("DestinationPrefix") {
-                            rec.insert("destination".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("NextHop") {
-                            rec.insert("gateway".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("InterfaceAlias") {
-                            rec.insert("interface".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("RouteMetric") {
-                            rec.insert("metric".to_string(), json_to_value(v.clone()));
-                        }
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                return Ok(Value::Array(routes));
-            }
-        }
-        Ok(Value::Array(vec![]))
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let output = std::process::Command::new("ip")
-            .args(["-j", "route"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_route", "ip", &e))?;
-        if output.status.success() {
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    _ => vec![],
-                };
-                let routes: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("dst") {
-                            rec.insert("destination".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("gateway") {
-                            rec.insert("gateway".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("dev") {
-                            rec.insert("interface".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("metric") {
-                            rec.insert("metric".to_string(), json_to_value(v.clone()));
-                        }
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                return Ok(Value::Array(routes));
-            }
-        }
-        // Fallback to text parsing
-        let output = std::process::Command::new("ip")
-            .args(["route"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_route", "ip", &e))?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        let routes: Vec<Value> = text
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| {
-                let parts: Vec<&str> = l.split_whitespace().collect();
-                let mut rec = std::collections::BTreeMap::new();
-                rec.insert(
-                    "destination".to_string(),
-                    Value::Str(parts.first().unwrap_or(&"").to_string()),
-                );
-                // Find "via" for gateway, "dev" for interface
-                if let Some(pos) = parts.iter().position(|&p| p == "via") {
-                    if let Some(gw) = parts.get(pos + 1) {
-                        rec.insert("gateway".to_string(), Value::Str(gw.to_string()));
-                    }
-                }
-                if let Some(pos) = parts.iter().position(|&p| p == "dev") {
-                    if let Some(dev) = parts.get(pos + 1) {
-                        rec.insert("interface".to_string(), Value::Str(dev.to_string()));
-                    }
-                }
-                Value::Record(rec)
-            })
-            .collect();
-        return Ok(Value::Array(routes));
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("netstat")
-            .args(["-rn"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_route", "netstat", &e))?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        let routes: Vec<Value> = text
-            .lines()
-            .skip(4) // skip header lines
-            .filter(|l| !l.trim().is_empty())
-            .filter_map(|l| {
-                let parts: Vec<&str> = l.split_whitespace().collect();
-                if parts.len() >= 4 {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("destination".to_string(), Value::Str(parts[0].to_string()));
-                    rec.insert("gateway".to_string(), Value::Str(parts[1].to_string()));
-                    rec.insert("flags".to_string(), Value::Str(parts[2].to_string()));
-                    rec.insert(
-                        "interface".to_string(),
-                        Value::Str(parts.last().unwrap_or(&"").to_string()),
-                    );
-                    Some(Value::Record(rec))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        return Ok(Value::Array(routes));
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    {
-        Ok(Value::Array(vec![]))
-    }
-}
-
-fn bi_net_stats(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // netstat -s works on all platforms
-    let output = std::process::Command::new("netstat")
-        .args(["-s"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("net_stats", "netstat", &e))?;
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn net_route_rows(name: &str) -> Result<Vec<Value>> {
+    Err(crate::safety::unimplemented(
+        name,
+        "routes are not read on this platform",
+        "run on Windows, Linux or macOS",
     ))
 }
 
-fn bi_net_bandwidth(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returns Array of Record {interface, rx_bytes, tx_bytes} on all platforms
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(content) = std::fs::read_to_string("/proc/net/dev") {
-            let interfaces: Vec<Value> = content
-                .lines()
-                .skip(2) // skip header lines
-                .filter(|l| l.contains(':'))
-                .filter_map(|l| {
-                    let parts: Vec<&str> = l.split(':').collect();
-                    if parts.len() < 2 {
-                        return None;
-                    }
-                    let iface = parts[0].trim();
-                    let stats: Vec<&str> = parts[1].split_whitespace().collect();
-                    if stats.len() < 9 {
-                        return None;
-                    }
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("interface".to_string(), Value::Str(iface.to_string()));
-                    rec.insert(
-                        "rx_bytes".to_string(),
-                        Value::Int(stats[0].parse().unwrap_or(0)),
-                    );
-                    rec.insert(
-                        "rx_packets".to_string(),
-                        Value::Int(stats[1].parse().unwrap_or(0)),
-                    );
-                    rec.insert(
-                        "tx_bytes".to_string(),
-                        Value::Int(stats[8].parse().unwrap_or(0)),
-                    );
-                    rec.insert(
-                        "tx_packets".to_string(),
-                        Value::Int(stats[9].parse().unwrap_or(0)),
-                    );
-                    Some(Value::Record(rec))
-                })
-                .collect();
-            return Ok(Value::Array(interfaces));
-        }
+fn bi_net_stats(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_stats";
+    no_args_or_input(NAME, &args, &input)?;
+    let out = net_run(NAME, "netstat", &["-s"], NET_TOOL_SECS)?;
+    net_checked(NAME, "netstat", &out)?;
+    if out.stdout.len() > NET_STATS_MAX {
+        return Err(crate::safety::budget_exceeded(
+            NAME,
+            format!(
+                "netstat -s wrote {} bytes, over the {NET_STATS_MAX}-byte limit",
+                out.stdout.len()
+            ),
+            "read the counters with a narrower tool",
+        ));
     }
-    #[cfg(target_os = "macos")]
-    {
-        // macOS: netstat -ib shows per-interface byte counts
-        let output = std::process::Command::new("netstat")
-            .args(["-ib"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_bandwidth", "netstat", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let lines: Vec<&str> = text.lines().collect();
-            let interfaces: Vec<Value> = lines
-                .iter()
-                .skip(1)
-                .filter(|l| !l.trim().is_empty())
-                .filter_map(|l| {
-                    let parts: Vec<&str> = l.split_whitespace().collect();
-                    if parts.len() < 7 {
-                        return None;
-                    }
-                    // netstat -ib columns: Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("interface".to_string(), Value::Str(parts[0].to_string()));
-                    rec.insert(
-                        "rx_bytes".to_string(),
-                        Value::Int(parts.get(6).and_then(|s| s.parse().ok()).unwrap_or(0)),
-                    );
-                    rec.insert(
-                        "rx_packets".to_string(),
-                        Value::Int(parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0)),
-                    );
-                    rec.insert(
-                        "tx_bytes".to_string(),
-                        Value::Int(parts.get(9).and_then(|s| s.parse().ok()).unwrap_or(0)),
-                    );
-                    rec.insert(
-                        "tx_packets".to_string(),
-                        Value::Int(parts.get(7).and_then(|s| s.parse().ok()).unwrap_or(0)),
-                    );
-                    Some(Value::Record(rec))
-                })
-                .collect();
-            return Ok(Value::Array(interfaces));
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-NetAdapterStatistics | Select-Object Name,ReceivedBytes,SentBytes,ReceivedUnicastPackets,SentUnicastPackets | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("net_bandwidth", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let interfaces: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        rec.insert(
-                            "interface".to_string(),
-                            json_to_value(o.get("Name")?.clone()),
-                        );
-                        rec.insert(
-                            "rx_bytes".to_string(),
-                            Value::Int(o.get("ReceivedBytes")?.as_i64().unwrap_or(0)),
-                        );
-                        rec.insert(
-                            "tx_bytes".to_string(),
-                            Value::Int(o.get("SentBytes")?.as_i64().unwrap_or(0)),
-                        );
-                        rec.insert(
-                            "rx_packets".to_string(),
-                            Value::Int(o.get("ReceivedUnicastPackets")?.as_i64().unwrap_or(0)),
-                        );
-                        rec.insert(
-                            "tx_packets".to_string(),
-                            Value::Int(o.get("SentUnicastPackets")?.as_i64().unwrap_or(0)),
-                        );
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                return Ok(Value::Array(interfaces));
-            }
-        }
-    }
-    Ok(Value::Null)
+    Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
 }
 
-fn bi_net_latency(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let host = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "net_latency",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    // Security: validate host to prevent command injection
-    let host = validate_hostname_or_ip(&host)?;
-
-    let start = std::time::Instant::now();
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("ping")
-            .args(["-n", "1", &host])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_latency", "ping", &e))?;
-        if output.status.success() {
-            let elapsed = start.elapsed().as_millis();
-            return Ok(Value::Int(elapsed as i64));
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("ping")
-            .args(["-c", "1", &host])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("net_latency", "ping", &e))?;
-        if output.status.success() {
-            let elapsed = start.elapsed().as_millis();
-            return Ok(Value::Int(elapsed as i64));
-        }
-    }
-    Ok(Value::Null)
+fn bi_net_bandwidth(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_bandwidth";
+    no_args_or_input(NAME, &args, &input)?;
+    net_cap(NAME, net_counter_rows(NAME)?)
 }
 
-fn bi_net_scan(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Port scanning requires more complex implementation
-    Ok(Value::Str(
-        "Port scanning not implemented for security reasons".to_string(),
+#[cfg(target_os = "linux")]
+fn net_counter_rows(name: &str) -> Result<Vec<Value>> {
+    let path = "/proc/net/dev";
+    let text =
+        std::fs::read_to_string(path).map_err(|e| crate::safety::fs_error(name, path, &e))?;
+    let mut rows = Vec::new();
+    // Two header lines. Each interface row is `name: ` then 16 counters, of
+    // which the 1st, 2nd, 9th and 10th are the receive and transmit totals.
+    for line in text.lines().skip(2) {
+        let Some((iface, rest)) = line.split_once(':') else {
+            return Err(net_unparsed(name, "/proc/net/dev"));
+        };
+        let f: Vec<&str> = rest.split_whitespace().collect();
+        if f.len() < 10 {
+            return Err(net_unparsed(name, "/proc/net/dev"));
+        }
+        let counter = |s: &str| -> Result<i64> {
+            s.parse::<i64>()
+                .map_err(|_| net_unparsed(name, "/proc/net/dev"))
+        };
+        rows.push(net_record(vec![
+            ("interface", Value::Str(iface.trim().to_string())),
+            ("rx_bytes", Value::Int(counter(f[0])?)),
+            ("rx_packets", Value::Int(counter(f[1])?)),
+            ("tx_bytes", Value::Int(counter(f[8])?)),
+            ("tx_packets", Value::Int(counter(f[9])?)),
+        ]));
+    }
+    Ok(rows)
+}
+
+#[cfg(target_os = "macos")]
+fn net_counter_rows(name: &str) -> Result<Vec<Value>> {
+    let out = net_run(name, "netstat", &["-ib"], NET_TOOL_SECS)?;
+    net_checked(name, "netstat", &out)?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut rows = Vec::new();
+    // Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes
+    for line in text.lines().skip(1).filter(|l| !l.trim().is_empty()) {
+        let p: Vec<&str> = line.split_whitespace().collect();
+        if p.len() < 10 {
+            continue;
+        }
+        let num = |s: &str| -> Result<i64> {
+            s.parse::<i64>().map_err(|_| net_unparsed(name, "netstat"))
+        };
+        rows.push(net_record(vec![
+            ("interface", Value::Str(p[0].to_string())),
+            ("rx_bytes", Value::Int(num(p[6])?)),
+            ("rx_packets", Value::Int(num(p[4])?)),
+            ("tx_bytes", Value::Int(num(p[9])?)),
+            ("tx_packets", Value::Int(num(p[7])?)),
+        ]));
+    }
+    Ok(rows)
+}
+
+#[cfg(windows)]
+fn net_counter_rows(name: &str) -> Result<Vec<Value>> {
+    let script = "Get-NetAdapterStatistics | Select-Object Name,ReceivedBytes,SentBytes,ReceivedUnicastPackets,SentUnicastPackets | ConvertTo-Json";
+    let out = net_run(
+        name,
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script],
+        NET_TOOL_SECS,
+    )?;
+    net_checked(name, "powershell", &out)?;
+    let mut rows = Vec::new();
+    for item in net_ps_items(name, &out.stdout)? {
+        let Some(o) = item.as_object() else {
+            return Err(net_unparsed(name, "powershell"));
+        };
+        let count = |key: &str| o.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
+        rows.push(net_record(vec![
+            ("interface", Value::Str(net_str_field(o, "Name"))),
+            ("rx_bytes", Value::Int(count("ReceivedBytes"))),
+            ("tx_bytes", Value::Int(count("SentBytes"))),
+            ("rx_packets", Value::Int(count("ReceivedUnicastPackets"))),
+            ("tx_packets", Value::Int(count("SentUnicastPackets"))),
+        ]));
+    }
+    Ok(rows)
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn net_counter_rows(name: &str) -> Result<Vec<Value>> {
+    Err(crate::safety::unimplemented(
+        name,
+        "interface counters are not read on this platform",
+        "run on Windows, Linux or macOS",
     ))
 }
 
-fn bi_net_whois(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let domain = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "net_whois",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
+fn bi_net_whois(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_whois";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "no pipeline input",
+            "piped input",
+        ));
+    }
+    let domain = net_host(NAME, &args, 0)?;
+    net_refuse_in_transaction(NAME)?;
+    let out = net_run(NAME, "whois", &[domain.as_str()], NET_TOOL_SECS)?;
+    net_checked(NAME, "whois", &out)?;
+    let full = String::from_utf8_lossy(&out.stdout).to_string();
+    let truncated = full.len() > WHOIS_RAW_MAX;
+    let text: &str = if truncated {
+        let mut end = WHOIS_RAW_MAX;
+        while !full.is_char_boundary(end) {
+            end -= 1;
         }
+        &full[..end]
+    } else {
+        &full
     };
-
-    // Security: validate domain to prevent command injection
-    let domain = validate_hostname_or_ip(&domain)?;
-
-    let output = std::process::Command::new("whois").arg(&domain).output();
-
-    match output {
-        Ok(out) if out.status.success() => {
-            let text = String::from_utf8_lossy(&out.stdout).to_string();
-            let mut rec = std::collections::BTreeMap::new();
-            rec.insert("domain".to_string(), Value::Str(domain.to_string()));
-            // Parse common WHOIS fields
-            for line in text.lines() {
-                let line = line.trim();
-                if let Some((key, val)) = line.split_once(':') {
-                    let key = key.trim().to_lowercase().replace([' ', '-'], "_");
-                    let val = val.trim().to_string();
-                    if !val.is_empty() {
-                        match key.as_str() {
-                            "registrar" => {
-                                rec.insert("registrar".to_string(), Value::Str(val));
-                            }
-                            "creation_date" | "created" => {
-                                rec.insert("creation_date".to_string(), Value::Str(val));
-                            }
-                            "registry_expiry_date" | "expiration_date" | "expires" => {
-                                rec.insert("expiration_date".to_string(), Value::Str(val));
-                            }
-                            "updated_date" => {
-                                rec.insert("updated_date".to_string(), Value::Str(val));
-                            }
-                            "domain_status" => {
-                                let statuses = rec
-                                    .entry("status".to_string())
-                                    .or_insert_with(|| Value::Array(vec![]));
-                                if let Value::Array(arr) = statuses {
-                                    arr.push(Value::Str(
-                                        val.split_whitespace().next().unwrap_or(&val).to_string(),
-                                    ));
-                                }
-                            }
-                            "name_server" => {
-                                let ns = rec
-                                    .entry("name_servers".to_string())
-                                    .or_insert_with(|| Value::Array(vec![]));
-                                if let Value::Array(arr) = ns {
-                                    arr.push(Value::Str(val.to_lowercase()));
-                                }
-                            }
-                            "registrant_organization" | "registrant_org" => {
-                                rec.insert("registrant_org".to_string(), Value::Str(val));
-                            }
-                            "registrant_country" => {
-                                rec.insert("registrant_country".to_string(), Value::Str(val));
-                            }
-                            "dnssec" => {
-                                rec.insert("dnssec".to_string(), Value::Str(val));
-                            }
-                            _ => {}
-                        }
-                    }
+    let mut rec = NetRecord::new();
+    rec.insert("domain".to_string(), Value::Str(domain.clone()));
+    for line in text.lines() {
+        let Some((key, val)) = line.trim().split_once(':') else {
+            continue;
+        };
+        let key = key.trim().to_lowercase().replace([' ', '-'], "_");
+        let val = val.trim().to_string();
+        if val.is_empty() {
+            continue;
+        }
+        match key.as_str() {
+            "registrar" => {
+                rec.insert("registrar".to_string(), Value::Str(val));
+            }
+            "creation_date" | "created" => {
+                rec.insert("creation_date".to_string(), Value::Str(val));
+            }
+            "registry_expiry_date" | "expiration_date" | "expires" => {
+                rec.insert("expiration_date".to_string(), Value::Str(val));
+            }
+            "updated_date" => {
+                rec.insert("updated_date".to_string(), Value::Str(val));
+            }
+            "domain_status" => {
+                let statuses = rec
+                    .entry("status".to_string())
+                    .or_insert_with(|| Value::Array(vec![]));
+                if let Value::Array(arr) = statuses {
+                    arr.push(Value::Str(
+                        val.split_whitespace().next().unwrap_or(&val).to_string(),
+                    ));
                 }
             }
-            rec.insert("raw".to_string(), Value::Str(text));
-            Ok(Value::Record(rec))
+            "name_server" => {
+                let ns = rec
+                    .entry("name_servers".to_string())
+                    .or_insert_with(|| Value::Array(vec![]));
+                if let Value::Array(arr) = ns {
+                    arr.push(Value::Str(val.to_lowercase()));
+                }
+            }
+            "registrant_organization" | "registrant_org" => {
+                rec.insert("registrant_org".to_string(), Value::Str(val));
+            }
+            "registrant_country" => {
+                rec.insert("registrant_country".to_string(), Value::Str(val));
+            }
+            "dnssec" => {
+                rec.insert("dnssec".to_string(), Value::Str(val));
+            }
+            _ => {}
         }
-        _ => Ok(Value::Null),
     }
+    rec.insert("raw".to_string(), Value::Str(text.to_string()));
+    rec.insert("raw_truncated".to_string(), Value::Bool(truncated));
+    Ok(Value::Record(rec))
+}
+
+/// The address a net_scan call probes. Only this machine is probed: localhost,
+/// 127.0.0.1 and ::1 (brackets allowed). Any other host is refused by policy
+/// with E_POLICY_DENY, whatever AETHER_NET_ALLOW says, because a port scan of
+/// a remote host is reconnaissance rather than a request the shell should make.
+fn net_loopback(name: &str, args: &[Value]) -> Result<std::net::IpAddr> {
+    let host = net_host(name, args, 0)?;
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    let ip = if bare.eq_ignore_ascii_case("localhost") {
+        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+    } else {
+        bare.parse::<std::net::IpAddr>().map_err(|_| {
+            crate::safety::policy_deny(
+                name,
+                format!("{host} is not this machine; {name} only probes loopback"),
+                "scan localhost, 127.0.0.1 or ::1",
+            )
+        })?
+    };
+    if !ip.is_loopback() {
+        return Err(crate::safety::policy_deny(
+            name,
+            format!("{host} is not a loopback address; {name} only probes this machine"),
+            "scan localhost, 127.0.0.1 or ::1; this builtin does not probe other hosts",
+        ));
+    }
+    Ok(ip)
+}
+
+/// Ports probed at once. Each connect has its own thread, so a batch costs one
+/// connect's wait, not one per port.
+const NET_SCAN_BATCH: i64 = 128;
+
+/// The state a connect attempt reports: open when it was accepted, closed when
+/// it was refused, filtered when no answer came within the wait.
+///
+/// `TcpStream::connect_timeout` is not used. On Windows it reports a refused
+/// loopback connect as a timeout, so a closed port would read as filtered.
+fn net_state(
+    name: &str,
+    port: i64,
+    answer: std::result::Result<
+        std::io::Result<std::net::TcpStream>,
+        std::sync::mpsc::RecvTimeoutError,
+    >,
+) -> Result<&'static str> {
+    match answer {
+        Ok(Ok(_accepted)) => Ok("open"),
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => Ok("closed"),
+        Ok(Err(e)) => Err(anyhow::Error::new(crate::safety::SafetyError {
+            code: crate::safety::ErrorCode::Io,
+            message: format!("{name}: probing port {port} failed: {e}"),
+            builtin: name.to_string(),
+            hint: "the loopback connect failed for a reason other than refusal; the port state is unknown".to_string(),
+            approval: None,
+            did_you_mean: Vec::new(),
+            expected: "an accepted or refused connect".to_string(),
+            got: format!("{:?}", e.kind()),
+        })),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok("filtered"),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err(anyhow::Error::new(crate::safety::SafetyError {
+                code: crate::safety::ErrorCode::Io,
+                message: format!("{name}: probing port {port} ended without an answer"),
+                builtin: name.to_string(),
+                hint: "the connect thread stopped before reporting; the port state is unknown"
+                    .to_string(),
+                approval: None,
+                did_you_mean: Vec::new(),
+                expected: "an accepted or refused connect".to_string(),
+                got: "no answer".to_string(),
+            }))
+        }
+    }
+}
+
+/// net_scan(host, first_port, last_port [, timeout_ms]): the state of each TCP
+/// port in an inclusive range on this machine, as {port, state} records with
+/// state open, closed or filtered.
+///
+/// Ports are probed 128 at a time; a batch waits at most one timeout, and the
+/// whole call is bounded at 30 s, checked between batches. Only 1024 ports may
+/// be asked for in one call. Probing another host is refused; see net_loopback.
+fn bi_net_scan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "net_scan";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "no pipeline input",
+            "piped input",
+        ));
+    }
+    let ip = net_loopback(NAME, &args)?;
+    let first = net_int(NAME, &args, 1, None, 1, 65535)?;
+    let last = net_int(NAME, &args, 2, None, 1, 65535)?;
+    let timeout_ms = net_int(NAME, &args, 3, Some(3000), 1, 10000)?;
+    if first > last {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "first_port <= last_port",
+            &format!("{first}..{last}"),
+        ));
+    }
+    let count = last - first + 1;
+    if count > NET_SCAN_MAX_PORTS {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            &format!("a range of at most {NET_SCAN_MAX_PORTS} ports"),
+            &format!("{count} ports"),
+        ));
+    }
+    net_refuse_in_transaction(NAME)?;
+    let started = std::time::Instant::now();
+    let deadline = std::time::Duration::from_secs(NET_SCAN_DEADLINE_SECS);
+    let wait = std::time::Duration::from_millis(timeout_ms as u64);
+    let mut rows = Vec::with_capacity(count as usize);
+    let mut batch_start = first;
+    while batch_start <= last {
+        if started.elapsed() > deadline {
+            return Err(crate::safety::budget_exceeded(
+                NAME,
+                format!(
+                    "stopped after {} of {count} ports at the {NET_SCAN_DEADLINE_SECS} s limit",
+                    rows.len()
+                ),
+                "scan a narrower port range, or a shorter timeout_ms",
+            ));
+        }
+        let batch_end = (batch_start + NET_SCAN_BATCH - 1).min(last);
+        // Every connect in the batch starts now, so they share one wait.
+        let pending: Vec<_> = (batch_start..=batch_end)
+            .map(|port| {
+                let (sender, receiver) = std::sync::mpsc::channel();
+                let addr = std::net::SocketAddr::new(ip, port as u16);
+                std::thread::spawn(move || {
+                    let _ = sender.send(std::net::TcpStream::connect(addr));
+                });
+                (port, receiver)
+            })
+            .collect();
+        let batch_deadline = std::time::Instant::now() + wait;
+        for (port, receiver) in pending {
+            let remaining = batch_deadline.saturating_duration_since(std::time::Instant::now());
+            let state = net_state(NAME, port, receiver.recv_timeout(remaining))?;
+            rows.push(net_record(vec![
+                ("port", Value::Int(port)),
+                ("state", Value::Str(state.to_string())),
+            ]));
+        }
+        batch_start = batch_end + 1;
+    }
+    Ok(Value::Array(rows))
 }
 
 // ============================================================================
