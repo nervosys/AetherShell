@@ -7042,63 +7042,88 @@ fn bi_job_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(job_list))
 }
 
-/// remote_exec(node_id, command) - **Stub.** Validates that `node_id` is a
-/// registered cluster node and echoes the request back with
-/// `status: "simulated"` and `simulated: true`. It does **not** run anything:
-/// there is no SSH/RPC transport behind it. Use `ssh_exec` for real remote
-/// execution (which is effect-tagged `Exec` and approval-gated in agent mode).
+/// remote_exec(node_id, command), or the same two fields as a Record piped in:
+/// not implemented. No SSH or cluster transport is wired, so the command is not
+/// sent to the node. Once it is, the remote node runs `command` through its
+/// login shell, because ssh hands the string to the remote shell; a caller must
+/// treat `command` as shell input. Arguments are checked first: a plain node
+/// name, a non-empty command of at most 8 KiB, and a node that is registered.
 fn bi_remote_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let (node_id, command) = if let Some(Value::Record(rec)) = input {
-        let node_id = rec
-            .get("node_id")
-            .map(|v| v.to_display_string())
-            .ok_or_else(|| crate::safety::arg_err("remote_exec: missing 'node_id'"))?;
-        let command = rec
-            .get("command")
-            .map(|v| v.to_display_string())
-            .ok_or_else(|| crate::safety::arg_err("remote_exec: missing 'command'"))?;
-        (node_id, command)
-    } else if args.len() >= 2 {
-        (args[0].to_display_string(), args[1].to_display_string())
-    } else {
-        return Err(crate::safety::arg_err(
-            "remote_exec: requires node_id and command",
-        ));
+    const B: &str = "remote_exec";
+    let (node, command) = match input {
+        Some(Value::Record(rec)) => {
+            if !args.is_empty() {
+                return Err(crate::safety::arg_err(
+                    "remote_exec: give the node and command as arguments or as a piped Record, not both",
+                ));
+            }
+            for key in rec.keys() {
+                if key != "node_id" && key != "command" {
+                    return Err(crate::safety::arg_err(format!(
+                        "remote_exec: unknown field {key:?}; the fields are node_id and command"
+                    )));
+                }
+            }
+            let text = |field: &str| -> Result<String> {
+                match rec.get(field) {
+                    Some(Value::Str(s)) => Ok(s.clone()),
+                    Some(other) => Err(crate::safety::arg_err(format!(
+                        "remote_exec: {field} must be a String, got {}",
+                        other.type_name()
+                    ))),
+                    None => Err(crate::safety::arg_err(format!(
+                        "remote_exec: missing '{field}'"
+                    ))),
+                }
+            };
+            (text("node_id")?, text("command")?)
+        }
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "remote_exec: a piped input must be a Record with node_id and command, got {}",
+                other.type_name()
+            )))
+        }
+        None => {
+            k8s_max_args(B, &args, 2)?;
+            let node = k8s_need(B, "a node id", &args, 0, pkg_plain)?;
+            let command = match args.get(1) {
+                Some(Value::Str(s)) => s.clone(),
+                Some(other) => {
+                    return Err(crate::safety::arg_err(format!(
+                        "remote_exec: command must be a String, got {}",
+                        other.type_name()
+                    )))
+                }
+                None => {
+                    return Err(crate::safety::arg_err(
+                        "remote_exec requires node_id and command",
+                    ))
+                }
+            };
+            (node, command)
+        }
     };
-
-    let nodes = CLUSTER_NODES
-        .read()
-        .map_err(|e| anyhow!("remote_exec: lock error: {}", e))?;
-
-    if !nodes.contains_key(&node_id) {
-        return Err(crate::safety::not_found(
-            "remote_exec",
-            "node",
-            &node_id.to_string(),
-        ));
+    let node_id = pkg_plain(B, "node id", &node)?;
+    if command.trim().is_empty() || command.contains('\0') || command.len() > OPS_MAX_COMMAND {
+        return Err(crate::safety::arg_err(format!(
+            "remote_exec: command must be non-empty, without NUL, and at most {OPS_MAX_COMMAND} bytes"
+        )));
     }
-
-    // This does NOT execute anything — there is no SSH/RPC transport behind it.
-    // It previously reported `status: "executed"`, which told an agent its command
-    // had run on the remote node. An agent acting on that would believe a service
-    // was restarted, a file written, a deploy done. Report the truth instead:
-    // `simulated`, with an explicit boolean so the answer is branchable rather
-    // than something the caller has to infer from prose.
-    let mut record = BTreeMap::new();
-    record.insert("node_id".to_string(), Value::Str(node_id));
-    record.insert("command".to_string(), Value::Str(command));
-    record.insert("status".to_string(), Value::Str("simulated".to_string()));
-    record.insert("simulated".to_string(), Value::Bool(true));
-    record.insert(
-        "output".to_string(),
-        Value::Str(
-            "remote_exec is a stub: the command was NOT run. Use ssh_exec for real \
-             remote execution."
-                .to_string(),
+    let known = CLUSTER_NODES
+        .read()
+        .map_err(|e| anyhow!("remote_exec: lock error: {}", e))?
+        .contains_key(&node_id);
+    if !known {
+        return Err(crate::safety::not_found(B, "node", &node_id));
+    }
+    Err(crate::safety::unimplemented(
+        B,
+        &format!(
+            "the command was not sent to node {node_id:?}: no SSH or cluster transport is wired"
         ),
-    );
-
-    Ok(Value::Record(record))
+        "use ssh_exec for a remote command",
+    ))
 }
 
 /// aggregate_results(results, strategy?) - Aggregate results from distributed computation
@@ -30502,36 +30527,26 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_pkg_changelog(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let package = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "pkg_changelog",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    crate::safety::reject_option_like("pkg_changelog", std::slice::from_ref(&package))?;
-    let pm = detect_package_manager();
-
-    let output = match pm {
-        "apt" => std::process::Command::new("apt-get")
-            .args(["changelog", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_changelog", "apt-get", &e))?,
-        other => return Err(pkg_unsupported("pkg_changelog", other)),
-    };
-    let program = match pm {
+/// pkg_changelog(package): apt-get changelog for a package, as text. Only apt is
+/// supported. A changelog fetch reaches the network, and its output is bounded.
+fn bi_pkg_changelog(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "pkg_changelog";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let package = k8s_need(B, "a package name", &args, 0, pkg_plain)?;
+    let program = match detect_package_manager() {
         "apt" => "apt-get",
-        other => other,
+        other => return Err(pkg_unsupported(B, other)),
     };
-    pkg_succeeded("pkg_changelog", program, &output)?;
-
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).to_string(),
-    ))
+    let run = tool_run(
+        B,
+        program,
+        None,
+        &["changelog", package.as_str()],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    Ok(Value::Str(tool_text(B, run)?))
 }
 
 fn bi_pkg_hold(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -48739,37 +48754,419 @@ fn detect_hypervisor() -> &'static str {
 // [removed duplicate] use crate::builtins::json_to_value;
 
 // ---------------------------------------------------------------------------
-// Helper: run a command, return stdout as String
+// Ansible, cloud, container-scan, forge (gh, glab), rsync and package helpers.
+// Every value a tool receives as an argument passes one of these first, and a
+// call that does not match is refused before any process starts.
 // ---------------------------------------------------------------------------
-fn cloud_run_cmd(program: &str, args: &[&str], dir: Option<&str>) -> Result<String> {
-    let mut cmd = Command::new(program);
-    cmd.args(args);
-    if let Some(d) = dir {
-        cmd.current_dir(d);
-    }
-    let output = cmd
-        .output()
-        .map_err(|e| crate::safety::spawn_error(program, program, &e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!(
-            "`{} {}` failed: {}",
-            program,
-            args.join(" "),
-            stderr
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+
+/// The longest image, transport or remote reference a builtin passes on.
+const OPS_MAX_REF: usize = 512;
+/// The longest event or subcommand name.
+const OPS_MAX_NAME: usize = 64;
+/// The longest command string a remote node would be sent.
+const OPS_MAX_COMMAND: usize = 8192;
+/// The transports skopeo may copy from or inspect. Each names a registry or a
+/// local store; none runs a program.
+const OPS_TRANSPORTS: &[&str] = &[
+    "docker://",
+    "docker-daemon:",
+    "containers-storage:",
+    "docker-archive:",
+    "oci-archive:",
+    "oci:",
+    "dir:",
+];
+/// The transports whose reference is a local path, which must lie in the workspace.
+const OPS_LOCAL_TRANSPORTS: &[&str] = &["docker-archive:", "oci-archive:", "oci:", "dir:"];
+/// Forge flags that open an editor or a browser. A call here must not open either.
+const OPS_FORGE_REFUSED_FLAGS: &[&str] = &["--editor", "-e", "--web", "-w", "--browser"];
+/// Forge subcommands that change a remote.
+const OPS_FORGE_WRITE_VERBS: &[&str] = &[
+    "close", "comment", "create", "edit", "note", "ready", "reopen", "update",
+];
+/// The subcommands `gh pr` accepts. Merge, review and checkout are not offered.
+const GH_PR_VERBS: &[&str] = &[
+    "checks", "close", "comment", "create", "diff", "edit", "list", "ready", "reopen", "status",
+    "view",
+];
+/// The subcommands `gh issue` accepts. Delete, transfer, pin and lock are not offered.
+const GH_ISSUE_VERBS: &[&str] = &[
+    "close", "comment", "create", "edit", "list", "reopen", "status", "view",
+];
+/// The subcommands `gh repo` accepts. Every one that changes a repository is refused.
+const GH_REPO_VERBS: &[&str] = &["list", "view"];
+/// The subcommands `glab mr` accepts. Merge and approve are not offered.
+const GLAB_MR_VERBS: &[&str] = &[
+    "close", "create", "diff", "list", "note", "reopen", "update", "view",
+];
+/// The subcommands `glab issue` accepts. Delete is not offered.
+const GLAB_ISSUE_VERBS: &[&str] = &[
+    "close", "create", "list", "note", "reopen", "update", "view",
+];
+
+/// A cloud call's error for an operation no provider client backs.
+fn cloud_unimplemented(builtin: &str) -> anyhow::Error {
+    crate::safety::unimplemented(
+        builtin,
+        "no cloud provider is wired into AetherShell, so nothing was created, changed or read",
+        "use the provider's own CLI or API",
+    )
 }
 
-// ---------------------------------------------------------------------------
-// Helper: run a command, parse stdout as JSON → Value
-// ---------------------------------------------------------------------------
-fn cloud_run_cmd_json(program: &str, args: &[&str], dir: Option<&str>) -> Result<Value> {
-    let stdout = cloud_run_cmd(program, args, dir)?;
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).map_err(|e| anyhow!("JSON parse error: {}", e))?;
-    Ok(json_to_value(json))
+/// The Record a cloud builtin takes as options: each key one it names, each
+/// value a String. Anything else is refused rather than dropped.
+fn cloud_options(builtin: &str, value: Option<&Value>, keys: &[&str]) -> Result<()> {
+    let opts = match value {
+        None => return Ok(()),
+        Some(Value::Record(map)) => map,
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: options must be a Record, got {}",
+                other.type_name()
+            )))
+        }
+    };
+    for (key, value) in opts {
+        if !keys.contains(&key.as_str()) {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: unknown option {key:?}; the options are {}",
+                keys.join(", ")
+            )));
+        }
+        match value {
+            Value::Str(s) if !s.contains('\0') => {}
+            other => {
+                return Err(crate::safety::arg_err(format!(
+                    "{builtin}: option {key} must be a String, got {}",
+                    other.type_name()
+                )))
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A container image reference: letters, digits and `._-/:@+`, never a leading
+/// `-`. The set has no spaces, quotes or separators a tool would split on.
+fn ops_image_ref(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let reference = pkg_plain(builtin, what, value)?;
+    let well_formed = reference.len() <= OPS_MAX_REF
+        && reference
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-/:@+".contains(c));
+    if !well_formed {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is letters, digits and ._-/:@+, at most {OPS_MAX_REF} characters (got {reference:?})"
+        )));
+    }
+    Ok(reference)
+}
+
+/// A skopeo reference that begins with a transport. A local transport's path
+/// must lie inside the workspace; a registry or daemon reference is checked as
+/// an image reference.
+fn ops_transport(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let text = pkg_plain(builtin, what, value)?;
+    if text.len() > OPS_MAX_REF {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is longer than {OPS_MAX_REF} characters"
+        )));
+    }
+    let Some(&prefix) = OPS_TRANSPORTS.iter().find(|p| text.starts_with(**p)) else {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} {text:?} must name a transport: docker://, docker-daemon:, containers-storage:, docker-archive:, oci-archive:, oci: or dir:"
+        )));
+    };
+    let rest = &text[prefix.len()..];
+    if OPS_LOCAL_TRANSPORTS.contains(&prefix) {
+        // `oci:path:tag`: a colon past a drive letter (index 1) starts the tag.
+        let path = match rest.rfind(':') {
+            Some(at) if at > 1 => &rest[..at],
+            _ => rest,
+        };
+        if path.is_empty() {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: {what} {text:?} names no path"
+            )));
+        }
+        pkg_inside(builtin, path)?;
+    } else {
+        ops_image_ref(builtin, what, rest)?;
+    }
+    Ok(text)
+}
+
+/// A local path an ops tool reads or writes: a plain value, never a URL, and
+/// inside the workspace.
+fn ops_local_path(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let path = pkg_plain(builtin, what, value)?;
+    if path.contains("://") {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} {path:?} is a URL; name a local path inside the workspace"
+        )));
+    }
+    pkg_inside(builtin, &path)?;
+    Ok(path)
+}
+
+/// A local path that must exist: a file, or a directory when `file` is false.
+fn ops_existing_local(builtin: &str, what: &str, value: &str, file: bool) -> Result<String> {
+    let path = ops_local_path(builtin, what, value)?;
+    let base = std::env::current_dir().unwrap_or_else(|_| workspace_root_abs());
+    let full = workspace_path(builtin, &path, &base)?;
+    let present = if file { full.is_file() } else { full.exists() };
+    if !present {
+        return Err(crate::safety::not_found(builtin, what, &path));
+    }
+    Ok(path)
+}
+
+/// A playbook: an existing file inside the workspace.
+fn ops_playbook(builtin: &str, what: &str, value: &str) -> Result<String> {
+    ops_existing_local(builtin, what, value, true)
+}
+
+/// An inventory: an existing file or directory inside the workspace. An inline
+/// host list such as `host1,` is not a path and does not exist, so it is refused.
+fn ops_inventory(builtin: &str, what: &str, value: &str) -> Result<String> {
+    ops_existing_local(builtin, what, value, false)
+}
+
+/// A vault file: an existing file inside the workspace.
+fn ops_vault_file(builtin: &str, what: &str, value: &str) -> Result<String> {
+    ops_existing_local(builtin, what, value, true)
+}
+
+/// A directory to scan: an existing path inside the workspace.
+fn ops_scan_dir(builtin: &str, what: &str, value: &str) -> Result<String> {
+    ops_existing_local(builtin, what, value, false)
+}
+
+/// The action `ansible-vault` runs. Only the three named actions are passed on.
+fn ops_vault_action(builtin: &str, what: &str, value: &str) -> Result<String> {
+    match value {
+        "view" | "encrypt" | "decrypt" => Ok(value.to_string()),
+        other => Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be view, encrypt or decrypt (got {other:?})"
+        ))),
+    }
+}
+
+/// An event or workflow name: letters, digits, `_` and `-`.
+fn ops_event(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let event = pkg_plain(builtin, what, value)?;
+    if event.len() > OPS_MAX_NAME
+        || !event
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is letters, digits, '_' and '-', at most {OPS_MAX_NAME} characters (got {event:?})"
+        )));
+    }
+    Ok(event)
+}
+
+/// Whether an rsync operand names a remote host: a colon before any separator,
+/// other than a drive letter's colon at index 1.
+fn ops_is_remote(value: &str) -> bool {
+    let cut = value.find(['/', '\\']).unwrap_or(value.len());
+    value[..cut].find(':').is_some_and(|at| at > 1)
+}
+
+/// An rsync operand: a local path inside the workspace, or `[user@]host:path` /
+/// `host::module` with a plain host name. A URL is refused, and so is any host
+/// that begins with `-`, which ssh would read as an option.
+fn ops_sync_path(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let text = pkg_plain(builtin, what, value)?;
+    if text.contains("://") {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} {text:?} is a URL; rsync reaches a host as [user@]host:path"
+        )));
+    }
+    if !ops_is_remote(&text) {
+        return ops_local_path(builtin, what, &text);
+    }
+    let colon = text.find(':').unwrap_or(0);
+    let host = text[..colon].rsplit('@').next().unwrap_or("");
+    let well_formed = !host.is_empty()
+        && !host.starts_with('-')
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
+    if !well_formed {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} names host {host:?}, which must be a plain host name"
+        )));
+    }
+    Ok(text)
+}
+
+/// The rsync options Record as flags. No Record means `-az`. A key that is not
+/// named, or a value of the wrong type, is refused rather than dropped.
+fn rsync_flags(builtin: &str, value: Option<&Value>) -> Result<Vec<String>> {
+    let Some(value) = value else {
+        return Ok(vec!["-az".to_string()]);
+    };
+    let Value::Record(opts) = value else {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: options must be a Record, got {}",
+            value.type_name()
+        )));
+    };
+    const FLAGS: [(&str, &str); 5] = [
+        ("archive", "-a"),
+        ("compress", "-z"),
+        ("delete", "--delete"),
+        ("verbose", "-v"),
+        ("progress", "--progress"),
+    ];
+    for key in opts.keys() {
+        if key != "exclude" && !FLAGS.iter().any(|(name, _)| key == name) {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: unknown option {key:?}; the options are archive, compress, delete, verbose, progress and exclude"
+            )));
+        }
+    }
+    let mut flags = Vec::new();
+    for (key, flag) in FLAGS {
+        match opts.get(key) {
+            None | Some(Value::Bool(false)) => {}
+            Some(Value::Bool(true)) => flags.push(flag.to_string()),
+            Some(other) => {
+                return Err(crate::safety::arg_err(format!(
+                    "{builtin}: option {key} must be a Bool, got {}",
+                    other.type_name()
+                )))
+            }
+        }
+    }
+    match opts.get("exclude") {
+        None => {}
+        Some(Value::Str(pattern)) => {
+            let pattern = pkg_plain(builtin, "exclude pattern", pattern)?;
+            flags.push("--exclude".to_string());
+            flags.push(pattern);
+        }
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: option exclude must be a String, got {}",
+                other.type_name()
+            )))
+        }
+    }
+    Ok(flags)
+}
+
+/// `--extra-vars` JSON from a Record of scalars. A key must be an identifier.
+/// A nested value is refused rather than turned into its display text.
+fn ops_extra_vars(builtin: &str, value: Option<&Value>) -> Result<Option<String>> {
+    let map = match value {
+        None => return Ok(None),
+        Some(Value::Record(map)) => map,
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: extra_vars must be a Record, got {}",
+                other.type_name()
+            )))
+        }
+    };
+    if map.len() > PKG_MAX_ITEMS {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: at most {PKG_MAX_ITEMS} extra variables, got {}",
+            map.len()
+        )));
+    }
+    let mut object = serde_json::Map::new();
+    for (key, value) in map {
+        let well_formed = key.len() <= OPS_MAX_NAME
+            && key
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !well_formed {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: a variable name is an identifier of letters, digits and '_' (got {key:?})"
+            )));
+        }
+        let json = match value {
+            Value::Str(s) if !s.contains('\0') => serde_json::Value::String(s.clone()),
+            Value::Int(n) => serde_json::Value::from(*n),
+            Value::Float(f) if f.is_finite() => serde_json::json!(*f),
+            Value::Bool(b) => serde_json::Value::Bool(*b),
+            other => {
+                return Err(crate::safety::arg_err(format!(
+                    "{builtin}: the value for {key} must be a String, Int, Float or Bool, got {}",
+                    other.type_name()
+                )))
+            }
+        };
+        object.insert(key.clone(), json);
+    }
+    serde_json::to_string(&serde_json::Value::Object(object))
+        .map(Some)
+        .map_err(|e| crate::safety::arg_err(format!("{builtin}: extra_vars: {e}")))
+}
+
+/// Whether a forge flag is one this builtin refuses (an editor or browser flag,
+/// bare or with a value).
+fn ops_forge_flag_refused(flag: &str) -> bool {
+    OPS_FORGE_REFUSED_FLAGS
+        .iter()
+        .any(|refused| flag == *refused || flag.starts_with(&format!("{refused}=")))
+}
+
+/// A forge call (gh or glab): one of `verbs` under `group`, then the flags and
+/// values that follow it. A read verb is bounded and deadline'd. A write verb
+/// changes a remote; the central Network gate approves it in agent mode, and it
+/// gets the longer deadline.
+fn ops_forge(
+    builtin: &str,
+    program: &str,
+    group: &str,
+    verbs: &[&str],
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    k8s_no_input(builtin, input)?;
+    let verb =
+        k8s_arg(builtin, "subcommand", args, 0, pkg_plain)?.unwrap_or_else(|| "list".to_string());
+    if !verbs.contains(&verb.as_str()) {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: subcommand must be one of {}, got {verb:?}",
+            verbs.join(", ")
+        )));
+    }
+    let extra = pkg_trailing(builtin, args.get(1..).unwrap_or(&[]))?;
+    if let Some(flag) = extra.iter().find(|a| ops_forge_flag_refused(a.as_str())) {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {flag:?} opens an editor or a browser, which this builtin does not run"
+        )));
+    }
+    let writes = OPS_FORGE_WRITE_VERBS.contains(&verb.as_str());
+    let mut argv: Vec<&str> = vec![group, verb.as_str()];
+    argv.extend(extra.iter().map(String::as_str));
+    let run = if writes {
+        tool_run(
+            builtin,
+            program,
+            None,
+            &argv,
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_LONG_DEADLINE_SECS,
+        )?
+    } else {
+        tool_run(
+            builtin,
+            program,
+            None,
+            &argv,
+            Keep::Head(TOOL_MAX_TEXT),
+            TOOL_DEADLINE_SECS,
+        )?
+    };
+    pkg_done(builtin, run, vec![("subcmd", Value::Str(verb))])
 }
 
 // ===========================================================================
@@ -48960,100 +49357,102 @@ fn bi_terraform_validate(args: Vec<Value>, input: Option<Value>) -> Result<Value
 // Ansible (928-931)
 // ===========================================================================
 
-/// 928 – ansible-playbook <playbook> with optional -i inventory, --extra-vars from Record
-fn bi_ansible_playbook(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let playbook = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "ansible_playbook requires a playbook path",
-            ))
-        }
-    };
-    let mut cmd_args: Vec<String> = vec![playbook];
-
-    // Optional inventory (2nd arg)
-    if let Some(Value::Str(inv)) = args.get(1) {
-        cmd_args.push("-i".into());
-        cmd_args.push(inv.clone());
+/// 928 – ansible_playbook(playbook, [inventory], [extra_vars]): ansible-playbook
+/// on a playbook inside the workspace, returning the tail of its output. The
+/// playbook and inventory must exist inside the workspace, so an inline host
+/// list is refused. extra_vars travel on the command line, where other local
+/// users can read them in a process listing: keep secrets in a vault file.
+/// Runs with a 15 minute deadline; a nonzero exit is E_TOOL_FAILED.
+fn bi_ansible_playbook(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "ansible_playbook";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 3)?;
+    let playbook = k8s_need(B, "a playbook path", &args, 0, ops_playbook)?;
+    let mut argv: Vec<String> = vec![playbook];
+    if let Some(inventory) = k8s_arg(B, "inventory", &args, 1, ops_inventory)? {
+        argv.push("-i".to_string());
+        argv.push(inventory);
     }
-
-    // Optional extra-vars from Record (3rd arg)
-    if let Some(Value::Record(map)) = args.get(2) {
-        let mut extras = serde_json::Map::new();
-        for (k, v) in map.iter() {
-            let jv = match v {
-                Value::Str(s) => serde_json::Value::String(s.clone()),
-                Value::Int(i) => serde_json::Value::Number((*i).into()),
-                Value::Float(f) => serde_json::json!(*f),
-                Value::Bool(b) => serde_json::Value::Bool(*b),
-                _ => serde_json::Value::String(format!("{}", v)),
-            };
-            extras.insert(k.clone(), jv);
-        }
-        let json_str = serde_json::to_string(&serde_json::Value::Object(extras))
-            .map_err(|e| anyhow!("extra-vars serialization: {}", e))?;
-        cmd_args.push("--extra-vars".into());
-        cmd_args.push(json_str);
+    if let Some(vars) = ops_extra_vars(B, args.get(2))? {
+        argv.push("--extra-vars".to_string());
+        argv.push(vars);
     }
-
-    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-    let out = cloud_run_cmd("ansible-playbook", &refs, None)?;
-    Ok(Value::Str(out))
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = tool_run(
+        B,
+        "ansible-playbook",
+        None,
+        &refs,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    Ok(Value::Str(tool_text(B, run)?.trim().to_string()))
 }
 
-/// 929 – ansible-inventory --list -i <inventory> → JSON
-fn bi_ansible_inventory(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let inventory = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "ansible_inventory requires an inventory path",
-            ))
-        }
-    };
-    cloud_run_cmd_json("ansible-inventory", &["--list", "-i", inventory], None)
+/// 929 – ansible_inventory(inventory): ansible-inventory --list for an inventory
+/// inside the workspace, as JSON.
+fn bi_ansible_inventory(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "ansible_inventory";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let inventory = k8s_need(B, "an inventory path", &args, 0, ops_inventory)?;
+    let run = tool_run(
+        B,
+        "ansible-inventory",
+        None,
+        &["--list", "-i", inventory.as_str()],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    tool_json(B, run)
 }
 
-/// 930 – ansible-galaxy install <role>
-fn bi_ansible_galaxy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let role = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "ansible_galaxy requires a role name",
-            ))
-        }
-    };
-    let out = cloud_run_cmd("ansible-galaxy", &["install", role], None)?;
-    Ok(Value::Str(out))
+/// 930 – ansible_galaxy(role): ansible-galaxy install for a role name, a
+/// registry spec or a path inside the workspace. A registry or URL spec is
+/// fetched from the network. A `file:` or `link:` spec is refused.
+fn bi_ansible_galaxy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "ansible_galaxy";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let role = k8s_need(B, "a role name", &args, 0, pkg_spec)?;
+    let run = tool_run(
+        B,
+        "ansible-galaxy",
+        None,
+        &["install", role.as_str()],
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    Ok(Value::Str(tool_text(B, run)?.trim().to_string()))
 }
 
-/// 931 – ansible-vault view/encrypt/decrypt <file>
-fn bi_ansible_vault(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let action = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "ansible_vault requires action (view|encrypt|decrypt)",
-            ))
-        }
-    };
-    let file = match args.get(1) {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(crate::safety::arg_err("ansible_vault requires a file path")),
-    };
-    match action.as_str() {
-        "view" | "encrypt" | "decrypt" => {}
-        other => {
-            return Err(anyhow!(
-                "ansible_vault: unknown action '{}' (use view|encrypt|decrypt)",
-                other
-            ))
-        }
-    }
-    let out = cloud_run_cmd("ansible-vault", &[action.as_str(), file], None)?;
-    Ok(Value::Str(out))
+/// 931 – ansible_vault(action, file): ansible-vault view, encrypt or decrypt on
+/// a file inside the workspace. `view` returns the decrypted text as the
+/// answer, so a secret reaches the caller; `decrypt` leaves the file in plain
+/// text. No vault password is accepted or placed on the command line. Where no
+/// password source is configured, ansible-vault prompts on the terminal, and
+/// the deadline bounds that wait.
+fn bi_ansible_vault(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "ansible_vault";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    let action = k8s_need(
+        B,
+        "an action (view, encrypt or decrypt)",
+        &args,
+        0,
+        ops_vault_action,
+    )?;
+    let file = k8s_need(B, "a vault file path", &args, 1, ops_vault_file)?;
+    let run = tool_run(
+        B,
+        "ansible-vault",
+        None,
+        &[action.as_str(), file.as_str()],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    Ok(Value::Str(tool_text(B, run)?))
 }
 
 // ============================================================================
@@ -51018,63 +51417,44 @@ fn bi_scp_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 // 987: bi_rsync_sync - Rsync synchronization
-fn bi_rsync_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let source = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "rsync_sync: first argument must be source string",
-            ))
-        }
-    };
-    let destination = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "rsync_sync: second argument must be destination string",
-            ))
-        }
-    };
-    let flags = args.get(2);
-    let mut cmd = Command::new("rsync");
-    if let Some(Value::Record(opts)) = flags {
-        if matches!(opts.get("archive"), Some(Value::Bool(true))) {
-            cmd.arg("-a");
-        }
-        if matches!(opts.get("compress"), Some(Value::Bool(true))) {
-            cmd.arg("-z");
-        }
-        if matches!(opts.get("delete"), Some(Value::Bool(true))) {
-            cmd.arg("--delete");
-        }
-        if matches!(opts.get("verbose"), Some(Value::Bool(true))) {
-            cmd.arg("-v");
-        }
-        if matches!(opts.get("progress"), Some(Value::Bool(true))) {
-            cmd.arg("--progress");
-        }
-        if let Some(Value::Str(exclude)) = opts.get("exclude") {
-            cmd.arg("--exclude").arg(exclude);
-        }
-    } else {
-        // Default: archive mode with compression
-        cmd.arg("-az");
-    }
-    cmd.arg(&source).arg(&destination);
-    let output = cmd
-        .output()
-        .map_err(|e| anyhow!("rsync_sync: failed: {}", e))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let mut map = BTreeMap::new();
-    map.insert("success".to_string(), Value::Bool(output.status.success()));
-    map.insert("source".to_string(), Value::Str(source));
-    map.insert("destination".to_string(), Value::Str(destination));
-    map.insert("stdout".to_string(), Value::Str(stdout));
-    if !output.status.success() {
-        map.insert("error".to_string(), Value::Str(stderr));
-    }
-    Ok(Value::Record(map))
+
+/// 987 – rsync_sync(source, destination, [options]): rsync with a local path
+/// inside the workspace or a `[user@]host:path` remote spec on either side. The
+/// options Record names archive, compress, delete, verbose, progress and exclude;
+/// with no Record the default is `-az`. A nonzero exit is E_TOOL_FAILED. Runs
+/// with a 15 minute deadline. `delete` removes files on the destination.
+fn bi_rsync_sync(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "rsync_sync";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 3)?;
+    let source = k8s_need(B, "a source path or remote spec", &args, 0, ops_sync_path)?;
+    let destination = k8s_need(
+        B,
+        "a destination path or remote spec",
+        &args,
+        1,
+        ops_sync_path,
+    )?;
+    let mut argv = rsync_flags(B, args.get(2))?;
+    argv.push(source.clone());
+    argv.push(destination.clone());
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = tool_run(
+        B,
+        "rsync",
+        None,
+        &refs,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    pkg_done(
+        B,
+        run,
+        vec![
+            ("source", Value::Str(source)),
+            ("destination", Value::Str(destination)),
+        ],
+    )
 }
 
 // ============================================================================
@@ -53942,90 +54322,16 @@ fn get_current_username() -> String {
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
-/// **Stub.** Records a deployment *intent* locally and returns it with
-/// `status: "simulated"` and `simulated: true`. It contacts no cloud provider —
-/// there is no client or subprocess behind it.
-/// Usage: cloud.deploy(name, {script?, instance_id?, region?})
-fn bi_cloud_deploy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "cloud.deploy requires a deployment name",
-            ))
-        }
-    };
-    let opts = match args.get(1) {
-        Some(Value::Record(r)) => r.clone(),
-        _ => BTreeMap::new(),
-    };
-
-    let deploy_id = uuid::Uuid::new_v4().to_string();
-    let region = opts
-        .get("region")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .or_else(|| {
-            CLOUD_CONFIG
-                .read()
-                .ok()
-                .and_then(|c| c.as_ref().map(|cc| cc.region.clone()))
-        })
-        .unwrap_or_else(|| "us-east-1".to_string());
-    let instance_id = opts.get("instance_id").and_then(|v| {
-        if let Value::Str(s) = v {
-            Some(s.clone())
-        } else {
-            None
-        }
-    });
-
-    // If target instance specified, verify it exists
-    if let Some(ref iid) = instance_id {
-        let instances = CLOUD_INSTANCES
-            .read()
-            .map_err(|e| anyhow!("lock error: {}", e))?;
-        if !instances.contains_key(iid) {
-            return Err(crate::safety::not_found(
-                "",
-                "cloud instance",
-                &iid.to_string(),
-            ));
-        }
-    }
-
-    // Nothing above contacts a cloud provider — this function has no HTTP client
-    // and spawns no process. It previously reported `status: "deployed"` with a
-    // freshly minted UUID, which reads to an agent (and to a human skimming a
-    // log) as a completed deployment. Same defect as `remote_exec` claiming
-    // `status: "executed"`. Report what actually happened.
-    let mut rec = BTreeMap::new();
-    rec.insert("deploy_id".to_string(), Value::Str(deploy_id));
-    rec.insert("name".to_string(), Value::Str(name));
-    rec.insert("region".to_string(), Value::Str(region));
-    rec.insert("status".to_string(), Value::Str("simulated".to_string()));
-    rec.insert("simulated".to_string(), Value::Bool(true));
-    rec.insert(
-        "note".to_string(),
-        Value::Str(
-            "cloud_deploy is a stub: no deployment was created. It records intent \
-             locally only."
-                .to_string(),
-        ),
-    );
-    if let Some(iid) = instance_id {
-        rec.insert("instance_id".to_string(), Value::Str(iid));
-    }
-    rec.insert(
-        "timestamp".to_string(),
-        Value::Str(chrono::Local::now().to_rfc3339()),
-    );
-    Ok(Value::Record(rec))
+/// 844 – cloud_deploy(name, [options]): not implemented. No cloud provider
+/// client is wired in, so no deployment is created. The name and options are
+/// checked first, so a malformed call is refused as an argument error.
+fn bi_cloud_deploy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "cloud_deploy";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    k8s_need(B, "a deployment name", &args, 0, pkg_plain)?;
+    cloud_options(B, args.get(1), &["region", "instance_id", "script"])?;
+    Err(cloud_unimplemented(B))
 }
 
 /// List all cloud instances.
@@ -54066,227 +54372,54 @@ fn bi_cloud_instances(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     Ok(Value::Array(entries))
 }
 
-/// Create a new cloud instance.
-/// Usage: cloud.instance_create(name, {region?, type?, workspace?})
-fn bi_cloud_instance_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "cloud.instance_create requires instance name",
-            ))
-        }
-    };
-    let opts = match args.get(1) {
-        Some(Value::Record(r)) => r.clone(),
-        _ => BTreeMap::new(),
-    };
-
-    let config_guard = CLOUD_CONFIG
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    let region = opts
-        .get("region")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .or_else(|| config_guard.as_ref().map(|c| c.region.clone()))
-        .unwrap_or_else(|| "us-east-1".to_string());
-    let instance_type = opts
-        .get("type")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .or_else(|| {
-            config_guard
-                .as_ref()
-                .map(|c| c.default_instance_type.clone())
-        })
-        .unwrap_or_else(|| "ae.small".to_string());
-    let workspace_id = opts.get("workspace").and_then(|v| {
-        if let Value::Str(s) = v {
-            Some(s.clone())
-        } else {
-            None
-        }
-    });
-    drop(config_guard);
-
-    let id = uuid::Uuid::new_v4().to_string();
-    let address = format!("{}.{}.aether.cloud", &id[..8], region);
-    let instance = CloudInstance {
-        id: id.clone(),
-        name: name.clone(),
-        region: region.clone(),
-        instance_type: instance_type.clone(),
-        status: CloudInstanceStatus::Running,
-        address: Some(address.clone()),
-        created_at: chrono::Local::now().to_rfc3339(),
-        owner: get_current_username(),
-        workspace_id,
-    };
-
-    let mut instances = CLOUD_INSTANCES
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    instances.insert(id.clone(), instance);
-
-    let mut rec = BTreeMap::new();
-    rec.insert("id".to_string(), Value::Str(id));
-    rec.insert("name".to_string(), Value::Str(name));
-    rec.insert("region".to_string(), Value::Str(region));
-    rec.insert("instance_type".to_string(), Value::Str(instance_type));
-    rec.insert("status".to_string(), Value::Str("running".to_string()));
-    rec.insert("address".to_string(), Value::Str(address));
-    Ok(Value::Record(rec))
+/// 846 – cloud_instance_create(name, [options]): not implemented, so no instance
+/// is created. Checked first, as cloud_deploy is.
+fn bi_cloud_instance_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "cloud_instance_create";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    k8s_need(B, "an instance name", &args, 0, pkg_plain)?;
+    cloud_options(B, args.get(1), &["region", "type", "workspace"])?;
+    Err(cloud_unimplemented(B))
 }
 
-/// Destroy a cloud instance by ID.
-/// Usage: cloud.instance_destroy(id)
-fn bi_cloud_instance_destroy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "cloud.instance_destroy requires instance ID",
-            ))
-        }
-    };
+/// 847 – cloud_instance_destroy(id): approval-gated in agent mode, then not
+/// implemented. The gate runs first, so the approval a person grants is never
+/// answered by a silent no-op: the call stops with E_UNIMPLEMENTED and nothing
+/// is destroyed.
+fn bi_cloud_instance_destroy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "cloud_instance_destroy";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let id = k8s_need(B, "an instance ID", &args, 0, pkg_plain)?;
     crate::safety::guard(crate::safety::GuardCtx {
-        builtin: "cloud_instance_destroy",
+        builtin: B,
         effect: crate::safety::Effect::Destructive,
-        what: "cloud_instance_destroy",
+        what: B,
         targets: vec![id.clone()],
         blast_radius: serde_json::json!({ "instance": id }),
         reversible: false,
         fs_paths: false,
     })?;
-    let mut instances = CLOUD_INSTANCES
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(mut inst) = instances.remove(&id) {
-        inst.status = CloudInstanceStatus::Terminated;
-        let mut rec = BTreeMap::new();
-        rec.insert("id".to_string(), Value::Str(inst.id));
-        rec.insert("name".to_string(), Value::Str(inst.name));
-        rec.insert("status".to_string(), Value::Str("terminated".to_string()));
-        rec.insert(
-            "destroyed_at".to_string(),
-            Value::Str(chrono::Local::now().to_rfc3339()),
-        );
-        Ok(Value::Record(rec))
-    } else {
-        Err(crate::safety::not_found(
-            "",
-            "cloud instance",
-            &id.to_string(),
-        ))
-    }
+    Err(cloud_unimplemented(B))
 }
 
-/// Get status of a cloud instance.
-/// Usage: cloud.instance_status(id)
-fn bi_cloud_instance_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "cloud.instance_status requires instance ID",
-            ))
-        }
-    };
-    let instances = CLOUD_INSTANCES
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(inst) = instances.get(&id) {
-        let mut rec = BTreeMap::new();
-        rec.insert("id".to_string(), Value::Str(inst.id.clone()));
-        rec.insert("name".to_string(), Value::Str(inst.name.clone()));
-        rec.insert("region".to_string(), Value::Str(inst.region.clone()));
-        rec.insert(
-            "instance_type".to_string(),
-            Value::Str(inst.instance_type.clone()),
-        );
-        rec.insert(
-            "status".to_string(),
-            Value::Str(inst.status.as_str().to_string()),
-        );
-        if let Some(ref addr) = inst.address {
-            rec.insert("address".to_string(), Value::Str(addr.clone()));
-        }
-        rec.insert(
-            "created_at".to_string(),
-            Value::Str(inst.created_at.clone()),
-        );
-        rec.insert("owner".to_string(), Value::Str(inst.owner.clone()));
-        Ok(Value::Record(rec))
-    } else {
-        Err(crate::safety::not_found(
-            "",
-            "cloud instance",
-            &id.to_string(),
-        ))
-    }
+/// 848 – cloud_instance_status(id): not implemented. It has no provider to ask.
+fn bi_cloud_instance_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "cloud_instance_status";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    k8s_need(B, "an instance ID", &args, 0, pkg_plain)?;
+    Err(cloud_unimplemented(B))
 }
 
-/// Connect to a cloud instance for remote shell access.
-/// Usage: cloud.instance_connect(id)
-fn bi_cloud_instance_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "cloud.instance_connect requires instance ID",
-            ))
-        }
-    };
-    let instances = CLOUD_INSTANCES
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(inst) = instances.get(&id) {
-        if inst.status != CloudInstanceStatus::Running {
-            return Err(anyhow!(
-                "instance '{}' is not running (status: {})",
-                id,
-                inst.status.as_str()
-            ));
-        }
-        let session_id = uuid::Uuid::new_v4().to_string();
-        let session = ReplSession {
-            id: session_id.clone(),
-            host: inst.address.clone().unwrap_or_else(|| inst.id.clone()),
-            port: 3002,
-            user: get_current_username(),
-            connected_at: chrono::Local::now().to_rfc3339(),
-            status: "connected".to_string(),
-            workspace_id: inst.workspace_id.clone(),
-        };
-        drop(instances);
-        let mut sessions = REPL_SESSIONS
-            .write()
-            .map_err(|e| anyhow!("lock error: {}", e))?;
-        sessions.insert(session_id.clone(), session);
-
-        let mut rec = BTreeMap::new();
-        rec.insert("session_id".to_string(), Value::Str(session_id));
-        rec.insert("instance_id".to_string(), Value::Str(id));
-        rec.insert("status".to_string(), Value::Str("connected".to_string()));
-        Ok(Value::Record(rec))
-    } else {
-        Err(crate::safety::not_found(
-            "",
-            "cloud instance",
-            &id.to_string(),
-        ))
-    }
+/// 849 – cloud_instance_connect(id): not implemented. No session is opened.
+fn bi_cloud_instance_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "cloud_instance_connect";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    k8s_need(B, "an instance ID", &args, 0, pkg_plain)?;
+    Err(cloud_unimplemented(B))
 }
 
 /// List available cloud regions.
@@ -60308,32 +60441,20 @@ fn bi_uv_venv(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // --- pipx (1054-1055) ---
 
-/// pipx install — Install a Python CLI tool.
-fn bi_pipx_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let package = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "pipx_install requires a package name",
-            ))
-        }
-    };
-    let output = std::process::Command::new("pipx")
-        .args(["install", &package])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("package".to_string(), Value::Str(package));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("pipx", "pipx", &e.to_string())),
-    }
+/// pipx_install(package): pipx install of one package spec. A `file:` or
+/// `link:` spec is refused, and so is a path outside the workspace.
+fn bi_pipx_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "pipx_install";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let package = k8s_need(B, "a package spec", &args, 0, pkg_spec)?;
+    let run = pkg_run(
+        B,
+        "pipx",
+        &["install", package.as_str()],
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    pkg_done(B, run, vec![("package", Value::Str(package))])
 }
 
 /// pipx list — List pipx-installed packages.
@@ -60539,29 +60660,13 @@ fn bi_rustup_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// rustup update — Update Rust toolchains.
-fn bi_rustup_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("rustup").arg("update").output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "rustup",
-            "rustup",
-            &e.to_string(),
-        )),
-    }
+/// rustup_update(): rustup update, which fetches and installs toolchains. It
+/// takes no arguments and no pipeline input.
+fn bi_rustup_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "rustup_update";
+    pkg_shape(B, &args, &input, 0)?;
+    let run = pkg_run(B, "rustup", &["update"], TOOL_LONG_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 // --- go (1070-1072) ---
@@ -60657,250 +60762,63 @@ fn bi_deno_task(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // --- gh (1078-1080) ---
 
-/// gh pr — Manage GitHub pull requests.
-fn bi_gh_pr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let subcmd = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "list".to_string(),
-    };
-    let extra: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("gh");
-    cmd.arg("pr").arg(&subcmd);
-    for a in &extra {
-        cmd.arg(a);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("subcmd".to_string(), Value::Str(subcmd));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("gh", "gh", &e.to_string())),
-    }
+/// gh pr(subcommand, ...): gh pr with one of the listed subcommands. Reads
+/// return the output; writes (create, comment, edit, close, reopen, ready)
+/// change the remote and are approval-gated in agent mode.
+fn bi_gh_pr(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    ops_forge("gh_pr", "gh", "pr", GH_PR_VERBS, &args, &input)
 }
 
-/// gh issue — Manage GitHub issues.
-fn bi_gh_issue(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let subcmd = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "list".to_string(),
-    };
-    let extra: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("gh");
-    cmd.arg("issue").arg(&subcmd);
-    for a in &extra {
-        cmd.arg(a);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("subcmd".to_string(), Value::Str(subcmd));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("gh", "gh", &e.to_string())),
-    }
+/// gh issue(subcommand, ...): gh issue with one of the listed subcommands. Writes
+/// change the remote and are approval-gated in agent mode.
+fn bi_gh_issue(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    ops_forge("gh_issue", "gh", "issue", GH_ISSUE_VERBS, &args, &input)
 }
 
-/// gh repo — Manage GitHub repositories.
-fn bi_gh_repo_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let subcmd = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "list".to_string(),
-    };
-    let extra: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("gh");
-    cmd.arg("repo").arg(&subcmd);
-    for a in &extra {
-        cmd.arg(a);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("subcmd".to_string(), Value::Str(subcmd));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("gh", "gh", &e.to_string())),
-    }
+/// gh repo(subcommand, ...): gh repo list or view only. Every subcommand that
+/// changes a repository is refused.
+fn bi_gh_repo_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    ops_forge("gh_repo_cmd", "gh", "repo", GH_REPO_VERBS, &args, &input)
 }
 
 // --- glab (1081-1082) ---
 
-/// glab mr — Manage GitLab merge requests.
-fn bi_glab_mr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let subcmd = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "list".to_string(),
-    };
-    let extra: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("glab");
-    cmd.arg("mr").arg(&subcmd);
-    for a in &extra {
-        cmd.arg(a);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("subcmd".to_string(), Value::Str(subcmd));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("glab", "glab", &e.to_string())),
-    }
+/// glab mr(subcommand, ...): glab mr with one of the listed subcommands. Writes
+/// change the remote and are approval-gated in agent mode.
+fn bi_glab_mr(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    ops_forge("glab_mr", "glab", "mr", GLAB_MR_VERBS, &args, &input)
 }
 
-/// glab issue — Manage GitLab issues.
-fn bi_glab_issue(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let subcmd = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "list".to_string(),
-    };
-    let extra: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("glab");
-    cmd.arg("issue").arg(&subcmd);
-    for a in &extra {
-        cmd.arg(a);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("subcmd".to_string(), Value::Str(subcmd));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("glab", "glab", &e.to_string())),
-    }
+/// glab issue(subcommand, ...): glab issue with one of the listed subcommands.
+/// Writes change the remote and are approval-gated in agent mode.
+fn bi_glab_issue(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    ops_forge(
+        "glab_issue",
+        "glab",
+        "issue",
+        GLAB_ISSUE_VERBS,
+        &args,
+        &input,
+    )
 }
 
 // --- act (1083) ---
 
-/// act — Run GitHub Actions locally.
-fn bi_act_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let workflow = args.first().and_then(|a| match a {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    });
-    let mut cmd = std::process::Command::new("act");
-    if let Some(w) = &workflow {
-        cmd.arg(w);
+/// act_run([event]): act, which runs GitHub Actions workflows for an event in
+/// Docker containers. The event is a plain name; a leading `-` is refused. A
+/// nonzero exit is E_TOOL_FAILED. Runs with a 15 minute deadline.
+fn bi_act_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "act_run";
+    pkg_shape(B, &args, &input, 1)?;
+    let event = k8s_arg(B, "event", &args, 0, ops_event)?;
+    let mut argv: Vec<&str> = Vec::new();
+    let mut fields: Vec<(&str, Value)> = Vec::new();
+    if let Some(name) = event.as_deref() {
+        argv.push(name);
+        fields.push(("event", Value::Str(name.to_string())));
     }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("act", "act", &e.to_string())),
-    }
+    let run = pkg_run(B, "act", &argv, TOOL_LONG_DEADLINE_SECS)?;
+    pkg_done(B, run, fields)
 }
 
 // --- pre-commit (1084-1085) ---
@@ -60938,44 +60856,23 @@ fn bi_pre_commit_install(args: Vec<Value>, input: Option<Value>) -> Result<Value
 
 // --- buildah (1086-1087) ---
 
-/// buildah build — Build a container image with Buildah.
-fn bi_buildah_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let tag = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "buildah_build requires an image tag",
-            ))
-        }
-    };
-    let context = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("buildah")
-        .args(["bud", "-t", &tag, &context])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("tag".to_string(), Value::Str(tag));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "buildah",
-            "buildah",
-            &e.to_string(),
-        )),
-    }
+/// buildah_build(tag, [context]): buildah bud of a context directory inside the
+/// workspace, tagged `tag`. A URL or git context is refused. Runs with a 15
+/// minute deadline.
+fn bi_buildah_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "buildah_build";
+    pkg_shape(B, &args, &input, 2)?;
+    let tag = k8s_need(B, "an image tag", &args, 0, ops_image_ref)?;
+    let context = k8s_arg(B, "context", &args, 1, ops_scan_dir)?.unwrap_or_else(|| ".".to_string());
+    let run = tool_run(
+        B,
+        "buildah",
+        None,
+        &["bud", "-t", tag.as_str(), context.as_str()],
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    pkg_done(B, run, vec![("tag", Value::Str(tag))])
 }
 
 /// buildah images — List Buildah images.
@@ -61015,150 +60912,85 @@ fn bi_buildah_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- skopeo (1088-1089) ---
 
-/// skopeo copy — Copy container images between registries.
-fn bi_skopeo_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let src = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "skopeo_copy requires a source image",
-            ))
-        }
-    };
-    let dst = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("skopeo_copy requires a destination")),
-    };
-    let output = std::process::Command::new("skopeo")
-        .args(["copy", &src, &dst])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("src".to_string(), Value::Str(src));
-            rec.insert("dst".to_string(), Value::Str(dst));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "skopeo",
-            "skopeo",
-            &e.to_string(),
-        )),
-    }
+/// skopeo_copy(src, dst): skopeo copy between two transport references. A
+/// registry reference is a network copy; a local transport must name a path
+/// inside the workspace. Runs with a 15 minute deadline.
+fn bi_skopeo_copy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "skopeo_copy";
+    pkg_shape(B, &args, &input, 2)?;
+    let src = k8s_need(B, "a source transport reference", &args, 0, ops_transport)?;
+    let dst = k8s_need(
+        B,
+        "a destination transport reference",
+        &args,
+        1,
+        ops_transport,
+    )?;
+    let run = tool_run(
+        B,
+        "skopeo",
+        None,
+        &["copy", src.as_str(), dst.as_str()],
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    pkg_done(
+        B,
+        run,
+        vec![("src", Value::Str(src)), ("dst", Value::Str(dst))],
+    )
 }
 
-/// skopeo inspect — Inspect a container image.
-fn bi_skopeo_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let image = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "skopeo_inspect requires an image reference",
-            ))
-        }
-    };
-    let output = std::process::Command::new("skopeo")
-        .args(["inspect", &image])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
-            }
-        }
-        Ok(o) => Err(anyhow!(
-            "skopeo inspect failed: {}",
-            String::from_utf8_lossy(&o.stderr)
-        )),
-        Err(e) => Err(crate::safety::tool_missing(
-            "skopeo",
-            "skopeo",
-            &e.to_string(),
-        )),
-    }
+/// skopeo_inspect(image): skopeo inspect of a transport reference, as JSON.
+fn bi_skopeo_inspect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "skopeo_inspect";
+    pkg_shape(B, &args, &input, 1)?;
+    let image = k8s_need(B, "an image transport reference", &args, 0, ops_transport)?;
+    let run = tool_run(
+        B,
+        "skopeo",
+        None,
+        &["inspect", image.as_str()],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    tool_json(B, run)
 }
 
 // --- trivy (1090-1091) ---
 
-/// trivy scan — Scan a filesystem path for vulnerabilities.
-fn bi_trivy_scan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("trivy")
-        .args(["fs", "--format", "json", &path])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
-            }
-        }
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "trivy",
-            "trivy",
-            &e.to_string(),
-        )),
-    }
+/// trivy_scan([path]): trivy fs of a path inside the workspace (default the
+/// workspace directory), as JSON. Trivy may download its vulnerability database.
+fn bi_trivy_scan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "trivy_scan";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = k8s_arg(B, "path", &args, 0, ops_scan_dir)?.unwrap_or_else(|| ".".to_string());
+    let run = tool_run(
+        B,
+        "trivy",
+        None,
+        &["fs", "--format", "json", path.as_str()],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    tool_json(B, run)
 }
 
-/// trivy image — Scan a container image for vulnerabilities.
-fn bi_trivy_image(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let image = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("trivy_image requires an image name")),
-    };
-    let output = std::process::Command::new("trivy")
-        .args(["image", "--format", "json", &image])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => Ok(Value::Str(stdout.trim().to_string())),
-            }
-        }
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "trivy",
-            "trivy",
-            &e.to_string(),
-        )),
-    }
+/// trivy_image(image): trivy image scan of a container image, as JSON. Trivy
+/// pulls the image from its registry.
+fn bi_trivy_image(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "trivy_image";
+    pkg_shape(B, &args, &input, 1)?;
+    let image = k8s_need(B, "an image name", &args, 0, ops_image_ref)?;
+    let run = tool_run(
+        B,
+        "trivy",
+        None,
+        &["image", "--format", "json", image.as_str()],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    tool_json(B, run)
 }
 
 // --- hadolint (1092) ---

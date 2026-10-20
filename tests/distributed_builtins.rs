@@ -420,7 +420,9 @@ fn test_remote_exec() {
     )
     .unwrap();
 
-    let result = call(
+    // Not implemented: the call must say so, and must not answer with a record
+    // that reads like a result. See bi_remote_exec.
+    let err = call(
         "remote_exec",
         vec![
             Value::Str("exec-node".to_string()),
@@ -428,19 +430,8 @@ fn test_remote_exec() {
         ],
         &mut env,
     )
-    .unwrap();
-
-    if let Value::Record(rec) = result {
-        // A stub must not claim it executed anything — see bi_remote_exec.
-        assert_eq!(
-            rec.get("status"),
-            Some(&Value::Str("simulated".to_string()))
-        );
-        assert_eq!(rec.get("simulated"), Some(&Value::Bool(true)));
-        assert!(rec.contains_key("output"));
-    } else {
-        panic!("Expected Record, got {:?}", result);
-    }
+    .expect_err("remote_exec must refuse, not answer");
+    assert!(err.to_string().contains("E_UNIMPLEMENTED"), "{err}");
 }
 
 #[test]
@@ -458,7 +449,8 @@ fn test_exec_remote_alias() {
     )
     .unwrap();
 
-    let result = call(
+    // The alias reaches the same refusal as remote_exec.
+    let err = call(
         "exec_remote",
         vec![
             Value::Str("alias-exec-node".to_string()),
@@ -466,16 +458,8 @@ fn test_exec_remote_alias() {
         ],
         &mut env,
     )
-    .unwrap();
-
-    if let Value::Record(rec) = result {
-        assert_eq!(
-            rec.get("status"),
-            Some(&Value::Str("simulated".to_string()))
-        );
-    } else {
-        panic!("Expected Record");
-    }
+    .expect_err("exec_remote must refuse, not answer");
+    assert!(err.to_string().contains("E_UNIMPLEMENTED"), "{err}");
 }
 
 #[test]
