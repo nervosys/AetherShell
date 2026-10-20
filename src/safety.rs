@@ -381,7 +381,14 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // `netstat_info` and `journalctl`.
         "monitor_ethtool" | "monitor_iftop" | "monitor_ip_addr" | "monitor_ip_link"
         | "monitor_ip_route" | "monitor_logins" | "monitor_nethogs" | "monitor_sockets"
-        | "monitor_syslog" | "monitor_users" => Some(Effect::ReadLocal),
+        | "monitor_syslog" | "monitor_users"
+        // In-process system readings, and the alert store read back.
+        | "monitor_alert_history" | "monitor_alert_list" | "monitor_dstat" | "monitor_glances"
+        | "monitor_health_check" | "monitor_htop" | "monitor_iotop" | "monitor_memory"
+        | "monitor_nmon" | "monitor_watch_cpu" | "monitor_watch_disk"
+        | "monitor_watch_memory" => Some(Effect::ReadLocal),
+        // They write the alert store under the data directory.
+        "monitor_alert_create" | "monitor_alert_remove" => Some(Effect::WriteLocal),
         // Reads the user database. It inherited ReadLocal from `sys_users`
         // while it was that builtin's alias; it has its own body now.
         "whoami" => Some(Effect::ReadLocal),
