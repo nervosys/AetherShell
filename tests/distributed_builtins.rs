@@ -215,10 +215,14 @@ fn test_cluster_status() {
 
 // ===================== Job Management Tests =====================
 
+// job_submit refuses: there is no executor, so no job is queued and no job id is
+// issued. The job table therefore stays empty and every lookup in it is a
+// coded refusal.
+
 #[test]
-fn test_job_submit() {
+fn test_job_submit_refuses_without_an_executor() {
     let mut env = Env::new();
-    let result = call(
+    let err = call(
         "job_submit",
         vec![
             Value::Str("test-job".to_string()),
@@ -226,20 +230,14 @@ fn test_job_submit() {
         ],
         &mut env,
     )
-    .unwrap();
-
-    if let Value::Record(rec) = result {
-        assert!(rec.contains_key("job_id"));
-        assert_eq!(rec.get("status"), Some(&Value::Str("pending".to_string())));
-    } else {
-        panic!("Expected Record, got {:?}", result);
-    }
+    .unwrap_err();
+    assert!(err.to_string().contains("E_UNIMPLEMENTED"), "{err}");
 }
 
 #[test]
-fn test_submit_alias() {
+fn test_submit_alias_refuses() {
     let mut env = Env::new();
-    let result = call(
+    let err = call(
         "submit",
         vec![
             Value::Str("alias-job".to_string()),
@@ -247,19 +245,14 @@ fn test_submit_alias() {
         ],
         &mut env,
     )
-    .unwrap();
-
-    if let Value::Record(rec) = result {
-        assert!(rec.contains_key("job_id"));
-    } else {
-        panic!("Expected Record");
-    }
+    .unwrap_err();
+    assert!(err.to_string().contains("E_UNIMPLEMENTED"), "{err}");
 }
 
 #[test]
-fn test_job_submit_with_priority() {
+fn test_job_submit_with_priority_refuses() {
     let mut env = Env::new();
-    let result = call(
+    let err = call(
         "job_submit",
         vec![
             Value::Str("high-priority-job".to_string()),
@@ -268,37 +261,56 @@ fn test_job_submit_with_priority() {
         ],
         &mut env,
     )
-    .unwrap();
+    .unwrap_err();
+    assert!(err.to_string().contains("E_UNIMPLEMENTED"), "{err}");
+}
 
-    if let Value::Record(rec) = result {
-        assert!(rec.contains_key("job_id"));
-    } else {
-        panic!("Expected Record");
-    }
+#[test]
+fn test_job_submit_bad_priority_is_bad_arg() {
+    let mut env = Env::new();
+    let err = call(
+        "job_submit",
+        vec![
+            Value::Str("job".to_string()),
+            Value::Str("task".to_string()),
+            Value::Str("high".to_string()),
+        ],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("E_BAD_ARG"), "{err}");
 }
 
 #[test]
 fn test_job_list() {
+    // Nothing can be submitted, so the list is empty.
     let mut env = Env::new();
+    let result = call("job_list", vec![], &mut env).unwrap();
+    assert_eq!(result, Value::Array(vec![]));
+}
 
-    // Submit a job
-    call(
-        "job_submit",
-        vec![
-            Value::Str("list-test-job".to_string()),
-            Value::Str("task".to_string()),
-        ],
+#[test]
+fn test_job_status() {
+    let mut env = Env::new();
+    let err = call(
+        "job_status",
+        vec![Value::Str("job_none".to_string())],
         &mut env,
     )
-    .unwrap();
+    .unwrap_err();
+    assert!(err.to_string().contains("E_NOT_FOUND"), "{err}");
+}
 
-    let result = call("job_list", vec![], &mut env).unwrap();
-
-    if let Value::Array(jobs) = result {
-        assert!(!jobs.is_empty());
-    } else {
-        panic!("Expected Array, got {:?}", result);
-    }
+#[test]
+fn test_job_cancel() {
+    let mut env = Env::new();
+    let err = call(
+        "job_cancel",
+        vec![Value::Str("job_none".to_string())],
+        &mut env,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("E_NOT_FOUND"), "{err}");
 }
 
 #[test]
@@ -311,62 +323,6 @@ fn test_jobs_alias() {
     } else {
         panic!("Expected Array");
     }
-}
-
-#[test]
-fn test_job_status() {
-    let mut env = Env::new();
-
-    // Submit a job
-    let submit_result = call(
-        "job_submit",
-        vec![
-            Value::Str("status-test".to_string()),
-            Value::Str("task".to_string()),
-        ],
-        &mut env,
-    )
-    .unwrap();
-
-    let job_id = if let Value::Record(rec) = submit_result {
-        rec.get("job_id").cloned().unwrap()
-    } else {
-        panic!("Expected Record");
-    };
-
-    let result = call("job_status", vec![job_id], &mut env).unwrap();
-
-    if let Value::Record(rec) = result {
-        assert!(rec.contains_key("status"));
-        assert!(rec.contains_key("name"));
-    } else {
-        panic!("Expected Record, got {:?}", result);
-    }
-}
-
-#[test]
-fn test_job_cancel() {
-    let mut env = Env::new();
-
-    // Submit a job
-    let submit_result = call(
-        "job_submit",
-        vec![
-            Value::Str("cancel-test".to_string()),
-            Value::Str("long task".to_string()),
-        ],
-        &mut env,
-    )
-    .unwrap();
-
-    let job_id = if let Value::Record(rec) = submit_result {
-        rec.get("job_id").cloned().unwrap()
-    } else {
-        panic!("Expected Record");
-    };
-
-    let result = call("job_cancel", vec![job_id], &mut env).unwrap();
-    assert_eq!(result, Value::Bool(true));
 }
 
 #[test]

@@ -6883,62 +6883,32 @@ fn bi_cluster_nodes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(node_list))
 }
 
-/// job_submit(name, task, priority?) - Submit a job to the cluster
+/// job_submit(name, task, priority?) - Refused. The distributed job table has no
+/// executor behind it: a job submitted here would stay pending for ever, and the
+/// status it reported would be a promise nothing keeps. No job id is issued, and
+/// nothing is run through a shell.
 fn bi_job_submit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let (name, task) = if let Some(Value::Record(rec)) = input.clone() {
-        let name = rec
-            .get("name")
-            .map(|v| v.to_display_string())
-            .ok_or_else(|| crate::safety::arg_err("job_submit: missing 'name'"))?;
-        let task = rec
-            .get("task")
-            .map(|v| v.to_display_string())
-            .ok_or_else(|| crate::safety::arg_err("job_submit: missing 'task'"))?;
-        (name, task)
-    } else if args.len() >= 2 {
-        (args[0].to_display_string(), args[1].to_display_string())
-    } else {
-        return Err(crate::safety::arg_err("job_submit: requires name and task"));
-    };
-
-    let priority = args
-        .get(2)
-        .map(|v| match v {
-            Value::Int(i) => *i as i32,
-            _ => 0,
-        })
-        .unwrap_or(0);
-
-    let job_id = format!(
-        "job_{}",
-        uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
-    );
-
-    let job = DistributedJob {
-        id: job_id.clone(),
-        name,
-        task,
-        node_id: None,
-        status: JobStatus::Pending,
-        priority,
-        created_at: std::time::Instant::now(),
-        started_at: None,
-        completed_at: None,
-    };
-
-    let mut jobs = DISTRIBUTED_JOBS
-        .write()
-        .map_err(|e| anyhow!("job_submit: lock error: {}", e))?;
-    jobs.insert(job_id.clone(), job);
-
-    let mut record = BTreeMap::new();
-    record.insert("job_id".to_string(), Value::Str(job_id));
-    record.insert("status".to_string(), Value::Str("pending".to_string()));
-
-    Ok(Value::Record(record))
+    refuse_piped_subject("job_submit", &input)?;
+    collab_text_arg("job_submit", "name", args.first(), 128)?;
+    collab_text_arg("job_submit", "task", args.get(1), 4096)?;
+    match args.get(2) {
+        None | Some(Value::Int(_)) => {}
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "job_submit",
+                "priority: Int",
+                other.type_name(),
+            ))
+        }
+    }
+    Err(crate::safety::unimplemented(
+        "job_submit",
+        "there is no job executor, so a submitted job would never run and no job id is issued",
+        "run the task directly in this session",
+    ))
 }
 
-/// job_status(job_id) - Get the status of a job
+/// job_status(job_id) - The status of a job in the distributed job table.
 fn bi_job_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
@@ -6969,7 +6939,8 @@ fn bi_job_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(record))
 }
 
-/// job_cancel(job_id) - Cancel a pending or running job
+/// job_cancel(job_id) - Cancel a pending or running job. A job that has already
+/// finished or been cancelled is refused, not reported as a silent false.
 fn bi_job_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let job_id = input
         .or_else(|| args.first().cloned())
@@ -6981,20 +6952,22 @@ fn bi_job_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .write()
         .map_err(|e| anyhow!("job_cancel: lock error: {}", e))?;
 
-    if let Some(job) = jobs.get_mut(&job_id) {
-        match job.status {
-            JobStatus::Pending | JobStatus::Running => {
-                job.status = JobStatus::Cancelled;
-                Ok(Value::Bool(true))
-            }
-            _ => Ok(Value::Bool(false)),
+    let job = jobs
+        .get_mut(&job_id)
+        .ok_or_else(|| crate::safety::not_found("job_cancel", "job", &job_id.to_string()))?;
+    match job.status {
+        JobStatus::Pending | JobStatus::Running => {
+            job.status = JobStatus::Cancelled;
+            Ok(Value::Bool(true))
         }
-    } else {
-        Err(crate::safety::not_found(
+        _ => Err(crate::safety::bad_state(
             "job_cancel",
-            "job",
-            &job_id.to_string(),
-        ))
+            &format!(
+                "job {job_id} is {}; only a pending or running job cancels",
+                job.status.as_str()
+            ),
+            "job_status",
+        )),
     }
 }
 
@@ -19989,18 +19962,34 @@ lazy_static::lazy_static! {
         std::sync::Mutex::new(HashMap::new());
 }
 
+/// Most sessions one process holds open. A session carries a whole Env.
+const SESSION_MAX: usize = 64;
+/// Longest code one sess_eval call may send.
+const SESSION_CODE_MAX: usize = 64 * 1024;
+
 /// sess_open() - Create a stateful session and return its id. Subsequent
 /// `sess_eval(id, code)` calls share one persistent environment.
-fn bi_sess_open(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_sess_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("sess_open", &input)?;
+    if !args.is_empty() {
+        return Err(crate::safety::arg_err("sess_open takes no arguments"));
+    }
     let id = format!(
         "sess_{}_{}",
         std::process::id(),
         SESS_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     );
-    SESSIONS
+    let mut store = SESSIONS
         .lock()
-        .map_err(|_| anyhow!("session store poisoned"))?
-        .insert(id.clone(), Session::new());
+        .map_err(|_| anyhow!("session store poisoned"))?;
+    if store.len() >= SESSION_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "sess_open",
+            format!("sess_open: {SESSION_MAX} sessions are already open"),
+            "close one with sess_close, then open another",
+        ));
+    }
+    store.insert(id.clone(), Session::new());
     let mut r = BTreeMap::new();
     r.insert("session".to_string(), Value::Str(id));
     r.insert("active".to_string(), Value::Bool(true));
@@ -20009,7 +19998,10 @@ fn bi_sess_open(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// sess_eval(id, code) - Evaluate code in a session's persistent environment;
 /// `let` bindings and mutations persist across calls. Returns the result value.
-fn bi_sess_eval(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// Each builtin the code calls passes the same dispatch guard as at the REPL, so
+/// agent-mode policy applies inside a session too.
+fn bi_sess_eval(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("sess_eval", &input)?;
     let id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -20030,6 +20022,16 @@ fn bi_sess_eval(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    if code.len() > SESSION_CODE_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "sess_eval",
+            format!(
+                "sess_eval: the code is {} bytes; one call evaluates at most {SESSION_CODE_MAX}",
+                code.len()
+            ),
+            "split the code across calls; bindings persist between them",
+        ));
+    }
     // Take the env out (not holding the lock across eval — avoids deadlock if the
     // evaluated code touches the session store) and put it back afterward so
     // bindings made before any error still persist.
@@ -20063,7 +20065,8 @@ fn bi_sess_eval(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// sess_usage(id) - Running token accounting for a session: estimated
 /// `tokens_in`/`tokens_out`/`tokens_total` and the number of `evals`.
-fn bi_sess_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_sess_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("sess_usage", &input)?;
     let id = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -21004,88 +21007,129 @@ fn bi_mcp_server_start(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     Ok(Value::Record(result))
 }
 
-/// agent_with_mcp(goal, tools, endpoint) - Create agent with MCP tool access
-/// Usage: agent_with_mcp("Task description", ["mcp:read_file", "mcp:list_dir"], server.endpoint)
-fn bi_agent_with_mcp(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Result<Value> {
+/// agent_with_mcp(goal, tools, endpoint?) - Run a model-driven agent over named
+/// tools. The tools are in-process builtins (an `mcp:` prefix is stripped), and
+/// every tool call passes the normal dispatch guard. The model call itself is a
+/// Network effect, so it is guarded here and rate limited like `agent`. The run
+/// is `completed` only when the model gives a final answer.
+/// Usage: agent_with_mcp("Task description", ["mcp:read_file", "mcp:list_dir"])
+fn bi_agent_with_mcp(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    refuse_piped_subject("agent_with_mcp", &input)?;
     if args.len() < 2 {
         return Err(crate::safety::arg_err(
             "agent_with_mcp requires goal and tools array",
         ));
     }
+    let goal_text = collab_text_arg("agent_with_mcp", "goal", args.first(), 8192)?;
+    let goal = crate::security::validate_ai_prompt(&goal_text).map_err(|e| {
+        crate::safety::bad_arg(
+            "agent_with_mcp",
+            "goal: a prompt that passes validation",
+            &e.to_string(),
+        )
+    })?;
 
-    let goal = match &args[0] {
-        Value::Str(s) => s.clone(),
+    let names: Vec<String> = match args.get(1) {
+        Some(Value::Array(items)) => {
+            if items.len() > 32 {
+                return Err(crate::safety::budget_exceeded(
+                    "agent_with_mcp",
+                    format!(
+                        "agent_with_mcp: {} tools requested; at most 32",
+                        items.len()
+                    ),
+                    "give the agent fewer tools",
+                ));
+            }
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                match item {
+                    Value::Str(s) => out.push(s.clone()),
+                    other => {
+                        return Err(crate::safety::bad_arg(
+                            "agent_with_mcp",
+                            "tools: an array of tool names (String)",
+                            other.type_name(),
+                        ))
+                    }
+                }
+            }
+            out
+        }
         other => {
             return Err(crate::safety::bad_arg(
                 "agent_with_mcp",
-                "goal: String",
-                other.type_name(),
+                "tools: an array of tool names (String)",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
             ))
         }
     };
 
-    let tools: Vec<String> = match &args[1] {
-        Value::Array(arr) => arr
-            .iter()
-            .filter_map(|v| match v {
-                Value::Str(s) => Some(s.clone()),
-                _ => None,
-            })
-            .collect(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "agent_with_mcp: tools must be an array of strings",
-            ))
-        }
-    };
-
-    let endpoint = if args.len() > 2 {
-        match &args[2] {
-            Value::Str(s) => Some(s.clone()),
-            Value::Array(endpoints) => {
-                // Multiple endpoints - join them
-                let eps: Vec<String> = endpoints
-                    .iter()
-                    .filter_map(|v| match v {
-                        Value::Str(s) => Some(s.clone()),
-                        _ => None,
-                    })
-                    .collect();
-                Some(eps.join(","))
-            }
-            _ => None,
-        }
-    } else {
-        None
-    };
-
-    // Create agent wrapper with MCP capabilities
-    let mut agent_record = BTreeMap::new();
-    agent_record.insert("goal".to_string(), Value::Str(goal.clone()));
-    agent_record.insert(
-        "tools".to_string(),
-        Value::Array(tools.iter().map(|s| Value::Str(s.clone())).collect()),
-    );
-    agent_record.insert("type".to_string(), Value::Str("mcp_agent".to_string()));
-
-    if let Some(ep) = &endpoint {
-        agent_record.insert("endpoint".to_string(), Value::Str(ep.clone()));
+    // The endpoint was accepted and then never read, so the agent ran with the
+    // builtin tools whatever the caller named. Refuse it instead.
+    if matches!(args.get(2), Some(v) if !matches!(v, Value::Null)) {
+        return Err(crate::safety::unimplemented(
+            "agent_with_mcp",
+            "the endpoint is not used: the tools are in-process builtins and no MCP server is contacted",
+            "omit the endpoint argument",
+        ));
     }
 
-    // Extract base tool names (remove mcp: prefix)
-    let base_tools: Vec<&str> = tools
+    let base_tools: Vec<&str> = names
         .iter()
         .map(|s| s.strip_prefix("mcp:").unwrap_or(s.as_str()))
         .collect();
+    // The agent's own resolver answers for any name, so the check is against the
+    // dispatcher: a name it does not serve is refused, not left to fail mid-run.
+    for name in &base_tools {
+        if !is_dispatched(name) {
+            return Err(crate::safety::not_found("agent_with_mcp", "tool", name));
+        }
+    }
 
-    // Run the agent with the goal
-    let dry_run = false;
+    crate::security::check_rate_limit("agent_with_mcp", 10, Duration::from_secs(60)).map_err(
+        |e| {
+            crate::safety::budget_exceeded(
+                "agent_with_mcp",
+                format!("agent_with_mcp: {e}"),
+                "wait a minute before the next agent run",
+            )
+        },
+    )?;
+
+    let model = std::env::var("AETHER_AGENT_MODEL_URI").unwrap_or_else(|_| "default".to_string());
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "agent_with_mcp",
+        effect: crate::safety::Effect::Network,
+        what: "request",
+        targets: vec![model.clone()],
+        blast_radius: serde_json::json!({ "model": model, "max_steps": 10, "tools": base_tools }),
+        reversible: false,
+        fs_paths: false,
+    })?;
+
     let max_steps = 10;
-    let result = crate::ai::agents::swarm::run_sync(&goal, &base_tools, max_steps, dry_run, env)?;
+    let result = crate::ai::agents::swarm::run_sync(&goal, &base_tools, max_steps, false, env)
+        .map_err(|e| {
+            crate::safety::tool_failed("agent_with_mcp", "model backend", None, &e.to_string())
+        })?;
+    if result.starts_with("(incomplete)") {
+        return Err(crate::safety::budget_exceeded(
+            "agent_with_mcp",
+            format!("agent_with_mcp: the agent used its {max_steps} steps without a final answer"),
+            "narrow the goal or the tool list, then run it again",
+        ));
+    }
 
+    let mut agent_record = BTreeMap::new();
+    agent_record.insert("goal".to_string(), Value::Str(goal));
+    agent_record.insert(
+        "tools".to_string(),
+        Value::Array(names.into_iter().map(Value::Str).collect()),
+    );
+    agent_record.insert("type".to_string(), Value::Str("mcp_agent".to_string()));
     agent_record.insert("result".to_string(), Value::Str(result));
     agent_record.insert("status".to_string(), Value::Str("completed".to_string()));
-
     Ok(Value::Record(agent_record))
 }
 
@@ -39670,36 +39714,52 @@ lazy_static::lazy_static! {
     };
 }
 
-/// a2a.send(target, message) - Send a message to another agent
-fn bi_a2a_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err(
-            "a2a.send: requires target and message arguments",
+/// Most undelivered messages one agent's queue holds.
+const A2A_QUEUE_MAX: usize = 1024;
+/// Largest message a2a_send accepts, measured as its display text.
+const A2A_MESSAGE_MAX: usize = 64 * 1024;
+
+/// a2a.send(target, message) - Queue a message for a registered agent. The
+/// queue is in-process: nothing leaves the process, so it needs no network guard.
+fn bi_a2a_send(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("a2a_send", &input)?;
+    let target = collab_text_arg("a2a_send", "target", args.first(), 128)?;
+    let message = args
+        .get(1)
+        .cloned()
+        .ok_or_else(|| crate::safety::bad_arg("a2a_send", "message: any value", "nothing"))?;
+    let size = message.to_display_string().len();
+    if size > A2A_MESSAGE_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "a2a_send",
+            format!("a2a_send: the message is {size} bytes; at most {A2A_MESSAGE_MAX} are sent"),
+            "send a reference to the data instead of the data",
         ));
     }
-    let target = args[0]
-        .as_str()
-        .map_err(|_| crate::safety::arg_err("a2a.send: target must be a string"))?;
-    let message = args[1].clone();
-
-    let registry = A2A_REGISTRY.read().unwrap();
-    if !registry.contains_key(target) {
-        return Err(anyhow!(
-            "a2a.send: agent '{}' not found in registry",
-            target
-        ));
+    let registry = A2A_REGISTRY
+        .read()
+        .map_err(|e| anyhow!("a2a_send: lock error: {}", e))?;
+    if !registry.contains_key(&target) {
+        return Err(crate::safety::not_found("a2a_send", "agent", &target));
     }
     drop(registry);
 
-    let mut messages = A2A_MESSAGES.write().unwrap();
-    messages
-        .entry(target.to_string())
-        .or_default()
-        .push(message);
+    let mut messages = A2A_MESSAGES
+        .write()
+        .map_err(|e| anyhow!("a2a_send: lock error: {}", e))?;
+    let queue = messages.entry(target.clone()).or_default();
+    if queue.len() >= A2A_QUEUE_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "a2a_send",
+            format!("a2a_send: {target} has {A2A_QUEUE_MAX} undelivered messages"),
+            "a2a_receive drains an agent's queue",
+        ));
+    }
+    queue.push(message);
 
     let mut result = BTreeMap::new();
     result.insert("sent".to_string(), Value::Bool(true));
-    result.insert("target".to_string(), Value::Str(target.to_string()));
+    result.insert("target".to_string(), Value::Str(target));
     Ok(Value::Record(result))
 }
 
@@ -39819,11 +39879,43 @@ fn bi_a2a_agents(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // ===================== NANDA (Consensus) Protocol =====================
 
+// A local tally, not a distributed consensus. A proposal names its electorate
+// (`electorate`, an Int 1..=1024, default 1) and each vote is one ballot cast
+// against it. Nothing identifies the voter, so the electorate is the caller's
+// assertion and one caller can cast every ballot. Quorum is half the
+// electorate: a proposal commits only when that many ballots are in and the
+// approval ratio is at least its threshold. A decided proposal takes no
+// further ballots. The store holds at most NANDA_MAX_PROPOSALS and evicts the
+// oldest decided proposal when a new one needs the room.
+
+const NANDA_MAX_PROPOSALS: usize = 256;
+const NANDA_MAX_ELECTORATE: i64 = 1024;
+const NANDA_MAX_DATA_FIELDS: usize = 64;
+/// Keys the proposal record owns. A caller's `data` cannot overwrite them.
+const NANDA_RESERVED: &[&str] = &[
+    "id",
+    "name",
+    "threshold",
+    "electorate",
+    "status",
+    "votes_cast",
+    "approvals",
+];
+
+struct NandaProposal {
+    seq: u64,
+    name: String,
+    threshold: f64,
+    electorate: usize,
+    ballots: Vec<bool>,
+    status: &'static str,
+    data: BTreeMap<String, Value>,
+}
+
+static NANDA_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 lazy_static::lazy_static! {
-    static ref NANDA_PROPOSALS: std::sync::RwLock<BTreeMap<String, BTreeMap<String, Value>>> = {
-        std::sync::RwLock::new(BTreeMap::new())
-    };
-    static ref NANDA_VOTES: std::sync::RwLock<BTreeMap<String, Vec<(String, bool)>>> = {
+    static ref NANDA_PROPOSALS: std::sync::RwLock<BTreeMap<String, NandaProposal>> = {
         std::sync::RwLock::new(BTreeMap::new())
     };
 }
@@ -39844,224 +39936,388 @@ fn nanda_uuid() -> String {
     )
 }
 
-/// nanda.propose(name, data) - Create a consensus proposal
-fn bi_nanda_propose(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err(
-            "nanda.propose: requires name and data arguments",
-        ));
-    }
-    let name = args[0]
-        .as_str()
-        .map_err(|_| crate::safety::arg_err("nanda.propose: name must be a string"))?;
-    let data = args[1]
-        .as_record()
-        .map_err(|_| crate::safety::arg_err("nanda.propose: data must be a record"))?;
-    let proposal_id = format!("prop_{}", nanda_uuid());
-    let threshold = data
-        .get("threshold")
-        .and_then(|v| v.as_float().ok())
-        .unwrap_or(0.5);
-    let mut proposal = data.clone();
-    proposal.insert("id".to_string(), Value::Str(proposal_id.clone()));
-    proposal.insert("name".to_string(), Value::Str(name.to_string()));
-    proposal.insert("threshold".to_string(), Value::Float(threshold));
-    proposal.insert("status".to_string(), Value::Str("pending".to_string()));
-    let mut proposals = NANDA_PROPOSALS.write().unwrap();
-    proposals.insert(proposal_id.clone(), proposal.clone());
-    Ok(Value::Record(proposal))
+/// `(cast, approvals)` for a proposal.
+fn nanda_tally(p: &NandaProposal) -> (usize, usize) {
+    let cast = p.ballots.len();
+    let approvals = p.ballots.iter().filter(|b| **b).count();
+    (cast, approvals)
 }
 
-/// nanda.vote(proposal_id, approve) - Vote on a proposal
-fn bi_nanda_vote(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err(
-            "nanda.vote: requires proposal_id and approve arguments",
-        ));
-    }
-    let proposal_id = args[0]
-        .as_str()
-        .map_err(|_| crate::safety::arg_err("nanda.vote: proposal_id must be a string"))?;
-    let approve = args[1]
-        .as_bool()
-        .map_err(|_| crate::safety::arg_err("nanda.vote: approve must be a boolean"))?;
-    let proposals = NANDA_PROPOSALS.read().unwrap();
-    if !proposals.contains_key(proposal_id) {
-        return Err(crate::safety::not_found(
-            "nanda.vote",
-            "proposal",
-            proposal_id,
-        ));
-    }
-    drop(proposals);
-    let voter = format!("voter_{}", rand::random::<u32>() % 1000);
-    let mut votes = NANDA_VOTES.write().unwrap();
-    votes
-        .entry(proposal_id.to_string())
-        .or_default()
-        .push((voter.clone(), approve));
-    let mut result = BTreeMap::new();
-    result.insert("voted".to_string(), Value::Bool(true));
-    result.insert(
-        "proposal_id".to_string(),
-        Value::Str(proposal_id.to_string()),
-    );
-    result.insert("voter".to_string(), Value::Str(voter));
-    result.insert("approve".to_string(), Value::Bool(approve));
-    Ok(Value::Record(result))
+/// Half the electorate has balloted. An electorate of at least one means a
+/// quorum always has at least one ballot behind it, so no ratio divides by zero.
+fn nanda_has_quorum(p: &NandaProposal) -> bool {
+    2 * p.ballots.len() >= p.electorate
 }
 
-/// nanda.commit(proposal_id) - Commit a proposal if consensus reached
-fn bi_nanda_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() {
-        return Err(crate::safety::arg_err("nanda.commit: requires proposal_id"));
+fn nanda_record(id: &str, p: &NandaProposal) -> BTreeMap<String, Value> {
+    let (cast, approvals) = nanda_tally(p);
+    let mut rec = p.data.clone();
+    rec.insert("id".to_string(), Value::Str(id.to_string()));
+    rec.insert("name".to_string(), Value::Str(p.name.clone()));
+    rec.insert("threshold".to_string(), Value::Float(p.threshold));
+    rec.insert("electorate".to_string(), Value::Int(p.electorate as i64));
+    rec.insert("status".to_string(), Value::Str(p.status.to_string()));
+    rec.insert("votes_cast".to_string(), Value::Int(cast as i64));
+    rec.insert("approvals".to_string(), Value::Int(approvals as i64));
+    rec
+}
+
+/// Refuse pipeline input for a builtin that documents no subject. What was
+/// piped in would otherwise be dropped without a word.
+fn refuse_piped_subject(builtin: &str, input: &Option<Value>) -> Result<()> {
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "no pipeline input",
+            "piped input",
+        ));
     }
-    let proposal_id = args[0]
-        .as_str()
-        .map_err(|_| crate::safety::arg_err("nanda.commit: proposal_id must be a string"))?;
-    let mut proposals = NANDA_PROPOSALS.write().unwrap();
-    let proposal = proposals
-        .get_mut(proposal_id)
-        .ok_or_else(|| crate::safety::not_found("nanda.commit", "proposal", proposal_id))?;
-    let threshold = proposal
-        .get("threshold")
-        .and_then(|v| v.as_float().ok())
-        .unwrap_or(0.5);
-    let votes = NANDA_VOTES.read().unwrap();
-    let proposal_votes = votes.get(proposal_id).map(|v| v.as_slice()).unwrap_or(&[]);
-    let total = proposal_votes.len();
-    let approvals = proposal_votes.iter().filter(|(_, v)| *v).count();
-    let approval_ratio = if total > 0 {
-        approvals as f64 / total as f64
+    Ok(())
+}
+
+/// A required, non-empty String of at most `max` bytes.
+fn collab_text_arg(builtin: &str, what: &str, v: Option<&Value>, max: usize) -> Result<String> {
+    match v {
+        Some(Value::Str(s)) if !s.trim().is_empty() && s.len() <= max => Ok(s.clone()),
+        Some(Value::Str(s)) if s.len() > max => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: a String of at most {max} bytes"),
+            &format!("a String of {} bytes", s.len()),
+        )),
+        Some(Value::Str(_)) => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: a non-empty String"),
+            "an empty String",
+        )),
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: a non-empty String"),
+            other.map(|v| v.type_name()).unwrap_or("nothing"),
+        )),
+    }
+}
+
+/// The value of a scalar as it should appear in a refusal: `0.7`, not `Float`.
+fn collab_got(v: &Value) -> String {
+    match v {
+        Value::Int(n) => n.to_string(),
+        Value::Float(x) => x.to_string(),
+        other => other.type_name().to_string(),
+    }
+}
+
+/// nanda_propose(name, data) - Open a proposal in the local tally.
+/// `data.threshold` is a Float in (0, 1] (default 0.5); `data.electorate` an
+/// Int in 1..=1024 (default 1). Other fields are kept on the record.
+fn bi_nanda_propose(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("nanda_propose", &input)?;
+    let name = collab_text_arg("nanda_propose", "name", args.first(), 256)?;
+    let data = match args.get(1) {
+        Some(Value::Record(r)) => r,
+        other => {
+            return Err(crate::safety::bad_arg(
+                "nanda_propose",
+                "data: Record",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    let threshold = match data.get("threshold") {
+        None => 0.5,
+        Some(Value::Float(t)) if *t > 0.0 && *t <= 1.0 => *t,
+        Some(Value::Int(1)) => 1.0,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "nanda_propose",
+                "threshold: a Float in (0, 1]",
+                &collab_got(other),
+            ))
+        }
+    };
+    let electorate = match data.get("electorate") {
+        None => 1,
+        Some(Value::Int(n)) if (1..=NANDA_MAX_ELECTORATE).contains(n) => *n as usize,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "nanda_propose",
+                "electorate: an Int in 1..=1024",
+                &collab_got(other),
+            ))
+        }
+    };
+    if data.len() > NANDA_MAX_DATA_FIELDS {
+        return Err(crate::safety::budget_exceeded(
+            "nanda_propose",
+            format!(
+                "nanda_propose: data has {} fields; a proposal holds at most {NANDA_MAX_DATA_FIELDS}",
+                data.len()
+            ),
+            "send the proposal's detail in fewer fields",
+        ));
+    }
+    let mut extra = data.clone();
+    for key in NANDA_RESERVED {
+        extra.remove(*key);
+    }
+
+    let id = format!("prop_{}", nanda_uuid());
+    let mut proposals = NANDA_PROPOSALS
+        .write()
+        .map_err(|e| anyhow!("nanda_propose: lock error: {}", e))?;
+    if proposals.len() >= NANDA_MAX_PROPOSALS {
+        let oldest_decided = proposals
+            .iter()
+            .filter(|(_, p)| p.status != "pending")
+            .min_by_key(|(_, p)| p.seq)
+            .map(|(k, _)| k.clone());
+        match oldest_decided {
+            Some(k) => {
+                proposals.remove(&k);
+            }
+            None => {
+                return Err(crate::safety::budget_exceeded(
+                    "nanda_propose",
+                    format!(
+                        "nanda_propose: {NANDA_MAX_PROPOSALS} proposals are pending and none is decided"
+                    ),
+                    "commit or abort a pending proposal, then propose again",
+                ))
+            }
+        }
+    }
+    let proposal = NandaProposal {
+        seq: NANDA_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+        name,
+        threshold,
+        electorate,
+        ballots: Vec::new(),
+        status: "pending",
+        data: extra,
+    };
+    let rec = nanda_record(&id, &proposal);
+    proposals.insert(id, proposal);
+    Ok(Value::Record(rec))
+}
+
+/// nanda_vote(proposal_id, approve) - Cast one ballot on a pending proposal.
+fn bi_nanda_vote(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("nanda_vote", &input)?;
+    let proposal_id = collab_text_arg("nanda_vote", "proposal_id", args.first(), 128)?;
+    let approve = match args.get(1) {
+        Some(Value::Bool(b)) => *b,
+        other => {
+            return Err(crate::safety::bad_arg(
+                "nanda_vote",
+                "approve: Bool",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    let mut proposals = NANDA_PROPOSALS
+        .write()
+        .map_err(|e| anyhow!("nanda_vote: lock error: {}", e))?;
+    let p = proposals
+        .get_mut(&proposal_id)
+        .ok_or_else(|| crate::safety::not_found("nanda_vote", "proposal", &proposal_id))?;
+    if p.status != "pending" {
+        return Err(crate::safety::bad_state(
+            "nanda_vote",
+            &format!(
+                "proposal {proposal_id} is {}; a decided proposal takes no votes",
+                p.status
+            ),
+            "nanda_status",
+        ));
+    }
+    if p.ballots.len() >= p.electorate {
+        return Err(crate::safety::budget_exceeded(
+            "nanda_vote",
+            format!(
+                "nanda_vote: all {} ballots of {proposal_id} are cast",
+                p.electorate
+            ),
+            "a proposal takes exactly its electorate's ballots; commit it or propose another",
+        ));
+    }
+    p.ballots.push(approve);
+    let mut rec = BTreeMap::new();
+    rec.insert("voted".to_string(), Value::Bool(true));
+    rec.insert("proposal_id".to_string(), Value::Str(proposal_id));
+    rec.insert("approve".to_string(), Value::Bool(approve));
+    rec.insert("ballot".to_string(), Value::Int(p.ballots.len() as i64));
+    rec.insert("votes_cast".to_string(), Value::Int(p.ballots.len() as i64));
+    rec.insert("electorate".to_string(), Value::Int(p.electorate as i64));
+    Ok(Value::Record(rec))
+}
+
+/// nanda_commit(proposal_id) - Commit a pending proposal with quorum and an
+/// approval ratio at or above its threshold. Below the threshold it is rejected.
+fn bi_nanda_commit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("nanda_commit", &input)?;
+    let proposal_id = collab_text_arg("nanda_commit", "proposal_id", args.first(), 128)?;
+    let mut proposals = NANDA_PROPOSALS
+        .write()
+        .map_err(|e| anyhow!("nanda_commit: lock error: {}", e))?;
+    let p = proposals
+        .get_mut(&proposal_id)
+        .ok_or_else(|| crate::safety::not_found("nanda_commit", "proposal", &proposal_id))?;
+    if p.status != "pending" {
+        return Err(crate::safety::bad_state(
+            "nanda_commit",
+            &format!(
+                "proposal {proposal_id} is {}; only a pending proposal commits",
+                p.status
+            ),
+            "nanda_status",
+        ));
+    }
+    if !nanda_has_quorum(p) {
+        let (cast, _) = nanda_tally(p);
+        return Err(crate::safety::bad_state(
+            "nanda_commit",
+            &format!(
+                "no quorum: {cast} of {} ballots are cast and at least half are needed",
+                p.electorate
+            ),
+            "nanda_vote",
+        ));
+    }
+    let (cast, approvals) = nanda_tally(p);
+    let ratio = approvals as f64 / cast as f64;
+    if ratio < p.threshold {
+        p.status = "rejected";
+        return Err(crate::safety::policy_deny(
+            "nanda_commit",
+            format!(
+                "consensus not reached: approval {:.0}% is below the threshold {:.0}%; {proposal_id} is now rejected",
+                ratio * 100.0,
+                p.threshold * 100.0
+            ),
+            "a rejected proposal takes no further ballots; propose again",
+        ));
+    }
+    p.status = "committed";
+    let mut rec = BTreeMap::new();
+    rec.insert("committed".to_string(), Value::Bool(true));
+    rec.insert("proposal_id".to_string(), Value::Str(proposal_id));
+    rec.insert("approval_ratio".to_string(), Value::Float(ratio));
+    rec.insert("threshold".to_string(), Value::Float(p.threshold));
+    rec.insert("votes_cast".to_string(), Value::Int(cast as i64));
+    rec.insert("electorate".to_string(), Value::Int(p.electorate as i64));
+    Ok(Value::Record(rec))
+}
+
+/// nanda_abort(proposal_id) - Abort a pending proposal.
+fn bi_nanda_abort(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("nanda_abort", &input)?;
+    let proposal_id = collab_text_arg("nanda_abort", "proposal_id", args.first(), 128)?;
+    let mut proposals = NANDA_PROPOSALS
+        .write()
+        .map_err(|e| anyhow!("nanda_abort: lock error: {}", e))?;
+    let p = proposals
+        .get_mut(&proposal_id)
+        .ok_or_else(|| crate::safety::not_found("nanda_abort", "proposal", &proposal_id))?;
+    if p.status != "pending" {
+        return Err(crate::safety::bad_state(
+            "nanda_abort",
+            &format!(
+                "proposal {proposal_id} is {}; only a pending proposal aborts",
+                p.status
+            ),
+            "nanda_status",
+        ));
+    }
+    p.status = "aborted";
+    let mut rec = BTreeMap::new();
+    rec.insert("aborted".to_string(), Value::Bool(true));
+    rec.insert("proposal_id".to_string(), Value::Str(proposal_id));
+    rec.insert("status".to_string(), Value::Str("aborted".to_string()));
+    Ok(Value::Record(rec))
+}
+
+/// nanda_status(proposal_id?) - One proposal's record, or every proposal's.
+fn bi_nanda_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("nanda_status", &input)?;
+    let proposals = NANDA_PROPOSALS
+        .read()
+        .map_err(|e| anyhow!("nanda_status: lock error: {}", e))?;
+    match args.first() {
+        None => Ok(Value::Array(
+            proposals
+                .iter()
+                .map(|(id, p)| Value::Record(nanda_record(id, p)))
+                .collect(),
+        )),
+        Some(Value::Str(id)) => {
+            let p = proposals
+                .get(id)
+                .ok_or_else(|| crate::safety::not_found("nanda_status", "proposal", id))?;
+            Ok(Value::Record(nanda_record(id, p)))
+        }
+        Some(other) => Err(crate::safety::bad_arg(
+            "nanda_status",
+            "proposal_id: String",
+            other.type_name(),
+        )),
+    }
+}
+
+/// nanda_consensus(proposal_id) - Whether the tally reaches consensus now: a
+/// quorum of ballots, and an approval ratio at or above the threshold.
+fn bi_nanda_consensus(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("nanda_consensus", &input)?;
+    let proposal_id = collab_text_arg("nanda_consensus", "proposal_id", args.first(), 128)?;
+    let proposals = NANDA_PROPOSALS
+        .read()
+        .map_err(|e| anyhow!("nanda_consensus: lock error: {}", e))?;
+    let p = proposals
+        .get(&proposal_id)
+        .ok_or_else(|| crate::safety::not_found("nanda_consensus", "proposal", &proposal_id))?;
+    let (cast, approvals) = nanda_tally(p);
+    let ratio = if cast > 0 {
+        approvals as f64 / cast as f64
     } else {
         0.0
     };
-    if approval_ratio >= threshold {
-        proposal.insert("status".to_string(), Value::Str("committed".to_string()));
-        let mut result = BTreeMap::new();
-        result.insert("committed".to_string(), Value::Bool(true));
-        result.insert(
-            "proposal_id".to_string(),
-            Value::Str(proposal_id.to_string()),
-        );
-        result.insert("approval_ratio".to_string(), Value::Float(approval_ratio));
-        Ok(Value::Record(result))
-    } else {
-        Err(anyhow!(
-            "nanda.commit: consensus not reached ({}% < {}%)",
-            (approval_ratio * 100.0) as i64,
-            (threshold * 100.0) as i64
-        ))
-    }
-}
-
-/// nanda.abort(proposal_id) - Abort a proposal
-fn bi_nanda_abort(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() {
-        return Err(crate::safety::arg_err("nanda.abort: requires proposal_id"));
-    }
-    let proposal_id = args[0]
-        .as_str()
-        .map_err(|_| crate::safety::arg_err("nanda.abort: proposal_id must be a string"))?;
-    let mut proposals = NANDA_PROPOSALS.write().unwrap();
-    let proposal = proposals
-        .get_mut(proposal_id)
-        .ok_or_else(|| crate::safety::not_found("nanda.abort", "proposal", proposal_id))?;
-    proposal.insert("status".to_string(), Value::Str("aborted".to_string()));
-    let mut result = BTreeMap::new();
-    result.insert("aborted".to_string(), Value::Bool(true));
-    result.insert(
-        "proposal_id".to_string(),
-        Value::Str(proposal_id.to_string()),
-    );
-    Ok(Value::Record(result))
-}
-
-/// nanda.status(proposal_id?) - Get proposal status
-fn bi_nanda_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if let Some(proposal_id) = args.first().and_then(|v| v.as_str().ok()) {
-        let proposals = NANDA_PROPOSALS.read().unwrap();
-        let proposal = proposals
-            .get(proposal_id)
-            .ok_or_else(|| crate::safety::not_found("nanda.status", "proposal", proposal_id))?;
-        Ok(Value::Record(proposal.clone()))
-    } else {
-        let proposals = NANDA_PROPOSALS.read().unwrap();
-        let summary: Vec<Value> = proposals
-            .values()
-            .map(|p| Value::Record(p.clone()))
-            .collect();
-        Ok(Value::Array(summary))
-    }
-}
-
-/// nanda.consensus(proposal_id) - Check if consensus has been reached
-fn bi_nanda_consensus(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() {
-        return Err(crate::safety::arg_err(
-            "nanda.consensus: requires proposal_id",
-        ));
-    }
-    let proposal_id = args[0]
-        .as_str()
-        .map_err(|_| crate::safety::arg_err("nanda.consensus: proposal_id must be a string"))?;
-    let proposals = NANDA_PROPOSALS.read().unwrap();
-    let proposal = proposals
-        .get(proposal_id)
-        .ok_or_else(|| crate::safety::not_found("nanda.consensus", "proposal", proposal_id))?;
-    let threshold = proposal
-        .get("threshold")
-        .and_then(|v| v.as_float().ok())
-        .unwrap_or(0.5);
-    let votes = NANDA_VOTES.read().unwrap();
-    let proposal_votes = votes.get(proposal_id).map(|v| v.as_slice()).unwrap_or(&[]);
-    let total = proposal_votes.len();
-    let approvals = proposal_votes.iter().filter(|(_, v)| *v).count();
-    let approval_ratio = if total > 0 {
-        approvals as f64 / total as f64
-    } else {
-        0.0
-    };
-    let mut result = BTreeMap::new();
-    result.insert(
+    let quorum = nanda_has_quorum(p);
+    let mut rec = BTreeMap::new();
+    rec.insert(
         "reached".to_string(),
-        Value::Bool(approval_ratio >= threshold),
+        Value::Bool(quorum && cast > 0 && ratio >= p.threshold),
     );
-    result.insert("approval_ratio".to_string(), Value::Float(approval_ratio));
-    result.insert("threshold".to_string(), Value::Float(threshold));
-    result.insert("total_votes".to_string(), Value::Int(total as i64));
-    result.insert("approvals".to_string(), Value::Int(approvals as i64));
-    Ok(Value::Record(result))
+    rec.insert("quorum_reached".to_string(), Value::Bool(quorum));
+    rec.insert("approval_ratio".to_string(), Value::Float(ratio));
+    rec.insert("threshold".to_string(), Value::Float(p.threshold));
+    rec.insert("total_votes".to_string(), Value::Int(cast as i64));
+    rec.insert("approvals".to_string(), Value::Int(approvals as i64));
+    rec.insert("electorate".to_string(), Value::Int(p.electorate as i64));
+    rec.insert("status".to_string(), Value::Str(p.status.to_string()));
+    Ok(Value::Record(rec))
 }
 
-/// nanda.quorum(proposal_id) - Get quorum status
-fn bi_nanda_quorum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() {
-        return Err(crate::safety::arg_err("nanda.quorum: requires proposal_id"));
-    }
-    let proposal_id = args[0]
-        .as_str()
-        .map_err(|_| crate::safety::arg_err("nanda.quorum: proposal_id must be a string"))?;
-    let proposals = NANDA_PROPOSALS.read().unwrap();
-    if !proposals.contains_key(proposal_id) {
-        return Err(crate::safety::not_found(
-            "nanda.quorum",
-            "proposal",
-            proposal_id,
-        ));
-    }
-    let registry = A2A_REGISTRY.read().unwrap();
-    let total_agents = registry.len().max(1);
-    let votes = NANDA_VOTES.read().unwrap();
-    let proposal_votes = votes.get(proposal_id).map(|v| v.len()).unwrap_or(0);
-    let quorum_ratio = proposal_votes as f64 / total_agents as f64;
-    let quorum_reached = quorum_ratio >= 0.5;
-    let mut result = BTreeMap::new();
-    result.insert("quorum_reached".to_string(), Value::Bool(quorum_reached));
-    result.insert("participation".to_string(), Value::Float(quorum_ratio));
-    result.insert("votes_cast".to_string(), Value::Int(proposal_votes as i64));
-    result.insert("total_agents".to_string(), Value::Int(total_agents as i64));
-    Ok(Value::Record(result))
+/// nanda_quorum(proposal_id) - How much of the electorate has balloted.
+fn bi_nanda_quorum(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("nanda_quorum", &input)?;
+    let proposal_id = collab_text_arg("nanda_quorum", "proposal_id", args.first(), 128)?;
+    let proposals = NANDA_PROPOSALS
+        .read()
+        .map_err(|e| anyhow!("nanda_quorum: lock error: {}", e))?;
+    let p = proposals
+        .get(&proposal_id)
+        .ok_or_else(|| crate::safety::not_found("nanda_quorum", "proposal", &proposal_id))?;
+    let (cast, _) = nanda_tally(p);
+    let mut rec = BTreeMap::new();
+    rec.insert(
+        "quorum_reached".to_string(),
+        Value::Bool(nanda_has_quorum(p)),
+    );
+    rec.insert(
+        "participation".to_string(),
+        Value::Float(cast as f64 / p.electorate as f64),
+    );
+    rec.insert("votes_cast".to_string(), Value::Int(cast as i64));
+    rec.insert("electorate".to_string(), Value::Int(p.electorate as i64));
+    Ok(Value::Record(rec))
 }
 
 // ============== AI CODING ASSISTANT BUILTINS ==============
@@ -54535,148 +54791,374 @@ fn bi_cloud_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // ===================== Remote REPL Builtins =====================
+//
+// No REPL transport exists in this build. The three builtins that would open
+// or address a remote session refuse with E_UNIMPLEMENTED rather than report a
+// listener or a connection that was never made. repl_disconnect remains a real
+// removal from the session table.
 
-/// Start a remote REPL server on specified host:port.
-/// Usage: repl.serve({port?, host?, workspace?})
-fn bi_repl_serve(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let opts = match args.first() {
-        Some(Value::Record(r)) => r.clone(),
-        _ => BTreeMap::new(),
-    };
-
-    let host = opts
-        .get("host")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "0.0.0.0".to_string());
-    let port = opts
-        .get("port")
-        .and_then(|v| match v {
-            Value::Int(n) => Some(*n as u16),
-            _ => None,
-        })
-        .unwrap_or(3002);
-    let workspace_id = opts.get("workspace").and_then(|v| {
-        if let Value::Str(s) = v {
-            Some(s.clone())
-        } else {
-            None
+/// repl_serve(options?) - Refused: no listener is started.
+fn bi_repl_serve(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("repl_serve", &input)?;
+    match args.first() {
+        None | Some(Value::Record(_)) => {}
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "repl_serve",
+                "options: Record",
+                other.type_name(),
+            ))
         }
-    });
+    }
+    Err(crate::safety::unimplemented(
+        "repl_serve",
+        "no listener is started, so no session is served and nothing can connect",
+        "the HTTP Agent API (`ae agent serve`) is the networked surface that exists",
+    ))
+}
 
-    let session_id = uuid::Uuid::new_v4().to_string();
-    let session = ReplSession {
-        id: session_id.clone(),
-        host: host.clone(),
-        port,
-        user: get_current_username(),
-        connected_at: chrono::Local::now().to_rfc3339(),
-        status: "serving".to_string(),
-        workspace_id: workspace_id.clone(),
-    };
+/// repl_connect(target) - Refused: no connection is made.
+fn bi_repl_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("repl_connect", &input)?;
+    match args.first() {
+        Some(Value::Str(s)) if !s.trim().is_empty() => {}
+        Some(Value::Record(_)) => {}
+        other => {
+            return Err(crate::safety::bad_arg(
+                "repl_connect",
+                "a URL String or {host, port} Record",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    }
+    Err(crate::safety::unimplemented(
+        "repl_connect",
+        "no connection is made, so there is no session to report",
+        "the HTTP Agent API (`ae agent serve`) is the networked surface that exists",
+    ))
+}
 
+/// repl_disconnect(session_id) - Remove a session from the session table.
+fn bi_repl_disconnect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("repl_disconnect", &input)?;
+    let id = collab_text_arg("repl_disconnect", "session_id", args.first(), 128)?;
     let mut sessions = REPL_SESSIONS
         .write()
         .map_err(|e| anyhow!("lock error: {}", e))?;
-    sessions.insert(session_id.clone(), session);
-
+    let session = sessions
+        .remove(&id)
+        .ok_or_else(|| crate::safety::not_found("repl_disconnect", "repl session", &id))?;
     let mut rec = BTreeMap::new();
-    rec.insert("session_id".to_string(), Value::Str(session_id));
-    rec.insert("host".to_string(), Value::Str(host));
-    rec.insert("port".to_string(), Value::Int(port as i64));
-    rec.insert("status".to_string(), Value::Str("serving".to_string()));
+    rec.insert("id".to_string(), Value::Str(session.id));
+    rec.insert("status".to_string(), Value::Str("disconnected".to_string()));
     rec.insert(
-        "url".to_string(),
-        Value::Str(format!(
-            "ws://{}:{}/api/v1/ws",
-            opts.get("host")
-                .and_then(|v| if let Value::Str(s) = v {
-                    Some(s.as_str())
-                } else {
-                    None
-                })
-                .unwrap_or("localhost"),
-            port
-        )),
+        "disconnected_at".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
     );
-    if let Some(ws) = workspace_id {
-        rec.insert("workspace_id".to_string(), Value::Str(ws));
-    }
     Ok(Value::Record(rec))
 }
 
-/// Connect to a remote REPL server.
-/// Usage: repl.connect(url) or repl.connect({host, port?})
-fn bi_repl_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let (host, port) = match args.first() {
-        Some(Value::Str(s)) => {
-            // Parse ws://host:port or host:port or just host
-            let s = s.trim_start_matches("ws://").trim_start_matches("wss://");
-            let s = s.trim_end_matches("/api/v1/ws").trim_end_matches('/');
-            if let Some((h, p)) = s.rsplit_once(':') {
-                (h.to_string(), p.parse::<u16>().unwrap_or(3002))
-            } else {
-                (s.to_string(), 3002)
+/// repl_broadcast(expression) - Refused: nothing is transmitted to any session.
+fn bi_repl_broadcast(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("repl_broadcast", &input)?;
+    collab_text_arg("repl_broadcast", "expression", args.first(), 4096)?;
+    Err(crate::safety::unimplemented(
+        "repl_broadcast",
+        "nothing is sent: there is no session transport to send it over",
+        "run the expression in each place directly",
+    ))
+}
+
+// ===================== Team Workspace Builtins =====================
+//
+// A workspace is a membership list and a list of shared agent names, held in
+// process memory. Membership is keyed by the USER or USERNAME environment
+// variable, which the caller sets, so it names whoever set it and is not an
+// access control. Nothing leaves the process: workspace_sync refuses.
+
+/// Most workspaces one process holds.
+const WORKSPACE_MAX: usize = 256;
+/// Most members one workspace holds.
+const WORKSPACE_MAX_MEMBERS: usize = 64;
+/// Most agent names one workspace shares.
+const WORKSPACE_MAX_AGENTS: usize = 64;
+
+/// workspace_create(name, options?) - Create a workspace owned by the caller.
+/// The only option is `description` (a String of at most 1024 bytes).
+fn bi_workspace_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("workspace_create", &input)?;
+    let name = collab_text_arg("workspace_create", "name", args.first(), 128)?;
+    let mut description = String::new();
+    match args.get(1) {
+        None => {}
+        Some(Value::Record(opts)) => {
+            if let Some(key) = opts.keys().find(|k| k.as_str() != "description") {
+                return Err(crate::safety::bad_arg(
+                    "workspace_create",
+                    "options: {description?: String}",
+                    &format!("unknown option `{key}`"),
+                ));
+            }
+            match opts.get("description") {
+                None => {}
+                Some(Value::Str(s)) if s.len() <= 1024 => description = s.clone(),
+                Some(other) => {
+                    return Err(crate::safety::bad_arg(
+                        "workspace_create",
+                        "description: a String of at most 1024 bytes",
+                        &collab_got(other),
+                    ))
+                }
             }
         }
-        Some(Value::Record(r)) => {
-            let h = r
-                .get("host")
-                .and_then(|v| {
-                    if let Value::Str(s) = v {
-                        Some(s.clone())
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|| "localhost".to_string());
-            let p = r
-                .get("port")
-                .and_then(|v| match v {
-                    Value::Int(n) => Some(*n as u16),
-                    _ => None,
-                })
-                .unwrap_or(3002);
-            (h, p)
-        }
-        _ => {
-            return Err(crate::safety::arg_err(
-                "repl.connect requires URL or {host, port}",
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "workspace_create",
+                "options: Record",
+                other.type_name(),
             ))
         }
-    };
+    }
 
-    let session_id = uuid::Uuid::new_v4().to_string();
-    let session = ReplSession {
-        id: session_id.clone(),
-        host: host.clone(),
-        port,
-        user: get_current_username(),
-        connected_at: chrono::Local::now().to_rfc3339(),
-        status: "connected".to_string(),
-        workspace_id: None,
-    };
-
-    let mut sessions = REPL_SESSIONS
+    let id = uuid::Uuid::new_v4().to_string();
+    let owner = get_current_username();
+    let created_at = chrono::Local::now().to_rfc3339();
+    let mut workspaces = WORKSPACES
         .write()
         .map_err(|e| anyhow!("lock error: {}", e))?;
-    sessions.insert(session_id.clone(), session);
+    if workspaces.len() >= WORKSPACE_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "workspace_create",
+            format!("workspace_create: {WORKSPACE_MAX} workspaces already exist in this process"),
+            "a process holds a bounded number of workspaces; start another process for more",
+        ));
+    }
+    workspaces.insert(
+        id.clone(),
+        TeamWorkspace {
+            id: id.clone(),
+            name: name.clone(),
+            owner: owner.clone(),
+            members: vec![WorkspaceMember {
+                user: owner.clone(),
+                role: "owner".to_string(),
+                joined_at: created_at.clone(),
+            }],
+            shared_agents: Vec::new(),
+            created_at: created_at.clone(),
+            description: description.clone(),
+        },
+    );
 
     let mut rec = BTreeMap::new();
-    rec.insert("session_id".to_string(), Value::Str(session_id));
-    rec.insert("host".to_string(), Value::Str(host.clone()));
-    rec.insert("port".to_string(), Value::Int(port as i64));
-    rec.insert("status".to_string(), Value::Str("connected".to_string()));
+    rec.insert("id".to_string(), Value::Str(id));
+    rec.insert("name".to_string(), Value::Str(name));
+    rec.insert("owner".to_string(), Value::Str(owner));
+    rec.insert("description".to_string(), Value::Str(description));
+    rec.insert("member_count".to_string(), Value::Int(1));
+    rec.insert("created_at".to_string(), Value::Str(created_at));
+    Ok(Value::Record(rec))
+}
+
+/// workspace_join(workspace_id) - Add the caller to a workspace.
+fn bi_workspace_join(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("workspace_join", &input)?;
+    let ws_id = collab_text_arg("workspace_join", "workspace_id", args.first(), 64)?;
+    let user = get_current_username();
+    let mut workspaces = WORKSPACES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let ws = workspaces
+        .get_mut(&ws_id)
+        .ok_or_else(|| crate::safety::not_found("workspace_join", "workspace", &ws_id))?;
+    if ws.members.iter().any(|m| m.user == user) {
+        return Err(crate::safety::bad_state(
+            "workspace_join",
+            &format!("already a member of '{}'", ws.name),
+            "workspace_members",
+        ));
+    }
+    if ws.members.len() >= WORKSPACE_MAX_MEMBERS {
+        return Err(crate::safety::budget_exceeded(
+            "workspace_join",
+            format!(
+                "workspace_join: '{}' already has {WORKSPACE_MAX_MEMBERS} members",
+                ws.name
+            ),
+            "a workspace holds a bounded number of members",
+        ));
+    }
+    ws.members.push(WorkspaceMember {
+        user: user.clone(),
+        role: "member".to_string(),
+        joined_at: chrono::Local::now().to_rfc3339(),
+    });
+    let mut rec = BTreeMap::new();
+    rec.insert("workspace_id".to_string(), Value::Str(ws_id));
+    rec.insert("workspace_name".to_string(), Value::Str(ws.name.clone()));
+    rec.insert("user".to_string(), Value::Str(user));
+    rec.insert("role".to_string(), Value::Str("member".to_string()));
+    rec.insert("status".to_string(), Value::Str("joined".to_string()));
+    Ok(Value::Record(rec))
+}
+
+/// workspace_leave(workspace_id) - Remove the caller from a workspace. The
+/// owner cannot leave: ownership cannot be transferred yet.
+fn bi_workspace_leave(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("workspace_leave", &input)?;
+    let ws_id = collab_text_arg("workspace_leave", "workspace_id", args.first(), 64)?;
+    let user = get_current_username();
+    let mut workspaces = WORKSPACES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let ws = workspaces
+        .get_mut(&ws_id)
+        .ok_or_else(|| crate::safety::not_found("workspace_leave", "workspace", &ws_id))?;
+    if ws.owner == user {
+        return Err(crate::safety::policy_deny(
+            "workspace_leave",
+            format!("the owner of '{}' cannot leave it", ws.name),
+            "ownership cannot be transferred yet, so the owner stays",
+        ));
+    }
+    let before = ws.members.len();
+    ws.members.retain(|m| m.user != user);
+    if ws.members.len() == before {
+        return Err(crate::safety::bad_state(
+            "workspace_leave",
+            &format!("not a member of '{}'", ws.name),
+            "workspace_members",
+        ));
+    }
+    let mut rec = BTreeMap::new();
+    rec.insert("workspace_id".to_string(), Value::Str(ws_id));
+    rec.insert("workspace_name".to_string(), Value::Str(ws.name.clone()));
+    rec.insert("user".to_string(), Value::Str(user));
+    rec.insert("status".to_string(), Value::Str("left".to_string()));
+    Ok(Value::Record(rec))
+}
+
+/// workspace_members(workspace_id) - The members of a workspace.
+fn bi_workspace_members(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("workspace_members", &input)?;
+    let ws_id = collab_text_arg("workspace_members", "workspace_id", args.first(), 64)?;
+    let workspaces = WORKSPACES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let ws = workspaces
+        .get(&ws_id)
+        .ok_or_else(|| crate::safety::not_found("workspace_members", "workspace", &ws_id))?;
+    let members: Vec<Value> = ws
+        .members
+        .iter()
+        .map(|m| {
+            let mut rec = BTreeMap::new();
+            rec.insert("user".to_string(), Value::Str(m.user.clone()));
+            rec.insert("role".to_string(), Value::Str(m.role.clone()));
+            rec.insert("joined_at".to_string(), Value::Str(m.joined_at.clone()));
+            Value::Record(rec)
+        })
+        .collect();
+    Ok(Value::Array(members))
+}
+
+/// workspace_share_agent(workspace_id, agent) - Share a registered agent (see
+/// a2a_register) into a workspace the caller belongs to.
+fn bi_workspace_share_agent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("workspace_share_agent", &input)?;
+    let ws_id = collab_text_arg("workspace_share_agent", "workspace_id", args.first(), 64)?;
+    let agent = collab_text_arg("workspace_share_agent", "agent", args.get(1), 128)?;
+    let user = get_current_username();
+    let mut workspaces = WORKSPACES
+        .write()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let ws = workspaces
+        .get_mut(&ws_id)
+        .ok_or_else(|| crate::safety::not_found("workspace_share_agent", "workspace", &ws_id))?;
+    if !ws.members.iter().any(|m| m.user == user) {
+        return Err(crate::safety::policy_deny(
+            "workspace_share_agent",
+            format!("{user} is not a member of '{}'", ws.name),
+            "join the workspace before sharing an agent into it",
+        ));
+    }
+    let registered = A2A_REGISTRY
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?
+        .contains_key(&agent);
+    if !registered {
+        return Err(crate::safety::not_found(
+            "workspace_share_agent",
+            "agent",
+            &agent,
+        ));
+    }
+    if ws.shared_agents.contains(&agent) {
+        return Err(crate::safety::bad_state(
+            "workspace_share_agent",
+            &format!("'{agent}' is already shared in '{}'", ws.name),
+            "workspace_agents",
+        ));
+    }
+    if ws.shared_agents.len() >= WORKSPACE_MAX_AGENTS {
+        return Err(crate::safety::budget_exceeded(
+            "workspace_share_agent",
+            format!(
+                "workspace_share_agent: '{}' already shares {WORKSPACE_MAX_AGENTS} agents",
+                ws.name
+            ),
+            "a workspace shares a bounded number of agents",
+        ));
+    }
+    ws.shared_agents.push(agent.clone());
+    let mut rec = BTreeMap::new();
+    rec.insert("workspace_id".to_string(), Value::Str(ws_id));
+    rec.insert("agent".to_string(), Value::Str(agent));
+    rec.insert("status".to_string(), Value::Str("shared".to_string()));
     rec.insert(
-        "url".to_string(),
-        Value::Str(format!("ws://{}:{}/api/v1/ws", host, port)),
+        "total_agents".to_string(),
+        Value::Int(ws.shared_agents.len() as i64),
     );
     Ok(Value::Record(rec))
+}
+
+/// workspace_agents(workspace_id) - The agent names shared in a workspace.
+fn bi_workspace_agents(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("workspace_agents", &input)?;
+    let ws_id = collab_text_arg("workspace_agents", "workspace_id", args.first(), 64)?;
+    let workspaces = WORKSPACES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let ws = workspaces
+        .get(&ws_id)
+        .ok_or_else(|| crate::safety::not_found("workspace_agents", "workspace", &ws_id))?;
+    Ok(Value::Array(
+        ws.shared_agents
+            .iter()
+            .map(|a| Value::Str(a.clone()))
+            .collect(),
+    ))
+}
+
+/// workspace_sync(workspace_id) - Refused: there are no peers to sync with.
+fn bi_workspace_sync(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("workspace_sync", &input)?;
+    let ws_id = collab_text_arg("workspace_sync", "workspace_id", args.first(), 64)?;
+    let workspaces = WORKSPACES
+        .read()
+        .map_err(|e| anyhow!("lock error: {}", e))?;
+    if !workspaces.contains_key(&ws_id) {
+        return Err(crate::safety::not_found(
+            "workspace_sync",
+            "workspace",
+            &ws_id,
+        ));
+    }
+    Err(crate::safety::unimplemented(
+        "workspace_sync",
+        "there are no remote peers, so nothing is synced; this workspace is local to this process",
+        "workspace_members and workspace_agents report its local state",
+    ))
 }
 
 /// List active REPL sessions.
@@ -54705,138 +55187,6 @@ fn bi_repl_sessions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .collect();
     Ok(Value::Array(entries))
-}
-
-/// Disconnect a REPL session.
-/// Usage: repl.disconnect(session_id)
-fn bi_repl_disconnect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "repl.disconnect requires session ID",
-            ))
-        }
-    };
-    let mut sessions = REPL_SESSIONS
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(session) = sessions.remove(&id) {
-        let mut rec = BTreeMap::new();
-        rec.insert("id".to_string(), Value::Str(session.id));
-        rec.insert("status".to_string(), Value::Str("disconnected".to_string()));
-        rec.insert(
-            "disconnected_at".to_string(),
-            Value::Str(chrono::Local::now().to_rfc3339()),
-        );
-        Ok(Value::Record(rec))
-    } else {
-        Err(crate::safety::not_found(
-            "",
-            "repl session",
-            &id.to_string(),
-        ))
-    }
-}
-
-/// Broadcast an expression to all connected REPL sessions.
-/// Usage: repl.broadcast(expression)
-fn bi_repl_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let expr = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "repl.broadcast requires an expression string",
-            ))
-        }
-    };
-    let sessions = REPL_SESSIONS
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    let targets: Vec<String> = sessions
-        .values()
-        .filter(|s| s.status == "connected" || s.status == "serving")
-        .map(|s| s.id.clone())
-        .collect();
-
-    let mut rec = BTreeMap::new();
-    rec.insert("expression".to_string(), Value::Str(expr));
-    rec.insert("targets".to_string(), Value::Int(targets.len() as i64));
-    rec.insert(
-        "session_ids".to_string(),
-        Value::Array(targets.into_iter().map(Value::Str).collect()),
-    );
-    rec.insert(
-        "status".to_string(),
-        Value::Str("broadcast_sent".to_string()),
-    );
-    rec.insert(
-        "timestamp".to_string(),
-        Value::Str(chrono::Local::now().to_rfc3339()),
-    );
-    Ok(Value::Record(rec))
-}
-
-// ===================== Team Workspace Builtins =====================
-
-/// Create a new team workspace.
-/// Usage: workspace.create(name, {description?})
-fn bi_workspace_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "workspace.create requires workspace name",
-            ))
-        }
-    };
-    let opts = match args.get(1) {
-        Some(Value::Record(r)) => r.clone(),
-        _ => BTreeMap::new(),
-    };
-    let description = opts
-        .get("description")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default();
-
-    let id = uuid::Uuid::new_v4().to_string();
-    let owner = get_current_username();
-    let workspace = TeamWorkspace {
-        id: id.clone(),
-        name: name.clone(),
-        owner: owner.clone(),
-        members: vec![WorkspaceMember {
-            user: owner.clone(),
-            role: "owner".to_string(),
-            joined_at: chrono::Local::now().to_rfc3339(),
-        }],
-        shared_agents: Vec::new(),
-        created_at: chrono::Local::now().to_rfc3339(),
-        description: description.clone(),
-    };
-
-    let mut workspaces = WORKSPACES
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    workspaces.insert(id.clone(), workspace);
-
-    let mut rec = BTreeMap::new();
-    rec.insert("id".to_string(), Value::Str(id));
-    rec.insert("name".to_string(), Value::Str(name));
-    rec.insert("owner".to_string(), Value::Str(owner));
-    rec.insert("description".to_string(), Value::Str(description));
-    rec.insert("member_count".to_string(), Value::Int(1));
-    rec.insert(
-        "created_at".to_string(),
-        Value::Str(chrono::Local::now().to_rfc3339()),
-    );
-    Ok(Value::Record(rec))
 }
 
 /// List all workspaces the current user belongs to.
@@ -54871,243 +55221,6 @@ fn bi_workspace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         })
         .collect();
     Ok(Value::Array(entries))
-}
-
-/// Join an existing workspace.
-/// Usage: workspace.join(workspace_id)
-fn bi_workspace_join(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let ws_id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "workspace.join requires workspace ID",
-            ))
-        }
-    };
-    let user = get_current_username();
-    let mut workspaces = WORKSPACES
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(ws) = workspaces.get_mut(&ws_id) {
-        if ws.members.iter().any(|m| m.user == user) {
-            return Err(anyhow!("already a member of workspace '{}'", ws.name));
-        }
-        ws.members.push(WorkspaceMember {
-            user: user.clone(),
-            role: "member".to_string(),
-            joined_at: chrono::Local::now().to_rfc3339(),
-        });
-        let mut rec = BTreeMap::new();
-        rec.insert("workspace_id".to_string(), Value::Str(ws_id));
-        rec.insert("workspace_name".to_string(), Value::Str(ws.name.clone()));
-        rec.insert("user".to_string(), Value::Str(user));
-        rec.insert("role".to_string(), Value::Str("member".to_string()));
-        rec.insert("status".to_string(), Value::Str("joined".to_string()));
-        Ok(Value::Record(rec))
-    } else {
-        Err(crate::safety::not_found(
-            "",
-            "workspace",
-            &ws_id.to_string(),
-        ))
-    }
-}
-
-/// Leave a workspace.
-/// Usage: workspace.leave(workspace_id)
-fn bi_workspace_leave(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let ws_id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "workspace.leave requires workspace ID",
-            ))
-        }
-    };
-    let user = get_current_username();
-    let mut workspaces = WORKSPACES
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(ws) = workspaces.get_mut(&ws_id) {
-        if ws.owner == user {
-            return Err(anyhow!(
-                "workspace owner cannot leave; transfer ownership first"
-            ));
-        }
-        let before = ws.members.len();
-        ws.members.retain(|m| m.user != user);
-        if ws.members.len() == before {
-            return Err(anyhow!("not a member of workspace '{}'", ws.name));
-        }
-        let mut rec = BTreeMap::new();
-        rec.insert("workspace_id".to_string(), Value::Str(ws_id));
-        rec.insert("workspace_name".to_string(), Value::Str(ws.name.clone()));
-        rec.insert("user".to_string(), Value::Str(user));
-        rec.insert("status".to_string(), Value::Str("left".to_string()));
-        Ok(Value::Record(rec))
-    } else {
-        Err(crate::safety::not_found(
-            "",
-            "workspace",
-            &ws_id.to_string(),
-        ))
-    }
-}
-
-/// List members of a workspace.
-/// Usage: workspace.members(workspace_id)
-fn bi_workspace_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let ws_id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "workspace.members requires workspace ID",
-            ))
-        }
-    };
-    let workspaces = WORKSPACES
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(ws) = workspaces.get(&ws_id) {
-        let members: Vec<Value> = ws
-            .members
-            .iter()
-            .map(|m| {
-                let mut rec = BTreeMap::new();
-                rec.insert("user".to_string(), Value::Str(m.user.clone()));
-                rec.insert("role".to_string(), Value::Str(m.role.clone()));
-                rec.insert("joined_at".to_string(), Value::Str(m.joined_at.clone()));
-                Value::Record(rec)
-            })
-            .collect();
-        Ok(Value::Array(members))
-    } else {
-        Err(crate::safety::not_found(
-            "",
-            "workspace",
-            &ws_id.to_string(),
-        ))
-    }
-}
-
-/// Share an agent with a workspace.
-/// Usage: workspace.share_agent(workspace_id, agent_name)
-fn bi_workspace_share_agent(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let ws_id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "workspace.share_agent requires workspace ID",
-            ))
-        }
-    };
-    let agent_name = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "workspace.share_agent requires agent name",
-            ))
-        }
-    };
-    let mut workspaces = WORKSPACES
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(ws) = workspaces.get_mut(&ws_id) {
-        if ws.shared_agents.contains(&agent_name) {
-            return Err(anyhow!(
-                "agent '{}' already shared in workspace '{}'",
-                agent_name,
-                ws.name
-            ));
-        }
-        ws.shared_agents.push(agent_name.clone());
-        let mut rec = BTreeMap::new();
-        rec.insert("workspace_id".to_string(), Value::Str(ws_id));
-        rec.insert("agent".to_string(), Value::Str(agent_name));
-        rec.insert("status".to_string(), Value::Str("shared".to_string()));
-        rec.insert(
-            "total_agents".to_string(),
-            Value::Int(ws.shared_agents.len() as i64),
-        );
-        Ok(Value::Record(rec))
-    } else {
-        Err(crate::safety::not_found(
-            "",
-            "workspace",
-            &ws_id.to_string(),
-        ))
-    }
-}
-
-/// List shared agents in a workspace.
-/// Usage: workspace.agents(workspace_id)
-fn bi_workspace_agents(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let ws_id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "workspace.agents requires workspace ID",
-            ))
-        }
-    };
-    let workspaces = WORKSPACES
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(ws) = workspaces.get(&ws_id) {
-        let agents: Vec<Value> = ws
-            .shared_agents
-            .iter()
-            .map(|a| Value::Str(a.clone()))
-            .collect();
-        Ok(Value::Array(agents))
-    } else {
-        Err(crate::safety::not_found(
-            "",
-            "workspace",
-            &ws_id.to_string(),
-        ))
-    }
-}
-
-/// Sync workspace state with remote peers.
-/// Usage: workspace.sync(workspace_id)
-fn bi_workspace_sync(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let ws_id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "workspace.sync requires workspace ID",
-            ))
-        }
-    };
-    let workspaces = WORKSPACES
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(ws) = workspaces.get(&ws_id) {
-        let mut rec = BTreeMap::new();
-        rec.insert("workspace_id".to_string(), Value::Str(ws_id));
-        rec.insert("workspace_name".to_string(), Value::Str(ws.name.clone()));
-        rec.insert(
-            "members_synced".to_string(),
-            Value::Int(ws.members.len() as i64),
-        );
-        rec.insert(
-            "agents_synced".to_string(),
-            Value::Int(ws.shared_agents.len() as i64),
-        );
-        rec.insert("status".to_string(), Value::Str("synced".to_string()));
-        rec.insert(
-            "timestamp".to_string(),
-            Value::Str(chrono::Local::now().to_rfc3339()),
-        );
-        Ok(Value::Record(rec))
-    } else {
-        Err(crate::safety::not_found(
-            "",
-            "workspace",
-            &ws_id.to_string(),
-        ))
-    }
 }
 
 // ===================== Marketplace Builtins =====================
