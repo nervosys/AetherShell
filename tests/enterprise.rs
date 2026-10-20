@@ -195,8 +195,10 @@ fn test_compliance_check_gdpr() {
 
 #[test]
 fn test_finetune_start() {
+    // No training backend is wired: start must refuse rather than report a job
+    // that will never run.
     let mut env = Env::new();
-    let result = call(
+    let err = call(
         "finetune_start",
         vec![
             Value::Str("gpt-4o-mini".to_string()),
@@ -204,33 +206,20 @@ fn test_finetune_start() {
         ],
         &mut env,
     )
-    .unwrap();
-    let result_str = format!("{}", result);
+    .expect_err("finetune_start must not report a started job");
     assert!(
-        result_str.contains("job_id"),
-        "Should return job_id: {}",
-        result_str
+        err.to_string().contains("E_UNIMPLEMENTED"),
+        "expected E_UNIMPLEMENTED: {err}"
     );
 }
 
 #[test]
 fn test_finetune_list() {
+    // With no job ever created, the registry is empty.
     let mut env = Env::new();
-    call(
-        "finetune_start",
-        vec![
-            Value::Str("model1".to_string()),
-            Value::Str("data1.jsonl".to_string()),
-        ],
-        &mut env,
-    )
-    .unwrap();
-
     let result = call("finetune_list", vec![], &mut env).unwrap();
-    let result_str = format!("{}", result);
     assert!(
-        result_str.contains("model1") || result_str.contains("ft_"),
-        "Should list jobs: {}",
-        result_str
+        matches!(result, Value::Array(_)),
+        "finetune_list should answer an array: {result}"
     );
 }

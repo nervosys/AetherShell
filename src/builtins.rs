@@ -6077,35 +6077,58 @@ fn bi_assert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   let result = trace("input", x) | map(fn(n) => n * 2) | trace("output")
 ///   trace("step1", calculate())
 fn bi_trace(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // A label must be a string; a trace line is for a human, so a label that
+    // is not one is refused rather than rendered as Debug text.
+    let label_of = |v: &Value| -> Result<String> {
+        match v {
+            Value::Str(s) if s.len() <= 256 => Ok(s.clone()),
+            other => Err(crate::safety::bad_arg(
+                "trace",
+                "a label: a string of at most 256 bytes",
+                other.type_name(),
+            )),
+        }
+    };
     let (label, val) = if let Some(input_val) = input {
-        // Piped: input is value, arg 0 is label
-        let label = args
-            .first()
-            .and_then(|v| match v {
-                Value::Str(s) => Some(s.clone()),
-                _ => None,
-            })
-            .unwrap_or_else(|| "trace".to_string());
-        (label, input_val)
-    } else if args.len() >= 2 {
-        // Two args: label, value
-        let label = match &args[0] {
-            Value::Str(s) => s.clone(),
-            other => format!("{:?}", other),
+        // Piped: input is the value, and at most one argument (the label).
+        if args.len() > 1 {
+            return Err(crate::safety::bad_arg(
+                "trace",
+                "with piped input, at most one argument: the label",
+                &format!("{} arguments", args.len()),
+            ));
+        }
+        let label = match args.first() {
+            Some(v) => label_of(v)?,
+            None => "trace".to_string(),
         };
-        (label, args[1].clone())
+        (label, input_val)
+    } else if args.len() == 2 {
+        // Two args: label, value
+        (label_of(&args[0])?, args[1].clone())
     } else if args.len() == 1 {
         // One arg: use default label
         ("trace".to_string(), args[0].clone())
     } else {
-        return Err(crate::safety::arg_err(
-            "trace: requires at least a value argument",
+        return Err(crate::safety::bad_arg(
+            "trace",
+            "a value, or a label and a value",
+            &format!("{} arguments", args.len()),
         ));
     };
 
     let type_str = val.type_name();
     let pretty =
         crate::value::pretty::display_inline(&val, &crate::value::pretty::Theme::for_stdout());
+    // A trace line is not a dump: a large value is cut with an explicit marker
+    // instead of flooding stderr.
+    const MAX_TRACE_CHARS: usize = 4096;
+    let pretty = if pretty.chars().count() > MAX_TRACE_CHARS {
+        let head: String = pretty.chars().take(MAX_TRACE_CHARS).collect();
+        format!("{head}… [trace truncated]")
+    } else {
+        pretty
+    };
     eprintln!("[TRACE {}] {}: {}", label, type_str, pretty);
 
     // Return the value unchanged for pipeline chaining
@@ -6696,14 +6719,29 @@ fn bi_feature_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   - name: String - Cluster name (optional, defaults to "default")
 /// Returns: Record with cluster info
 fn bi_cluster_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let name = input
-        .or_else(|| args.first().cloned())
-        .map(|v| match v {
-            Value::Str(s) => s,
-            _ => "default".to_string(),
-        })
-        .unwrap_or_else(|| "default".to_string());
+    if args.len() > 1 {
+        return Err(crate::safety::bad_arg(
+            "cluster_create",
+            "at most one name argument",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    // A name that is not a string used to become "default" with no word.
+    let name = match input.or_else(|| args.first().cloned()) {
+        None => "default".to_string(),
+        Some(Value::Str(s)) if !s.is_empty() && s.len() <= 128 => s,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "cluster_create",
+                "a cluster name: a non-empty string of at most 128 bytes",
+                other.type_name(),
+            ))
+        }
+    };
 
+    // This answers a record and starts nothing: no node is contacted and the
+    // name is not stored anywhere. Nodes added with cluster_add_node join one
+    // process-wide registry that does not know which cluster they belong to.
     let mut record = BTreeMap::new();
     record.insert("name".to_string(), Value::Str(name.clone()));
     record.insert("status".to_string(), Value::Str("created".to_string()));
@@ -6746,13 +6784,48 @@ fn bi_cluster_add_node(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         ));
     };
 
-    let capabilities = if args.len() >= 3 {
-        match &args[2] {
-            Value::Array(arr) => arr.iter().map(|v| v.to_display_string()).collect(),
-            _ => vec![],
+    if args.len() > 3 {
+        return Err(crate::safety::bad_arg(
+            "cluster_add_node",
+            "at most 3 arguments: id, address, capabilities",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    if id.is_empty() || address.is_empty() || address.chars().any(char::is_whitespace) {
+        return Err(crate::safety::bad_arg(
+            "cluster_add_node",
+            "a non-empty id and an address with no whitespace",
+            &format!("id '{id}', address '{address}'"),
+        ));
+    }
+
+    let capabilities = match args.get(2) {
+        None => vec!["compute".to_string(), "storage".to_string()],
+        // An array of strings or nothing. Anything else used to become an
+        // empty capability list with no error.
+        Some(Value::Array(arr)) => {
+            let mut caps = Vec::with_capacity(arr.len());
+            for c in arr {
+                match c {
+                    Value::Str(s) => caps.push(s.clone()),
+                    other => {
+                        return Err(crate::safety::bad_arg(
+                            "cluster_add_node",
+                            "capabilities: Array<String>",
+                            other.type_name(),
+                        ))
+                    }
+                }
+            }
+            caps
         }
-    } else {
-        vec!["compute".to_string(), "storage".to_string()]
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "cluster_add_node",
+                "capabilities: Array<String>",
+                other.type_name(),
+            ))
+        }
     };
 
     let node = ClusterNode {
@@ -6776,7 +6849,9 @@ fn bi_cluster_add_node(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         "capabilities".to_string(),
         Value::Array(capabilities.into_iter().map(Value::Str).collect()),
     );
-    record.insert("status".to_string(), Value::Str("online".to_string()));
+    // Nothing contacted the node, so it is not "online": it is registered in
+    // this process. Liveness is not checked by anything in this builtin.
+    record.insert("status".to_string(), Value::Str("registered".to_string()));
 
     Ok(Value::Record(record))
 }
@@ -7094,9 +7169,35 @@ fn bi_remote_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// aggregate_results(results, strategy?) - Aggregate results from distributed computation
 fn bi_aggregate_results(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let results = input
-        .or_else(|| args.first().cloned())
-        .ok_or_else(|| crate::safety::arg_err("aggregate_results: requires results array"))?;
+    // Piped: the results are the input and the strategy is the only argument.
+    // Unpiped: results, then strategy. The strategy used to be read from
+    // position 1 either way, so `[..] | aggregate_results("sum")` silently
+    // aggregated with "concat".
+    let (results, strategy_arg) = match input {
+        Some(v) => {
+            if args.len() > 1 {
+                return Err(crate::safety::bad_arg(
+                    "aggregate_results",
+                    "with piped input, at most one argument: the strategy",
+                    &format!("{} arguments", args.len()),
+                ));
+            }
+            (v, args.first())
+        }
+        None => {
+            if args.len() > 2 {
+                return Err(crate::safety::bad_arg(
+                    "aggregate_results",
+                    "results, then an optional strategy",
+                    &format!("{} arguments", args.len()),
+                ));
+            }
+            let r = args.first().cloned().ok_or_else(|| {
+                crate::safety::arg_err("aggregate_results: requires results array")
+            })?;
+            (r, args.get(1))
+        }
+    };
 
     let results = match results {
         Value::Array(arr) => arr,
@@ -7109,30 +7210,60 @@ fn bi_aggregate_results(args: Vec<Value>, input: Option<Value>) -> Result<Value>
         }
     };
 
-    let strategy = args
-        .get(1)
-        .map(|v| v.to_display_string())
-        .unwrap_or_else(|| "concat".to_string());
+    let strategy = match strategy_arg {
+        None => "concat".to_string(),
+        Some(Value::Str(s)) => s.clone(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "aggregate_results",
+                "strategy: a string (concat, sum, count, first, last)",
+                other.type_name(),
+            ))
+        }
+    };
 
     match strategy.as_str() {
         "concat" => Ok(Value::Array(results)),
         "sum" => {
-            let sum: f64 = results
-                .iter()
-                .filter_map(|v| match v {
-                    Value::Int(i) => Some(*i as f64),
-                    Value::Float(f) => Some(*f),
-                    _ => None,
-                })
-                .sum();
+            // A non-number used to be skipped, so the sum of a list with a
+            // failed element looked like a sum of the rest. Refuse it.
+            let mut sum = 0.0f64;
+            for (i, v) in results.iter().enumerate() {
+                match v {
+                    Value::Int(n) => sum += *n as f64,
+                    Value::Float(f) if f.is_finite() => sum += *f,
+                    other => {
+                        return Err(crate::safety::bad_arg(
+                            "aggregate_results",
+                            &format!("results[{i}]: a finite number for strategy \"sum\""),
+                            other.type_name(),
+                        ))
+                    }
+                }
+            }
             Ok(Value::Float(sum))
         }
         "count" => Ok(Value::Int(results.len() as i64)),
-        "first" => Ok(results.first().cloned().unwrap_or(Value::Null)),
-        "last" => Ok(results.last().cloned().unwrap_or(Value::Null)),
-        _ => Err(anyhow!(
-            "aggregate_results: unknown strategy '{}'",
-            strategy
+        "first" | "last" => {
+            let pick = if strategy == "first" {
+                results.first()
+            } else {
+                results.last()
+            };
+            // An empty list has no first or last element: that is a failure,
+            // not a Null answer.
+            pick.cloned().ok_or_else(|| {
+                crate::safety::bad_arg(
+                    "aggregate_results",
+                    &format!("a non-empty results array for strategy \"{strategy}\""),
+                    "an empty array",
+                )
+            })
+        }
+        other => Err(crate::safety::bad_arg(
+            "aggregate_results",
+            "strategy: one of concat, sum, count, first, last",
+            other,
         )),
     }
 }
@@ -7141,27 +7272,81 @@ fn bi_aggregate_results(args: Vec<Value>, input: Option<Value>) -> Result<Value>
 
 /// rag_index(content, source?, metadata?) - Index a document for RAG
 fn bi_rag_index(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let content = input
-        .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
-        .ok_or_else(|| crate::safety::arg_err("rag_index: requires content"))?;
+    // The index lives for the whole process and every document is kept, so
+    // both the size of one document and the number held are bounded.
+    const MAX_DOC_BYTES: usize = 1 << 20;
+    const MAX_DOCS: usize = 10_000;
 
-    let source = args
-        .get(1)
-        .map(|v| v.to_display_string())
-        .unwrap_or_else(|| "unknown".to_string());
+    // Piped, the content is the input and `args` are source and metadata.
+    // Unpiped, `args` are content, source and metadata. Reading source from
+    // `args[1]` either way dropped a piped source without a word.
+    let (content_in, rest): (Option<Value>, &[Value]) = match input {
+        Some(v) => (Some(v), &args[..]),
+        None => (args.first().cloned(), args.get(1..).unwrap_or(&[])),
+    };
+    if rest.len() > 2 {
+        return Err(crate::safety::bad_arg(
+            "rag_index",
+            "at most 3 arguments: content, source, metadata",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    let content = match content_in {
+        Some(Value::Str(s)) if s.len() <= MAX_DOC_BYTES => s,
+        Some(Value::Str(s)) => {
+            return Err(crate::safety::budget_exceeded(
+                "rag_index",
+                format!("content is {} bytes; the limit is {MAX_DOC_BYTES}", s.len()),
+                "index a smaller document or split it",
+            ))
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "rag_index",
+                "content: a string",
+                other.type_name(),
+            ))
+        }
+        None => return Err(crate::safety::arg_err("rag_index: requires content")),
+    };
 
-    let metadata: HashMap<String, String> = if let Some(Value::Record(rec)) = args.get(2) {
-        rec.iter()
+    let source = match rest.first() {
+        None | Some(Value::Null) => "unknown".to_string(),
+        Some(Value::Str(s)) => s.clone(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "rag_index",
+                "source: a string",
+                other.type_name(),
+            ))
+        }
+    };
+
+    let metadata: HashMap<String, String> = match rest.get(1) {
+        None | Some(Value::Null) => HashMap::new(),
+        Some(Value::Record(rec)) => rec
+            .iter()
             .map(|(k, v)| (k.clone(), v.to_display_string()))
-            .collect()
-    } else {
-        HashMap::new()
+            .collect(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "rag_index",
+                "metadata: a Record",
+                other.type_name(),
+            ))
+        }
     };
 
     let mut index = RAG_INDEX
         .write()
         .map_err(|e| anyhow!("rag_index: lock error: {}", e))?;
+    if index.chunks.len() >= MAX_DOCS {
+        return Err(crate::safety::budget_exceeded(
+            "rag_index",
+            format!("the index already holds {MAX_DOCS} documents"),
+            "the index is process-local and has no removal; start a new process",
+        ));
+    }
 
     let doc_id = index.add_document(&content, &source, metadata);
 
@@ -7273,8 +7458,41 @@ fn bi_rag_clear(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Int(count as i64))
 }
 
+/// The optional properties record of a `kg_*` call: absent or null is empty,
+/// a Record is taken, and anything else is refused rather than dropped.
+fn kg_properties(builtin: &str, v: Option<&Value>) -> Result<HashMap<String, String>> {
+    match v {
+        None | Some(Value::Null) => Ok(HashMap::new()),
+        Some(Value::Record(rec)) => Ok(rec
+            .iter()
+            .map(|(k, v)| (k.clone(), v.to_display_string()))
+            .collect()),
+        Some(other) => Err(crate::safety::bad_arg(
+            builtin,
+            "properties: a Record",
+            other.type_name(),
+        )),
+    }
+}
+
 /// kg_add(type, name, properties?) - Add an entity to the knowledge graph
 fn bi_kg_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const MAX_ENTITIES: usize = 100_000;
+    if args.len() > 3 {
+        return Err(crate::safety::bad_arg(
+            "kg_add",
+            "at most 3 arguments: type, name, properties",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    // Only a Record is documented as piped input; anything else was dropped.
+    if matches!(&input, Some(v) if !matches!(v, Value::Record(_))) {
+        return Err(crate::safety::bad_arg(
+            "kg_add",
+            "piped input: a Record {type, name, properties?}",
+            input.as_ref().map_or("nothing", |v| v.type_name()),
+        ));
+    }
     let (entity_type, name) = if let Some(Value::Record(rec)) = input {
         let entity_type = rec
             .get("type")
@@ -7291,17 +7509,18 @@ fn bi_kg_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         return Err(crate::safety::arg_err("kg_add: requires type and name"));
     };
 
-    let properties: HashMap<String, String> = if let Some(Value::Record(rec)) = args.get(2) {
-        rec.iter()
-            .map(|(k, v)| (k.clone(), v.to_display_string()))
-            .collect()
-    } else {
-        HashMap::new()
-    };
+    let properties = kg_properties("kg_add", args.get(2))?;
 
     let mut kg = KNOWLEDGE_GRAPH
         .write()
         .map_err(|e| anyhow!("kg_add: lock error: {}", e))?;
+    if kg.entities.len() >= MAX_ENTITIES {
+        return Err(crate::safety::budget_exceeded(
+            "kg_add",
+            format!("the knowledge graph already holds {MAX_ENTITIES} entities"),
+            "the graph is process-local and has no removal; start a new process",
+        ));
+    }
 
     let entity_id = kg.add_entity(&entity_type, &name, properties);
 
@@ -7315,6 +7534,20 @@ fn bi_kg_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// kg_relate(source_id, target_id, relation_type, properties?) - Add a relation
 fn bi_kg_relate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    if args.len() > 4 {
+        return Err(crate::safety::bad_arg(
+            "kg_relate",
+            "at most 4 arguments: source, target, relation, properties",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    if matches!(&input, Some(v) if !matches!(v, Value::Record(_))) {
+        return Err(crate::safety::bad_arg(
+            "kg_relate",
+            "piped input: a Record {source, target, relation, properties?}",
+            input.as_ref().map_or("nothing", |v| v.type_name()),
+        ));
+    }
     let (source_id, target_id, relation_type) = if let Some(Value::Record(rec)) = input {
         let source = rec
             .get("source")
@@ -7341,13 +7574,7 @@ fn bi_kg_relate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         ));
     };
 
-    let properties: HashMap<String, String> = if let Some(Value::Record(rec)) = args.get(3) {
-        rec.iter()
-            .map(|(k, v)| (k.clone(), v.to_display_string()))
-            .collect()
-    } else {
-        HashMap::new()
-    };
+    let properties = kg_properties("kg_relate", args.get(3))?;
 
     let mut kg = KNOWLEDGE_GRAPH
         .write()
@@ -7427,6 +7654,22 @@ fn bi_kg_relations(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// semantic_cache(query, response) - Store a response in the semantic cache
 fn bi_semantic_cache(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const MAX_QUERY_BYTES: usize = 4096;
+    const MAX_RESPONSE_BYTES: usize = 256 * 1024;
+    if args.len() > 2 {
+        return Err(crate::safety::bad_arg(
+            "semantic_cache",
+            "at most 2 arguments: query, response",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    if matches!(&input, Some(v) if !matches!(v, Value::Record(_))) {
+        return Err(crate::safety::bad_arg(
+            "semantic_cache",
+            "piped input: a Record {query, response}",
+            input.as_ref().map_or("nothing", |v| v.type_name()),
+        ));
+    }
     let (query, response) = if let Some(Value::Record(rec)) = input {
         let query = rec
             .get("query")
@@ -7444,6 +7687,23 @@ fn bi_semantic_cache(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "semantic_cache: requires query and response",
         ));
     };
+    if query.is_empty() || query.len() > MAX_QUERY_BYTES {
+        return Err(crate::safety::bad_arg(
+            "semantic_cache",
+            &format!("a query of 1 to {MAX_QUERY_BYTES} bytes"),
+            &format!("{} bytes", query.len()),
+        ));
+    }
+    if response.len() > MAX_RESPONSE_BYTES {
+        return Err(crate::safety::budget_exceeded(
+            "semantic_cache",
+            format!(
+                "response is {} bytes; the limit is {MAX_RESPONSE_BYTES}",
+                response.len()
+            ),
+            "cache a shorter response",
+        ));
+    }
 
     let mut cache = SEMANTIC_CACHE
         .write()
@@ -9713,7 +9973,14 @@ fn bi_none() -> Result<Value> {
 ///
 /// Example:
 ///   ai_backends() | select(["name", "available", "models"])
-fn bi_ai_backends(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_ai_backends(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() {
+        return Err(crate::safety::bad_arg(
+            "ai_backends",
+            "no arguments",
+            &format!("{} argument(s)", args.len()),
+        ));
+    }
     let backends = crate::ai::detect_available_backends();
 
     let records: Vec<Value> = backends
@@ -12931,6 +13198,7 @@ fn bi_set_env(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         ));
     }
     let key = env_name(B, &args[0])?;
+    refuse_gate_env(B, &key)?;
     let value = env_value(B, &args[1])?;
     std::env::set_var(key, value);
     Ok(Value::Null)
@@ -12962,6 +13230,30 @@ fn env_value(builtin: &str, value: &Value) -> Result<String> {
         ));
     }
     Ok(text.to_string())
+}
+
+/// Refuse, in agent mode, any change to an `AETHER_*` variable.
+///
+/// The approval gate and its mode switch are read from the process
+/// environment on every call: `AETHER_MODE`/`AETHER_AGENT` decide whether
+/// `approve()` is refused, `AETHER_APPROVE`/`AETHER_APPROVE_ALL` decide whether a
+/// gated call (including `apply`) is approved, and `AETHER_POLICY`,
+/// `AETHER_WORKSPACE` and the `AETHER_MAX_*` budgets decide the rest. An agent
+/// that could set or unset those through `set_env`/`env_set`/`env_unset` (all
+/// classified WriteLocal, so allowed in agent mode) could approve its own plan
+/// or switch the gate off. Fail closed: the agent may not touch them. Human
+/// mode is unchanged.
+fn refuse_gate_env(builtin: &str, name: &str) -> Result<()> {
+    if crate::safety::current_mode() == crate::safety::Mode::Agent
+        && name.to_ascii_uppercase().starts_with("AETHER_")
+    {
+        return Err(crate::safety::policy_deny(
+            builtin,
+            format!("{builtin}: an agent may not change the approval gate's environment ({name})"),
+            "AETHER_* variables are set by whoever launches the agent, not by the agent",
+        ));
+    }
+    Ok(())
 }
 
 /// sleep(seconds) - Sleep for specified duration
@@ -16692,14 +16984,26 @@ fn value_to_gridworld(value: &Value) -> Result<GridWorld> {
 fn bi_tools(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db = OSToolsDatabase::new();
 
-    // Get filter if provided
-    let filter = args.first().and_then(|v| {
-        if let Value::Str(s) = v {
-            Some(s.to_lowercase())
-        } else {
-            None
+    // A filter that is not a string used to be ignored, so `tools(5)` listed
+    // the whole catalogue as if no filter had been given.
+    if args.len() > 1 {
+        return Err(crate::safety::bad_arg(
+            "tools",
+            "at most one filter argument",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    let filter = match args.first() {
+        None | Some(Value::Null) => None,
+        Some(Value::Str(s)) => Some(s.to_lowercase()),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "tools",
+                "a filter: an OS, a category, or a search string",
+                other.type_name(),
+            ))
         }
-    });
+    };
 
     let tools: Vec<&crate::os_tools::OSTool> = if let Some(ref f) = filter {
         // Check if it's an OS filter
@@ -16976,45 +17280,88 @@ fn bi_tool_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         ));
     };
 
-    let tool_args: Vec<String> = if args.len() > 1 {
-        if let Value::Array(arr) = &args[1] {
-            arr.iter()
-                .filter_map(|v| {
-                    if let Value::Str(s) = v {
-                        Some(s.clone())
-                    } else {
-                        None
+    if args.len() > 3 {
+        return Err(crate::safety::bad_arg(
+            "tool_exec",
+            "at most 3 arguments: tool_name, [args], [allow_dangerous]",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+
+    // Every argument is passed to the program as given, so a value that is not
+    // a string used to be dropped from the argv (changing what ran) or the
+    // whole list was discarded. Refuse those instead.
+    let tool_args: Vec<String> = match args.get(1) {
+        None | Some(Value::Null) => vec![],
+        Some(Value::Str(s)) => vec![s.clone()],
+        Some(Value::Array(arr)) => {
+            let mut out = Vec::with_capacity(arr.len());
+            for (i, v) in arr.iter().enumerate() {
+                match v {
+                    Value::Str(s) if !s.contains('\0') => out.push(s.clone()),
+                    other => {
+                        return Err(crate::safety::bad_arg(
+                            "tool_exec",
+                            &format!("args[{i}]: a string without NUL"),
+                            other.type_name(),
+                        ))
                     }
-                })
-                .collect()
-        } else if let Value::Str(s) = &args[1] {
-            // Single argument as string
-            vec![s.clone()]
-        } else {
-            vec![]
+                }
+            }
+            out
         }
-    } else {
-        vec![]
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "tool_exec",
+                "args: an Array<String> or a single String",
+                other.type_name(),
+            ))
+        }
     };
 
-    let allow_dangerous = if args.len() > 2 {
-        if let Value::Bool(b) = &args[2] {
-            *b
-        } else {
-            false
+    let allow_dangerous = match args.get(2) {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "tool_exec",
+                "allow_dangerous: a boolean",
+                other.type_name(),
+            ))
         }
-    } else {
-        false
     };
+
+    let db = OSToolsDatabase::new();
+    let tool = db
+        .get_tool(&tool_name)
+        .ok_or_else(|| crate::safety::not_found("tool_exec", "tool", &tool_name))?;
+    if !allow_dangerous
+        && matches!(
+            tool.safety_level,
+            crate::os_tools::SafetyLevel::Dangerous | crate::os_tools::SafetyLevel::Critical
+        )
+    {
+        return Err(crate::safety::policy_deny(
+            "tool_exec",
+            format!("tool '{tool_name}' is {:?}", tool.safety_level),
+            "pass allow_dangerous=true, which needs the same approval as any gated exec",
+        ));
+    }
 
     crate::safety::guard_exec(
         "tool_exec",
         format!("{} {}", tool_name, tool_args.join(" ")),
     )?;
-    let db = OSToolsDatabase::new();
 
-    let result = execute_tool_safe(&db, &tool_name, &tool_args, allow_dangerous)
-        .map_err(|e| anyhow!("Tool execution failed: {}", e))?;
+    let result = execute_tool_safe(&db, &tool_name, &tool_args, allow_dangerous).map_err(|e| {
+        // The message is the only signal `execute_tool_safe` gives, and it
+        // comes from `Command::output`, so a spawn failure is the missing tool.
+        if e.starts_with("Failed to execute") {
+            crate::safety::tool_missing("tool_exec", &tool_name, &e)
+        } else {
+            crate::safety::policy_deny("tool_exec", e, "see the tool's safety and OS requirements")
+        }
+    })?;
 
     // Convert result to Value::Record
     let mut rec = BTreeMap::new();
@@ -17111,51 +17458,34 @@ fn bi_rlm_agent(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Resul
         ));
     };
 
-    // Parse tool names
-    let tool_names: Vec<String> = if args.len() > 1 {
-        if let Value::Array(arr) = &args[1] {
-            arr.iter()
-                .filter_map(|v| {
-                    if let Value::Str(s) = v {
-                        Some(s.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            vec![
-                "ls".to_string(),
-                "cat".to_string(),
-                "grep".to_string(),
-                "find".to_string(),
-            ]
-        }
-    } else {
-        vec![
-            "ls".to_string(),
-            "cat".to_string(),
-            "grep".to_string(),
-            "find".to_string(),
-        ]
+    if args.len() > 4 {
+        return Err(crate::safety::bad_arg(
+            "rlm_agent",
+            "at most 4 arguments: goal, [tools], [config], [model_uri]",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+
+    let tool_names = match args.get(1) {
+        None => rlm_default_tools(),
+        Some(v) => rlm_tool_list("rlm_agent", v)?,
     };
 
-    // Parse config if provided
-    let config = if args.len() > 2 {
-        parse_rlm_config(&args[2])?
-    } else {
-        RlmConfig::default()
+    let config = match args.get(2) {
+        None => RlmConfig::default(),
+        Some(v) => parse_rlm_config(v)?,
     };
 
-    // Check for model URI
-    let model_uri = if args.len() > 3 {
-        if let Value::Str(s) = &args[3] {
-            Some(s.clone())
-        } else {
-            None
+    let model_uri = match args.get(3) {
+        None | Some(Value::Null) => None,
+        Some(Value::Str(s)) if !s.is_empty() => Some(s.clone()),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "rlm_agent",
+                "model_uri: a non-empty string",
+                other.type_name(),
+            ))
         }
-    } else {
-        None
     };
 
     let tool_refs: Vec<&str> = tool_names.iter().map(|s| s.as_str()).collect();
@@ -17307,25 +17637,20 @@ fn bi_rlm_spawn(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Resul
         return Err(crate::safety::arg_err("rlm_spawn: goal must be a string"));
     };
 
-    let tool_names: Vec<String> = if args.len() > 2 {
-        if let Value::Array(arr) = &args[2] {
-            arr.iter()
-                .filter_map(|v| {
-                    if let Value::Str(s) = v {
-                        Some(s.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            vec!["ls".to_string(), "cat".to_string()]
-        }
-    } else {
-        vec!["ls".to_string(), "cat".to_string()]
+    if args.len() > 3 {
+        return Err(crate::safety::bad_arg(
+            "rlm_spawn",
+            "at most 3 arguments: name, goal, [tools]",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    let tool_names = match args.get(2) {
+        None => vec!["ls".to_string(), "cat".to_string()],
+        Some(v) => rlm_tool_list("rlm_spawn", v)?,
     };
 
-    // Run a single-depth recursive agent for the spawn
+    // Run a single-depth recursive agent for the spawn. Every bound here is a
+    // literal, not a caller choice: one level, five agents, thirty seconds.
     let config = RlmConfig {
         max_depth: 1, // Single level only
         max_agents: 5,
@@ -17344,8 +17669,16 @@ fn bi_rlm_spawn(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Resul
     let mut rec = BTreeMap::new();
     rec.insert("name".to_string(), Value::Str(name));
     rec.insert("goal".to_string(), Value::Str(goal));
+    // `run_sync` answers a run that hit its step cap with an Ok string that
+    // begins "(incomplete)", not with an error. That is not a success, however
+    // many agents it spawned.
+    let complete = !result.starts_with("(incomplete)");
     rec.insert("output".to_string(), Value::Str(result));
-    rec.insert("success".to_string(), Value::Bool(stats.total_spawned > 0));
+    rec.insert("complete".to_string(), Value::Bool(complete));
+    rec.insert(
+        "success".to_string(),
+        Value::Bool(stats.total_spawned > 0 && complete),
+    );
     rec.insert(
         "agents_used".to_string(),
         Value::Int(stats.total_spawned as i64),
@@ -17358,40 +17691,156 @@ fn bi_rlm_spawn(args: Vec<Value>, _input: Option<Value>, env: &mut Env) -> Resul
     Ok(Value::Record(rec))
 }
 
-/// Parse RLM configuration from a Value
-fn parse_rlm_config(value: &Value) -> Result<RlmConfig> {
-    let mut config = RlmConfig::default();
+/// Hard ceilings on the recursion budgets a caller may choose. A request above
+/// one is refused with `E_BUDGET_EXCEEDED`, not clamped: a silently smaller
+/// run than the one asked for is a result nobody can reason about.
+const RLM_MAX_DEPTH_CEILING: i64 = 8;
+const RLM_MAX_AGENTS_CEILING: i64 = 200;
+const RLM_MAX_CHILDREN_CEILING: i64 = 32;
+const RLM_TIMEOUT_CEILING_SECS: i64 = 3600;
 
-    if let Value::Record(rec) = value {
-        if let Some(Value::Int(n)) = rec.get("max_depth") {
-            config.max_depth = *n as usize;
+/// The tool names a recursive agent gets when the caller names none.
+fn rlm_default_tools() -> Vec<String> {
+    ["ls", "cat", "grep", "find"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// A caller's tool list: an array of names of builtins that exist. A name that
+/// does not is refused rather than dropped, so the agent never runs with fewer
+/// tools than it was given.
+fn rlm_tool_list(builtin: &str, value: &Value) -> Result<Vec<String>> {
+    let arr = match value {
+        Value::Null => return Ok(rlm_default_tools()),
+        Value::Array(arr) => arr,
+        other => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "tools: Array<String> of builtin names",
+                other.type_name(),
+            ))
         }
-        if let Some(Value::Int(n)) = rec.get("max_agents") {
-            config.max_agents = *n as usize;
-        }
-        if let Some(Value::Int(n)) = rec.get("timeout") {
-            config.agent_timeout_secs = *n as u64;
-        }
-        if let Some(Value::Int(n)) = rec.get("agent_timeout_secs") {
-            config.agent_timeout_secs = *n as u64;
-        }
-        if let Some(Value::Int(n)) = rec.get("max_concurrent_children") {
-            config.max_concurrent_children = *n as usize;
-        }
-        if let Some(Value::Bool(b)) = rec.get("trace_enabled") {
-            config.trace_enabled = *b;
-        }
-        if let Some(Value::Bool(b)) = rec.get("trace") {
-            config.trace_enabled = *b;
-        }
-        if let Some(Value::Str(s)) = rec.get("model_uri") {
-            config.subagent_model_uri = Some(s.clone());
-        }
-        if let Some(Value::Str(s)) = rec.get("subagent_model_uri") {
-            config.subagent_model_uri = Some(s.clone());
+    };
+    let mut out = Vec::with_capacity(arr.len());
+    for (i, v) in arr.iter().enumerate() {
+        match v {
+            Value::Str(s) if crate::builtins::is_dispatched(s) => out.push(s.clone()),
+            Value::Str(s) => {
+                return Err(crate::safety::not_found(builtin, "builtin", s));
+            }
+            other => {
+                return Err(crate::safety::bad_arg(
+                    builtin,
+                    &format!("tools[{i}]: a builtin name string"),
+                    other.type_name(),
+                ))
+            }
         }
     }
+    Ok(out)
+}
 
+/// One integer budget from a config record, between `min` and `ceiling`.
+fn rlm_budget(key: &str, v: &Value, min: i64, ceiling: i64) -> Result<i64> {
+    match v {
+        Value::Int(n) if *n > ceiling => Err(crate::safety::budget_exceeded(
+            "rlm_agent",
+            format!("{key} = {n} is above the ceiling of {ceiling}"),
+            "lower it; the ceiling is fixed so one call cannot fan out without bound",
+        )),
+        Value::Int(n) if *n >= min => Ok(*n),
+        Value::Int(n) => Err(crate::safety::bad_arg(
+            "rlm_agent",
+            &format!("{key}: an integer from {min} to {ceiling}"),
+            &n.to_string(),
+        )),
+        other => Err(crate::safety::bad_arg(
+            "rlm_agent",
+            &format!("{key}: an integer from {min} to {ceiling}"),
+            other.type_name(),
+        )),
+    }
+}
+
+/// Parse RLM configuration from a Value.
+///
+/// Every key must be one this reads, and every value must have the right type
+/// and lie within its ceiling. A negative count used to wrap to a huge `usize`
+/// (an effectively unbounded depth or agent count), and an unknown key or a
+/// wrong type used to fall back to the default with no word.
+fn parse_rlm_config(value: &Value) -> Result<RlmConfig> {
+    const KEYS: &[&str] = &[
+        "max_depth",
+        "max_agents",
+        "timeout",
+        "agent_timeout_secs",
+        "max_concurrent_children",
+        "trace_enabled",
+        "trace",
+        "model_uri",
+        "subagent_model_uri",
+    ];
+    let rec = match value {
+        Value::Record(rec) => rec,
+        other => {
+            return Err(crate::safety::bad_arg(
+                "rlm_agent",
+                "config: a Record of recursion budgets",
+                other.type_name(),
+            ))
+        }
+    };
+    if let Some(k) = rec.keys().find(|k| !KEYS.contains(&k.as_str())) {
+        return Err(crate::safety::bad_arg(
+            "rlm_agent",
+            &format!("config: a known key (one of {})", KEYS.join(", ")),
+            &format!("key '{k}'"),
+        ));
+    }
+
+    let mut config = RlmConfig::default();
+    if let Some(v) = rec.get("max_depth") {
+        config.max_depth = rlm_budget("max_depth", v, 0, RLM_MAX_DEPTH_CEILING)? as usize;
+    }
+    if let Some(v) = rec.get("max_agents") {
+        config.max_agents = rlm_budget("max_agents", v, 1, RLM_MAX_AGENTS_CEILING)? as usize;
+    }
+    for key in ["timeout", "agent_timeout_secs"] {
+        if let Some(v) = rec.get(key) {
+            config.agent_timeout_secs = rlm_budget(key, v, 1, RLM_TIMEOUT_CEILING_SECS)? as u64;
+        }
+    }
+    if let Some(v) = rec.get("max_concurrent_children") {
+        config.max_concurrent_children =
+            rlm_budget("max_concurrent_children", v, 1, RLM_MAX_CHILDREN_CEILING)? as usize;
+    }
+    for key in ["trace_enabled", "trace"] {
+        match rec.get(key) {
+            None => {}
+            Some(Value::Bool(b)) => config.trace_enabled = *b,
+            Some(other) => {
+                return Err(crate::safety::bad_arg(
+                    "rlm_agent",
+                    &format!("{key}: a boolean"),
+                    other.type_name(),
+                ))
+            }
+        }
+    }
+    for key in ["model_uri", "subagent_model_uri"] {
+        match rec.get(key) {
+            None => {}
+            Some(Value::Str(s)) if !s.is_empty() => config.subagent_model_uri = Some(s.clone()),
+            Some(other) => {
+                return Err(crate::safety::bad_arg(
+                    "rlm_agent",
+                    &format!("{key}: a non-empty string"),
+                    other.type_name(),
+                ))
+            }
+        }
+    }
     Ok(config)
 }
 
@@ -19521,7 +19970,7 @@ fn bi_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     r.insert(
         "hint".to_string(),
         Value::Str(format!(
-            "review, then in agent mode: approve(\"{}\") and apply(<ops>)",
+            "review, then a human approves this token out of band (AETHER_APPROVE={}), then apply(<ops>); an agent cannot approve its own plan",
             token
         )),
     );
@@ -19706,9 +20155,23 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         r.insert("operations".to_string(), Value::Int(parsed.len() as i64));
         r.insert(
             "hint".to_string(),
-            Value::Str(format!("approve(\"{}\") then re-run apply", token)),
+            Value::Str(format!(
+                "a human approves this token out of band (AETHER_APPROVE={}), then re-run apply",
+                token
+            )),
         );
         return Ok(Value::Record(r));
+    }
+
+    if agent {
+        // An approval is spent by the apply it authorised. Without this, one
+        // human approval of a plan token stayed in the in-process grant set
+        // for the life of the process, so the same token could re-run the
+        // same batch later, against whatever the paths now hold. Revoking
+        // before the batch runs is fail-closed: if it fails, the agent needs a
+        // fresh out-of-band approval. An `AETHER_APPROVE` entry is operator
+        // configuration and is not touched here.
+        crate::safety::revoke_approval(&token);
     }
 
     let enforce_jail = agent || std::env::var("AETHER_WORKSPACE").is_ok();
@@ -21101,24 +21564,49 @@ fn bi_save_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
-    let value = if args.len() > 1 {
-        args[1].clone()
-    } else {
-        input.ok_or_else(|| crate::safety::arg_err("save_json requires a value to save"))?
+    // Piped: the value is the input and the path is the only argument.
+    // Unpiped: path, then value. A piped value used to be ignored whenever a
+    // second argument was present.
+    let value = match (input, args.len()) {
+        (Some(_), n) if n > 1 => {
+            return Err(crate::safety::bad_arg(
+                "save_json",
+                "with piped input, the path only",
+                &format!("{n} arguments"),
+            ))
+        }
+        (Some(v), _) => v,
+        (None, 2) => args[1].clone(),
+        (None, 1) => return Err(crate::safety::arg_err("save_json requires a value to save")),
+        (None, n) => {
+            return Err(crate::safety::bad_arg(
+                "save_json",
+                "a path and a value (or a path and piped input)",
+                &format!("{n} arguments"),
+            ))
+        }
     };
+
+    // The write is jailed like every other local write: a relative path lands
+    // in the workspace, and an absolute path outside it is refused. Before this
+    // call nothing checked the path, so an agent could write any file.
+    let path = guard_local_write("save_json", &path)?;
 
     // Convert Value to JSON using existing function
     let json = value_to_json(value);
     let json_str = serde_json::to_string_pretty(&json)
         .map_err(|e| anyhow!("save_json: JSON serialization failed: {}", e))?;
 
-    // Write to file
+    // An existing file is replaced, and the record says so: a save that quietly
+    // destroyed an earlier file is the surprise to avoid.
+    let overwrote = std::path::Path::new(&path).exists();
     fs::write(&path, &json_str)
         .with_context(|| format!("save_json: failed to write to '{}'", path))?;
 
     let mut record = BTreeMap::new();
     record.insert("path".to_string(), Value::Str(path));
     record.insert("bytes".to_string(), Value::Int(json_str.len() as i64));
+    record.insert("overwrote".to_string(), Value::Bool(overwrote));
     record.insert("success".to_string(), Value::Bool(true));
 
     Ok(Value::Record(record))
@@ -21355,35 +21843,63 @@ fn bi_each(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Valu
 /// in(value, collection) - Check if value is in collection
 /// Usage: "x" | in(["a", "b", "x"]) or in("x", ["a", "b", "x"])
 fn bi_in(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let (needle, haystack) = if let Some(ref inp) = input {
-        if args.is_empty() {
-            return Err(crate::safety::arg_err("in requires a collection to search"));
+    // Membership: `in(needle, haystack)`, or `needle | in(haystack)`. Piped, the
+    // needle is the input and the haystack is the one argument.
+    let (needle, haystack) = match input {
+        Some(inp) => {
+            if args.len() != 1 {
+                return Err(crate::safety::bad_arg(
+                    "in",
+                    "with piped input, exactly one argument: the collection",
+                    &format!("{} arguments", args.len()),
+                ));
+            }
+            (inp, args[0].clone())
         }
-        (inp, &args[0])
-    } else {
-        if args.len() < 2 {
-            return Err(crate::safety::arg_err("in requires value and collection"));
+        None => {
+            if args.len() != 2 {
+                return Err(crate::safety::bad_arg(
+                    "in",
+                    "a value and a collection",
+                    &format!("{} arguments", args.len()),
+                ));
+            }
+            (args[0].clone(), args[1].clone())
         }
-        (&args[0], &args[1])
     };
 
-    let found = match haystack {
-        Value::Array(arr) => arr.iter().any(|v| values_equal(needle, v)),
-        Value::Str(s) => {
-            if let Value::Str(n) = needle {
-                s.contains(n.as_str())
-            } else {
-                false
+    // A haystack that cannot hold anything, or a needle of the wrong type for a
+    // string or record, used to answer false. That is the same answer as "not
+    // present", so a mistyped call looked like a true negative. Refuse both.
+    let found = match &haystack {
+        Value::Array(arr) => arr.iter().any(|v| values_equal(&needle, v)),
+        Value::Str(s) => match &needle {
+            Value::Str(n) => s.contains(n.as_str()),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "in",
+                    "a String needle to search a String",
+                    other.type_name(),
+                ))
             }
-        }
-        Value::Record(rec) => {
-            if let Value::Str(key) = needle {
-                rec.contains_key(key)
-            } else {
-                false
+        },
+        Value::Record(rec) => match &needle {
+            Value::Str(key) => rec.contains_key(key),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "in",
+                    "a String key to search a Record",
+                    other.type_name(),
+                ))
             }
+        },
+        other => {
+            return Err(crate::safety::bad_arg(
+                "in",
+                "a collection: Array, String, or Record",
+                other.type_name(),
+            ))
         }
-        _ => false,
     };
 
     Ok(Value::Bool(found))
@@ -21395,13 +21911,19 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Null, Value::Null) => true,
         (Value::Bool(x), Value::Bool(y)) => x == y,
         (Value::Int(x), Value::Int(y)) => x == y,
-        (Value::Float(x), Value::Float(y)) => (x - y).abs() < f64::EPSILON,
-        (Value::Int(x), Value::Float(y)) | (Value::Float(y), Value::Int(x)) => {
-            (*x as f64 - y).abs() < f64::EPSILON
-        }
+        // Exact comparison. An absolute epsilon made 1e-300 and 2e-300 equal and
+        // missed large values that differ in the last bit.
+        (Value::Float(x), Value::Float(y)) => x == y,
+        (Value::Int(x), Value::Float(y)) | (Value::Float(y), Value::Int(x)) => *x as f64 == *y,
         (Value::Str(x), Value::Str(y)) => x == y,
         (Value::Array(x), Value::Array(y)) => {
             x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| values_equal(a, b))
+        }
+        (Value::Record(x), Value::Record(y)) => {
+            x.len() == y.len()
+                && x.iter()
+                    .zip(y.iter())
+                    .all(|((ka, va), (kb, vb))| ka == kb && values_equal(va, vb))
         }
         _ => false,
     }
@@ -22166,54 +22688,52 @@ fn bi_compliance_report(args: Vec<Value>, input: Option<Value>) -> Result<Value>
 }
 /// finetune_start(model, dataset, config?) - Start a fine-tuning job
 fn bi_finetune_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err(
-            "finetune_start: requires model and dataset arguments",
+    if args.len() < 2 || args.len() > 3 {
+        return Err(crate::safety::bad_arg(
+            "finetune_start",
+            "model, dataset, and an optional config Record",
+            &format!("{} arguments", args.len()),
         ));
     }
-    let model = args[0].to_display_string();
-    let dataset = args[1].to_display_string();
-
-    let config: HashMap<String, String> = args
-        .get(2)
-        .and_then(|v| {
-            if let Value::Record(rec) = v {
-                Some(
-                    rec.iter()
-                        .map(|(k, v)| (k.clone(), v.to_display_string()))
-                        .collect(),
-                )
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default();
-
-    let id = format!(
-        "ft_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
-
-    let job = FinetuneJob {
-        id: id.clone(),
-        model: model.clone(),
-        dataset: dataset.clone(),
-        status: FinetuneStatus::Pending,
-        created_at: std::time::Instant::now(),
-        config,
+    let model = match &args[0] {
+        Value::Str(s) if !s.is_empty() => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "finetune_start",
+                "model: a non-empty string",
+                other.type_name(),
+            ))
+        }
     };
+    let dataset = match &args[1] {
+        Value::Str(s) if !s.is_empty() => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "finetune_start",
+                "dataset: a non-empty string (a path or a dataset name)",
+                other.type_name(),
+            ))
+        }
+    };
+    if let Some(other) = args.get(2) {
+        if !matches!(other, Value::Record(_) | Value::Null) {
+            return Err(crate::safety::bad_arg(
+                "finetune_start",
+                "config: a Record",
+                other.type_name(),
+            ));
+        }
+    }
 
-    FINETUNE_JOBS.write().unwrap().insert(id.clone(), job);
-
-    let mut result = BTreeMap::new();
-    result.insert("status".to_string(), Value::Str("started".to_string()));
-    result.insert("job_id".to_string(), Value::Str(id));
-    result.insert("model".to_string(), Value::Str(model));
-    result.insert("dataset".to_string(), Value::Str(dataset));
-    Ok(Value::Record(result))
+    // No training backend is wired into this build. The job used to be recorded
+    // as `pending` and reported as `started`, and nothing ever advanced it: a
+    // job that will never run is a fabricated result. Refuse instead, so the
+    // caller learns that nothing was started and what would be needed.
+    Err(crate::safety::unimplemented(
+        "finetune_start",
+        &format!("no training job was started for model '{model}' on '{dataset}': no fine-tuning backend is wired"),
+        "use a provider's own fine-tuning API (for example through http_post) or an external trainer",
+    ))
 }
 
 /// finetune_status(job_id) - Get status of a fine-tuning job
@@ -22224,7 +22744,9 @@ fn bi_finetune_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .transpose()?
         .ok_or_else(|| crate::safety::arg_err("finetune_status: missing 'job_id'"))?;
 
-    let jobs = FINETUNE_JOBS.read().unwrap();
+    let jobs = FINETUNE_JOBS
+        .read()
+        .map_err(|e| anyhow!("finetune_status: lock error: {}", e))?;
     let job = jobs
         .get(&job_id)
         .ok_or_else(|| crate::safety::not_found("finetune_status", "job", &job_id))?;
@@ -22270,7 +22792,9 @@ fn bi_finetune_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .transpose()?
         .ok_or_else(|| crate::safety::arg_err("finetune_cancel: missing 'job_id'"))?;
 
-    let mut jobs = FINETUNE_JOBS.write().unwrap();
+    let mut jobs = FINETUNE_JOBS
+        .write()
+        .map_err(|e| anyhow!("finetune_cancel: lock error: {}", e))?;
 
     if let Some(job) = jobs.get_mut(&job_id) {
         match job.status {
@@ -22281,10 +22805,14 @@ fn bi_finetune_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 result.insert("job_id".to_string(), Value::Str(job_id));
                 Ok(Value::Record(result))
             }
-            _ => Err(anyhow!(
-                "finetune_cancel: job '{}' cannot be cancelled (status: {})",
-                job_id,
-                job.status.as_str()
+            _ => Err(crate::safety::bad_state(
+                "finetune_cancel",
+                &format!(
+                    "job '{}' cannot be cancelled (status: {})",
+                    job_id,
+                    job.status.as_str()
+                ),
+                "only a pending or training job can be cancelled",
             )),
         }
     } else {
@@ -29059,37 +29587,73 @@ fn bi_zip_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Bool(true))
 }
 
-fn bi_tar_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// The archive is written to a new file: tar streams it to stdout (`-f -`) and
+// the bytes go through `tool_to_new_file`. That refuses an existing archive
+// instead of truncating it, jails the destination, caps the size and the
+// deadline, and removes a partial archive on failure. The member list is not
+// echoed (no `-v`), so the output is not unbounded.
+//
+// Members are archived as links, not followed: tar is run without `-h` and
+// `--dereference`. Under an enforced workspace every member must lie inside it,
+// so a symlink an argument reaches cannot pull in a file from outside.
+fn bi_tar_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("tar_create", &input)?;
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
             return Err(crate::safety::bad_arg(
                 "tar_create",
                 "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+                other.map_or("nothing", |v| v.type_name()),
             ))
         }
     };
-    let files: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
+    if args.len() < 2 {
+        return Err(crate::safety::bad_arg(
+            "tar_create",
+            "an archive path, then at least one member path",
+            "no members",
+        ));
+    }
+    let mut files: Vec<String> = Vec::with_capacity(args.len() - 1);
+    for (i, v) in args.iter().enumerate().skip(1) {
+        match v {
+            Value::Str(s) => files.push(s.clone()),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "tar_create",
+                    &format!("args[{i}]: a member path string"),
+                    other.type_name(),
+                ))
+            }
+        }
+    }
 
+    // Every name goes to tar positionally, so a leading `-` is an option.
+    refuse_option("tar_create", &archive)?;
     crate::safety::reject_option_like("tar_create", &files)?;
 
-    let output = std::process::Command::new("tar")
-        .args(["-cvf", &archive])
-        // `--` stops tar parsing the file list as options; the check above is
-        // the belt to this braces, since not every tar honours it identically.
-        .arg("--")
-        .args(&files)
-        .output()
-        .map_err(|e| crate::safety::spawn_error("tar_create", "tar", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    let enforce = crate::safety::current_mode() == crate::safety::Mode::Agent
+        || std::env::var("AETHER_WORKSPACE").is_ok();
+    let members: Vec<String> = files
+        .iter()
+        .map(|f| crate::safety::resolve_path_str(f))
+        .collect();
+    for m in &members {
+        if enforce && !crate::safety::within_workspace(m) {
+            return Err(crate::safety::policy_deny(
+                "tar_create",
+                format!("member '{m}' is outside the workspace"),
+                "archive only paths inside the workspace",
+            ));
+        }
+    }
+
+    let out = guard_local_write("tar_create", &archive)?;
+    let mut argv: Vec<&str> = vec!["-c", "-f", "-", "--"];
+    argv.extend(members.iter().map(String::as_str));
+    tool_to_new_file("tar_create", "tar", &argv, &out)?;
+    Ok(Value::Bool(true))
 }
 
 fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -29462,33 +30026,46 @@ fn bi_bzip2_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Bool(true))
 }
 
-fn bi_bzip2_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
+// The decompressed stream goes to a new file beside the archive, not in place,
+// so bzip2 is run with -c and the output is created exclusively. That lets the
+// output be jailed to the workspace (the in-place form wrote wherever the
+// archive was, with no check), refuses an existing file, and caps the bytes
+// written (a small archive can inflate without bound). A run past the cap or the
+// deadline is stopped and its partial file removed.
+fn bi_bzip2_decompress(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("bzip2_decompress", &input)?;
+    if args.len() != 1 {
+        return Err(crate::safety::bad_arg(
+            "bzip2_decompress",
+            "one path to a .bz2 file",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    let file = match &args[0] {
+        Value::Str(s) => s.clone(),
         other => {
             return Err(crate::safety::bad_arg(
                 "bzip2_decompress",
                 "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+                other.type_name(),
             ))
         }
     };
-
     // The file goes to bzip2 positionally; a leading `-` would be an option.
-    crate::safety::reject_option_like("bzip2_decompress", std::slice::from_ref(&file))?;
-    let output = std::process::Command::new("bzip2")
-        .args(["-dk", &file])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("bzip2_decompress", "bzip2", &e))?;
-    // A failure was a bare `false`, with bzip2's reason discarded.
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "bzip2_decompress",
-            "bzip2",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
+    refuse_option("bzip2_decompress", &file)?;
+    let out = file
+        .strip_suffix(".bz2")
+        .ok_or_else(|| crate::safety::bad_arg("bzip2_decompress", "a .bz2 file", &file))?
+        .to_string();
+    let input = crate::safety::resolve_path_str(&file);
+    regular_file_arg("bzip2_decompress", &input)?;
+    let out = guard_local_write("bzip2_decompress", &out)?;
+    tool_to_new_file(
+        "bzip2_decompress",
+        "bzip2",
+        &["-d", "-c", input.as_str()],
+        &out,
+    )?;
     Ok(Value::Bool(true))
 }
 
@@ -31138,7 +31715,14 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_hw_audio(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() {
+        return Err(crate::safety::bad_arg(
+            "hw_audio",
+            "no arguments",
+            &format!("{} argument(s)", args.len()),
+        ));
+    }
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
@@ -31222,7 +31806,25 @@ fn bi_hw_audio(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
     }
-    Ok(Value::Null)
+    // Reached only when the query above did not yield a list. That used to be
+    // Ok(Null), which reads as "no audio devices" and hid a failed query.
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    {
+        Err(crate::safety::tool_failed(
+            "hw_audio",
+            "the audio device query",
+            None,
+            "it failed or printed nothing usable",
+        ))
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        Err(crate::safety::unimplemented(
+            "hw_audio",
+            "audio device listing is not implemented on this operating system",
+            "list audio devices with the platform's own tool",
+        ))
+    }
 }
 
 fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -43213,17 +43815,19 @@ fn bi_env_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         return Err(crate::safety::arg_err("name and value required"));
     }
     let name = env_name(B, &args[0])?;
+    refuse_gate_env(B, &name)?;
     let value = env_value(B, &args[1])?;
     std::env::set_var(&name, &value);
     Ok(Value::Bool(true))
 }
 
 fn bi_env_unset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = args
+    const B: &str = "env_unset";
+    let raw = args
         .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("variable name required"))?;
+    let name = env_name(B, raw)?;
+    refuse_gate_env(B, &name)?;
     std::env::remove_var(&name);
     Ok(Value::Bool(true))
 }
@@ -56376,10 +56980,19 @@ fn bi_telemetry_events(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
 /// Reset (clear) all telemetry data.
 /// Usage: telemetry.reset()
-fn bi_telemetry_reset(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_telemetry_reset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if !args.is_empty() {
+        return Err(crate::safety::bad_arg(
+            "telemetry_reset",
+            "no arguments",
+            &format!("{} argument(s)", args.len()),
+        ));
+    }
+    // Clears the in-process event buffer only. Nothing on disk is read or
+    // removed, so the status says exactly that.
     let mut events = TELEMETRY_EVENTS
         .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|e| anyhow!("telemetry_reset: lock error: {}", e))?;
     let count = events.len();
     events.clear();
 
@@ -56387,7 +57000,7 @@ fn bi_telemetry_reset(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     rec.insert("cleared".to_string(), Value::Int(count as i64));
     rec.insert(
         "status".to_string(),
-        Value::Str("all telemetry data cleared".to_string()),
+        Value::Str("in-process telemetry events cleared".to_string()),
     );
     rec.insert(
         "timestamp".to_string(),
@@ -60494,46 +61107,59 @@ fn bi_just_list(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // --- task (1043-1044) ---
 
 /// task — Run a Taskfile task.
-fn bi_task_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let task_name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("task_run requires a task name")),
-    };
-    let output = std::process::Command::new("task").arg(&task_name).output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("task".to_string(), Value::Str(task_name));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("task", "task", &e.to_string())),
+//
+// The Taskfile's commands run inside `task`, under its own interpreter, so this
+// is an exec of the task definition and is gated as Exec. The name goes to
+// `task` positionally, so it is refused when it could be read as an option. The
+// run is bounded in output and time, and stdin is closed, so a prompt cannot
+// hang it. A nonzero exit is a coded failure with the stderr tail, not a record.
+fn bi_task_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("task_run", &input)?;
+    if args.len() != 1 {
+        return Err(crate::safety::bad_arg(
+            "task_run",
+            "one task name",
+            &format!("{} arguments", args.len()),
+        ));
     }
+    let task_name = match &args[0] {
+        Value::Str(s) if !s.is_empty() && !s.chars().any(|c| c.is_whitespace() || c == '\0') => {
+            s.clone()
+        }
+        other => {
+            return Err(crate::safety::bad_arg(
+                "task_run",
+                "a task name: a non-empty string with no whitespace",
+                other.type_name(),
+            ))
+        }
+    };
+    refuse_option("task_run", &task_name)?;
+
+    let mut cmd = std::process::Command::new("task");
+    cmd.arg(&task_name);
+    let (stdout, stderr) = run_checked("task_run", "task", cmd, LOCAL_DEADLINE_SECS)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("task".to_string(), Value::Str(task_name));
+    rec.insert("stdout".to_string(), Value::Str(stdout.trim().to_string()));
+    rec.insert("stderr".to_string(), Value::Str(stderr.trim().to_string()));
+    Ok(Value::Record(rec))
 }
 
 /// task list — List available tasks.
-fn bi_task_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("task").arg("--list").output();
-    match output {
-        Ok(o) if o.status.success() => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stdout).trim().to_string(),
-        )),
-        Ok(o) => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stderr).trim().to_string(),
-        )),
-        Err(e) => Err(crate::safety::tool_missing("task", "task", &e.to_string())),
+fn bi_task_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("task_list", &input)?;
+    if !args.is_empty() {
+        return Err(crate::safety::bad_arg(
+            "task_list",
+            "no arguments",
+            &format!("{} argument(s)", args.len()),
+        ));
     }
+    let mut cmd = std::process::Command::new("task");
+    cmd.arg("--list");
+    let (stdout, _stderr) = run_checked("task_list", "task", cmd, LOCAL_DEADLINE_SECS)?;
+    Ok(Value::Str(stdout.trim().to_string()))
 }
 
 // --- direnv (1045-1046) ---

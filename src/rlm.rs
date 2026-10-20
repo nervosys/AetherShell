@@ -903,6 +903,19 @@ Spawning rules:
                 ));
             }
 
+            // Every model call is a network request in its own right. The
+            // outer builtin is charged once; without this, a run of up to
+            // `max_agents * max_steps` model calls cost the governor one
+            // `AETHER_MAX_NET` unit and no audit entry each.
+            crate::safety::guard(crate::safety::GuardCtx {
+                builtin: "rlm_agent",
+                effect: crate::safety::Effect::Network,
+                what: "request",
+                targets: vec![self.id.to_string()],
+                blast_radius: serde_json::json!({ "agent": self.id.to_string() }),
+                reversible: true,
+                fs_paths: false,
+            })?;
             let reply = self.backend.chat(&dialogue)?;
             let (cmd, thought) = crate::ai::parse_agent_command(&reply);
 

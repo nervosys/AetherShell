@@ -1663,6 +1663,29 @@ impl Shell {
             sink.eline(&e.to_string());
             return e.code.exit_code();
         }
+        // The approval above describes argv only. A child that inherits an
+        // `AETHER_*` variable from an assignment prefix or an export runs with
+        // whatever gate that variable sets (`AETHER_MODE=human ae -c 'apply(..)'`
+        // is ungated), so in agent mode no such variable reaches a child.
+        if crate::safety::current_mode() == crate::safety::Mode::Agent {
+            let gate_var = self
+                .exported
+                .iter()
+                .map(String::as_str)
+                .chain(env.iter().map(|(n, _)| n.as_str()))
+                .find(|n| n.to_ascii_uppercase().starts_with("AETHER_"));
+            if let Some(name) = gate_var {
+                let refusal = crate::safety::policy_deny(
+                    "posix",
+                    format!(
+                        "{name}: an agent may not pass an AETHER_* variable to a child process"
+                    ),
+                    "AETHER_* variables are set by whoever launches the agent",
+                );
+                sink.eline(&refusal.to_string());
+                return 126;
+            }
+        }
         let mut cmd = std::process::Command::new(&argv[0]);
         cmd.args(&argv[1..]);
         for n in &self.exported {

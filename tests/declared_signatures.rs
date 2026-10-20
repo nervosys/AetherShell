@@ -84,6 +84,10 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("db_kv_delete", "the sqlite3 CLI; example uses a disposable store"),
     ("db_sqlite_backup", "the sqlite3 CLI; examples use disposable destinations"),
     (
+        "hw_audio",
+        "the host's sound-device listing (PowerShell CIM, aplay or system_profiler); read-only, opens no device",
+    ),
+    (
         "pkg_info",
         "the host package manager and its package database",
     ),

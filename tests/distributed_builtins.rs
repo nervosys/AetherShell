@@ -68,7 +68,11 @@ fn test_cluster_add_node() {
             rec.get("address"),
             Some(&Value::Str("192.168.1.10:8080".to_string()))
         );
-        assert_eq!(rec.get("status"), Some(&Value::Str("online".to_string())));
+        // Registered in this process, not verified online: nothing contacted it.
+        assert_eq!(
+            rec.get("status"),
+            Some(&Value::Str("registered".to_string()))
+        );
     } else {
         panic!("Expected Record, got {:?}", result);
     }
