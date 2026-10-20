@@ -262,7 +262,9 @@ fn ip_addr_and_link_answer_arrays_and_an_unknown_interface_is_an_error() {
         }
     }
     // An interface that does not exist is an error on every platform, never [].
-    match call("monitor_ip_addr", vec![s("no-such-iface-aethershell0")]) {
+    // The name is a valid one (Linux allows at most 15 bytes), so the refusal
+    // comes from the lookup and not from the name check.
+    match call("monitor_ip_addr", vec![s("aenoiface0")]) {
         Ok(v) => panic!("an unknown interface answered {v:?}, not an error"),
         Err(e) => {
             let code = code_of(&e);
