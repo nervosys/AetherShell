@@ -45623,48 +45623,197 @@ fn bi_platform_hardware_summary(_args: Vec<Value>, input: Option<Value>) -> Resu
 // ---------------------------------------------------------------------------
 // Helper: run a container CLI command and parse JSON-per-line output
 // ---------------------------------------------------------------------------
-fn container_json_lines(program: &str, args: &[&str]) -> Result<Vec<Value>> {
-    let output = std::process::Command::new(program)
+// Every container builtin runs its tool with an argv and never through a shell.
+// Stdout is capped at CONTAINER_OUTPUT_MAX bytes: an answer that does not fit
+// is a budget error, never a truncated value. Stderr is kept as a short tail for
+// the failure message, or appended to the answer when `with_stderr` is set,
+// because build, pull, push and compose write their progress there and `logs`
+// carries the container's own stderr there.
+// ---------------------------------------------------------------------------
+const CONTAINER_OUTPUT_MAX: usize = 4 * 1024 * 1024;
+const CONTAINER_STDERR_TAIL: usize = 4 * 1024;
+const CONTAINER_LOG_TAIL_DEFAULT: i64 = 1000;
+const CONTAINER_LOG_TAIL_MAX: i64 = 10_000;
+const CONTAINER_ARGV_MAX: usize = 256;
+
+/// A coded `E_TOOL_FAILED` for a container tool whose output cannot be read.
+fn container_error(builtin: &str, message: String, hint: &str, got: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::ToolFailed,
+        message: format!("{builtin}: {message}"),
+        builtin: builtin.to_string(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: got.to_string(),
+    })
+}
+
+/// Read up to `limit` bytes from a child's pipe and stop. Reading one byte past
+/// the limit tells the caller the stream was longer; dropping the pipe after
+/// that lets the child see a closed pipe instead of blocking.
+fn read_capped<R: std::io::Read>(
+    pipe: Option<R>,
+    limit: usize,
+) -> std::io::Result<(Vec<u8>, bool)> {
+    use std::io::Read;
+    let Some(pipe) = pipe else {
+        return Ok((Vec::new(), false));
+    };
+    let mut buf = Vec::new();
+    pipe.take(limit as u64 + 1).read_to_end(&mut buf)?;
+    let more = buf.len() > limit;
+    buf.truncate(limit);
+    Ok((buf, more))
+}
+
+/// Read a child's pipe to its end, keeping only the last `keep` bytes.
+fn read_tail<R: std::io::Read>(pipe: Option<R>, keep: usize) -> std::io::Result<Vec<u8>> {
+    let Some(mut pipe) = pipe else {
+        return Ok(Vec::new());
+    };
+    let mut kept: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        let n = pipe.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        kept.extend_from_slice(&chunk[..n]);
+        if kept.len() > 2 * keep {
+            let cut = kept.len() - keep;
+            kept.drain(..cut);
+        }
+    }
+    if kept.len() > keep {
+        let cut = kept.len() - keep;
+        kept.drain(..cut);
+    }
+    Ok(kept)
+}
+
+fn join_reader<T>(
+    builtin: &str,
+    program: &str,
+    handle: std::thread::JoinHandle<std::io::Result<T>>,
+) -> Result<T> {
+    match handle.join() {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(e)) => Err(container_error(
+            builtin,
+            format!("could not read the output of `{program}`: {e}"),
+            "retry the call",
+            "unreadable output",
+        )),
+        Err(_) => Err(container_error(
+            builtin,
+            format!("reading the output of `{program}` failed"),
+            "retry the call",
+            "reader thread failed",
+        )),
+    }
+}
+
+/// Run `program` with `args` as an argv, never through a shell, and return its
+/// stdout (followed by its stderr when `with_stderr` is set). A nonzero exit is
+/// `E_TOOL_FAILED` carrying the stderr tail; a missing program is
+/// `E_TOOL_MISSING`; output over the bound is `E_BUDGET_EXCEEDED`.
+fn container_cli(builtin: &str, program: &str, args: &[&str], with_stderr: bool) -> Result<String> {
+    let verb = args.first().copied().unwrap_or("");
+    let mut child = std::process::Command::new(program)
         .args(args)
-        .output()
-        .map_err(|e| crate::safety::tool_missing(program, program, &e.to_string()))?;
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            program,
-            &format!("{} {}", program, args.join(" ")),
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| crate::safety::spawn_error(builtin, program, &e))?;
+    let out_pipe = child.stdout.take();
+    let err_pipe = child.stderr.take();
+    let out_reader = std::thread::spawn(move || read_capped(out_pipe, CONTAINER_OUTPUT_MAX));
+    let err_reader = std::thread::spawn(move || -> std::io::Result<(Vec<u8>, bool)> {
+        if with_stderr {
+            read_capped(err_pipe, CONTAINER_OUTPUT_MAX)
+        } else {
+            read_tail(err_pipe, CONTAINER_STDERR_TAIL).map(|tail| (tail, false))
+        }
+    });
+    let status = child.wait().map_err(|e| {
+        container_error(
+            builtin,
+            format!("could not wait for `{program} {verb}`: {e}"),
+            "retry the call",
+            "no exit status",
+        )
+    })?;
+    let (stdout, out_more) = join_reader(builtin, program, out_reader)?;
+    let (stderr, err_more) = join_reader(builtin, program, err_reader)?;
+    if out_more || err_more {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("`{program} {verb}` wrote more than {CONTAINER_OUTPUT_MAX} bytes"),
+            "ask for less output: a smaller tail, or one container at a time",
         ));
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut results = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+    if !status.success() {
+        let tail = &stderr[stderr.len().saturating_sub(CONTAINER_STDERR_TAIL)..];
+        return Err(crate::safety::tool_failed(
+            builtin,
+            &format!("{program} {verb}"),
+            status.code(),
+            &String::from_utf8_lossy(tail),
+        ));
+    }
+    let mut text = String::from_utf8_lossy(&stdout).into_owned();
+    if with_stderr && !stderr.is_empty() {
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&String::from_utf8_lossy(&stderr));
+    }
+    Ok(text)
+}
+
+/// Parse a container CLI's listing: a JSON array, or one JSON object per line.
+/// A line that does not parse is an error, never a dropped row.
+fn container_rows(builtin: &str, tool: &str, text: &str) -> Result<Vec<Value>> {
+    let trimmed = text.trim();
+    let unparsed = || {
+        container_error(
+            builtin,
+            format!("the output of `{tool}` is not in a form this builtin reads"),
+            "the tool ran but printed output this builtin does not parse; check its version",
+            "unreadable output",
+        )
+    };
+    if trimmed.starts_with('[') {
+        let json: serde_json::Value = serde_json::from_str(trimmed).map_err(|_| unparsed())?;
+        return Ok(match json_to_value(json) {
+            Value::Array(rows) => rows,
+            other => vec![other],
+        });
+    }
+    let mut rows = Vec::new();
+    for line in trimmed.lines() {
+        let line = line.trim();
+        if line.is_empty() {
             continue;
         }
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            results.push(json_to_value(json));
-        }
+        let json: serde_json::Value = serde_json::from_str(line).map_err(|_| unparsed())?;
+        rows.push(json_to_value(json));
     }
-    Ok(results)
+    Ok(rows)
+}
+
+// Helper: run a container CLI command and parse JSON-per-line output
+fn container_json_lines(program: &str, args: &[&str]) -> Result<Vec<Value>> {
+    let text = container_cli(program, program, args, false)?;
+    container_rows(program, program, &text)
 }
 
 // Helper: run a container CLI command and return stdout as a string
 fn container_run_cmd(program: &str, args: &[&str]) -> Result<String> {
-    let output = std::process::Command::new(program)
-        .args(args)
-        .output()
-        .map_err(|e| crate::safety::tool_missing(program, program, &e.to_string()))?;
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            program,
-            &format!("{} {}", program, args.join(" ")),
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    container_cli(program, program, args, false)
 }
 
 // Helper: detect which container runtime is available
@@ -45683,6 +45832,573 @@ fn detect_container_runtime() -> Result<String> {
     Err(anyhow!(
         "No container runtime found. Install docker, podman, or nerdctl."
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Argument checks shared by the docker_* and podman_* builtins
+// ---------------------------------------------------------------------------
+
+fn refuse_pipeline(builtin: &str, input: &Option<Value>) -> Result<()> {
+    if input.is_some() {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin} takes no piped input; pass its arguments directly"
+        )));
+    }
+    Ok(())
+}
+
+/// A container, image, tag or path operand: non-empty, free of control
+/// characters, and never option-like. The CLI would read a leading '-' as a
+/// flag, and `--` is placed before operands as well, so this is the second
+/// guard, not the only one.
+fn container_operand(builtin: &str, what: &str, value: &str) -> Result<()> {
+    if value.is_empty() {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: a non-empty String"),
+            "an empty string",
+        ));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: a String without control characters"),
+            "a control character",
+        ));
+    }
+    crate::safety::reject_option_like(builtin, &[value.to_string()])
+}
+
+fn str_operand<'a>(builtin: &str, what: &str, value: Option<&'a Value>) -> Result<&'a str> {
+    match value {
+        Some(Value::Str(s)) => Ok(s.as_str()),
+        Some(other) => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: String"),
+            other.type_name(),
+        )),
+        None => Err(crate::safety::arg_err(format!(
+            "{builtin} requires {what} as its first argument"
+        ))),
+    }
+}
+
+fn optional_bool(builtin: &str, what: &str, value: Option<&Value>) -> Result<bool> {
+    match value {
+        None => Ok(false),
+        Some(Value::Bool(b)) => Ok(*b),
+        Some(other) => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: Bool"),
+            other.type_name(),
+        )),
+    }
+}
+
+/// An argv: an Array of Strings. A shell command line is refused, because it
+/// would have to be split and interpreted; each element is one argument.
+fn argv_arg(
+    builtin: &str,
+    what: &str,
+    value: Option<&Value>,
+    required: bool,
+) -> Result<Vec<String>> {
+    let items = match value {
+        None if required => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                &format!("{what}: an Array of String (argv, not a shell string)"),
+                "nothing",
+            ))
+        }
+        None => return Ok(Vec::new()),
+        Some(Value::Array(items)) => items,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                &format!("{what}: an Array of String (argv, not a shell string)"),
+                other.type_name(),
+            ))
+        }
+    };
+    if required && items.is_empty() {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: at least one element"),
+            "an empty array",
+        ));
+    }
+    if items.len() > CONTAINER_ARGV_MAX {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!(
+                "{what} has {} elements; the limit is {CONTAINER_ARGV_MAX}",
+                items.len()
+            ),
+            "pass fewer arguments",
+        ));
+    }
+    items
+        .iter()
+        .map(|item| match item {
+            Value::Str(s) if s.contains('\0') => Err(crate::safety::bad_arg(
+                builtin,
+                &format!("{what}: Strings without NUL bytes"),
+                "a NUL byte",
+            )),
+            Value::Str(s) => Ok(s.clone()),
+            other => Err(crate::safety::bad_arg(
+                builtin,
+                &format!("{what}: an Array of String"),
+                other.type_name(),
+            )),
+        })
+        .collect()
+}
+
+/// `docker run` flags from a Record. A flag name is lowercase letters, digits
+/// and hyphens, so it cannot smuggle a second option. A string value is passed
+/// as `--flag=value`, a single token the CLI cannot read as anything else; the
+/// few short flags take their value as the next token, which is option-checked.
+/// Any value of another type is refused, not ignored.
+fn container_run_flags(builtin: &str, flags: &BTreeMap<String, Value>) -> Result<Vec<String>> {
+    let mut argv = Vec::new();
+    for (key, value) in flags {
+        let well_formed = key.len() <= 64
+            && key.starts_with(|c: char| c.is_ascii_lowercase())
+            && key
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        if !well_formed {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "flag names of lowercase letters, digits and '-', starting with a letter",
+                key,
+            ));
+        }
+        match (key.as_str(), value) {
+            (_, Value::Bool(false)) => {}
+            ("detach", Value::Bool(true)) => argv.push("-d".to_string()),
+            ("rm", Value::Bool(true)) => argv.push("--rm".to_string()),
+            ("name" | "port" | "env" | "volume", Value::Str(s)) => {
+                container_operand(builtin, key, s)?;
+                let short = match key.as_str() {
+                    "name" => "--name",
+                    "port" => "-p",
+                    "env" => "-e",
+                    _ => "-v",
+                };
+                argv.push(short.to_string());
+                argv.push(s.clone());
+            }
+            (_, Value::Bool(true)) => argv.push(format!("--{key}")),
+            (_, Value::Str(s)) => argv.push(format!("--{key}={s}")),
+            (_, Value::Int(n)) => argv.push(format!("--{key}={n}")),
+            (_, other) => {
+                return Err(crate::safety::bad_arg(
+                    builtin,
+                    &format!("flag {key}: Bool, String or Int"),
+                    other.type_name(),
+                ))
+            }
+        }
+    }
+    Ok(argv)
+}
+
+/// A local path the builtin will read: refused if option-like, then resolved
+/// against the workspace and guarded as a read, the same as `bat`.
+fn guard_local_read(builtin: &str, path: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[path.to_string()])?;
+    let path = crate::safety::resolve_path_str(path);
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin,
+        effect: crate::safety::Effect::ReadLocal,
+        what: "read",
+        targets: vec![path.clone()],
+        blast_radius: serde_json::json!({ "path": path }),
+        reversible: true,
+        fs_paths: true,
+    })?;
+    Ok(path)
+}
+
+/// An optional compose file: validated, then read-guarded and resolved.
+fn compose_file_arg(builtin: &str, value: Option<&Value>) -> Result<Option<String>> {
+    match value {
+        None => Ok(None),
+        Some(Value::Str(file)) => {
+            container_operand(builtin, "compose file", file)?;
+            Ok(Some(guard_local_read(builtin, file)?))
+        }
+        Some(other) => Err(crate::safety::bad_arg(
+            builtin,
+            "compose file: String",
+            other.type_name(),
+        )),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Generic container operations, parameterised by the CLI (docker or podman)
+// ---------------------------------------------------------------------------
+
+fn container_run(
+    program: &str,
+    builtin: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    let image = str_operand(builtin, "image", args.first())?;
+    container_operand(builtin, "image", image)?;
+    let argv = argv_arg(builtin, "command", args.get(1), false)?;
+    let flags = match args.get(2) {
+        None => Vec::new(),
+        Some(Value::Record(record)) => container_run_flags(builtin, record)?,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "flags: Record",
+                other.type_name(),
+            ))
+        }
+    };
+    // Flags, then `--`, then the image and its argv: nothing after `--` is read
+    // as an option, so an argv element beginning with '-' reaches the container.
+    let mut cmd: Vec<&str> = vec!["run"];
+    cmd.extend(flags.iter().map(String::as_str));
+    cmd.push("--");
+    cmd.push(image);
+    cmd.extend(argv.iter().map(String::as_str));
+    let text = container_cli(builtin, program, &cmd, false)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+/// The container and argv of an exec call, checked. The caller runs the
+/// policy guard and then `exec_run`.
+fn exec_request(
+    builtin: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<(String, Vec<String>)> {
+    refuse_pipeline(builtin, input)?;
+    let container = str_operand(builtin, "container", args.first())?;
+    container_operand(builtin, "container", container)?;
+    let argv = argv_arg(builtin, "command", args.get(1), true)?;
+    Ok((container.to_string(), argv))
+}
+
+fn exec_run(program: &str, builtin: &str, container: &str, argv: &[String]) -> Result<Value> {
+    let mut cmd: Vec<&str> = vec!["exec", "--", container];
+    cmd.extend(argv.iter().map(String::as_str));
+    let text = container_cli(builtin, program, &cmd, false)?;
+    Ok(Value::Str(text.trim().to_string()))
+}
+
+fn container_logs(
+    program: &str,
+    builtin: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    let container = str_operand(builtin, "container", args.first())?;
+    container_operand(builtin, "container", container)?;
+    // The tail is bounded so a long-lived container cannot fill the answer.
+    let tail = match args.get(1) {
+        None => CONTAINER_LOG_TAIL_DEFAULT,
+        Some(Value::Int(n)) if (1..=CONTAINER_LOG_TAIL_MAX).contains(n) => *n,
+        Some(Value::Int(n)) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                &format!("tail: Int in 1..={CONTAINER_LOG_TAIL_MAX}"),
+                &n.to_string(),
+            ))
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                &format!("tail: Int in 1..={CONTAINER_LOG_TAIL_MAX}"),
+                other.type_name(),
+            ))
+        }
+    };
+    let tail = tail.to_string();
+    let text = container_cli(
+        builtin,
+        program,
+        &["logs", "--tail", tail.as_str(), "--", container],
+        true,
+    )?;
+    Ok(Value::Str(text))
+}
+
+fn container_stop(
+    program: &str,
+    builtin: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    let container = str_operand(builtin, "container", args.first())?;
+    container_operand(builtin, "container", container)?;
+    container_cli(builtin, program, &["stop", "--", container], false)?;
+    Ok(Value::Str(format!("Stopped container {container}")))
+}
+
+/// The container and force flag of a rm call, checked. Its policy guard, which
+/// differs between the two CLIs, is the caller's.
+fn rm_request(builtin: &str, args: &[Value], input: &Option<Value>) -> Result<(String, bool)> {
+    refuse_pipeline(builtin, input)?;
+    let container = str_operand(builtin, "container", args.first())?;
+    container_operand(builtin, "container", container)?;
+    let force = optional_bool(builtin, "force", args.get(1))?;
+    Ok((container.to_string(), force))
+}
+
+fn rm_run(program: &str, builtin: &str, container: &str, force: bool) -> Result<Value> {
+    let mut cmd = vec!["rm"];
+    if force {
+        cmd.push("-f");
+    }
+    cmd.push("--");
+    cmd.push(container);
+    container_cli(builtin, program, &cmd, false)?;
+    Ok(Value::Str(format!("Removed container {container}")))
+}
+
+fn container_build(
+    program: &str,
+    builtin: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    let tag = str_operand(builtin, "tag", args.first())?;
+    container_operand(builtin, "tag", tag)?;
+    let path = match args.get(1) {
+        None => ".",
+        Some(Value::Str(p)) => {
+            container_operand(builtin, "path", p)?;
+            p.as_str()
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "path: String",
+                other.type_name(),
+            ))
+        }
+    };
+    // The build context is read, so it is resolved and guarded as a read.
+    let context = guard_local_read(builtin, path)?;
+    let text = container_cli(
+        builtin,
+        program,
+        &["build", "-t", tag, "--", context.as_str()],
+        true,
+    )?;
+    Ok(Value::Str(text))
+}
+
+/// `pull` and `push`: one image, one CLI verb. Both report progress on stderr.
+fn container_image_op(
+    program: &str,
+    builtin: &str,
+    verb: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    let image = str_operand(builtin, "image", args.first())?;
+    container_operand(builtin, "image", image)?;
+    let text = container_cli(builtin, program, &[verb, "--", image], true)?;
+    Ok(Value::Str(text))
+}
+
+fn container_tag(
+    program: &str,
+    builtin: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    let source = str_operand(builtin, "source image", args.first())?;
+    container_operand(builtin, "source image", source)?;
+    let target = str_operand(builtin, "target tag", args.get(1))?;
+    container_operand(builtin, "target tag", target)?;
+    container_cli(builtin, program, &["tag", "--", source, target], false)?;
+    Ok(Value::Str(format!("Tagged {source} as {target}")))
+}
+
+fn container_inspect(
+    program: &str,
+    builtin: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    let name = str_operand(builtin, "container or image name", args.first())?;
+    container_operand(builtin, "container or image name", name)?;
+    let text = container_cli(builtin, program, &["inspect", "--", name], false)?;
+    let json: serde_json::Value = serde_json::from_str(text.trim()).map_err(|_| {
+        container_error(
+            builtin,
+            format!("the output of `{program} inspect` is not JSON"),
+            "the tool ran but printed output this builtin does not parse; check its version",
+            "unreadable output",
+        )
+    })?;
+    Ok(json_to_value(json))
+}
+
+fn container_top(
+    program: &str,
+    builtin: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    let container = str_operand(builtin, "container", args.first())?;
+    container_operand(builtin, "container", container)?;
+    let text = container_cli(builtin, program, &["top", "--", container], false)?;
+    // The first line is the header; each following line is one process.
+    let mut lines = text.lines();
+    let Some(header) = lines.next() else {
+        return Ok(Value::Array(vec![]));
+    };
+    let headers: Vec<String> = header
+        .split_whitespace()
+        .map(|h| h.to_lowercase())
+        .collect();
+    let mut processes = Vec::new();
+    for line in lines {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.is_empty() {
+            continue;
+        }
+        let mut record = BTreeMap::new();
+        for (i, header) in headers.iter().enumerate() {
+            let val = fields.get(i).copied().unwrap_or("");
+            record.insert(header.clone(), Value::Str(val.to_string()));
+        }
+        processes.push(Value::Record(record));
+    }
+    Ok(Value::Array(processes))
+}
+
+/// `docker cp` between the host and a container. Exactly one operand is
+/// `container:path`; the other is a host path, guarded as a write when the
+/// container's files are copied out to it and as a read when they are copied in.
+fn container_cp(
+    program: &str,
+    builtin: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    let src = str_operand(builtin, "source path", args.first())?;
+    let dest = str_operand(builtin, "destination path", args.get(1))?;
+    let src_in_container = cp_is_container_operand(src);
+    if src_in_container == cp_is_container_operand(dest) {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: exactly one of source and destination must be container:path; \
+             the other is a host path"
+        )));
+    }
+    let (container_side, host_side) = if src_in_container {
+        (src, dest)
+    } else {
+        (dest, src)
+    };
+    let in_container = container_side.split_once(':').map_or("", |(_, p)| p);
+    if in_container.is_empty() || in_container.chars().any(char::is_control) {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "container:path with a non-empty path",
+            container_side,
+        ));
+    }
+    let (src_arg, dest_arg) = if src_in_container {
+        (src.to_string(), guard_local_write(builtin, host_side)?)
+    } else {
+        (guard_local_read(builtin, host_side)?, dest.to_string())
+    };
+    container_cli(
+        builtin,
+        program,
+        &["cp", "--", src_arg.as_str(), dest_arg.as_str()],
+        false,
+    )?;
+    Ok(Value::Str(format!("Copied {src} -> {dest}")))
+}
+
+/// Whether a `docker cp` operand names a container. Like the CLI, the text
+/// before the first colon is the name; a name cannot contain a separator and is
+/// at least two characters, so `C:\x` and `./a:b` are host paths.
+fn cp_is_container_operand(operand: &str) -> bool {
+    let Some((name, _)) = operand.split_once(':') else {
+        return false;
+    };
+    name.len() >= 2
+        && name.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+}
+
+fn compose_up(builtin: &str, args: &[Value], input: &Option<Value>) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    // Detached by default. A foreground `compose up` runs until it is stopped,
+    // which no call can bound, so only `true` is accepted.
+    let detach = match args.first() {
+        None => true,
+        Some(Value::Bool(b)) => *b,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "detach: Bool",
+                other.type_name(),
+            ))
+        }
+    };
+    if !detach {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: detach must be true; a foreground compose up runs until it is \
+             stopped, which no call can bound"
+        )));
+    }
+    let file = compose_file_arg(builtin, args.get(1))?;
+    let mut cmd = vec!["compose"];
+    if let Some(file) = file.as_deref() {
+        cmd.extend(["-f", file]);
+    }
+    cmd.extend(["up", "-d"]);
+    let text = container_cli(builtin, "docker", &cmd, true)?;
+    Ok(Value::Str(text))
+}
+
+fn compose_down_run(file: Option<&str>) -> Result<Value> {
+    let mut cmd = vec!["compose"];
+    if let Some(file) = file {
+        cmd.extend(["-f", file]);
+    }
+    cmd.push("down");
+    let text = container_cli("docker_compose_down", "docker", &cmd, true)?;
+    Ok(Value::Str(text))
+}
+
+fn compose_ps(builtin: &str, args: &[Value], input: &Option<Value>) -> Result<Value> {
+    refuse_pipeline(builtin, input)?;
+    let file = compose_file_arg(builtin, args.first())?;
+    let mut cmd = vec!["compose"];
+    if let Some(file) = file.as_deref() {
+        cmd.extend(["-f", file]);
+    }
+    cmd.extend(["ps", "--format", "json"]);
+    let text = container_cli(builtin, "docker", &cmd, false)?;
+    Ok(Value::Array(container_rows(builtin, "docker", &text)?))
 }
 
 // ---------------------------------------------------------------------------
@@ -45713,247 +46429,79 @@ fn bi_docker_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 818: bi_docker_run – Run a container
 // ---------------------------------------------------------------------------
-fn bi_docker_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let image = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.run requires an image name as first argument",
-            ))
-        }
-    };
-    let command = match args.get(1) {
-        Some(Value::Str(s)) => Some(s.clone()),
-        _ => None,
-    };
-    let mut cmd = std::process::Command::new("docker");
-    cmd.arg("run");
-
-    // Optional flags record (e.g. {detach: true, name: "foo", port: "8080:80"})
-    if let Some(Value::Record(flags)) = args.get(2) {
-        for (k, v) in flags {
-            match (k.as_str(), v) {
-                ("detach", Value::Bool(true)) => {
-                    cmd.arg("-d");
-                }
-                ("rm", Value::Bool(true)) => {
-                    cmd.arg("--rm");
-                }
-                ("name", Value::Str(n)) => {
-                    cmd.args(["--name", n]);
-                }
-                ("port", Value::Str(p)) => {
-                    cmd.args(["-p", p]);
-                }
-                ("env", Value::Str(e)) => {
-                    cmd.args(["-e", e]);
-                }
-                ("volume", Value::Str(vol)) => {
-                    cmd.args(["-v", vol]);
-                }
-                (flag, Value::Str(val)) => {
-                    cmd.args([&format!("--{}", flag), val.as_str()]);
-                }
-                (flag, Value::Bool(true)) => {
-                    cmd.arg(format!("--{}", flag));
-                }
-                _ => {}
-            }
-        }
-    }
-
-    cmd.arg(&image);
-    if let Some(c) = command {
-        // Split command string on whitespace for arguments
-        for part in c.split_whitespace() {
-            cmd.arg(part);
-        }
-    }
-
-    let output = cmd
-        .output()
-        .map_err(|e| crate::safety::spawn_error("docker_run", "docker", &e))?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "docker run failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(Value::Str(stdout))
+fn bi_docker_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_run("docker", "docker_run", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
-// 819: bi_docker_exec – Execute command in container
+// 819: bi_docker_exec – Execute an argv in a container
 // ---------------------------------------------------------------------------
-fn bi_docker_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let container_id = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.exec requires a container ID as first argument",
-            ))
-        }
-    };
-    let command = match args.get(1) {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.exec requires a command as second argument",
-            ))
-        }
-    };
+fn bi_docker_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (container, argv) = exec_request("docker_exec", &args, &input)?;
     crate::safety::guard_exec(
         "docker_exec",
-        format!("docker exec {container_id} {command}"),
+        format!("docker exec {container} {}", argv.join(" ")),
     )?;
-    let mut cmd = std::process::Command::new("docker");
-    cmd.args(["exec", container_id]);
-    for part in command.split_whitespace() {
-        cmd.arg(part);
-    }
-    let output = cmd
-        .output()
-        .map_err(|e| crate::safety::spawn_error("docker_exec", "docker", &e))?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "docker exec failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
-    ))
+    exec_run("docker", "docker_exec", &container, &argv)
 }
 
 // ---------------------------------------------------------------------------
-// 820: bi_docker_logs – Get container logs
+// 820: bi_docker_logs – Get container logs (bounded tail, stdout then stderr)
 // ---------------------------------------------------------------------------
-fn bi_docker_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let container_id = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.logs requires a container ID as first argument",
-            ))
-        }
-    };
-    let mut cmd_args = vec!["logs".to_string(), container_id.to_string()];
-    if let Some(Value::Int(n)) = args.get(1) {
-        cmd_args.push("--tail".to_string());
-        cmd_args.push(n.to_string());
-    }
-    let args_ref: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-    let text = container_run_cmd("docker", &args_ref)?;
-    Ok(Value::Str(text))
+fn bi_docker_logs(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_logs("docker", "docker_logs", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
 // 821: bi_docker_stop – Stop a container
 // ---------------------------------------------------------------------------
-fn bi_docker_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let container_id = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.stop requires a container ID",
-            ))
-        }
-    };
-    container_run_cmd("docker", &["stop", container_id])?;
-    Ok(Value::Str(format!("Stopped container {}", container_id)))
+fn bi_docker_stop(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_stop("docker", "docker_stop", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
 // 822: bi_docker_rm – Remove a container
 // ---------------------------------------------------------------------------
-fn bi_docker_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let container_id = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(crate::safety::arg_err("docker.rm requires a container ID")),
-    };
-    let force = args
-        .get(1)
-        .map(|v| matches!(v, Value::Bool(true)))
-        .unwrap_or(false);
+fn bi_docker_rm(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (container, force) = rm_request("docker_rm", &args, &input)?;
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "docker_rm",
         effect: crate::safety::Effect::Destructive,
         what: "container_remove",
-        targets: vec![container_id.to_string()],
-        blast_radius: serde_json::json!({ "container": container_id, "force": force }),
+        targets: vec![container.clone()],
+        blast_radius: serde_json::json!({ "container": container, "force": force }),
         reversible: false,
         fs_paths: false,
     })?;
-    let mut cmd_args = vec!["rm"];
-    if force {
-        cmd_args.push("-f");
-    }
-    cmd_args.push(container_id);
-    container_run_cmd("docker", &cmd_args)?;
-    Ok(Value::Str(format!("Removed container {}", container_id)))
+    rm_run("docker", "docker_rm", &container, force)
 }
 
 // ---------------------------------------------------------------------------
-// 823: bi_docker_build – Build an image
+// 823: bi_docker_build – Build an image from a local context
 // ---------------------------------------------------------------------------
-fn bi_docker_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let tag = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.build requires a tag as first argument",
-            ))
-        }
-    };
-    let path = match args.get(1) {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => ".",
-    };
-    let text = container_run_cmd("docker", &["build", "-t", tag, path])?;
-    Ok(Value::Str(text))
+fn bi_docker_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_build("docker", "docker_build", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
 // 824: bi_docker_pull – Pull an image
 // ---------------------------------------------------------------------------
-fn bi_docker_pull(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let image = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(crate::safety::arg_err("docker.pull requires an image name")),
-    };
-    let text = container_run_cmd("docker", &["pull", image])?;
-    Ok(Value::Str(text))
+fn bi_docker_pull(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_image_op("docker", "docker_pull", "pull", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
 // 825: bi_docker_push – Push an image
 // ---------------------------------------------------------------------------
-fn bi_docker_push(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let image = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(crate::safety::arg_err("docker.push requires an image name")),
-    };
-    let text = container_run_cmd("docker", &["push", image])?;
-    Ok(Value::Str(text))
+fn bi_docker_push(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_image_op("docker", "docker_push", "push", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
-// 826: bi_docker_inspect – Inspect a container or image
+// 826: bi_docker_inspect – Inspect a container or image (JSON array)
 // ---------------------------------------------------------------------------
-fn bi_docker_inspect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.inspect requires a container/image name",
-            ))
-        }
-    };
-    let text = container_run_cmd("docker", &["inspect", name])?;
-    let json: serde_json::Value = serde_json::from_str(text.trim())
-        .map_err(|e| anyhow!("Failed to parse docker inspect output: {}", e))?;
-    Ok(json_to_value(json))
+fn bi_docker_inspect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_inspect("docker", "docker_inspect", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
@@ -45975,86 +46523,37 @@ fn bi_docker_networks(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 }
 
 // ---------------------------------------------------------------------------
-// 829: bi_docker_compose_up – Docker compose up
+// 829: bi_docker_compose_up – Start a compose project detached
 // ---------------------------------------------------------------------------
-fn bi_docker_compose_up(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args = vec!["compose", "up"];
-    let detach = args
-        .first()
-        .map(|v| matches!(v, Value::Bool(true)))
-        .unwrap_or(true);
-    if detach {
-        cmd_args.push("-d");
-    }
-    // Optional compose file
-    let file_arg;
-    if let Some(Value::Str(f)) = args.get(1) {
-        file_arg = f.clone();
-        cmd_args.insert(1, "-f");
-        cmd_args.insert(2, &file_arg);
-    }
-    let text = container_run_cmd("docker", &cmd_args)?;
-    Ok(Value::Str(text))
+fn bi_docker_compose_up(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    compose_up("docker_compose_up", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
-// 830: bi_docker_compose_down – Docker compose down
+// 830: bi_docker_compose_down – Stop and remove a compose project
 // ---------------------------------------------------------------------------
-fn bi_docker_compose_down(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_docker_compose_down(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_pipeline("docker_compose_down", &input)?;
+    let file = compose_file_arg("docker_compose_down", args.first())?;
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "docker_compose_down",
         effect: crate::safety::Effect::Destructive,
         what: "compose_down",
-        targets: vec![match args.first() {
-            Some(Value::Str(f)) => f.clone(),
-            _ => "<default compose>".to_string(),
-        }],
+        targets: vec![file
+            .clone()
+            .unwrap_or_else(|| "<default compose>".to_string())],
         blast_radius: serde_json::json!({}),
         reversible: false,
         fs_paths: false,
     })?;
-    let mut cmd_args = vec!["compose", "down"];
-    // Optional compose file
-    let file_arg;
-    if let Some(Value::Str(f)) = args.first() {
-        file_arg = f.clone();
-        cmd_args.insert(1, "-f");
-        cmd_args.insert(2, &file_arg);
-    }
-    let text = container_run_cmd("docker", &cmd_args)?;
-    Ok(Value::Str(text))
+    compose_down_run(file.as_deref())
 }
 
 // ---------------------------------------------------------------------------
-// 831: bi_docker_compose_ps – Docker compose ps
+// 831: bi_docker_compose_ps – List a compose project's containers
 // ---------------------------------------------------------------------------
-fn bi_docker_compose_ps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args = vec!["compose", "ps", "--format", "json"];
-    let file_arg;
-    if let Some(Value::Str(f)) = args.first() {
-        file_arg = f.clone();
-        cmd_args.insert(1, "-f");
-        cmd_args.insert(2, &file_arg);
-    }
-    let text = container_run_cmd("docker", &cmd_args)?;
-    // compose ps --format json may return a JSON array or JSON-per-line
-    let trimmed = text.trim();
-    if trimmed.starts_with('[') {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            return Ok(json_to_value(json));
-        }
-    }
-    let mut results = Vec::new();
-    for line in trimmed.lines() {
-        let l = line.trim();
-        if l.is_empty() {
-            continue;
-        }
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(l) {
-            results.push(json_to_value(json));
-        }
-    }
-    Ok(Value::Array(results))
+fn bi_docker_compose_ps(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    compose_ps("docker_compose_ps", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
@@ -46070,342 +46569,111 @@ fn bi_docker_stats(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // ---------------------------------------------------------------------------
-// 833: bi_docker_top – Container processes
+// 833: bi_docker_top – Container processes, one record per process
 // ---------------------------------------------------------------------------
-fn bi_docker_top(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let container_id = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(crate::safety::arg_err("docker.top requires a container ID")),
-    };
-    let text = container_run_cmd("docker", &["top", container_id])?;
-    // Parse the table output into records
-    let mut lines: Vec<&str> = text.lines().collect();
-    if lines.is_empty() {
-        return Ok(Value::Array(vec![]));
-    }
-    let header_line = lines.remove(0);
-    let headers: Vec<String> = header_line
-        .split_whitespace()
-        .map(|h| h.to_lowercase())
-        .collect();
-    let mut processes = Vec::new();
-    for line in lines {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        let mut record = BTreeMap::new();
-        for (i, header) in headers.iter().enumerate() {
-            let val = fields.get(i).copied().unwrap_or("");
-            record.insert(header.clone(), Value::Str(val.to_string()));
-        }
-        processes.push(Value::Record(record));
-    }
-    Ok(Value::Array(processes))
+fn bi_docker_top(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_top("docker", "docker_top", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
-// 834: bi_docker_cp – Copy files to/from container
+// 834: bi_docker_cp – Copy files between the host and a container
 // ---------------------------------------------------------------------------
-fn bi_docker_cp(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let src = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.cp requires source path as first argument",
-            ))
-        }
-    };
-    let dest = match args.get(1) {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.cp requires destination path as second argument",
-            ))
-        }
-    };
-    container_run_cmd("docker", &["cp", src, dest])?;
-    Ok(Value::Str(format!("Copied {} -> {}", src, dest)))
+fn bi_docker_cp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_cp("docker", "docker_cp", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
 // 835: bi_docker_tag – Tag an image
 // ---------------------------------------------------------------------------
-fn bi_docker_tag(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let source = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.tag requires source image as first argument",
-            ))
-        }
-    };
-    let target = match args.get(1) {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "docker.tag requires target tag as second argument",
-            ))
-        }
-    };
-    container_run_cmd("docker", &["tag", source, target])?;
-    Ok(Value::Str(format!("Tagged {} as {}", source, target)))
+fn bi_docker_tag(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_tag("docker", "docker_tag", &args, &input)
 }
 
 // ===========================================================================
-// Podman Builtins (836-844) – Thin wrappers using "podman" runtime
+// Podman Builtins (836-844) – the same operations through the "podman" CLI
 // ===========================================================================
-
-// ---------------------------------------------------------------------------
-// Generic podman helper that mirrors docker patterns
-// ---------------------------------------------------------------------------
-fn podman_json_lines(args_list: &[&str]) -> Result<Vec<Value>> {
-    container_json_lines("podman", args_list)
-}
-
-fn podman_run_cmd(args_list: &[&str]) -> Result<String> {
-    container_run_cmd("podman", args_list)
-}
 
 // ---------------------------------------------------------------------------
 // 836: bi_podman_ps – List containers (podman)
 // ---------------------------------------------------------------------------
-fn bi_podman_ps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let all = args
-        .first()
-        .map(|v| matches!(v, Value::Bool(true)))
-        .unwrap_or(false);
-    let mut cmd_args = vec!["ps", "--format", "json"];
+fn bi_podman_ps(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "podman_ps";
+    refuse_pipeline(B, &input)?;
+    let all = optional_bool(B, "all", args.first())?;
+    let mut cmd = vec!["ps", "--format", "json"];
     if all {
-        cmd_args.push("-a");
+        cmd.push("-a");
     }
-    // Podman's --format json returns a JSON array, not per-line
-    let text = podman_run_cmd(&cmd_args)?;
-    let trimmed = text.trim();
-    if trimmed.starts_with('[') {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            return Ok(json_to_value(json));
-        }
-    }
-    // Fallback: JSON-per-line
-    let containers = podman_json_lines(&cmd_args)?;
-    Ok(Value::Array(containers))
+    let text = container_cli(B, "podman", &cmd, false)?;
+    Ok(Value::Array(container_rows(B, "podman", &text)?))
 }
 
 // ---------------------------------------------------------------------------
 // 837: bi_podman_images – List images (podman)
 // ---------------------------------------------------------------------------
-fn bi_podman_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_podman_images(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "podman_images";
+    refuse_pipeline(B, &input)?;
     let _ = args;
-    let text = podman_run_cmd(&["images", "--format", "json"])?;
-    let trimmed = text.trim();
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
-        return Ok(json_to_value(json));
-    }
-    let images = podman_json_lines(&["images", "--format", "json"])?;
-    Ok(Value::Array(images))
+    let text = container_cli(B, "podman", &["images", "--format", "json"], false)?;
+    Ok(Value::Array(container_rows(B, "podman", &text)?))
 }
 
 // ---------------------------------------------------------------------------
 // 838: bi_podman_run – Run a container (podman)
 // ---------------------------------------------------------------------------
-fn bi_podman_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let image = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "podman.run requires an image name as first argument",
-            ))
-        }
-    };
-    let command = match args.get(1) {
-        Some(Value::Str(s)) => Some(s.clone()),
-        _ => None,
-    };
-    let mut cmd = std::process::Command::new("podman");
-    cmd.arg("run");
-
-    if let Some(Value::Record(flags)) = args.get(2) {
-        for (k, v) in flags {
-            match (k.as_str(), v) {
-                ("detach", Value::Bool(true)) => {
-                    cmd.arg("-d");
-                }
-                ("rm", Value::Bool(true)) => {
-                    cmd.arg("--rm");
-                }
-                ("name", Value::Str(n)) => {
-                    cmd.args(["--name", n]);
-                }
-                ("port", Value::Str(p)) => {
-                    cmd.args(["-p", p]);
-                }
-                ("env", Value::Str(e)) => {
-                    cmd.args(["-e", e]);
-                }
-                ("volume", Value::Str(vol)) => {
-                    cmd.args(["-v", vol]);
-                }
-                (flag, Value::Str(val)) => {
-                    cmd.args([&format!("--{}", flag), val.as_str()]);
-                }
-                (flag, Value::Bool(true)) => {
-                    cmd.arg(format!("--{}", flag));
-                }
-                _ => {}
-            }
-        }
-    }
-
-    cmd.arg(&image);
-    if let Some(c) = command {
-        for part in c.split_whitespace() {
-            cmd.arg(part);
-        }
-    }
-
-    let output = cmd
-        .output()
-        .map_err(|e| crate::safety::spawn_error("podman_run", "podman", &e))?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "podman run failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(Value::Str(stdout))
+fn bi_podman_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_run("podman", "podman_run", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
-// 839: bi_podman_exec – Execute command in container (podman)
+// 839: bi_podman_exec – Execute an argv in a container (podman)
 // ---------------------------------------------------------------------------
-fn bi_podman_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let container_id = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "podman.exec requires a container ID as first argument",
-            ))
-        }
-    };
-    let command = match args.get(1) {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "podman.exec requires a command as second argument",
-            ))
-        }
-    };
+fn bi_podman_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let (container, argv) = exec_request("podman_exec", &args, &input)?;
     crate::safety::guard_exec(
         "podman_exec",
-        format!("podman exec {container_id} {command}"),
+        format!("podman exec {container} {}", argv.join(" ")),
     )?;
-    let mut cmd = std::process::Command::new("podman");
-    cmd.args(["exec", container_id]);
-    for part in command.split_whitespace() {
-        cmd.arg(part);
-    }
-    let output = cmd
-        .output()
-        .map_err(|e| crate::safety::spawn_error("podman_exec", "podman", &e))?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "podman exec failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    Ok(Value::Str(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
-    ))
+    exec_run("podman", "podman_exec", &container, &argv)
 }
 
 // ---------------------------------------------------------------------------
 // 840: bi_podman_logs – Get container logs (podman)
 // ---------------------------------------------------------------------------
-fn bi_podman_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let container_id = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "podman.logs requires a container ID as first argument",
-            ))
-        }
-    };
-    let mut cmd_args = vec!["logs".to_string(), container_id.to_string()];
-    if let Some(Value::Int(n)) = args.get(1) {
-        cmd_args.push("--tail".to_string());
-        cmd_args.push(n.to_string());
-    }
-    let args_ref: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-    let text = podman_run_cmd(&args_ref)?;
-    Ok(Value::Str(text))
+fn bi_podman_logs(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_logs("podman", "podman_logs", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
 // 841: bi_podman_stop – Stop a container (podman)
 // ---------------------------------------------------------------------------
-fn bi_podman_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let container_id = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "podman.stop requires a container ID",
-            ))
-        }
-    };
-    podman_run_cmd(&["stop", container_id])?;
-    Ok(Value::Str(format!("Stopped container {}", container_id)))
+fn bi_podman_stop(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_stop("podman", "podman_stop", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
 // 842: bi_podman_rm – Remove a container (podman)
 // ---------------------------------------------------------------------------
-fn bi_podman_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let container_id = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(crate::safety::arg_err("podman.rm requires a container ID")),
-    };
-    let force = args
-        .get(1)
-        .map(|v| matches!(v, Value::Bool(true)))
-        .unwrap_or(false);
-    let mut cmd_args = vec!["rm"];
-    if force {
-        cmd_args.push("-f");
-    }
-    cmd_args.push(container_id);
-    podman_run_cmd(&cmd_args)?;
-    Ok(Value::Str(format!("Removed container {}", container_id)))
+fn bi_podman_rm(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // No policy guard here: podman_rm is classified Exec, which the dispatcher
+    // already gates, and it is not in SELF_GUARDED.
+    let (container, force) = rm_request("podman_rm", &args, &input)?;
+    rm_run("podman", "podman_rm", &container, force)
 }
 
 // ---------------------------------------------------------------------------
-// 843: bi_podman_build – Build an image (podman)
+// 843: bi_podman_build – Build an image from a local context (podman)
 // ---------------------------------------------------------------------------
-fn bi_podman_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let tag = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "podman.build requires a tag as first argument",
-            ))
-        }
-    };
-    let path = match args.get(1) {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => ".",
-    };
-    let text = podman_run_cmd(&["build", "-t", tag, path])?;
-    Ok(Value::Str(text))
+fn bi_podman_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_build("podman", "podman_build", &args, &input)
 }
 
 // ---------------------------------------------------------------------------
 // 844: bi_podman_pull – Pull an image (podman)
 // ---------------------------------------------------------------------------
-fn bi_podman_pull(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let image = match args.first() {
-        Some(Value::Str(s)) => s.as_str(),
-        _ => return Err(crate::safety::arg_err("podman.pull requires an image name")),
-    };
-    let text = podman_run_cmd(&["pull", image])?;
-    Ok(Value::Str(text))
+fn bi_podman_pull(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    container_image_op("podman", "podman_pull", "pull", &args, &input)
 }
 
 // ============================================================================
