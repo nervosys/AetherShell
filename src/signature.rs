@@ -7668,6 +7668,121 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"gpg_list_keys()"#, r#"[]"#),
         ],
     },
+    // 1c: encryption and certificate tools. Each refuses an option-like path,
+    // refuses to overwrite, and runs its tool under a deadline with bounded
+    // output. A nonzero exit is E_TOOL_FAILED with the stderr tail. The
+    // examples are refusals that happen before any tool starts.
+    Signature {
+        name: "gpg_encrypt",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("file", Ty::Str, "the file to encrypt"),
+            req("recipient", Ty::Str, "a key id, fingerprint or user id in the keyring"),
+        ],
+        returns: "Record",
+        doc: "Encrypt a file to one recipient into file.gpg with gpg --batch --no-tty. The output is refused if it exists, and a failed run removes its partial output. Returns {action, input_file, output_file, recipient, raw}. The keyring is the caller's own; no passphrase is taken on the command line.",
+        examples: &[
+            (r#"(try { gpg_encrypt("-x", "alice") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { gpg_encrypt("notes.txt", "-oX") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "gpg_decrypt",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("file", Ty::Str, "a .gpg or .asc file")],
+        returns: "Record",
+        doc: "Decrypt a .gpg or .asc file to the same name without that suffix, or to name.decrypted. The plaintext is written to that file and is never returned. An existing output is refused. gpg runs with --batch and --no-tty, and a passphrase prompt is cut off by the deadline. Returns {action, input_file, output_file}.",
+        examples: &[
+            (r#"(try { gpg_decrypt("-x.gpg") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "age_encrypt",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("input_file", Ty::Str, "the file to encrypt"),
+            req("output_file", Ty::Str, "the encrypted file to create; must not exist"),
+            req("recipient", Ty::Str, "an age1... or ssh- public key"),
+        ],
+        returns: "Record",
+        doc: "Encrypt a file to one recipient with age. The output is refused if it exists, and a failed run removes its partial output. Returns {input, output, recipient, status}.",
+        examples: &[
+            (r#"(try { age_encrypt("notes.txt", "out.age", "not-a-key") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { age_encrypt("-x", "out.age", "age1example") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "age_decrypt",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("input_file", Ty::Str, "a file encrypted to the identity"),
+            opt("output_file", Ty::Str, "the plaintext file; default input_file without .age"),
+            opt("identity_file", Ty::Str, "the age identity file; default ~/.age/key.txt"),
+        ],
+        returns: "Record",
+        doc: "Decrypt a file with an age identity. Without an output_file the input must end in .age. The output must differ from the input and must not exist. Returns {input, output, status}. The plaintext is written to the file and is not returned.",
+        examples: &[
+            (r#"(try { age_decrypt("plain.bin") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { age_decrypt("-i", "key.txt") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { age_decrypt("x.age", "y.txt", "-i") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "age_keygen",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("output_file", Ty::Str, "the new identity file; the private key is written there and never returned")],
+        returns: "Record",
+        doc: "Generate an age identity into a new file and return {public_key, identity_file, status}. The private key is never returned, so no form of this builtin prints it. An existing file is refused, and a failed run removes the file.",
+        examples: &[
+            (r#"(try { age_keygen() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { age_keygen("-o") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "openssl_cert_info",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("file", Ty::Str, "a PEM or DER certificate")],
+        returns: "Record",
+        doc: "Read a certificate's subject, issuer, validity, serial number and key and signature algorithms with openssl x509 -text -noout, with the raw text. Read-only, under a deadline. A private key given here is an openssl error.",
+        examples: &[
+            (r#"(try { openssl_cert_info("-noout") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "openssl_genrsa",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("file", Ty::Str, "the new private key file; must not exist"),
+            opt_range("bits", Ty::Int, 2048, 16384, "the modulus size; default 4096"),
+        ],
+        returns: "Record",
+        doc: "Generate an RSA private key into a new file with openssl genrsa. The key is NOT encrypted. The file is refused if it exists and removed if the run fails. The key is never returned. Returns {action, file, bits, raw}.",
+        examples: &[
+            (r#"(try { openssl_genrsa("key.pem", 1024) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { openssl_genrsa("-engine") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
     // 1b: disk usage, process info, diagnostics, docs search, pager, the
     // platform key-value store. proc_info, diag_explain and docs_search are
     // machine-dependent; the rest must give the result shown everywhere.
@@ -8368,6 +8483,120 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"ssh_config("/etc/ssh/ssh_config")"#, r#"[{host: "*", ...}]"#),
         ],
     },
+    // 1c: ssh and scp. Every host, remote path and local path is checked for
+    // option-like or shell-active text before a tool starts. Each run has a
+    // deadline and bounded output, and BatchMode is set so no password prompt can
+    // wait. These run code or move files on other hosts: see each doc.
+    Signature {
+        name: "ssh_exec",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("host", Ty::Str, "[user@]host"),
+            req("command", Ty::Str, "one command string; the remote login shell runs it"),
+            opt_range("port", Ty::Int, 1, 65535, "the ssh port; default 22"),
+        ],
+        returns: "Record",
+        doc: "Run one command on a remote host over ssh. The command is one string that the remote login shell expands, so it runs there with that shell's rules; the host never reaches a local shell. Exit 0 returns {stdout, stderr, exit_code, success}. Any other exit is E_TOOL_FAILED with the status and the stderr tail. Output over 16 MiB is refused, and a run past 120 s is stopped. Runs code on another host.",
+        examples: &[
+            (r#"(try { ssh_exec("-oProxyCommand=id", "true") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ssh_exec("user@host", "") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ssh_exec("user@host", "true", 0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ssh_tunnel",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("local_port", Ty::Int, "the local port to listen on, 1..65535"),
+            req("remote_host", Ty::Str, "the host the tunnel forwards to, as the ssh host sees it"),
+            req("remote_port", Ty::Int, "the port on remote_host, 1..65535"),
+            req("ssh_host", Ty::Str, "[user@]host to tunnel through"),
+        ],
+        returns: "Record",
+        doc: "Start a background local forward (ssh -f -N -L) through ssh_host and return {success, local_port, remote_host, remote_port, ssh_host}. The tunnel outlives the call and no handle to it is returned, so this builtin cannot stop it. ExitOnForwardFailure makes a port that cannot be bound an error. Opens a listening port on this machine.",
+        examples: &[
+            (r#"(try { ssh_tunnel(0, "db.internal", 5432, "bastion") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ssh_tunnel(15432, "db.internal", 5432, "-oProxyCommand=id") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ssh_keygen",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            opt("type", Ty::Str, "ed25519, rsa or ecdsa; default ed25519"),
+            opt("file", Ty::Str, "the private key file to create; default ~/.ssh/id_<type>"),
+        ],
+        returns: "Record",
+        doc: "Generate an SSH key pair: the private key at file and the public key at file.pub. The private key has NO passphrase, so anyone who can read the file can use it. Existing key files are refused, not replaced, and the path passes the workspace write jail. Returns {passphrase: false, type, private_key, public_key, output}. Writes private key material to disk.",
+        examples: &[
+            (r#"(try { ssh_keygen("dsa") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ssh_keygen("ed25519", "-oX") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ssh_copy_id",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("host", Ty::Str, "[user@]host"),
+            opt("key_file", Ty::Str, "an OpenSSH public key file; default ~/.ssh/id_ed25519.pub"),
+        ],
+        returns: "Record",
+        doc: "Install a public key in the remote account's authorized_keys, with ssh-copy-id (or a manual, de-duplicated append on Windows). The key file must hold one OpenSSH public-key line; anything else is refused without its content being shown. Writes to the remote host. Returns {success, method, host}.",
+        examples: &[
+            (r#"(try { ssh_copy_id("-oProxyCommand=id") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ssh_copy_id("user@host", "-oX") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "scp_upload",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("local_path", Ty::Str, "a local file; no ':' except a drive letter"),
+            req("remote", Ty::Str, "[user@]host:path, one file"),
+            opt_range("port", Ty::Int, 1, 65535, "the ssh port; default 22"),
+        ],
+        returns: "Record",
+        doc: "Copy one local file to a remote host with scp (BatchMode, 600 s deadline). The remote path may not hold shell or glob characters. Returns {success, local_path, remote}. A failed transfer is E_TOOL_FAILED with the stderr tail. Sends a local file off this machine.",
+        examples: &[
+            (r#"(try { scp_upload("notes.txt", "-oProxyCommand=id:/tmp/x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { scp_upload("notes.txt", "host:/tmp/a;rm -rf x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { scp_upload("notes.txt", "host:/tmp/a", 0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "scp_download",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("remote", Ty::Str, "[user@]host:path, one file"),
+            req("local_path", Ty::Str, "the new local file; must not exist"),
+            opt_range("port", Ty::Int, 1, 65535, "the ssh port; default 22"),
+        ],
+        returns: "Record",
+        doc: "Copy one remote file to a new local file with scp (BatchMode, 600 s deadline). The local destination passes the workspace write jail and must not exist; a failed transfer removes it. The remote path may not hold shell or glob characters. Returns {success, remote, local_path}.",
+        examples: &[
+            (r#"(try { scp_download("host:/tmp/*.txt", "x.txt") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { scp_download("-oProxyCommand=id:/x", "x.txt") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { scp_download("host:/x", "x.txt", 0) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
     // 1b: the monitor_* network and session readers. Machine-dependent: each
     // reads the host (ip/ss/who/last/journal; PowerShell on Windows).
     Signature {
@@ -8584,6 +8813,58 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "xz_compress",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("file", Ty::Str, "the file to compress")],
+        returns: "Bool",
+        doc: "Write file.xz beside a file, keeping the file. An existing file.xz is refused (E_BAD_STATE) and never overwritten. A failure is E_TOOL_FAILED with the reason, and the partial output is removed.",
+        examples: &[
+            (r#"(try { xz_compress("-k") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "xz_decompress",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("file", Ty::Str, "a .xz file")],
+        returns: "Bool",
+        doc: "Write a .xz file's contents beside it without the suffix, keeping the .xz. Output past 1 GiB is refused and the partial file removed. An existing output is refused (E_BAD_STATE). Invalid xz data is E_TOOL_FAILED.",
+        examples: &[
+            (r#"(try { xz_decompress("notes.txt") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "zstd_compress",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("file", Ty::Str, "the file to compress")],
+        returns: "Bool",
+        doc: "Write file.zst beside a file, keeping the file. An existing file.zst is refused (E_BAD_STATE) and never overwritten. A failure is E_TOOL_FAILED with the reason, and the partial output is removed.",
+        examples: &[
+            (r#"(try { zstd_compress("-k") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "zstd_decompress",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("file", Ty::Str, "a .zst file")],
+        returns: "Bool",
+        doc: "Write a .zst file's contents beside it without the suffix, keeping the .zst. Output past 1 GiB is refused and the partial file removed. An existing output is refused (E_BAD_STATE). Invalid zstd data is E_TOOL_FAILED.",
+        examples: &[
+            (r#"(try { zstd_decompress("notes.txt") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "tar_extract",
         category: None,
         subject_required: false,
@@ -8595,6 +8876,40 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"tar_extract("tests/fixtures/archives/sample.tar.gz", fs_tempdir("ae_tar"))"#, r#"true"#),
             (r#"tar_extract("no-such.tar")"#, r#"error: E_TOOL_FAILED"#),
+        ],
+    },
+    Signature {
+        name: "zip_create",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("archive", Ty::Str, "the .zip file to create; must not exist"),
+            rest("files", Ty::Str, "one or more files to add"),
+        ],
+        returns: "Bool",
+        doc: "Create a zip archive from files. An existing archive is refused (use zip_add). A failure is E_TOOL_FAILED with the reason, and the archive that the run started is removed. Windows uses PowerShell Compress-Archive.",
+        examples: &[
+            (r#"(try { zip_create("out.zip") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { zip_create("out.zip", "-TT") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "zip_add",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("archive", Ty::Str, "an existing .zip file"),
+            rest("files", Ty::Str, "one or more files to add or refresh"),
+        ],
+        returns: "Bool",
+        doc: "Add or refresh files in an existing zip archive (zip -u, or Compress-Archive -Update on Windows). A missing archive is E_NOT_FOUND; it is not created. A failure is E_TOOL_FAILED with the reason.",
+        examples: &[
+            (r#"(try { zip_add("-TT", "a.txt") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { zip_add("out.zip") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -8800,6 +9115,41 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "A symlink's target. A missing path or one that is not a link is an error, not null.",
         examples: &[
             (r#"fs_readlink("/proc/self/exe")"#, r#"/usr/local/bin/ae"#),
+        ],
+    },
+    Signature {
+        name: "jq",
+        category: None,
+        subject_required: false,
+        aliases: &["jq_query"],
+        subject: None,
+        params: &[
+            req("expression", Ty::Str, ". .key .key.sub .[n] .[] keys length, joined by |"),
+            opt("json", Ty::Str, "JSON text; default the piped input"),
+        ],
+        returns: "Any",
+        doc: "Evaluate a jq expression over JSON in-process, without the jq binary. Supports ., .key, .key.sub, .[n], .[] (returns the elements as an array), keys, length, and | between them; .key[n] indexes too. length follows jq: the absolute value of a number, code points of a string, and an error for a boolean. A missing key is E_NOT_FOUND. Any other expression is refused, not guessed. JSON over 64 MiB is refused. Use jq_filter for a full jq filter.",
+        examples: &[
+            (r#"jq(".a.b", "{\"a\": {\"b\": 7}}")"#, "7"),
+            (r#""[1,2,3]" | jq("length")"#, "3"),
+            (r#"(try { jq(".a[x]", "{\"a\": [1]}") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "jq_filter",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("filter", Ty::Str, "a jq filter; a leading '-' is refused"),
+            opt("json", Ty::Str, "JSON text; default the piped input"),
+        ],
+        returns: "Any",
+        doc: "Run a full jq filter over JSON with the jq binary, fed on stdin, with a 16 MiB output cap and a 600 s deadline. Output that parses as JSON is returned as a value, otherwise as text. A filter jq rejects is E_TOOL_FAILED with its stderr. Without jq on PATH this is E_TOOL_MISSING; it does not fall back to the native subset of jq.",
+        examples: &[
+            (r#"(try { jq_filter("-n") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { jq_filter("--slurp", "{}") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {

@@ -28389,7 +28389,74 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // 330-349: Archive & Compression
 // ============================================================================
 
-fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// The file operands of a zip call: every argument after the archive, each of
+/// which must be a string. At least one is required.
+fn zip_file_args(builtin: &str, args: &[Value]) -> Result<Vec<String>> {
+    let files = args
+        .iter()
+        .skip(1)
+        .map(|v| match v {
+            Value::Str(s) => Ok(s.clone()),
+            other => Err(crate::safety::bad_arg(
+                builtin,
+                "a file name: String",
+                other.type_name(),
+            )),
+        })
+        .collect::<Result<Vec<String>>>()?;
+    if files.is_empty() {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "at least one file to add",
+            "none",
+        ));
+    }
+    Ok(files)
+}
+
+/// The command that writes a zip archive, or with `update` refreshes one. Both
+/// the Unix zip and PowerShell's Compress-Archive are run from an argv.
+fn zip_command(
+    archive: &str,
+    files: &[String],
+    update: bool,
+) -> (&'static str, std::process::Command) {
+    if cfg!(target_os = "windows") {
+        let mut cmd = std::process::Command::new("powershell");
+        if update {
+            let script = crate::ps_script!(
+                "Compress-Archive -Path {} -Update -DestinationPath {}",
+                crate::safety::ps_join(files.iter().map(|f| crate::safety::ps_quote(f)), ","),
+                crate::safety::ps_quote(archive)
+            );
+            cmd.args(["-NoProfile", "-Command", &script]);
+        } else {
+            let script = crate::ps_script!(
+                "Compress-Archive -Path {} -DestinationPath {}",
+                crate::safety::ps_join(files.iter().map(|f| crate::safety::ps_quote(f)), ","),
+                crate::safety::ps_quote(archive)
+            );
+            cmd.args(["-NoProfile", "-Command", &script]);
+        }
+        ("powershell", cmd)
+    } else {
+        let mut cmd = std::process::Command::new("zip");
+        cmd.arg("-q");
+        if update {
+            cmd.arg("-u");
+        }
+        cmd.arg(archive).args(files);
+        ("zip", cmd)
+    }
+}
+
+// 330: bi_zip_create - Write a new zip archive from files.
+//
+// An existing archive is refused rather than added to: that is zip_add's job.
+// Every file operand must be a string, and at least one is required. A failed
+// run removes the archive it started.
+fn bi_zip_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("zip_create", &input)?;
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -28400,39 +28467,21 @@ fn bi_zip_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-    let files: Vec<String> = args
+    let files = zip_file_args("zip_create", &args)?;
+    crate::safety::reject_option_like("zip_create", std::slice::from_ref(&archive))?;
+    crate::safety::reject_option_like("zip_create", &files)?;
+    let archive = guard_local_write("zip_create", &crate::safety::resolve_path_str(&archive))?;
+    refuse_existing("zip_create", &archive)?;
+    let files: Vec<String> = files
         .iter()
-        .skip(1)
-        .filter_map(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
+        .map(|f| crate::safety::resolve_path_str(f))
         .collect();
-
-    #[cfg(target_os = "windows")]
-    {
-        let cmd = crate::ps_script!(
-            "Compress-Archive -Path {} -DestinationPath {}",
-            crate::safety::ps_join(files.iter().map(|f| crate::safety::ps_quote(f)), ","),
-            crate::safety::ps_quote(&archive)
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("zip_create", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+    let (tool, cmd) = zip_command(&archive, &files, false);
+    if let Err(e) = run_checked("zip_create", tool, cmd, LOCAL_DEADLINE_SECS) {
+        remove_partial(&archive);
+        return Err(e);
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        crate::safety::reject_option_like("zip_create", std::slice::from_ref(&archive))?;
-        crate::safety::reject_option_like("zip_create", &files)?;
-        let output = std::process::Command::new("zip")
-            .arg(&archive)
-            .args(&files)
-            .output()
-            .map_err(|e| crate::safety::spawn_error("zip_create", "zip", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -28497,7 +28546,12 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// 333: bi_zip_add - Add or refresh files in an existing zip archive.
+//
+// The archive must already exist; a missing one is E_NOT_FOUND, not a new file.
+// The Unix zip is run with -u, so only new or newer files are written.
+fn bi_zip_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("zip_add", &input)?;
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -28508,40 +28562,20 @@ fn bi_zip_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-    let files: Vec<String> = args
+    let files = zip_file_args("zip_add", &args)?;
+    crate::safety::reject_option_like("zip_add", std::slice::from_ref(&archive))?;
+    crate::safety::reject_option_like("zip_add", &files)?;
+    let archive = guard_local_write("zip_add", &crate::safety::resolve_path_str(&archive))?;
+    if !std::path::Path::new(&archive).is_file() {
+        return Err(crate::safety::not_found("zip_add", "archive", &archive));
+    }
+    let files: Vec<String> = files
         .iter()
-        .skip(1)
-        .filter_map(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
+        .map(|f| crate::safety::resolve_path_str(f))
         .collect();
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        crate::safety::reject_option_like("zip_add", std::slice::from_ref(&archive))?;
-        crate::safety::reject_option_like("zip_add", &files)?;
-        let output = std::process::Command::new("zip")
-            .arg("-u")
-            .arg(&archive)
-            .args(&files)
-            .output()
-            .map_err(|e| crate::safety::spawn_error("zip_add", "zip", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let cmd = crate::ps_script!(
-            "Compress-Archive -Path {} -Update -DestinationPath {}",
-            crate::safety::ps_join(files.iter().map(|f| crate::safety::ps_quote(f)), ","),
-            crate::safety::ps_quote(&archive)
-        );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("zip_add", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
-    }
+    let (tool, cmd) = zip_command(&archive, &files, true);
+    run_checked("zip_add", tool, cmd, LOCAL_DEADLINE_SECS)?;
+    Ok(Value::Bool(true))
 }
 
 fn bi_tar_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -28977,7 +29011,12 @@ fn bi_bzip2_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     Ok(Value::Bool(true))
 }
 
-fn bi_xz_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// 341: bi_xz_compress - Write file.xz beside a file, keeping the file.
+//
+// The compressed stream goes to a new file created exclusively, so an existing
+// file.xz is refused and nothing is overwritten.
+fn bi_xz_compress(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("xz_compress", &input)?;
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -28988,15 +29027,20 @@ fn bi_xz_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-
-    let output = std::process::Command::new("xz")
-        .args(["-k", &file])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("xz_compress", "xz", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    refuse_option("xz_compress", &file)?;
+    let input = crate::safety::resolve_path_str(&file);
+    regular_file_arg("xz_compress", &input)?;
+    let out = guard_local_write("xz_compress", &format!("{input}.xz"))?;
+    tool_to_new_file("xz_compress", "xz", &["-z", "-c", input.as_str()], &out)?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_xz_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// 342: bi_xz_decompress - Write a .xz file's contents beside it, without the suffix.
+//
+// The output is capped at FILE_OUTPUT_CAP bytes. A stream that inflates past it
+// is stopped and its partial file removed. An existing output is refused.
+fn bi_xz_decompress(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("xz_decompress", &input)?;
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -29007,26 +29051,21 @@ fn bi_xz_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-
-    // The file goes to xz positionally; a leading `-` would be an option.
-    crate::safety::reject_option_like("xz_decompress", std::slice::from_ref(&file))?;
-    let output = std::process::Command::new("xz")
-        .args(["-dk", &file])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("xz_decompress", "xz", &e))?;
-    // A failure was a bare `false`, with xz's reason discarded.
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "xz_decompress",
-            "xz",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
+    refuse_option("xz_decompress", &file)?;
+    let out = file
+        .strip_suffix(".xz")
+        .ok_or_else(|| crate::safety::bad_arg("xz_decompress", "a .xz file", &file))?
+        .to_string();
+    let input = crate::safety::resolve_path_str(&file);
+    regular_file_arg("xz_decompress", &input)?;
+    let out = guard_local_write("xz_decompress", &out)?;
+    tool_to_new_file("xz_decompress", "xz", &["-d", "-c", input.as_str()], &out)?;
     Ok(Value::Bool(true))
 }
 
-fn bi_zstd_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// 343: bi_zstd_compress - Write file.zst beside a file, keeping the file.
+fn bi_zstd_compress(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("zstd_compress", &input)?;
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -29037,15 +29076,19 @@ fn bi_zstd_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-
-    let output = std::process::Command::new("zstd")
-        .args(["-k", &file])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("zstd_compress", "zstd", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    refuse_option("zstd_compress", &file)?;
+    let input = crate::safety::resolve_path_str(&file);
+    regular_file_arg("zstd_compress", &input)?;
+    let out = guard_local_write("zstd_compress", &format!("{input}.zst"))?;
+    tool_to_new_file("zstd_compress", "zstd", &["-q", "-c", input.as_str()], &out)?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_zstd_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// 344: bi_zstd_decompress - Write a .zst file's contents beside it, without the suffix.
+//
+// Bounded and refused on an existing output, exactly as xz_decompress is.
+fn bi_zstd_decompress(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("zstd_decompress", &input)?;
     let file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -29056,22 +29099,20 @@ fn bi_zstd_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
             ))
         }
     };
-
-    // The file goes to zstd positionally; a leading `-` would be an option.
-    crate::safety::reject_option_like("zstd_decompress", std::slice::from_ref(&file))?;
-    let output = std::process::Command::new("zstd")
-        .args(["-dk", &file])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("zstd_decompress", "zstd", &e))?;
-    // A failure was a bare `false`, with zstd's reason discarded.
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "zstd_decompress",
-            "zstd",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
+    refuse_option("zstd_decompress", &file)?;
+    let out = file
+        .strip_suffix(".zst")
+        .ok_or_else(|| crate::safety::bad_arg("zstd_decompress", "a .zst file", &file))?
+        .to_string();
+    let input = crate::safety::resolve_path_str(&file);
+    regular_file_arg("zstd_decompress", &input)?;
+    let out = guard_local_write("zstd_decompress", &out)?;
+    tool_to_new_file(
+        "zstd_decompress",
+        "zstd",
+        &["-d", "-q", "-c", input.as_str()],
+        &out,
+    )?;
     Ok(Value::Bool(true))
 }
 
@@ -49364,8 +49405,510 @@ fn bi_mount_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // [removed duplicate] use anyhow::{anyhow, Result};
 // [removed duplicate] use crate::value::Value;
 
-// 980: bi_ssh_exec - Execute command on remote host via SSH
-fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// ---------------------------------------------------------------------------
+// Shared runner for the remote, crypto and archive tools below.
+//
+// A tool starts from an argv (never a shell), with a null or fixed stdin, under
+// a deadline. Its output is bounded, and a run that exceeds a bound is stopped
+// and refused (E_BUDGET_EXCEEDED): a cut-off answer reads like a complete one.
+// ---------------------------------------------------------------------------
+
+/// Most bytes a tool run may write to captured stdout, or to stderr.
+const TOOL_OUTPUT_CAP: u64 = 16 * 1024 * 1024;
+/// Most bytes a tool run may write to a file. For xz and zstd this is the
+/// decompressed size, which is the bomb a small archive can hide.
+const FILE_OUTPUT_CAP: u64 = 1024 * 1024 * 1024;
+/// Deadline for a command or transfer that contacts a host, or that may stop
+/// for a prompt that nobody will answer.
+const NETWORK_DEADLINE_SECS: u64 = 120;
+/// Deadline for a local crypto, archive or transfer run.
+const LOCAL_DEADLINE_SECS: u64 = 600;
+/// Most bytes of JSON text the jq builtins accept.
+const JQ_INPUT_CAP: usize = 64 * 1024 * 1024;
+/// Options every ssh run gets: no terminal, and no prompt that waits for a
+/// person to type. A host that needs a password fails instead of hanging.
+const SSH_OPTS: &[&str] = &["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20"];
+/// The scp equivalent of [`SSH_OPTS`].
+const SCP_OPTS: &[&str] = &["-o", "BatchMode=yes", "-o", "ConnectTimeout=20"];
+
+const HALT_NONE: u8 = 0;
+const HALT_OVER_CAP: u8 = 1;
+const HALT_IO: u8 = 2;
+
+/// Copies one pipe into `sink` until the pipe closes. When the stream passes
+/// `cap`, or a read or write fails, it records why in `halt` and stops.
+fn pump<R, W>(
+    mut pipe: R,
+    sink: std::sync::Arc<std::sync::Mutex<W>>,
+    cap: u64,
+    halt: std::sync::Arc<std::sync::atomic::AtomicU8>,
+    done: std::sync::mpsc::Sender<()>,
+) where
+    R: std::io::Read + Send + 'static,
+    W: std::io::Write + Send + 'static,
+{
+    use std::io::ErrorKind;
+    use std::sync::atomic::Ordering;
+    std::thread::spawn(move || {
+        let mut total: u64 = 0;
+        let mut chunk = [0u8; 8192];
+        loop {
+            match pipe.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    total = total.saturating_add(n as u64);
+                    if total > cap {
+                        halt.store(HALT_OVER_CAP, Ordering::SeqCst);
+                        break;
+                    }
+                    let mut w = sink
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if w.write_all(&chunk[..n]).is_err() {
+                        halt.store(HALT_IO, Ordering::SeqCst);
+                        break;
+                    }
+                }
+                Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                Err(_) => {
+                    halt.store(HALT_IO, Ordering::SeqCst);
+                    break;
+                }
+            }
+        }
+        let _ = done.send(());
+    });
+}
+
+/// The refusal for a run that was stopped: over a cap, a failed pipe, or the deadline.
+fn halt_error(builtin: &str, tool: &str, flag: u8, secs: u64, cap: u64) -> anyhow::Error {
+    match flag {
+        HALT_OVER_CAP => crate::safety::budget_exceeded(
+            builtin,
+            format!("{tool} wrote more than {cap} bytes and was stopped"),
+            "the output would be cut short, so it is refused; narrow the request",
+        ),
+        HALT_IO => crate::safety::tool_failed(
+            builtin,
+            tool,
+            None,
+            "its output could not be read or written",
+        ),
+        _ => crate::safety::budget_exceeded(
+            builtin,
+            format!("{tool} did not finish within {secs} s and was stopped"),
+            "the call is refused rather than answered in part; check the host, file or network and try again",
+        ),
+    }
+}
+
+/// Runs `cmd` for at most `secs`. Stdout goes to `stdout`; stderr is captured.
+/// Returns the exit status and the stderr text. A run that exceeds `cap`, or
+/// its deadline, is killed and refused. A nonzero exit is not an error here;
+/// see [`tool_ok`].
+fn run_tool<W>(
+    builtin: &str,
+    tool: &str,
+    mut cmd: std::process::Command,
+    stdin: Option<Vec<u8>>,
+    stdout: std::sync::Arc<std::sync::Mutex<W>>,
+    secs: u64,
+    cap: u64,
+) -> Result<(std::process::ExitStatus, String)>
+where
+    W: std::io::Write + Send + 'static,
+{
+    use std::io::Write as _;
+    use std::process::Stdio;
+    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::sync::{mpsc, Arc, Mutex, PoisonError};
+    use std::time::{Duration, Instant};
+
+    let halt = Arc::new(AtomicU8::new(HALT_NONE));
+    cmd.stdin(if stdin.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    })
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| crate::safety::spawn_error(builtin, tool, &e))?;
+    let (Some(out_pipe), Some(err_pipe)) = (child.stdout.take(), child.stderr.take()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(crate::safety::tool_failed(
+            builtin,
+            tool,
+            None,
+            "its output pipes were not opened",
+        ));
+    };
+    if let (Some(payload), Some(mut pipe)) = (stdin, child.stdin.take()) {
+        // Detached: a child that never reads its stdin must not hold this call.
+        // A failed write just ends early, and the exit status reports why.
+        std::thread::spawn(move || {
+            let _ = pipe.write_all(&payload);
+        });
+    }
+    let stderr = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let (out_done, out_closed) = mpsc::channel();
+    let (err_done, err_closed) = mpsc::channel();
+    pump(out_pipe, stdout, cap, Arc::clone(&halt), out_done);
+    pump(
+        err_pipe,
+        Arc::clone(&stderr),
+        cap,
+        Arc::clone(&halt),
+        err_done,
+    );
+
+    let limit = Duration::from_secs(secs);
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::safety::tool_failed(
+                    builtin,
+                    tool,
+                    None,
+                    &e.to_string(),
+                ));
+            }
+        }
+        if halt.load(Ordering::SeqCst) != HALT_NONE || started.elapsed() >= limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(halt_error(
+                builtin,
+                tool,
+                halt.load(Ordering::SeqCst),
+                secs,
+                cap,
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    // The pipes close with the child. A grandchild that keeps one open must not
+    // hold the call, and output that has not closed is not returned.
+    let wait = Duration::from_secs(2);
+    let closed = out_closed.recv_timeout(wait).is_ok() && err_closed.recv_timeout(wait).is_ok();
+    let flag = halt.load(Ordering::SeqCst);
+    if flag != HALT_NONE {
+        return Err(halt_error(builtin, tool, flag, secs, cap));
+    }
+    if !closed {
+        return Err(crate::safety::tool_failed(
+            builtin,
+            tool,
+            status.code(),
+            "its output stayed open after it exited",
+        ));
+    }
+    let bytes = stderr.lock().unwrap_or_else(PoisonError::into_inner);
+    Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
+}
+
+/// A nonzero exit is a coded tool failure, with the exit status and the tail of stderr.
+fn tool_ok(
+    builtin: &str,
+    tool: &str,
+    status: std::process::ExitStatus,
+    stderr: &str,
+) -> Result<()> {
+    if status.success() {
+        return Ok(());
+    }
+    Err(crate::safety::tool_failed(
+        builtin,
+        tool,
+        status.code(),
+        stderr_tail(stderr),
+    ))
+}
+
+/// The last 4 KiB of a tool's stderr, for an error message.
+fn stderr_tail(text: &str) -> &str {
+    const KEEP: usize = 4096;
+    let text = text.trim();
+    if text.len() <= KEEP {
+        return text;
+    }
+    let mut start = text.len() - KEEP;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    text[start..].trim()
+}
+
+/// Runs a tool that answers on stdout. Returns that text and the stderr text
+/// once the tool exits 0; any other exit is a coded tool failure.
+fn run_checked(
+    builtin: &str,
+    tool: &str,
+    cmd: std::process::Command,
+    secs: u64,
+) -> Result<(String, String)> {
+    let out = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let (status, stderr) = run_tool(
+        builtin,
+        tool,
+        cmd,
+        None,
+        std::sync::Arc::clone(&out),
+        secs,
+        TOOL_OUTPUT_CAP,
+    )?;
+    tool_ok(builtin, tool, status, &stderr)?;
+    let bytes = std::mem::take(
+        &mut *out
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    Ok((String::from_utf8_lossy(&bytes).into_owned(), stderr))
+}
+
+/// Runs a tool whose stdout is the new file `out_path`. The file is created
+/// exclusively, so an existing file is refused, and it is removed when the run fails.
+fn tool_to_new_file(builtin: &str, tool: &str, argv: &[&str], out_path: &str) -> Result<()> {
+    let file = create_new_output(builtin, out_path)?;
+    let sink = std::sync::Arc::new(std::sync::Mutex::new(file));
+    let mut cmd = std::process::Command::new(tool);
+    cmd.args(argv);
+    let result = run_tool(
+        builtin,
+        tool,
+        cmd,
+        None,
+        sink,
+        LOCAL_DEADLINE_SECS,
+        FILE_OUTPUT_CAP,
+    )
+    .and_then(|(status, stderr)| tool_ok(builtin, tool, status, &stderr));
+    if result.is_err() {
+        remove_partial(out_path);
+    }
+    result
+}
+
+/// Creates a new file for a tool's output. Existing files are refused, and the
+/// check and the create are one open, so a file that appears meanwhile is refused too.
+fn create_new_output(builtin: &str, path: &str) -> Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                crate::safety::bad_state(
+                    builtin,
+                    &format!("{path} already exists"),
+                    "remove it first; the existing file is not overwritten",
+                )
+            } else {
+                crate::safety::fs_error(builtin, path, &e)
+            }
+        })
+}
+
+/// Refuses an output path that already exists, for a tool that writes its own file.
+fn refuse_existing(builtin: &str, path: &str) -> Result<()> {
+    if std::path::Path::new(path).exists() {
+        return Err(crate::safety::bad_state(
+            builtin,
+            &format!("{path} already exists"),
+            "remove it first; the existing file is not overwritten",
+        ));
+    }
+    Ok(())
+}
+
+/// Removes a file a failed run may have left. Only ever called on a path that
+/// was checked absent before the run, so the file is the run's own.
+fn remove_partial(path: &str) {
+    let _ = std::fs::remove_file(path);
+}
+
+/// A caller value in a positional slot, refused when it could be read as an option.
+fn refuse_option(builtin: &str, value: &str) -> Result<()> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])
+}
+
+/// The path must name an existing regular file.
+fn regular_file_arg(builtin: &str, path: &str) -> Result<()> {
+    let meta = std::fs::metadata(path).map_err(|e| crate::safety::fs_error(builtin, path, &e))?;
+    if !meta.is_file() {
+        return Err(crate::safety::bad_arg(builtin, "a regular file", path));
+    }
+    Ok(())
+}
+
+/// A `[user@]host` for ssh, scp and ssh-copy-id. It is refused when it could be
+/// read as an option (`-oProxyCommand=…`), when it is empty, or when it holds a
+/// character a host name, address or user name does not use.
+fn ssh_target_arg(builtin: &str, what: &str, target: &str) -> Result<()> {
+    refuse_option(builtin, target)?;
+    let (user, host) = match target.rsplit_once('@') {
+        Some((user, host)) => (Some(user), host),
+        None => (None, target),
+    };
+    let chars_ok = target.chars().all(|c| {
+        c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '[' | ']' | '%' | '@')
+    });
+    let user_ok = match user {
+        Some(user) => !user.is_empty() && !user.starts_with('-'),
+        None => true,
+    };
+    if !target.is_empty()
+        && target.len() <= 255
+        && chars_ok
+        && user_ok
+        && !host.is_empty()
+        && !host.starts_with('-')
+    {
+        return Ok(());
+    }
+    Err(crate::safety::bad_arg(
+        builtin,
+        &format!("{what} as [user@]host of letters, digits and . _ - : [ ] % @"),
+        target,
+    ))
+}
+
+/// A tunnel's destination: a host name, an IPv4 address, or a bracketed IPv6 address.
+fn tunnel_host_arg(builtin: &str, host: &str) -> Result<()> {
+    refuse_option(builtin, host)?;
+    let ok = match host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        Some(addr) => {
+            !addr.is_empty()
+                && addr
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() || matches!(c, ':' | '.'))
+        }
+        None => {
+            !host.is_empty()
+                && host.len() <= 253
+                && host
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        }
+    };
+    if ok {
+        return Ok(());
+    }
+    Err(crate::safety::bad_arg(
+        builtin,
+        "remote_host as a host name, an IPv4 address or a bracketed IPv6 address",
+        host,
+    ))
+}
+
+/// An scp remote, `[user@]host:path`. The host is checked as [`ssh_target_arg`]
+/// checks it. The path must be one file: it may not hold a shell
+/// metacharacter, a glob, or a control character, because the remote side may
+/// read it through a shell.
+fn scp_remote_arg(builtin: &str, remote: &str) -> Result<()> {
+    let bad = || crate::safety::bad_arg(builtin, "a remote of the form [user@]host:path", remote);
+    // A user name ends at the first '@' that comes before any ':' or '/'. A
+    // later '@' belongs to the path.
+    let user_len = match remote.find('@') {
+        Some(i) if !remote[..i].contains([':', '/']) => i + 1,
+        _ => 0,
+    };
+    let rest = &remote[user_len..];
+    let colon = if rest.starts_with('[') {
+        rest.find("]:").map(|i| i + 1)
+    } else {
+        rest.find(':')
+    };
+    let Some(colon) = colon else {
+        return Err(bad());
+    };
+    ssh_target_arg(builtin, "remote host", &remote[..user_len + colon])?;
+    let path = &remote[user_len + colon + 1..];
+    if path.is_empty() {
+        return Err(bad());
+    }
+    if path
+        .chars()
+        .any(|c| c.is_control() || "`$;&|<>()'\"\\{}*?[]".contains(c))
+    {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a remote path with no shell or glob characters (one file)",
+            path,
+        ));
+    }
+    Ok(())
+}
+
+/// A local scp operand. scp reads a path with a ':' in it as a host, so a local
+/// path must not have one, apart from a Windows drive letter.
+fn scp_local_arg(builtin: &str, path: &str) -> Result<()> {
+    refuse_option(builtin, path)?;
+    let bytes = path.as_bytes();
+    let rest = if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        &path[2..]
+    } else {
+        path
+    };
+    if rest.contains(':') {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a local path without ':' (scp would read it as a host)",
+            path,
+        ));
+    }
+    Ok(())
+}
+
+/// The text, when it is one OpenSSH public key line: a key type, a base64 blob
+/// and an optional comment, and nothing else. Anything else is refused by the
+/// caller, and its content is not echoed.
+fn public_key_line(text: &str) -> Option<&str> {
+    let line = text.trim();
+    if line.is_empty() || line.len() > 16 * 1024 || line.contains(['\n', '\r']) {
+        return None;
+    }
+    let mut parts = line.splitn(3, ' ');
+    let kind = parts.next()?;
+    let blob = parts.next()?;
+    let kind_ok =
+        (kind.starts_with("ssh-") || kind.starts_with("ecdsa-sha2-") || kind.starts_with("sk-"))
+            && kind
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '@' | '.'));
+    let blob_ok = !blob.is_empty()
+        && blob
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '='));
+    let comment_ok = match parts.next() {
+        None => true,
+        Some(comment) => comment
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '@' | '.' | '_' | '-' | '+' | ' ')),
+    };
+    if kind_ok && blob_ok && comment_ok {
+        Some(line)
+    } else {
+        None
+    }
+}
+
+// 980: bi_ssh_exec - Run one command on a remote host over ssh.
+//
+// The command is one string and the remote account's login shell reads it, so
+// the remote side expands it as that shell does. The host never reaches a
+// local shell. Exit 0 returns the output. Any other exit is E_TOOL_FAILED with
+// the exit status and the tail of stderr. Output past the cap, or a run past
+// its deadline, is refused.
+fn bi_ssh_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("ssh_exec", &input)?;
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -49375,10 +49918,10 @@ fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
     let command = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
+        Some(Value::Str(s)) if !s.trim().is_empty() && !s.contains('\0') => s.clone(),
         _ => {
             return Err(crate::safety::arg_err(
-                "ssh_exec: second argument must be command string",
+                "ssh_exec: second argument must be a non-empty command string",
             ))
         }
     };
@@ -49386,33 +49929,34 @@ fn bi_ssh_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => Some(*p),
         _ => None,
     };
+    ssh_target_arg("ssh_exec", "host", &host)?;
     // Runs an arbitrary command on another host: the widest blast radius in the
-    // builtin table, and until now ungated and unaudited.
+    // builtin table. Checked after the arguments, so a refused call is not audited
+    // as a run.
     crate::safety::guard_exec("ssh_exec", format!("ssh {} {}", host, command))?;
-    crate::safety::reject_option_like("ssh_exec", std::slice::from_ref(&host))?;
-    let mut cmd = Command::new("ssh");
+    let mut cmd = std::process::Command::new("ssh");
+    cmd.args(SSH_OPTS);
     if let Some(p) = port {
         cmd.arg("-p").arg(p.to_string());
     }
     cmd.arg(&host).arg(&command);
-    let output = cmd
-        .output()
-        .map_err(|e| anyhow!("ssh_exec: failed to run ssh: {}", e))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let mut map = BTreeMap::new();
-    map.insert("stdout".to_string(), Value::Str(stdout));
-    map.insert("stderr".to_string(), Value::Str(stderr));
-    map.insert(
-        "exit_code".to_string(),
-        Value::Int(output.status.code().unwrap_or(-1) as i64),
-    );
-    map.insert("success".to_string(), Value::Bool(output.status.success()));
-    Ok(Value::Record(map))
+    let (stdout, stderr) = run_checked("ssh_exec", "ssh", cmd, NETWORK_DEADLINE_SECS)?;
+    Ok(rec(vec![
+        ("stdout", s(&stdout)),
+        ("stderr", s(&stderr)),
+        ("exit_code", Value::Int(0)),
+        ("success", Value::Bool(true)),
+    ]))
 }
 
-// 981: bi_ssh_tunnel - Create SSH tunnel
-fn bi_ssh_tunnel(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// 981: bi_ssh_tunnel - Open a background local port forward through an ssh host.
+//
+// The tunnel outlives the call: ssh forks into the background after it
+// authenticates, and no handle to it is returned. ExitOnForwardFailure makes a
+// port that cannot be bound an error rather than a silent tunnel that does
+// nothing.
+fn bi_ssh_tunnel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("ssh_tunnel", &input)?;
     let local_port = match args.first() {
         Some(Value::Int(p)) => *p,
         _ => {
@@ -49445,31 +49989,53 @@ fn bi_ssh_tunnel(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-    let tunnel_spec = format!("{}:{}:{}", local_port, remote_host, remote_port);
-    crate::safety::reject_option_like("ssh_tunnel", std::slice::from_ref(&ssh_host))?;
-    let output = Command::new("ssh")
-        .args(["-f", "-N", "-L", &tunnel_spec, &ssh_host])
-        .output()
-        .map_err(|e| anyhow!("ssh_tunnel: failed to create tunnel: {}", e))?;
-    let mut map = BTreeMap::new();
-    map.insert("success".to_string(), Value::Bool(output.status.success()));
-    map.insert("local_port".to_string(), Value::Int(local_port));
-    map.insert("remote_host".to_string(), Value::Str(remote_host));
-    map.insert("remote_port".to_string(), Value::Int(remote_port));
-    map.insert("ssh_host".to_string(), Value::Str(ssh_host));
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        map.insert("error".to_string(), Value::Str(stderr));
+    for (what, port) in [("local_port", local_port), ("remote_port", remote_port)] {
+        if !(1..=65535).contains(&port) {
+            return Err(crate::safety::bad_arg(
+                "ssh_tunnel",
+                &format!("{what} in 1..=65535"),
+                &port.to_string(),
+            ));
+        }
     }
-    Ok(Value::Record(map))
+    tunnel_host_arg("ssh_tunnel", &remote_host)?;
+    ssh_target_arg("ssh_tunnel", "ssh_host", &ssh_host)?;
+    let spec = format!("{local_port}:{remote_host}:{remote_port}");
+    let mut cmd = std::process::Command::new("ssh");
+    cmd.args(["-f", "-N", "-o", "ExitOnForwardFailure=yes"])
+        .args(SSH_OPTS)
+        .arg("-L")
+        .arg(&spec)
+        .arg(&ssh_host);
+    run_checked("ssh_tunnel", "ssh", cmd, NETWORK_DEADLINE_SECS)?;
+    Ok(rec(vec![
+        ("success", Value::Bool(true)),
+        ("local_port", Value::Int(local_port)),
+        ("remote_host", Value::Str(remote_host)),
+        ("remote_port", Value::Int(remote_port)),
+        ("ssh_host", Value::Str(ssh_host)),
+    ]))
 }
 
-// 982: bi_ssh_keygen - Generate SSH key pair
-fn bi_ssh_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// 982: bi_ssh_keygen - Generate an SSH key pair.
+//
+// The private key is written with no passphrase (`-N ""`), so anyone who can
+// read the file can use the key. A key or public-key file that already exists
+// is refused, not replaced. The jail applies to the private key's path, so a
+// default under ~/.ssh is refused unless that path is inside the workspace.
+fn bi_ssh_keygen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("ssh_keygen", &input)?;
     let key_type = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => "ed25519".to_string(),
     };
+    if !matches!(key_type.as_str(), "ed25519" | "rsa" | "ecdsa") {
+        return Err(crate::safety::bad_arg(
+            "ssh_keygen",
+            "type: ed25519, rsa or ecdsa",
+            &key_type,
+        ));
+    }
     let filename = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -49479,49 +50045,41 @@ fn bi_ssh_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             format!("{}/.ssh/id_{}", home, key_type)
         }
     };
-    // A key file that already exists is never replaced: ssh-keygen would ask,
-    // and nobody is there to answer.
-    if std::path::Path::new(&filename).exists() {
-        return Err(crate::safety::bad_state(
-            "ssh_keygen",
-            &format!("{filename} already exists"),
-            "pass a new file name; existing keys are not overwritten",
-        ));
-    }
-    // Writing a private key is a write like any other: the workspace jail
-    // applies (by default this wrote into ~/.ssh unchecked).
+    refuse_option("ssh_keygen", &filename)?;
+    // The jail is checked first, so the existence test looks at the path the
+    // key would really be written to.
     let filename = guard_local_write("ssh_keygen", &filename)?;
-    let output = Command::new("ssh-keygen")
-        .args(["-t", &key_type, "-f", &filename, "-N", ""])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("ssh_keygen", "ssh-keygen", &e))?;
-    // A failure was {success: false, error} at exit 0.
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "ssh_keygen",
-            "ssh-keygen",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
+    let public = format!("{filename}.pub");
+    refuse_existing("ssh_keygen", &filename)?;
+    refuse_existing("ssh_keygen", &public)?;
+    let mut cmd = std::process::Command::new("ssh-keygen");
+    cmd.args(["-t", key_type.as_str(), "-f", filename.as_str(), "-N", ""]);
+    match run_checked("ssh_keygen", "ssh-keygen", cmd, LOCAL_DEADLINE_SECS) {
+        Ok((output, _)) => Ok(rec(vec![
+            ("passphrase", Value::Bool(false)),
+            ("type", Value::Str(key_type)),
+            ("private_key", Value::Str(filename)),
+            ("public_key", Value::Str(public)),
+            ("output", Value::Str(output)),
+        ])),
+        Err(e) => {
+            // Both paths were checked absent above, so anything there now is ours.
+            remove_partial(&filename);
+            remove_partial(&public);
+            Err(e)
+        }
     }
-    let mut map = BTreeMap::new();
-    // The key has no passphrase (-N ""); say so rather than leave it implied.
-    map.insert("passphrase".to_string(), Value::Bool(false));
-    map.insert("type".to_string(), Value::Str(key_type));
-    map.insert("private_key".to_string(), Value::Str(filename.clone()));
-    map.insert(
-        "public_key".to_string(),
-        Value::Str(format!("{}.pub", filename)),
-    );
-    map.insert(
-        "output".to_string(),
-        Value::Str(String::from_utf8_lossy(&output.stdout).to_string()),
-    );
-    Ok(Value::Record(map))
 }
 
-// 983: bi_ssh_copy_id - Copy SSH key to remote host
-fn bi_ssh_copy_id(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// 983: bi_ssh_copy_id - Install a public key in a remote account's authorized_keys.
+//
+// This writes to the remote host. The key must be one OpenSSH public-key line,
+// so a private key or a stray file is refused without its content being shown.
+// On Windows the line is appended by a remote shell command. Its quoting relies
+// on the key holding no quote character, which public_key_line guarantees, and
+// a grep keeps a second copy from being appended.
+fn bi_ssh_copy_id(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("ssh_copy_id", &input)?;
     let host = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -49539,43 +50097,51 @@ fn bi_ssh_copy_id(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             format!("{}/.ssh/id_ed25519.pub", home)
         }
     };
-    // On Windows, ssh-copy-id may not exist; use manual approach
+    ssh_target_arg("ssh_copy_id", "host", &host)?;
+    refuse_option("ssh_copy_id", &key_file)?;
+    let key_file = crate::safety::resolve_path_str(&key_file);
+    regular_file_arg("ssh_copy_id", &key_file)?;
+    let size = std::fs::metadata(&key_file).map(|m| m.len()).unwrap_or(0);
+    if size > 16 * 1024 {
+        return Err(crate::safety::bad_arg(
+            "ssh_copy_id",
+            "key_file: an OpenSSH public key",
+            &key_file,
+        ));
+    }
+    let text = std::fs::read_to_string(&key_file)
+        .map_err(|e| crate::safety::fs_error("ssh_copy_id", &key_file, &e))?;
+    let Some(key) = public_key_line(&text) else {
+        return Err(crate::safety::bad_arg(
+            "ssh_copy_id",
+            "key_file: an OpenSSH public key (type, base64, optional comment)",
+            &key_file,
+        ));
+    };
     if cfg!(target_os = "windows") {
-        let key_content = std::fs::read_to_string(&key_file)
-            .map_err(|e| anyhow!("ssh_copy_id: cannot read key file {}: {}", key_file, e))?;
-        let remote_cmd = format!(
-            "mkdir -p ~/.ssh && echo '{}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys",
-            key_content.trim()
+        // ssh-copy-id may not be installed here, so the key is appended by hand.
+        let remote = format!(
+            "mkdir -p ~/.ssh && (grep -qxF '{key}' ~/.ssh/authorized_keys 2>/dev/null || echo '{key}' >> ~/.ssh/authorized_keys) && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
         );
-        crate::safety::reject_option_like("ssh_copy_id", std::slice::from_ref(&host))?;
-        let output = Command::new("ssh")
+        let mut cmd = std::process::Command::new("ssh");
+        cmd.args(["-T", "-o", "ConnectTimeout=20"])
             .arg(&host)
-            .arg(&remote_cmd)
-            .output()
-            .map_err(|e| anyhow!("ssh_copy_id: failed: {}", e))?;
-        let mut map = BTreeMap::new();
-        map.insert("success".to_string(), Value::Bool(output.status.success()));
-        map.insert("method".to_string(), Value::Str("manual".to_string()));
-        map.insert("host".to_string(), Value::Str(host));
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            map.insert("error".to_string(), Value::Str(stderr));
-        }
-        Ok(Value::Record(map))
+            .arg(&remote);
+        run_checked("ssh_copy_id", "ssh", cmd, NETWORK_DEADLINE_SECS)?;
+        Ok(rec(vec![
+            ("success", Value::Bool(true)),
+            ("method", s("manual")),
+            ("host", Value::Str(host)),
+        ]))
     } else {
-        let output = Command::new("ssh-copy-id")
-            .args(["-i", &key_file, &host])
-            .output()
-            .map_err(|e| anyhow!("ssh_copy_id: failed to run ssh-copy-id: {}", e))?;
-        let mut map = BTreeMap::new();
-        map.insert("success".to_string(), Value::Bool(output.status.success()));
-        map.insert("method".to_string(), Value::Str("ssh-copy-id".to_string()));
-        map.insert("host".to_string(), Value::Str(host));
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            map.insert("error".to_string(), Value::Str(stderr));
-        }
-        Ok(Value::Record(map))
+        let mut cmd = std::process::Command::new("ssh-copy-id");
+        cmd.args(["-i", key_file.as_str()]).arg(&host);
+        run_checked("ssh_copy_id", "ssh-copy-id", cmd, NETWORK_DEADLINE_SECS)?;
+        Ok(rec(vec![
+            ("success", Value::Bool(true)),
+            ("method", s("ssh-copy-id")),
+            ("host", Value::Str(host)),
+        ]))
     }
 }
 
@@ -49639,8 +50205,12 @@ fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(hosts))
 }
 
-// 985: bi_scp_upload - SCP upload file to remote
-fn bi_scp_upload(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// 985: bi_scp_upload - Copy one local file to a remote host with scp.
+//
+// The remote side is validated before the local file is looked at, so a bad
+// remote is refused without touching the disk.
+fn bi_scp_upload(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("scp_upload", &input)?;
     let local_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -49661,29 +50231,30 @@ fn bi_scp_upload(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => Some(*p),
         _ => None,
     };
-    crate::safety::reject_option_like("scp_upload", std::slice::from_ref(&local_path))?;
-    crate::safety::reject_option_like("scp_upload", std::slice::from_ref(&remote))?;
-    let mut cmd = Command::new("scp");
+    scp_remote_arg("scp_upload", &remote)?;
+    let local_path = crate::safety::resolve_path_str(&local_path);
+    scp_local_arg("scp_upload", &local_path)?;
+    regular_file_arg("scp_upload", &local_path)?;
+    let mut cmd = std::process::Command::new("scp");
+    cmd.args(SCP_OPTS);
     if let Some(p) = port {
         cmd.arg("-P").arg(p.to_string());
     }
     cmd.arg(&local_path).arg(&remote);
-    let output = cmd
-        .output()
-        .map_err(|e| anyhow!("scp_upload: failed: {}", e))?;
-    let mut map = BTreeMap::new();
-    map.insert("success".to_string(), Value::Bool(output.status.success()));
-    map.insert("local_path".to_string(), Value::Str(local_path));
-    map.insert("remote".to_string(), Value::Str(remote));
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        map.insert("error".to_string(), Value::Str(stderr));
-    }
-    Ok(Value::Record(map))
+    run_checked("scp_upload", "scp", cmd, LOCAL_DEADLINE_SECS)?;
+    Ok(rec(vec![
+        ("success", Value::Bool(true)),
+        ("local_path", Value::Str(local_path)),
+        ("remote", Value::Str(remote)),
+    ]))
 }
 
-// 986: bi_scp_download - SCP download file from remote
-fn bi_scp_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+// 986: bi_scp_download - Copy one remote file to a new local file with scp.
+//
+// The local destination is jailed like any write and must not exist: scp
+// would otherwise replace it without a word. A failed transfer leaves no file.
+fn bi_scp_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("scp_download", &input)?;
     let remote = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -49704,25 +50275,26 @@ fn bi_scp_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Int(p)) => Some(*p),
         _ => None,
     };
-    crate::safety::reject_option_like("scp_download", std::slice::from_ref(&remote))?;
-    crate::safety::reject_option_like("scp_download", std::slice::from_ref(&local_path))?;
-    let mut cmd = Command::new("scp");
+    scp_remote_arg("scp_download", &remote)?;
+    refuse_option("scp_download", &local_path)?;
+    let local_path = guard_local_write("scp_download", &local_path)?;
+    scp_local_arg("scp_download", &local_path)?;
+    refuse_existing("scp_download", &local_path)?;
+    let mut cmd = std::process::Command::new("scp");
+    cmd.args(SCP_OPTS);
     if let Some(p) = port {
         cmd.arg("-P").arg(p.to_string());
     }
     cmd.arg(&remote).arg(&local_path);
-    let output = cmd
-        .output()
-        .map_err(|e| anyhow!("scp_download: failed: {}", e))?;
-    let mut map = BTreeMap::new();
-    map.insert("success".to_string(), Value::Bool(output.status.success()));
-    map.insert("remote".to_string(), Value::Str(remote));
-    map.insert("local_path".to_string(), Value::Str(local_path));
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        map.insert("error".to_string(), Value::Str(stderr));
+    if let Err(e) = run_checked("scp_download", "scp", cmd, LOCAL_DEADLINE_SECS) {
+        remove_partial(&local_path);
+        return Err(e);
     }
-    Ok(Value::Record(map))
+    Ok(rec(vec![
+        ("success", Value::Bool(true)),
+        ("remote", Value::Str(remote)),
+        ("local_path", Value::Str(local_path)),
+    ]))
 }
 
 // 987: bi_rsync_sync - Rsync synchronization
@@ -49842,23 +50414,25 @@ fn s(v: &str) -> Value {
 // ============================================================================
 // 1010: bi_openssl_cert_info
 // ============================================================================
-fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() {
-        return Err(crate::safety::arg_err(
-            "openssl_cert_info requires a certificate file path argument",
-        ));
-    }
-    let file_path = match &args[0] {
-        Value::Str(s) => s.clone(),
+// Reads a certificate's fields with `openssl x509 -text -noout`. A private key
+// given here fails in openssl, and its content is not echoed.
+fn bi_openssl_cert_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("openssl_cert_info", &input)?;
+    let file_path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
         other => {
-            return Err(crate::safety::arg_err(format!(
-                "openssl_cert_info: expected String file path, got {:?}",
-                other
-            )))
+            return Err(crate::safety::bad_arg(
+                "openssl_cert_info",
+                "file: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
         }
     };
-
-    let out = sec_run_cmd("openssl", &["x509", "-in", &file_path, "-text", "-noout"])?;
+    refuse_option("openssl_cert_info", &file_path)?;
+    let file_path = crate::safety::resolve_path_str(&file_path);
+    let mut cmd = std::process::Command::new("openssl");
+    cmd.args(["x509", "-in", file_path.as_str(), "-text", "-noout"]);
+    let (out, _) = run_checked("openssl_cert_info", "openssl", cmd, LOCAL_DEADLINE_SECS)?;
     let mut m = BTreeMap::new();
     m.insert("file".to_string(), s(&file_path));
 
@@ -49916,45 +50490,57 @@ fn bi_openssl_cert_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ============================================================================
 // 1011: bi_openssl_genrsa
 // ============================================================================
-fn bi_openssl_genrsa(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() {
-        return Err(crate::safety::arg_err(
-            "openssl_genrsa requires at least a file path argument",
+// Generates an RSA private key into a new, unencrypted file (no passphrase).
+// `bits` is 2048 to 16384, default 4096. An existing file is refused. A failed
+// run removes the file it started. The key is never returned in the result.
+fn bi_openssl_genrsa(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("openssl_genrsa", &input)?;
+    let file_path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "openssl_genrsa",
+                "file: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    let bits = match args.get(1) {
+        Some(Value::Int(n)) => *n,
+        None => 4096,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "openssl_genrsa",
+                "bits: Int",
+                other.type_name(),
+            ))
+        }
+    };
+    if !(2048..=16384).contains(&bits) {
+        return Err(crate::safety::bad_arg(
+            "openssl_genrsa",
+            "bits in 2048..=16384",
+            &bits.to_string(),
         ));
     }
-    let file_path = match &args[0] {
-        Value::Str(s) => s.clone(),
-        other => {
-            return Err(crate::safety::arg_err(format!(
-                "openssl_genrsa: expected String file path, got {:?}",
-                other
-            )))
+    refuse_option("openssl_genrsa", &file_path)?;
+    let file_path = guard_local_write("openssl_genrsa", &file_path)?;
+    refuse_existing("openssl_genrsa", &file_path)?;
+    let bits_text = bits.to_string();
+    let mut cmd = std::process::Command::new("openssl");
+    cmd.args(["genrsa", "-out", file_path.as_str(), bits_text.as_str()]);
+    let (raw, _) = match run_checked("openssl_genrsa", "openssl", cmd, LOCAL_DEADLINE_SECS) {
+        Ok(done) => done,
+        Err(e) => {
+            remove_partial(&file_path);
+            return Err(e);
         }
     };
-    let bits = if args.len() > 1 {
-        match &args[1] {
-            Value::Int(n) => *n,
-            Value::Str(s) => s
-                .parse::<i64>()
-                .map_err(|_| anyhow!("openssl_genrsa: invalid bits '{}'", s))?,
-            other => {
-                return Err(anyhow!(
-                    "openssl_genrsa: expected Int bits, got {:?}",
-                    other
-                ))
-            }
-        }
-    } else {
-        4096
-    };
-
-    let bits_str = bits.to_string();
-    let out = sec_run_cmd("openssl", &["genrsa", "-out", &file_path, &bits_str])?;
     Ok(rec(vec![
         ("action", s("genrsa")),
         ("file", s(&file_path)),
         ("bits", Value::Int(bits)),
-        ("raw", s(out.trim())),
+        ("raw", s(raw.trim())),
     ]))
 }
 
@@ -50048,96 +50634,115 @@ fn bi_gpg_list_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ============================================================================
 // 1013: bi_gpg_encrypt
 // ============================================================================
-fn bi_gpg_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err(
-            "gpg_encrypt requires two arguments: file and recipient",
+// Encrypts a file to one recipient, into file.gpg. The output is refused if it
+// exists. gpg runs with --batch and --no-tty, so it never waits at a prompt, and
+// it writes the output file itself. The recipient is a key id, fingerprint or
+// user id. No passphrase is ever taken on the command line.
+fn bi_gpg_encrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("gpg_encrypt", &input)?;
+    let file_path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gpg_encrypt",
+                "file: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    let recipient = match args.get(1) {
+        Some(Value::Str(s)) => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "gpg_encrypt",
+                "recipient: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
+    };
+    refuse_option("gpg_encrypt", &file_path)?;
+    refuse_option("gpg_encrypt", &recipient)?;
+    if recipient.trim().is_empty() || recipient.chars().any(char::is_control) {
+        return Err(crate::safety::bad_arg(
+            "gpg_encrypt",
+            "recipient: a key id, fingerprint or user id",
+            &recipient,
         ));
     }
-    let file_path = match &args[0] {
-        Value::Str(s) => s.clone(),
-        other => {
-            return Err(crate::safety::arg_err(format!(
-                "gpg_encrypt: expected String file path, got {:?}",
-                other
-            )))
+    let input = crate::safety::resolve_path_str(&file_path);
+    regular_file_arg("gpg_encrypt", &input)?;
+    let output_file = guard_local_write("gpg_encrypt", &format!("{input}.gpg"))?;
+    refuse_existing("gpg_encrypt", &output_file)?;
+    let mut cmd = std::process::Command::new("gpg");
+    cmd.args([
+        "--batch",
+        "--no-tty",
+        "--output",
+        output_file.as_str(),
+        "--encrypt",
+        "--recipient",
+        recipient.as_str(),
+        input.as_str(),
+    ]);
+    let (raw, _) = match run_checked("gpg_encrypt", "gpg", cmd, LOCAL_DEADLINE_SECS) {
+        Ok(done) => done,
+        Err(e) => {
+            remove_partial(&output_file);
+            return Err(e);
         }
     };
-    let recipient = match &args[1] {
-        Value::Str(s) => s.clone(),
-        other => {
-            return Err(crate::safety::arg_err(format!(
-                "gpg_encrypt: expected String recipient, got {:?}",
-                other
-            )))
-        }
-    };
-
-    let out = sec_run_cmd(
-        "gpg",
-        &[
-            "--batch",
-            "--yes",
-            "--encrypt",
-            "--recipient",
-            &recipient,
-            &file_path,
-        ],
-    )?;
-    let output_file = format!("{}.gpg", file_path);
     Ok(rec(vec![
         ("action", s("encrypt")),
-        ("input_file", s(&file_path)),
+        ("input_file", s(&input)),
         ("output_file", s(&output_file)),
         ("recipient", s(&recipient)),
-        ("raw", s(out.trim())),
+        ("raw", s(raw.trim())),
     ]))
 }
 
-// ============================================================================
-// 1014: bi_gpg_decrypt
-// ============================================================================
-fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() {
-        return Err(crate::safety::arg_err(
-            "gpg_decrypt requires a file path argument",
-        ));
-    }
-    let file_path = match &args[0] {
-        Value::Str(s) => s.clone(),
+// Decrypts a .gpg or .asc file to the same name without that suffix, or to
+// `<name>.decrypted` otherwise. The plaintext is written to the file and never
+// returned. An existing output is refused. A passphrase, if the key needs one,
+// comes from the agent's prompt, and the deadline stops the run if no one answers it.
+fn bi_gpg_decrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("gpg_decrypt", &input)?;
+    let file_path = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
         other => {
-            return Err(crate::safety::arg_err(format!(
-                "gpg_decrypt: expected String file path, got {:?}",
-                other
-            )))
+            return Err(crate::safety::bad_arg(
+                "gpg_decrypt",
+                "file: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
         }
     };
-
-    // Determine output file (strip .gpg or .asc extension if present)
-    let output_file = if file_path.ends_with(".gpg") {
-        file_path.trim_end_matches(".gpg").to_string()
-    } else if file_path.ends_with(".asc") {
-        file_path.trim_end_matches(".asc").to_string()
-    } else {
-        format!("{}.decrypted", file_path)
-    };
-
-    let out = sec_run_cmd(
-        "gpg",
-        &[
-            "--batch",
-            "--yes",
-            "--output",
-            &output_file,
-            "--decrypt",
-            &file_path,
-        ],
-    )?;
+    refuse_option("gpg_decrypt", &file_path)?;
+    let input = crate::safety::resolve_path_str(&file_path);
+    regular_file_arg("gpg_decrypt", &input)?;
+    let stem = input
+        .strip_suffix(".gpg")
+        .or_else(|| input.strip_suffix(".asc"))
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{input}.decrypted"));
+    let output_file = guard_local_write("gpg_decrypt", &stem)?;
+    refuse_existing("gpg_decrypt", &output_file)?;
+    let mut cmd = std::process::Command::new("gpg");
+    cmd.args([
+        "--batch",
+        "--no-tty",
+        "--output",
+        output_file.as_str(),
+        "--decrypt",
+        input.as_str(),
+    ]);
+    if let Err(e) = run_checked("gpg_decrypt", "gpg", cmd, LOCAL_DEADLINE_SECS) {
+        remove_partial(&output_file);
+        return Err(e);
+    }
     Ok(rec(vec![
         ("action", s("decrypt")),
-        ("input_file", s(&file_path)),
+        ("input_file", s(&input)),
         ("output_file", s(&output_file)),
-        ("raw", s(out.trim())),
     ]))
 }
 
@@ -54462,9 +55067,21 @@ fn bi_wget_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// age — Encrypt a file using age encryption.
-/// Usage: age_encrypt(input_file, output_file, recipient)
-fn bi_age_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// An age recipient: an age1… key or an ssh- public key, and no other text.
+fn age_recipient_ok(recipient: &str) -> bool {
+    (recipient.starts_with("age1") || recipient.starts_with("ssh-"))
+        && recipient.len() <= 1024
+        && recipient.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '+' | '/' | '=' | '.' | '@')
+        })
+}
+
+/// age — Encrypt a file to one recipient (an age1… or ssh- public key).
+/// Usage: age_encrypt(input_file, output_file, recipient). The output is
+/// required, and is the second argument because the recipient is the third. An
+/// existing output is refused, and a failed run removes its partial file.
+fn bi_age_encrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("age_encrypt", &input)?;
     let input_file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -54475,30 +55092,46 @@ fn bi_age_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let output_file = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => format!("{}.age", input_file),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "age_encrypt requires an output_file as its second argument",
+            ))
+        }
     };
     let recipient = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
         _ => {
             return Err(crate::safety::arg_err(
-                "age_encrypt requires a recipient (public key or identity file)",
+                "age_encrypt requires a recipient (an age1… or ssh- public key)",
             ))
         }
     };
-    let out = std::process::Command::new("age")
-        .args(["-r", &recipient, "-o", &output_file, &input_file])
-        .output()
-        .map_err(|e| {
-            anyhow!(
-                "age not found: {}. Install: https://github.com/FiloSottile/age",
-                e
-            )
-        })?;
-    if !out.status.success() {
-        return Err(anyhow!(
-            "age encrypt failed: {}",
-            String::from_utf8_lossy(&out.stderr)
+    if !age_recipient_ok(&recipient) {
+        return Err(crate::safety::bad_arg(
+            "age_encrypt",
+            "recipient: an age1… or ssh- public key",
+            &recipient,
         ));
+    }
+    refuse_option("age_encrypt", &input_file)?;
+    let input_file = crate::safety::resolve_path_str(&input_file);
+    regular_file_arg("age_encrypt", &input_file)?;
+    let output_file = guard_local_write(
+        "age_encrypt",
+        &crate::safety::resolve_path_str(&output_file),
+    )?;
+    refuse_existing("age_encrypt", &output_file)?;
+    let mut cmd = std::process::Command::new("age");
+    cmd.args([
+        "-r",
+        recipient.as_str(),
+        "-o",
+        output_file.as_str(),
+        input_file.as_str(),
+    ]);
+    if let Err(e) = run_checked("age_encrypt", "age", cmd, LOCAL_DEADLINE_SECS) {
+        remove_partial(&output_file);
+        return Err(e);
     }
     let mut rec = BTreeMap::new();
     rec.insert("input".to_string(), Value::Str(input_file));
@@ -54508,16 +55141,28 @@ fn bi_age_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-/// age — Decrypt a file using age encryption.
-/// Usage: age_decrypt(input_file, output_file, identity_file)
-fn bi_age_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// age — Decrypt a file with an identity file.
+/// Usage: age_decrypt(input_file, output_file?, identity_file?). Without an
+/// output the input must end in .age. The output is refused if it exists.
+fn bi_age_decrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("age_decrypt", &input)?;
     let input_file = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("age_decrypt requires input_file")),
     };
+    refuse_option("age_decrypt", &input_file)?;
     let output_file = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
-        _ => input_file.trim_end_matches(".age").to_string(),
+        _ => match input_file.strip_suffix(".age") {
+            Some(stem) => stem.to_string(),
+            None => {
+                return Err(crate::safety::bad_arg(
+                    "age_decrypt",
+                    "an input ending in .age, or an output_file",
+                    &input_file,
+                ))
+            }
+        },
     };
     let identity = match args.get(2) {
         Some(Value::Str(s)) => s.clone(),
@@ -54528,15 +55173,35 @@ fn bi_age_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             format!("{}/.age/key.txt", home)
         }
     };
-    let out = std::process::Command::new("age")
-        .args(["-d", "-i", &identity, "-o", &output_file, &input_file])
-        .output()
-        .map_err(|e| crate::safety::tool_missing("age", "age", &e.to_string()))?;
-    if !out.status.success() {
-        return Err(anyhow!(
-            "age decrypt failed: {}",
-            String::from_utf8_lossy(&out.stderr)
+    refuse_option("age_decrypt", &identity)?;
+    if output_file == input_file {
+        return Err(crate::safety::bad_arg(
+            "age_decrypt",
+            "an output_file other than the input",
+            &output_file,
         ));
+    }
+    let input_file = crate::safety::resolve_path_str(&input_file);
+    regular_file_arg("age_decrypt", &input_file)?;
+    let identity = crate::safety::resolve_path_str(&identity);
+    regular_file_arg("age_decrypt", &identity)?;
+    let output_file = guard_local_write(
+        "age_decrypt",
+        &crate::safety::resolve_path_str(&output_file),
+    )?;
+    refuse_existing("age_decrypt", &output_file)?;
+    let mut cmd = std::process::Command::new("age");
+    cmd.args([
+        "-d",
+        "-i",
+        identity.as_str(),
+        "-o",
+        output_file.as_str(),
+        input_file.as_str(),
+    ]);
+    if let Err(e) = run_checked("age_decrypt", "age", cmd, LOCAL_DEADLINE_SECS) {
+        remove_partial(&output_file);
+        return Err(e);
     }
     let mut rec = BTreeMap::new();
     rec.insert("input".to_string(), Value::Str(input_file));
@@ -54545,38 +55210,52 @@ fn bi_age_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-/// age — Generate a new age key pair.
-/// Usage: age_keygen() or age_keygen(output_file)
-fn bi_age_keygen(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = match args.first() {
-        Some(Value::Str(s)) => Some(s.clone()),
-        _ => None,
+/// age — Generate an age identity into a new file and return its public key.
+/// Usage: age_keygen(output_file). The output file is required: the private key
+/// is written there and is never returned, so it cannot land in a transcript.
+/// An existing file is refused.
+fn bi_age_keygen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("age_keygen", &input)?;
+    let output_file = match args.first() {
+        Some(Value::Str(s)) => s.clone(),
+        _ => {
+            return Err(crate::safety::arg_err(
+                "age_keygen requires an output_file: the private key is written there and never returned",
+            ))
+        }
     };
+    refuse_option("age_keygen", &output_file)?;
+    let output_file =
+        guard_local_write("age_keygen", &crate::safety::resolve_path_str(&output_file))?;
+    refuse_existing("age_keygen", &output_file)?;
     let mut cmd = std::process::Command::new("age-keygen");
-    if let Some(ref out_file) = output {
-        cmd.args(["-o", out_file]);
-    }
-    let out = cmd
-        .output()
-        .map_err(|e| crate::safety::tool_missing("age-keygen", "age-keygen", &e.to_string()))?;
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    // age-keygen outputs public key to stderr and private key to stdout
+    cmd.args(["-o", output_file.as_str()]);
+    // With -o, age-keygen writes the identity to the file and prints the public
+    // key on stderr. Its stdout is discarded, so the identity cannot be returned.
+    let (_, stderr) = match run_checked("age_keygen", "age-keygen", cmd, LOCAL_DEADLINE_SECS) {
+        Ok(done) => done,
+        Err(e) => {
+            remove_partial(&output_file);
+            return Err(e);
+        }
+    };
     let public_key = stderr
         .lines()
-        .find(|l| l.starts_with("Public key:"))
-        .map(|l| l.trim_start_matches("Public key:").trim().to_string())
-        .unwrap_or_default();
+        .find_map(|l| l.strip_prefix("Public key:"))
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty());
+    let Some(public_key) = public_key else {
+        remove_partial(&output_file);
+        return Err(crate::safety::tool_failed(
+            "age_keygen",
+            "age-keygen",
+            Some(0),
+            &stderr,
+        ));
+    };
     let mut rec = BTreeMap::new();
     rec.insert("public_key".to_string(), Value::Str(public_key));
-    if let Some(f) = output {
-        rec.insert("identity_file".to_string(), Value::Str(f));
-    } else {
-        rec.insert(
-            "private_key".to_string(),
-            Value::Str(stdout.trim().to_string()),
-        );
-    }
+    rec.insert("identity_file".to_string(), Value::Str(output_file));
     rec.insert("status".to_string(), Value::Str("generated".to_string()));
     Ok(Value::Record(rec))
 }
@@ -54983,30 +55662,58 @@ fn bi_xargs_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(results))
 }
 
+/// The JSON text a jq builtin reads: its second argument, or the piped string.
+/// Text past JQ_INPUT_CAP is refused rather than parsed.
+fn jq_json_arg(builtin: &str, args: &[Value], input: Option<Value>) -> Result<String> {
+    let text = match (args.get(1), input) {
+        (Some(Value::Str(s)), _) => s.clone(),
+        (None, Some(Value::Str(s))) => s,
+        (None, _) => {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin} requires JSON input"
+            )))
+        }
+        _ => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "JSON text: String",
+                "a non-string",
+            ))
+        }
+    };
+    if text.len() > JQ_INPUT_CAP {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!(
+                "JSON input is {} bytes; the limit is {JQ_INPUT_CAP}",
+                text.len()
+            ),
+            "pass a smaller document",
+        ));
+    }
+    Ok(text)
+}
+
 /// jq — Query and transform JSON data (cross-platform, native Rust).
 /// Usage: jq(expression, json_string) or piped: json_str | jq(expression)
+/// Evaluates the subset that eval_jq_expr documents. Anything else is refused,
+/// never answered with a guess.
 fn bi_jq_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let expr = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(crate::safety::arg_err("jq requires a query expression")),
     };
-    let json_str = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        None => match &input {
-            Some(Value::Str(s)) => s.clone(),
-            _ => return Err(crate::safety::arg_err("jq requires JSON input")),
-        },
-        _ => return Err(crate::safety::arg_err("jq input must be a JSON string")),
-    };
+    let json_str = jq_json_arg("jq", &args, input)?;
     let parsed: serde_json::Value = serde_json::from_str(&json_str)
-        .map_err(|e| crate::safety::bad_arg("jq_query", "valid JSON input", &e.to_string()))?;
-    // Native jq-like expression evaluation
+        .map_err(|e| crate::safety::bad_arg("jq", "valid JSON input", &e.to_string()))?;
     let result = eval_jq_expr(&expr, &parsed)?;
     Ok(json_to_value(result))
 }
 
-/// jq filter — Apply a jq filter to JSON (shells out to jq if available).
-/// Usage: jq_filter(filter, json_string)
+/// jq filter — Apply a real jq filter to JSON, with the jq binary.
+/// Usage: jq_filter(filter, json_string) or piped: json_str | jq_filter(filter)
+/// A filter that begins with '-' is refused: jq would read it as an option.
+/// With no jq on PATH this is E_TOOL_MISSING. It does not fall back to the native subset.
 fn bi_jq_filter(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let filter = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -55016,57 +55723,46 @@ fn bi_jq_filter(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-    let json_str = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        None => match &input {
-            Some(Value::Str(s)) => s.clone(),
-            _ => return Err(crate::safety::arg_err("jq_filter requires JSON input")),
-        },
-        _ => {
-            return Err(crate::safety::arg_err(
-                "jq_filter input must be a JSON string",
-            ))
-        }
-    };
-    // Try external jq first for complex filters
-    let result = std::process::Command::new("jq")
-        .arg(&filter)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn();
-    match result {
-        Ok(mut child) => {
-            use std::io::Write;
-            if let Some(ref mut stdin) = child.stdin {
-                let _ = stdin.write_all(json_str.as_bytes());
-            }
-            let output = child.wait_with_output()?;
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                // Try to parse the output as JSON → Value
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
-                    Ok(json_to_value(parsed))
-                } else {
-                    Ok(Value::Str(stdout))
-                }
-            } else {
-                Err(anyhow!(
-                    "jq error: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ))
-            }
-        }
-        Err(_) => {
-            // Fallback to native evaluation
-            bi_jq_query(args, input)
-        }
+    refuse_option("jq_filter", &filter)?;
+    let json_str = jq_json_arg("jq_filter", &args, input)?;
+    let mut cmd = std::process::Command::new("jq");
+    cmd.arg(filter.as_str());
+    let out = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let (status, stderr) = run_tool(
+        "jq_filter",
+        "jq",
+        cmd,
+        Some(json_str.into_bytes()),
+        std::sync::Arc::clone(&out),
+        LOCAL_DEADLINE_SECS,
+        TOOL_OUTPUT_CAP,
+    )?;
+    tool_ok("jq_filter", "jq", status, &stderr)?;
+    let bytes = std::mem::take(
+        &mut *out
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    let stdout = String::from_utf8_lossy(&bytes).trim().to_string();
+    match serde_json::from_str::<serde_json::Value>(&stdout) {
+        Ok(parsed) => Ok(json_to_value(parsed)),
+        Err(_) => Ok(Value::Str(stdout)),
     }
 }
 
-/// Native jq expression evaluator (supports . .key .key.subkey .[n] .[] | keys length)
+/// Native jq expression evaluator. Supports `.`, `.key`, `.key.sub`, `.[n]`,
+/// `.[]` (returns the elements as an array), `keys`, `length` and `|` between
+/// them. `length` follows jq: the absolute value of a number, and an error for a
+/// boolean. Anything else, and any index that does not fit, is refused.
 fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Value> {
     let expr = expr.trim();
+    let unsupported = || {
+        crate::safety::bad_arg(
+            "jq",
+            "an expression of . .key .key.sub .[n] .[] keys length, joined by |",
+            expr,
+        )
+    };
     if expr == "." {
         return Ok(data.clone());
     }
@@ -55081,12 +55777,22 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
         return Err(crate::safety::arg_err("keys requires an object"));
     }
     if expr == "length" {
-        return Ok(match data {
-            serde_json::Value::Array(a) => serde_json::json!(a.len()),
-            serde_json::Value::Object(m) => serde_json::json!(m.len()),
-            serde_json::Value::String(s) => serde_json::json!(s.len()),
-            _ => serde_json::json!(0),
-        });
+        return match data {
+            serde_json::Value::Null => Ok(serde_json::json!(0)),
+            serde_json::Value::Bool(_) => Err(crate::safety::bad_arg(
+                "jq",
+                "a value with a length (null, number, string, array or object)",
+                "a boolean",
+            )),
+            serde_json::Value::Number(n) => Ok(match n.as_i64() {
+                Some(i) => serde_json::json!(i.unsigned_abs()),
+                None => serde_json::json!(n.as_f64().map_or(0.0, f64::abs)),
+            }),
+            // jq counts code points, not bytes.
+            serde_json::Value::String(s) => Ok(serde_json::json!(s.chars().count())),
+            serde_json::Value::Array(a) => Ok(serde_json::json!(a.len())),
+            serde_json::Value::Object(m) => Ok(serde_json::json!(m.len())),
+        };
     }
     if expr == ".[]" {
         if let serde_json::Value::Array(a) = data {
@@ -55095,7 +55801,11 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
         if let serde_json::Value::Object(m) = data {
             return Ok(serde_json::Value::Array(m.values().cloned().collect()));
         }
-        return Err(crate::safety::arg_err(".[] requires an array or object"));
+        return Err(crate::safety::bad_arg(
+            "jq",
+            "an array or object to iterate",
+            "another value",
+        ));
     }
     // Handle pipe: .key | .subkey
     if let Some(pipe_pos) = expr.find(" | ") {
@@ -55109,24 +55819,32 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
         // Handle array index: .[0]
         if path.starts_with('[') && path.ends_with(']') {
             let idx_str = &path[1..path.len() - 1];
-            if let Ok(idx) = idx_str.parse::<usize>() {
-                if let serde_json::Value::Array(a) = data {
-                    return a
-                        .get(idx)
-                        .cloned()
-                        .ok_or_else(|| anyhow!("Index {} out of bounds", idx));
-                }
-            }
-            return Err(anyhow!("Cannot index into non-array"));
+            let idx: usize = idx_str.parse().map_err(|_| {
+                crate::safety::bad_arg("jq", "a numeric index in brackets", idx_str)
+            })?;
+            return match data {
+                serde_json::Value::Array(a) => a.get(idx).cloned().ok_or_else(|| {
+                    crate::safety::bad_arg(
+                        "jq",
+                        &format!("an index below {}", a.len()),
+                        &idx.to_string(),
+                    )
+                }),
+                _ => Err(crate::safety::bad_arg(
+                    "jq",
+                    "an array to index",
+                    "a non-array",
+                )),
+            };
         }
         let mut current = data;
         for key in path.split('.') {
             if key.is_empty() {
                 continue;
             }
-            // Handle key[n] notation
-            if key.contains('[') && key.ends_with(']') {
-                let bracket = key.find('[').unwrap();
+            // Handle key[n] notation. A bracket that is not a number is refused,
+            // not dropped.
+            if let Some(bracket) = key.find('[').filter(|_| key.ends_with(']')) {
                 let obj_key = &key[..bracket];
                 let idx_str = &key[bracket + 1..key.len() - 1];
                 if !obj_key.is_empty() {
@@ -55134,11 +55852,25 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
                         .get(obj_key)
                         .ok_or_else(|| crate::safety::not_found("jq", "key", obj_key))?;
                 }
-                if let Ok(idx) = idx_str.parse::<usize>() {
-                    current = current
-                        .get(idx)
-                        .ok_or_else(|| anyhow!("Index {} out of bounds", idx))?;
-                }
+                let idx: usize = idx_str.parse().map_err(|_| {
+                    crate::safety::bad_arg("jq", "a numeric index in brackets", idx_str)
+                })?;
+                current = match current {
+                    serde_json::Value::Array(a) => a.get(idx).ok_or_else(|| {
+                        crate::safety::bad_arg(
+                            "jq",
+                            &format!("an index below {}", a.len()),
+                            &idx.to_string(),
+                        )
+                    })?,
+                    _ => {
+                        return Err(crate::safety::bad_arg(
+                            "jq",
+                            "an array to index",
+                            "a non-array",
+                        ))
+                    }
+                };
             } else {
                 current = current
                     .get(key)
@@ -55147,7 +55879,7 @@ fn eval_jq_expr(expr: &str, data: &serde_json::Value) -> Result<serde_json::Valu
         }
         return Ok(current.clone());
     }
-    Err(anyhow!("Unsupported jq expression: {}", expr))
+    Err(unsupported())
 }
 
 /// yq — Query/transform YAML, TOML, XML data.
