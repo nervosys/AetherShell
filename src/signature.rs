@@ -4069,7 +4069,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("pattern", Ty::Str, "a regular expression; a leading '-' is data"), opt("path", Ty::Str, "a file or directory inside the workspace; defaults to the working directory")],
         returns: "Array",
-        doc: "Runs rga --json --regexp=PATTERN PATH (ripgrep over PDFs, archives and other documents) and returns one value per JSON line of its report. Exit 1 is no matches; any other nonzero exit is E_TOOL_FAILED, and a line that is not JSON is too. More than 1000 matches is E_BUDGET_EXCEEDED. The path must lie inside the workspace. Output is bounded at 16 MiB. rga runs its document adapters, so the call is classified ReadLocal as before. Deadline 2 minutes. A missing rga is E_TOOL_MISSING; there is no fallback to rg. Takes no pipeline input.",
+        doc: "Runs rga --json --regexp=PATTERN PATH (ripgrep over PDFs, archives and other documents) and returns one value per JSON line of its report. Exit 1 is no matches; any other nonzero exit is E_TOOL_FAILED, and a line that is not JSON is too. More than 1000 matches is E_BUDGET_EXCEEDED. The path must lie inside the workspace. Output is bounded at 16 MiB. rga runs its document adapters as programs, so the call is Exec and agent mode asks for approval. Deadline 2 minutes. A missing rga is E_TOOL_MISSING; there is no fallback to rg. Takes no pipeline input.",
         examples: &[
             (r#"(try { rga_search(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { rga_search("x", "-y") } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -8589,7 +8589,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "diag_fix", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
         returns: "Bool",
-        doc: "Run cargo fix over the project in directory dir, which rewrites the project's source files with the compiler's machine-applicable suggestions. It writes only inside dir, which must lie in the workspace. It does not pass --allow-dirty: cargo refuses a version-controlled tree with uncommitted changes, and that refusal is E_TOOL_FAILED with cargo's reason, so commit or stash first. Without version control, cargo also refuses unless told otherwise. Returns true when cargo finished. Because cargo compiles the project, it runs build scripts and procedural macros; the builtin is classified WriteLocal in the effect table and should be Exec. The run has a 900 s deadline. Takes no pipeline input.",
+        doc: "Run cargo fix over the project in directory dir, which rewrites the project's source files with the compiler's machine-applicable suggestions. It writes only inside dir, which must lie in the workspace. It does not pass --allow-dirty: cargo refuses a version-controlled tree with uncommitted changes, and that refusal is E_TOOL_FAILED with cargo's reason, so commit or stash first. Without version control, cargo also refuses unless told otherwise. Returns true when cargo finished. Because cargo compiles the project, it runs build scripts and procedural macros, so the builtin is Exec and agent mode asks for approval. The run has a 900 s deadline. Takes no pipeline input.",
         examples: &[
             (r#"(try { diag_fix() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { diag_fix("") } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -8632,7 +8632,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "docs_generate", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
         returns: "Bool",
-        doc: "Run cargo doc --no-deps over the project in directory dir and return true when it finished. Documentation is written to the project's target directory. dir is required and checked as for test_bench. A failing build is E_TOOL_FAILED with cargo's stderr tail. Because cargo runs the project's build scripts and procedural macros, the builtin should be classified Exec; the effect table has it as WriteLocal. The run has a 900 s deadline. Takes no pipeline input.",
+        doc: "Run cargo doc --no-deps over the project in directory dir and return true when it finished. Documentation is written to the project's target directory. dir is required and checked as for test_bench. A failing build is E_TOOL_FAILED with cargo's stderr tail. Because cargo runs the project's build scripts and procedural macros, the builtin is Exec and agent mode asks for approval. The run has a 900 s deadline. Takes no pipeline input.",
         examples: &[
             (r#"(try { docs_generate() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { docs_generate("") } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -9581,7 +9581,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "refactor_remove_unused", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("dir", Ty::Str, "project directory inside the workspace; must hold Cargo.toml")],
         returns: "Bool",
-        doc: "Run cargo fix over the project in directory dir. This is not a targeted removal of unused code: cargo fix applies every machine-applicable suggestion the compiler makes, and removing unused imports is one kind of them. It does not pass --allow-dirty, so a version-controlled tree with uncommitted changes is refused with E_TOOL_FAILED. Returns true when cargo finished. The builtin rewrites files and compiles the project, which is Exec in substance; the effect table has it as WriteLocal. dir is required and checked as for test_bench. The run has a 900 s deadline. Takes no pipeline input.",
+        doc: "Run cargo fix over the project in directory dir. This is not a targeted removal of unused code: cargo fix applies every machine-applicable suggestion the compiler makes, and removing unused imports is one kind of them. It does not pass --allow-dirty, so a version-controlled tree with uncommitted changes is refused with E_TOOL_FAILED. Returns true when cargo finished. The builtin rewrites files and compiles the project, so it is Exec and agent mode asks for approval. dir is required and checked as for test_bench. The run has a 900 s deadline. Takes no pipeline input.",
         examples: &[
             (r#"(try { refactor_remove_unused() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { refactor_remove_unused("") } catch e { e.error.code })"#, "E_BAD_ARG"),

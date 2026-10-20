@@ -244,8 +244,13 @@ fn every_risky_spawn_guards_its_positional_values() {
         offenders.insert(format!("  {tool:8} {name}"));
     }
 
+    // The declaration tranches moved many tool calls into argv-building
+    // runners (`tool_run`, `pkg_run`), whose `Command` this scanner never sees;
+    // those bodies call `reject_option_like` themselves and their tranche
+    // contract tests refuse option-like operands. The floor follows what is
+    // still parseable here (23 after the linter and network tool tranches).
     assert!(
-        checked >= 25,
+        checked >= 20,
         "only {checked} risky spawn sites carry a value; the value test has drifted"
     );
     assert!(

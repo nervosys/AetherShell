@@ -223,12 +223,11 @@ fn the_scanner_sees_the_sites_it_claims_to() {
     // something that no longer exists.
     // `bi_xargs_exec` once parsed as a shell site; it now runs its program
     // from argv with no shell, so it is no longer one.
-    for expected in ["bi_hw_sensors"] {
-        assert!(
-            names.contains(&expected),
-            "{expected} should be among the parsed spawn sites, got {names:?}"
-        );
-    }
+    let expected = "bi_hw_sensors";
+    assert!(
+        names.contains(&expected),
+        "{expected} should be among the parsed spawn sites, got {names:?}"
+    );
 }
 
 #[test]

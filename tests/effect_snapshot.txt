@@ -307,7 +307,7 @@ diag_check	Exec
 diag_config	ReadLocal
 diag_errors	Exec
 diag_explain	ReadLocal
-diag_fix	WriteLocal
+diag_fix	Exec
 diag_lint	Exec
 diag_suppress	Pure
 diag_warnings	Exec
@@ -340,7 +340,7 @@ docker_volumes	ReadLocal
 docs_api	Pure
 docs_changelog	ReadLocal
 docs_examples	ReadLocal
-docs_generate	WriteLocal
+docs_generate	Exec
 docs_readme	Pure
 docs_search	ReadLocal
 docs_signatures	Pure
@@ -366,7 +366,7 @@ env_path	ReadLocal
 env_python	ReadLocal
 env_ruby	ReadLocal
 env_rust	ReadLocal
-env_set	Pure
+env_set	WriteLocal
 env_shell	ReadLocal
 env_unset	Pure
 env_var	ReadLocal
@@ -392,7 +392,7 @@ feature_disable	Pure
 feature_enable	Pure
 feature_enabled	Pure
 feature_list	Pure
-feature_set	Pure
+feature_set	WriteLocal
 features	Pure
 fetch	Network
 file_append	WriteLocal
@@ -966,8 +966,8 @@ population	Pure
 pow	Pure
 pre_commit_install	Exec
 pre_commit_run	Exec
-prettier	WriteLocal
-prettier_format	WriteLocal
+prettier	Exec
+prettier_format	Exec
 print	Pure
 proc_children	ReadLocal
 proc_cmdline	ReadLocal
@@ -1047,7 +1047,7 @@ refactor_inline	Pure
 refactor_move_to_file	Pure
 refactor_organize_imports	ReadLocal
 refactor_remove_parameter	Pure
-refactor_remove_unused	WriteLocal
+refactor_remove_unused	Exec
 refactor_rename	Pure
 refactor_rename_file	WriteLocal
 relations	Pure
@@ -1069,8 +1069,8 @@ revoke_permission	Pure
 rewind	Pure
 rg	ReadLocal
 rg_search	ReadLocal
-rga	ReadLocal
-rga_search	ReadLocal
+rga	Exec
+rga_search	Exec
 ripgrep	ReadLocal
 rl_ac_agent	Pure
 rl_ac_update	Pure
@@ -1158,7 +1158,7 @@ session_restore	WriteLocal
 session_rollback	Destructive
 session_start	Pure
 session_undo	Pure
-set_env	Pure
+set_env	WriteLocal
 sh	Exec
 sha256	Pure
 shell	Exec
@@ -1314,7 +1314,7 @@ tool_schema	Pure
 tool_schemas	Pure
 tool_search	Pure
 tools	Pure
-top_snapshot	Pure
+top_snapshot	ReadLocal
 touch	WriteLocal
 trace	Pure
 tree	ReadLocal

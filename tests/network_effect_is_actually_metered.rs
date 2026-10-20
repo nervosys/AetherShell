@@ -71,7 +71,17 @@ fn every_network_builtin_is_metered_not_just_the_ones_that_opted_in() {
     // These are builtins that do *not* call `guard_network`, so they are
     // metered only by the central path. If that regresses, they stop being
     // charged and nothing else here would notice.
-    const NOT_SELF_GUARDED: &[&str] = &["scp_upload", "git_fetch", "host_lookup", "k8s_pods"];
+    //
+    // Each is called with arguments its declared signature accepts: a declared
+    // builtin refuses a short call before the dispatcher reaches the meter, so
+    // an empty call would test the arity check instead.
+    let s = |v: &str| aethershell::value::Value::Str(v.into());
+    let not_self_guarded: Vec<(&str, Vec<aethershell::value::Value>)> = vec![
+        ("scp_upload", vec![s("x.txt"), s("host:/tmp/x.txt")]),
+        ("git_fetch", vec![]),
+        ("host_lookup", vec![s("example.com")]),
+        ("k8s_pods", vec![]),
+    ];
 
     let jail = std::env::temp_dir().join(format!("ae_netall_{}", std::process::id()));
     std::fs::create_dir_all(&jail).expect("jail");
@@ -80,14 +90,14 @@ fn every_network_builtin_is_metered_not_just_the_ones_that_opted_in() {
     std::env::set_var("AETHER_WORKSPACE", &jail);
     std::env::set_var("AETHER_MAX_NET", "0");
 
-    for name in NOT_SELF_GUARDED {
+    for (name, args) in not_self_guarded {
         assert_eq!(
             effect_of(name),
             Effect::Network,
             "{name} must be classified Network for the central path to charge it"
         );
         let mut env = aethershell::env::Env::new();
-        let out = aethershell::builtins::call(name, vec![], &mut env);
+        let out = aethershell::builtins::call(name, args, &mut env);
         let msg = match out {
             Ok(v) => panic!("{name} ran with a zero network budget and answered {v:?}"),
             Err(e) => e.to_string(),

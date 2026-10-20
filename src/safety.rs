@@ -586,7 +586,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "svc_stop"
         | "tmux_attach" => Some(Effect::Process),
 
-        // ---- WriteLocal (48) ----
+        // ---- WriteLocal (47) ----
         | "age_decrypt"
         | "age_encrypt"
         | "age_keygen"
@@ -600,8 +600,8 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "crypto_decrypt"
         | "crypto_encrypt"
         | "db_sqlite_backup"
-        | "diag_fix"
-        | "docs_generate"
+        | "env_set"
+        | "feature_set"
         | "fs_tempdir"
         | "fs_tempfile"
         | "gui_screenshot"
@@ -613,14 +613,13 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "platform_db_import"
         | "platform_db_init"
         | "platform_db_store"
-        | "prettier_format"
-        | "refactor_remove_unused"
         | "refactor_rename_file"
         | "ruff_check"
         | "ruff_format"
         | "sed_replace"
         | "session_checkpoint"
         | "session_restore"
+        | "set_env"
         | "shfmt_format"
         | "ssh_keygen"
         | "tar_create"
@@ -636,7 +635,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "zstd_compress"
         | "zstd_decompress" => Some(Effect::WriteLocal),
 
-        // ---- Exec (78) ----
+        // ---- Exec (83) ----
         | "act_run"
         | "apply"
         | "buildah_build"
@@ -650,10 +649,12 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "deno_task"
         | "diag_check"
         | "diag_errors"
+        | "diag_fix"
         | "diag_lint"
         | "diag_warnings"
         | "direnv_allow"
         | "docker_run"
+        | "docs_generate"
         | "entr_watch"
         | "eslint_check"
         | "fzf_select"
@@ -704,7 +705,10 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "podman_run"
         | "poetry_run"
         | "pre_commit_run"
+        | "prettier_format"
         | "pytest_run"
+        | "refactor_remove_unused"
+        | "rga_search"
         | "task_run"
         | "test_bench"
         | "test_list"
@@ -843,7 +847,6 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "readelf_headers"
         | "readelf_sections"
         | "rg_search"
-        | "rga_search"
         | "rustup_show"
         | "screen_list"
         | "search_by_size"
@@ -867,6 +870,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "task_list"
         | "tmux_list"
         | "tokei_count"
+        | "top_snapshot"
         | "yamllint_check"
         | "zip_list"
         | "zoxide_query" => Some(Effect::ReadLocal),
