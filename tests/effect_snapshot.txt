@@ -662,8 +662,8 @@ kubectl_exec	Exec
 kubectl_get	Network
 kubectl_logs	Network
 last	Pure
-lazygit	Pure
-lazygit_open	Pure
+lazygit	Exec
+lazygit_open	Exec
 len	Pure
 length	Pure
 less	ReadLocal

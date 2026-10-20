@@ -678,6 +678,8 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "input_read_password"
         | "jq_filter"
         | "just_run"
+        | "lazygit"
+        | "lazygit_open"
         | "lldb_run"
         | "lnav_open"
         | "logrotate_run"

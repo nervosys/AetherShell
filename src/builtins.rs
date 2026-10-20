@@ -54418,7 +54418,6 @@ fn bi_lazygit_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
         return Err(crate::safety::no_ui(BUILTIN));
     }
-    crate::safety::guard_exec(BUILTIN, format!("lazygit -p {path}"))?;
     // stdio is inherited, so lazygit draws on the user's terminal. Its stderr
     // therefore cannot be captured for a tail; the failure carries only the
     // exit status.
