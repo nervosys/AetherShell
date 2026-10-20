@@ -44483,7 +44483,9 @@ fn bi_platform_memory(_args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         let out = std::process::Command::new("powershell")
             .args(["-Command", query])
             .output()
-            .map_err(|e| crate::safety::tool_missing("platform_memory", "powershell", &e.to_string()))?;
+            .map_err(|e| {
+                crate::safety::tool_missing("platform_memory", "powershell", &e.to_string())
+            })?;
         if !out.status.success() {
             return Err(crate::safety::tool_failed(
                 "platform_memory",
@@ -44492,22 +44494,28 @@ fn bi_platform_memory(_args: Vec<Value>, input: Option<Value>) -> Result<Value> 
                 &String::from_utf8_lossy(&out.stderr),
             ));
         }
-        let json: serde_json::Value =
-            serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).map_err(|e| {
-                crate::safety::tool_failed(
-                    "platform_memory",
-                    "powershell Get-CimInstance Win32_OperatingSystem",
-                    out.status.code(),
-                    &format!("its output was not JSON: {e}"),
-                )
-            })?;
+        let json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&out.stdout))
+            .map_err(|e| {
+            crate::safety::tool_failed(
+                "platform_memory",
+                "powershell Get-CimInstance Win32_OperatingSystem",
+                out.status.code(),
+                &format!("its output was not JSON: {e}"),
+            )
+        })?;
         if let Some(total) = json.get("TotalVisibleMemorySize").and_then(|v| v.as_i64()) {
             info.insert("total_kb".to_string(), Value::Int(total));
-            info.insert("total_gb".to_string(), Value::Float(total as f64 / 1024.0 / 1024.0));
+            info.insert(
+                "total_gb".to_string(),
+                Value::Float(total as f64 / 1024.0 / 1024.0),
+            );
         }
         if let Some(free) = json.get("FreePhysicalMemory").and_then(|v| v.as_i64()) {
             info.insert("free_kb".to_string(), Value::Int(free));
-            info.insert("free_gb".to_string(), Value::Float(free as f64 / 1024.0 / 1024.0));
+            info.insert(
+                "free_gb".to_string(),
+                Value::Float(free as f64 / 1024.0 / 1024.0),
+            );
         }
     }
 
@@ -44564,7 +44572,9 @@ fn bi_platform_memory(_args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         let out = std::process::Command::new("sysctl")
             .args(["-n", "hw.memsize"])
             .output()
-            .map_err(|e| crate::safety::tool_missing("platform_memory", "sysctl", &e.to_string()))?;
+            .map_err(|e| {
+                crate::safety::tool_missing("platform_memory", "sysctl", &e.to_string())
+            })?;
         if !out.status.success() {
             return Err(crate::safety::tool_failed(
                 "platform_memory",

@@ -1075,7 +1075,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         "fs_stat" | "fs_tree" | "fs_walk" | "fs_watch" | "fs_unwatch" | "grep" |
         "head" | "ls" | "make_targets" | "pager" |
         "perm_check" | "perm_get" | "pkg_history" | "pkg_sources" |
-        "platform_db_list" | "platform_db_load" | "platform_has_gui" | "platform_shell_type" |
+        "platform_db_compare" | "platform_db_list" | "platform_db_load" | "platform_has_gui" | "platform_shell_type" |
         "project_dependencies" | "project_dev_dependencies" | "project_gitignore" | "project_languages" |
         "project_license" | "project_name" | "project_readme" | "project_scripts" | "project_size" |
         "plan_diff" | "project_structure" | "project_test_files" | "read_text"
