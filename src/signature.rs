@@ -10427,7 +10427,10 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     // 1b: the monitor_* network and session readers. Machine-dependent: each
-    // reads the host (ip/ss/who/last/journal; PowerShell on Windows).
+    // reads the host through a tool (ip, ss, netstat, who, last, journalctl,
+    // nethogs, ethtool, or PowerShell on Windows). Each is bounded: a tool that
+    // is missing is E_TOOL_MISSING, one that fails is E_TOOL_FAILED with its
+    // stderr, and output past the cap is E_BUDGET_EXCEEDED.
     Signature {
         name: "monitor_iftop",
         category: None,
@@ -10436,7 +10439,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "Network traffic counters, as ss -s or netstat -s reports them.",
+        doc: "Network traffic counters: ss -s on Linux, netstat -s on macOS and Windows. A counter that cannot be read is E_TOOL_FAILED, never 0. Takes no arguments.",
         examples: &[
             (r#"monitor_iftop()"#, r#"{summary: "Total: 212 ...", ...}"#),
         ],
@@ -10449,7 +10452,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "The routing table as records.",
+        doc: "The routing table as records: ip on Linux, Get-NetRoute on Windows, netstat -rn on macOS. Takes no arguments.",
         examples: &[
             (r#"monitor_ip_route()"#, r#"[{dst: default, gateway: 172.20.0.1, dev: eth0, ...}]"#),
         ],
@@ -10462,9 +10465,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "Established connections with their owning process.",
+        doc: "Unix: bandwidth per program from nethogs -t (needs nethogs and root). There is no fallback: a missing nethogs is E_TOOL_MISSING and a failing one E_TOOL_FAILED. Windows: up to 30 established TCP connections with their process. The two platforms return different records. Takes no arguments.",
         examples: &[
-            (r#"monitor_nethogs()"#, r#"[{process: sshd, local: "10.0.0.2:22", remote: "...", ...}]"#),
+            (r#"monitor_nethogs()"#, r#"[{program: "sshd/1234/0", sent_kbps: 1.5, received_kbps: 2.25}]"#),
         ],
     },
     Signature {
@@ -10473,9 +10476,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[opt("filter", Ty::Str, "all (default), tcp, udp or listening")],
+        params: &[opt("filter", Ty::Str, "all (default), tcp, udp, or listening (LISTEN, or UNCONN for UDP)")],
         returns: "Array",
-        doc: "Open sockets. An unknown filter is refused rather than treated as all.",
+        doc: "Open TCP and UDP sockets. One query reads every socket and the filter is applied to its output, so tcp and udp include established connections. An unknown filter, or a filter that is not a String, is E_BAD_ARG. Linux: ss; macOS and Windows: netstat -an.",
         examples: &[
             (r#"monitor_sockets()"#, r#"[{protocol: tcp, local_address: "0.0.0.0:22", state: LISTEN, ...}]"#),
             (r#"monitor_sockets("udp")"#, r#"[{protocol: udp, local_address: "0.0.0.0:53", ...}]"#),
@@ -10489,7 +10492,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "Logged-in sessions as records.",
+        doc: "Users logged in to this machine: who on Unix, query user on Windows. [] when nobody is logged on. Takes no arguments.",
         examples: &[
             (r#"monitor_users()"#, r#"[{username: ada, terminal: pts/0, login_time: "..."}]"#),
         ],
@@ -10500,9 +10503,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[opt("interface", Ty::Str, "only this interface")],
+        params: &[opt("interface", Ty::Str, "only this interface; it must exist")],
         returns: "Array",
-        doc: "Interface addresses. An interface that does not exist is an error, not [].",
+        doc: "Interface addresses: ip on Linux, Get-NetIPAddress on Windows, ifconfig on macOS. An interface that does not exist is an error (E_NOT_FOUND on Windows, E_TOOL_FAILED elsewhere), not [].",
         examples: &[
             (r#"monitor_ip_addr()"#, r#"[{ifname: lo, addr_info: [...], ...}]"#),
             (r#"monitor_ip_addr("lo")"#, r#"[{ifname: lo, addr_info: [...], ...}]"#),
@@ -10514,9 +10517,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[opt("interface", Ty::Str, "only this interface")],
+        params: &[opt("interface", Ty::Str, "only this interface; it must exist")],
         returns: "Array",
-        doc: "Network interfaces and their link state.",
+        doc: "Network interfaces and their link state: ip on Linux, Get-NetAdapter on Windows, ifconfig on macOS. An interface that does not exist is an error, not [].",
         examples: &[
             (r#"monitor_ip_link()"#, r#"[{ifname: lo, operstate: UNKNOWN, ...}]"#),
             (r#"monitor_ip_link("lo")"#, r#"[{ifname: lo, operstate: UNKNOWN, ...}]"#),
@@ -10528,9 +10531,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[opt("count", Ty::Int, "most recent logins; default 20")],
+        params: &[opt("count", Ty::Int, "most recent logins, from 1 to 1000; default 20")],
         returns: "Array",
-        doc: "Recent logins as records.",
+        doc: "Recent logins: last on Unix, the Security log on Windows (which needs an elevated shell; a refusal is E_TOOL_FAILED). A count outside 1 to 1000 is E_BAD_ARG.",
         examples: &[
             (r#"monitor_logins()"#, r#"[{user: ada, terminal: pts/0, login_time: "..."}]"#),
             (r#"monitor_logins(5)"#, r#"[{user: ada, terminal: pts/0, login_time: "..."}]"#),
@@ -10544,7 +10547,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("device", Ty::Str, "an interface such as eth0")],
         returns: "Record",
-        doc: "Linux only. An interface's driver-level settings (speed, duplex, link), read with ethtool. A failing ethtool is E_TOOL_FAILED with its stderr. Other platforms refuse with E_UNIMPLEMENTED and inspect nothing.",
+        doc: "Linux only. An interface's driver-level settings (speed, duplex, link), read with ethtool. A missing ethtool is E_TOOL_MISSING; a failing one is E_TOOL_FAILED with its stderr. Other platforms refuse with E_UNIMPLEMENTED and inspect nothing.",
         examples: &[
             (r#"monitor_ethtool("eth0")"#, r#"{device: eth0, speed: 10000Mb/s, link_detected: yes, ...}"#),
         ],
@@ -10555,9 +10558,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[req("keyword", Ty::Str, "text to find"), opt("count", Ty::Int, "newest matches; default 50")],
+        params: &[req("keyword", Ty::Str, "text to find: 1 to 256 characters, not starting with -"), opt("count", Ty::Int, "newest matches, from 1 to 1000; default 50")],
         returns: "Array",
-        doc: "The newest system log entries containing a keyword.",
+        doc: "The newest system log entries containing a keyword. Linux: journalctl; the syslog file is read only when journalctl is not installed, and its records then carry MESSAGE and source. macOS: log show over the last hour. Windows: the newest 500 System events, matched on Message.",
         examples: &[
             (r#"monitor_syslog("error")"#, r#"[{MESSAGE: "...", ...}]"#),
             (r#"monitor_syslog("error", 5)"#, r#"[{MESSAGE: "...", ...}]"#),

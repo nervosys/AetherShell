@@ -51536,6 +51536,9 @@ fn bi_lsblk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 #[path = "linux_diagnostics.rs"]
 mod linux_diagnostics;
 
+#[path = "monitor_parse.rs"]
+mod monitor_parse;
+
 #[path = "stdin_lines.rs"]
 mod stdin_lines;
 
@@ -53863,6 +53866,135 @@ fn monitor_choice_arg(
     }
 }
 
+/// An optional interface name. Absent is None; a given name must be a String
+/// that is not option-like and is at most 256 bytes. On Unix it must also pass
+/// the interface rule, because ip and ifconfig take it as a positional argument.
+/// On Windows it is matched in Rust and never reaches a PowerShell script.
+fn monitor_iface_arg(builtin: &str, args: &[Value], idx: usize) -> Result<Option<String>> {
+    match args.get(idx) {
+        None => Ok(None),
+        Some(Value::Str(name)) => {
+            crate::safety::reject_option_like(builtin, std::slice::from_ref(name))?;
+            if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+                return Err(crate::safety::bad_arg(
+                    builtin,
+                    "an interface name of 1 to 256 characters",
+                    &monitor_got(args.get(idx)),
+                ));
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                linux_diagnostics::interface_name(builtin, name)?;
+            }
+            Ok(Some(name.clone()))
+        }
+        Some(_) => Err(crate::safety::bad_arg(
+            builtin,
+            "an interface name String",
+            &monitor_got(args.get(idx)),
+        )),
+    }
+}
+
+/// A search keyword: 1 to 256 characters, no control character, and not
+/// option-like, since journalctl and grep would read a leading `-` as a flag.
+fn monitor_keyword(builtin: &str, keyword: &str) -> Result<()> {
+    crate::safety::reject_option_like(builtin, &[keyword.to_string()])?;
+    if keyword.is_empty() || keyword.len() > 256 || keyword.chars().any(char::is_control) {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a keyword of 1 to 256 characters with no control character",
+            &format!("{:?}", keyword.chars().take(40).collect::<String>()),
+        ));
+    }
+    Ok(())
+}
+
+/// The stdout of one bounded, read-only query. A nonzero exit is E_TOOL_FAILED
+/// with the stderr tail; output past `cap` is E_BUDGET_EXCEEDED; a missing
+/// program is E_TOOL_MISSING.
+fn monitor_text(builtin: &str, program: &str, args: &[&str], cap: usize) -> Result<String> {
+    let run = tool_run(
+        builtin,
+        program,
+        None,
+        args,
+        Keep::Head(cap),
+        TOOL_DEADLINE_SECS,
+    )?;
+    tool_text(builtin, run)
+}
+
+/// The records of one bounded query that prints JSON.
+fn monitor_json_records(builtin: &str, program: &str, args: &[&str]) -> Result<Value> {
+    let text = monitor_text(builtin, program, args, TOOL_MAX_JSON)?;
+    monitor_parse::json_array(builtin, program, &text)
+}
+
+/// The records of one bounded PowerShell query that prints JSON. A failure names
+/// `label` rather than the script, which can be long.
+fn monitor_ps_json(builtin: &str, label: &str, script: &str) -> Result<Value> {
+    let mut run = tool_run(
+        builtin,
+        "powershell",
+        None,
+        &["-NoProfile", "-Command", script],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    run.command = label.to_string();
+    let text = tool_text(builtin, run)?;
+    monitor_parse::json_array(builtin, label, &text)
+}
+
+/// Keeps the records whose `field` contains `name`, ignoring case. An empty
+/// result for a name the caller gave is E_NOT_FOUND, as `ip` answers.
+#[cfg(target_os = "windows")]
+fn monitor_named(builtin: &str, records: Value, name: Option<&str>, field: &str) -> Result<Value> {
+    let Some(name) = name else {
+        return Ok(records);
+    };
+    let want = name.to_lowercase();
+    let items = match records {
+        Value::Array(items) => items,
+        other => return Ok(other),
+    };
+    let kept: Vec<Value> = items
+        .into_iter()
+        .filter(|r| match r {
+            Value::Record(m) => {
+                matches!(m.get(field), Some(Value::Str(s)) if s.to_lowercase().contains(&want))
+            }
+            _ => false,
+        })
+        .collect();
+    if kept.is_empty() {
+        return Err(crate::safety::not_found(builtin, "interface", name));
+    }
+    Ok(Value::Array(kept))
+}
+
+/// Whether a failure is a program that is not installed (E_TOOL_MISSING).
+#[cfg(target_os = "linux")]
+fn monitor_tool_missing(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<crate::safety::SafetyError>()
+        .is_some_and(|se| matches!(se.code, crate::safety::ErrorCode::ToolMissing))
+}
+
+/// The last `count` items of an array. Used where the tool cannot limit its own
+/// output and answers oldest first.
+#[cfg(target_os = "macos")]
+fn monitor_newest(records: Value, count: i64) -> Value {
+    match records {
+        Value::Array(items) => {
+            let keep = count.max(0) as usize;
+            let start = items.len().saturating_sub(keep);
+            Value::Array(items.into_iter().skip(start).collect())
+        }
+        other => other,
+    }
+}
+
 /// A System with CPU usage. sysinfo reports 0% from a single refresh, because a
 /// usage figure is the change between two refreshes.
 fn monitor_sample_system() -> System {
@@ -54112,190 +54244,57 @@ fn bi_iotop_snapshot(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1017: bi_nethogs_info — Network traffic per process
 // ---------------------------------------------------------------------------
-fn bi_nethogs_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
+fn bi_nethogs_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_nethogs";
+    monitor_direct_call(B, &args, &input, 0)?;
 
     #[cfg(target_os = "windows")]
     {
         let ps_cmd = "Get-NetTCPConnection | Where-Object { $_.State -eq 'Established' } | Select-Object OwningProcess, LocalAddress, LocalPort, RemoteAddress, RemotePort, State | ForEach-Object { $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; $_ | Add-Member -NotePropertyName ProcessName -NotePropertyValue $(if($proc){$proc.ProcessName}else{'unknown'}) -PassThru } | Select-Object -First 30 | ConvertTo-Json -Depth 3";
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", ps_cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_nethogs", "powershell", &e))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(crate::safety::tool_failed(
-                "monitor_nethogs",
-                "powershell",
-                output.status.code(),
-                &stderr,
-            ));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.trim().is_empty() {
-            return Ok(Value::Array(vec![]));
-        }
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            crate::safety::tool_failed(
-                "monitor_nethogs",
-                "the query",
-                None,
-                &format!("output that is not JSON: {e}"),
-            )
-        })?;
-        Ok(json_to_value(json_val))
+        monitor_ps_json(B, "Get-NetTCPConnection", ps_cmd)
     }
 
+    // nethogs is the only source on Unix (it needs root). The ss fallback this
+    // used to take answered records of another shape under the same name, so a
+    // missing or failing nethogs is now the coded error and nothing else.
     #[cfg(not(target_os = "windows"))]
     {
-        // Try nethogs first, fall back to ss/netstat
-        let output = Command::new("nethogs").args(["-t", "-c", "1"]).output();
-
-        match output {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let mut records = Vec::new();
-                for line in stdout.lines() {
-                    let parts: Vec<&str> = line.split('\t').collect();
-                    if parts.len() >= 3 {
-                        let mut rec = BTreeMap::new();
-                        rec.insert("program".to_string(), Value::Str(parts[0].to_string()));
-                        rec.insert(
-                            "sent_kbps".to_string(),
-                            Value::Float(parts[1].parse::<f64>().unwrap_or(0.0)),
-                        );
-                        rec.insert(
-                            "received_kbps".to_string(),
-                            Value::Float(parts[2].parse::<f64>().unwrap_or(0.0)),
-                        );
-                        records.push(Value::Record(rec));
-                    }
-                }
-                Ok(Value::Array(records))
-            }
-            _ => {
-                // Fallback: netstat with process info
-                let output = Command::new("ss")
-                    .args(["-tunp"])
-                    .output()
-                    .or_else(|_| Command::new("netstat").args(["-tunp"]).output())
-                    .map_err(|e| crate::safety::spawn_error("monitor_nethogs", "ss", &e))?;
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let mut records = Vec::new();
-                for line in stdout.lines().skip(1) {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 5 {
-                        let mut rec = BTreeMap::new();
-                        rec.insert("protocol".to_string(), Value::Str(parts[0].to_string()));
-                        rec.insert(
-                            "recv_q".to_string(),
-                            Value::Int(parts[1].parse::<i64>().unwrap_or(0)),
-                        );
-                        rec.insert(
-                            "send_q".to_string(),
-                            Value::Int(parts[2].parse::<i64>().unwrap_or(0)),
-                        );
-                        rec.insert(
-                            "local_address".to_string(),
-                            Value::Str(parts[3].to_string()),
-                        );
-                        rec.insert("peer_address".to_string(), Value::Str(parts[4].to_string()));
-                        if parts.len() >= 6 {
-                            rec.insert("process".to_string(), Value::Str(parts[5..].join(" ")));
-                        }
-                        records.push(Value::Record(rec));
-                    }
-                }
-                Ok(Value::Array(records))
-            }
-        }
+        let text = monitor_text(B, "nethogs", &["-t", "-c", "1"], TOOL_MAX_TEXT)?;
+        Ok(Value::Array(monitor_parse::nethogs_trace(&text)?))
     }
 }
 
 // ---------------------------------------------------------------------------
 // 1018: bi_iftop_info — Network bandwidth info
 // ---------------------------------------------------------------------------
-fn bi_iftop_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
+fn bi_iftop_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_iftop";
+    monitor_direct_call(B, &args, &input, 0)?;
 
     #[cfg(target_os = "windows")]
     {
-        let ps_cmd = "netstat -s | Out-String";
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", ps_cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_iftop", "powershell", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let text = monitor_text(B, "netstat", &["-s"], TOOL_MAX_TEXT)?;
         let mut rec = BTreeMap::new();
         rec.insert("source".to_string(), Value::Str("netstat -s".to_string()));
-        // Parse key statistics from netstat -s
-        for line in stdout.lines() {
-            let trimmed = line.trim();
-            if trimmed.contains("Segments Sent") || trimmed.contains("Segments sent") {
-                if let Some(val) = trimmed
-                    .split('=')
-                    .next_back()
-                    .or_else(|| trimmed.split_whitespace().next())
-                {
-                    rec.insert(
-                        "tcp_segments_sent".to_string(),
-                        Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)),
-                    );
-                }
-            }
-            if trimmed.contains("Segments Received") || trimmed.contains("Segments received") {
-                if let Some(val) = trimmed
-                    .split('=')
-                    .next_back()
-                    .or_else(|| trimmed.split_whitespace().next())
-                {
-                    rec.insert(
-                        "tcp_segments_received".to_string(),
-                        Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)),
-                    );
-                }
-            }
-            if trimmed.contains("Datagrams Sent") || trimmed.contains("Datagrams sent") {
-                if let Some(val) = trimmed
-                    .split('=')
-                    .next_back()
-                    .or_else(|| trimmed.split_whitespace().next())
-                {
-                    rec.insert(
-                        "udp_datagrams_sent".to_string(),
-                        Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)),
-                    );
-                }
-            }
-            if trimmed.contains("Datagrams Received") || trimmed.contains("Datagrams received") {
-                if let Some(val) = trimmed
-                    .split('=')
-                    .next_back()
-                    .or_else(|| trimmed.split_whitespace().next())
-                {
-                    rec.insert(
-                        "udp_datagrams_received".to_string(),
-                        Value::Int(val.trim().replace(",", "").parse::<i64>().unwrap_or(0)),
-                    );
-                }
-            }
+        for (key, value) in monitor_parse::netstat_counters(&text)? {
+            rec.insert(key.to_string(), value);
         }
-        rec.insert("raw_output".to_string(), Value::Str(stdout.to_string()));
+        rec.insert("raw_output".to_string(), Value::Str(text));
         Ok(Value::Record(rec))
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        // Use ss -s for socket summary statistics
-        let output = Command::new("ss")
-            .args(["-s"])
-            .output()
-            .or_else(|_| Command::new("netstat").args(["-s"]).output())
-            .map_err(|e| crate::safety::spawn_error("monitor_iftop", "ss", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        // ss -s on Linux; netstat -s on macOS, which has no ss.
+        let tool = if cfg!(target_os = "macos") {
+            "netstat"
+        } else {
+            "ss"
+        };
+        let text = monitor_text(B, tool, &["-s"], TOOL_MAX_TEXT)?;
         let mut rec = BTreeMap::new();
-        rec.insert("source".to_string(), Value::Str("ss -s".to_string()));
-        for line in stdout.lines() {
+        rec.insert("source".to_string(), Value::Str(format!("{tool} -s")));
+        for line in text.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("TCP:") {
                 rec.insert("tcp_summary".to_string(), Value::Str(trimmed.to_string()));
@@ -54305,7 +54304,7 @@ fn bi_iftop_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 rec.insert("total_summary".to_string(), Value::Str(trimmed.to_string()));
             }
         }
-        rec.insert("raw_output".to_string(), Value::Str(stdout.to_string()));
+        rec.insert("raw_output".to_string(), Value::Str(text));
         Ok(Value::Record(rec))
     }
 }
@@ -54592,229 +54591,67 @@ fn bi_tcpdump_capture(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1022: bi_ss_info — Socket statistics
 // ---------------------------------------------------------------------------
-fn bi_ss_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let filter = if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            _ => "all".to_string(),
-        }
-    } else {
-        "all".to_string()
-    };
-    // An unknown filter ("tpc") silently listed everything.
-    if !matches!(filter.as_str(), "all" | "tcp" | "udp" | "listening") {
-        return Err(crate::safety::bad_arg(
-            "monitor_sockets",
-            "filter all, tcp, udp or listening",
-            &filter,
-        ));
-    }
+fn bi_ss_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_sockets";
+    monitor_direct_call(B, &args, &input, 1)?;
+    let filter = monitor_choice_arg(B, &args, 0, &["all", "tcp", "udp", "listening"], "all")?;
 
     #[cfg(target_os = "windows")]
     {
-        // The filter was ignored here, and every UDP socket was dropped: UDP
-        // lines have no state column, so they failed a four-column check.
-        let ps_cmd =
-            "netstat -an | Select-String -Pattern 'TCP|UDP' | ForEach-Object { $_.Line.Trim() }";
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", ps_cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_sockets", "powershell", &e))?;
-        if !output.status.success() {
-            return Err(crate::safety::tool_failed(
-                "monitor_sockets",
-                "netstat",
-                output.status.code(),
-                &String::from_utf8_lossy(&output.stderr),
-            ));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut records = Vec::new();
-        for line in stdout.lines() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            let keep = match filter.as_str() {
-                "tcp" => parts.first().is_some_and(|p| p.starts_with("TCP")),
-                "udp" => parts.first().is_some_and(|p| p.starts_with("UDP")),
-                "listening" => parts.get(3) == Some(&"LISTENING"),
-                _ => true,
-            };
-            if keep && parts.len() >= 3 {
-                let mut rec = BTreeMap::new();
-                rec.insert("protocol".to_string(), Value::Str(parts[0].to_string()));
-                rec.insert(
-                    "local_address".to_string(),
-                    Value::Str(parts[1].to_string()),
-                );
-                rec.insert(
-                    "foreign_address".to_string(),
-                    Value::Str(parts[2].to_string()),
-                );
-                rec.insert(
-                    "state".to_string(),
-                    Value::Str(parts.get(3).unwrap_or(&"").to_string()),
-                );
-                records.push(Value::Record(rec));
-            }
-        }
-        Ok(Value::Array(records))
+        let text = monitor_text(B, "netstat", &["-an"], TOOL_MAX_TEXT)?;
+        Ok(Value::Array(monitor_parse::socket_records_windows(
+            &text, &filter,
+        )?))
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        // ss is Linux-only (iproute2); use netstat on macOS
-        let (cmd_name, cmd_args): (&str, Vec<&str>) = if cfg!(target_os = "macos") {
-            let args = match filter.as_str() {
-                "tcp" => vec!["-an", "-p", "tcp"],
-                "udp" => vec!["-an", "-p", "udp"],
-                "listening" => vec!["-anl"],
-                _ => vec!["-an"],
-            };
-            ("netstat", args)
+        if cfg!(target_os = "macos") {
+            let text = monitor_text(B, "netstat", &["-an"], TOOL_MAX_TEXT)?;
+            Ok(Value::Array(monitor_parse::socket_records_bsd(
+                &text, &filter,
+            )?))
         } else {
-            let args = match filter.as_str() {
-                "tcp" => vec!["-tln"],
-                "udp" => vec!["-uln"],
-                "listening" => vec!["-tuln"],
-                _ => vec!["-tuln"],
-            };
-            ("ss", args)
-        };
-        let output = Command::new(cmd_name)
-            .args(&cmd_args)
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_sockets", cmd_name, &e))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(crate::safety::tool_failed(
-                "monitor_sockets",
-                cmd_name,
-                output.status.code(),
-                &stderr,
-            ));
+            // One query for every TCP and UDP socket, with the filter applied to
+            // what it printed: "tcp" and "udp" include established sockets.
+            let text = monitor_text(B, "ss", &["-tuanH"], TOOL_MAX_TEXT)?;
+            Ok(Value::Array(monitor_parse::socket_records_ss(
+                &text, &filter,
+            )?))
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut records = Vec::new();
-        let lines: Vec<&str> = stdout.lines().collect();
-        for line in lines.iter().skip(1) {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 5 {
-                let mut rec = BTreeMap::new();
-                rec.insert("state".to_string(), Value::Str(parts[0].to_string()));
-                rec.insert(
-                    "recv_q".to_string(),
-                    Value::Int(parts[1].parse::<i64>().unwrap_or(0)),
-                );
-                rec.insert(
-                    "send_q".to_string(),
-                    Value::Int(parts[2].parse::<i64>().unwrap_or(0)),
-                );
-                rec.insert(
-                    "local_address".to_string(),
-                    Value::Str(parts[3].to_string()),
-                );
-                rec.insert("peer_address".to_string(), Value::Str(parts[4].to_string()));
-                if parts.len() >= 6 {
-                    rec.insert("process".to_string(), Value::Str(parts[5..].join(" ")));
-                }
-                records.push(Value::Record(rec));
-            }
-        }
-        Ok(Value::Array(records))
     }
 }
 
 // ---------------------------------------------------------------------------
 // 1023: bi_ip_addr — IP address management
 // ---------------------------------------------------------------------------
-fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let iface = if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        }
-    } else {
-        None
-    };
-    // The interface goes to `ip` positionally.
-    if let Some(i) = &iface {
-        crate::safety::reject_option_like("monitor_ip_addr", std::slice::from_ref(i))?;
-    }
+fn bi_ip_addr(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_ip_addr";
+    monitor_direct_call(B, &args, &input, 1)?;
+    let iface = monitor_iface_arg(B, &args, 0)?;
 
     #[cfg(target_os = "windows")]
     {
-        let ps_cmd = if let Some(ref iface_name) = iface {
-            crate::ps_script!("Get-NetIPAddress | Where-Object {{ $_.InterfaceAlias -like {} }} | Select-Object InterfaceAlias, IPAddress, PrefixLength, AddressFamily, Type | ConvertTo-Json -Depth 3", crate::safety::ps_quote(&format!("*{}*", iface_name)))
-        } else {
-            "Get-NetIPAddress | Select-Object InterfaceAlias, IPAddress, PrefixLength, AddressFamily, Type | ConvertTo-Json -Depth 3".to_string()
-        };
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_ip_addr", "powershell", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.trim().is_empty() {
-            // On Linux an unknown interface is an error from `ip`; here a
-            // filter that matched nothing answered [].
-            if let Some(i) = &iface {
-                return Err(crate::safety::not_found("monitor_ip_addr", "interface", i));
-            }
-            return Ok(Value::Array(vec![]));
-        }
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            crate::safety::tool_failed(
-                "monitor_ip_addr",
-                "the query",
-                None,
-                &format!("output that is not JSON: {e}"),
-            )
-        })?;
-        Ok(json_to_value(json_val))
+        let ps_cmd = "Get-NetIPAddress | Select-Object InterfaceAlias, IPAddress, PrefixLength, AddressFamily, Type | ConvertTo-Json -Depth 3";
+        let records = monitor_ps_json(B, "Get-NetIPAddress", ps_cmd)?;
+        monitor_named(B, records, iface.as_deref(), "InterfaceAlias")
     }
 
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = Command::new("ip");
-        cmd.args(["-j", "addr", "show"]);
-        if let Some(ref iface_name) = iface {
-            cmd.arg(iface_name);
-        }
-        let output = cmd
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_ip_addr", "ip", &e))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(crate::safety::tool_failed(
-                "monitor_ip_addr",
-                "ip",
-                output.status.code(),
-                &stderr,
-            ));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            crate::safety::tool_failed(
-                "monitor_ip_addr",
-                "the query",
-                None,
-                &format!("output that is not JSON: {e}"),
-            )
-        })?;
-        Ok(json_to_value(json_val))
+        let mut argv = vec!["-j", "addr", "show"];
+        argv.extend(iface.as_deref());
+        monitor_json_records(B, "ip", &argv)
     }
 
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = Command::new("ifconfig");
-        if let Some(ref iface_name) = iface {
-            cmd.arg(iface_name);
-        }
-        let output = cmd
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_ip_addr", "ifconfig", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut argv: Vec<&str> = Vec::new();
+        argv.extend(iface.as_deref());
+        let text = monitor_text(B, "ifconfig", &argv, TOOL_MAX_TEXT)?;
         let mut records = Vec::new();
         let mut current_iface = String::new();
-        for line in stdout.lines() {
+        for line in text.lines() {
             if !line.starts_with('\t') && !line.starts_with(' ') && line.contains(':') {
                 current_iface = line.split(':').next().unwrap_or("").to_string();
             } else if line.trim().starts_with("inet ") {
@@ -54852,68 +54689,27 @@ fn bi_ip_addr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1024: bi_ip_route — IP route table
 // ---------------------------------------------------------------------------
-fn bi_ip_route(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
+fn bi_ip_route(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_ip_route";
+    monitor_direct_call(B, &args, &input, 0)?;
 
     #[cfg(target_os = "windows")]
     {
         let ps_cmd = "Get-NetRoute | Select-Object DestinationPrefix, NextHop, InterfaceAlias, RouteMetric, InterfaceMetric | ConvertTo-Json -Depth 3";
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", ps_cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_ip_route", "powershell", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.trim().is_empty() {
-            return Ok(Value::Array(vec![]));
-        }
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            crate::safety::tool_failed(
-                "monitor_ip_route",
-                "the query",
-                None,
-                &format!("output that is not JSON: {e}"),
-            )
-        })?;
-        Ok(json_to_value(json_val))
+        monitor_ps_json(B, "Get-NetRoute", ps_cmd)
     }
 
     #[cfg(target_os = "linux")]
     {
-        let output = Command::new("ip")
-            .args(["-j", "route", "show"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_ip_route", "ip", &e))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(crate::safety::tool_failed(
-                "monitor_ip_route",
-                "ip",
-                output.status.code(),
-                &stderr,
-            ));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            crate::safety::tool_failed(
-                "monitor_ip_route",
-                "the query",
-                None,
-                &format!("output that is not JSON: {e}"),
-            )
-        })?;
-        Ok(json_to_value(json_val))
+        monitor_json_records(B, "ip", &["-j", "route", "show"])
     }
 
     #[cfg(target_os = "macos")]
     {
-        let output = Command::new("netstat")
-            .args(["-rn"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_ip_route", "netstat", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let text = monitor_text(B, "netstat", &["-rn"], TOOL_MAX_TEXT)?;
         let mut records = Vec::new();
         let mut header_seen = false;
-        for line in stdout.lines() {
+        for line in text.lines() {
             if line.starts_with("Destination") {
                 header_seen = true;
                 continue;
@@ -54940,96 +54736,34 @@ fn bi_ip_route(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1025: bi_ip_link — Network link info
 // ---------------------------------------------------------------------------
-fn bi_ip_link(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let iface = if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        }
-    } else {
-        None
-    };
-    // The interface goes to `ip` positionally.
-    if let Some(i) = &iface {
-        crate::safety::reject_option_like("monitor_ip_link", std::slice::from_ref(i))?;
-    }
+fn bi_ip_link(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_ip_link";
+    monitor_direct_call(B, &args, &input, 1)?;
+    let iface = monitor_iface_arg(B, &args, 0)?;
 
     #[cfg(target_os = "windows")]
     {
-        let ps_cmd = if let Some(ref iface_name) = iface {
-            crate::ps_script!("Get-NetAdapter | Where-Object {{ $_.Name -like {} }} | Select-Object Name, InterfaceDescription, Status, MacAddress, LinkSpeed, MediaType | ConvertTo-Json -Depth 3", crate::safety::ps_quote(&format!("*{}*", iface_name)))
-        } else {
-            "Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, MacAddress, LinkSpeed, MediaType | ConvertTo-Json -Depth 3".to_string()
-        };
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_ip_link", "powershell", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.trim().is_empty() {
-            // On Linux an unknown interface is an error from `ip`; here a
-            // filter that matched nothing answered [].
-            if let Some(i) = &iface {
-                return Err(crate::safety::not_found("monitor_ip_link", "interface", i));
-            }
-            return Ok(Value::Array(vec![]));
-        }
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            crate::safety::tool_failed(
-                "monitor_ip_link",
-                "the query",
-                None,
-                &format!("output that is not JSON: {e}"),
-            )
-        })?;
-        Ok(json_to_value(json_val))
+        let ps_cmd = "Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, MacAddress, LinkSpeed, MediaType | ConvertTo-Json -Depth 3";
+        let records = monitor_ps_json(B, "Get-NetAdapter", ps_cmd)?;
+        monitor_named(B, records, iface.as_deref(), "Name")
     }
 
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = Command::new("ip");
-        cmd.args(["-j", "link", "show"]);
-        if let Some(ref iface_name) = iface {
-            cmd.arg(iface_name);
-        }
-        let output = cmd
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_ip_link", "ip", &e))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(crate::safety::tool_failed(
-                "monitor_ip_link",
-                "ip",
-                output.status.code(),
-                &stderr,
-            ));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            crate::safety::tool_failed(
-                "monitor_ip_link",
-                "the query",
-                None,
-                &format!("output that is not JSON: {e}"),
-            )
-        })?;
-        Ok(json_to_value(json_val))
+        let mut argv = vec!["-j", "link", "show"];
+        argv.extend(iface.as_deref());
+        monitor_json_records(B, "ip", &argv)
     }
 
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = Command::new("ifconfig");
-        if let Some(ref iface_name) = iface {
-            cmd.arg(iface_name);
-        }
-        let output = cmd
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_ip_link", "ifconfig", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut argv: Vec<&str> = Vec::new();
+        argv.extend(iface.as_deref());
+        let text = monitor_text(B, "ifconfig", &argv, TOOL_MAX_TEXT)?;
         let mut records = Vec::new();
         let mut current_iface = String::new();
         let mut current_rec = BTreeMap::new();
-        for line in stdout.lines() {
+        for line in text.lines() {
             if !line.starts_with('\t') && !line.starts_with(' ') && line.contains(':') {
                 if !current_iface.is_empty() {
                     current_rec.insert("interface".to_string(), Value::Str(current_iface.clone()));
@@ -55084,18 +54818,15 @@ fn bi_ethtool_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     linux_diagnostics::interface_name("monitor_ethtool", &device)?;
     #[cfg(target_os = "linux")]
     {
-        let limit = std::time::Duration::from_secs(15);
-        let run = linux_diagnostics::run_bounded(
+        let text = monitor_text(
             "monitor_ethtool",
             "ethtool",
-            "ethtool",
-            std::slice::from_ref(&device),
-            limit,
+            &[device.as_str()],
+            TOOL_MAX_TEXT,
         )?;
-        linux_diagnostics::require_success("monitor_ethtool", "ethtool", &run, limit)?;
         let mut rec = BTreeMap::new();
-        rec.insert("device".to_string(), Value::Str(device));
-        for line in run.stdout.lines() {
+        rec.insert("device".to_string(), Value::Str(device.clone()));
+        for line in text.lines() {
             if let Some((key, val)) = line.trim().split_once(':') {
                 let k = key.trim().to_lowercase().replace([' ', '-'], "_");
                 let v = val.trim();
@@ -55348,77 +55079,43 @@ fn bi_uptime_extended(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 // ---------------------------------------------------------------------------
 // 1031: bi_who_users — Currently logged in users
 // ---------------------------------------------------------------------------
-fn bi_who_users(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
+fn bi_who_users(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_users";
+    monitor_direct_call(B, &args, &input, 0)?;
 
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", "query user 2>$null | Out-String"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_users", "query", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut records = Vec::new();
-        for line in stdout.lines().skip(1) {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            let parts: Vec<&str> = trimmed.split_whitespace().collect();
-            if parts.len() >= 4 {
-                let mut rec = BTreeMap::new();
-                rec.insert(
-                    "username".to_string(),
-                    Value::Str(parts[0].trim_start_matches('>').to_string()),
-                );
-                rec.insert("session_name".to_string(), Value::Str(parts[1].to_string()));
-                rec.insert("id".to_string(), Value::Str(parts[2].to_string()));
-                rec.insert("state".to_string(), Value::Str(parts[3].to_string()));
-                if parts.len() >= 5 {
-                    rec.insert("idle_time".to_string(), Value::Str(parts[4].to_string()));
-                }
-                if parts.len() >= 6 {
-                    rec.insert("logon_time".to_string(), Value::Str(parts[5..].join(" ")));
-                }
-                records.push(Value::Record(rec));
-            }
+        // query.exe exits 1 and says "No User exists" when nobody is logged on.
+        // That is an empty answer, not a failure.
+        let run = tool_run(
+            B,
+            "query",
+            None,
+            &["user"],
+            Keep::Head(TOOL_MAX_TEXT),
+            TOOL_DEADLINE_SECS,
+        )?;
+        if !run.success && format!("{}{}", run.stdout, run.stderr).contains("No User exists") {
+            return Ok(Value::Array(Vec::new()));
         }
-        Ok(Value::Array(records))
+        let text = tool_text(B, run)?;
+        Ok(Value::Array(monitor_parse::query_user_records(&text)?))
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let output = Command::new("who")
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_users", "who", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut records = Vec::new();
-        for line in stdout.lines() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 {
-                let mut rec = BTreeMap::new();
-                rec.insert("username".to_string(), Value::Str(parts[0].to_string()));
-                rec.insert("terminal".to_string(), Value::Str(parts[1].to_string()));
-                rec.insert("login_time".to_string(), Value::Str(parts[2..].join(" ")));
-                records.push(Value::Record(rec));
-            }
-        }
-        Ok(Value::Array(records))
+        let text = monitor_text(B, "who", &[], TOOL_MAX_TEXT)?;
+        Ok(Value::Array(monitor_parse::who_records(&text)?))
     }
 }
 
 // ---------------------------------------------------------------------------
 // 1032: bi_last_logins — Recent login history
 // ---------------------------------------------------------------------------
-fn bi_last_logins(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let count = if !args.is_empty() {
-        match &args[0] {
-            Value::Int(n) => *n,
-            _ => 20,
-        }
-    } else {
-        20
-    };
+fn bi_last_logins(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_logins";
+    monitor_direct_call(B, &args, &input, 1)?;
+    let count = monitor_int_arg(B, &args, 0, 20, 1, 1000, "a login count")?;
 
     #[cfg(target_os = "windows")]
     {
@@ -55436,106 +55133,49 @@ fn bi_last_logins(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }}"#,
             count
         );
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_logins", "powershell", &e))?;
-        if !output.status.success() {
-            return Err(crate::safety::tool_failed(
-                "monitor_logins",
-                "Get-WinEvent (the Security log needs an elevated shell)",
-                output.status.code(),
-                &String::from_utf8_lossy(&output.stderr),
-            ));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.trim().is_empty() {
-            return Ok(Value::Array(vec![]));
-        }
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            crate::safety::tool_failed(
-                "monitor_logins",
-                "the query",
-                None,
-                &format!("output that is not JSON: {e}"),
-            )
-        })?;
-        Ok(json_to_value(json_val))
+        monitor_ps_json(
+            B,
+            "Get-WinEvent (the Security log needs an elevated shell)",
+            &ps_cmd,
+        )
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let output = Command::new("last")
-            .args(["-n", &count.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_logins", "last", &e))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut records = Vec::new();
-        for line in stdout.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with("wtmp") || trimmed.starts_with("btmp") {
-                continue;
-            }
-            let parts: Vec<&str> = trimmed.split_whitespace().collect();
-            if parts.len() >= 4 {
-                let mut rec = BTreeMap::new();
-                rec.insert("user".to_string(), Value::Str(parts[0].to_string()));
-                rec.insert("terminal".to_string(), Value::Str(parts[1].to_string()));
-                // Handle host field (may be absent)
-                let time_start = if parts.len() > 5 {
-                    rec.insert("host".to_string(), Value::Str(parts[2].to_string()));
-                    3
-                } else {
-                    2
-                };
-                if parts.len() > time_start {
-                    rec.insert(
-                        "login_time".to_string(),
-                        Value::Str(parts[time_start..].join(" ")),
-                    );
-                }
-                records.push(Value::Record(rec));
-            }
-        }
-        Ok(Value::Array(records))
+        let n = count.to_string();
+        let text = monitor_text(B, "last", &["-n", n.as_str()], TOOL_MAX_TEXT)?;
+        Ok(Value::Array(monitor_parse::last_records(&text)?))
     }
 }
 
 // ---------------------------------------------------------------------------
 // 1033: bi_syslog_search — System log search
 // ---------------------------------------------------------------------------
-fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let keyword = if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "syslog_search: keyword string required",
-                ))
-            }
+fn bi_syslog_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_syslog";
+    monitor_direct_call(B, &args, &input, 2)?;
+    let keyword = match args.first() {
+        Some(Value::Str(k)) => k.clone(),
+        _ => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "a keyword String",
+                &monitor_got(args.first()),
+            ))
         }
-    } else {
-        return Err(crate::safety::arg_err(
-            "syslog_search: keyword string required",
-        ));
     };
-    let count = if args.len() > 1 {
-        match &args[1] {
-            Value::Int(n) => *n,
-            _ => 50,
-        }
-    } else {
-        50
-    };
+    monitor_keyword(B, &keyword)?;
+    let count = monitor_int_arg(B, &args, 1, 50, 1, 1000, "a match count")?;
 
     #[cfg(target_os = "windows")]
     {
         let ps_cmd = crate::ps_script!(
             // Always an array; no events is []; any other failure is an error,
-            // where it used to be {available: false, reason} at exit 0.
+            // where it used to be {available: false, reason} at exit 0. Only the
+            // newest 500 System events are searched.
             r#"try {{
     $r = @(Get-WinEvent -FilterHashtable @{{LogName='System'}} -MaxEvents 500 -ErrorAction Stop |
-        Where-Object {{ $_.Message -like {} }} |
+        Where-Object {{ $_.Message -match [regex]::Escape({}) }} |
         Select-Object -First {} |
         Select-Object TimeCreated, Id, LevelDisplayName, ProviderName, Message)
     ConvertTo-Json -InputObject $r -Depth 3
@@ -55543,154 +55183,104 @@ fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*') {{ '[]' }}
     else {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}
 }}"#,
-            crate::safety::ps_quote(&format!("*{}*", keyword)),
+            crate::safety::ps_quote(&keyword),
             count
         );
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_syslog", "powershell", &e))?;
-        if !output.status.success() {
-            return Err(crate::safety::tool_failed(
-                "monitor_syslog",
-                "Get-WinEvent",
-                output.status.code(),
-                &String::from_utf8_lossy(&output.stderr),
-            ));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.trim().is_empty() {
-            return Ok(Value::Array(vec![]));
-        }
-        let json_val: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            crate::safety::tool_failed(
-                "monitor_syslog",
-                "Get-WinEvent",
-                None,
-                &format!("output that is not JSON: {e}"),
-            )
-        })?;
-        Ok(json_to_value(json_val))
+        monitor_ps_json(B, "Get-WinEvent", &ps_cmd)
     }
 
     #[cfg(target_os = "linux")]
     {
-        // Try journalctl first, fall back to grep in /var/log/syslog
-        // Bounded: on a host with no running journal, `journalctl` blocks
-        // rather than failing, and the catalogue sweep had to kill this
-        // builtin at its own ten-second timeout. An agent gets nothing at all
-        // from a hang.
-        let mut jc = Command::new("journalctl");
-        jc.args([
-            "-g",
-            &keyword,
-            "-n",
-            &count.to_string(),
-            "--no-pager",
-            "-o",
-            "json",
-        ]);
-        let output = crate::safety::output_with_timeout(jc, 5);
-
-        match output {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let mut records = Vec::new();
-                for line in stdout.lines() {
-                    if let Ok(jv) = serde_json::from_str::<serde_json::Value>(line) {
-                        records.push(json_to_value(jv));
-                    }
-                }
-                Ok(Value::Array(records))
+        // journalctl first. The syslog file is read only when journalctl is not
+        // installed; a journalctl that runs and fails is an error, not a cue to
+        // answer from a different source.
+        let n = count.to_string();
+        let journal = tool_run(
+            B,
+            "journalctl",
+            None,
+            &[
+                "-g",
+                keyword.as_str(),
+                "-n",
+                n.as_str(),
+                "--no-pager",
+                "-o",
+                "json",
+            ],
+            Keep::Head(TOOL_MAX_JSON),
+            TOOL_DEADLINE_SECS,
+        );
+        match journal {
+            Ok(run) => {
+                let text = tool_text(B, run)?;
+                Ok(Value::Array(monitor_parse::journal_records(&text)?))
             }
-            _ => {
-                // Fallback: grep syslog
-                // `-e`: the keyword is a pattern, and one starting with `-`
-                // was read as an option. Exit 1 is "no match"; 2 (no such
-                // log, no permission) answered [] as if nothing matched.
+            Err(e) if monitor_tool_missing(&e) => {
                 let log = ["/var/log/syslog", "/var/log/messages"]
                     .into_iter()
                     .find(|p| std::path::Path::new(p).exists())
                     .ok_or_else(|| {
-                        crate::safety::tool_failed(
-                            "monitor_syslog",
+                        crate::safety::tool_missing(
+                            B,
                             "journalctl",
-                            None,
-                            "no readable journal and no /var/log/syslog or /var/log/messages",
+                            "and there is no /var/log/syslog or /var/log/messages to read instead",
                         )
                     })?;
-                let output = Command::new("grep")
-                    .args(["-i", "-e", &keyword, log])
-                    .output()
-                    .map_err(|e| crate::safety::spawn_error("monitor_syslog", "grep", &e))?;
-                if output.status.code() == Some(2) {
-                    return Err(crate::safety::tool_failed(
-                        "monitor_syslog",
-                        "grep",
-                        Some(2),
-                        &String::from_utf8_lossy(&output.stderr),
-                    ));
+                // grep: exit 1 is "no line matched"; `-e` keeps a keyword from
+                // being read as an option.
+                let run = tool_run(
+                    B,
+                    "grep",
+                    None,
+                    &["-i", "-e", keyword.as_str(), log],
+                    Keep::Tail(TOOL_MAX_TEXT),
+                    TOOL_DEADLINE_SECS,
+                )?;
+                if run.code == Some(1) {
+                    return Ok(Value::Array(Vec::new()));
                 }
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let mut records = Vec::new();
-                for line in stdout.lines().rev().take(count as usize) {
-                    let mut rec = BTreeMap::new();
-                    rec.insert("line".to_string(), Value::Str(line.to_string()));
-                    records.push(Value::Record(rec));
+                if !run.success {
+                    return Err(crate::safety::tool_failed(B, "grep", run.code, &run.stderr));
                 }
-                records.reverse();
-                Ok(Value::Array(records))
+                // A tail cut short starts mid-line, so that fragment is dropped.
+                let text = if run.stdout_truncated {
+                    run.stdout.split_once('\n').map_or("", |(_, rest)| rest)
+                } else {
+                    run.stdout.as_str()
+                };
+                Ok(Value::Array(monitor_parse::grep_records(
+                    text,
+                    count as usize,
+                    log,
+                )))
             }
+            Err(e) => Err(e),
         }
     }
 
     #[cfg(target_os = "macos")]
     {
-        // Backslashes first: escaping only the quote let a trailing
-        // backslash re-open the string.
+        // Backslashes first: escaping only the quote let a trailing backslash
+        // re-open the string.
         let predicate = format!(
             "eventMessage contains \"{}\"",
             keyword.replace('\\', "\\\\").replace('"', "\\\"")
         );
-        let output = Command::new("log")
-            .args([
+        let records = monitor_json_records(
+            B,
+            "log",
+            &[
                 "show",
                 "--predicate",
-                &predicate,
+                predicate.as_str(),
                 "--last",
                 "1h",
                 "--style",
                 "json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("monitor_syslog", "log", &e))?;
-        if !output.status.success() {
-            return Err(crate::safety::tool_failed(
-                "monitor_syslog",
-                "log show",
-                output.status.code(),
-                &String::from_utf8_lossy(&output.stderr),
-            ));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if let Ok(jv) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
-            // Limit results
-            if let Some(arr) = jv.as_array() {
-                // The newest `count`; this took the oldest.
-                let limited: Vec<serde_json::Value> =
-                    arr[arr.len().saturating_sub(count.max(0) as usize)..].to_vec();
-                return Ok(json_to_value(serde_json::Value::Array(limited)));
-            }
-            return Ok(json_to_value(jv));
-        }
-        // Plain text fallback
-        let mut records = Vec::new();
-        for line in stdout.lines().take(count as usize) {
-            let mut rec = BTreeMap::new();
-            rec.insert("line".to_string(), Value::Str(line.to_string()));
-            records.push(Value::Record(rec));
-        }
-        Ok(Value::Array(records))
+            ],
+        )?;
+        Ok(monitor_newest(records, count))
     }
 }
 
