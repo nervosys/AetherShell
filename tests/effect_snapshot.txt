@@ -517,7 +517,7 @@ gui_dialog_file_save	WriteLocal
 gui_dialog_folder	Exec
 gui_dialog_input	Exec
 gui_dialog_message	Exec
-gui_find_image	Pure
+gui_find_image	ReadLocal
 gui_focus_window	Process
 gui_get_active_window	ReadLocal
 gui_key_combo	Exec

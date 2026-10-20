@@ -770,6 +770,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "git_tags"
         | "group_members"
         | "gui_color_picker"
+        | "gui_find_image"
         | "gui_get_active_window"
         | "gui_list_windows"
         | "gui_mouse_position"
