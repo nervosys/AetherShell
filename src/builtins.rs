@@ -47355,6 +47355,29 @@ fn tool_run(
     keep: Keep,
     deadline_secs: u64,
 ) -> Result<ToolRun> {
+    tool_run_stderr(
+        builtin,
+        program,
+        dir,
+        args,
+        keep,
+        TOOL_STDERR_TAIL,
+        deadline_secs,
+    )
+}
+
+/// [`tool_run`] that keeps `stderr_keep` bytes of stderr instead of the usual
+/// failure-message tail. A tool whose report is written to stderr (valgrind)
+/// needs more than the tail; its failure message is cut again by the caller.
+fn tool_run_stderr(
+    builtin: &str,
+    program: &str,
+    dir: Option<&std::path::Path>,
+    args: &[&str],
+    keep: Keep,
+    stderr_keep: usize,
+    deadline_secs: u64,
+) -> Result<ToolRun> {
     use std::process::Stdio;
     let command = format!("{program} {}", args.join(" "));
     let mut cmd = std::process::Command::new(program);
@@ -47382,7 +47405,7 @@ fn tool_run(
         None => (Vec::new(), false),
     });
     let err_h = std::thread::spawn(move || match err_pipe {
-        Some(pipe) => k8s_read_tail(pipe, TOOL_STDERR_TAIL),
+        Some(pipe) => k8s_read_tail(pipe, stderr_keep),
         None => Vec::new(),
     });
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(deadline_secs);
@@ -55317,62 +55340,469 @@ fn bi_tee_output(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(text))
 }
 
-/// make — Run make targets (cross-platform).
-/// Usage: make_run() or make_run(target) or make_run(target, {dir?, file?, jobs?})
-fn bi_make_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let target = match args.first() {
-        Some(Value::Str(s)) => Some(s.clone()),
-        _ => None,
+/// Longest tmux or screen session name.
+const DEVTOOL_MAX_NAME: usize = 64;
+/// Longest tmux target: a session, or session:window.pane.
+const DEVTOOL_MAX_TARGET: usize = 256;
+/// Longest key text sent to a session in one call.
+const DEVTOOL_MAX_KEYS: usize = 4096;
+/// Longest single argument passed through to a dev tool.
+const DEVTOOL_MAX_ARG: usize = 4096;
+/// Most items in any list an options Record or a call takes (cmake defines,
+/// gdb commands, recipe arguments).
+const DEVTOOL_MAX_ITEMS: usize = 256;
+/// Longest single gdb command line.
+const DEVTOOL_MAX_GDB_LINE: usize = 512;
+/// Most parallel jobs a build may ask for.
+const DEVTOOL_MAX_JOBS: i64 = 1024;
+
+/// The process's working directory, as a dev tool would inherit it.
+fn devtool_cwd(builtin: &str) -> Result<std::path::PathBuf> {
+    std::env::current_dir().map_err(|e| crate::safety::fs_error(builtin, ".", &e))
+}
+
+/// A directory a dev tool runs in: `value` (default: the process's directory)
+/// resolved against the process's directory, required to lie inside the
+/// workspace, and required to exist as a directory.
+fn devtool_dir(builtin: &str, value: Option<&str>) -> Result<std::path::PathBuf> {
+    let cwd = devtool_cwd(builtin)?;
+    let dir = workspace_path(builtin, value.unwrap_or("."), &cwd)?;
+    if !dir.is_dir() {
+        return Err(crate::safety::not_found(
+            builtin,
+            "directory",
+            &dir.display().to_string(),
+        ));
+    }
+    Ok(dir)
+}
+
+/// The options Record at `index`, when one is given. Only the keys in
+/// `allowed` are accepted; any other key is refused by name, so no option is
+/// silently ignored.
+fn devtool_options<'a>(
+    builtin: &str,
+    args: &'a [Value],
+    index: usize,
+    allowed: &[&str],
+) -> Result<Option<&'a BTreeMap<String, Value>>> {
+    match args.get(index) {
+        None => Ok(None),
+        Some(Value::Record(map)) => {
+            if let Some(key) = map.keys().find(|k| !allowed.contains(&k.as_str())) {
+                return Err(crate::safety::arg_err(format!(
+                    "{builtin}: unknown option '{key}'; the options are {}",
+                    allowed.join(", ")
+                )));
+            }
+            Ok(Some(map))
+        }
+        Some(other) => Err(crate::safety::arg_err(format!(
+            "{builtin}: options must be a Record, got {}",
+            other.type_name()
+        ))),
+    }
+}
+
+/// A String option, checked, when it is present.
+fn devtool_opt_str(
+    builtin: &str,
+    what: &str,
+    options: Option<&BTreeMap<String, Value>>,
+    key: &str,
+    check: K8sCheck,
+) -> Result<Option<String>> {
+    match options.and_then(|o| o.get(key)) {
+        None => Ok(None),
+        Some(Value::Str(s)) => check(builtin, what, s).map(Some),
+        Some(other) => Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be a String, got {}",
+            other.type_name()
+        ))),
+    }
+}
+
+/// An Int option, range-checked, when it is present.
+fn devtool_opt_int(
+    builtin: &str,
+    what: &str,
+    options: Option<&BTreeMap<String, Value>>,
+    key: &str,
+    lo: i64,
+    hi: i64,
+) -> Result<Option<i64>> {
+    match options.and_then(|o| o.get(key)) {
+        None => Ok(None),
+        Some(Value::Int(n)) if (lo..=hi).contains(n) => Ok(Some(*n)),
+        Some(Value::Int(n)) => Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be {lo}..={hi}, got {n}"
+        ))),
+        Some(other) => Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be an Int, got {}",
+            other.type_name()
+        ))),
+    }
+}
+
+/// A tmux or screen session name: 1-64 letters, digits, '-' or '_'. Colons and
+/// dots are refused because tmux reads them as target separators, and a
+/// leading '-' is refused as an option.
+fn devtool_session(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    let well_formed = !value.is_empty()
+        && value.len() <= DEVTOOL_MAX_NAME
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !well_formed {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is 1-{DEVTOOL_MAX_NAME} letters, digits, '-' or '_' (got {value:?})"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+/// A tmux target: a session, or session:window.pane. One word, not option-like.
+fn devtool_target(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    let well_formed = !value.is_empty()
+        && value.len() <= DEVTOOL_MAX_TARGET
+        && !value.chars().any(|c| c.is_whitespace() || c.is_control());
+    if !well_formed {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is one word of at most {DEVTOOL_MAX_TARGET} characters (got {value:?})"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+/// Keys typed into a session: one line, no control characters (each newline
+/// would be a second command), not option-like.
+fn devtool_keys(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    if value.is_empty() || value.len() > DEVTOOL_MAX_KEYS || value.chars().any(char::is_control) {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is one line of 1-{DEVTOOL_MAX_KEYS} bytes with no control characters"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+/// A tool-and-version spec such as `node@20`: one word, not option-like.
+fn devtool_tool_spec(builtin: &str, what: &str, value: &str) -> Result<String> {
+    if value.chars().any(char::is_whitespace) {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is one word such as node@20 (got {value:?})"
+        )));
+    }
+    tf_plain(builtin, what, value)
+}
+
+/// A string argument that goes to a tool as data: no NUL byte.
+fn devtool_text_arg(builtin: &str, what: &str, value: &str) -> Result<String> {
+    if value.contains('\0') {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must not contain a NUL byte"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+/// A word passed to a dev tool as one recipe or program argument. A leading
+/// '-' is refused, because the tool would read it as an option.
+fn devtool_word(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    if value.len() > DEVTOOL_MAX_ARG || value.contains('\0') {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is at most {DEVTOOL_MAX_ARG} bytes with no NUL byte"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+/// A gdb command script, one command per line. Each line becomes one `-ex`
+/// argument. gdb can run shell commands, so the call is approval-gated as an
+/// exec by the central gate.
+fn devtool_gdb_commands(builtin: &str, text: &str) -> Result<Vec<String>> {
+    let lines: Vec<String> = text
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    if lines.is_empty() {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: commands must contain at least one gdb command"
+        )));
+    }
+    if lines.len() > DEVTOOL_MAX_ITEMS {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: at most {DEVTOOL_MAX_ITEMS} gdb commands, got {}",
+            lines.len()
+        )));
+    }
+    if let Some(long) = lines.iter().find(|l| l.len() > DEVTOOL_MAX_GDB_LINE) {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: a gdb command is at most {DEVTOOL_MAX_GDB_LINE} bytes, got {}",
+            long.len()
+        )));
+    }
+    Ok(lines)
+}
+
+/// `-Dname=value` for each define in a cmake defines Record. Names are letters,
+/// digits and `_.-`; values are String, Int or Bool (ON/OFF).
+fn devtool_defines(builtin: &str, value: &Value) -> Result<Vec<String>> {
+    let defs = match value {
+        Value::Record(map) => map,
+        other => {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: defines must be a Record, got {}",
+                other.type_name()
+            )))
+        }
     };
-    let mut cmd = std::process::Command::new("make");
-    if let Some(Value::Record(r)) = args.get(1) {
-        if let Some(Value::Str(d)) = r.get("dir") {
-            cmd.current_dir(d);
-        }
-        if let Some(Value::Str(f)) = r.get("file") {
-            cmd.args(["-f", f]);
-        }
-        if let Some(Value::Int(j)) = r.get("jobs") {
-            cmd.arg(format!("-j{}", j));
-        }
+    if defs.len() > DEVTOOL_MAX_ITEMS {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: at most {DEVTOOL_MAX_ITEMS} defines, got {}",
+            defs.len()
+        )));
     }
-    if let Some(t) = &target {
-        cmd.arg(t);
+    let mut out = Vec::with_capacity(defs.len());
+    for (key, val) in defs {
+        let well_formed = !key.is_empty()
+            && key.len() <= 128
+            && !key.starts_with('-')
+            && key
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c));
+        if !well_formed {
+            return Err(crate::safety::arg_err(format!(
+                "{builtin}: a define name is letters, digits and _.- and does not start with '-' (got {key:?})"
+            )));
+        }
+        let text = match val {
+            Value::Str(s) => s.clone(),
+            Value::Int(n) => n.to_string(),
+            Value::Bool(b) => (if *b { "ON" } else { "OFF" }).to_string(),
+            other => {
+                return Err(crate::safety::arg_err(format!(
+                    "{builtin}: define {key} must be a String, Int or Bool, got {}",
+                    other.type_name()
+                )))
+            }
+        };
+        devtool_text_arg(builtin, "a define value", &text)?;
+        out.push(format!("-D{key}={text}"));
     }
-    let out = cmd
-        .output()
-        .map_err(|e| crate::safety::tool_missing("make", "make", &e.to_string()))?;
+    Ok(out)
+}
+
+/// A file read whole, at most `TOOL_MAX_TEXT` bytes. A larger file is refused
+/// rather than read in part, and a missing one is E_NOT_FOUND.
+fn devtool_read_text(builtin: &str, kind: &str, path: &str) -> Result<String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).map_err(|e| devtool_io(builtin, kind, path, &e))?;
+    let mut bytes = Vec::new();
+    file.take(TOOL_MAX_TEXT as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| devtool_io(builtin, kind, path, &e))?;
+    if bytes.len() > TOOL_MAX_TEXT {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("`{path}` is larger than {TOOL_MAX_TEXT} bytes"),
+            "point this at a smaller file",
+        ));
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// An I/O failure on a named file: NotFound is E_NOT_FOUND, anything else is
+/// the file system's own coded error.
+fn devtool_io(builtin: &str, kind: &str, path: &str, e: &std::io::Error) -> anyhow::Error {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        crate::safety::not_found(builtin, kind, path)
+    } else {
+        crate::safety::fs_error(builtin, path, e)
+    }
+}
+
+/// A finished call that must have succeeded. A nonzero exit is E_TOOL_FAILED
+/// with the tail of its stderr.
+fn finished(builtin: &str, run: ToolRun) -> Result<ToolRun> {
+    if run.success {
+        return Ok(run);
+    }
+    let tail = tail_text(&run.stderr, TOOL_STDERR_TAIL);
+    Err(crate::safety::tool_failed(
+        builtin,
+        &run.command,
+        run.code,
+        &tail,
+    ))
+}
+
+/// The last `max` bytes of `text`, cut on a character boundary.
+fn tail_text(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    let mut start = text.len() - max;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    text[start..].to_string()
+}
+
+/// The fields every successful dev-tool record carries. The output keys are
+/// named by the caller, because each builtin has always named them its own
+/// way; `output_truncated` says when the stdout kept was only its tail.
+fn run_fields(run: ToolRun, out_key: &str, err_key: &str) -> BTreeMap<String, Value> {
     let mut rec = BTreeMap::new();
     rec.insert(
         "exit_code".to_string(),
-        Value::Int(out.status.code().unwrap_or(-1) as i64),
+        Value::Int(run.code.unwrap_or(0) as i64),
     );
-    rec.insert(
-        "stdout".to_string(),
-        Value::Str(String::from_utf8_lossy(&out.stdout).to_string()),
-    );
-    if !out.stderr.is_empty() {
-        rec.insert(
-            "stderr".to_string(),
-            Value::Str(String::from_utf8_lossy(&out.stderr).to_string()),
-        );
+    rec.insert("success".to_string(), Value::Bool(run.success));
+    if run.stdout_truncated {
+        rec.insert("output_truncated".to_string(), Value::Bool(true));
     }
-    rec.insert("success".to_string(), Value::Bool(out.status.success()));
+    rec.insert(out_key.to_string(), Value::Str(run.stdout));
+    rec.insert(err_key.to_string(), Value::Str(run.stderr));
+    rec
+}
+
+/// An interactive attach needs a terminal on both ends. Agent mode has no
+/// human to attach, and without a terminal the attach could only hang or fail,
+/// so both are refused as E_NO_UI before anything is spawned.
+fn devtool_terminal(builtin: &str) -> Result<()> {
+    crate::safety::refuse_if_headless(builtin)?;
+    use std::io::IsTerminal;
+    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+        Ok(())
+    } else {
+        Err(crate::safety::no_ui(builtin))
+    }
+}
+
+/// Run an attach with the terminal's streams inherited, so the user is the one
+/// talking to the session. Only called after [`devtool_terminal`].
+fn devtool_attach(builtin: &str, program: &str, args: &[&str], label: &str) -> Result<()> {
+    let status = std::process::Command::new(program)
+        .args(args)
+        .status()
+        .map_err(|e| crate::safety::spawn_error(builtin, program, &e))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(crate::safety::tool_failed(
+            builtin,
+            label,
+            status.code(),
+            "its messages went to this terminal",
+        ))
+    }
+}
+
+/// The lines of a list-style tool output: trimmed, non-empty, kept in order.
+fn devtool_lines(text: &str) -> Vec<Value> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| Value::Str(l.to_string()))
+        .collect()
+}
+
+/// valgrind under memcheck with the given flags. Its report is on stderr, so
+/// that is the stream kept at the larger size; a nonzero exit is E_TOOL_FAILED
+/// with the tail of that report.
+fn devtool_valgrind(
+    builtin: &str,
+    flags: &[&str],
+    args: &[Value],
+    input: Option<Value>,
+) -> Result<Value> {
+    k8s_no_input(builtin, &input)?;
+    let command = k8s_need(builtin, "program", args, 0, tf_plain)?;
+    let mut argv: Vec<&str> = flags.to_vec();
+    argv.push(command.as_str());
+    let run = tool_run_stderr(
+        builtin,
+        "valgrind",
+        None,
+        &argv,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_KEEP_TAIL,
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    let mut rec = run_fields(finished(builtin, run)?, "stdout", "report");
+    rec.insert("command".to_string(), Value::Str(command));
+    Ok(Value::Record(rec))
+}
+/// make — Run one make target, or the default goal.
+/// Usage: make_run() or make_run(target) or make_run(target, {dir?, file?, jobs?})
+/// The target is one argv element, never a shell line, and it may not start
+/// with '-'. `dir` and `file` must lie inside the workspace. Output keeps its
+/// last 256 KiB. A nonzero exit is E_TOOL_FAILED. Effect Exec: a Makefile runs
+/// its recipes.
+fn bi_make_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("make_run", &input)?;
+    let target = k8s_arg("make_run", "target", &args, 0, tf_plain)?;
+    let options = devtool_options("make_run", &args, 1, &["dir", "file", "jobs"])?;
+    let dir_opt = devtool_opt_str("make_run", "dir", options, "dir", tf_plain)?;
+    let file_opt = devtool_opt_str("make_run", "file", options, "file", tf_plain)?;
+    let jobs = devtool_opt_int("make_run", "jobs", options, "jobs", 1, DEVTOOL_MAX_JOBS)?;
+    let dir = devtool_dir("make_run", dir_opt.as_deref())?;
+    let file = match &file_opt {
+        Some(f) => Some(workspace_path("make_run", f, &dir)?),
+        None => None,
+    };
+    if let Some(f) = &file {
+        if !f.is_file() {
+            return Err(crate::safety::not_found(
+                "make_run",
+                "makefile",
+                &f.display().to_string(),
+            ));
+        }
+    }
+    let mut argv: Vec<String> = Vec::new();
+    if let Some(f) = &file {
+        argv.push("-f".to_string());
+        argv.push(f.display().to_string());
+    }
+    if let Some(j) = jobs {
+        argv.push(format!("-j{j}"));
+    }
+    if let Some(t) = &target {
+        argv.push(t.clone());
+    }
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = finished(
+        "make_run",
+        tool_run(
+            "make_run",
+            "make",
+            Some(dir.as_path()),
+            &refs,
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_LONG_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
     if let Some(t) = target {
         rec.insert("target".to_string(), Value::Str(t));
     }
     Ok(Value::Record(rec))
 }
 
-/// make — List available make targets from a Makefile (cross-platform, native Rust).
+/// make — List the targets a Makefile names, read natively without running make.
 /// Usage: make_targets() or make_targets(makefile_path)
-fn bi_make_targets(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let makefile = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "Makefile".to_string(),
-    };
-    let content = std::fs::read_to_string(&makefile)
-        .map_err(|_| crate::safety::not_found("make_targets", "makefile", &makefile))?;
+/// A missing file is E_NOT_FOUND; a file over 4 MiB is refused.
+fn bi_make_targets(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("make_targets", &input)?;
+    let makefile = k8s_arg("make_targets", "makefile path", &args, 0, tf_plain)?
+        .unwrap_or_else(|| "Makefile".to_string());
+    let content = devtool_read_text("make_targets", "makefile", &makefile)?;
     let re = regex::Regex::new(r"^([a-zA-Z_][a-zA-Z0-9_.-]*)\s*:").unwrap();
     let targets: Vec<Value> = content
         .lines()
@@ -55381,87 +55811,116 @@ fn bi_make_targets(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(targets))
 }
 
-/// cmake — Configure a build with CMake.
+/// cmake — Configure a build directory from a source directory.
 /// Usage: cmake_configure(source_dir) or cmake_configure(source_dir, build_dir, {generator?, defines?})
-fn bi_cmake_configure(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let source_dir = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
+/// Both directories default to "." and "build" and must lie inside the
+/// workspace; the build directory is created when missing. A define is
+/// `-Dname=value`, one argument each. Configure runs the project's CMakeLists
+/// code, yet the effect table classes cmake_configure as write_local, so the
+/// central gate does not ask for approval; that classification is reported,
+/// not changed here. A nonzero exit is
+/// E_TOOL_FAILED. Takes no pipeline input.
+fn bi_cmake_configure(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("cmake_configure", &input)?;
+    let source = k8s_arg("cmake_configure", "source directory", &args, 0, tf_plain)?;
+    let build = k8s_arg("cmake_configure", "build directory", &args, 1, tf_plain)?
+        .unwrap_or_else(|| "build".to_string());
+    let options = devtool_options("cmake_configure", &args, 2, &["generator", "defines"])?;
+    let generator = devtool_opt_str(
+        "cmake_configure",
+        "generator",
+        options,
+        "generator",
+        tf_plain,
+    )?;
+    let defines = match options.and_then(|o| o.get("defines")) {
+        Some(v) => devtool_defines("cmake_configure", v)?,
+        None => Vec::new(),
     };
-    let build_dir = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "build".to_string(),
-    };
-    // Create build dir if needed
-    let _ = std::fs::create_dir_all(&build_dir);
-    let mut cmd = std::process::Command::new("cmake");
-    cmd.args(["-S", &source_dir, "-B", &build_dir]);
-    if let Some(Value::Record(r)) = args.get(2) {
-        if let Some(Value::Str(g)) = r.get("generator") {
-            cmd.args(["-G", g]);
-        }
-        if let Some(Value::Record(defs)) = r.get("defines") {
-            for (k, v) in defs {
-                cmd.arg(format!("-D{}={}", k, v));
-            }
-        }
+    let source_dir = devtool_dir("cmake_configure", source.as_deref())?;
+    let cwd = devtool_cwd("cmake_configure")?;
+    let build_dir = workspace_path("cmake_configure", &build, &cwd)?;
+    let mut argv: Vec<String> = vec![
+        "-S".to_string(),
+        source_dir.display().to_string(),
+        "-B".to_string(),
+        build_dir.display().to_string(),
+    ];
+    if let Some(g) = generator {
+        argv.push("-G".to_string());
+        argv.push(g);
     }
-    let out = cmd
-        .output()
-        .map_err(|e| crate::safety::tool_missing("cmake", "cmake", &e.to_string()))?;
-    let mut rec = BTreeMap::new();
-    rec.insert("source_dir".to_string(), Value::Str(source_dir));
-    rec.insert("build_dir".to_string(), Value::Str(build_dir));
-    rec.insert("success".to_string(), Value::Bool(out.status.success()));
+    argv.extend(defines);
+    std::fs::create_dir_all(&build_dir)
+        .map_err(|e| crate::safety::fs_error("cmake_configure", &build_dir, &e))?;
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = finished(
+        "cmake_configure",
+        tool_run(
+            "cmake_configure",
+            "cmake",
+            None,
+            &refs,
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_LONG_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
     rec.insert(
-        "stdout".to_string(),
-        Value::Str(String::from_utf8_lossy(&out.stdout).to_string()),
+        "source_dir".to_string(),
+        Value::Str(source_dir.display().to_string()),
     );
-    if !out.stderr.is_empty() {
-        rec.insert(
-            "stderr".to_string(),
-            Value::Str(String::from_utf8_lossy(&out.stderr).to_string()),
-        );
-    }
+    rec.insert(
+        "build_dir".to_string(),
+        Value::Str(build_dir.display().to_string()),
+    );
     Ok(Value::Record(rec))
 }
 
-/// cmake — Build a CMake project.
+/// cmake — Build a configured CMake build directory.
 /// Usage: cmake_build(build_dir) or cmake_build(build_dir, {target?, config?, jobs?})
-fn bi_cmake_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let build_dir = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "build".to_string(),
-    };
-    let mut cmd = std::process::Command::new("cmake");
-    cmd.args(["--build", &build_dir]);
-    if let Some(Value::Record(r)) = args.get(1) {
-        if let Some(Value::Str(t)) = r.get("target") {
-            cmd.args(["--target", t]);
-        }
-        if let Some(Value::Str(c)) = r.get("config") {
-            cmd.args(["--config", c]);
-        }
-        if let Some(Value::Int(j)) = r.get("jobs") {
-            cmd.args(["-j", &j.to_string()]);
-        }
+/// The build directory must exist and lie inside the workspace. Options are
+/// one argument each and may not start with '-'. Runs the project's build
+/// steps, so its effect is Exec. A nonzero exit is E_TOOL_FAILED.
+fn bi_cmake_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("cmake_build", &input)?;
+    let build = k8s_arg("cmake_build", "build directory", &args, 0, tf_plain)?
+        .unwrap_or_else(|| "build".to_string());
+    let options = devtool_options("cmake_build", &args, 1, &["target", "config", "jobs"])?;
+    let target = devtool_opt_str("cmake_build", "target", options, "target", tf_plain)?;
+    let config = devtool_opt_str("cmake_build", "config", options, "config", tf_plain)?;
+    let jobs = devtool_opt_int("cmake_build", "jobs", options, "jobs", 1, DEVTOOL_MAX_JOBS)?;
+    let dir = devtool_dir("cmake_build", Some(build.as_str()))?;
+    let mut argv: Vec<String> = vec!["--build".to_string(), dir.display().to_string()];
+    if let Some(t) = &target {
+        argv.push("--target".to_string());
+        argv.push(t.clone());
     }
-    let out = cmd
-        .output()
-        .map_err(|e| crate::safety::tool_missing("cmake", "cmake", &e.to_string()))?;
-    let mut rec = BTreeMap::new();
-    rec.insert("build_dir".to_string(), Value::Str(build_dir));
-    rec.insert("success".to_string(), Value::Bool(out.status.success()));
+    if let Some(c) = &config {
+        argv.push("--config".to_string());
+        argv.push(c.clone());
+    }
+    if let Some(j) = jobs {
+        argv.push("-j".to_string());
+        argv.push(j.to_string());
+    }
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = finished(
+        "cmake_build",
+        tool_run(
+            "cmake_build",
+            "cmake",
+            None,
+            &refs,
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_LONG_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
     rec.insert(
-        "stdout".to_string(),
-        Value::Str(String::from_utf8_lossy(&out.stdout).to_string()),
+        "build_dir".to_string(),
+        Value::Str(dir.display().to_string()),
     );
-    if !out.stderr.is_empty() {
-        rec.insert(
-            "stderr".to_string(),
-            Value::Str(String::from_utf8_lossy(&out.stderr).to_string()),
-        );
-    }
     Ok(Value::Record(rec))
 }
 
@@ -55752,42 +56211,47 @@ fn extract_xml_attr(line: &str, attr: &str) -> Option<String> {
 
 // --- tmux (995-998) ---
 
-/// tmux new-session — Create a new tmux session.
-/// Usage: tmux_new(session_name) or tmux_new(session_name, command)
-fn bi_tmux_new(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("tmux_new requires a session name")),
-    };
-    let _cmd_args = ["new-session", "-d", "-s"];
-    let name_ref: &str = &name;
-    let cmd_str;
-    let full_args: Vec<&str>;
-    if let Some(Value::Str(c)) = args.get(1) {
-        // tmux runs this string as the session's command, so it is `sh -c` by
-        // another name and takes the same gate.
-        crate::safety::guard_exec("tmux_new", c)?;
-        cmd_str = c.clone();
-        full_args = vec!["new-session", "-d", "-s", name_ref, &cmd_str];
-    } else {
-        full_args = vec!["new-session", "-d", "-s", name_ref];
+/// tmux new-session — Create a detached tmux session with a shell in it.
+/// Usage: tmux_new(session_name)
+/// The name is 1-64 letters, digits, '-' or '_'. The session runs the default
+/// shell and nothing else: tmux takes a command as one string for its shell,
+/// which is `sh -c` by another name, so to start a program use tmux_send.
+/// A name already in use is E_TOOL_FAILED.
+fn bi_tmux_new(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("tmux_new", &input)?;
+    if args.len() > 1 {
+        return Err(crate::safety::arg_err(format!(
+            "tmux_new takes a session name only; {} more argument(s) given. Start the program inside the session with tmux_send, which is approval-gated.",
+            args.len() - 1
+        )));
     }
-    let output = std::process::Command::new("tmux").args(&full_args).output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("session".to_string(), Value::Str(name));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            if !o.stderr.is_empty() {
-                rec.insert(
-                    "stderr".to_string(),
-                    Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-                );
-            }
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("tmux", "tmux", &e.to_string())),
-    }
+    let name = k8s_need("tmux_new", "session name", &args, 0, devtool_session)?;
+    // tmux_new is listed as self-guarded, so the central gate does not run for
+    // it. This is the guard it relies on instead: creating a session is a
+    // process effect and asks for approval in agent mode.
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "tmux_new",
+        effect: crate::safety::Effect::Process,
+        what: "process",
+        targets: vec![name.clone()],
+        blast_radius: serde_json::json!({ "sessions": 1 }),
+        reversible: true,
+        fs_paths: false,
+    })?;
+    let run = finished(
+        "tmux_new",
+        tool_run(
+            "tmux_new",
+            "tmux",
+            None,
+            &["new-session", "-d", "-s", name.as_str()],
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
+    rec.insert("session".to_string(), Value::Str(name));
+    Ok(Value::Record(rec))
 }
 
 /// tmux list-sessions — List active tmux sessions.
@@ -55849,88 +56313,75 @@ fn bi_tmux_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// tmux attach — Attach to a tmux session.
-fn bi_tmux_attach(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "tmux_attach requires a session name",
-            ))
-        }
-    };
-    let output = std::process::Command::new("tmux")
-        .args(["attach-session", "-t", &name])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("session".to_string(), Value::Str(name));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("tmux", "tmux", &e.to_string())),
-    }
+/// tmux attach — Attach this terminal to a tmux session until the user detaches.
+/// Usage: tmux_attach(session_name)
+/// Needs a terminal on stdin and stdout and is refused as E_NO_UI without one,
+/// and in agent mode. Its effect is Process, so agent mode would ask first.
+fn bi_tmux_attach(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("tmux_attach", &input)?;
+    let name = k8s_need("tmux_attach", "session name", &args, 0, devtool_session)?;
+    devtool_terminal("tmux_attach")?;
+    devtool_attach(
+        "tmux_attach",
+        "tmux",
+        &["attach-session", "-t", name.as_str()],
+        "tmux attach-session",
+    )?;
+    let mut rec = BTreeMap::new();
+    rec.insert("session".to_string(), Value::Str(name));
+    rec.insert("success".to_string(), Value::Bool(true));
+    Ok(Value::Record(rec))
 }
 
-/// tmux send-keys — Send keys/command to a tmux session.
-fn bi_tmux_send(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let target = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "tmux_send requires a target session",
-            ))
-        }
-    };
-    let keys = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("tmux_send requires keys to send")),
-    };
-    // `send-keys … Enter` types the string into a live shell and presses
-    // return, which is execution in every sense that matters — the only
-    // difference from `sh` is that the process is someone else's.
+/// tmux send-keys — Type a line into a session the caller named, then press Enter.
+/// Usage: tmux_send(target, keys)
+/// This is execution in another process's shell, so it is approval-gated. The
+/// keys are one line with no control characters and may not start with '-'.
+/// A session that does not exist is E_TOOL_FAILED.
+fn bi_tmux_send(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("tmux_send", &input)?;
+    let target = k8s_need("tmux_send", "target session", &args, 0, devtool_target)?;
+    let keys = k8s_need("tmux_send", "keys to send", &args, 1, devtool_keys)?;
     crate::safety::guard_exec("tmux_send", &keys)?;
-
-    let output = std::process::Command::new("tmux")
-        .args(["send-keys", "-t", &target, &keys, "Enter"])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("target".to_string(), Value::Str(target));
-            rec.insert("keys".to_string(), Value::Str(keys));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("tmux", "tmux", &e.to_string())),
-    }
+    let run = finished(
+        "tmux_send",
+        tool_run(
+            "tmux_send",
+            "tmux",
+            None,
+            &["send-keys", "-t", target.as_str(), keys.as_str(), "Enter"],
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
+    rec.insert("target".to_string(), Value::Str(target));
+    rec.insert("keys".to_string(), Value::Str(keys));
+    Ok(Value::Record(rec))
 }
 
 // --- screen (999-1001) ---
 
-/// screen — Create a new screen session.
-fn bi_screen_new(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("screen_new requires a session name")),
-    };
-    let output = std::process::Command::new("screen")
-        .args(["-dmS", &name])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("session".to_string(), Value::Str(name));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
+/// screen — Start a detached GNU screen session with a shell in it.
+/// Usage: screen_new(session_name)
+/// The name is 1-64 letters, digits, '-' or '_'. A failure is E_TOOL_FAILED.
+fn bi_screen_new(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("screen_new", &input)?;
+    let name = k8s_need("screen_new", "session name", &args, 0, devtool_session)?;
+    let run = finished(
+        "screen_new",
+        tool_run(
+            "screen_new",
             "screen",
-            "screen",
-            &e.to_string(),
-        )),
-    }
+            None,
+            &["-dmS", name.as_str()],
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
+    rec.insert("session".to_string(), Value::Str(name));
+    Ok(Value::Record(rec))
 }
 
 /// screen list — List screen sessions.
@@ -55962,32 +56413,24 @@ fn bi_screen_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// screen attach — Reattach to a screen session.
-fn bi_screen_attach(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "screen_attach requires a session name",
-            ))
-        }
-    };
-    let output = std::process::Command::new("screen")
-        .args(["-r", &name])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("session".to_string(), Value::Str(name));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "screen",
-            "screen",
-            &e.to_string(),
-        )),
-    }
+/// screen — Attach this terminal to a screen session until the user detaches.
+/// Usage: screen_attach(session_name)
+/// Needs a terminal on stdin and stdout and is refused as E_NO_UI without one,
+/// and in agent mode. Its effect is Process, so agent mode would ask first.
+fn bi_screen_attach(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("screen_attach", &input)?;
+    let name = k8s_need("screen_attach", "session name", &args, 0, devtool_session)?;
+    devtool_terminal("screen_attach")?;
+    devtool_attach(
+        "screen_attach",
+        "screen",
+        &["-r", name.as_str()],
+        "screen -r",
+    )?;
+    let mut rec = BTreeMap::new();
+    rec.insert("session".to_string(), Value::Str(name));
+    rec.insert("success".to_string(), Value::Bool(true));
+    Ok(Value::Record(rec))
 }
 
 // --- timeout (1002) ---
@@ -56324,151 +56767,101 @@ fn bi_ltrace_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- valgrind (1009-1010) ---
 
-/// valgrind — Run a program under Valgrind.
-fn bi_valgrind_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let command = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("valgrind_run requires a command")),
-    };
-    let output = std::process::Command::new("valgrind")
-        .args(["--tool=memcheck", &command])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("command".to_string(), Value::Str(command));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "report".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "valgrind",
-            "valgrind",
-            &e.to_string(),
-        )),
-    }
+/// valgrind — Run a program under memcheck.
+/// Usage: valgrind_run(program)
+/// The program is one argument, not option-like, and runs with no arguments of
+/// its own. Its effect is Exec. A nonzero exit is E_TOOL_FAILED with the tail of
+/// the valgrind report.
+fn bi_valgrind_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    devtool_valgrind("valgrind_run", &["--tool=memcheck"], &args, input)
 }
 
-/// valgrind memcheck — Run memcheck analysis.
-fn bi_valgrind_memcheck(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let command = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "valgrind_memcheck requires a command",
-            ))
-        }
-    };
-    let output = std::process::Command::new("valgrind")
-        .args([
+/// valgrind memcheck — Run a program under memcheck with full leak checking.
+/// Usage: valgrind_memcheck(program)
+/// The same argument rules as valgrind_run; adds --leak-check=full and
+/// --show-leak-kinds=all. Its effect is Exec.
+fn bi_valgrind_memcheck(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    devtool_valgrind(
+        "valgrind_memcheck",
+        &[
             "--tool=memcheck",
             "--leak-check=full",
             "--show-leak-kinds=all",
-            &command,
-        ])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("command".to_string(), Value::Str(command));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "report".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "valgrind",
-            "valgrind",
-            &e.to_string(),
-        )),
-    }
+        ],
+        &args,
+        input,
+    )
 }
 
 // --- gdb (1011-1012) ---
 
-/// gdb run — Run a program under GDB with optional arguments.
-fn bi_gdb_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let program = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("gdb_run requires a program path")),
+/// gdb run — Run a program under gdb in batch mode.
+/// Usage: gdb_run(program) or gdb_run(program, commands)
+/// `commands` is one gdb command per line (default "run", "bt", "quit"); each
+/// becomes one -ex argument. gdb can run shell commands, so the call is
+/// approval-gated as an exec. A nonzero exit is E_TOOL_FAILED.
+fn bi_gdb_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("gdb_run", &input)?;
+    let program = k8s_need("gdb_run", "program path", &args, 0, tf_plain)?;
+    let commands = match k8s_arg("gdb_run", "gdb commands", &args, 1, devtool_text_arg)? {
+        Some(text) => devtool_gdb_commands("gdb_run", &text)?,
+        None => vec!["run".to_string(), "bt".to_string(), "quit".to_string()],
     };
-    let gdb_cmds = args
-        .get(1)
-        .and_then(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "run\nbt\nquit".to_string());
-    let output = std::process::Command::new("gdb")
-        .args(["--batch", "-ex", &gdb_cmds, &program])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("program".to_string(), Value::Str(program));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "output".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("gdb", "gdb", &e.to_string())),
+    let mut argv: Vec<String> = vec!["--batch".to_string()];
+    for cmd in commands {
+        argv.push("-ex".to_string());
+        argv.push(cmd);
     }
+    argv.push(program.clone());
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = finished(
+        "gdb_run",
+        tool_run(
+            "gdb_run",
+            "gdb",
+            None,
+            &refs,
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_LONG_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "output", "stderr");
+    rec.insert("program".to_string(), Value::Str(program));
+    Ok(Value::Record(rec))
 }
 
-/// gdb backtrace — Get a backtrace from a core dump.
-fn bi_gdb_bt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let program = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("gdb_bt requires a program path")),
-    };
-    let corefile = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("gdb_bt requires a core file path")),
-    };
-    let output = std::process::Command::new("gdb")
-        .args(["--batch", "-ex", "bt full", &program, &corefile])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("program".to_string(), Value::Str(program));
-            rec.insert("core".to_string(), Value::Str(corefile));
-            rec.insert(
-                "backtrace".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("gdb", "gdb", &e.to_string())),
+/// gdb backtrace — Print the full backtrace from a core file.
+/// Usage: gdb_bt(program, core_file)
+/// Both paths are required, not option-like, and the core file must exist. The
+/// backtrace keeps its last 4 MiB. A nonzero exit is E_TOOL_FAILED.
+fn bi_gdb_bt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("gdb_bt", &input)?;
+    let program = k8s_need("gdb_bt", "program path", &args, 0, tf_plain)?;
+    let corefile = k8s_need("gdb_bt", "core file path", &args, 1, tf_plain)?;
+    if !std::path::Path::new(&corefile).is_file() {
+        return Err(crate::safety::not_found("gdb_bt", "core file", &corefile));
     }
+    let run = finished(
+        "gdb_bt",
+        tool_run(
+            "gdb_bt",
+            "gdb",
+            None,
+            &[
+                "--batch",
+                "-ex",
+                "bt full",
+                program.as_str(),
+                corefile.as_str(),
+            ],
+            Keep::Tail(TOOL_MAX_TEXT),
+            TOOL_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "backtrace", "stderr");
+    rec.insert("program".to_string(), Value::Str(program));
+    rec.insert("core".to_string(), Value::Str(corefile));
+    Ok(Value::Record(rec))
 }
 
 // --- lldb (1013) ---
@@ -57208,57 +57601,67 @@ fn bi_eza_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- zoxide (1030-1031) ---
 
-/// zoxide add — Add a directory to zoxide database.
-fn bi_zoxide_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("zoxide")
-        .args(["add", &path])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "zoxide",
-            "zoxide",
-            &e.to_string(),
-        )),
+/// zoxide add — Record a directory in the user's zoxide database.
+/// Usage: zoxide_add() or zoxide_add(path)
+/// The path defaults to ".", must exist as a directory, and is one word that is
+/// not option-like. This writes the user's zoxide database, which lies outside
+/// the workspace; it does not touch the directory itself.
+fn bi_zoxide_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("zoxide_add", &input)?;
+    let path =
+        k8s_arg("zoxide_add", "directory", &args, 0, tf_plain)?.unwrap_or_else(|| ".".to_string());
+    if !std::path::Path::new(&path).is_dir() {
+        return Err(crate::safety::not_found("zoxide_add", "directory", &path));
     }
+    let run = finished(
+        "zoxide_add",
+        tool_run(
+            "zoxide_add",
+            "zoxide",
+            None,
+            &["add", path.as_str()],
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
+    rec.insert("path".to_string(), Value::Str(path));
+    Ok(Value::Record(rec))
 }
 
-/// zoxide query — Query zoxide for best matching directory.
-fn bi_zoxide_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let query = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "zoxide_query requires a search term",
-            ))
-        }
-    };
-    let output = std::process::Command::new("zoxide")
-        .args(["query", &query])
-        .output();
-    match output {
-        Ok(o) if o.status.success() => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stdout).trim().to_string(),
-        )),
-        Ok(o) => Err(anyhow!(
-            "No match found: {}",
-            String::from_utf8_lossy(&o.stderr)
-        )),
-        Err(e) => Err(crate::safety::tool_missing(
-            "zoxide",
-            "zoxide",
-            &e.to_string(),
-        )),
+/// zoxide query — The best directory in zoxide's database for a search term.
+/// Usage: zoxide_query(term)
+/// Answers a path string. No match is E_NOT_FOUND: zoxide exits nonzero with
+/// nothing on stderr when it has no match, and anything else it says on
+/// failure is E_TOOL_FAILED. The term is one word, not option-like.
+fn bi_zoxide_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("zoxide_query", &input)?;
+    let term = k8s_need("zoxide_query", "search term", &args, 0, tf_plain)?;
+    let run = tool_run(
+        "zoxide_query",
+        "zoxide",
+        None,
+        &["query", term.as_str()],
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_DEADLINE_SECS,
+    )?;
+    if !run.success && run.stderr.trim().is_empty() {
+        return Err(crate::safety::not_found(
+            "zoxide_query",
+            "directory matching",
+            &term,
+        ));
     }
+    let run = finished("zoxide_query", run)?;
+    let path = run.stdout.trim().to_string();
+    if path.is_empty() {
+        return Err(crate::safety::not_found(
+            "zoxide_query",
+            "directory matching",
+            &term,
+        ));
+    }
+    Ok(Value::Str(path))
 }
 
 // --- delta (1032) ---
@@ -57609,78 +58012,82 @@ fn bi_watchexec_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // --- just (1041-1042) ---
 
-/// just — Run a justfile recipe.
-fn bi_just_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let recipe = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("just_run requires a recipe name")),
-    };
-    let extra_args: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("just");
-    cmd.arg(&recipe);
-    for a in &extra_args {
-        cmd.arg(a);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("recipe".to_string(), Value::Str(recipe));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
+/// just — Run a recipe from the justfile in the process's directory.
+/// Usage: just_run(recipe) or just_run(recipe, arg...)
+/// The recipe and each argument are one word, not option-like, and at most 256
+/// arguments are passed. A recipe runs project code, so its effect is Exec. A
+/// nonzero exit is E_TOOL_FAILED.
+fn bi_just_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("just_run", &input)?;
+    let recipe = k8s_need("just_run", "recipe name", &args, 0, devtool_word)?;
+    let mut argv: Vec<String> = vec![recipe.clone()];
+    for value in args.iter().skip(1) {
+        match value {
+            Value::Str(s) => argv.push(devtool_word("just_run", "a recipe argument", s)?),
+            other => {
+                return Err(crate::safety::arg_err(format!(
+                    "just_run: recipe arguments must be Strings, got {}",
+                    other.type_name()
+                )))
+            }
         }
-        Err(e) => Err(crate::safety::tool_missing("just", "just", &e.to_string())),
     }
+    if argv.len() - 1 > DEVTOOL_MAX_ITEMS {
+        return Err(crate::safety::arg_err(format!(
+            "just_run: at most {DEVTOOL_MAX_ITEMS} recipe arguments, got {}",
+            argv.len() - 1
+        )));
+    }
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = finished(
+        "just_run",
+        tool_run(
+            "just_run",
+            "just",
+            None,
+            &refs,
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_LONG_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
+    rec.insert("recipe".to_string(), Value::Str(recipe));
+    Ok(Value::Record(rec))
 }
 
-/// just list — List available recipes.
-fn bi_just_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("just").arg("--list").output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let recipes: Vec<Value> = stdout
-                .lines()
-                .filter(|l| !l.is_empty() && !l.starts_with("Available"))
-                .map(|line| {
-                    let trimmed = line.trim();
-                    let parts: Vec<&str> = trimmed.splitn(2, '#').collect();
-                    let mut rec = BTreeMap::new();
-                    rec.insert("name".to_string(), Value::Str(parts[0].trim().to_string()));
-                    if let Some(desc) = parts.get(1) {
-                        rec.insert(
-                            "description".to_string(),
-                            Value::Str(desc.trim().to_string()),
-                        );
-                    }
-                    Value::Record(rec)
-                })
-                .collect();
-            Ok(Value::Array(recipes))
-        }
-        Ok(o) => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stderr).trim().to_string(),
-        )),
-        Err(e) => Err(crate::safety::tool_missing("just", "just", &e.to_string())),
-    }
+/// just list — The recipes in the justfile in the process's directory.
+/// Usage: just_list()
+/// Answers an Array of {name, description?} Records. A failure, such as no
+/// justfile, is E_TOOL_FAILED; it is never returned as a string.
+fn bi_just_list(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("just_list", &input)?;
+    let run = tool_run(
+        "just_list",
+        "just",
+        None,
+        &["--list"],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let text = tool_text("just_list", run)?;
+    let recipes: Vec<Value> = text
+        .lines()
+        .filter(|l| l.starts_with(char::is_whitespace) && !l.trim().is_empty())
+        .map(|line| {
+            let mut rec = BTreeMap::new();
+            let mut parts = line.trim().splitn(2, '#');
+            let name = parts.next().unwrap_or("").trim().to_string();
+            rec.insert("name".to_string(), Value::Str(name));
+            if let Some(desc) = parts.next() {
+                rec.insert(
+                    "description".to_string(),
+                    Value::Str(desc.trim().to_string()),
+                );
+            }
+            Value::Record(rec)
+        })
+        .collect();
+    Ok(Value::Array(recipes))
 }
 
 // --- task (1043-1044) ---
@@ -57730,159 +58137,158 @@ fn bi_task_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- direnv (1045-1046) ---
 
-/// direnv allow — Allow the current .envrc.
-fn bi_direnv_allow(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("direnv")
-        .args(["allow", &path])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "direnv",
-            "direnv",
-            &e.to_string(),
-        )),
+/// direnv allow — Authorise an .envrc file so direnv loads it.
+/// Usage: direnv_allow() or direnv_allow(path)
+/// The path defaults to ".", is one word that is not option-like, must exist,
+/// and must lie inside the workspace. Allowing an .envrc lets its code run on
+/// every cd into that directory. The effect table classes direnv_allow as
+/// write_local, so nothing asks for approval; that is reported, not changed.
+fn bi_direnv_allow(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("direnv_allow", &input)?;
+    let given =
+        k8s_arg("direnv_allow", "path", &args, 0, tf_plain)?.unwrap_or_else(|| ".".to_string());
+    let cwd = devtool_cwd("direnv_allow")?;
+    let path = workspace_path("direnv_allow", &given, &cwd)?;
+    if !path.exists() {
+        return Err(crate::safety::not_found(
+            "direnv_allow",
+            "path",
+            &path.display().to_string(),
+        ));
     }
+    let shown = path.display().to_string();
+    let run = finished(
+        "direnv_allow",
+        tool_run(
+            "direnv_allow",
+            "direnv",
+            None,
+            &["allow", shown.as_str()],
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
+    rec.insert("path".to_string(), Value::Str(shown));
+    Ok(Value::Record(rec))
 }
 
-/// direnv status — Show direnv status.
-fn bi_direnv_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("direnv").arg("status").output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "status".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "direnv",
-            "direnv",
-            &e.to_string(),
-        )),
-    }
+/// direnv status — direnv's report on the current directory and its .envrc.
+/// Usage: direnv_status()
+/// Answers {status, success} with the report text. A failure is E_TOOL_FAILED.
+fn bi_direnv_status(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("direnv_status", &input)?;
+    let run = tool_run(
+        "direnv_status",
+        "direnv",
+        None,
+        &["status"],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    let text = tool_text("direnv_status", run)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("status".to_string(), Value::Str(text.trim().to_string()));
+    rec.insert("success".to_string(), Value::Bool(true));
+    Ok(Value::Record(rec))
 }
 
 // --- asdf (1047-1048) ---
 
-/// asdf list — List installed versions of a tool.
-fn bi_asdf_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("asdf");
-    cmd.arg("list");
-    if let Some(Value::Str(plugin)) = args.first() {
-        cmd.arg(plugin);
+/// asdf list — Installed versions of a tool, or of every plugin.
+/// Usage: asdf_list() or asdf_list(plugin)
+/// Answers an Array of version Strings. A failure, such as an unknown plugin,
+/// is E_TOOL_FAILED; it is never returned as a string.
+fn bi_asdf_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("asdf_list", &input)?;
+    let plugin = k8s_arg("asdf_list", "plugin", &args, 0, tf_plain)?;
+    let mut argv: Vec<&str> = vec!["list"];
+    if let Some(p) = &plugin {
+        argv.push(p.as_str());
     }
-    let output = cmd.output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let items: Vec<Value> = stdout
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|line| Value::Str(line.trim().to_string()))
-                .collect();
-            Ok(Value::Array(items))
-        }
-        Ok(o) => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stderr).trim().to_string(),
-        )),
-        Err(e) => Err(crate::safety::tool_missing("asdf", "asdf", &e.to_string())),
-    }
+    let run = tool_run(
+        "asdf_list",
+        "asdf",
+        None,
+        &argv,
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    Ok(Value::Array(devtool_lines(&tool_text("asdf_list", run)?)))
 }
 
-/// asdf install — Install a tool version.
-fn bi_asdf_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let plugin = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "asdf_install requires a plugin name",
-            ))
-        }
-    };
-    let version = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "latest".to_string(),
-    };
-    let output = std::process::Command::new("asdf")
-        .args(["install", &plugin, &version])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("plugin".to_string(), Value::Str(plugin));
-            rec.insert("version".to_string(), Value::Str(version));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("asdf", "asdf", &e.to_string())),
-    }
+/// asdf install — Install one version of a plugin's tool.
+/// Usage: asdf_install(plugin) or asdf_install(plugin, version)
+/// The version defaults to "latest". Both are one word, not option-like. The
+/// install goes into asdf's own directory, outside the workspace, and fetches
+/// and runs the plugin's code, so the effect is Exec and agent mode asks first.
+fn bi_asdf_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("asdf_install", &input)?;
+    let plugin = k8s_need("asdf_install", "plugin", &args, 0, tf_plain)?;
+    let version = k8s_arg("asdf_install", "version", &args, 1, tf_plain)?
+        .unwrap_or_else(|| "latest".to_string());
+    let run = finished(
+        "asdf_install",
+        tool_run(
+            "asdf_install",
+            "asdf",
+            None,
+            &["install", plugin.as_str(), version.as_str()],
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_LONG_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
+    rec.insert("plugin".to_string(), Value::Str(plugin));
+    rec.insert("version".to_string(), Value::Str(version));
+    Ok(Value::Record(rec))
 }
 
 // --- mise (1049-1050) ---
 
-/// mise use — Set a tool version for the current directory.
-fn bi_mise_use(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let tool = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("mise_use requires a tool@version")),
-    };
-    let output = std::process::Command::new("mise")
-        .args(["use", &tool])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("tool".to_string(), Value::Str(tool));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("mise", "mise", &e.to_string())),
-    }
+/// mise use — Pin a tool version in the .mise.toml of the process's directory.
+/// Usage: mise_use(tool@version)
+/// The spec is one word such as node@20 and not option-like, so it cannot
+/// select `--global`. The directory mise writes must lie inside the workspace.
+/// mise installs the version and writes the config, yet the effect table
+/// classes mise_use as write_local, so nothing asks for approval; reported,
+/// not changed here.
+fn bi_mise_use(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("mise_use", &input)?;
+    let tool = k8s_need("mise_use", "tool@version", &args, 0, devtool_tool_spec)?;
+    let cwd = devtool_cwd("mise_use")?;
+    workspace_path("mise_use", ".", &cwd)?;
+    let run = finished(
+        "mise_use",
+        tool_run(
+            "mise_use",
+            "mise",
+            None,
+            &["use", tool.as_str()],
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_LONG_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
+    rec.insert("tool".to_string(), Value::Str(tool));
+    Ok(Value::Record(rec))
 }
 
-/// mise list — List installed tool versions.
-fn bi_mise_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("mise").arg("list").output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let items: Vec<Value> = stdout
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|line| Value::Str(line.trim().to_string()))
-                .collect();
-            Ok(Value::Array(items))
-        }
-        Ok(o) => Ok(Value::Str(
-            String::from_utf8_lossy(&o.stderr).trim().to_string(),
-        )),
-        Err(e) => Err(crate::safety::tool_missing("mise", "mise", &e.to_string())),
-    }
+/// mise list — Installed tool versions known to mise.
+/// Usage: mise_list()
+/// Answers an Array of Strings, one per line of mise's report. A failure is
+/// E_TOOL_FAILED.
+fn bi_mise_list(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("mise_list", &input)?;
+    let run = tool_run(
+        "mise_list",
+        "mise",
+        None,
+        &["list"],
+        Keep::Head(TOOL_MAX_TEXT),
+        TOOL_DEADLINE_SECS,
+    )?;
+    Ok(Value::Array(devtool_lines(&tool_text("mise_list", run)?)))
 }
 
 // ---------------------------------------------------------------------------
