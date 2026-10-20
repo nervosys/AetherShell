@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 649 implementations covered, 522 not yet declared; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 653 implementations covered, 518 not yet declared; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, elevated execution, scheduler mutation | Linux implemented and verified in the disposable distro; Windows/macOS open; blocker only for those platforms | Linux accounts, groups, ACLs, mounts, services, sudo_exec and apt backends are verified as root in the disposable distro; Windows and macOS refuse with E_UNIMPLEMENTED and their backends remain open. All scheduler mutation functions and fs_watch/fs_unwatch have native backends; owned-fixture/platform tests are required | Runtime maintainer |
@@ -281,7 +281,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_pkg_history
 - [ ] bi_gui_screenshot
 - [ ] bi_gui_screenshot_window
-- [ ] bi_gui_find_image
+- [x] bi_gui_find_image
 - [ ] bi_web_websocket
 - [ ] bi_web_xpath
 - [ ] bi_clipboard_types — no Linux/macOS implementation.
@@ -294,8 +294,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_crypto_cert_info
 - [ ] bi_clipboard_get_image
 - [ ] bi_clipboard_set_image
-- [ ] bi_input_read_char
-- [ ] bi_input_spinner
+- [x] bi_input_read_char
+- [x] bi_input_spinner
 - [x] bi_input_progress
 - [x] bi_input_table
 - [x] bi_input_form
@@ -344,7 +344,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_awk_process
 - [x] bi_nc_listen
 - [x] bi_iperf3_server
-- [ ] bi_lazygit_open
+- [x] bi_lazygit_open
 - [x] bi_entr_watch
 - [x] bi_watchexec_run
 - [x] bi_nodemon_run
