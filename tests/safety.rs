@@ -567,6 +567,11 @@ fn infrastructure_destroyers_require_approval_in_agent_mode() {
     let mut env = aethershell::env::Env::new();
     for (name, args) in [
         ("terraform_destroy", vec![Value::Str(".".into())]),
+        // Changes a running release and runs its chart hooks.
+        (
+            "helm_upgrade",
+            vec![Value::Str("web".into()), Value::Str("nginx".into())],
+        ),
         ("cloud_instance_destroy", vec![Value::Str("i-123".into())]),
         (
             "db_sqlite_drop_table",

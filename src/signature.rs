@@ -645,7 +645,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("values", Ty::Record, "values to set: dotted keys mapped to String, Int, Float or Bool scalars"),
         ],
         returns: "String",
-        doc: "helm upgrade <release> <chart> with --namespace= and one --set=key=value per value, returning helm's report. The same argument rules as helm_install. This changes a running release in the cluster and is not approval-gated in agent mode (its effect is classified Network). Runs with a 15 minute deadline. Takes no pipeline input.",
+        doc: "helm upgrade <release> <chart> with --namespace= and one --set=key=value per value, returning helm's report. The same argument rules as helm_install. This changes a running release in the cluster and runs chart hooks; its effect is Exec, so agent mode asks for approval. Runs with a 15 minute deadline. Takes no pipeline input.",
         examples: &[
             (r#"(try { helm_upgrade("-x", "nginx") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { helm_upgrade("web") } catch e { e.error.code })"#, "E_BAD_ARG"),

@@ -557,7 +557,7 @@ helm_repos	Network
 helm_search	Network
 helm_status	Network
 helm_uninstall	Destructive
-helm_upgrade	Network
+helm_upgrade	Exec
 help	Pure
 host	Network
 host_lookup	Network

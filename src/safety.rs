@@ -465,7 +465,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // that `npm_install("anything")` was side-effect-free.
         | "npm_install" | "yarn_install" | "pnpm_install" | "bun_install"
         | "pipx_install" | "poetry_install" | "asdf_install"
-        | "helm_install" | "marketplace_install" | "pre_commit_install" => Some(Effect::Exec),
+        | "helm_install" | "helm_upgrade" | "marketplace_install" | "pre_commit_install" => Some(Effect::Exec),
         // Egress by name. `scp_*` moves bytes to/from another host; the
         // `marketplace_publish` case sends a package somewhere it cannot be
         // recalled from.
@@ -958,12 +958,11 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "syntax_list"
         | "syntax_search" => Some(Effect::WriteLocal),
 
-        // ---- delegated: Network (23) ----
+        // ---- delegated: Network (22) ----
         | "helm_list"
         | "helm_repos"
         | "helm_search"
         | "helm_status"
-        | "helm_upgrade"
         | "k8s_apply"
         | "k8s_cluster_info"
         | "k8s_configmaps"
