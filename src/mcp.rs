@@ -19,6 +19,11 @@ use std::sync::Arc;
 
 use crate::os_tools::{OSTool, OSToolsDatabase, OperatingSystem, SafetyLevel, ToolCategory};
 
+/// How long a catalogue tool may run for one `mcp_call` before it is killed.
+const MCP_TOOL_TIMEOUT_SECS: u64 = 60;
+/// The most output of one stream a tool result carries back to the caller.
+const MCP_TOOL_OUTPUT_CAP: usize = 256 * 1024;
+
 // ============================================================================
 // MCP Protocol Types
 // ============================================================================
@@ -663,19 +668,32 @@ impl McpServer {
             }
         }
 
-        // Execute with timeout
-        let output = cmd
-            .output()
+        // A tool that hangs must not hang the caller. `Command::output` waited
+        // forever; the deadline below kills it.
+        let output = crate::safety::output_with_timeout(cmd, MCP_TOOL_TIMEOUT_SECS)
             .map_err(|e| anyhow!("Failed to execute command '{}': {}", cmd_name, e))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Output is capped as well: a tool that printed without limit filled the
+        // agent's context with it.
+        let capped = |bytes: &[u8]| -> String {
+            let take = bytes.len().min(MCP_TOOL_OUTPUT_CAP);
+            let mut text = String::from_utf8_lossy(&bytes[..take]).into_owned();
+            if bytes.len() > take {
+                text.push_str(&format!(
+                    "\n[output truncated at {MCP_TOOL_OUTPUT_CAP} bytes; {} bytes dropped]",
+                    bytes.len() - take
+                ));
+            }
+            text
+        };
+        let stdout = capped(&output.stdout);
+        let stderr = capped(&output.stderr);
 
         if output.status.success() {
-            Ok(stdout.to_string())
+            Ok(stdout)
         } else {
             if stderr.is_empty() {
-                Ok(stdout.to_string())
+                Ok(stdout)
             } else {
                 Err(anyhow!("Command failed: {}", stderr))
             }

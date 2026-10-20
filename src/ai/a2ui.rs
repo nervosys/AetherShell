@@ -705,9 +705,22 @@ impl A2UIChannel {
                 }
             }
 
-            // Check timeout
+            // Check timeout. A UI that attached and never answered is not a
+            // decline: `Cancelled` here made `prompt_confirm` answer `false`.
             if start.elapsed() > timeout {
-                return Ok(PromptResponse::Cancelled);
+                return Err(anyhow::Error::new(crate::safety::SafetyError {
+                    code: crate::safety::ErrorCode::NoUi,
+                    message:
+                        "a2ui: the attached UI gave no answer within 300 s; nothing was decided"
+                            .to_string(),
+                    builtin: "a2ui".to_string(),
+                    hint: "answer the prompt in the UI, or ask again when the UI is responsive"
+                        .to_string(),
+                    approval: None,
+                    did_you_mean: Vec::new(),
+                    expected: "an answer from the attached UI".to_string(),
+                    got: "no answer before the timeout".to_string(),
+                }));
             }
 
             // Wait for signal

@@ -4340,6 +4340,48 @@ fn key_arg(builtin: &str, v: Value) -> Result<String> {
     }
 }
 
+/// Refuse a piped subject for a builtin that does not document one.
+///
+/// Without this, `"x" | mcp_servers()` ran as if the pipe were not there: the
+/// body never looked at its input, and nothing said so.
+fn refuse_piped(name: &str, input: &Option<Value>) -> Result<()> {
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            name,
+            "no piped subject (a direct call)",
+            "a piped value",
+        ));
+    }
+    Ok(())
+}
+
+/// A catalogue tool that ran and failed, as the coded `E_TOOL_FAILED`.
+///
+/// `tool_failed` takes an exit status; an MCP tool result carries only text,
+/// so this builds the same error without inventing a status.
+fn mcp_tool_failed(tool: &str, text: &str) -> anyhow::Error {
+    let said = text.trim();
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::ToolFailed,
+        message: format!(
+            "mcp_call: tool `{tool}` failed{}",
+            if said.is_empty() {
+                " and printed nothing".to_string()
+            } else {
+                format!(": {said}")
+            }
+        ),
+        builtin: "mcp_call".to_string(),
+        hint: format!(
+            "the tool `{tool}` rejected this call; check its arguments against mcp_tools()"
+        ),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: format!("`{tool}` to succeed"),
+        got: "a failure".to_string(),
+    })
+}
+
 fn expect_string<'a>(name: &str, v: &'a Value) -> Result<&'a str> {
     if let Value::Str(s) = v {
         Ok(s.as_str())
@@ -10946,70 +10988,51 @@ fn bi_ontology_shacl() -> Result<Value> {
 /// Example:
 ///   let servers = mcp_servers()
 ///   servers | foreach(fn(s) => print(s.name + ": " + len(s.tools) + " tools"))
-fn bi_mcp_servers(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn mcp_server_record(server: &crate::ai::McpServerInfo) -> Value {
+    let mut record = BTreeMap::new();
+    record.insert("name".to_string(), Value::Str(server.name.clone()));
+    record.insert("endpoint".to_string(), Value::Str(server.endpoint.clone()));
+    record.insert("available".to_string(), Value::Bool(server.available));
+    let tools: Vec<Value> = server.tools.iter().map(|t| Value::Str(t.clone())).collect();
+    record.insert("tools".to_string(), Value::Array(tools));
+    Value::Record(record)
+}
+
+fn bi_mcp_servers(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("mcp_servers", &input)?;
     let servers = crate::ai::detect_mcp_servers();
-
-    let records: Vec<Value> = servers
-        .into_iter()
-        .map(|server| {
-            let mut record = BTreeMap::new();
-            record.insert("name".to_string(), Value::Str(server.name));
-            record.insert("endpoint".to_string(), Value::Str(server.endpoint));
-            record.insert("available".to_string(), Value::Bool(server.available));
-
-            let tools: Vec<Value> = server.tools.into_iter().map(Value::Str).collect();
-            record.insert("tools".to_string(), Value::Array(tools));
-
-            Value::Record(record)
-        })
-        .collect();
-
-    Ok(Value::Array(records))
+    Ok(Value::Array(
+        servers.iter().map(mcp_server_record).collect(),
+    ))
 }
 
 /// mcp_detect(endpoint?) - Detect MCP server at specific endpoint or find first available
 /// Args:
 ///   - endpoint (optional): String - Specific endpoint to check
-/// Returns: Record with MCP server info, or null if not found
+/// Returns: Record with MCP server info, or null when no detected server matches
+///
+/// Null is the answer for "nothing is listening" (`examples/22_tui_mcp.ae`
+/// relies on it); a found server is a full record.
 ///
 /// Example:
 ///   let fs_server = mcp_detect("http://localhost:3001")
 ///   let any_server = mcp_detect()
-fn bi_mcp_detect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() {
-        // Check specific endpoint
-        if let Value::Str(endpoint) = &args[0] {
-            let servers = crate::ai::detect_mcp_servers();
-            if let Some(server) = servers.iter().find(|s| &s.endpoint == endpoint) {
-                let mut record = BTreeMap::new();
-                record.insert("name".to_string(), Value::Str(server.name.clone()));
-                record.insert("endpoint".to_string(), Value::Str(server.endpoint.clone()));
-                record.insert("available".to_string(), Value::Bool(server.available));
-
-                let tools: Vec<Value> =
-                    server.tools.iter().map(|t| Value::Str(t.clone())).collect();
-                record.insert("tools".to_string(), Value::Array(tools));
-
-                return Ok(Value::Record(record));
-            }
+fn bi_mcp_detect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("mcp_detect", &input)?;
+    let servers = crate::ai::detect_mcp_servers();
+    match args.first() {
+        Some(v) => {
+            let endpoint = expect_string("mcp_detect", v)?;
+            Ok(servers
+                .iter()
+                .find(|s| s.endpoint == endpoint)
+                .map(mcp_server_record)
+                .unwrap_or(Value::Null))
         }
-        Ok(Value::Null)
-    } else {
-        // Return first available MCP server
-        let servers = crate::ai::detect_mcp_servers();
-        if let Some(server) = servers.first() {
-            let mut record = BTreeMap::new();
-            record.insert("name".to_string(), Value::Str(server.name.clone()));
-            record.insert("endpoint".to_string(), Value::Str(server.endpoint.clone()));
-            record.insert("available".to_string(), Value::Bool(server.available));
-
-            let tools: Vec<Value> = server.tools.iter().map(|t| Value::Str(t.clone())).collect();
-            record.insert("tools".to_string(), Value::Array(tools));
-
-            Ok(Value::Record(record))
-        } else {
-            Ok(Value::Null)
-        }
+        None => Ok(servers
+            .first()
+            .map(mcp_server_record)
+            .unwrap_or(Value::Null)),
     }
 }
 
@@ -11019,8 +11042,16 @@ fn bi_mcp_detect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Example:
 ///   mcp_cache_clear()
 ///   let servers = mcp_servers()  # This will re-detect servers
-fn bi_mcp_cache_clear(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = crate::ai::clear_mcp_cache();
+fn bi_mcp_cache_clear(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("mcp_cache_clear", &input)?;
+    // A failed clear used to be `let _ =`, and `true` came back regardless.
+    crate::ai::clear_mcp_cache().map_err(|e| {
+        crate::safety::bad_state(
+            "mcp_cache_clear",
+            &format!("the MCP cache could not be cleared: {e}"),
+            "a new ae process",
+        )
+    })?;
     Ok(Value::Bool(true))
 }
 
@@ -11029,22 +11060,25 @@ fn bi_mcp_cache_clear(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 ///
 /// Example:
 ///   let status = mcp_cache_status()
-///   print("Cache hit rate: " + status.hit_rate)
-fn bi_mcp_cache_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+///   print("Cache TTL: " + status.ttl_seconds)
+fn bi_mcp_cache_status(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("mcp_cache_status", &input)?;
     let mut record = BTreeMap::new();
 
-    // For now, just return basic status - we could extend this later with hit/miss counters
+    // The cache is always on, and its TTL is the one `detect_mcp_servers` uses.
     record.insert("enabled".to_string(), Value::Bool(true));
-    record.insert("ttl_seconds".to_string(), Value::Int(30)); // Default TTL
+    record.insert("ttl_seconds".to_string(), Value::Int(30));
 
-    // Check if cache has data
-    let has_cached_data = {
-        match crate::ai::MCP_CACHE.lock() {
-            Ok(cache_guard) => cache_guard.is_some(),
-            Err(_) => {
-                tracing::warn!("Failed to acquire MCP cache lock for status check");
-                false
-            }
+    // A poisoned lock used to read as "no cached data": a failure to look was
+    // reported as an empty cache.
+    let has_cached_data = match crate::ai::MCP_CACHE.lock() {
+        Ok(cache_guard) => cache_guard.is_some(),
+        Err(_) => {
+            return Err(crate::safety::bad_state(
+                "mcp_cache_status",
+                "the MCP cache lock is poisoned by an earlier panic",
+                "a new ae process",
+            ))
         }
     };
     record.insert("has_cached_data".to_string(), Value::Bool(has_cached_data));
@@ -11217,38 +11251,65 @@ fn bi_mcp_server(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///   let all_tools = mcp_tools()
 ///   let k8s_tools = mcp_tools({ category: "kubernetes" })
 ///   let git_tools = mcp_tools({ search: "git" })
-fn bi_mcp_tools(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_mcp_tools(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use crate::mcp::{McpConfig, McpServer};
     use crate::os_tools::SafetyLevel;
 
-    // Parse filters
+    refuse_piped("mcp_tools", &input)?;
+
+    // Parse filters. A filter that is not understood is refused: an unknown
+    // category used to list every tool, and an unknown safety level used to
+    // mean Caution, both without a word.
     let mut config = McpConfig::default();
     let mut search_filter: Option<String> = None;
 
-    if !args.is_empty() {
-        if let Value::Record(rec) = &args[0] {
-            // Parse category filter
-            if let Some(Value::Str(cat_str)) = rec.get("category") {
-                if let Some(cat) = parse_tool_category(cat_str) {
-                    config.allowed_categories = Some(vec![cat]);
+    if let Some(first) = args.first() {
+        let Value::Record(rec) = first else {
+            return Err(crate::safety::bad_arg(
+                "mcp_tools",
+                "config: Record",
+                first.type_name(),
+            ));
+        };
+        for key in rec.keys() {
+            if !matches!(key.as_str(), "category" | "search" | "safety_level") {
+                return Err(crate::safety::bad_arg(
+                    "mcp_tools",
+                    "config keys category, search, safety_level",
+                    key,
+                ));
+            }
+        }
+
+        // Parse category filter
+        if let Some(v) = rec.get("category") {
+            let cat_str = expect_string("mcp_tools", v)?;
+            let cat = parse_tool_category(cat_str)
+                .ok_or_else(|| crate::safety::bad_arg("mcp_tools", "a known category", cat_str))?;
+            config.allowed_categories = Some(vec![cat]);
+        }
+
+        // Parse search filter
+        if let Some(v) = rec.get("search") {
+            search_filter = Some(expect_string("mcp_tools", v)?.to_string());
+        }
+
+        // Parse safety level
+        if let Some(v) = rec.get("safety_level") {
+            let level = expect_string("mcp_tools", v)?;
+            config.max_safety_level = match level.to_lowercase().as_str() {
+                "safe" => SafetyLevel::Safe,
+                "caution" => SafetyLevel::Caution,
+                "dangerous" => SafetyLevel::Dangerous,
+                "critical" => SafetyLevel::Critical,
+                _ => {
+                    return Err(crate::safety::bad_arg(
+                        "mcp_tools",
+                        "safety_level safe, caution, dangerous or critical",
+                        level,
+                    ))
                 }
-            }
-
-            // Parse search filter
-            if let Some(Value::Str(s)) = rec.get("search") {
-                search_filter = Some(s.clone());
-            }
-
-            // Parse safety level
-            if let Some(Value::Str(level)) = rec.get("safety_level") {
-                config.max_safety_level = match level.to_lowercase().as_str() {
-                    "safe" => SafetyLevel::Safe,
-                    "caution" => SafetyLevel::Caution,
-                    "dangerous" => SafetyLevel::Dangerous,
-                    "critical" => SafetyLevel::Critical,
-                    _ => SafetyLevel::Caution,
-                };
-            }
+            };
         }
     }
 
@@ -11295,40 +11356,71 @@ fn bi_mcp_tools(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Example:
 ///   let result = mcp_call("ls", { path: "." })
 ///   let files = mcp_call("find", { directory: "/home", pattern: "*.rs" })
-fn bi_mcp_call(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_mcp_call(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use crate::mcp::{McpContent, McpServer, McpToolCall};
     use std::collections::HashMap;
 
-    if args.is_empty() {
+    refuse_piped("mcp_call", &input)?;
+
+    let Some(first) = args.first() else {
         return Err(crate::safety::bad_arg(
             "mcp_call",
             "a tool name as the first argument",
             "nothing",
         ));
-    }
+    };
+    let tool_name = expect_string("mcp_call", first)?;
 
-    let tool_name = expect_string("mcp_call", &args[0])?;
-
-    // Build arguments HashMap
-    let tool_args: HashMap<String, serde_json::Value> = if args.len() > 1 {
-        match &args[1] {
-            Value::Record(rec) => rec
-                .iter()
-                .map(|(k, v)| (k.clone(), value_to_json_owned(v.clone())))
-                .collect(),
-            _ => HashMap::new(),
+    // Build arguments HashMap. A non-record second argument used to be dropped
+    // and the tool run without its arguments.
+    let tool_args: HashMap<String, serde_json::Value> = match args.get(1) {
+        None => HashMap::new(),
+        Some(Value::Record(rec)) => rec
+            .iter()
+            .map(|(k, v)| (k.clone(), value_to_json_owned(v.clone())))
+            .collect(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "mcp_call",
+                "args: Record",
+                other.type_name(),
+            ))
         }
-    } else {
-        HashMap::new()
     };
 
     let server = McpServer::new();
+    // An unknown tool used to come back as a record with is_error set.
+    if server.get_tool(tool_name).is_none() {
+        if server.tools_db().get_tool(tool_name).is_some() {
+            return Err(crate::safety::policy_deny(
+                "mcp_call",
+                format!("tool `{tool_name}` is not available under the default MCP policy"),
+                "the tool is blocked or above the default safety level",
+            ));
+        }
+        return Err(crate::safety::not_found("mcp_call", "tool", tool_name));
+    }
+
     let call = McpToolCall {
         name: tool_name.to_string(),
         arguments: tool_args,
     };
 
     let result = server.call_tool(call);
+
+    // A tool that failed is a coded tool failure, not a record the caller has
+    // to remember to check.
+    if result.is_error == Some(true) {
+        let text: Vec<&str> = result
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                McpContent::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        return Err(mcp_tool_failed(tool_name, &text.join("\n")));
+    }
 
     let mut record = BTreeMap::new();
     record.insert(
@@ -11507,11 +11599,18 @@ fn bi_mcp_prompts(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Example:
 ///   let client = mcp_connect("http://localhost:3001")
 ///   let tools = client.tools
-fn bi_mcp_connect(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_mcp_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("mcp_connect", &input)?;
     if args.is_empty() {
-        return Err(crate::safety::arg_err("mcp_connect requires endpoint URL"));
+        return Err(crate::safety::bad_arg(
+            "mcp_connect",
+            "endpoint: String",
+            "nothing",
+        ));
     }
 
+    // Only the endpoints `detect_mcp_servers` probes on loopback are ever
+    // matched. Nothing here opens a connection to an address the caller gave.
     let endpoint = expect_string("mcp_connect", &args[0])?;
 
     // Try to detect MCP server at endpoint
@@ -20579,39 +20678,46 @@ fn bi_save_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// mcp_server_start(config) - Start a custom MCP server
 /// Usage: mcp_server_start({name: "fs", type: "builtin", config: {...}})
-fn bi_mcp_server_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.is_empty() {
-        return Err(crate::safety::arg_err(
-            "mcp_server_start requires a configuration record",
-        ));
-    }
-
-    let config = match &args[0] {
-        Value::Record(r) => r,
-        other => {
+fn bi_mcp_server_start(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("mcp_server_start", &input)?;
+    let config = match args.first() {
+        Some(Value::Record(r)) => r,
+        Some(other) => {
             return Err(crate::safety::bad_arg(
                 "mcp_server_start",
                 "config: Record",
                 other.type_name(),
             ))
         }
+        None => {
+            return Err(crate::safety::bad_arg(
+                "mcp_server_start",
+                "config: Record",
+                "nothing",
+            ))
+        }
     };
 
-    let name = config
-        .get("name")
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "default".to_string());
-
-    let server_type = config
-        .get("type")
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "builtin".to_string());
+    // Keys this declaration does not describe are refused rather than dropped,
+    // and a name or type that is not text is refused rather than replaced by a
+    // default ("default", "builtin").
+    for key in config.keys() {
+        if !matches!(key.as_str(), "name" | "type" | "endpoint" | "config") {
+            return Err(crate::safety::bad_arg(
+                "mcp_server_start",
+                "config keys name, type, endpoint, config",
+                key,
+            ));
+        }
+    }
+    let text_field = |key: &str, default: &str| -> Result<String> {
+        match config.get(key) {
+            None => Ok(default.to_string()),
+            Some(v) => Ok(expect_string("mcp_server_start", v)?.to_string()),
+        }
+    };
+    let name = text_field("name", "default")?;
+    let server_type = text_field("type", "builtin")?;
 
     // This reported status "started" with an endpoint on a port derived from
     // the clock, and started nothing. It now says what it is: a declaration.
@@ -21570,6 +21676,33 @@ fn bi_finetune_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // ===================== A2UI (Agent-to-User Interface) Builtins =====================
 
+/// Refuse an interactive prompt when no UI has ever attached to the channel.
+///
+/// Checked before the prompt is queued, so no dangling prompt event is left for
+/// a UI that does not exist. The channel's own check repeats this, but it names
+/// `a2ui`, not the builtin the agent called.
+fn require_a2ui_listener(builtin: &str) -> Result<()> {
+    if A2UI_CHANNEL.ui_attached() {
+        Ok(())
+    } else {
+        Err(crate::safety::no_ui(builtin))
+    }
+}
+
+/// The message-or-subject and the parameters that follow it.
+///
+/// Piped, the subject is the input and every argument is a parameter. Called
+/// directly, the first argument is the subject, as `validate` assumes.
+fn a2ui_subject_and_rest<'a>(
+    args: &'a [Value],
+    input: &Option<Value>,
+) -> (Option<Value>, &'a [Value]) {
+    match input {
+        Some(v) => (Some(v.clone()), args),
+        None => (args.first().cloned(), args.get(1..).unwrap_or(&[])),
+    }
+}
+
 /// a2ui_notify(message, {level: "info"|"success"|"warning"|"error"}) - Send notification to user
 fn bi_a2ui_notify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let message = input
@@ -21609,13 +21742,16 @@ fn bi_a2ui_notify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }))
 }
 
-/// a2ui_prompt(message, {placeholder: "..."}) - Request text input from user (blocking)
+/// a2ui_prompt(message) - Request text input from user (blocking)
+///
+/// Refused with `E_NO_UI` when no UI is attached. A user who cancels gets null.
 fn bi_a2ui_prompt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let message = input
-        .or_else(|| args.first().cloned())
+    let (subject, _) = a2ui_subject_and_rest(&args, &input);
+    let message = subject
         .map(|v| v.to_display_string())
         .ok_or_else(|| crate::safety::arg_err("a2ui_prompt: missing message"))?;
 
+    require_a2ui_listener("a2ui_prompt")?;
     match A2UI_CHANNEL.prompt_text("builtin", &message)? {
         PromptResponse::Text(s) => Ok(Value::Str(s)),
         PromptResponse::Cancelled => Ok(Value::Null),
@@ -21624,83 +21760,122 @@ fn bi_a2ui_prompt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// a2ui_confirm(message) - Request yes/no confirmation from user (blocking)
+///
+/// Refused with `E_NO_UI` when no UI is attached. It never answers `false` for
+/// "nobody is there": that is a decision, and nobody made it.
 fn bi_a2ui_confirm(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let message = input
-        .or_else(|| args.first().cloned())
+    let (subject, _) = a2ui_subject_and_rest(&args, &input);
+    let message = subject
         .map(|v| v.to_display_string())
         .ok_or_else(|| crate::safety::arg_err("a2ui_confirm: missing message"))?;
 
+    require_a2ui_listener("a2ui_confirm")?;
     let result = A2UI_CHANNEL.prompt_confirm("builtin", &message)?;
     Ok(Value::Bool(result))
 }
 
 /// a2ui_select(message, options) - Request selection from user (blocking)
+///
+/// Returns the chosen option, or null when the user cancels.
 fn bi_a2ui_select(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let message = input
-        .or_else(|| args.first().cloned())
+    let (subject, rest) = a2ui_subject_and_rest(&args, &input);
+    let message = subject
         .map(|v| v.to_display_string())
         .ok_or_else(|| crate::safety::arg_err("a2ui_select: missing message"))?;
 
-    let options: Vec<String> = args
-        .get(1)
-        .and_then(|v| {
-            if let Value::Array(arr) = v {
-                Some(arr.iter().map(|x| x.to_display_string()).collect())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| crate::safety::arg_err("a2ui_select: missing options array"))?;
-
-    match A2UI_CHANNEL.prompt_select("builtin", &message, options.clone())? {
-        PromptResponse::Select(idx) => {
-            if idx < options.len() {
-                Ok(Value::Str(options[idx].clone()))
-            } else {
-                Ok(Value::Null)
-            }
+    let options: Vec<String> = match rest.first() {
+        Some(Value::Array(arr)) if !arr.is_empty() => {
+            arr.iter().map(|x| x.to_display_string()).collect()
         }
+        Some(Value::Array(_)) => {
+            return Err(crate::safety::bad_arg(
+                "a2ui_select",
+                "options: a non-empty Array",
+                "an empty Array",
+            ))
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "a2ui_select",
+                "options: Array",
+                other.type_name(),
+            ))
+        }
+        None => {
+            return Err(crate::safety::bad_arg(
+                "a2ui_select",
+                "options: Array",
+                "nothing",
+            ))
+        }
+    };
+
+    require_a2ui_listener("a2ui_select")?;
+    match A2UI_CHANNEL.prompt_select("builtin", &message, options.clone())? {
+        PromptResponse::Select(idx) => match options.get(idx) {
+            Some(chosen) => Ok(Value::Str(chosen.clone())),
+            // An index past the end is the UI's answer being wrong. Null read as
+            // "cancelled", which it was not.
+            None => Err(crate::safety::bad_arg(
+                "a2ui_select",
+                "an index into the options",
+                &format!("index {idx} of {}", options.len()),
+            )),
+        },
         PromptResponse::Cancelled => Ok(Value::Null),
         _ => Err(anyhow!("Unexpected response type")),
     }
 }
 
-/// a2ui_progress(label, current, total) - Update a progress indicator
-fn bi_a2ui_progress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// a2ui_progress(label, current, total, progress_id?) - Update a progress indicator
+///
+/// Queued for the UI like the other display calls; it does not wait for one.
+fn bi_a2ui_progress(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("a2ui_progress", &input)?;
     let label = args
         .first()
         .map(|v| v.to_display_string())
         .ok_or_else(|| crate::safety::arg_err("a2ui_progress: missing label"))?;
 
-    let current = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Int(n) => Some(*n as u64),
-            Value::Float(f) => Some(*f as u64),
-            _ => None,
-        })
-        .ok_or_else(|| crate::safety::arg_err("a2ui_progress: missing current value"))?;
+    // Counts are whole and non-negative: a negative or fractional count used to
+    // be cast to an unsigned number, silently.
+    let count = |i: usize, what: &str| -> Result<u64> {
+        match args.get(i) {
+            Some(Value::Int(n)) if *n >= 0 => Ok(*n as u64),
+            Some(other) => Err(crate::safety::bad_arg(
+                "a2ui_progress",
+                &format!("{what}: a whole number, 0 or more"),
+                other.type_name(),
+            )),
+            None => Err(crate::safety::arg_err(format!(
+                "a2ui_progress: missing {what} value"
+            ))),
+        }
+    };
+    let current = count(1, "current")?;
+    let total = count(2, "total")?;
+    if current > total {
+        return Err(crate::safety::bad_arg(
+            "a2ui_progress",
+            "current: at most total",
+            &format!("{current} of {total}"),
+        ));
+    }
 
-    let total = args
-        .get(2)
-        .and_then(|v| match v {
-            Value::Int(n) => Some(*n as u64),
-            Value::Float(f) => Some(*f as u64),
-            _ => None,
-        })
-        .ok_or_else(|| crate::safety::arg_err("a2ui_progress: missing total value"))?;
-
-    // Generate or use existing progress ID
-    let progress_id = args
-        .get(3)
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                uuid::Uuid::parse_str(s).ok()
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(uuid::Uuid::new_v4);
+    // Use the given progress ID, or make one. A given ID that is not a UUID was
+    // replaced by a new one without a word.
+    let progress_id = match args.get(3) {
+        None => uuid::Uuid::new_v4(),
+        Some(Value::Str(s)) => uuid::Uuid::parse_str(s)
+            .map_err(|_| crate::safety::bad_arg("a2ui_progress", "progress_id: a UUID", s))?,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "a2ui_progress",
+                "progress_id: a UUID string",
+                other.type_name(),
+            ))
+        }
+    };
 
     A2UI_CHANNEL.progress("builtin", progress_id, &label, current, total)?;
 
@@ -21767,50 +21942,53 @@ fn bi_a2ui_render(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// a2ui_render_table(headers, rows) - Render a table in the UI
 fn bi_a2ui_render_table(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let headers: Vec<String> = args
-        .first()
-        .and_then(|v| {
-            if let Value::Array(arr) = v {
-                Some(arr.iter().map(|x| x.to_display_string()).collect())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| crate::safety::arg_err("a2ui_render_table: missing headers array"))?;
+    let headers: Vec<String> = match args.first() {
+        Some(Value::Array(arr)) => arr.iter().map(|x| x.to_display_string()).collect(),
+        _ => {
+            return Err(crate::safety::bad_arg(
+                "a2ui_render_table",
+                "headers: Array",
+                args.first().map_or("nothing", |v| v.type_name()),
+            ))
+        }
+    };
 
-    let rows: Vec<Vec<String>> = args
-        .get(1)
-        .or(input.as_ref())
-        .and_then(|v| {
-            if let Value::Array(arr) = v {
-                Some(
-                    arr.iter()
-                        .filter_map(|row| {
-                            if let Value::Array(row_arr) = row {
-                                Some(row_arr.iter().map(|x| x.to_display_string()).collect())
-                            } else if let Value::Record(row_rec) = row {
-                                Some(
-                                    headers
-                                        .iter()
-                                        .map(|h| {
-                                            row_rec
-                                                .get(h)
-                                                .map(|v| v.to_display_string())
-                                                .unwrap_or_default()
-                                        })
-                                        .collect(),
-                                )
-                            } else {
-                                None
-                            }
-                        })
-                        .collect(),
-                )
-            } else {
-                None
+    // Rows come from the second argument, or from the pipe. A row that is
+    // neither an array nor a record used to be filtered out without a word.
+    let rows_value = args.get(1).or(input.as_ref());
+    let Some(Value::Array(arr)) = rows_value else {
+        return Err(crate::safety::bad_arg(
+            "a2ui_render_table",
+            "rows: Array",
+            rows_value.map_or("nothing", |v| v.type_name()),
+        ));
+    };
+    let mut rows: Vec<Vec<String>> = Vec::with_capacity(arr.len());
+    for row in arr {
+        match row {
+            Value::Array(row_arr) => {
+                rows.push(row_arr.iter().map(|x| x.to_display_string()).collect())
             }
-        })
-        .ok_or_else(|| crate::safety::arg_err("a2ui_render_table: missing rows array"))?;
+            Value::Record(row_rec) => rows.push(
+                headers
+                    .iter()
+                    .map(|h| {
+                        row_rec
+                            .get(h)
+                            .map(|v| v.to_display_string())
+                            .unwrap_or_default()
+                    })
+                    .collect(),
+            ),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "a2ui_render_table",
+                    "each row: an Array or a Record",
+                    other.type_name(),
+                ))
+            }
+        }
+    }
 
     A2UI_CHANNEL.render("builtin", RenderContent::Table { headers, rows })?;
 
@@ -21822,6 +22000,7 @@ fn bi_a2ui_render_code(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     let language = args
         .first()
         .map(|v| v.to_display_string())
+        .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| crate::safety::arg_err("a2ui_render_code: missing language"))?;
 
     let code = args
