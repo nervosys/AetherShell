@@ -57,7 +57,7 @@ items remain release blockers unless explicitly listed as deferred.
 | Area | 13.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
-| Strict builtin signatures | Partially implemented; blocker | Live inventory: 699 implementations covered, 472 not yet declared; review bodies and aliases | Runtime maintainer |
+| Strict builtin signatures | Partially implemented; blocker | Live inventory: 740 implementations covered, 431 not yet declared; review bodies and aliases | Runtime maintainer |
 | Native password hashing | Implemented | Salted, bounded PHC generation/verification; Windows tests passed, platform matrix pending | Runtime maintainer |
 | Ownership, modes and filesystem mutation | Partially implemented; blocker | Strict contracts and owned-fixture tests; native Unix checks pending | Runtime and platform maintainers |
 | Accounts, groups, ACL mutation, mount/unmount, elevated execution, scheduler mutation | Linux implemented and verified in the disposable distro; Windows/macOS open; blocker only for those platforms | Linux accounts, groups, ACLs, mounts, services, sudo_exec and apt backends are verified as root in the disposable distro; Windows and macOS refuse with E_UNIMPLEMENTED and their backends remain open. All scheduler mutation functions and fs_watch/fs_unwatch have native backends; owned-fixture/platform tests are required | Runtime maintainer |
