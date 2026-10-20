@@ -589,7 +589,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "svc_stop"
         | "tmux_attach" => Some(Effect::Process),
 
-        // ---- WriteLocal (67) ----
+        // ---- WriteLocal (68) ----
         | "add_entity"
         | "add_node"
         | "add_relation"
@@ -603,6 +603,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "cache_ai"
         | "chgrp"
         | "clipboard_set"
+        | "clipboard_set_image"
         | "cluster_add_node"
         | "cluster_create"
         | "code_format"
@@ -746,7 +747,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "yarn_run"
         | "yq_query" => Some(Effect::Exec),
 
-        // ---- ReadLocal (146) ----
+        // ---- ReadLocal (153) ----
         | "archive_test"
         | "asdf_list"
         | "at_list"
@@ -757,6 +758,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "buildah_images"
         | "capabilities"
         | "clipboard_get"
+        | "clipboard_get_image"
         | "clipboard_history"
         | "clipboard_types"
         | "cron_list"
@@ -4180,6 +4182,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "fs_symlink",
     "gpg_decrypt",
     "gpg_encrypt",
+    "gui_ocr",
     "gui_screenshot",
     "gzip_compress",
     "gzip_decompress",

@@ -173,11 +173,11 @@ clear	Pure
 clipboard	ReadLocal
 clipboard_clear	WriteLocal
 clipboard_get	ReadLocal
-clipboard_get_image	Pure
+clipboard_get_image	ReadLocal
 clipboard_has_text	ReadLocal
 clipboard_history	ReadLocal
 clipboard_set	WriteLocal
-clipboard_set_image	Pure
+clipboard_set_image	WriteLocal
 clipboard_types	ReadLocal
 cloud_config	Pure
 cloud_deploy	Pure
