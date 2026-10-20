@@ -849,6 +849,16 @@ impl AuthManager {
         Ok(user)
     }
 
+    /// Whether a user has a password credential. A user with one can only
+    /// become the acting principal by proving it (`authenticate`); naming them
+    /// is not enough.
+    pub fn has_password(&self, user_id: &str) -> bool {
+        self.password_hashes
+            .read()
+            .map(|h| h.contains_key(user_id))
+            .unwrap_or(true)
+    }
+
     /// Authenticate with credentials
     pub fn authenticate(&self, credential: Credential) -> AuthResult {
         match credential {

@@ -1739,31 +1739,81 @@ pub fn bi_plugin_categories() -> Value {
 /// """
 /// ```
 pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
+    // A manifest is metadata. Anything larger than this is not one.
+    const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
     let manifest_path = std::path::Path::new(path);
 
-    if !manifest_path.exists() {
-        return Err(crate::safety::not_found(
+    let meta = std::fs::metadata(manifest_path)
+        .map_err(|e| crate::safety::fs_error("plugin_load", manifest_path, &e))?;
+    if !meta.is_file() {
+        return Err(crate::safety::bad_arg(
             "plugin_load",
-            "plugin manifest",
-            path,
+            "a path to a manifest file",
+            &format!("{path:?}"),
+        ));
+    }
+    if meta.len() > MAX_MANIFEST_BYTES {
+        return Err(crate::safety::bad_arg(
+            "plugin_load",
+            "a manifest of at most 1 MiB",
+            &format!("{} bytes", meta.len()),
         ));
     }
 
-    let content =
-        std::fs::read_to_string(manifest_path).context("Failed to read plugin manifest")?;
+    let content = std::fs::read_to_string(manifest_path)
+        .map_err(|e| crate::safety::fs_error("plugin_load", manifest_path, &e))?;
 
-    let manifest: toml::Value =
-        toml::from_str(&content).context("Failed to parse plugin manifest")?;
+    let manifest: toml::Value = toml::from_str(&content).map_err(|e| {
+        crate::safety::bad_arg(
+            "plugin_load",
+            "a TOML plugin manifest",
+            &format!("unparseable: {e}"),
+        )
+    })?;
 
     // Extract plugin metadata
-    let plugin_section = manifest
-        .get("plugin")
-        .context("Missing [plugin] section in manifest")?;
+    let plugin_section = manifest.get("plugin").ok_or_else(|| {
+        crate::safety::bad_arg(
+            "plugin_load",
+            "a manifest with a [plugin] table",
+            "no [plugin] table",
+        )
+    })?;
 
     let id = plugin_section
         .get("id")
         .and_then(|v| v.as_str())
-        .context("Missing plugin.id")?;
+        .ok_or_else(|| {
+            crate::safety::bad_arg("plugin_load", "plugin.id: a string", "no plugin id")
+        })?;
+    // An id becomes a key in the registry and an argument to every other
+    // plugin_* builtin, so an option-like or path-like one is refused.
+    let id_ok = !id.is_empty()
+        && id.len() <= 128
+        && !id.starts_with(['-', '.'])
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if !id_ok {
+        return Err(crate::safety::bad_arg(
+            "plugin_load",
+            "plugin.id: 1 to 128 letters, digits, '.', '_' or '-', not starting with '-' or '.'",
+            &format!("{id:?}"),
+        ));
+    }
+
+    // The [builtins] table is source meant to become callable. Nothing
+    // dispatches on the plugin registry, so registering it would report the
+    // names as loaded while none of them could be called.
+    if let Some(table) = manifest.get("builtins").and_then(|v| v.as_table()) {
+        if !table.is_empty() {
+            return Err(crate::safety::unimplemented(
+                "plugin_load",
+                "cannot make a manifest's [builtins] callable: no call dispatches on the plugin registry, so they would never run",
+                "load a manifest that carries metadata only; there is no route that runs plugin builtins yet",
+            ));
+        }
+    }
 
     let name = plugin_section
         .get("name")
@@ -1860,7 +1910,11 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
 
     // Check if already loaded
     if registry.plugins.contains_key(&metadata.id) {
-        return Err(anyhow::anyhow!("Plugin {} is already loaded", metadata.id));
+        return Err(crate::safety::bad_state(
+            "plugin_load",
+            &format!("plugin {} is already loaded", metadata.id),
+            "plugin_unload",
+        ));
     }
 
     registry.plugins.insert(
@@ -1873,12 +1927,13 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
         },
     );
 
-    // Return plugin info
+    // Return plugin info. "registered", not "loaded": the record carries
+    // metadata only, and nothing it describes runs.
     let mut result = std::collections::BTreeMap::new();
     result.insert("id".to_string(), Value::Str(metadata.id));
     result.insert("name".to_string(), Value::Str(metadata.name));
     result.insert("version".to_string(), Value::Str(metadata.version));
-    result.insert("status".to_string(), Value::Str("loaded".to_string()));
+    result.insert("status".to_string(), Value::Str("registered".to_string()));
 
     Ok(Value::Record(result))
 }
@@ -1889,9 +1944,10 @@ pub fn unload_plugin(plugin_id: &str) -> Result<Value> {
 
     // Check if it's a builtin plugin (cannot unload)
     if plugin_id.starts_with("builtin.") {
-        return Err(anyhow::anyhow!(
-            "Cannot unload built-in plugin: {}",
-            plugin_id
+        return Err(crate::safety::policy_deny(
+            "plugin_unload",
+            format!("plugin_unload: Cannot unload built-in plugin: {plugin_id}"),
+            "built-in plugins are part of the shell and are never removed at runtime",
         ));
     }
 

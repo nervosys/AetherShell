@@ -1674,7 +1674,9 @@ lazy_static::lazy_static! {
     };
 
     /// SSO active sessions
-    static ref SSO_SESSIONS: std::sync::RwLock<HashMap<String, SsoSession>> = {
+    /// Live SSO tokens, mapped to their user. Nothing inserts into it: `sso_auth`
+    /// cannot verify a callback, so it mints none (see `bi_sso_auth`).
+    static ref SSO_SESSIONS: std::sync::RwLock<HashMap<String, String>> = {
         std::sync::RwLock::new(HashMap::new())
     };
 
@@ -2344,15 +2346,6 @@ struct SsoConfig {
     client_id: String,
     issuer_url: String,
     enabled: bool,
-}
-
-/// SSO Session
-#[derive(Debug, Clone)]
-struct SsoSession {
-    token: String,
-    user_id: String,
-    created_at: std::time::Instant,
-    expires_at: std::time::Instant,
 }
 
 /// Compliance standards
@@ -20436,6 +20429,13 @@ fn bi_rbac_principal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mgr = global_rbac();
     match args.first() {
         Some(Value::Str(uid)) => {
+            if uid.is_empty() || uid.len() > 256 || uid.chars().any(char::is_control) {
+                return Err(crate::safety::bad_arg(
+                    "rbac_principal",
+                    "a user id of 1 to 256 characters with no control characters",
+                    &format!("{uid:?}"),
+                ));
+            }
             // Only the *setting* form is privileged; reading back the current
             // principal (the argless form below) is not, and an agent that
             // cannot ask what it is acting as will guess.
@@ -20448,10 +20448,26 @@ fn bi_rbac_principal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 reversible: true,
                 fs_paths: false,
             })?;
+            // Naming a user who has a password does not prove anything: that
+            // account is entered through `rbac_login`, or it is not entered.
+            // Without this check `rbac_principal("admin")` became admin.
+            // The name may be the account's id or its username; either one
+            // resolves to the same password-protected account.
+            if let Some(account) = resolve_rbac_user(&mgr, uid) {
+                if GLOBAL_AUTH.has_password(&account.id) {
+                    return Err(crate::safety::policy_deny(
+                        "rbac_principal",
+                        format!(
+                            "rbac_principal: '{uid}' has a password and cannot be assumed by name"
+                        ),
+                        "authenticate as that user with rbac_login(username, password)",
+                    ));
+                }
+            }
             if mgr.get_user(uid).is_none() {
                 let mut u = crate::auth::User::new(uid.clone());
                 u.id = uid.clone(); // use the id as the principal handle
-                let _ = mgr.add_user(u);
+                mgr.add_user(u)?;
             }
             crate::safety::set_principal(Some(uid.clone()));
             Ok(Value::Str(uid.clone()))
@@ -20469,35 +20485,88 @@ fn bi_rbac_principal(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// "effect:destructive", "effect:*", "builtin:rm", "*:*") to a user so that,
 /// when acting as that principal, guarded ops of that class bypass approval.
 fn bi_rbac_grant(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let uid = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "rbac_grant: expected a user id string",
-            ))
-        }
-    };
+    let uid = rbac_user_id("rbac_grant", args.first())?;
     let perm = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(anyhow!(
-                "rbac_grant: expected a permission string, e.g. \"effect:destructive\""
+        Some(Value::Str(s)) => rbac_permission_arg("rbac_grant", s)?,
+        other => {
+            return Err(crate::safety::bad_arg(
+                "rbac_grant",
+                "a permission string such as \"effect:destructive\"",
+                other.map_or("nothing", Value::type_name),
             ))
         }
     };
     let mgr = global_rbac();
-    let mut user = mgr.get_user(&uid).unwrap_or_else(|| {
+    // A registered account is granted by its id or its username, to the same
+    // record; a name that is neither is created, as before.
+    let mut user = resolve_rbac_user(&mgr, &uid).unwrap_or_else(|| {
         let mut u = crate::auth::User::new(uid.clone());
         u.id = uid.clone();
         u
     });
-    user.permissions.insert(perm.clone());
-    mgr.add_user(user)?;
-    mgr.invalidate_user_cache(&uid);
+    let user_id = user.id.clone();
+    // A grant that is already held changed nothing, and says so rather than
+    // reporting a fresh grant each time it is repeated.
+    let changed = user.permissions.insert(perm.clone());
+    if changed {
+        mgr.add_user(user)?;
+        mgr.invalidate_user_cache(&user_id);
+    }
     let mut rec = BTreeMap::new();
-    rec.insert("user".to_string(), Value::Str(uid));
+    rec.insert("user".to_string(), Value::Str(user_id));
     rec.insert("granted".to_string(), Value::Str(perm));
+    rec.insert("changed".to_string(), Value::Bool(changed));
     Ok(Value::Record(rec))
+}
+
+/// The account a name refers to: by id first, then by username, since a
+/// registered account's id and its username differ.
+fn resolve_rbac_user(mgr: &crate::auth::RbacManager, name: &str) -> Option<crate::auth::User> {
+    mgr.get_user(name)
+        .or_else(|| mgr.get_user_by_username(name))
+}
+
+/// A user id argument for the `rbac_*` family: a non-empty string of at most
+/// 256 bytes with no control characters, since it is written into the audit
+/// trail and echoed back.
+fn rbac_user_id(builtin: &str, v: Option<&Value>) -> Result<String> {
+    match v {
+        Some(Value::Str(s))
+            if !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control) =>
+        {
+            Ok(s.clone())
+        }
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            "a user id string of 1 to 256 characters with no control characters",
+            other.map_or("nothing", Value::type_name),
+        )),
+    }
+}
+
+/// A permission argument: `resource:capability`, both halves non-empty, the
+/// whole of at most 128 characters from letters, digits and `_ - . * /`.
+/// Anything else is refused, so a typo cannot be stored as a grant that
+/// matches nothing and looks like one that does.
+fn rbac_permission_arg(builtin: &str, s: &str) -> Result<String> {
+    let well_formed = s.len() <= 128
+        && s.split_once(':').is_some_and(|(a, b)| {
+            !a.is_empty()
+                && !b.is_empty()
+                && !b.contains(':')
+                && s.chars().all(|c| {
+                    c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '*' | '/' | ':')
+                })
+        });
+    if well_formed {
+        Ok(s.to_string())
+    } else {
+        Err(crate::safety::bad_arg(
+            builtin,
+            "a permission of the form resource:capability, e.g. \"effect:destructive\"",
+            &format!("{s:?}"),
+        ))
+    }
 }
 
 /// rbac_can(permission) - Whether the current principal holds `permission`
@@ -20560,23 +20629,29 @@ struct LoginSession {
 /// Read a password from the argument if given, and interactively otherwise.
 /// Refuses to prompt when stdin is not a terminal: a prompt nobody can answer
 /// is a hang, and silently reading a password off a pipe is worse.
-fn password_arg(args: &[Value], idx: usize, prompt: &str) -> Result<String> {
-    if let Some(Value::Str(p)) = args.get(idx) {
-        if p.is_empty() {
-            return Err(anyhow!("an empty password is not a password"));
-        }
-        return Ok(p.clone());
+fn password_arg(builtin: &str, args: &[Value], idx: usize, prompt: &str) -> Result<String> {
+    if let Some(p) = args.get(idx) {
+        return match p {
+            Value::Str(p) if !p.is_empty() && p.len() <= 1024 => Ok(p.clone()),
+            other => Err(crate::safety::bad_arg(
+                builtin,
+                "a password string of 1 to 1024 bytes",
+                other.type_name(),
+            )),
+        };
     }
     use std::io::IsTerminal;
     if !std::io::stdin().is_terminal() {
-        return Err(anyhow!(
-            "no password given and stdin is not a terminal -- pass it as the second argument"
-        ));
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: no password given and stdin is not a terminal -- pass it as the second argument"
+        )));
     }
     let got = bi_input_read_password(vec![Value::Str(prompt.to_string())], None)?;
     match got {
         Value::Str(p) if !p.is_empty() => Ok(p),
-        _ => Err(anyhow!("no password entered")),
+        _ => Err(crate::safety::arg_err(format!(
+            "{builtin}: no password entered"
+        ))),
     }
 }
 
@@ -20585,22 +20660,29 @@ fn password_arg(args: &[Value], idx: usize, prompt: &str) -> Result<String> {
 /// is stored as an Argon2id PHC string, never in the clear and never as a bare
 /// digest.
 fn bi_rbac_register(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let username = match args.first() {
-        Some(Value::Str(s)) if !s.is_empty() => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "rbac_register: expected a username string",
-            ))
-        }
-    };
-    let password = password_arg(&args, 1, &format!("Password for {username}: "))?;
+    let username = rbac_user_id("rbac_register", args.first())?;
+    let password = password_arg(
+        "rbac_register",
+        &args,
+        1,
+        &format!("Password for {username}: "),
+    )?;
     if args.get(1).is_none() {
-        let again = password_arg(&[], 0, "Repeat password: ")?;
+        let again = password_arg("rbac_register", &[], 0, "Repeat password: ")?;
         if again != password {
-            return Err(anyhow!("rbac_register: the two passwords do not match"));
+            return Err(crate::safety::arg_err(
+                "rbac_register: the two passwords do not match",
+            ));
         }
     }
     let _ = global_rbac(); // install the shared store into the safety layer
+    if global_rbac().get_user_by_username(&username).is_some() {
+        return Err(crate::safety::bad_arg(
+            "rbac_register",
+            "a username that is not yet registered",
+            &format!("{username:?}, which is registered already"),
+        ));
+    }
     let user = GLOBAL_AUTH.register_user(&username, &password)?;
     let mut rec = BTreeMap::new();
     rec.insert("user".to_string(), Value::Str(user.username));
@@ -20613,15 +20695,13 @@ fn bi_rbac_register(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// principal is set to the authenticated user id, so RBAC grants apply to a
 /// proven identity rather than an asserted one.
 fn bi_rbac_login(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let username = match args.first() {
-        Some(Value::Str(s)) if !s.is_empty() => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "rbac_login: expected a username string",
-            ))
-        }
-    };
-    let password = password_arg(&args, 1, &format!("Password for {username}: "))?;
+    let username = rbac_user_id("rbac_login", args.first())?;
+    let password = password_arg(
+        "rbac_login",
+        &args,
+        1,
+        &format!("Password for {username}: "),
+    )?;
     let _ = global_rbac();
     let result = GLOBAL_AUTH.authenticate(crate::auth::Credential::Password {
         username: username.clone(),
@@ -20630,15 +20710,27 @@ fn bi_rbac_login(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if !result.success {
         // Deliberately unspecific: which half was wrong is the attacker's
         // question, and `AuthManager` has already recorded the detail in its
-        // own audit log.
-        return Err(anyhow!("rbac_login: invalid credentials"));
+        // own audit log. A coded refusal, so it is not mistaken for a crash.
+        return Err(crate::safety::policy_deny(
+            "rbac_login",
+            "rbac_login: invalid credentials",
+            "check the username and password; repeated failures are recorded in the audit trail",
+        ));
     }
-    let user = result
-        .user
-        .ok_or_else(|| anyhow!("rbac_login: no user returned"))?;
-    let session = result
-        .session
-        .ok_or_else(|| anyhow!("rbac_login: no session returned"))?;
+    let user = result.user.ok_or_else(|| {
+        crate::safety::policy_deny(
+            "rbac_login",
+            "rbac_login: authentication succeeded without a user record",
+            "this is an internal fault; do not retry with the same credentials",
+        )
+    })?;
+    let session = result.session.ok_or_else(|| {
+        crate::safety::policy_deny(
+            "rbac_login",
+            "rbac_login: authentication succeeded without a session",
+            "this is an internal fault; do not retry with the same credentials",
+        )
+    })?;
     let expires_at = session.expires_at.to_rfc3339();
     crate::safety::set_principal(Some(user.id.clone()));
     if let Ok(mut g) = LOGIN_SESSION.lock() {
@@ -20696,10 +20788,35 @@ fn bi_rbac_session(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// active hash-chained log as an array of records, so an agent can review what
 /// it did and what was allowed/denied/approved. Read-only.
 fn bi_audit_tail(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // A count that is not a count used to fall back silently to 20, and a
+    // huge one read the whole log into the agent's context. Both are refused.
+    const MAX_TAIL: usize = 10_000;
     let n = match args.first() {
-        Some(Value::Int(k)) if *k >= 0 => *k as usize,
-        _ => 20,
+        None => 20,
+        Some(Value::Int(k)) if (0..=MAX_TAIL as i64).contains(k) => *k as usize,
+        other => {
+            return Err(crate::safety::bad_arg(
+                "audit_tail",
+                &format!("an Int from 0 to {MAX_TAIL} (the default is 20)"),
+                other.map_or("nothing", Value::type_name),
+            ))
+        }
     };
+    // `read_audit_tail` answers [] for a missing or unreadable log alike. Look
+    // first, so "nothing was recorded" and "the log cannot be read" stay
+    // different answers.
+    let Some(path) = crate::safety::audit_path() else {
+        return Err(crate::safety::bad_state(
+            "audit_tail",
+            "no audit log is active",
+            "run in agent mode, or set AETHER_AUDIT_LOG to a file",
+        ));
+    };
+    match std::fs::File::open(&path) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Value::Array(Vec::new())),
+        Err(e) => return Err(crate::safety::fs_error("audit_tail", &path, &e)),
+    }
     let entries: Vec<Value> = crate::safety::read_audit_tail(n)
         .iter()
         .map(Value::from_json)
@@ -20766,8 +20883,17 @@ fn bi_approve(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// record {valid, entries, path} or {valid: false, error, path}.
 fn bi_audit_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let path = match args.first() {
-        Some(Value::Str(s)) => std::path::PathBuf::from(s),
-        _ => match crate::safety::audit_path() {
+        Some(Value::Str(s)) if !s.is_empty() => std::path::PathBuf::from(s),
+        // An argument that is present but not a path is an error, not a
+        // request to verify the active log instead.
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "audit_verify",
+                "a path string to a log file (or no argument for the active log)",
+                other.type_name(),
+            ))
+        }
+        None => match crate::safety::audit_path() {
             Some(p) => p,
             None => {
                 return Err(crate::safety::bad_state(
@@ -20783,7 +20909,26 @@ fn bi_audit_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "path".to_string(),
         Value::Str(path.to_string_lossy().to_string()),
     );
+    // Whether the chain is keyed says how much a `valid` answer proves: an
+    // unkeyed chain can be rewritten end to end by anyone who can write the
+    // file, so it shows corruption, not tampering.
+    rec.insert(
+        "keyed".to_string(),
+        Value::Bool(crate::safety::audit_key().is_some()),
+    );
     match crate::safety::verify_audit(&path) {
+        // A log with no entries is what a truncation leaves behind, so it
+        // attests to nothing and must not read as valid.
+        Ok(0) => {
+            rec.insert("valid".to_string(), Value::Bool(false));
+            rec.insert("entries".to_string(), Value::Int(0));
+            rec.insert(
+                "error".to_string(),
+                Value::Str(
+                    "the log holds no entries, so there is nothing it attests to".to_string(),
+                ),
+            );
+        }
         Ok(n) => {
             rec.insert("valid".to_string(), Value::Bool(true));
             rec.insert("entries".to_string(), Value::Int(n as i64));
@@ -21315,68 +21460,93 @@ fn bi_role_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .ok_or_else(|| crate::safety::arg_err("role_delete: missing 'name'"))?;
 
     let existed = RBAC_ROLES.write().unwrap().remove(&name).is_some();
+    if !existed {
+        return Err(crate::safety::not_found("role_delete", "role", &name));
+    }
+    // Take the role from every holder as well. Left in place, a role created
+    // again under the same name would silently give back everyone it had.
+    let mut unassigned: i64 = 0;
+    for roles in USER_ROLES.write().unwrap().values_mut() {
+        let before = roles.len();
+        roles.retain(|r| r != &name);
+        unassigned += (before - roles.len()) as i64;
+    }
 
     let mut result = BTreeMap::new();
-    result.insert(
-        "status".to_string(),
-        Value::Str(if existed { "deleted" } else { "not_found" }.to_string()),
-    );
+    result.insert("status".to_string(), Value::Str("deleted".to_string()));
     result.insert("role".to_string(), Value::Str(name));
+    result.insert("users_unassigned".to_string(), Value::Int(unassigned));
     Ok(Value::Record(result))
+}
+
+/// A name argument for the role store: a non-empty string of at most 256
+/// bytes with no control characters. The old form took any value and stored
+/// its display text, so `1` and `"1"` were the same user.
+fn role_name_arg(builtin: &str, v: Option<&Value>, what: &str) -> Result<String> {
+    match v {
+        Some(Value::Str(s))
+            if !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control) =>
+        {
+            Ok(s.clone())
+        }
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: a string of 1 to 256 characters with no control characters"),
+            other.map_or("nothing", Value::type_name),
+        )),
+    }
 }
 
 /// role_grant(user, role) - Grant a role to a user
 fn bi_role_grant(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err(
-            "role_grant: requires user and role arguments",
-        ));
-    }
-    let user = args[0].to_display_string();
-    let role = args[1].to_display_string();
+    let user = role_name_arg("role_grant", args.first(), "a user name")?;
+    let role = role_name_arg("role_grant", args.get(1), "a role name")?;
 
     if !RBAC_ROLES.read().unwrap().contains_key(&role) {
-        return Err(anyhow!("role_grant: role '{}' does not exist", role));
+        return Err(crate::safety::not_found("role_grant", "role", &role));
     }
 
-    USER_ROLES
-        .write()
-        .unwrap()
-        .entry(user.clone())
-        .or_default()
-        .push(role.clone());
+    // Holding a role twice is holding it once. A repeated grant reports
+    // "unchanged" rather than a fresh "granted" for an edit that did nothing.
+    let mut user_roles = USER_ROLES.write().unwrap();
+    let held = user_roles.entry(user.clone()).or_default();
+    let changed = !held.contains(&role);
+    if changed {
+        held.push(role.clone());
+    }
 
     let mut result = BTreeMap::new();
-    result.insert("status".to_string(), Value::Str("granted".to_string()));
+    result.insert(
+        "status".to_string(),
+        Value::Str(if changed { "granted" } else { "unchanged" }.to_string()),
+    );
     result.insert("user".to_string(), Value::Str(user));
     result.insert("role".to_string(), Value::Str(role));
     Ok(Value::Record(result))
 }
 
-/// role_revoke(user, role) - Revoke a role from a user
+/// role_revoke(user, role) - Revoke a role from a user. A role the user does
+/// not hold is an error, not a quiet "not_found" status: nothing was revoked.
 fn bi_role_revoke(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(crate::safety::arg_err(
-            "role_revoke: requires user and role arguments",
-        ));
-    }
-    let user = args[0].to_display_string();
-    let role = args[1].to_display_string();
+    let user = role_name_arg("role_revoke", args.first(), "a user name")?;
+    let role = role_name_arg("role_revoke", args.get(1), "a role name")?;
 
     let mut user_roles = USER_ROLES.write().unwrap();
-    let revoked = if let Some(roles) = user_roles.get_mut(&user) {
+    let revoked = user_roles.get_mut(&user).is_some_and(|roles| {
         let before = roles.len();
         roles.retain(|r| r != &role);
         roles.len() < before
-    } else {
-        false
-    };
+    });
+    if !revoked {
+        return Err(crate::safety::not_found(
+            "role_revoke",
+            "grant",
+            &format!("{role} held by {user}"),
+        ));
+    }
 
     let mut result = BTreeMap::new();
-    result.insert(
-        "status".to_string(),
-        Value::Str(if revoked { "revoked" } else { "not_found" }.to_string()),
-    );
+    result.insert("status".to_string(), Value::Str("revoked".to_string()));
     result.insert("user".to_string(), Value::Str(user));
     result.insert("role".to_string(), Value::Str(role));
     Ok(Value::Record(result))
@@ -21402,14 +21572,11 @@ fn bi_user_roles(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// check_permission(user, resource, action) - Check if user has permission
 fn bi_check_permission(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if args.len() < 3 {
-        return Err(crate::safety::arg_err(
-            "check_permission: requires user, resource, and action arguments",
-        ));
-    }
-    let user = args[0].to_display_string();
-    let resource = args[1].to_display_string();
-    let action = args[2].to_display_string();
+    // Each argument must be the string it names. Display text made `1`, `"1"`
+    // and `[1]` the same user, so a non-string could be granted by name.
+    let user = role_name_arg("check_permission", args.first(), "a user name")?;
+    let resource = role_name_arg("check_permission", args.get(1), "a resource")?;
+    let action = role_name_arg("check_permission", args.get(2), "an action")?;
 
     let user_roles_guard = USER_ROLES.read().unwrap();
     let roles_guard = RBAC_ROLES.read().unwrap();
@@ -21456,40 +21623,85 @@ fn bi_roles_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 /// audit_log(action, resource, details?, severity?) - Log an audit entry
 fn bi_audit_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Entries here are the agent's own assertions about what it did, so they
+    // are bounded and kept in the same chained log as the shell's decisions,
+    // labelled `asserted`, rather than sitting in memory where nothing can
+    // say who put them there.
+    const MAX_ENTRIES: usize = 10_000;
     if args.len() < 2 {
         return Err(crate::safety::arg_err(
             "audit_log: requires action and resource arguments",
         ));
     }
-    let action = args[0].to_display_string();
-    let resource = args[1].to_display_string();
-    let details = args
-        .get(2)
-        .map(|v| v.to_display_string())
-        .unwrap_or_default();
-    let severity_str = args
-        .get(3)
-        .map(|v| v.to_display_string())
-        .unwrap_or_else(|| "info".to_string());
-
-    let severity = match severity_str.to_lowercase().as_str() {
-        "warning" => AuditSeverity::Warning,
-        "critical" => AuditSeverity::Critical,
-        _ => AuditSeverity::Info,
+    let action = audit_text_arg("audit_log", args.first(), "an action", false)?;
+    let resource = audit_text_arg("audit_log", args.get(1), "a resource", false)?;
+    let details = match args.get(2) {
+        None => String::new(),
+        Some(v) => audit_text_arg("audit_log", Some(v), "details", true)?,
     };
+    let severity = match args.get(3) {
+        None => AuditSeverity::Info,
+        Some(Value::Str(s)) => match s.as_str() {
+            "info" => AuditSeverity::Info,
+            "warning" => AuditSeverity::Warning,
+            "critical" => AuditSeverity::Critical,
+            _ => {
+                return Err(crate::safety::bad_arg(
+                    "audit_log",
+                    "a severity of info, warning or critical",
+                    &format!("{s:?}"),
+                ))
+            }
+        },
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "audit_log",
+                "a severity of info, warning or critical",
+                other.type_name(),
+            ))
+        }
+    };
+
+    if AUDIT_LOG.read().unwrap().len() >= MAX_ENTRIES {
+        return Err(crate::safety::budget_exceeded(
+            "audit_log",
+            format!("the audit list holds {MAX_ENTRIES} entries and takes no more"),
+            "entries are not dropped to make room; the chained audit log keeps the full record",
+        ));
+    }
 
     let id = format!(
         "audit_{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_nanos()
+    );
+    let user = crate::safety::current_principal()
+        .or_else(|| std::env::var("USER").ok())
+        .unwrap_or_else(|| "system".to_string());
+
+    // The chained log is what `audit_verify` checks. An assertion that lands
+    // there is attributable and tamper-evident; `decision: asserted` says it
+    // is a claim, not a decision the shell made.
+    let _ = crate::safety::audit(
+        "audit_log",
+        crate::safety::Effect::WriteLocal,
+        "asserted",
+        &resource,
+        serde_json::json!({
+            "id": id,
+            "action": action,
+            "details": details,
+            "severity": severity.as_str(),
+            "user": user,
+        }),
     );
 
     let entry = AuditEntry {
         id: id.clone(),
         timestamp: std::time::Instant::now(),
-        user: std::env::var("USER").unwrap_or_else(|_| "system".to_string()),
+        user,
         action,
         resource,
         details,
@@ -21505,15 +21717,63 @@ fn bi_audit_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(result))
 }
 
+/// A text field of an audit entry. Control characters are refused: a field
+/// with a newline or a tab is how a reader of the plain-text view is misled
+/// about where one entry ends and the next begins.
+fn audit_text_arg(
+    builtin: &str,
+    v: Option<&Value>,
+    what: &str,
+    allow_empty: bool,
+) -> Result<String> {
+    const MAX: usize = 4096;
+    match v {
+        Some(Value::Str(s))
+            if (allow_empty || !s.is_empty())
+                && s.len() <= MAX
+                && !s.chars().any(char::is_control) =>
+        {
+            Ok(s.clone())
+        }
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            &format!(
+                "{what}: a string of {}{MAX} bytes or fewer with no control characters",
+                if allow_empty { "" } else { "1 to " }
+            ),
+            other.map_or("nothing", Value::type_name),
+        )),
+    }
+}
+
 /// audit_query(filter?) - Query audit log entries
 fn bi_audit_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let filter = args.first().and_then(|v| {
-        if let Value::Record(rec) = v {
+    // A filter that is not a record, or names a field the log does not have,
+    // used to be ignored, and the query then answered with everything. That
+    // reads as a filtered answer, so it is refused.
+    let filter = match args.first() {
+        None => None,
+        Some(Value::Record(rec)) => {
+            if let Some(bad) = rec
+                .keys()
+                .find(|k| !matches!(k.as_str(), "action" | "resource"))
+            {
+                return Err(crate::safety::bad_arg(
+                    "audit_query",
+                    "a filter with only the fields action and resource",
+                    &format!("field {bad:?}"),
+                ));
+            }
             Some(rec.clone())
-        } else {
-            None
         }
-    });
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "audit_query",
+                "a filter Record such as {action: \"login\"}",
+                other.type_name(),
+            ))
+        }
+    };
 
     let log = AUDIT_LOG.read().unwrap();
 
@@ -21627,16 +21887,28 @@ fn bi_sso_init(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "sso_init: requires provider, client_id, and issuer_url arguments",
         ));
     }
-    let provider_str = args[0].to_display_string();
-    let client_id = args[1].to_display_string();
-    let issuer_url = args[2].to_display_string();
+    let provider_str = role_name_arg("sso_init", args.first(), "a provider name")?;
+    let client_id = role_name_arg("sso_init", args.get(1), "a client id")?;
+    let issuer_url = role_name_arg("sso_init", args.get(2), "an issuer URL")?;
 
     let provider = SsoProvider::from_str(&provider_str).ok_or_else(|| {
-        anyhow!(
-            "sso_init: invalid provider '{}' (use oauth2, saml, or oidc)",
-            provider_str
+        crate::safety::bad_arg(
+            "sso_init",
+            "a provider of oauth2, saml or oidc",
+            &format!("{provider_str:?}"),
         )
     })?;
+    // The issuer is where tokens will be trusted from, so it must be an
+    // https address (plain http is allowed only for a loopback host).
+    let loopback =
+        issuer_url.starts_with("http://localhost") || issuer_url.starts_with("http://127.0.0.1");
+    if !(issuer_url.starts_with("https://") || loopback) {
+        return Err(crate::safety::bad_arg(
+            "sso_init",
+            "an issuer URL beginning https:// (http:// only for localhost)",
+            &format!("{issuer_url:?}"),
+        ));
+    }
 
     let config = SsoConfig {
         provider,
@@ -21646,6 +21918,9 @@ fn bi_sso_init(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     *SSO_CONFIG.write().unwrap() = Some(config);
+    // Tokens issued under the previous configuration are not honoured under
+    // the new one.
+    SSO_SESSIONS.write().unwrap().clear();
 
     let mut result = BTreeMap::new();
     result.insert("status".to_string(), Value::Str("initialized".to_string()));
@@ -21653,48 +21928,19 @@ fn bi_sso_init(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(result))
 }
 
-/// sso_auth(callback_data) - Authenticate via SSO
-fn bi_sso_auth(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let callback = input
-        .or_else(|| args.first().cloned())
-        .map(|v| v.to_display_string())
-        .ok_or_else(|| crate::safety::arg_err("sso_auth: missing callback data"))?;
-
-    let config = SSO_CONFIG.read().unwrap();
-    if config.is_none() {
-        return Err(crate::safety::bad_state(
-            "sso_auth",
-            "SSO is not initialised",
-            "sso.init",
-        ));
-    }
-
-    let token = format!(
-        "sso_token_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    );
-    let user_id = format!("user_{}", callback.len());
-
-    let session = SsoSession {
-        token: token.clone(),
-        user_id: user_id.clone(),
-        created_at: std::time::Instant::now(),
-        expires_at: std::time::Instant::now() + std::time::Duration::from_secs(3600),
-    };
-
-    SSO_SESSIONS.write().unwrap().insert(token.clone(), session);
-
-    let mut result = BTreeMap::new();
-    result.insert(
-        "status".to_string(),
-        Value::Str("authenticated".to_string()),
-    );
-    result.insert("token".to_string(), Value::Str(token));
-    result.insert("user_id".to_string(), Value::Str(user_id));
-    Ok(Value::Record(result))
+/// sso_auth(callback_data) - Authenticate via SSO.
+///
+/// Not implemented. The callback is not exchanged with the identity provider
+/// and its signature is not checked, so there is no identity to attest to.
+/// This builtin used to accept any input, mint a token and name the user
+/// `user_<length of the input>`, which made every SSO-gated check pass for
+/// whoever called it.
+fn bi_sso_auth(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Err(crate::safety::unimplemented(
+        "sso_auth",
+        "does not verify the callback with the identity provider, so it cannot say who authenticated; no token is issued",
+        "use rbac_login with a local account for an authenticated principal",
+    ))
 }
 
 /// sso_validate(token) - Validate an SSO token
@@ -21705,21 +21951,9 @@ fn bi_sso_validate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .transpose()?
         .ok_or_else(|| crate::safety::arg_err("sso_validate: missing 'token'"))?;
 
-    let sessions = SSO_SESSIONS.read().unwrap();
-    let session = sessions.get(&token);
-
-    let (valid, user_id) = if let Some(s) = session {
-        if std::time::Instant::now() < s.expires_at {
-            (true, Some(s.user_id.clone()))
-        } else {
-            (false, None)
-        }
-    } else {
-        (false, None)
-    };
-
+    let user_id = SSO_SESSIONS.read().unwrap().get(&token).cloned();
     let mut result = BTreeMap::new();
-    result.insert("valid".to_string(), Value::Bool(valid));
+    result.insert("valid".to_string(), Value::Bool(user_id.is_some()));
     if let Some(uid) = user_id {
         result.insert("user_id".to_string(), Value::Str(uid));
     }
@@ -21766,90 +22000,130 @@ fn bi_sso_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     Ok(Value::Record(result))
 }
-/// compliance_check(standard, scope?) - Run compliance check
-fn bi_compliance_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let standard_str = input
-        .or_else(|| args.first().cloned())
-        .map(|v| key_arg("compliance_check", v))
-        .transpose()?
-        .ok_or_else(|| crate::safety::arg_err("compliance_check: missing 'standard'"))?;
+/// The standard named by a compliance builtin: piped in, or the first
+/// argument. A standard the shell does not know is refused, not reported.
+fn compliance_standard_arg(
+    builtin: &str,
+    input: &Option<Value>,
+    args: &[Value],
+) -> Result<ComplianceStandard> {
+    let name = match input {
+        Some(v) => role_name_arg(builtin, Some(v), "a standard")?,
+        None => role_name_arg(builtin, args.first(), "a standard")?,
+    };
+    ComplianceStandard::from_str(&name).ok_or_else(|| {
+        crate::safety::bad_arg(
+            builtin,
+            "a standard of GDPR, HIPAA, SOC2 or PCI",
+            &format!("{name:?}"),
+        )
+    })
+}
 
-    let standard = ComplianceStandard::from_str(&standard_str).ok_or_else(|| {
-        crate::safety::arg_err(format!(
-            "compliance_check: invalid standard '{}' (use GDPR, HIPAA, SOC2, or PCI)",
-            standard_str
-        ))
-    })?;
+/// The controls a verdict rests on. `None` is a control the shell cannot
+/// observe, which is not the same as the control being in place. Encryption
+/// at rest was once asserted `true` here, so every standard was reported
+/// compliant on a claim nothing checked.
+fn compliance_checks() -> [(&'static str, Option<bool>); 4] {
+    [
+        ("data_encryption", None),
+        (
+            "access_logging",
+            Some(!AUDIT_LOG.read().unwrap().is_empty()),
+        ),
+        // Presence of a defined role, not evidence that roles are enforced:
+        // the role store is not consulted by the guard.
+        (
+            "role_based_access",
+            Some(!RBAC_ROLES.read().unwrap().is_empty()),
+        ),
+        (
+            "session_management",
+            Some(SSO_CONFIG.read().unwrap().is_some()),
+        ),
+    ]
+}
 
-    let scope = args
-        .get(1)
-        .map(|v| v.to_display_string())
-        .unwrap_or_else(|| "all".to_string());
-
-    let checks = [
-        ("data_encryption", true),
-        ("access_logging", !AUDIT_LOG.read().unwrap().is_empty()),
-        ("role_based_access", !RBAC_ROLES.read().unwrap().is_empty()),
-        ("session_management", SSO_CONFIG.read().unwrap().is_some()),
-    ];
-
-    let passed: Vec<Value> = checks
-        .iter()
-        .filter(|(_, v)| *v)
-        .map(|(k, _)| Value::Str(k.to_string()))
-        .collect();
-    let failed: Vec<Value> = checks
-        .iter()
-        .filter(|(_, v)| !*v)
-        .map(|(k, _)| Value::Str(k.to_string()))
-        .collect();
+/// The verdict record both compliance builtins share. `compliant` is true only
+/// when every control was observed and none failed.
+fn compliance_verdict(standard: &ComplianceStandard) -> BTreeMap<String, Value> {
+    let checks = compliance_checks();
+    let names = |want: Option<bool>| -> Vec<Value> {
+        checks
+            .iter()
+            .filter(|(_, v)| *v == want)
+            .map(|(k, _)| Value::Str(k.to_string()))
+            .collect()
+    };
+    let passed = names(Some(true));
+    let failed = names(Some(false));
+    let unverified = names(None);
+    let compliant = failed.is_empty() && unverified.is_empty();
 
     let mut result = BTreeMap::new();
     result.insert(
         "standard".to_string(),
         Value::Str(standard.as_str().to_string()),
     );
-    result.insert("scope".to_string(), Value::Str(scope));
     result.insert("passed".to_string(), Value::Array(passed));
     result.insert("failed".to_string(), Value::Array(failed));
-    result.insert(
-        "compliant".to_string(),
-        Value::Bool(checks.iter().all(|(_, v)| *v)),
-    );
+    result.insert("unverified".to_string(), Value::Array(unverified));
+    result.insert("compliant".to_string(), Value::Bool(compliant));
+    result
+}
+
+/// compliance_check(standard, scope?) - Run compliance check
+fn bi_compliance_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let standard = compliance_standard_arg("compliance_check", &input, &args)?;
+    // A piped standard shifts the optional scope into the first argument.
+    let scope_arg = if input.is_some() {
+        args.first()
+    } else {
+        args.get(1)
+    };
+    let scope = match scope_arg {
+        None => "all".to_string(),
+        Some(Value::Str(s)) if s.as_str() == "all" => s.clone(),
+        // Only the whole-system scope is checked. A subset used to be echoed
+        // back and then ignored, so the verdict claimed a scope it did not have.
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "compliance_check",
+                "a scope of \"all\", the only one implemented",
+                &match other {
+                    Value::Str(s) => format!("{s:?}"),
+                    o => o.type_name().to_string(),
+                },
+            ))
+        }
+    };
+
+    let mut result = compliance_verdict(&standard);
+    result.insert("scope".to_string(), Value::Str(scope));
     Ok(Value::Record(result))
 }
 
-/// compliance_report(standard) - Generate compliance report
+/// compliance_report(standard) - Generate compliance report: the same verdict
+/// as `compliance_check`, with the counts behind it.
 fn bi_compliance_report(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let standard_str = input
-        .or_else(|| args.first().cloned())
-        .map(|v| key_arg("compliance_report", v))
-        .transpose()?
-        .ok_or_else(|| crate::safety::arg_err("compliance_report: missing 'standard'"))?;
-
-    let standard = ComplianceStandard::from_str(&standard_str).ok_or_else(|| {
-        crate::safety::arg_err(format!(
-            "compliance_report: invalid standard '{}'",
-            standard_str
-        ))
-    })?;
-
-    let audit_count = AUDIT_LOG.read().unwrap().len();
-    let role_count = RBAC_ROLES.read().unwrap().len();
-    let sso_enabled = SSO_CONFIG.read().unwrap().is_some();
-
-    let mut result = BTreeMap::new();
-    result.insert(
-        "standard".to_string(),
-        Value::Str(standard.as_str().to_string()),
-    );
+    let standard = compliance_standard_arg("compliance_report", &input, &args)?;
+    let mut result = compliance_verdict(&standard);
     result.insert(
         "generated_at".to_string(),
         Value::Str(chrono::Utc::now().to_rfc3339()),
     );
-    result.insert("audit_entries".to_string(), Value::Int(audit_count as i64));
-    result.insert("roles_defined".to_string(), Value::Int(role_count as i64));
-    result.insert("sso_enabled".to_string(), Value::Bool(sso_enabled));
+    result.insert(
+        "audit_entries".to_string(),
+        Value::Int(AUDIT_LOG.read().unwrap().len() as i64),
+    );
+    result.insert(
+        "roles_defined".to_string(),
+        Value::Int(RBAC_ROLES.read().unwrap().len() as i64),
+    );
+    result.insert(
+        "sso_enabled".to_string(),
+        Value::Bool(SSO_CONFIG.read().unwrap().is_some()),
+    );
     Ok(Value::Record(result))
 }
 /// finetune_start(model, dataset, config?) - Start a fine-tuning job
@@ -55225,10 +55499,83 @@ fn bi_workspace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
 // ===================== Marketplace Builtins =====================
 
+const MARKETPLACE_REGISTRY: &str = "https://packages.nervosys.ai";
+
+/// A package name or version. Both are written into cache paths and registry
+/// URLs, so anything that could leave the cache directory or read as an option
+/// (a `/`, a `..`, a leading `-`) is refused here, before any request.
+fn package_token(builtin: &str, what: &str, s: &str) -> Result<String> {
+    let ok = !s.is_empty()
+        && s.len() <= 128
+        && !s.starts_with(['-', '.'])
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '+'));
+    if ok {
+        Ok(s.to_string())
+    } else {
+        Err(crate::safety::bad_arg(
+            builtin,
+            &format!(
+                "{what}: 1 to 128 letters, digits, '.', '_', '-' or '+', not starting with '-' or '.'"
+            ),
+            &format!("{s:?}"),
+        ))
+    }
+}
+
+/// A string argument, refused with the expected shape when it is not one.
+fn str_arg<'a>(builtin: &str, v: Option<&'a Value>, what: &str) -> Result<&'a str> {
+    match v {
+        Some(Value::Str(s)) => Ok(s.as_str()),
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            what,
+            other.map_or("nothing", Value::type_name),
+        )),
+    }
+}
+
+/// A registry request that did not complete. Nothing local has changed when
+/// this is returned, so the call can be repeated as it stands.
+fn registry_failure(builtin: &str, e: &anyhow::Error) -> anyhow::Error {
+    crate::safety::policy_deny(
+        builtin,
+        format!("{builtin}: the package registry did not complete the request: {e:#}"),
+        "the registry refused the request or could not be reached; check the network and AETHER_REGISTRY_TOKEN, then retry",
+    )
+}
+
+/// Whether a registry error says the package does not exist, as opposed to
+/// the registry being unreachable or refusing the request.
+fn registry_says_absent(e: &anyhow::Error) -> bool {
+    e.to_string().contains("not found in registry")
+}
+
+/// Mark a record with where it came from, so a caller never mistakes a local
+/// catalogue entry for the registry's answer.
+fn with_source(mut v: Value, source: &str) -> Value {
+    if let Value::Record(r) = &mut v {
+        r.insert("source".to_string(), Value::Str(source.to_string()));
+    }
+    v
+}
+
 /// Publish a plugin or agent to the marketplace.
-/// Publishes to packages.nervosys.ai registry if auth token is set, otherwise local-only.
-/// Usage: marketplace.publish({name, version, description, category?, keywords?, path?})
+/// With `path`, uploads that file to packages.nervosys.ai (network-guarded,
+/// inside the workspace, and needs AETHER_REGISTRY_TOKEN); the status is then
+/// `published`. Without `path` the package is recorded in the local catalogue
+/// only, and the status says so: `recorded_locally`.
+/// Usage: marketplace.publish({name, version, description?, category?, keywords?, path?})
 fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    const FIELDS: &[&str] = &[
+        "name",
+        "version",
+        "description",
+        "category",
+        "keywords",
+        "path",
+    ];
+    const MAX_KEYWORDS: usize = 32;
     let opts = match args.first() {
         Some(Value::Record(r)) => r.clone(),
         _ => {
@@ -55237,67 +55584,114 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
             ))
         }
     };
-    let name = opts
-        .get("name")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
+    if let Some(bad) = opts.keys().find(|k| !FIELDS.contains(&k.as_str())) {
+        return Err(crate::safety::bad_arg(
+            "marketplace_publish",
+            "a record with only the fields name, version, description, category, keywords and path",
+            &format!("field {bad:?}"),
+        ));
+    }
+    // A field of the wrong type used to fall back to its default, so a number
+    // given as a description was published with an empty one.
+    let text = |key: &str| -> Result<Option<String>> {
+        match opts.get(key) {
+            None => Ok(None),
+            Some(Value::Str(s)) => Ok(Some(s.clone())),
+            Some(other) => Err(crate::safety::bad_arg(
+                "marketplace_publish",
+                &format!("{key}: a string"),
+                other.type_name(),
+            )),
+        }
+    };
+    let name = package_token(
+        "marketplace_publish",
+        "name",
+        &text("name")?
+            .ok_or_else(|| crate::safety::arg_err("marketplace.publish requires 'name'"))?,
+    )?;
+    let version = package_token(
+        "marketplace_publish",
+        "version",
+        &text("version")?
+            .ok_or_else(|| crate::safety::arg_err("marketplace.publish requires 'version'"))?,
+    )?;
+    let description = text("description")?.unwrap_or_default();
+    if description.len() > 4096 || description.chars().any(char::is_control) {
+        return Err(crate::safety::bad_arg(
+            "marketplace_publish",
+            "description: at most 4096 bytes with no control characters",
+            "a description that does not fit",
+        ));
+    }
+    let category = text("category")?.unwrap_or_else(|| "general".to_string());
+    let keywords: Vec<String> = match opts.get("keywords") {
+        None => Vec::new(),
+        Some(Value::Array(arr)) if arr.len() <= MAX_KEYWORDS => arr
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => Ok(s.clone()),
+                other => Err(crate::safety::bad_arg(
+                    "marketplace_publish",
+                    "keywords: an array of strings",
+                    other.type_name(),
+                )),
+            })
+            .collect::<Result<Vec<_>>>()?,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "marketplace_publish",
+                &format!("keywords: an array of at most {MAX_KEYWORDS} strings"),
+                other.type_name(),
+            ))
+        }
+    };
+    let path = match text("path")? {
+        None => None,
+        Some(p) => {
+            // The file is read and sent to a server, so only a file the
+            // workspace already holds may be published.
+            if !crate::safety::within_workspace(&p) {
+                return Err(crate::safety::outside_workspace("marketplace_publish", &p));
             }
-        })
-        .ok_or_else(|| crate::safety::arg_err("marketplace.publish requires 'name'"))?;
-    let version = opts
-        .get("version")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
+            let meta = std::fs::metadata(&p)
+                .map_err(|e| crate::safety::fs_error("marketplace_publish", &p, &e))?;
+            if !meta.is_file() {
+                return Err(crate::safety::bad_arg(
+                    "marketplace_publish",
+                    "path: a file to upload",
+                    &format!("{p:?}"),
+                ));
             }
-        })
-        .ok_or_else(|| crate::safety::arg_err("marketplace.publish requires 'version'"))?;
-    let description = opts
-        .get("description")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default();
-    let category = opts
-        .get("category")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "general".to_string());
-    let keywords = opts
-        .get("keywords")
-        .and_then(|v| {
-            if let Value::Array(arr) = v {
-                Some(
-                    arr.iter()
-                        .filter_map(|v| {
-                            if let Value::Str(s) = v {
-                                Some(s.clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default();
+            Some(std::path::PathBuf::from(p))
+        }
+    };
 
+    // Egress is decided at dispatch: `Network` is centrally enforced, so the
+    // upload is metered and gated before this body runs.
+    let target = match &path {
+        Some(tarball) => {
+            let manifest = crate::packages::PackageManifest {
+                package: crate::packages::PackageInfo {
+                    name: name.clone(),
+                    version: version.clone(),
+                    description: description.clone(),
+                    authors: vec![get_current_username()],
+                    license: None,
+                    repository: None,
+                    main: "main.ae".to_string(),
+                },
+                dependencies: std::collections::HashMap::new(),
+            };
+            crate::packages::RegistryClient::default()
+                .publish(tarball, &manifest)
+                .map_err(|e| registry_failure("marketplace_publish", &e))?;
+            "registry"
+        }
+        None => "local",
+    };
+
+    let published_at = chrono::Local::now().to_rfc3339();
     let package = MarketplacePackage {
         name: name.clone(),
         version: version.clone(),
@@ -55307,107 +55701,119 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         downloads: 0,
         rating: 0.0,
         rating_count: 0,
-        published_at: chrono::Local::now().to_rfc3339(),
+        published_at: published_at.clone(),
         installed: false,
         keywords,
     };
-
-    let mut packages = MARKETPLACE_PACKAGES
+    MARKETPLACE_PACKAGES
         .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    packages.insert(name.clone(), package);
-
-    // Try publishing to remote registry if auth token is available
-    let mut publish_target = "local".to_string();
-    if let Some(tarball_path) = opts.get("path").and_then(|v| {
-        if let Value::Str(s) = v {
-            Some(std::path::PathBuf::from(s))
-        } else {
-            None
-        }
-    }) {
-        let manifest = crate::packages::PackageManifest {
-            package: crate::packages::PackageInfo {
-                name: name.clone(),
-                version: version.clone(),
-                description: description.clone(),
-                authors: vec![get_current_username()],
-                license: None,
-                repository: None,
-                main: "main.ae".to_string(),
-            },
-            dependencies: std::collections::HashMap::new(),
-        };
-        let client = crate::packages::RegistryClient::default();
-        match client.publish(&tarball_path, &manifest) {
-            Ok(()) => publish_target = "registry".to_string(),
-            Err(e) => eprintln!("registry publish skipped: {}", e),
-        }
-    }
+        .map_err(|e| anyhow!("lock error: {}", e))?
+        .insert(name.clone(), package);
 
     let mut rec = BTreeMap::new();
     rec.insert("name".to_string(), Value::Str(name));
     rec.insert("version".to_string(), Value::Str(version));
     rec.insert("description".to_string(), Value::Str(description));
     rec.insert("category".to_string(), Value::Str(category));
-    rec.insert("status".to_string(), Value::Str("published".to_string()));
-    rec.insert("target".to_string(), Value::Str(publish_target));
     rec.insert(
-        "published_at".to_string(),
-        Value::Str(chrono::Local::now().to_rfc3339()),
+        "status".to_string(),
+        Value::Str(
+            if target == "registry" {
+                "published"
+            } else {
+                "recorded_locally"
+            }
+            .to_string(),
+        ),
     );
+    rec.insert("target".to_string(), Value::Str(target.to_string()));
+    rec.insert("published_at".to_string(), Value::Str(published_at));
     Ok(Value::Record(rec))
 }
 
 /// Search the marketplace for packages.
 /// Searches the remote registry at packages.nervosys.ai, falls back to local cache.
+/// Each record says whether it came from the `registry` or the `local_cache`. If
+/// the registry could not be reached and the local cache has nothing to offer,
+/// that is an error, not an empty list.
 /// Usage: marketplace.search(query) or marketplace.search({q?, category?})
 fn bi_marketplace_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    fn query_text(builtin: &str, s: &str) -> Result<String> {
+        if s.len() > 256 || s.chars().any(char::is_control) {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "a query of at most 256 bytes with no control characters",
+                &format!("{:?}", s.chars().take(40).collect::<String>()),
+            ));
+        }
+        Ok(s.to_lowercase())
+    }
     let (query, category) = match args.first() {
-        Some(Value::Str(s)) => (s.to_lowercase(), None),
+        None => (String::new(), None),
+        Some(Value::Str(s)) => (query_text("marketplace_search", s)?, None),
         Some(Value::Record(r)) => {
-            let q = r
-                .get("q")
-                .or_else(|| r.get("query"))
-                .and_then(|v| {
-                    if let Value::Str(s) = v {
-                        Some(s.to_lowercase())
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_default();
-            let cat = r.get("category").and_then(|v| {
-                if let Value::Str(s) = v {
-                    Some(s.clone())
-                } else {
-                    None
+            if let Some(bad) = r
+                .keys()
+                .find(|k| !matches!(k.as_str(), "q" | "query" | "category"))
+            {
+                return Err(crate::safety::bad_arg(
+                    "marketplace_search",
+                    "a record with only the fields q, query and category",
+                    &format!("field {bad:?}"),
+                ));
+            }
+            let q = match r.get("q").or_else(|| r.get("query")) {
+                None => String::new(),
+                Some(Value::Str(s)) => query_text("marketplace_search", s)?,
+                Some(other) => {
+                    return Err(crate::safety::bad_arg(
+                        "marketplace_search",
+                        "q: a string",
+                        other.type_name(),
+                    ))
                 }
-            });
+            };
+            let cat = match r.get("category") {
+                None => None,
+                Some(Value::Str(s)) => Some(s.clone()),
+                Some(other) => {
+                    return Err(crate::safety::bad_arg(
+                        "marketplace_search",
+                        "category: a string",
+                        other.type_name(),
+                    ))
+                }
+            };
             (q, cat)
         }
-        _ => (String::new(), None),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "marketplace_search",
+                "a query string or a Record {q?, category?}",
+                other.type_name(),
+            ))
+        }
     };
 
-    // Try remote registry first
-    // Meter + audit network egress (governor: AETHER_MAX_NET), exactly as
-    // `http_get` does. Classifying the effect is not enough on its own:
-    // `centrally_enforced` covers Process/Destructive/Exec/Privileged, so a
-    // Network builtin is charged only if it guards itself. Without this,
-    // `marketplace_search` reached packages.nervosys.ai under
-    // `--agent --policy strict` with `AETHER_MAX_NET=0`.
-    guard_network("marketplace_search", "https://packages.nervosys.ai")?;
+    guard_network("marketplace_search", MARKETPLACE_REGISTRY)?;
 
     let client = crate::packages::RegistryClient::default();
-    if let Ok(remote_pkgs) = client.search(&query, category.as_deref()) {
-        if !remote_pkgs.is_empty() {
+    let registry_error = match client.search(&query, category.as_deref()) {
+        Ok(remote_pkgs) if !remote_pkgs.is_empty() => {
             let results: Vec<Value> = remote_pkgs
                 .iter()
-                .map(crate::packages::RegistryClient::package_to_value)
+                .map(|p| {
+                    with_source(
+                        crate::packages::RegistryClient::package_to_value(p),
+                        "registry",
+                    )
+                })
                 .collect();
             return Ok(Value::Array(results));
         }
-    }
+        Ok(_) => None,
+        Err(e) => Some(e),
+    };
 
     // Fall back to local cache
     let packages = MARKETPLACE_PACKAGES
@@ -55432,6 +55838,9 @@ fn bi_marketplace_search(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         .map(marketplace_package_to_value)
         .collect();
 
+    if let (true, Some(e)) = (results.is_empty(), registry_error.as_ref()) {
+        return Err(registry_failure("marketplace_search", e));
+    }
     Ok(Value::Array(results))
 }
 
@@ -55453,6 +55862,7 @@ fn marketplace_package_to_value(pkg: &MarketplacePackage) -> Value {
         Value::Str(pkg.published_at.clone()),
     );
     rec.insert("installed".to_string(), Value::Bool(pkg.installed));
+    rec.insert("source".to_string(), Value::Str("local_cache".to_string()));
     if !pkg.keywords.is_empty() {
         rec.insert(
             "keywords".to_string(),
@@ -55462,131 +55872,143 @@ fn marketplace_package_to_value(pkg: &MarketplacePackage) -> Value {
     Value::Record(rec)
 }
 
-/// Install a package from the marketplace.
-/// Downloads from packages.nervosys.ai registry, falls back to local cache.
+/// Install a package from the marketplace: download the registry's archive
+/// into the package cache and unpack it. Nothing is run; extraction is the
+/// whole of it. A package the registry does not hold is an error. There is no
+/// local fallback, because the local catalogue holds records, not archives.
 /// Usage: marketplace.install(name) or marketplace.install(name, version)
 fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "marketplace.install requires package name",
+    let name = package_token(
+        "marketplace_install",
+        "name",
+        str_arg("marketplace_install", args.first(), "a package name string")?,
+    )?;
+    let version = match args.get(1) {
+        None => None,
+        Some(v) => Some(package_token(
+            "marketplace_install",
+            "version",
+            str_arg("marketplace_install", Some(v), "a version string")?,
+        )?),
+    };
+
+    // Not metered against AETHER_MAX_NET: this builtin is gated as `Exec` at
+    // dispatch, and calling `guard_network` here would need it listed as
+    // self-guarding, which skips that approval. See the report.
+    let client = crate::packages::RegistryClient::default();
+    let pkg_info = match client.get_package(&name) {
+        Ok(p) => p,
+        Err(e) if registry_says_absent(&e) => {
+            return Err(crate::safety::not_found(
+                "marketplace_install",
+                "package",
+                &name,
             ))
         }
+        Err(e) => return Err(registry_failure("marketplace_install", &e)),
     };
-    let version = match args.get(1) {
-        Some(Value::Str(s)) => Some(s.clone()),
-        _ => None,
+    // The registry's own version string names a directory, so it is checked
+    // like any other name before it is used.
+    let ver = match version {
+        Some(v) => v,
+        None => package_token("marketplace_install", "version", &pkg_info.version)?,
     };
+    let install_path = client
+        .download_package(&name, &ver)
+        .map_err(|e| registry_failure("marketplace_install", &e))?;
 
-    // Try remote registry first
-    let client = crate::packages::RegistryClient::default();
-    if let Ok(pkg_info) = client.get_package(&name) {
-        let ver = version.as_deref().unwrap_or(&pkg_info.version);
-        match client.download_package(&name, ver) {
-            Ok(install_path) => {
-                // Update local cache
-                if let Ok(mut packages) = MARKETPLACE_PACKAGES.write() {
-                    let existing =
-                        packages
-                            .entry(name.clone())
-                            .or_insert_with(|| MarketplacePackage {
-                                name: name.clone(),
-                                version: ver.to_string(),
-                                author: pkg_info.author.clone(),
-                                description: pkg_info.description.clone(),
-                                category: pkg_info
-                                    .category
-                                    .clone()
-                                    .unwrap_or_else(|| "general".to_string()),
-                                downloads: pkg_info.downloads,
-                                rating: 0.0,
-                                rating_count: 0,
-                                published_at: pkg_info.created_at.clone(),
-                                installed: false,
-                                keywords: pkg_info.keywords.clone(),
-                            });
-                    existing.installed = true;
-                    existing.downloads += 1;
-                }
-                let mut rec = BTreeMap::new();
-                rec.insert("name".to_string(), Value::Str(name));
-                rec.insert("version".to_string(), Value::Str(ver.to_string()));
-                rec.insert("status".to_string(), Value::Str("installed".to_string()));
-                rec.insert("source".to_string(), Value::Str("registry".to_string()));
-                rec.insert(
-                    "path".to_string(),
-                    Value::Str(install_path.display().to_string()),
-                );
-                rec.insert(
-                    "installed_at".to_string(),
-                    Value::Str(chrono::Local::now().to_rfc3339()),
-                );
-                return Ok(Value::Record(rec));
-            }
-            Err(e) => {
-                // Log but continue to local fallback
-                eprintln!("registry download failed: {}, trying local cache", e);
-            }
-        }
+    // Update the local catalogue
+    if let Ok(mut packages) = MARKETPLACE_PACKAGES.write() {
+        let existing = packages
+            .entry(name.clone())
+            .or_insert_with(|| MarketplacePackage {
+                name: name.clone(),
+                version: ver.clone(),
+                author: pkg_info.author.clone(),
+                description: pkg_info.description.clone(),
+                category: pkg_info
+                    .category
+                    .clone()
+                    .unwrap_or_else(|| "general".to_string()),
+                downloads: pkg_info.downloads,
+                rating: 0.0,
+                rating_count: 0,
+                published_at: pkg_info.created_at.clone(),
+                installed: false,
+                keywords: pkg_info.keywords.clone(),
+            });
+        existing.installed = true;
+        existing.downloads += 1;
     }
-
-    // Fall back to local cache
-    let mut packages = MARKETPLACE_PACKAGES
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(pkg) = packages.get_mut(&name) {
-        pkg.installed = true;
-        pkg.downloads += 1;
-        let mut rec = BTreeMap::new();
-        rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
-        rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
-        rec.insert("status".to_string(), Value::Str("installed".to_string()));
-        rec.insert("source".to_string(), Value::Str("local_cache".to_string()));
-        rec.insert(
-            "installed_at".to_string(),
-            Value::Str(chrono::Local::now().to_rfc3339()),
-        );
-        Ok(Value::Record(rec))
-    } else {
-        Err(anyhow!(
-            "package '{}' not found in marketplace or registry",
-            name
-        ))
-    }
+    let mut rec = BTreeMap::new();
+    rec.insert("name".to_string(), Value::Str(name));
+    rec.insert("version".to_string(), Value::Str(ver));
+    rec.insert("status".to_string(), Value::Str("installed".to_string()));
+    rec.insert("source".to_string(), Value::Str("registry".to_string()));
+    rec.insert(
+        "path".to_string(),
+        Value::Str(install_path.display().to_string()),
+    );
+    rec.insert(
+        "installed_at".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
+    Ok(Value::Record(rec))
 }
 
-/// Uninstall a marketplace package.
+/// Uninstall a marketplace package: remove its cached archive and unpacked
+/// files, and clear the installed flag. Reports whether any files were there.
 /// Usage: marketplace.uninstall(name)
 fn bi_marketplace_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "marketplace.uninstall requires package name",
-            ))
-        }
-    };
+    let name = package_token(
+        "marketplace_uninstall",
+        "name",
+        str_arg(
+            "marketplace_uninstall",
+            args.first(),
+            "a package name string",
+        )?,
+    )?;
     let mut packages = MARKETPLACE_PACKAGES
         .write()
         .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(pkg) = packages.get_mut(&name) {
-        pkg.installed = false;
-        let mut rec = BTreeMap::new();
-        rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
-        rec.insert("status".to_string(), Value::Str("uninstalled".to_string()));
-        rec.insert(
-            "uninstalled_at".to_string(),
-            Value::Str(chrono::Local::now().to_rfc3339()),
-        );
-        Ok(Value::Record(rec))
-    } else {
-        Err(crate::safety::not_found(
+    let Some(pkg) = packages.get_mut(&name) else {
+        return Err(crate::safety::not_found(
             "marketplace_uninstall",
             "package",
-            &name.to_string(),
-        ))
+            &name,
+        ));
+    };
+    if !pkg.installed {
+        return Err(crate::safety::bad_state(
+            "marketplace_uninstall",
+            &format!("package '{name}' is not installed, so there is nothing to remove"),
+            "marketplace_install",
+        ));
     }
+    // The install wrote into the package's own cache directory. The name has
+    // been checked to be a single path segment, so this cannot reach beyond it.
+    let dir = crate::packages::RegistryClient::default()
+        .cache_dir
+        .join(&name);
+    let files_removed = if dir.exists() {
+        std::fs::remove_dir_all(&dir)
+            .map_err(|e| crate::safety::fs_error("marketplace_uninstall", &dir, &e))?;
+        true
+    } else {
+        false
+    };
+    pkg.installed = false;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
+    rec.insert("status".to_string(), Value::Str("uninstalled".to_string()));
+    rec.insert("files_removed".to_string(), Value::Bool(files_removed));
+    rec.insert(
+        "uninstalled_at".to_string(),
+        Value::Str(chrono::Local::now().to_rfc3339()),
+    );
+    Ok(Value::Record(rec))
 }
 
 /// List installed marketplace packages.
@@ -55604,155 +56026,182 @@ fn bi_marketplace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 }
 
 /// Get detailed info about a marketplace package.
-/// Checks remote registry first, falls back to local cache.
+/// Checks remote registry first, falls back to local cache; the `source` field
+/// says which answered. A registry that could not be reached, with nothing in
+/// the local cache, is an error.
 /// Usage: marketplace.info(name)
 fn bi_marketplace_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "marketplace.info requires package name",
+    let name = package_token(
+        "marketplace_info",
+        "name",
+        str_arg("marketplace_info", args.first(), "a package name string")?,
+    )?;
+
+    guard_network("marketplace_info", MARKETPLACE_REGISTRY)?;
+    let client = crate::packages::RegistryClient::default();
+    let registry_error = match client.get_package(&name) {
+        Ok(pkg) => {
+            return Ok(with_source(
+                crate::packages::RegistryClient::package_to_value(&pkg),
+                "registry",
             ))
         }
+        Err(e) if registry_says_absent(&e) => None,
+        Err(e) => Some(e),
     };
 
-    // Try remote registry first
-    // Meter + audit network egress (governor: AETHER_MAX_NET), exactly as
-    // `http_get` does. Classifying the effect is not enough on its own:
-    // `centrally_enforced` covers Process/Destructive/Exec/Privileged, so a
-    // Network builtin is charged only if it guards itself. Without this,
-    // `marketplace_search` reached packages.nervosys.ai under
-    // `--agent --policy strict` with `AETHER_MAX_NET=0`.
-    guard_network("marketplace_info", "https://packages.nervosys.ai")?;
-
-    let client = crate::packages::RegistryClient::default();
-    if let Ok(pkg) = client.get_package(&name) {
-        return Ok(crate::packages::RegistryClient::package_to_value(&pkg));
-    }
-
-    // Fall back to local cache
     let packages = MARKETPLACE_PACKAGES
         .read()
         .map_err(|e| anyhow!("lock error: {}", e))?;
     if let Some(pkg) = packages.get(&name) {
-        Ok(marketplace_package_to_value(pkg))
-    } else {
-        Err(anyhow!(
-            "package '{}' not found in marketplace or registry",
-            name
-        ))
+        return Ok(marketplace_package_to_value(pkg));
     }
+    Err(match registry_error {
+        Some(e) => registry_failure("marketplace_info", &e),
+        None => crate::safety::not_found("marketplace_info", "package", &name),
+    })
 }
 
-/// Rate a marketplace package.
+/// Rate a marketplace package. The rating is kept in the local catalogue
+/// (`scope: local_cache`); it is not sent to the registry.
 /// Usage: marketplace.rate(name, score) — score 1-5
 fn bi_marketplace_rate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "marketplace.rate requires package name",
-            ))
-        }
-    };
+    let name = package_token(
+        "marketplace_rate",
+        "name",
+        str_arg("marketplace_rate", args.first(), "a package name string")?,
+    )?;
     let score = match args.get(1) {
         Some(Value::Int(n)) => *n as f64,
         Some(Value::Float(f)) => *f,
-        _ => {
-            return Err(crate::safety::arg_err(
-                "marketplace.rate requires a score (1-5)",
+        other => {
+            return Err(crate::safety::bad_arg(
+                "marketplace_rate",
+                "a score from 1 to 5",
+                other.map_or("nothing", Value::type_name),
             ))
         }
     };
     if !(1.0..=5.0).contains(&score) {
-        return Err(crate::safety::arg_err("rating must be between 1 and 5"));
+        return Err(crate::safety::bad_arg(
+            "marketplace_rate",
+            "a score from 1 to 5",
+            &format!("{score}"),
+        ));
     }
     let mut packages = MARKETPLACE_PACKAGES
         .write()
         .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(pkg) = packages.get_mut(&name) {
-        // Compute new weighted average
-        let total = pkg.rating * pkg.rating_count as f64 + score;
-        pkg.rating_count += 1;
-        pkg.rating = total / pkg.rating_count as f64;
-        let mut rec = BTreeMap::new();
-        rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
-        rec.insert("rating".to_string(), Value::Float(pkg.rating));
-        rec.insert("rating_count".to_string(), Value::Int(pkg.rating_count));
-        rec.insert("your_rating".to_string(), Value::Float(score));
-        Ok(Value::Record(rec))
-    } else {
-        Err(anyhow!("package '{}' not found in marketplace", name))
-    }
+    let Some(pkg) = packages.get_mut(&name) else {
+        return Err(crate::safety::not_found(
+            "marketplace_rate",
+            "package",
+            &name,
+        ));
+    };
+    // Compute new weighted average
+    let total = pkg.rating * pkg.rating_count as f64 + score;
+    pkg.rating_count += 1;
+    pkg.rating = total / pkg.rating_count as f64;
+    let mut rec = BTreeMap::new();
+    rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
+    rec.insert("rating".to_string(), Value::Float(pkg.rating));
+    rec.insert("rating_count".to_string(), Value::Int(pkg.rating_count));
+    rec.insert("your_rating".to_string(), Value::Float(score));
+    rec.insert("scope".to_string(), Value::Str("local_cache".to_string()));
+    Ok(Value::Record(rec))
 }
 
-/// Update an installed marketplace package to the latest version.
-/// Checks the remote registry for newer versions.
+/// Check installed marketplace packages against the registry for a newer
+/// version. This reports `update_available` with the `latest` version; it does
+/// not install anything. With a name, one package, and a registry failure is an
+/// error. Without one, every installed package, and a package that could not be
+/// checked says `unreachable` with the reason.
 /// Usage: marketplace.update(name) or marketplace.update() for all
 fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Meter + audit network egress (governor: AETHER_MAX_NET), exactly as
-    // `http_get` does. Classifying the effect is not enough on its own:
-    // `centrally_enforced` covers Process/Destructive/Exec/Privileged, so a
-    // Network builtin is charged only if it guards itself. Without this,
-    // `marketplace_search` reached packages.nervosys.ai under
-    // `--agent --policy strict` with `AETHER_MAX_NET=0`.
-    guard_network("marketplace_update", "https://packages.nervosys.ai")?;
+    let single = match args.first() {
+        None => None,
+        Some(v) => Some(package_token(
+            "marketplace_update",
+            "name",
+            str_arg("marketplace_update", Some(v), "a package name string")?,
+        )?),
+    };
+
+    // What to check, decided from the local catalogue before any request, so a
+    // name that is absent or not installed costs no network round trip.
+    let targets: Vec<(String, String)> = {
+        let packages = MARKETPLACE_PACKAGES
+            .read()
+            .map_err(|e| anyhow!("lock error: {}", e))?;
+        match &single {
+            Some(name) => match packages.get(name) {
+                None => {
+                    return Err(crate::safety::not_found(
+                        "marketplace_update",
+                        "package",
+                        name,
+                    ))
+                }
+                Some(p) if !p.installed => {
+                    return Err(crate::safety::bad_state(
+                        "marketplace_update",
+                        &format!("package '{name}' is not installed"),
+                        "marketplace_install",
+                    ))
+                }
+                Some(p) => vec![(p.name.clone(), p.version.clone())],
+            },
+            None => packages
+                .values()
+                .filter(|p| p.installed)
+                .map(|p| (p.name.clone(), p.version.clone()))
+                .collect(),
+        }
+    };
 
     let client = crate::packages::RegistryClient::default();
-    let packages = MARKETPLACE_PACKAGES
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    if let Some(Value::Str(name)) = args.first() {
-        // Update single package
-        if let Some(pkg) = packages.get(name) {
-            if !pkg.installed {
-                return Err(anyhow!("package '{}' is not installed", name));
+    let mut out: Vec<Value> = Vec::with_capacity(targets.len());
+    for (name, local_version) in &targets {
+        guard_network("marketplace_update", MARKETPLACE_REGISTRY)?;
+        let mut rec = BTreeMap::new();
+        rec.insert("name".to_string(), Value::Str(name.clone()));
+        rec.insert("version".to_string(), Value::Str(local_version.clone()));
+        match client.get_package(name) {
+            Ok(remote) if remote.version == *local_version => {
+                rec.insert("status".to_string(), Value::Str("up_to_date".to_string()));
             }
-            // Check remote for newer version
-            let mut remote_version = None;
-            if let Ok(remote_pkg) = client.get_package(name) {
-                if remote_pkg.version != pkg.version {
-                    remote_version = Some(remote_pkg.version);
-                }
-            }
-            let mut rec = BTreeMap::new();
-            rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
-            rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
-            if let Some(new_ver) = remote_version {
-                rec.insert("latest".to_string(), Value::Str(new_ver));
+            Ok(remote) => {
+                rec.insert("latest".to_string(), Value::Str(remote.version));
                 rec.insert(
                     "status".to_string(),
                     Value::Str("update_available".to_string()),
                 );
-            } else {
-                rec.insert("status".to_string(), Value::Str("up_to_date".to_string()));
             }
-            rec.insert(
-                "checked_at".to_string(),
-                Value::Str(chrono::Local::now().to_rfc3339()),
-            );
-            Ok(Value::Record(rec))
-        } else {
-            Err(crate::safety::not_found(
-                "marketplace_update",
-                "package",
-                &name.to_string(),
-            ))
+            Err(e) if registry_says_absent(&e) => {
+                rec.insert(
+                    "status".to_string(),
+                    Value::Str("not_in_registry".to_string()),
+                );
+            }
+            Err(e) => {
+                if single.is_some() {
+                    return Err(registry_failure("marketplace_update", &e));
+                }
+                rec.insert("status".to_string(), Value::Str("unreachable".to_string()));
+                rec.insert("reason".to_string(), Value::Str(format!("{e:#}")));
+            }
         }
-    } else {
-        // Update all installed
-        let results: Vec<Value> = packages
-            .values()
-            .filter(|pkg| pkg.installed)
-            .map(|pkg| {
-                let mut rec = BTreeMap::new();
-                rec.insert("name".to_string(), Value::Str(pkg.name.clone()));
-                rec.insert("version".to_string(), Value::Str(pkg.version.clone()));
-                rec.insert("status".to_string(), Value::Str("up_to_date".to_string()));
-                Value::Record(rec)
-            })
-            .collect();
-        Ok(Value::Array(results))
+        rec.insert(
+            "checked_at".to_string(),
+            Value::Str(chrono::Local::now().to_rfc3339()),
+        );
+        out.push(Value::Record(rec));
+    }
+
+    match single {
+        Some(_) => Ok(out.pop().unwrap_or(Value::Null)),
+        None => Ok(Value::Array(out)),
     }
 }
 

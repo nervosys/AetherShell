@@ -305,6 +305,52 @@ impl Default for RegistryClient {
     }
 }
 
+/// Largest JSON body the registry is read as. A search or a package record is
+/// a few kilobytes; a server that sends megabytes is not answering the query.
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_JSON_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Largest package archive, in either direction.
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
+
+/// One path segment: non-empty, not `.` or `..`, and no separator or drive
+/// colon, so that joining it onto a directory stays inside that directory.
+#[cfg(not(target_arch = "wasm32"))]
+fn check_segment(s: &str, what: &str) -> Result<()> {
+    let ok = !s.is_empty()
+        && s != "."
+        && s != ".."
+        && s.len() <= 128
+        && !s
+            .chars()
+            .any(|c| matches!(c, '/' | '\\' | ':') || c.is_control());
+    if ok {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "refusing {what} {s:?}: not a single safe path segment"
+        ))
+    }
+}
+
+/// Read a response body, refusing one longer than `max` bytes rather than
+/// buffering whatever a server chooses to send.
+#[cfg(not(target_arch = "wasm32"))]
+fn read_body_limited(resp: reqwest::blocking::Response, max: u64) -> Result<Vec<u8>> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    resp.take(max + 1)
+        .read_to_end(&mut buf)
+        .context("failed to read registry response")?;
+    if buf.len() as u64 > max {
+        return Err(anyhow!(
+            "registry response is larger than {max} bytes; refusing it"
+        ));
+    }
+    Ok(buf)
+}
+
 impl RegistryClient {
     /// Build the API base path: {base_url}/{registry}/api/v1
     fn api_url(&self, path: &str) -> String {
@@ -338,9 +384,9 @@ impl RegistryClient {
             .context("failed to connect to package registry")?;
 
         if resp.status().is_success() {
-            let body: RegistrySearchResponse = resp
-                .json()
-                .context("failed to parse registry search response")?;
+            let body: RegistrySearchResponse =
+                serde_json::from_slice(&read_body_limited(resp, MAX_JSON_BYTES)?)
+                    .context("failed to parse registry search response")?;
             Ok(body.packages)
         } else if resp.status().as_u16() == 404 {
             Ok(vec![])
@@ -365,9 +411,9 @@ impl RegistryClient {
             .context("failed to connect to package registry")?;
 
         if resp.status().is_success() {
-            let body: RegistryListResponse = resp
-                .json()
-                .context("failed to parse registry list response")?;
+            let body: RegistryListResponse =
+                serde_json::from_slice(&read_body_limited(resp, MAX_JSON_BYTES)?)
+                    .context("failed to parse registry list response")?;
             Ok(body.packages)
         } else {
             Err(anyhow!("registry list failed: HTTP {}", resp.status()))
@@ -390,9 +436,9 @@ impl RegistryClient {
             .context("failed to connect to package registry")?;
 
         if resp.status().is_success() {
-            let pkg: RegistryPackage = resp
-                .json()
-                .context("failed to parse registry package response")?;
+            let pkg: RegistryPackage =
+                serde_json::from_slice(&read_body_limited(resp, MAX_JSON_BYTES)?)
+                    .context("failed to parse registry package response")?;
             Ok(pkg)
         } else if resp.status().as_u16() == 404 {
             Err(anyhow!("package '{}' not found in registry", name))
@@ -404,6 +450,11 @@ impl RegistryClient {
     /// Download a package tarball from the registry and cache it locally
     #[cfg(not(target_arch = "wasm32"))]
     pub fn download_package(&self, name: &str, version: &str) -> Result<PathBuf> {
+        // Both become directory names under the cache. A name that is not one
+        // path segment would write outside it, and an absolute one would
+        // replace the cache directory entirely.
+        check_segment(name, "package name")?;
+        check_segment(version, "package version")?;
         let url = self.api_url(&format!(
             "/packages/{}/{}/download",
             urlencoding::encode(name),
@@ -429,7 +480,7 @@ impl RegistryClient {
             ));
         }
 
-        let bytes = resp.bytes().context("failed to read package bytes")?;
+        let bytes = read_body_limited(resp, MAX_ARCHIVE_BYTES)?;
 
         // Create cache directory: {cache_dir}/{name}/{version}/
         let pkg_dir = self.cache_dir.join(name).join(version);
@@ -445,14 +496,42 @@ impl RegistryClient {
         Ok(pkg_dir)
     }
 
-    /// Extract a .tar.gz archive into a directory
-    fn extract_tarball(&self, tarball: &Path, dest: &Path) -> Result<()> {
+    /// Extract a .tar.gz archive into a directory.
+    ///
+    /// Links are refused outright: a symlink in the archive can point anywhere,
+    /// and a later entry written through it would land outside `dest`. Every
+    /// other entry goes through `unpack_in`, which refuses any path that
+    /// escapes `dest`.
+    pub fn extract_tarball(&self, tarball: &Path, dest: &Path) -> Result<()> {
         let file = fs::File::open(tarball)?;
         let gz = flate2::read::GzDecoder::new(file);
         let mut archive = tar::Archive::new(gz);
-        archive
-            .unpack(dest)
-            .context("failed to extract package archive")?;
+        for entry in archive
+            .entries()
+            .context("failed to read package archive")?
+        {
+            let mut entry = entry.context("failed to read package archive entry")?;
+            let kind = entry.header().entry_type();
+            if kind.is_symlink() || kind.is_hard_link() {
+                return Err(anyhow!(
+                    "package archive contains a link entry ({}); refusing to unpack it",
+                    entry
+                        .path()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default()
+                ));
+            }
+            // `Ok(false)` is the library declining an entry that would leave
+            // `dest`. That is a hostile archive, not a file to skip.
+            let written = entry
+                .unpack_in(dest)
+                .context("failed to extract package archive")?;
+            if !written {
+                return Err(anyhow!(
+                    "package archive has an entry that would leave the cache directory; refusing it"
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -466,6 +545,14 @@ impl RegistryClient {
         })?;
 
         let url = self.api_url("/packages");
+        let size = fs::metadata(tarball_path)
+            .context("failed to read package tarball")?
+            .len();
+        if size > MAX_ARCHIVE_BYTES {
+            return Err(anyhow!(
+                "package archive is {size} bytes; the registry takes at most {MAX_ARCHIVE_BYTES}"
+            ));
+        }
         let tarball_bytes = fs::read(tarball_path).context("failed to read package tarball")?;
 
         use base64::Engine;
