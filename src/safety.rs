@@ -467,6 +467,8 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "pipx_install" | "poetry_install" | "asdf_install"
         // `uv pip install` builds sdists, running their build backends.
         | "uv_pip"
+        // Installs toolchains: binaries that later commands run.
+        | "rustup_update"
         | "helm_install" | "helm_upgrade" | "marketplace_install" | "pre_commit_install" => Some(Effect::Exec),
         // Egress by name. `scp_*` moves bytes to/from another host; the
         // `marketplace_publish` case sends a package somewhere it cannot be
@@ -536,16 +538,18 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // Linters divide on whether they execute project-supplied code: `eslint`
         // loads and runs `eslint.config.js`, so it is `Exec`; `shellcheck`,
         // `hadolint` and `yamllint` only parse, so they are `ReadLocal`.
-        // ---- Destructive (4) ----
+        // ---- Destructive (5) ----
         | "dd_copy"
         | "git_clean"
         | "git_reset"
+        // Overwrites destination files, and its `delete` option removes them.
+        | "rsync_sync"
         // `fs::rename` removes the source and can overwrite the destination;
         // it was classified `ReadLocal`.
         | "file_move" | "file_rename"
         | "session_rollback" => Some(Effect::Destructive),
 
-        // ---- Network (24) ----
+        // ---- Network (22) ----
         | "gh_issue"
         | "gh_pr"
         | "gh_repo_cmd"
@@ -561,8 +565,6 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "nmap_quick"
         | "nmap_scan"
         | "pkg_changelog"
-        | "rsync_sync"
-        | "rustup_update"
         | "skopeo_copy"
         | "skopeo_inspect"
         | "socat_relay"

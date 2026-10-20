@@ -1099,12 +1099,12 @@ role_grant	Pure
 role_revoke	Pure
 roles_list	Pure
 round	Pure
-rsync	Network
-rsync_sync	Network
+rsync	Destructive
+rsync_sync	Destructive
 ruff_check	WriteLocal
 ruff_format	WriteLocal
 rustup_show	ReadLocal
-rustup_update	Network
+rustup_update	Exec
 safety_status	Pure
 save_json	WriteLocal
 scp_download	Network
