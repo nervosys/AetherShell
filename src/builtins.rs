@@ -38807,6 +38807,46 @@ fn bi_nanda_quorum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ============== AI CODING ASSISTANT BUILTINS ==============
 
 // Git module implementations
+//
+// Every git builtin refuses pipeline input and surplus arguments (the
+// declarations in src/signature.rs enforce the arity and types), runs git
+// with an argv vector and no shell, and turns a failed git into a coded
+// error: E_BAD_STATE outside a repository, E_TOOL_FAILED with the tail of
+// what git printed otherwise. None answers a failure with false, "" or [].
+
+/// Refuse pipeline input: a git builtin acts on the repository, and what was
+/// piped in would otherwise be dropped without a word.
+fn git_refuse_input(builtin: &str, input: &Option<Value>) -> Result<()> {
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "no pipeline input",
+            "piped input",
+        ));
+    }
+    Ok(())
+}
+
+/// The last 4 KiB of what git printed when it failed: stderr, or stdout when
+/// stderr is empty (`git commit` says "nothing to commit" on stdout alone).
+fn git_failure_tail(output: &std::process::Output) -> String {
+    const TAIL: usize = 4096;
+    let raw = if output.stderr.iter().all(|b| b.is_ascii_whitespace()) {
+        &output.stdout
+    } else {
+        &output.stderr
+    };
+    let text = String::from_utf8_lossy(raw);
+    if text.len() <= TAIL {
+        return text.into_owned();
+    }
+    let mut start = text.len() - TAIL;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    format!("...{}", &text[start..])
+}
+
 /// `git` exited non-zero. Every git builtin read stdout and ignored the
 /// status, so outside a repository -- where git prints only to stderr --
 /// `git_status()` was `[]`, `git_branch()` was `""` and `git_log()` was `[]`,
@@ -38835,16 +38875,42 @@ fn git_succeeded(builtin: &str, output: &std::process::Output, dir: &str) -> Res
         builtin,
         "git",
         output.status.code(),
-        &String::from_utf8_lossy(&output.stderr),
+        &git_failure_tail(output),
     ))
 }
 
-fn bi_git_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = args
-        .first()
-        .map(|v| expect_string("git_status", v).map(str::to_string))
-        .transpose()?
-        .unwrap_or(".".to_string());
+/// The directory a read-only git builtin runs in. It is the child's working
+/// directory rather than an argument, and spawning into a missing directory
+/// fails the same way a missing git does, so it is named here first.
+fn git_dir_arg(builtin: &str, path: &str) -> Result<String> {
+    if std::path::Path::new(path).is_dir() {
+        Ok(path.to_string())
+    } else {
+        Err(crate::safety::not_found(builtin, "directory", path))
+    }
+}
+
+/// The first argument as a ref, branch or commit name. Empty and NUL-bearing
+/// values are refused before they reach argv. The caller refuses a leading
+/// '-' at its own spawn site, where `reject_option_like` must be visible.
+fn git_ref_arg(builtin: &str, args: &[Value], what: &str) -> Result<String> {
+    let value = match args.first() {
+        Some(v) => expect_string(builtin, v)?.to_string(),
+        None => return Err(crate::safety::arg_err(format!("{builtin} requires {what}"))),
+    };
+    if value.trim().is_empty() || value.contains('\0') {
+        return Err(crate::safety::bad_arg(builtin, what, &format!("{value:?}")));
+    }
+    Ok(value)
+}
+
+fn bi_git_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_status", &input)?;
+    let path = match args.first() {
+        Some(v) => expect_string("git_status", v)?.to_string(),
+        None => ".".to_string(),
+    };
+    let path = git_dir_arg("git_status", &path)?;
     let output = std::process::Command::new("git")
         .args(["status", "--porcelain", "-b"])
         .current_dir(&path)
@@ -38856,12 +38922,13 @@ fn bi_git_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(lines))
 }
 
-fn bi_git_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = args
-        .first()
-        .map(|v| expect_string("git_diff", v).map(str::to_string))
-        .transpose()?
-        .unwrap_or(".".to_string());
+fn bi_git_diff(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_diff", &input)?;
+    let path = match args.first() {
+        Some(v) => expect_string("git_diff", v)?.to_string(),
+        None => ".".to_string(),
+    };
+    let path = git_dir_arg("git_diff", &path)?;
     let output = std::process::Command::new("git")
         .args(["diff"])
         .current_dir(&path)
@@ -38873,12 +38940,13 @@ fn bi_git_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_git_diff_staged(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = args
-        .first()
-        .map(|v| expect_string("git_diff_staged", v).map(str::to_string))
-        .transpose()?
-        .unwrap_or(".".to_string());
+fn bi_git_diff_staged(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_diff_staged", &input)?;
+    let path = match args.first() {
+        Some(v) => expect_string("git_diff_staged", v)?.to_string(),
+        None => ".".to_string(),
+    };
+    let path = git_dir_arg("git_diff_staged", &path)?;
     let output = std::process::Command::new("git")
         .args(["diff", "--staged"])
         .current_dir(&path)
@@ -38890,12 +38958,21 @@ fn bi_git_diff_staged(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     ))
 }
 
-fn bi_git_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let count = args
-        .first()
-        .map(|v| expect_int("git_log", v))
-        .transpose()?
-        .unwrap_or(10);
+fn bi_git_log(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_log", &input)?;
+    let count = match args.first() {
+        Some(v) => expect_int("git_log", v)?,
+        None => 10,
+    };
+    // The declaration bounds it to 1..=10000. It is interpolated into a
+    // `-N` flag, so a negative count (`--5`) must never reach git.
+    if !(1..=10_000).contains(&count) {
+        return Err(crate::safety::bad_arg(
+            "git_log",
+            "count: Int in 1..=10000",
+            &format!("{count}"),
+        ));
+    }
     let output = std::process::Command::new("git")
         .args(["log", &format!("-{}", count), "--oneline"])
         .output()
@@ -38908,15 +38985,12 @@ fn bi_git_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(lines))
 }
 
-fn bi_git_blame(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| crate::safety::arg_err("file path required"))?;
+fn bi_git_blame(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_blame", &input)?;
+    let file = git_ref_arg("git_blame", &args, "a file path")?;
     crate::safety::reject_option_like("git_blame", std::slice::from_ref(&file))?;
     let output = std::process::Command::new("git")
-        .args(["blame", &file])
+        .args(["blame", "--", &file])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_blame", "git", &e))?;
     git_succeeded("git_blame", &output, ".")?;
@@ -38949,78 +39023,130 @@ fn bi_git_branches(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(branches))
 }
 
-fn bi_git_checkout(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let branch = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| crate::safety::arg_err("branch name required"))?;
+fn bi_git_checkout(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_checkout", &input)?;
+    let branch = git_ref_arg("git_checkout", &args, "a branch name")?;
     crate::safety::reject_option_like("git_checkout", std::slice::from_ref(&branch))?;
+    // The `--` makes git resolve the name as a revision only. Without it,
+    // `git checkout README.md` restores that file from the index and silently
+    // discards its uncommitted edits. With it, a path is "invalid reference".
     let output = std::process::Command::new("git")
-        .args(["checkout", &branch])
+        .args(["checkout", &branch, "--"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_checkout", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_checkout", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_git_commit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let msg = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| crate::safety::arg_err("commit message required"))?;
+fn bi_git_commit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_commit", &input)?;
+    let msg = match args.first() {
+        Some(v) => expect_string("git_commit", v)?.to_string(),
+        None => return Err(crate::safety::arg_err("commit message required")),
+    };
+    if msg.contains('\0') {
+        return Err(crate::safety::bad_arg(
+            "git_commit",
+            "a message without NUL",
+            "NUL",
+        ));
+    }
+    // The message is the argument of `-m`, which consumes it, so a message
+    // beginning with '-' is text, not an option.
     let output = std::process::Command::new("git")
         .args(["commit", "-m", &msg])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_commit", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_commit", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_git_add(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_git_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_add", &input)?;
+    // The declaration requires at least one path and types each one as a
+    // String, so a non-string is refused rather than dropped from the list.
     let files: Vec<String> = args
         .iter()
-        .filter_map(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .collect();
-    crate::safety::reject_option_like("git_add", &files)?;
-    let mut cmd = std::process::Command::new("git");
-    cmd.arg("add");
-    for f in &files {
-        cmd.arg(f);
+        .map(|v| expect_string("git_add", v).map(str::to_string))
+        .collect::<Result<_>>()?;
+    if files.is_empty() {
+        return Err(crate::safety::arg_err("git_add requires at least one path"));
     }
-    let output = cmd
+    crate::safety::reject_option_like("git_add", &files)?;
+    if let Some(bad) = files.iter().find(|f| f.contains('\0')) {
+        return Err(crate::safety::bad_arg(
+            "git_add",
+            "paths without NUL",
+            &format!("{bad:?}"),
+        ));
+    }
+    let output = std::process::Command::new("git")
+        .arg("add")
+        .arg("--")
+        .args(&files)
         .output()
         .map_err(|e| crate::safety::spawn_error("git_add", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_add", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_git_reset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mode = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or("--mixed".to_string());
+fn bi_git_reset(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_reset", &input)?;
+    let target = match args.first() {
+        Some(v) => expect_string("git_reset", v)?.to_string(),
+        None => "--mixed".to_string(),
+    };
+    const MODES: [&str; 4] = ["--soft", "--mixed", "--hard", "--keep"];
+    // A leading '-' is an option and must be one of the four modes; anything
+    // else is a revision. Either way it is an argv element, never a flag that
+    // git would take from a caller's string.
+    if target.starts_with('-') {
+        if !MODES.contains(&target.as_str()) {
+            return Err(crate::safety::bad_arg(
+                "git_reset",
+                "a mode: --soft, --mixed, --hard or --keep",
+                &format!("{target:?}"),
+            ));
+        }
+    } else if target.trim().is_empty() || target.contains('\0') {
+        return Err(crate::safety::bad_arg(
+            "git_reset",
+            "a mode or a revision",
+            &format!("{target:?}"),
+        ));
+    }
+    // A revision is followed by `--`, so git never reads it as a pathspec
+    // position it could mistake for an option.
+    let mut argv = vec!["reset", target.as_str()];
+    if !target.starts_with('-') {
+        argv.push("--");
+    }
     let output = std::process::Command::new("git")
-        .args(["reset", &mode])
+        .args(&argv)
         .output()
         .map_err(|e| crate::safety::spawn_error("git_reset", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_reset", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_git_stash(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_git_stash(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_stash", &input)?;
     let output = std::process::Command::new("git")
         .args(["stash"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_stash", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_stash", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_git_stash_pop(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_git_stash_pop(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_stash_pop", &input)?;
     let output = std::process::Command::new("git")
         .args(["stash", "pop"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_stash_pop", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_stash_pop", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
 fn bi_git_stash_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -39047,70 +39173,71 @@ fn bi_git_remote(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_git_fetch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_git_fetch(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_fetch", &input)?;
     let output = std::process::Command::new("git")
         .args(["fetch"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_fetch", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_fetch", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_git_pull(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_git_pull(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_pull", &input)?;
     let output = std::process::Command::new("git")
         .args(["pull"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_pull", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_pull", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_git_push(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_git_push(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_push", &input)?;
     let output = std::process::Command::new("git")
         .args(["push"])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_push", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_push", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_git_merge(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let branch = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| crate::safety::arg_err("branch name required"))?;
+fn bi_git_merge(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_merge", &input)?;
+    let branch = git_ref_arg("git_merge", &args, "a branch name")?;
     crate::safety::reject_option_like("git_merge", std::slice::from_ref(&branch))?;
+    // --no-edit: never open an editor for the merge message.
     let output = std::process::Command::new("git")
-        .args(["merge", &branch])
+        .args(["merge", "--no-edit", &branch])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_merge", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_merge", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_git_rebase(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let branch = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| crate::safety::arg_err("branch name required"))?;
+fn bi_git_rebase(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_rebase", &input)?;
+    let branch = git_ref_arg("git_rebase", &args, "a branch name")?;
     crate::safety::reject_option_like("git_rebase", std::slice::from_ref(&branch))?;
     let output = std::process::Command::new("git")
         .args(["rebase", &branch])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_rebase", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_rebase", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_git_cherry_pick(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let commit = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| crate::safety::arg_err("commit hash required"))?;
+fn bi_git_cherry_pick(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_cherry_pick", &input)?;
+    let commit = git_ref_arg("git_cherry_pick", &args, "a commit")?;
     crate::safety::reject_option_like("git_cherry_pick", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["cherry-pick", &commit])
         .output()
         .map_err(|e| crate::safety::spawn_error("git_cherry_pick", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    git_succeeded("git_cherry_pick", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
 fn bi_git_tags(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -39126,13 +39253,15 @@ fn bi_git_tags(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(tags))
 }
 
-fn bi_git_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let commit = args
-        .first()
-        .map(|v| expect_string("git_show", v).map(str::to_string))
-        .transpose()?
-        .unwrap_or("HEAD".to_string());
-    crate::safety::reject_option_like("git_show", std::slice::from_ref(&commit))?;
+fn bi_git_show(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_show", &input)?;
+    let commit = if args.is_empty() {
+        "HEAD".to_string()
+    } else {
+        let value = git_ref_arg("git_show", &args, "a commit")?;
+        crate::safety::reject_option_like("git_show", std::slice::from_ref(&value))?;
+        value
+    };
     let output = std::process::Command::new("git")
         .args(["show", &commit])
         .output()
@@ -39143,13 +39272,15 @@ fn bi_git_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_git_rev_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let rev = args
-        .first()
-        .map(|v| expect_string("git_rev_parse", v).map(str::to_string))
-        .transpose()?
-        .unwrap_or("HEAD".to_string());
-    crate::safety::reject_option_like("git_rev_parse", std::slice::from_ref(&rev))?;
+fn bi_git_rev_parse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_rev_parse", &input)?;
+    let rev = if args.is_empty() {
+        "HEAD".to_string()
+    } else {
+        let value = git_ref_arg("git_rev_parse", &args, "a revision")?;
+        crate::safety::reject_option_like("git_rev_parse", std::slice::from_ref(&value))?;
+        value
+    };
     let output = std::process::Command::new("git")
         .args(["rev-parse", &rev])
         .output()
@@ -39171,12 +39302,12 @@ fn bi_git_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_git_ignore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pattern = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .ok_or_else(|| crate::safety::arg_err("pattern required"))?;
+fn bi_git_ignore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_ignore", &input)?;
+    let pattern = match args.first() {
+        Some(v) => expect_string("git_ignore", v)?.to_string(),
+        None => return Err(crate::safety::arg_err("pattern required")),
+    };
     // One pattern per call: a newline in it wrote several.
     if pattern.contains(['\n', '\r']) || pattern.trim().is_empty() {
         return Err(crate::safety::bad_arg(
@@ -39185,7 +39316,26 @@ fn bi_git_ignore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             &format!("{pattern:?}"),
         ));
     }
-    let existing = std::fs::read_to_string(".gitignore").unwrap_or_default();
+    // A .gitignore written outside a repository is a file nobody asked for,
+    // so the refusal is the same one the other git builtins give.
+    let inside = std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output()
+        .map_err(|e| crate::safety::spawn_error("git_ignore", "git", &e))?;
+    if !(inside.status.success() && inside.stdout.starts_with(b"true")) {
+        return Err(crate::safety::bad_state(
+            "git_ignore",
+            "the working directory is not inside a git repository",
+            "cd into a repository",
+        ));
+    }
+    // A .gitignore that exists but cannot be read is an error, not an empty
+    // file: treating it as empty and writing would replace its contents.
+    let existing = match std::fs::read_to_string(".gitignore") {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(crate::safety::fs_error("git_ignore", ".gitignore", &e)),
+    };
     // Idempotent: the same pattern was appended again on every call.
     if existing.lines().any(|l| l.trim() == pattern.trim()) {
         return Ok(Value::Bool(false));
@@ -39201,8 +39351,21 @@ fn bi_git_ignore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Bool(true))
 }
 
-fn bi_git_clean(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let dry_run = args.first().and_then(|v| v.as_bool().ok()).unwrap_or(true);
+fn bi_git_clean(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("git_clean", &input)?;
+    // A non-Bool used to become a dry run without a word. The declaration
+    // types it, and the match below refuses anything else too.
+    let dry_run = match args.first() {
+        Some(Value::Bool(b)) => *b,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "git_clean",
+                "dry_run: Bool",
+                other.type_name(),
+            ))
+        }
+        None => true,
+    };
     let flag = if dry_run { "-n" } else { "-f" };
     let output = std::process::Command::new("git")
         .args(["clean", "-d", flag])

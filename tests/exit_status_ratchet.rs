@@ -13,7 +13,7 @@
 //! body. Lower the ceilings whenever a fix lowers the count.
 
 const UNCHECKED_MAX: usize = 49;
-const BOOL_SUCCESS_MAX: usize = 100;
+const BOOL_SUCCESS_MAX: usize = 64;
 
 fn source() -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/builtins.rs");
