@@ -19421,7 +19421,8 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// tx_begin() - Start a filesystem transaction. Subsequent file_write/rm calls
 /// record their pre-modification state so the batch can be rolled back.
-fn bi_tx_begin(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_tx_begin(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("tx_begin", &input)?;
     let id = crate::tx::begin()?;
     let mut r = BTreeMap::new();
     r.insert("transaction".to_string(), Value::Str(id));
@@ -19432,7 +19433,8 @@ fn bi_tx_begin(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// tx_commit() - Commit the active transaction (keep changes, discard journal).
-fn bi_tx_commit(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_tx_commit(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("tx_commit", &input)?;
     let n = crate::tx::commit()?;
     let mut r = BTreeMap::new();
     r.insert("committed".to_string(), Value::Bool(true));
@@ -19442,7 +19444,8 @@ fn bi_tx_commit(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// tx_rollback() - Roll back the active transaction, restoring every recorded
 /// path to its pre-transaction state.
-fn bi_tx_rollback(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_tx_rollback(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("tx_rollback", &input)?;
     let n = crate::tx::rollback()?;
     let mut r = BTreeMap::new();
     r.insert("rolled_back".to_string(), Value::Bool(true));
@@ -19470,7 +19473,8 @@ fn bi_tx_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// tx_savepoint(name) - Mark a named savepoint inside the active transaction; a
 /// later `tx_rollback_to(name)` reverts only the operations recorded after it.
-fn bi_tx_savepoint(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_tx_savepoint(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("tx_savepoint", &input)?;
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -19489,7 +19493,8 @@ fn bi_tx_savepoint(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// tx_rollback_to(name) - Roll back to a named savepoint, reverting only the
 /// operations recorded after it; the transaction stays open.
-fn bi_tx_rollback_to(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_tx_rollback_to(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("tx_rollback_to", &input)?;
     let name = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         _ => {
@@ -41089,54 +41094,70 @@ fn bi_session_redo(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     )))
 }
 
-fn bi_session_checkpoint(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or("checkpoint".to_string());
+fn bi_session_checkpoint(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("session_checkpoint", &input)?;
+    // A non-string label used to fall back silently to "checkpoint".
+    let name = match args.first() {
+        Some(v) => expect_string("session_checkpoint", v)?.to_string(),
+        None => "checkpoint".to_string(),
+    };
     // This ran `git stash push`, which saves the changes and then REMOVES
     // them from the working tree: a "checkpoint" that erased the work it was
     // meant to protect. With nothing to save git exits 0, so it also answered
     // true having saved nothing. `stash create` records the changes without
     // touching the tree; `stash store` keeps that record in the stash list.
+    // Both git calls are checked the same way: outside a repository these
+    // are E_BAD_STATE, a failed git is E_TOOL_FAILED with its stderr tail.
     let output = std::process::Command::new("git")
         .args(["stash", "create"])
         .output()
         .map_err(|e| crate::safety::spawn_error("session_checkpoint", "git", &e))?;
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "session_checkpoint",
-            "git stash create",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
+    git_succeeded("session_checkpoint", &output, ".")?;
     let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if sha.is_empty() {
-        return Ok(Value::Bool(false)); // nothing to checkpoint
+        // Not an error: the tree has no changes, so there is nothing to keep.
+        return Ok(Value::Bool(false));
     }
     let output = std::process::Command::new("git")
         .args(["stash", "store", "-m", &name, &sha])
         .output()
         .map_err(|e| crate::safety::spawn_error("session_checkpoint", "git", &e))?;
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "session_checkpoint",
-            "git stash store",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
+    git_succeeded("session_checkpoint", &output, ".")?;
     Ok(Value::Bool(true))
 }
 
-fn bi_session_restore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_session_restore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("session_restore", &input)?;
     let index = args
         .first()
         .map(|v| expect_int("session_restore", v))
         .transpose()?
         .unwrap_or(0);
+    let check = std::process::Command::new("git")
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("stash@{{{}}}", index),
+        ])
+        .output()
+        .map_err(|e| crate::safety::spawn_error("session_restore", "git", &e))?;
+    if !check.status.success() {
+        // A missing checkpoint is not a git failure: git's own answer for it
+        // is exit 1 with no text, which the generic path reported as E_TOOL_FAILED.
+        let in_repo = std::process::Command::new("git")
+            .args(["rev-parse", "--is-inside-work-tree"])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if in_repo {
+            return Err(crate::safety::not_found(
+                "session_restore",
+                "checkpoint",
+                &index.to_string(),
+            ));
+        }
+        git_succeeded("session_restore", &check, ".")?;
+    }
     let output = std::process::Command::new("git")
         .args(["stash", "apply", &format!("stash@{{{}}}", index)])
         .output()
@@ -41147,11 +41168,13 @@ fn bi_session_restore(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     Ok(Value::Bool(true))
 }
 
-fn bi_session_checkpoints(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    bi_git_stash_list(_args, _input)
+fn bi_session_checkpoints(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("session_checkpoints", &input)?;
+    bi_git_stash_list(args, None)
 }
 
-fn bi_session_diff_since(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_session_diff_since(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("session_diff_since", &input)?;
     let commit = args
         .first()
         .map(|v| expect_string("session_diff_since", v).map(str::to_string))
@@ -41168,25 +41191,30 @@ fn bi_session_diff_since(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     ))
 }
 
-fn bi_session_changes(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_session_changes(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("session_changes", &input)?;
     bi_git_status(vec![], None)
 }
 
-fn bi_session_rollback(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let commit = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or("HEAD".to_string());
+fn bi_session_rollback(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("session_rollback", &input)?;
+    // A non-string commit used to fall back silently to HEAD and still reset.
+    let commit = match args.first() {
+        Some(v) => expect_string("session_rollback", v)?.to_string(),
+        None => "HEAD".to_string(),
+    };
     crate::safety::reject_option_like("session_rollback", std::slice::from_ref(&commit))?;
     let output = std::process::Command::new("git")
         .args(["reset", "--hard", &commit])
         .output()
         .map_err(|e| crate::safety::spawn_error("session_rollback", "git", &e))?;
-    Ok(Value::Bool(output.status.success()))
+    // Was `Bool(success)`: a failed reset answered false with no reason.
+    git_succeeded("session_rollback", &output, ".")?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_session_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_session_export(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    git_refuse_input("session_export", &input)?;
     let file = args
         .first()
         .map(|v| expect_string("session_export", v).map(str::to_string))
@@ -41199,7 +41227,8 @@ fn bi_session_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .output()
         .map_err(|e| crate::safety::spawn_error("session_export", "git", &e))?;
     git_succeeded("session_export", &output, ".")?;
-    std::fs::write(&file, &output.stdout)?;
+    std::fs::write(&file, &output.stdout)
+        .map_err(|e| crate::safety::fs_error("session_export", &file, &e))?;
     Ok(Value::Str(file))
 }
 

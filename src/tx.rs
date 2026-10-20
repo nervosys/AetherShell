@@ -402,6 +402,13 @@ pub fn savepoint(name: &str) -> Result<()> {
         crate::safety::bad_state("tx_savepoint", "no active transaction", "tx_begin")
     })?;
     frame.savepoints.push((name.to_string(), idx));
+    // A path captured before this point is in `seen`, so a later write to it
+    // would not be snapshotted again, and rollback_to could not undo that
+    // write. Forget the dedup sets: the next write re-captures the state the
+    // savepoint froze. Replaying undos in reverse still restores the earlier
+    // pre-image on a full rollback.
+    frame.seen.clear();
+    frame.seen_meta.clear();
     Ok(())
 }
 
@@ -423,7 +430,13 @@ pub fn rollback_to(name: &str) -> Result<usize> {
             .savepoints
             .iter()
             .rposition(|(n, _)| n == name)
-            .ok_or_else(|| anyhow!("tx_rollback_to: no savepoint named '{}'", name))?;
+            .ok_or_else(|| {
+                crate::safety::bad_state(
+                    "tx_rollback_to",
+                    &format!("no savepoint named '{}'", name),
+                    "tx_savepoint(name) inside the transaction",
+                )
+            })?;
         (frame.savepoints[pos].1, pos)
     };
     // Detach the operations recorded after the savepoint, then revert them so
