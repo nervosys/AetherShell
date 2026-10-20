@@ -304,6 +304,11 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ),
     ("clipboard_types", "the clipboard (Windows only)"),
     ("platform_db_export", "the user's platform store"),
+    // platform_*: readers of this machine's hardware, tools and environment.
+    ("platform_snapshot", "this host's OS, installed tool versions, environment variables and clock"),
+    ("platform_fingerprint", "this host's platform snapshot, so its tools and environment"),
+    ("platform_memory", "the host's memory, which changes from call to call"),
+    ("platform_hardware_summary", "this host's CPU, memory, disks, GPUs and network interfaces"),
     ("search_fixmes", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
     ("search_todos", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),
     ("search_recent", "the size of the working tree and the speed of its filesystem: the walk stops at a 30 s budget"),

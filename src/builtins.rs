@@ -41766,14 +41766,71 @@ fn bi_env_activate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // Platform Versioning Module - Cross-platform determinism for AI agents
 // ============================================================================
 
-/// Database path for platform snapshots
-fn platform_db_path() -> std::path::PathBuf {
+/// Path of the platform store: `$HOME/.aether/platform_db.json`, or under
+/// `%USERPROFILE%` where HOME is unset. HOME relocates it; the tests use that.
+///
+/// With neither set there is no home to live in. This used to fall back to `.`,
+/// which wrote the store into whatever directory the call happened to run from.
+fn platform_db_path() -> Result<std::path::PathBuf> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    std::path::Path::new(&home)
+        .map_err(|_| {
+            crate::safety::bad_state(
+                "platform_db",
+                "neither HOME nor USERPROFILE is set, so the platform store has no home directory",
+                "HOME",
+            )
+        })?;
+    Ok(std::path::Path::new(&home)
         .join(".aether")
-        .join("platform_db.json")
+        .join("platform_db.json"))
+}
+
+/// Refuse piped input. The platform builtins answer from the host or from the
+/// store, so a value piped into them would be dropped without a word.
+fn platform_refuse_input(builtin: &str, input: &Option<Value>) -> Result<()> {
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "no pipeline input",
+            "piped input",
+        ));
+    }
+    Ok(())
+}
+
+/// The string argument at `index`, or `None` when it was not passed. Any other
+/// type is refused. (The declaration checks types too; this keeps the body from
+/// ever substituting a default for a value it was given.)
+fn platform_str_arg(builtin: &str, args: &[Value], index: usize) -> Result<Option<String>> {
+    match args.get(index) {
+        None => Ok(None),
+        Some(Value::Str(s)) => Ok(Some(s.clone())),
+        Some(other) => Err(crate::safety::bad_arg(
+            builtin,
+            "a string",
+            other.type_name(),
+        )),
+    }
+}
+
+/// Parse the platform store. A store that is not a JSON object is E_BAD_STATE:
+/// read as empty and written back, it would lose every entry in it.
+fn platform_store_parse(
+    builtin: &str,
+    path: &std::path::Path,
+    content: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>> {
+    serde_json::from_str(content).map_err(|e| {
+        crate::safety::bad_state(
+            builtin,
+            &format!(
+                "the platform store {} is not valid JSON: {e}",
+                path.display()
+            ),
+            "repair or delete the file; nothing was written",
+        )
+    })
 }
 
 /// Get tool version by running command with --version
@@ -42031,7 +42088,8 @@ fn probe_tool_versions(tools: &[&str]) -> Vec<(String, String)> {
 }
 
 /// Complete system snapshot with all versioning info
-fn bi_platform_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_platform_snapshot(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_snapshot", &input)?;
     let mut snapshot = std::collections::BTreeMap::new();
 
     // Timestamp
@@ -42167,8 +42225,12 @@ fn bi_platform_snapshot(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     }
     snapshot.insert("env".to_string(), Value::Record(env_map));
 
-    // Generate fingerprint hash
-    let fp = format!("{:?}", snapshot);
+    // The fingerprint names the platform, so it must not include the moment the
+    // snapshot was taken. With the timestamp inside it, the same machine gave a
+    // different fingerprint on every call.
+    let mut identity = snapshot.clone();
+    identity.remove("timestamp");
+    let fp = format!("{:?}", identity);
     let hash = format!("{:x}", md5_simple(&fp));
     snapshot.insert("fingerprint".to_string(), Value::Str(hash));
 
@@ -42942,7 +43004,8 @@ fn version_satisfies(have: &[u64], op: &str, want: &[u64]) -> bool {
     }
 }
 
-fn bi_platform_require(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_platform_require(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_require", &input)?;
     // Expect a record like {os: "linux|windows", python: ">=3.10", docker: true}
     //
     // Four answers here were made without looking. A non-record argument was
@@ -43048,16 +43111,28 @@ fn bi_platform_check_reqs(args: Vec<Value>, input: Option<Value>) -> Result<Valu
 }
 
 fn bi_platform_satisfies(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let result = bi_platform_require(args, input)?;
-    if let Value::Record(r) = result {
-        if let Some(Value::Bool(sat)) = r.get("satisfied") {
-            return Ok(Value::Bool(*sat));
-        }
+    platform_refuse_input("platform_satisfies", &input)?;
+    // A missing answer is an error, not `false`: "not satisfied" and "could not
+    // say" are different things to an agent deciding whether to proceed.
+    let Value::Record(r) = bi_platform_require(args, None)? else {
+        return Err(crate::safety::bad_state(
+            "platform_satisfies",
+            "platform_require did not answer a record",
+            "platform_require",
+        ));
+    };
+    match r.get("satisfied") {
+        Some(Value::Bool(sat)) => Ok(Value::Bool(*sat)),
+        _ => Err(crate::safety::bad_state(
+            "platform_satisfies",
+            "platform_require answered no satisfied flag",
+            "platform_require",
+        )),
     }
-    Ok(Value::Bool(false))
 }
 
-fn bi_platform_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_platform_diff(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_diff", &input)?;
     // Compare two snapshots
     let snap1 = match args.first() {
         Some(Value::Record(r)) => r.clone(),
@@ -43114,7 +43189,8 @@ fn bi_platform_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(diff))
 }
 
-fn bi_platform_compatible(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_platform_compatible(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_compatible", &input)?;
     // Check if two snapshots are compatible (same OS family, arch)
     let snap1 = match args.first() {
         Some(Value::Record(r)) => r,
@@ -43137,6 +43213,20 @@ fn bi_platform_compatible(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         }
     };
 
+    // A key missing from both records compared equal (None == None), so two
+    // empty records were "compatible". Each record must carry all three.
+    for key in ["os", "arch", "family"] {
+        for snap in [snap1, snap2] {
+            if !snap.contains_key(key) {
+                return Err(crate::safety::bad_arg(
+                    "platform_compatible",
+                    "records from platform_snapshot(), each with os, arch and family",
+                    &format!("a record without {key}"),
+                ));
+            }
+        }
+    }
+
     let os_match = snap1.get("os") == snap2.get("os");
     let arch_match = snap1.get("arch") == snap2.get("arch");
     let family_match = snap1.get("family") == snap2.get("family");
@@ -43144,8 +43234,9 @@ fn bi_platform_compatible(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     Ok(Value::Bool(os_match && arch_match && family_match))
 }
 
-fn bi_platform_db_init(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let db_path = platform_db_path();
+fn bi_platform_db_init(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_db_init", &input)?;
+    let db_path = platform_db_path()?;
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| crate::safety::fs_error("platform_db_init", parent, &e))?;
@@ -43157,37 +43248,26 @@ fn bi_platform_db_init(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
     Ok(Value::Str(db_path.to_string_lossy().to_string()))
 }
 
-fn bi_platform_db_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let key = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .unwrap_or("default");
+fn bi_platform_db_store(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_db_store", &input)?;
+    let key =
+        platform_str_arg("platform_db_store", &args, 0)?.unwrap_or_else(|| "default".to_string());
     let snapshot = match args.get(1) {
         Some(v) => v.clone(),
         None => bi_platform_snapshot(vec![], None)?,
     };
 
-    let db_path = platform_db_path();
+    let db_path = platform_db_path()?;
     bi_platform_db_init(vec![], None)?;
 
-    let content = std::fs::read_to_string(&db_path).unwrap_or_else(|_| "{}".to_string());
-    // A corrupt store read as empty and was then written back with only the
-    // new key: every other entry was destroyed.
-    let mut db: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)
-        .map_err(|e| {
-            crate::safety::bad_state(
-                "platform_db_store",
-                &format!(
-                    "the platform store {} is not valid JSON: {e}",
-                    db_path.display()
-                ),
-                "repair or delete the file; nothing was written",
-            )
-        })?;
+    // An unreadable store used to read as empty and be written back with only
+    // the new key: every other entry was destroyed. The read error is now the
+    // answer.
+    let content = std::fs::read_to_string(&db_path)
+        .map_err(|e| crate::safety::fs_error("platform_db_store", &db_path, &e))?;
+    let mut db = platform_store_parse("platform_db_store", &db_path, &content)?;
 
-    // Convert Value to serde_json::Value
-    let json_val = value_to_json(snapshot.clone());
-    db.insert(key.to_string(), json_val);
+    db.insert(key, value_to_json(snapshot));
 
     std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)
         .map_err(|e| crate::safety::fs_error("platform_db_store", &db_path, &e))?;
@@ -43200,7 +43280,7 @@ fn bi_platform_db_load(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         .and_then(|v| v.as_str().ok())
         .unwrap_or("default");
 
-    let db_path = platform_db_path();
+    let db_path = platform_db_path()?;
     if !db_path.exists() {
         return Ok(Value::Null);
     }
@@ -43226,7 +43306,7 @@ fn bi_platform_db_load(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 fn bi_platform_db_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let db_path = platform_db_path();
+    let db_path = platform_db_path()?;
     if !db_path.exists() {
         return Ok(Value::Array(vec![]));
     }
@@ -43240,49 +43320,74 @@ fn bi_platform_db_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
     Ok(Value::Array(keys))
 }
 
-fn bi_platform_db_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let key = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+fn bi_platform_db_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_db_delete", &input)?;
+    // The key is required (the declaration says so). Validated before the guard,
+    // so a missing key is E_BAD_ARG and never reaches the approval gate.
+    let key = platform_str_arg("platform_db_delete", &args, 0)?
+        .ok_or_else(|| crate::safety::bad_arg("platform_db_delete", "a key: String", "nothing"))?;
 
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "platform_db_delete",
         effect: crate::safety::Effect::Destructive,
         what: "db_delete",
-        targets: vec![key.to_string()],
+        targets: vec![key.clone()],
         blast_radius: serde_json::json!({ "key": key }),
         reversible: false,
         fs_paths: false,
     })?;
 
-    let db_path = platform_db_path();
+    let db_path = platform_db_path()?;
     if !db_path.exists() {
         return Ok(Value::Bool(false));
     }
 
     let content = std::fs::read_to_string(&db_path)
         .map_err(|e| crate::safety::fs_error("platform_db_delete", &db_path, &e))?;
-    let mut db: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&content).unwrap_or_default();
+    let mut db = platform_store_parse("platform_db_delete", &db_path, &content)?;
 
-    let existed = db.remove(key).is_some();
-    std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)?;
+    let existed = db.remove(&key).is_some();
+    // Written only when something was removed: a miss leaves the file untouched.
+    if existed {
+        std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)
+            .map_err(|e| crate::safety::fs_error("platform_db_delete", &db_path, &e))?;
+    }
 
     Ok(Value::Bool(existed))
 }
 
-fn bi_platform_db_compare(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let key1 = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
-    let key2 = args.get(1).and_then(|v| v.as_str().ok()).unwrap_or("");
+fn bi_platform_db_compare(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_db_compare", &input)?;
+    let key_of = |index: usize| -> Result<String> {
+        platform_str_arg("platform_db_compare", &args, index)?.ok_or_else(|| {
+            crate::safety::bad_arg("platform_db_compare", "two keys: String, String", "fewer")
+        })
+    };
+    let key1 = key_of(0)?;
+    let key2 = key_of(1)?;
 
-    let snap1 = bi_platform_db_load(vec![Value::Str(key1.to_string())], None)?;
-    let snap2 = bi_platform_db_load(vec![Value::Str(key2.to_string())], None)?;
-
-    bi_platform_diff(vec![snap1, snap2], None)
+    // A key that is not in the store used to load as null, and the diff then
+    // refused a null as "expected Record, got Null". Name the miss instead.
+    let mut snapshots = Vec::with_capacity(2);
+    for key in [key1, key2] {
+        match bi_platform_db_load(vec![Value::Str(key.clone())], None)? {
+            Value::Null => {
+                return Err(crate::safety::not_found(
+                    "platform_db_compare",
+                    "platform snapshot",
+                    &key,
+                ))
+            }
+            snapshot => snapshots.push(snapshot),
+        }
+    }
+    bi_platform_diff(snapshots, None)
 }
 
 fn bi_platform_db_export(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file_path = args.first().and_then(|v| v.as_str().ok());
 
-    let db_path = platform_db_path();
+    let db_path = platform_db_path()?;
     // With no store yet, a requested export file was never written: the
     // call answered "{}" instead of the path.
     let content = if db_path.exists() {
@@ -43303,15 +43408,22 @@ fn bi_platform_db_export(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     }
 }
 
-fn bi_platform_db_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let source = args.first().and_then(|v| v.as_str().ok()).unwrap_or("");
+fn bi_platform_db_import(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_db_import", &input)?;
+    let source = platform_str_arg("platform_db_import", &args, 0)?.ok_or_else(|| {
+        crate::safety::bad_arg(
+            "platform_db_import",
+            "a JSON object, or the path of a file containing one",
+            "nothing",
+        )
+    })?;
 
     // Check if it's a file path or JSON string
-    let content = if std::path::Path::new(source).exists() {
-        std::fs::read_to_string(source)
+    let content = if std::path::Path::new(&source).exists() {
+        std::fs::read_to_string(&source)
             .map_err(|e| crate::safety::fs_error("platform_db_import", &source, &e))?
     } else {
-        source.to_string()
+        source.clone()
     };
 
     // Validate JSON
@@ -43324,30 +43436,40 @@ fn bi_platform_db_import(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             )
         })?;
 
-    let db_path = platform_db_path();
+    let db_path = platform_db_path()?;
     bi_platform_db_init(vec![], None)?;
 
-    // Merge with existing
-    let existing = std::fs::read_to_string(&db_path).unwrap_or_else(|_| "{}".to_string());
-    let mut db: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&existing).unwrap_or_default();
+    // Merge with existing. A corrupt store used to read as empty here and be
+    // overwritten by the import, losing its entries.
+    let existing = std::fs::read_to_string(&db_path)
+        .map_err(|e| crate::safety::fs_error("platform_db_import", &db_path, &e))?;
+    let mut db = platform_store_parse("platform_db_import", &db_path, &existing)?;
 
     for (k, v) in imported {
         db.insert(k, v);
     }
 
-    std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)?;
+    std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)
+        .map_err(|e| crate::safety::fs_error("platform_db_import", &db_path, &e))?;
+    // The number of keys the store holds after the merge, not the number imported.
     Ok(Value::Int(db.len() as i64))
 }
 
-fn bi_platform_fingerprint(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_platform_fingerprint(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_fingerprint", &input)?;
     let snapshot = bi_platform_snapshot(vec![], None)?;
     if let Value::Record(r) = snapshot {
-        if let Some(fp) = r.get("fingerprint") {
+        if let Some(fp @ Value::Str(_)) = r.get("fingerprint") {
             return Ok(fp.clone());
         }
     }
-    Ok(Value::Str("unknown".to_string()))
+    // The snapshot always carries one, so its absence is a defect, not an
+    // answer. It used to be the string "unknown".
+    Err(crate::safety::bad_state(
+        "platform_fingerprint",
+        "the platform snapshot carries no fingerprint",
+        "platform_snapshot",
+    ))
 }
 
 fn bi_platform_hash(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -44347,35 +44469,53 @@ fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     Ok(Value::Null)
 }
 
-fn bi_platform_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_platform_memory(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_memory", &input)?;
     let mut info = std::collections::BTreeMap::new();
 
+    // A probe that fails is a coded error. Each one used to be skipped, so a
+    // failed query answered {} -- indistinguishable from "this host has no
+    // memory to report".
     #[cfg(target_os = "windows")]
     {
         // Use PowerShell instead of WMIC
-        if let Ok(out) = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | ConvertTo-Json"])
+        let query = "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | ConvertTo-Json";
+        let out = std::process::Command::new("powershell")
+            .args(["-Command", query])
             .output()
-        {
-            if out.status.success() {
-                let json_str = String::from_utf8_lossy(&out.stdout);
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    if let Some(total) = json.get("TotalVisibleMemorySize").and_then(|v| v.as_i64()) {
-                        info.insert("total_kb".to_string(), Value::Int(total));
-                        info.insert("total_gb".to_string(), Value::Float(total as f64 / 1024.0 / 1024.0));
-                    }
-                    if let Some(free) = json.get("FreePhysicalMemory").and_then(|v| v.as_i64()) {
-                        info.insert("free_kb".to_string(), Value::Int(free));
-                        info.insert("free_gb".to_string(), Value::Float(free as f64 / 1024.0 / 1024.0));
-                    }
-                }
-            }
+            .map_err(|e| crate::safety::tool_missing("platform_memory", "powershell", &e.to_string()))?;
+        if !out.status.success() {
+            return Err(crate::safety::tool_failed(
+                "platform_memory",
+                "powershell Get-CimInstance Win32_OperatingSystem",
+                out.status.code(),
+                &String::from_utf8_lossy(&out.stderr),
+            ));
+        }
+        let json: serde_json::Value =
+            serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).map_err(|e| {
+                crate::safety::tool_failed(
+                    "platform_memory",
+                    "powershell Get-CimInstance Win32_OperatingSystem",
+                    out.status.code(),
+                    &format!("its output was not JSON: {e}"),
+                )
+            })?;
+        if let Some(total) = json.get("TotalVisibleMemorySize").and_then(|v| v.as_i64()) {
+            info.insert("total_kb".to_string(), Value::Int(total));
+            info.insert("total_gb".to_string(), Value::Float(total as f64 / 1024.0 / 1024.0));
+        }
+        if let Some(free) = json.get("FreePhysicalMemory").and_then(|v| v.as_i64()) {
+            info.insert("free_kb".to_string(), Value::Int(free));
+            info.insert("free_gb".to_string(), Value::Float(free as f64 / 1024.0 / 1024.0));
         }
     }
 
     #[cfg(target_os = "linux")]
     {
-        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+        let meminfo = std::fs::read_to_string("/proc/meminfo")
+            .map_err(|e| crate::safety::fs_error("platform_memory", "/proc/meminfo", &e))?;
+        {
             for line in meminfo.lines() {
                 if let Some((key, val)) = line.split_once(':') {
                     let key = key.trim();
@@ -44421,17 +44561,54 @@ fn bi_platform_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("sysctl")
+        let out = std::process::Command::new("sysctl")
             .args(["-n", "hw.memsize"])
             .output()
-        {
-            if let Ok(bytes) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
-                info.insert("total_bytes".to_string(), Value::Int(bytes));
-                info.insert(
-                    "total_gb".to_string(),
-                    Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0),
-                );
-            }
+            .map_err(|e| crate::safety::tool_missing("platform_memory", "sysctl", &e.to_string()))?;
+        if !out.status.success() {
+            return Err(crate::safety::tool_failed(
+                "platform_memory",
+                "sysctl -n hw.memsize",
+                out.status.code(),
+                &String::from_utf8_lossy(&out.stderr),
+            ));
+        }
+        let bytes = String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse::<i64>()
+            .map_err(|e| {
+                crate::safety::tool_failed(
+                    "platform_memory",
+                    "sysctl -n hw.memsize",
+                    out.status.code(),
+                    &format!("it did not print a byte count: {e}"),
+                )
+            })?;
+        info.insert("total_bytes".to_string(), Value::Int(bytes));
+        info.insert(
+            "total_gb".to_string(),
+            Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0),
+        );
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        return Err(crate::safety::unimplemented(
+            "platform_memory",
+            "memory detection is not implemented for this operating system",
+            "read the memory total from the operating system directly",
+        ));
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    {
+        if !info.contains_key("total_kb") && !info.contains_key("total_bytes") {
+            return Err(crate::safety::tool_failed(
+                "platform_memory",
+                "the platform memory query",
+                None,
+                "it reported no total memory",
+            ));
         }
     }
 
@@ -44968,36 +45145,32 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
     Ok(Value::Array(interfaces))
 }
 
-fn bi_platform_hardware_summary(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_platform_hardware_summary(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    platform_refuse_input("platform_hardware_summary", &input)?;
     let mut summary = std::collections::BTreeMap::new();
+    let mut unavailable = Vec::new();
 
-    // CPU info
-    if let Ok(Value::Record(cpu)) = bi_platform_cpu(vec![], None) {
-        summary.insert("cpu".to_string(), Value::Record(cpu));
-    }
-
-    // Memory info
-    if let Ok(Value::Record(mem)) = bi_platform_memory(vec![], None) {
-        summary.insert("memory".to_string(), Value::Record(mem));
-    }
-
-    // Disk info
-    if let Ok(Value::Array(disks)) = bi_platform_disks(vec![], None) {
-        summary.insert("disks".to_string(), Value::Array(disks));
-    }
-
-    // GPU info
-    if let Ok(Value::Array(gpus)) = bi_platform_gpus(vec![], None) {
-        if !gpus.is_empty() {
-            summary.insert("gpus".to_string(), Value::Array(gpus));
+    // A section that cannot be read is listed under `unavailable` with its
+    // coded reason. It used to be dropped, so the summary looked complete.
+    let sections: [(&str, Result<Value>); 5] = [
+        ("cpu", bi_platform_cpu(vec![], None)),
+        ("memory", bi_platform_memory(vec![], None)),
+        ("disks", bi_platform_disks(vec![], None)),
+        ("gpus", bi_platform_gpus(vec![], None)),
+        ("network", bi_platform_network_interfaces(vec![], None)),
+    ];
+    for (name, result) in sections {
+        match result {
+            // An empty list of GPUs or interfaces is an answer, not a section to show.
+            Ok(Value::Array(items)) if items.is_empty() && matches!(name, "gpus" | "network") => {}
+            Ok(value) => {
+                summary.insert(name.to_string(), value);
+            }
+            Err(e) => unavailable.push(Value::Str(format!("{name}: {e}"))),
         }
     }
-
-    // Network info
-    if let Ok(Value::Array(nics)) = bi_platform_network_interfaces(vec![], None) {
-        if !nics.is_empty() {
-            summary.insert("network".to_string(), Value::Array(nics));
-        }
+    if !unavailable.is_empty() {
+        summary.insert("unavailable".to_string(), Value::Array(unavailable));
     }
 
     // Add architecture and OS
