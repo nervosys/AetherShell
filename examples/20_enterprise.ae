@@ -62,9 +62,10 @@ print("SSO initialized:", sso_init_result)
 let sso_stat = sso_status()
 print("SSO status:", sso_stat)
 
-// Simulate authentication
-let auth_result = sso_auth("callback_token_xyz")
-print("SSO auth result:", auth_result)
+// sso_auth is not implemented: it does not verify the identity provider's
+// callback, so it refuses with E_UNIMPLEMENTED. The call is removed here.
+// let auth_result = sso_auth("callback_token_xyz")
+// print("SSO auth result:", auth_result)
 
 // Validate token
 // let validate = sso_validate(auth_result.token)
@@ -88,13 +89,13 @@ print("SOC2 compliance report:", report)
 // ===================== Fine-tuning =====================
 print("\n=== Fine-tuning Demo ===")
 
-// Start a fine-tuning job
-let ft_job = finetune_start("gpt-4o-mini", "training_data.jsonl")
-print("Fine-tuning job started:", ft_job)
-
-// Check job status
-let ft_status = finetune_status(ft_job.job_id)
-print("Job status:", ft_status)
+// finetune_start refuses with E_UNIMPLEMENTED (no training backend is wired),
+// so no job is started. finetune_status needs the id that finetune_start would
+// return, so it is removed with it.
+// let ft_job = finetune_start("gpt-4o-mini", "training_data.jsonl")
+// print("Fine-tuning job started:", ft_job)
+// let ft_status = finetune_status(ft_job.job_id)
+// print("Job status:", ft_status)
 
 // List all fine-tuning jobs
 let all_jobs = finetune_list()

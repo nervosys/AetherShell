@@ -35,16 +35,9 @@ let all_nodes = cluster_nodes()
 all_nodes | each(fn(n) => print("  - " + n.id + ": " + n.status))
 print("")
 
-# Submit some jobs
-print("Submitting jobs...")
-let job1 = job_submit("data-processing", "process_data batch1")
-let job2 = submit("ml-training", "train_model dataset.csv", 10)
-let job3 = job_submit("report-gen", "generate_report")
-
-print("Job 1: " + job1.job_id + " (" + job1.status + ")")
-print("Job 2: " + job2.job_id + " (priority: 10)")
-print("Job 3: " + job3.job_id)
-print("")
+# Job submission is not implemented: job_submit (and its alias submit) refuses
+# with E_UNIMPLEMENTED and issues no job id, so the submissions that stood here
+# are removed. job_list reads a table that only job_submit fills, so it is empty.
 
 # Check job status
 print("Job statuses:")
@@ -70,11 +63,8 @@ print("  First: " + aggregate(numbers, "first"))
 print("  Last: " + aggregate(numbers, "last"))
 print("")
 
-# Cleanup - cancel a job
-print("Cancelling job: " + job3.job_id)
-let cancelled = job_cancel(job3.job_id)
-print("  Cancelled: " + cancelled)
-print("")
+# Cleanup: there is no submitted job to cancel (job_submit refuses), so the
+# job_cancel call that followed the submissions is removed.
 
 # Remove a node
 print("Removing node-3...")

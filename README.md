@@ -1226,7 +1226,7 @@ audit.query({action: "file_modified", since: "2024-01-01"})
 
 # SSO
 sso.init("okta", {client_id: "...", issuer: "https://..."})
-sso.auth(callback_data)
+sso.auth(callback_data)   # refused with E_UNIMPLEMENTED: the callback is not verified
 ```
 
 ---

@@ -8194,7 +8194,13 @@ impl OSToolsDatabase {
 pub struct ToolExecutionResult {
     pub success: bool,
     pub stdout: String,
+    /// Whether earlier stdout was dropped to fit the cap (the head is kept).
+    #[serde(default)]
+    pub stdout_truncated: bool,
     pub stderr: String,
+    /// Whether earlier stderr was dropped to fit the cap (the tail is kept).
+    #[serde(default)]
+    pub stderr_truncated: bool,
     pub exit_code: Option<i32>,
     pub tool_name: String,
     pub command_executed: String,
@@ -8207,7 +8213,9 @@ impl ToolExecutionResult {
         json!({
             "success": self.success,
             "stdout": self.stdout,
+            "stdout_truncated": self.stdout_truncated,
             "stderr": self.stderr,
+            "stderr_truncated": self.stderr_truncated,
             "exit_code": self.exit_code,
             "tool_name": self.tool_name,
             "command_executed": self.command_executed,
@@ -8216,56 +8224,109 @@ impl ToolExecutionResult {
     }
 }
 
-/// Execute a tool with the given arguments
+/// Most stdout a bounded tool run keeps: the head of its output. The rest is
+/// read and dropped, and the result says it was truncated.
+pub const TOOL_EXEC_STDOUT_CAP: usize = 1024 * 1024;
+/// Most stderr a bounded tool run keeps: its tail, with a truncated flag.
+pub const TOOL_EXEC_STDERR_CAP: usize = 64 * 1024;
+/// A bounded tool run that has not exited by then is killed and refused.
+pub const TOOL_EXEC_DEADLINE_SECS: u64 = 120;
+
+/// A tool run refused before it started: unknown tool, OS not supported,
+/// a dangerous tool without opt-in, or administrator rights missing. A
+/// caller maps it to its own refusal code; any other error from these
+/// functions is already coded (spawn failure, deadline, nonzero exit).
+#[derive(Debug)]
+pub struct ToolRefusal(pub String);
+
+impl std::fmt::Display for ToolRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ToolRefusal {}
+
+/// Runs `program` with `args` directly (never through a shell), with stdin
+/// closed, keeping at most `stdout_cap` bytes of stdout (its head) and
+/// `stderr_cap` bytes of stderr (its tail). Past `deadline_secs` the child is
+/// killed and the call is refused with a coded budget error. A nonzero exit is
+/// an answer, not an error: it is in `success` and `exit_code`.
+pub fn run_capped(
+    builtin: &str,
+    tool_name: &str,
+    program: &str,
+    args: &[String],
+    stdout_cap: usize,
+    stderr_cap: usize,
+    deadline_secs: u64,
+) -> anyhow::Result<ToolExecutionResult> {
+    let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+    let started = std::time::Instant::now();
+    let run = crate::builtins::run_bounded(
+        builtin,
+        program,
+        None,
+        &argv,
+        crate::builtins::Keep::Head(stdout_cap),
+        stderr_cap,
+        deadline_secs,
+    )?;
+    let command_executed = run.command.trim_end().to_string();
+    Ok(ToolExecutionResult {
+        success: run.success,
+        stdout: run.stdout,
+        stdout_truncated: run.stdout_truncated,
+        stderr: run.stderr,
+        stderr_truncated: run.stderr_truncated,
+        exit_code: run.code,
+        tool_name: tool_name.to_string(),
+        command_executed,
+        execution_time_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+/// Execute a tool with the given arguments, bounded by
+/// [`TOOL_EXEC_STDOUT_CAP`], [`TOOL_EXEC_STDERR_CAP`] and
+/// [`TOOL_EXEC_DEADLINE_SECS`].
 pub fn execute_tool(
     db: &OSToolsDatabase,
     tool_name: &str,
     args: &[String],
-) -> Result<ToolExecutionResult, String> {
+) -> anyhow::Result<ToolExecutionResult> {
     let tool = db
         .get_tool(tool_name)
-        .ok_or_else(|| format!("Tool '{}' not found", tool_name))?;
+        .ok_or_else(|| ToolRefusal(format!("Tool '{}' not found", tool_name)))?;
 
     // Check OS compatibility
     let current_os = OperatingSystem::current();
     if !tool.supported_os.contains(&current_os) {
-        return Err(format!(
+        return Err(ToolRefusal(format!(
             "Tool '{}' is not supported on {:?}",
             tool_name, current_os
-        ));
+        ))
+        .into());
     }
 
     // Get the appropriate command for the current OS
     let command = tool.command_for_current_os();
 
-    // Build the full command with arguments
-    let full_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-
-    let start_time = std::time::Instant::now();
-
-    // Execute the command
-    let output = std::process::Command::new(&command)
-        .args(&full_args)
-        .output()
-        .map_err(|e| format!("Failed to execute '{}': {}", command, e))?;
-
-    let execution_time = start_time.elapsed().as_millis() as u64;
-
-    let command_executed = if args.is_empty() {
+    let mut result = run_capped(
+        "tool_exec",
+        tool_name,
+        &command,
+        args,
+        TOOL_EXEC_STDOUT_CAP,
+        TOOL_EXEC_STDERR_CAP,
+        TOOL_EXEC_DEADLINE_SECS,
+    )?;
+    // The record names the tool, as the caller asked for it.
+    result.command_executed = if args.is_empty() {
         command.clone()
     } else {
         format!("{} {}", command, args.join(" "))
     };
-
-    Ok(ToolExecutionResult {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code: output.status.code(),
-        tool_name: tool_name.to_string(),
-        command_executed,
-        execution_time_ms: execution_time,
-    })
+    Ok(result)
 }
 
 /// Execute a tool with safety checks
@@ -8274,20 +8335,21 @@ pub fn execute_tool_safe(
     tool_name: &str,
     args: &[String],
     allow_dangerous: bool,
-) -> Result<ToolExecutionResult, String> {
+) -> anyhow::Result<ToolExecutionResult> {
     let tool = db
         .get_tool(tool_name)
-        .ok_or_else(|| format!("Tool '{}' not found", tool_name))?;
+        .ok_or_else(|| ToolRefusal(format!("Tool '{}' not found", tool_name)))?;
 
     // Check safety level
     match tool.safety_level {
         SafetyLevel::Safe | SafetyLevel::Caution => {}
         SafetyLevel::Dangerous | SafetyLevel::Critical => {
             if !allow_dangerous {
-                return Err(format!(
+                return Err(ToolRefusal(format!(
                     "Tool '{}' has safety level {:?}. Set allow_dangerous=true to execute.",
                     tool_name, tool.safety_level
-                ));
+                ))
+                .into());
             }
         }
     }
@@ -8298,10 +8360,11 @@ pub fn execute_tool_safe(
         #[cfg(unix)]
         {
             if unsafe { libc::geteuid() } != 0 {
-                return Err(format!(
+                return Err(ToolRefusal(format!(
                     "Tool '{}' requires administrator privileges",
                     tool_name
-                ));
+                ))
+                .into());
             }
         }
         // On Windows, check if running as administrator
@@ -8313,10 +8376,11 @@ pub fn execute_tool_safe(
                 .stderr(std::process::Stdio::null())
                 .status();
             if !admin_check.map(|s| s.success()).unwrap_or(false) {
-                return Err(format!(
+                return Err(ToolRefusal(format!(
                     "Tool '{}' requires administrator privileges",
                     tool_name
-                ));
+                ))
+                .into());
             }
         }
     }
@@ -8356,7 +8420,9 @@ pub fn execute_cross_platform(
     Ok(ToolExecutionResult {
         success: output.status.success(),
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stdout_truncated: false,
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        stderr_truncated: false,
         exit_code: output.status.code(),
         tool_name: canonical_name.to_string(),
         command_executed,

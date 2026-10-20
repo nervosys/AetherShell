@@ -1118,7 +1118,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("allow_dangerous", Ty::Bool, "must be true to run a tool rated Dangerous or Critical"),
         ],
         returns: "Record",
-        doc: "Run a catalogue tool directly (never through a shell) with the given argv, and return {success, stdout, stderr, exit_code, tool_name, command_executed, execution_time_ms}. The run is gated as an exec. Its output is read whole, with no cap or deadline yet, so it is not bounded. A nonzero exit is reported in the record (success false, exit_code), not raised. A tool that does not exist is E_NOT_FOUND; a Dangerous or Critical tool without allow_dangerous is E_POLICY_DENY; a program that cannot be started is E_TOOL_MISSING.",
+        doc: "Run a catalogue tool directly (never through a shell) with the given argv, and return {success, stdout, stdout_truncated, stderr, stderr_truncated, exit_code, tool_name, command_executed, execution_time_ms}. The run is gated as an exec. Stdout keeps its first 1 MiB and stderr its last 64 KiB; a stream that was cut says so in its truncated flag. A run still going after 120 s is killed and refused with E_BUDGET_EXCEEDED. A nonzero exit is reported in the record (success false, exit_code), not raised. A tool that does not exist is E_NOT_FOUND; a Dangerous or Critical tool without allow_dangerous is E_POLICY_DENY; a program that cannot be started is E_TOOL_MISSING.",
         examples: &[
             (r#"(try { tool_exec() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { tool_exec("no_such_tool_xyz") } catch e { e.error.code })"#, "E_NOT_FOUND"),
@@ -1192,7 +1192,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "Probe the local and configured model endpoints (IronGate, Ollama, vLLM, llama.cpp, TGI, OpenAI, LM Studio) and list each reachable one as {name, provider, endpoint, available, models}. Only reachable backends are listed. This is a network operation: it is gated as Network and charged to AETHER_MAX_NET once per call, although it makes one probe per endpoint. Takes no arguments.",
+        doc: "Probe the local and configured model endpoints (IronGate, Ollama, vLLM, llama.cpp, TGI, OpenAI, LM Studio) and list each reachable one as {name, provider, endpoint, available, models}. Only reachable backends are listed. This is a network operation: the call is gated as Network, and each endpoint probe that connects is charged to AETHER_MAX_NET as its own request before it opens a socket (OpenAI is checked for a key only and makes no request). A probe the budget or policy refuses stops the sweep with that coded refusal rather than an empty list. Takes no arguments.",
         examples: &[
             (r#"(try { ai_backends(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
@@ -7099,10 +7099,11 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Any),
         params: &[opt("top_k", Ty::Int, "how many chunks to use")],
         returns: "Array",
-        doc: "The indexed chunks most similar to a query, with scores (top_k defaults to 5).",
+        doc: "The indexed chunks most similar to a query, with scores (top_k defaults to 5). top_k is an integer from 1 to 100: 0 or a negative count is E_BAD_ARG, and more than 100 is E_BUDGET_EXCEEDED. Piped, the query is the input and top_k is the only argument (`\"q\" | rag_search(3)`); called directly it is rag_search(query, top_k).",
         examples: &[
             (r#"typeof(rag_search("anything"))"#, r#"Array"#),
             (r#"typeof(rag_search("anything", 2))"#, r#"Array"#),
+            (r#"(try { rag_search("anything", -1) } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -7113,10 +7114,11 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Any),
         params: &[opt("top_k", Ty::Int, "how many chunks to use")],
         returns: "Record",
-        doc: "Retrieve context for a query and build an answer from it (top_k defaults to 3).",
+        doc: "Retrieve context for a query and build an answer from it (top_k defaults to 3). top_k is an integer from 1 to 20: 0 or a negative count is E_BAD_ARG, and more than 20 is E_BUDGET_EXCEEDED. Piped, the query is the input and top_k is the only argument; called directly it is rag_query(query, top_k). The answer is built from the retrieved chunks only; no model is called.",
         examples: &[
             (r#"typeof(rag_query("anything"))"#, r#"Record"#),
             (r#"typeof(rag_query("anything", 1))"#, r#"Record"#),
+            (r#"(try { rag_query("anything", 0) } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -7760,9 +7762,10 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("message", Ty::Any, "the message every registered agent receives")],
         returns: "Record",
-        doc: "Queue a message for every registered agent.",
+        doc: "Queue a message for every registered agent, in process. The message is at most 64 KiB as display text (E_BUDGET_EXCEEDED above that). A broadcast reaches at most 64 agents, and it is all or nothing: if one recipient's queue already holds 1024 undelivered messages, or there are too many recipients, the call is refused and no queue changes. Takes one message; piped input is refused.",
         examples: &[
             (r#"typeof(a2a_broadcast("hello"))"#, r#"Record"#),
+            (r#"(try { a2a_broadcast() } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -7787,10 +7790,11 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("name", Ty::Str, "agent name"), opt("info", Ty::Record, "capabilities and other metadata")],
         returns: "Record",
-        doc: "Register an agent so it can receive messages.",
+        doc: "Register an agent so it can receive messages, in process. The name is a non-empty String of at most 128 bytes. At most 256 agents are registered: a new name past that is E_BUDGET_EXCEEDED, while re-registering a name replaces its info. Info must be a Record (anything else is E_BAD_ARG) of at most 64 KiB as display text.",
         examples: &[
             (r#"typeof(a2a_register("example-agent"))"#, r#"Record"#),
             (r#"typeof(a2a_register("example-agent", {role: "demo"}))"#, r#"Record"#),
+            (r#"(try { a2a_register("example-agent", "not a record") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {

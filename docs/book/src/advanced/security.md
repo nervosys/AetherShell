@@ -87,7 +87,7 @@ Integrate with enterprise identity providers:
 
 ```aethershell
 sso_init { provider: "oauth2", client_id: "...", issuer: "https://auth.example.com" }
-sso_auth                # Initiate authentication flow
+sso_auth                # Refused (E_UNIMPLEMENTED): the identity provider callback is not verified, so no session is started; use rbac_login
 sso_validate            # Validate current session
 sso_status              # Check SSO status
 sso_logout              # End session

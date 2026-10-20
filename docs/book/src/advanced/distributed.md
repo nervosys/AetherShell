@@ -46,35 +46,26 @@ cluster_remove_node "my-cluster" "192.168.1.11"
 
 ### Submitting Jobs
 
+Job submission is not implemented in this build. `job_submit` (alias `submit`)
+has no job executor behind it, so it refuses rather than return a job id for a
+job that would never run. Nothing is recorded:
+
 ```aethershell
-let job_id = job_submit "my-cluster" {
-  code: 'ls "src" | map(fn(f) => f.name)',
-  priority: "high"
-}
-echo job_id   # "job-abc123"
+try { job_submit("my-cluster", "ls src") } catch e { e.error.code }
+# "E_UNIMPLEMENTED"
 ```
 
-### Job Status
+### Job Status, Results and Listing
+
+`job_status`, `job_results` and `job_list` read the distributed job table, and
+only `job_submit` fills it. Until a job can be submitted, the table is empty:
 
 ```aethershell
-job_status "job-abc123"
-# { id: "job-abc123", status: "running", node: "192.168.1.10", progress: 0.5 }
-```
+job_list()
+# []
 
-### Job Results
-
-```aethershell
-let results = job_results "job-abc123"
-echo results
-```
-
-### Listing and Canceling
-
-```aethershell
-job_list "my-cluster"
-# [{ id: "job-abc123", status: "running" }, { id: "job-def456", status: "completed" }]
-
-job_cancel "job-abc123"
+job_results("job-abc123")   # an unknown id gives an empty result
+job_status("job-abc123")    # an unknown id is E_NOT_FOUND
 ```
 
 ## Remote Execution
@@ -108,30 +99,28 @@ let results = aggregate_results "my-cluster" "job-batch-1"
 
 ## NANDA Consensus
 
-For coordinated multi-agent decisions, AetherShell provides a consensus protocol:
+For coordinated multi-agent decisions, NANDA keeps a consensus tally in this
+process. Two limits apply before you rely on it. Nothing identifies a voter, so
+the electorate is the caller's assertion. And the tally is in memory only: it is
+gone when the process exits. Nothing is sent to other agents.
 
 ```aethershell
-# Propose a decision
-let proposal_id = nanda_propose "Should we deploy v2.0?" {
-  options: ["yes", "no", "defer"],
-  quorum: 3,
-  timeout: 60000
-}
+# Open a proposal: a name, and a Record that sets its threshold and electorate
+let p = nanda_propose("deploy-v2", {threshold: 0.66, electorate: 3})
 
-# Agents vote
-nanda_vote proposal_id "yes" { reason: "All tests pass" }
+# Each vote is a Bool against the proposal id
+nanda_vote(p.id, true)
+nanda_vote(p.id, true)
 
-# Check status
-nanda_status proposal_id
-# { proposal: "...", votes: 2, quorum: 3, status: "pending" }
+# How much of the electorate has balloted (quorum is half of it)
+nanda_quorum(p.id)
+# {quorum_reached: true, participation: 0.67, votes_cast: 2, electorate: 3}
 
-# Check if quorum reached
-nanda_quorum proposal_id
-# false
+# The approval ratio against the threshold
+nanda_consensus(p.id)
 
-# Final consensus
-nanda_consensus proposal_id
-# { decision: "yes", votes_for: 3, votes_against: 0 }
+# Commit the outcome in this process: needs quorum and a ratio at or above the threshold
+nanda_commit(p.id)
 ```
 
 ## TUI Distributed Panel

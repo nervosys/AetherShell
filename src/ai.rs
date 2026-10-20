@@ -1524,49 +1524,55 @@ pub struct BackendInfo {
     pub models: Vec<String>,
 }
 
-/// Detect available AI backends by probing common endpoints
+/// Detect available AI backends by probing common endpoints.
+///
+/// A probe refused by the network budget or by policy is dropped here, which
+/// makes it look like an absent backend. Callers that must report the refusal
+/// use [`try_detect_available_backends`].
 pub fn detect_available_backends() -> Vec<BackendInfo> {
-    let mut backends = Vec::new();
+    try_detect_available_backends().unwrap_or_default()
+}
 
+/// [`detect_available_backends`] that stops at the first probe the safety gate
+/// refuses (the budget, an egress allowlist, a pending approval) and returns
+/// that refusal. Each probe that connects charges its own network unit before
+/// it opens a socket, so `AETHER_MAX_NET` bounds the probes and not just the
+/// one builtin call that starts them.
+pub fn try_detect_available_backends() -> Result<Vec<BackendInfo>> {
+    type Probe = fn() -> Result<BackendInfo>;
     // The gateway leads: when it is up it is the preferred edge, and the
     // backends probed below may well be the same processes it already routes
     // to. Reporting it first is what makes `auto` pick routing over a direct
     // connection that bypasses every budget and breaker the operator set.
-    if let Ok(info) = detect_irongate() {
-        backends.push(info);
+    // OpenAI is checked for a key only and makes no connection, so it is not
+    // charged.
+    let probes: [Probe; 7] = [
+        detect_irongate,
+        detect_ollama,
+        detect_vllm,
+        detect_llamacpp,
+        detect_tgi,
+        detect_openai,
+        detect_lmstudio,
+    ];
+    let mut backends = Vec::new();
+    for probe in probes {
+        match probe() {
+            Ok(info) => backends.push(info),
+            // A refusal from the safety gate is not an absent backend.
+            Err(e) if e.downcast_ref::<crate::safety::SafetyError>().is_some() => return Err(e),
+            Err(_) => {}
+        }
     }
+    Ok(backends)
+}
 
-    // Check Ollama (localhost:11434)
-    if let Ok(info) = detect_ollama() {
-        backends.push(info);
-    }
-
-    // Check vLLM (localhost:8000)
-    if let Ok(info) = detect_vllm() {
-        backends.push(info);
-    }
-
-    // Check llama.cpp (localhost:8080)
-    if let Ok(info) = detect_llamacpp() {
-        backends.push(info);
-    }
-
-    // Check TGI (localhost:8080 - alternate port check)
-    if let Ok(info) = detect_tgi() {
-        backends.push(info);
-    }
-
-    // Check OpenAI (via API key)
-    if let Ok(info) = detect_openai() {
-        backends.push(info);
-    }
-
-    // Check LM Studio (localhost:1234)
-    if let Ok(info) = detect_lmstudio() {
-        backends.push(info);
-    }
-
-    backends
+/// Charges one backend probe of `url` against the network budget and policy,
+/// before the probe opens a socket. The probe is the unit of egress here, as a
+/// model call is in `rlm`: the builtin that starts a sweep is charged once, and
+/// that charge covers none of the probes it makes.
+fn charge_probe(url: &str) -> Result<()> {
+    builtins::guard_network("ai_backends", url)
 }
 
 /// Probe IronGate's `/health`, which reports how many providers it has
@@ -1576,6 +1582,7 @@ pub fn detect_available_backends() -> Vec<BackendInfo> {
 /// for — the concrete model behind them is the gateway's decision, and listing
 /// concrete models here would invite callers to pin one and lose the routing.
 fn detect_irongate() -> Result<BackendInfo> {
+    charge_probe(&format!("{}/health", crate::model_plane::gate_root()))?;
     let health = crate::model_plane::gate_health()?;
     Ok(BackendInfo {
         name: "IronGate".to_string(),
@@ -1596,6 +1603,7 @@ fn detect_irongate() -> Result<BackendInfo> {
 fn detect_ollama() -> Result<BackendInfo> {
     let endpoint = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".into());
     let url = format!("{}/api/tags", endpoint.trim_end_matches('/'));
+    charge_probe(&url)?;
 
     // Use a simple blocking client with short timeout for detection
     let client = reqwest::blocking::Client::builder()
@@ -1633,6 +1641,7 @@ fn detect_ollama() -> Result<BackendInfo> {
 fn detect_vllm() -> Result<BackendInfo> {
     let endpoint = std::env::var("VLLM_URL").unwrap_or_else(|_| "http://localhost:8000/v1".into());
     let url = format!("{}/models", endpoint.trim_end_matches('/'));
+    charge_probe(&url)?;
 
     // Use a simple blocking client with short timeout for detection
     let client = reqwest::blocking::Client::builder()
@@ -1671,6 +1680,7 @@ fn detect_llamacpp() -> Result<BackendInfo> {
     let endpoint =
         std::env::var("LLAMACPP_URL").unwrap_or_else(|_| "http://localhost:8080/v1".into());
     let url = format!("{}/models", endpoint.trim_end_matches('/'));
+    charge_probe(&url)?;
 
     // Use a simple blocking client with short timeout for detection
     let client = reqwest::blocking::Client::builder()
@@ -1708,6 +1718,7 @@ fn detect_llamacpp() -> Result<BackendInfo> {
 fn detect_tgi() -> Result<BackendInfo> {
     let endpoint = std::env::var("TGI_URL").unwrap_or_else(|_| "http://localhost:8080".into());
     let url = format!("{}/health", endpoint.trim_end_matches('/'));
+    charge_probe(&url)?;
 
     // Use a simple blocking client with short timeout for detection
     let client = reqwest::blocking::Client::builder()
@@ -1757,6 +1768,7 @@ fn detect_openai() -> Result<BackendInfo> {
 }
 
 fn detect_lmstudio() -> Result<BackendInfo> {
+    charge_probe("http://localhost:1234/v1/models")?;
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()?;

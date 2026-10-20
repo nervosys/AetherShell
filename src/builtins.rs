@@ -7362,21 +7362,69 @@ fn bi_rag_index(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(record))
 }
 
+/// Most chunks rag_search returns, and most rag_query gathers into its context.
+const RAG_SEARCH_MAX_TOP_K: usize = 100;
+const RAG_QUERY_MAX_TOP_K: usize = 20;
+
+/// The query and `top_k` of a rag call. Piped, the query is the input and
+/// `args` holds only `top_k`; called directly, `args` is `query, top_k`. The
+/// old code read `top_k` from `args[1]` either way, so a piped count was
+/// ignored. `top_k` must be an integer from 1 up to `ceiling`: a negative
+/// count used to wrap through `as usize`, and anything else fell back to the
+/// default without a word.
+fn rag_query_top_k(
+    builtin: &str,
+    args: &[Value],
+    input: Option<Value>,
+    default: usize,
+    ceiling: usize,
+) -> Result<(String, usize)> {
+    let (query_v, rest): (Value, &[Value]) = match input {
+        Some(v) => (v, args),
+        None => match args.split_first() {
+            Some((first, rest)) => (first.clone(), rest),
+            None => return Err(crate::safety::arg_err(format!("{builtin}: requires query"))),
+        },
+    };
+    if rest.len() > 1 {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "at most 2 arguments when called directly (query, top_k); 1 when piped (top_k)",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    let query = key_arg(builtin, query_v)?;
+    let top_k = match rest.first() {
+        None | Some(Value::Null) => default,
+        Some(Value::Int(n)) if *n < 1 => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "top_k: an integer from 1 up",
+                &n.to_string(),
+            ))
+        }
+        Some(Value::Int(n)) if *n as u128 > ceiling as u128 => {
+            return Err(crate::safety::budget_exceeded(
+                builtin,
+                format!("top_k {n} is above the limit {ceiling}"),
+                "ask for fewer chunks",
+            ))
+        }
+        Some(Value::Int(n)) => *n as usize,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "top_k: an integer",
+                other.type_name(),
+            ))
+        }
+    };
+    Ok((query, top_k))
+}
+
 /// rag_search(query, top_k?) - Search indexed documents
 fn bi_rag_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let query = input
-        .or_else(|| args.first().cloned())
-        .map(|v| key_arg("rag_search", v))
-        .transpose()?
-        .ok_or_else(|| crate::safety::arg_err("rag_search: requires query"))?;
-
-    let top_k = args
-        .get(1)
-        .map(|v| match v {
-            Value::Int(i) => *i as usize,
-            _ => 5,
-        })
-        .unwrap_or(5);
+    let (query, top_k) = rag_query_top_k("rag_search", &args, input, 5, RAG_SEARCH_MAX_TOP_K)?;
 
     let index = RAG_INDEX
         .read()
@@ -7401,19 +7449,7 @@ fn bi_rag_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// rag_query(query, top_k?) - Search and generate a response using RAG
 fn bi_rag_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let query = input
-        .or_else(|| args.first().cloned())
-        .map(|v| key_arg("rag_query", v))
-        .transpose()?
-        .ok_or_else(|| crate::safety::arg_err("rag_query: requires query"))?;
-
-    let top_k = args
-        .get(1)
-        .map(|v| match v {
-            Value::Int(i) => *i as usize,
-            _ => 3,
-        })
-        .unwrap_or(3);
+    let (query, top_k) = rag_query_top_k("rag_query", &args, input, 3, RAG_QUERY_MAX_TOP_K)?;
 
     let index = RAG_INDEX
         .read()
@@ -9981,7 +10017,8 @@ fn bi_ai_backends(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             &format!("{} argument(s)", args.len()),
         ));
     }
-    let backends = crate::ai::detect_available_backends();
+    // A probe the budget or policy refuses is the answer, not an empty list.
+    let backends = crate::ai::try_detect_available_backends()?;
 
     let records: Vec<Value> = backends
         .into_iter()
@@ -13131,10 +13168,18 @@ fn bi_exit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => 0,
         Some(Value::Int(n)) if (0..=255).contains(n) => *n as i32,
         Some(Value::Int(n)) => {
-            return Err(crate::safety::bad_arg("exit", "code: Int 0..=255", &n.to_string()))
+            return Err(crate::safety::bad_arg(
+                "exit",
+                "code: Int 0..=255",
+                &n.to_string(),
+            ))
         }
         Some(other) => {
-            return Err(crate::safety::bad_arg("exit", "code: Int 0..=255", other.type_name()))
+            return Err(crate::safety::bad_arg(
+                "exit",
+                "code: Int 0..=255",
+                other.type_name(),
+            ))
         }
     };
     std::process::exit(code);
@@ -17353,13 +17398,19 @@ fn bi_tool_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         format!("{} {}", tool_name, tool_args.join(" ")),
     )?;
 
+    // A refusal before the run is a policy denial. Everything else is already
+    // coded: a missing program (E_TOOL_MISSING), a run past its deadline
+    // (E_BUDGET_EXCEEDED, the child killed) or a failure to start.
     let result = execute_tool_safe(&db, &tool_name, &tool_args, allow_dangerous).map_err(|e| {
-        // The message is the only signal `execute_tool_safe` gives, and it
-        // comes from `Command::output`, so a spawn failure is the missing tool.
-        if e.starts_with("Failed to execute") {
-            crate::safety::tool_missing("tool_exec", &tool_name, &e)
+        if e.is::<crate::os_tools::ToolRefusal>() {
+            let message = e.to_string();
+            crate::safety::policy_deny(
+                "tool_exec",
+                message,
+                "see the tool's safety and OS requirements",
+            )
         } else {
-            crate::safety::policy_deny("tool_exec", e, "see the tool's safety and OS requirements")
+            e
         }
     })?;
 
@@ -17367,7 +17418,15 @@ fn bi_tool_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut rec = BTreeMap::new();
     rec.insert("success".to_string(), Value::Bool(result.success));
     rec.insert("stdout".to_string(), Value::Str(result.stdout));
+    rec.insert(
+        "stdout_truncated".to_string(),
+        Value::Bool(result.stdout_truncated),
+    );
     rec.insert("stderr".to_string(), Value::Str(result.stderr));
+    rec.insert(
+        "stderr_truncated".to_string(),
+        Value::Bool(result.stderr_truncated),
+    );
     rec.insert(
         "exit_code".to_string(),
         result
@@ -28227,7 +28286,8 @@ fn svc_name(builtin: &str, args: &[Value], input: &Option<Value>) -> Result<Stri
             if !s.is_empty()
                 && !s.starts_with('-')
                 && s.len() <= 256
-                && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.@:".contains(c)) =>
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "-_.@:".contains(c)) =>
         {
             Ok(s.clone())
         }
@@ -28246,9 +28306,21 @@ fn svc_name(builtin: &str, args: &[Value], input: &Option<Value>) -> Result<Stri
 
 /// Run one service-manager command and turn a nonzero exit into E_TOOL_FAILED.
 fn svc_run(builtin: &str, program: &str, argv: &[&str]) -> Result<()> {
-    let run = tool_run(builtin, program, None, argv, Keep::Tail(TOOL_STDERR_TAIL), TOOL_DEADLINE_SECS)?;
+    let run = tool_run(
+        builtin,
+        program,
+        None,
+        argv,
+        Keep::Tail(TOOL_STDERR_TAIL),
+        TOOL_DEADLINE_SECS,
+    )?;
     if !run.success {
-        return Err(crate::safety::tool_failed(builtin, &run.command, run.code, &run.stderr));
+        return Err(crate::safety::tool_failed(
+            builtin,
+            &run.command,
+            run.code,
+            &run.stderr,
+        ));
     }
     Ok(())
 }
@@ -28263,7 +28335,12 @@ fn svc_run(builtin: &str, program: &str, argv: &[&str]) -> Result<()> {
 /// service or a denied request read as an ordinary result; to drop surplus
 /// arguments and pipeline input; and to run with no deadline. On an
 /// unsupported OS they answered `false` without trying.
-fn svc_action(builtin: &str, action: &str, args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+fn svc_action(
+    builtin: &str,
+    action: &str,
+    args: Vec<Value>,
+    input: Option<Value>,
+) -> Result<Value> {
     let name = svc_name(builtin, &args, &input)?;
     if cfg!(windows) {
         let quoted = crate::safety::ps_quote(&name);
@@ -28271,10 +28348,20 @@ fn svc_action(builtin: &str, action: &str, args: Vec<Value>, input: Option<Value
             "start" => crate::ps_script!("Start-Service {} -ErrorAction Stop", quoted),
             "stop" => crate::ps_script!("Stop-Service {} -ErrorAction Stop", quoted),
             "restart" => crate::ps_script!("Restart-Service {} -ErrorAction Stop", quoted),
-            "enable" => crate::ps_script!("Set-Service {} -StartupType Automatic -ErrorAction Stop", quoted),
-            _ => crate::ps_script!("Set-Service {} -StartupType Disabled -ErrorAction Stop", quoted),
+            "enable" => crate::ps_script!(
+                "Set-Service {} -StartupType Automatic -ErrorAction Stop",
+                quoted
+            ),
+            _ => crate::ps_script!(
+                "Set-Service {} -StartupType Disabled -ErrorAction Stop",
+                quoted
+            ),
         };
-        svc_run(builtin, "powershell", &["-NoProfile", "-NonInteractive", "-Command", &script])?;
+        svc_run(
+            builtin,
+            "powershell",
+            &["-NoProfile", "-NonInteractive", "-Command", &script],
+        )?;
     } else if cfg!(target_os = "linux") {
         svc_run(builtin, "systemctl", &[action, "--", &name])?;
     } else if cfg!(target_os = "macos") {
@@ -40495,6 +40582,12 @@ lazy_static::lazy_static! {
 const A2A_QUEUE_MAX: usize = 1024;
 /// Largest message a2a_send accepts, measured as its display text.
 const A2A_MESSAGE_MAX: usize = 64 * 1024;
+/// Most agents one process registers (the registry was unbounded).
+const A2A_AGENTS_MAX: usize = 256;
+/// Most agents one a2a_broadcast reaches in a single call.
+const A2A_BROADCAST_RECIPIENTS_MAX: usize = 64;
+/// Largest info Record a2a_register stores, measured as its display text.
+const A2A_INFO_MAX: usize = 64 * 1024;
 
 /// a2a.send(target, message) - Queue a message for a registered agent. The
 /// queue is in-process: nothing leaves the process, so it needs no network guard.
@@ -40552,16 +40645,57 @@ fn bi_a2a_receive(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(pending))
 }
 
-/// a2a.broadcast(message) - Broadcast to all agents
-fn bi_a2a_broadcast(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// a2a.broadcast(message) - Broadcast to all agents. All or nothing: a refusal
+/// (too large, too many recipients, a full queue) leaves every queue as it was.
+fn bi_a2a_broadcast(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("a2a_broadcast", &input)?;
     if args.is_empty() {
         return Err(crate::safety::arg_err("a2a.broadcast: requires a message"));
     }
+    if args.len() > 1 {
+        return Err(crate::safety::bad_arg(
+            "a2a_broadcast",
+            "one message",
+            &format!("{} arguments", args.len()),
+        ));
+    }
     let message = args[0].clone();
-    let registry = A2A_REGISTRY.read().unwrap();
+    let size = message.to_display_string().len();
+    if size > A2A_MESSAGE_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "a2a_broadcast",
+            format!("the message is {size} bytes; at most {A2A_MESSAGE_MAX} are sent"),
+            "send a reference to the data instead of the data",
+        ));
+    }
+    let registry = A2A_REGISTRY
+        .read()
+        .map_err(|e| anyhow!("a2a_broadcast: lock error: {}", e))?;
     let agents: Vec<String> = registry.keys().cloned().collect();
     drop(registry);
-    let mut messages = A2A_MESSAGES.write().unwrap();
+    if agents.len() > A2A_BROADCAST_RECIPIENTS_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "a2a_broadcast",
+            format!(
+                "{} agents are registered; a broadcast reaches at most {A2A_BROADCAST_RECIPIENTS_MAX}",
+                agents.len()
+            ),
+            "send to the agents by name with a2a_send",
+        ));
+    }
+    let mut messages = A2A_MESSAGES
+        .write()
+        .map_err(|e| anyhow!("a2a_broadcast: lock error: {}", e))?;
+    // Check every recipient's queue before pushing to any of them.
+    for agent in &agents {
+        if messages.get(agent).map_or(0, Vec::len) >= A2A_QUEUE_MAX {
+            return Err(crate::safety::budget_exceeded(
+                "a2a_broadcast",
+                format!("{agent} has {A2A_QUEUE_MAX} undelivered messages"),
+                "a2a_receive drains an agent's queue",
+            ));
+        }
+    }
     for agent in &agents {
         messages
             .entry(agent.clone())
@@ -40589,20 +40723,52 @@ fn bi_a2a_discover(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// a2a.register(name, info?) - Register an agent
-fn bi_a2a_register(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_a2a_register(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_subject("a2a_register", &input)?;
     if args.is_empty() {
         return Err(crate::safety::arg_err("a2a.register: requires agent name"));
     }
-    let name = args[0]
-        .as_str()
-        .map_err(|_| crate::safety::arg_err("a2a.register: name must be a string"))?;
-    let info = args
-        .get(1)
-        .and_then(|v| v.as_record().ok())
-        .cloned()
-        .unwrap_or_default();
-    let mut registry = A2A_REGISTRY.write().unwrap();
-    registry.insert(name.to_string(), info);
+    if args.len() > 2 {
+        return Err(crate::safety::bad_arg(
+            "a2a_register",
+            "a name and an optional info Record",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    let name = collab_text_arg("a2a_register", "name", args.first(), 128)?;
+    // An info that is not a Record used to be replaced by an empty one without
+    // a word. Refuse it instead.
+    let info = match args.get(1) {
+        None | Some(Value::Null) => BTreeMap::new(),
+        Some(Value::Record(rec)) => rec.clone(),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "a2a_register",
+                "info: a Record",
+                other.type_name(),
+            ))
+        }
+    };
+    let info_size = Value::Record(info.clone()).to_display_string().len();
+    if info_size > A2A_INFO_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "a2a_register",
+            format!("info is {info_size} bytes; at most {A2A_INFO_MAX} are kept"),
+            "register a name and a reference to the details",
+        ));
+    }
+    let mut registry = A2A_REGISTRY
+        .write()
+        .map_err(|e| anyhow!("a2a_register: lock error: {}", e))?;
+    // Re-registering a name replaces its info and does not grow the registry.
+    if !registry.contains_key(&name) && registry.len() >= A2A_AGENTS_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "a2a_register",
+            format!("{A2A_AGENTS_MAX} agents are already registered"),
+            "a2a_unregister an agent that is no longer running",
+        ));
+    }
+    registry.insert(name.clone(), info);
     let mut result = BTreeMap::new();
     result.insert("registered".to_string(), Value::Bool(true));
     result.insert("name".to_string(), Value::Str(name.to_string()));
@@ -48691,7 +48857,7 @@ const TF_MAX_WORKSPACE: usize = 90;
 
 /// How much of a call's output is kept.
 #[derive(Clone, Copy)]
-enum Keep {
+pub(crate) enum Keep {
     /// The first `n` bytes. More is an error: a read cut short would look whole.
     Head(usize),
     /// The last `n` bytes, with a note when earlier output was dropped.
@@ -48699,14 +48865,16 @@ enum Keep {
 }
 
 /// One finished call: how it ended and what it printed.
-struct ToolRun {
-    command: String,
-    keep: Keep,
-    success: bool,
-    code: Option<i32>,
-    stdout: String,
-    stdout_truncated: bool,
-    stderr: String,
+pub(crate) struct ToolRun {
+    pub(crate) command: String,
+    pub(crate) keep: Keep,
+    pub(crate) success: bool,
+    pub(crate) code: Option<i32>,
+    pub(crate) stdout: String,
+    pub(crate) stdout_truncated: bool,
+    pub(crate) stderr: String,
+    /// Whether earlier stderr was dropped to fit `stderr_keep` (the tail is kept).
+    pub(crate) stderr_truncated: bool,
 }
 
 /// Read a pipe to its end, keeping its last `keep` bytes, and report whether
@@ -48771,6 +48939,33 @@ fn tool_run_stderr(
     stderr_keep: usize,
     deadline_secs: u64,
 ) -> Result<ToolRun> {
+    let mut run = run_bounded(
+        builtin,
+        program,
+        dir,
+        args,
+        keep,
+        stderr_keep,
+        deadline_secs,
+    )?;
+    run.stderr = strip_ansi(&run.stderr).trim().to_string();
+    Ok(run)
+}
+
+/// The bounded runner behind [`tool_run_stderr`], with stderr left as the
+/// program wrote it. Stdout keeps `keep` and stderr its last `stderr_keep`
+/// bytes; both are read to the end so the child never blocks on a full pipe.
+/// Past `deadline_secs` the child is killed and the call is refused. Never
+/// through a shell, with stdin closed.
+pub(crate) fn run_bounded(
+    builtin: &str,
+    program: &str,
+    dir: Option<&std::path::Path>,
+    args: &[&str],
+    keep: Keep,
+    stderr_keep: usize,
+    deadline_secs: u64,
+) -> Result<ToolRun> {
     use std::process::Stdio;
     let command = format!("{program} {}", args.join(" "));
     let mut cmd = std::process::Command::new(program);
@@ -48798,8 +48993,8 @@ fn tool_run_stderr(
         None => (Vec::new(), false),
     });
     let err_h = std::thread::spawn(move || match err_pipe {
-        Some(pipe) => k8s_read_tail(pipe, stderr_keep),
-        None => Vec::new(),
+        Some(pipe) => tool_read_tail(pipe, stderr_keep),
+        None => (Vec::new(), false),
     });
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(deadline_secs);
     let status = loop {
@@ -48826,7 +49021,7 @@ fn tool_run_stderr(
         }
     };
     let (stdout, stdout_truncated) = out_h.join().unwrap_or_else(|_| (Vec::new(), false));
-    let stderr = err_h.join().unwrap_or_default();
+    let (stderr, stderr_truncated) = err_h.join().unwrap_or_else(|_| (Vec::new(), false));
     Ok(ToolRun {
         command,
         keep,
@@ -48834,9 +49029,8 @@ fn tool_run_stderr(
         code: status.code(),
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         stdout_truncated,
-        stderr: strip_ansi(&String::from_utf8_lossy(&stderr))
-            .trim()
-            .to_string(),
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        stderr_truncated,
     })
 }
 
@@ -50592,10 +50786,10 @@ pub fn bi_rm(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         fs_paths: true,
     })?;
     crate::tx::snapshot(&path); // record pre-delete state if a transaction is active
-    // `force` excuses a file that is already gone, as `rm -f` does, and nothing
-    // else. It used to turn every failure -- a directory, a locked file, a
-    // permission refusal -- into a success string, so a delete that did not
-    // happen read as one that had.
+                                // `force` excuses a file that is already gone, as `rm -f` does, and nothing
+                                // else. It used to turn every failure -- a directory, a locked file, a
+                                // permission refusal -- into a success string, so a delete that did not
+                                // happen read as one that had.
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(Value::Str(format!("removed: {}", path))),
         Err(e) if force && e.kind() == std::io::ErrorKind::NotFound => {
@@ -50632,8 +50826,8 @@ pub fn bi_rmdir(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         fs_paths: true,
     })?;
     crate::tx::snapshot(&path); // back up the directory tree if a transaction is active
-    // `remove_dir_all` removes a symbolic link rather than following it, so a
-    // link inside the workspace to a directory outside it is not a way out.
+                                // `remove_dir_all` removes a symbolic link rather than following it, so a
+                                // link inside the workspace to a directory outside it is not a way out.
     if recursive {
         std::fs::remove_dir_all(&path).map_err(|e| crate::safety::fs_error("rmdir", &path, &e))?;
     } else {
@@ -51531,7 +51725,9 @@ fn bi_dd_copy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Some(Value::Record(opts)) => {
             for (key, value) in opts {
                 match (key.as_str(), value) {
-                    ("bs", Value::Str(bs)) if dd_block_size(bs) => operands.push(format!("bs={bs}")),
+                    ("bs", Value::Str(bs)) if dd_block_size(bs) => {
+                        operands.push(format!("bs={bs}"))
+                    }
                     ("bs", Value::Int(n)) if *n >= 1 => operands.push(format!("bs={n}")),
                     ("count", Value::Int(n)) if *n >= 1 => operands.push(format!("count={n}")),
                     ("bs", v) | ("count", v) => {
@@ -51567,9 +51763,21 @@ fn bi_dd_copy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         ));
     }
     let argv: Vec<&str> = operands.iter().map(String::as_str).collect();
-    let run = tool_run("dd_copy", "dd", None, &argv, Keep::Tail(TOOL_STDERR_TAIL), TOOL_LONG_DEADLINE_SECS)?;
+    let run = tool_run(
+        "dd_copy",
+        "dd",
+        None,
+        &argv,
+        Keep::Tail(TOOL_STDERR_TAIL),
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
     if !run.success {
-        return Err(crate::safety::tool_failed("dd_copy", &run.command, run.code, &run.stderr));
+        return Err(crate::safety::tool_failed(
+            "dd_copy",
+            &run.command,
+            run.code,
+            &run.stderr,
+        ));
     }
     let mut rec = BTreeMap::new();
     rec.insert("success".to_string(), Value::Bool(true));
@@ -59440,8 +59648,7 @@ fn proc_name_pattern(builtin: &str, args: &[Value], input: &Option<Value>) -> Re
     k8s_max_args(builtin, args, 1)?;
     match args.first() {
         Some(Value::Str(s))
-            if !s.trim().is_empty()
-                && !s.chars().any(|c| c.is_control() || "*?[]".contains(c)) =>
+            if !s.trim().is_empty() && !s.chars().any(|c| c.is_control() || "*?[]".contains(c)) =>
         {
             Ok(s.clone())
         }
@@ -59537,7 +59744,12 @@ fn bi_pkill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     rec.insert("pattern".to_string(), Value::Str(pattern));
     rec.insert(
         "killed".to_string(),
-        Value::Array(killed.into_iter().map(|p| Value::Int(i64::from(p))).collect()),
+        Value::Array(
+            killed
+                .into_iter()
+                .map(|p| Value::Int(i64::from(p)))
+                .collect(),
+        ),
     );
     Ok(Value::Record(rec))
 }
@@ -60195,7 +60407,12 @@ fn bi_chgrp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         TOOL_DEADLINE_SECS,
     )?;
     if !run.success {
-        return Err(crate::safety::tool_failed("chgrp", &run.command, run.code, &run.stderr));
+        return Err(crate::safety::tool_failed(
+            "chgrp",
+            &run.command,
+            run.code,
+            &run.stderr,
+        ));
     }
     let mut rec = BTreeMap::new();
     rec.insert("group".to_string(), Value::Str(group));
