@@ -57885,117 +57885,319 @@ fn bi_mise_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Package and build tools: argument checks and the bounded runner they share
+// ---------------------------------------------------------------------------
+
+/// Deadline for a script, task, hook or formatter run. Installs, builds, tests
+/// and compile-and-run calls use TOOL_LONG_DEADLINE_SECS.
+const PKG_RUN_DEADLINE_SECS: u64 = 600;
+/// The most arguments one call passes to its tool.
+const PKG_MAX_ITEMS: usize = 256;
+/// The `uv pip` subcommands offered. `compile` and `sync` rewrite lock or
+/// requirement files and are not offered.
+const UV_PIP_VERBS: &[&str] = &[
+    "install",
+    "uninstall",
+    "list",
+    "freeze",
+    "show",
+    "check",
+    "tree",
+];
+
+/// A value passed to a tool as one argument: not empty, no NUL, and never
+/// option-like. A leading `-` would be read by the tool as one of its flags.
+fn pkg_plain(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    if value.trim().is_empty() || value.contains('\0') {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must not be empty"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+/// Whether a value names a path rather than a name: it has a separator or a
+/// drive letter, or it starts with '.'.
+fn pkg_is_pathlike(value: &str) -> bool {
+    value.contains('/')
+        || value.contains('\\')
+        || value.starts_with('.')
+        || value.as_bytes().get(1) == Some(&b':')
+}
+
+/// `value` as a path, resolved the way the tool resolves it (against the
+/// process directory it runs in), must lie inside the workspace.
+fn pkg_inside(builtin: &str, value: &str) -> Result<()> {
+    let base = std::env::current_dir().unwrap_or_else(|_| workspace_root_abs());
+    workspace_path(builtin, value, &base).map(|_| ())
+}
+
+/// The path argument at `index`, or `default` when it is omitted. Both are
+/// refused when option-like or outside the workspace.
+fn pkg_path_arg(builtin: &str, args: &[Value], index: usize, default: &str) -> Result<String> {
+    let path =
+        k8s_arg(builtin, "path", args, index, pkg_plain)?.unwrap_or_else(|| default.to_string());
+    pkg_inside(builtin, &path)?;
+    Ok(path)
+}
+
+/// A script, task, hook or command name that a tool runs. When it names a path
+/// it must lie inside the workspace.
+fn pkg_name(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let name = pkg_plain(builtin, what, value)?;
+    if pkg_is_pathlike(&name) {
+        pkg_inside(builtin, &name)?;
+    }
+    Ok(name)
+}
+
+/// A package spec an installer receives. `file:` and `link:` specs install from
+/// a local directory, so they are refused. A spec that names a path must lie
+/// inside the workspace.
+fn pkg_spec(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let spec = pkg_plain(builtin, what, value)?;
+    let lower = spec.to_ascii_lowercase();
+    if lower.contains("file:") || lower.contains("link:") {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} {spec:?} is a local path (file: or link:); install from a registry or a remote URL"
+        )));
+    }
+    if pkg_is_pathlike(&spec) {
+        pkg_inside(builtin, &spec)?;
+    }
+    Ok(spec)
+}
+
+/// A Go package pattern: plain, and inside the workspace.
+fn pkg_go_target(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let target = pkg_plain(builtin, what, value)?;
+    pkg_inside(builtin, &target)?;
+    Ok(target)
+}
+
+/// A Deno script: a path inside the workspace. Remote modules are refused,
+/// because deno would fetch and run code that the workspace does not hold.
+fn pkg_deno_script(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let script = pkg_plain(builtin, what, value)?;
+    // A colon past the second character is a module specifier (https://, npm:,
+    // jsr:, data:), not a path. A drive letter sits at index 1 and is a path.
+    if script.find(':').is_some_and(|at| at > 1) {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} {script:?} is a module specifier, not a local path; fetch it into the workspace first"
+        )));
+    }
+    pkg_inside(builtin, &script)?;
+    Ok(script)
+}
+
+/// Every argument, each checked with `check`. A non-String or an option-like
+/// argument is refused; none is dropped.
+fn pkg_each(builtin: &str, what: &str, args: &[Value], check: K8sCheck) -> Result<Vec<String>> {
+    k8s_max_args(builtin, args, PKG_MAX_ITEMS)?;
+    let mut out = Vec::with_capacity(args.len());
+    for index in 0..args.len() {
+        if let Some(value) = k8s_arg(builtin, what, args, index, check)? {
+            out.push(value);
+        }
+    }
+    Ok(out)
+}
+
+/// Arguments that a script or program receives after its name. They pass
+/// through as given and need only be Strings: after the name a leading '-'
+/// belongs to the script, not to the tool. A non-String is refused.
+fn pkg_trailing(builtin: &str, args: &[Value]) -> Result<Vec<String>> {
+    k8s_max_args(builtin, args, PKG_MAX_ITEMS)?;
+    args.iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            Value::Str(s) if !s.contains('\0') => Ok(s.clone()),
+            Value::Str(_) => Err(crate::safety::arg_err(format!(
+                "{builtin}: argument {} contains a NUL byte",
+                index + 2
+            ))),
+            other => Err(crate::safety::arg_err(format!(
+                "{builtin}: argument {} must be a String, got {}",
+                index + 2,
+                other.type_name()
+            ))),
+        })
+        .collect()
+}
+
+/// Splits the optional leading "--release", the one cargo option these
+/// builtins take, from the arguments that follow it.
+fn pkg_release(args: &[Value]) -> (bool, &[Value]) {
+    match args.first() {
+        Some(Value::Str(s)) if s == "--release" => (true, &args[1..]),
+        _ => (false, args),
+    }
+}
+
+/// Refuse pipeline input and more arguments than `max`.
+fn pkg_shape(builtin: &str, args: &[Value], input: &Option<Value>, max: usize) -> Result<()> {
+    k8s_no_input(builtin, input)?;
+    k8s_max_args(builtin, args, max)
+}
+
+/// The last `max` bytes of `text`, cut on a character boundary.
+fn pkg_tail(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut start = text.len() - max;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    &text[start..]
+}
+
+/// The output of a finished call, or its coded failure. A nonzero exit is
+/// E_TOOL_FAILED, never a value.
+fn pkg_output(builtin: &str, run: ToolRun) -> Result<(String, String)> {
+    if !run.success {
+        return Err(pkg_failure(builtin, run));
+    }
+    let stderr = run.stderr.clone();
+    let stdout = tool_text(builtin, run)?;
+    Ok((stdout.trim().to_string(), stderr))
+}
+
+/// The coded failure for a call that exited nonzero. A test runner prints its
+/// failures on stdout and a compiler prints its errors on stderr, so the
+/// message carries the end of both.
+fn pkg_failure(builtin: &str, run: ToolRun) -> anyhow::Error {
+    let out_tail = pkg_tail(run.stdout.trim(), TOOL_STDERR_TAIL);
+    let detail = match (out_tail.is_empty(), run.stderr.is_empty()) {
+        (true, _) => run.stderr.clone(),
+        (false, true) => out_tail.to_string(),
+        (false, false) => format!("{out_tail}\n{}", run.stderr),
+    };
+    crate::safety::tool_failed(builtin, &run.command, run.code, &detail)
+}
+
+/// A successful call as the record these builtins return: the given fields,
+/// then exit_code 0, success, stdout and stderr. A nonzero exit never gets here.
+fn pkg_done(builtin: &str, run: ToolRun, fields: Vec<(&str, Value)>) -> Result<Value> {
+    let (stdout, stderr) = pkg_output(builtin, run)?;
+    let mut rec = BTreeMap::new();
+    for (key, value) in fields {
+        rec.insert(key.to_string(), value);
+    }
+    rec.insert("exit_code".to_string(), Value::Int(0));
+    rec.insert("success".to_string(), Value::Bool(true));
+    rec.insert("stdout".to_string(), Value::Str(stdout));
+    rec.insert("stderr".to_string(), Value::Str(stderr));
+    Ok(Value::Record(rec))
+}
+
+/// Runs `program` with `args` under `deadline_secs`, keeping the end of its output.
+fn pkg_run(builtin: &str, program: &str, args: &[&str], deadline_secs: u64) -> Result<ToolRun> {
+    tool_run(
+        builtin,
+        program,
+        None,
+        args,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        deadline_secs,
+    )
+}
+
+/// The Node package managers are `.cmd` shims on Windows, which a bare program
+/// name does not find.
+fn node_tool(name: &'static str) -> &'static str {
+    match name {
+        "npm" if cfg!(windows) => "npm.cmd",
+        "pnpm" if cfg!(windows) => "pnpm.cmd",
+        "yarn" if cfg!(windows) => "yarn.cmd",
+        _ => name,
+    }
+}
+
+/// `program verb <packages>` for an installer, with every package spec checked.
+fn pkg_install(
+    builtin: &str,
+    program: &str,
+    verb: &[&str],
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    k8s_no_input(builtin, input)?;
+    let packages = pkg_each(builtin, "package", args, pkg_spec)?;
+    let mut argv: Vec<&str> = verb.to_vec();
+    argv.extend(packages.iter().map(String::as_str));
+    let run = pkg_run(builtin, program, &argv, TOOL_LONG_DEADLINE_SECS)?;
+    pkg_done(builtin, run, Vec::new())
+}
+
+/// `program verb <script>` for a script runner: one checked name, nothing else.
+fn pkg_named(
+    builtin: &str,
+    program: &str,
+    verb: &str,
+    args: &[Value],
+    input: &Option<Value>,
+) -> Result<Value> {
+    pkg_shape(builtin, args, input, 1)?;
+    let script = k8s_need(builtin, "a script name", args, 0, pkg_name)?;
+    let run = pkg_run(
+        builtin,
+        program,
+        &[verb, script.as_str()],
+        PKG_RUN_DEADLINE_SECS,
+    )?;
+    pkg_done(builtin, run, vec![("script", Value::Str(script))])
+}
+
+// --- uv (1051-1053) ---
+
 // --- uv (1051-1053) ---
 
 /// uv run — Run a Python script with uv.
-fn bi_uv_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let script = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "uv_run requires a script or command",
-            ))
-        }
-    };
-    let extra: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("uv");
-    cmd.arg("run").arg(&script);
-    for a in &extra {
-        cmd.arg(a);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("uv", "uv", &e.to_string())),
-    }
+fn bi_uv_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "uv_run";
+    k8s_no_input(B, &input)?;
+    let script = k8s_need(B, "a script or command", &args, 0, pkg_name)?;
+    let mut argv = vec!["run".to_string(), script];
+    argv.extend(pkg_trailing(B, args.get(1..).unwrap_or(&[]))?);
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = pkg_run(B, "uv", &refs, PKG_RUN_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 /// uv pip — Install packages with uv pip.
-fn bi_uv_pip(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let subcmd = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "install".to_string(),
+fn bi_uv_pip(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "uv_pip";
+    k8s_no_input(B, &input)?;
+    let verb =
+        k8s_arg(B, "subcommand", &args, 0, pkg_plain)?.unwrap_or_else(|| "install".to_string());
+    if !UV_PIP_VERBS.contains(&verb.as_str()) {
+        return Err(crate::safety::arg_err(format!(
+            "{B}: subcommand must be one of {}, got {verb:?}",
+            UV_PIP_VERBS.join(", ")
+        )));
+    }
+    let packages = pkg_each(B, "package", args.get(1..).unwrap_or(&[]), pkg_spec)?;
+    let deadline = if matches!(verb.as_str(), "install" | "uninstall") {
+        TOOL_LONG_DEADLINE_SECS
+    } else {
+        TOOL_DEADLINE_SECS
     };
-    let packages: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("uv");
-    cmd.arg("pip").arg(&subcmd);
-    for p in &packages {
-        cmd.arg(p);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("subcmd".to_string(), Value::Str(subcmd));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("uv", "uv", &e.to_string())),
-    }
+    let mut argv: Vec<&str> = vec!["pip", verb.as_str()];
+    argv.extend(packages.iter().map(String::as_str));
+    let run = pkg_run(B, "uv", &argv, deadline)?;
+    pkg_done(B, run, vec![("subcmd", Value::Str(verb))])
 }
 
 /// uv venv — Create a virtual environment with uv.
-fn bi_uv_venv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".venv".to_string(),
-    };
-    let output = std::process::Command::new("uv")
-        .args(["venv", &path])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("uv", "uv", &e.to_string())),
-    }
+fn bi_uv_venv(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "uv_venv";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = pkg_path_arg(B, &args, 0, ".venv")?;
+    let run = pkg_run(B, "uv", &["venv", path.as_str()], TOOL_DEADLINE_SECS)?;
+    pkg_done(B, run, vec![("path", Value::Str(path))])
 }
 
 // --- pipx (1054-1055) ---
@@ -58049,73 +58251,23 @@ fn bi_pipx_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // --- poetry (1056-1057) ---
 
 /// poetry run — Run a command in a Poetry environment.
-fn bi_poetry_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let command = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("poetry_run requires a command")),
-    };
-    let extra: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("poetry");
-    cmd.arg("run").arg(&command);
-    for a in &extra {
-        cmd.arg(a);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "poetry",
-            "poetry",
-            &e.to_string(),
-        )),
-    }
+fn bi_poetry_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "poetry_run";
+    k8s_no_input(B, &input)?;
+    let command = k8s_need(B, "a command", &args, 0, pkg_name)?;
+    let mut argv = vec!["run".to_string(), command];
+    argv.extend(pkg_trailing(B, args.get(1..).unwrap_or(&[]))?);
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let run = pkg_run(B, "poetry", &refs, PKG_RUN_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 /// poetry install — Install Poetry project dependencies.
-fn bi_poetry_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("poetry").arg("install").output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "poetry",
-            "poetry",
-            &e.to_string(),
-        )),
-    }
+fn bi_poetry_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "poetry_install";
+    pkg_shape(B, &args, &input, 0)?;
+    let run = pkg_run(B, "poetry", &["install"], TOOL_LONG_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 // --- node (1058) ---
@@ -58161,319 +58313,111 @@ fn bi_node_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // --- npm (1059-1060) ---
 
 /// npm run — Run an npm script.
-fn bi_npm_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let script = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("npm_run requires a script name")),
-    };
-    let output = std::process::Command::new("npm")
-        .args(["run", &script])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("script".to_string(), Value::Str(script));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("npm", "npm", &e.to_string())),
-    }
+fn bi_npm_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_named("npm_run", node_tool("npm"), "run", &args, &input)
 }
 
 /// npm install — Install npm packages.
-fn bi_npm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let packages: Vec<String> = args
-        .iter()
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("npm");
-    cmd.arg("install");
-    for p in &packages {
-        cmd.arg(p);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("npm", "npm", &e.to_string())),
-    }
+fn bi_npm_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_install("npm_install", node_tool("npm"), &["install"], &args, &input)
 }
 
 // --- pnpm (1061-1062) ---
 
 /// pnpm run — Run a pnpm script.
-fn bi_pnpm_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let script = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("pnpm_run requires a script name")),
-    };
-    let output = std::process::Command::new("pnpm")
-        .args(["run", &script])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("script".to_string(), Value::Str(script));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("pnpm", "pnpm", &e.to_string())),
-    }
+fn bi_pnpm_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_named("pnpm_run", node_tool("pnpm"), "run", &args, &input)
 }
 
 /// pnpm install — Install pnpm packages.
-fn bi_pnpm_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let packages: Vec<String> = args
-        .iter()
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("pnpm");
-    cmd.arg("install");
-    for p in &packages {
-        cmd.arg(p);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("pnpm", "pnpm", &e.to_string())),
-    }
+fn bi_pnpm_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_install(
+        "pnpm_install",
+        node_tool("pnpm"),
+        &["install"],
+        &args,
+        &input,
+    )
 }
 
 // --- yarn (1063-1064) ---
 
 /// yarn run — Run a yarn script.
-fn bi_yarn_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let script = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("yarn_run requires a script name")),
-    };
-    let output = std::process::Command::new("yarn")
-        .args(["run", &script])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("script".to_string(), Value::Str(script));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("yarn", "yarn", &e.to_string())),
-    }
+fn bi_yarn_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_named("yarn_run", node_tool("yarn"), "run", &args, &input)
 }
 
 /// yarn install — Install yarn packages.
-fn bi_yarn_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let packages: Vec<String> = args
-        .iter()
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("yarn");
-    if packages.is_empty() {
-        cmd.arg("install");
+fn bi_yarn_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let verb: &[&str] = if args.is_empty() {
+        &["install"]
     } else {
-        cmd.arg("add");
-        for p in &packages {
-            cmd.arg(p);
-        }
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("yarn", "yarn", &e.to_string())),
-    }
+        &["add"]
+    };
+    pkg_install("yarn_install", node_tool("yarn"), verb, &args, &input)
 }
 
 // --- cargo (1065-1067) ---
 
 /// cargo run — Run a Rust project.
-fn bi_cargo_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let extra: Vec<String> = args
-        .iter()
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("cargo");
-    cmd.arg("run");
-    for a in &extra {
-        cmd.arg(a);
+fn bi_cargo_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "cargo_run";
+    k8s_no_input(B, &input)?;
+    let (release, rest) = pkg_release(&args);
+    let program_args = pkg_each(B, "argument", rest, pkg_plain)?;
+    let mut argv: Vec<&str> = vec!["run"];
+    if release {
+        argv.push("--release");
     }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "cargo",
-            "cargo",
-            &e.to_string(),
-        )),
+    if !program_args.is_empty() {
+        argv.push("--");
+        argv.extend(program_args.iter().map(String::as_str));
     }
+    let run = pkg_run(B, "cargo", &argv, TOOL_LONG_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 /// cargo build — Build a Rust project.
-fn bi_cargo_build_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("cargo");
-    cmd.arg("build");
-    if args
-        .iter()
-        .any(|a| matches!(a, Value::Str(s) if s == "--release"))
-    {
-        cmd.arg("--release");
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
+fn bi_cargo_build_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "cargo_build_cmd";
+    pkg_shape(B, &args, &input, 1)?;
+    let release = match args.first() {
+        None => false,
+        Some(Value::Str(s)) if s == "--release" => true,
+        Some(Value::Str(s)) => {
+            return Err(crate::safety::arg_err(format!(
+                "{B}: its only argument is \"--release\", got {s:?}"
+            )))
         }
-        Err(e) => Err(crate::safety::tool_missing(
-            "cargo",
-            "cargo",
-            &e.to_string(),
-        )),
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{B}: its only argument is \"--release\", got a {}",
+                other.type_name()
+            )))
+        }
+    };
+    let mut argv: Vec<&str> = vec!["build"];
+    if release {
+        argv.push("--release");
     }
+    let run = pkg_run(B, "cargo", &argv, TOOL_LONG_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 /// cargo test — Run Rust tests.
-fn bi_cargo_test_cmd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let extra: Vec<String> = args
-        .iter()
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("cargo");
-    cmd.arg("test");
-    for a in &extra {
-        cmd.arg(a);
+fn bi_cargo_test_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "cargo_test_cmd";
+    k8s_no_input(B, &input)?;
+    let (release, rest) = pkg_release(&args);
+    k8s_max_args(B, rest, 1)?;
+    let filter = pkg_each(B, "test name", rest, pkg_plain)?;
+    let mut argv: Vec<&str> = vec!["test"];
+    if release {
+        argv.push("--release");
     }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "cargo",
-            "cargo",
-            &e.to_string(),
-        )),
-    }
+    argv.extend(filter.iter().map(String::as_str));
+    let run = pkg_run(B, "cargo", &argv, TOOL_LONG_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 // --- rustup (1068-1069) ---
@@ -58528,97 +58472,37 @@ fn bi_rustup_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // --- go (1070-1072) ---
 
 /// go run — Run a Go program.
-fn bi_go_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let target = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("go")
-        .args(["run", &target])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("go", "go", &e.to_string())),
-    }
+fn bi_go_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "go_run";
+    pkg_shape(B, &args, &input, 1)?;
+    let target = pkg_path_arg(B, &args, 0, ".")?;
+    let run = pkg_run(B, "go", &["run", target.as_str()], TOOL_LONG_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 /// go build — Build a Go project.
-fn bi_go_build(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let extra: Vec<String> = args
-        .iter()
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("go");
-    cmd.arg("build");
-    for a in &extra {
-        cmd.arg(a);
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("go", "go", &e.to_string())),
-    }
+fn bi_go_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "go_build";
+    k8s_no_input(B, &input)?;
+    let packages = pkg_each(B, "package", &args, pkg_go_target)?;
+    let mut argv: Vec<&str> = vec!["build"];
+    argv.extend(packages.iter().map(String::as_str));
+    let run = pkg_run(B, "go", &argv, TOOL_LONG_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 /// go test — Run Go tests.
-fn bi_go_test(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let target = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "./...".to_string(),
-    };
-    let output = std::process::Command::new("go")
-        .args(["test", "-v", &target])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("go", "go", &e.to_string())),
-    }
+fn bi_go_test(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "go_test";
+    pkg_shape(B, &args, &input, 1)?;
+    let target = pkg_path_arg(B, &args, 0, "./...")?;
+    let run = pkg_run(
+        B,
+        "go",
+        &["test", "-v", target.as_str()],
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
+    pkg_done(B, run, Vec::new())
 }
 
 // --- mage (1073) ---
@@ -58655,137 +58539,45 @@ fn bi_mage_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // --- bun (1074-1075) ---
 
 /// bun run — Run a script or file with Bun.
-fn bi_bun_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let script = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "bun_run requires a script name or path",
-            ))
-        }
-    };
-    let output = std::process::Command::new("bun")
-        .args(["run", &script])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("bun", "bun", &e.to_string())),
-    }
+fn bi_bun_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    pkg_named("bun_run", "bun", "run", &args, &input)
 }
 
 /// bun install — Install packages with Bun.
-fn bi_bun_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let packages: Vec<String> = args
-        .iter()
-        .filter_map(|a| match a {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut cmd = std::process::Command::new("bun");
-    if packages.is_empty() {
-        cmd.arg("install");
+fn bi_bun_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let verb: &[&str] = if args.is_empty() {
+        &["install"]
     } else {
-        cmd.arg("add");
-        for p in &packages {
-            cmd.arg(p);
-        }
-    }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("bun", "bun", &e.to_string())),
-    }
+        &["add"]
+    };
+    pkg_install("bun_install", "bun", verb, &args, &input)
 }
 
 // --- deno (1076-1077) ---
 
 /// deno run — Run a script with Deno.
-fn bi_deno_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let script = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("deno_run requires a script path")),
-    };
-    let output = std::process::Command::new("deno")
-        .args(["run", "--allow-all", &script])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("deno", "deno", &e.to_string())),
-    }
+fn bi_deno_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "deno_run";
+    pkg_shape(B, &args, &input, 1)?;
+    let script = k8s_need(B, "a script path", &args, 0, pkg_deno_script)?;
+    // --no-prompt: a permission the script lacks is an error, never a prompt
+    // on a closed stdin. No permission is granted.
+    let run = pkg_run(
+        B,
+        "deno",
+        &["run", "--no-prompt", script.as_str()],
+        PKG_RUN_DEADLINE_SECS,
+    )?;
+    pkg_done(B, run, Vec::new())
 }
 
 /// deno task — Run a deno task.
-fn bi_deno_task(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let task_name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("deno_task requires a task name")),
-    };
-    let output = std::process::Command::new("deno")
-        .args(["task", &task_name])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("task".to_string(), Value::Str(task_name));
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("deno", "deno", &e.to_string())),
-    }
+fn bi_deno_task(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "deno_task";
+    pkg_shape(B, &args, &input, 1)?;
+    let task = k8s_need(B, "a task name", &args, 0, pkg_plain)?;
+    let run = pkg_run(B, "deno", &["task", task.as_str()], PKG_RUN_DEADLINE_SECS)?;
+    pkg_done(B, run, vec![("task", Value::Str(task))])
 }
 
 // --- gh (1078-1080) ---
@@ -59039,65 +58831,34 @@ fn bi_act_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // --- pre-commit (1084-1085) ---
 
 /// pre-commit run — Run pre-commit hooks.
-fn bi_pre_commit_run(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("pre-commit");
-    cmd.arg("run");
-    if args
-        .iter()
-        .any(|a| matches!(a, Value::Str(s) if s == "--all-files"))
-    {
-        cmd.arg("--all-files");
-    } else if let Some(Value::Str(hook)) = args.first() {
-        cmd.arg(hook);
+fn bi_pre_commit_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "pre_commit_run";
+    pkg_shape(B, &args, &input, 1)?;
+    let all = matches!(args.first(), Some(Value::Str(s)) if s == "--all-files");
+    let hook = if all {
+        None
+    } else {
+        k8s_arg(B, "hook name", &args, 0, pkg_plain)?
+    };
+    let mut argv: Vec<&str> = vec!["run"];
+    if all {
+        argv.push("--all-files");
     }
-    let output = cmd.output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert(
-                "exit_code".to_string(),
-                Value::Int(o.status.code().unwrap_or(-1) as i64),
-            );
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "pre-commit",
-            "pre-commit",
-            &e.to_string(),
-        )),
+    if let Some(hook) = hook.as_deref() {
+        argv.push(hook);
     }
+    let run = pkg_run(B, "pre-commit", &argv, TOOL_LONG_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 /// pre-commit install — Install pre-commit hooks.
-fn bi_pre_commit_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("pre-commit")
-        .arg("install")
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "pre-commit",
-            "pre-commit",
-            &e.to_string(),
-        )),
-    }
+fn bi_pre_commit_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "pre_commit_install";
+    pkg_shape(B, &args, &input, 0)?;
+    // The hook is written into the repository's .git directory.
+    pkg_inside(B, ".")?;
+    let run = pkg_run(B, "pre-commit", &["install"], TOOL_DEADLINE_SECS)?;
+    pkg_done(B, run, Vec::new())
 }
 
 // --- buildah (1086-1087) ---
@@ -59540,85 +59301,44 @@ fn bi_eslint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // --- ruff (1098-1099) ---
 
 /// ruff check — Lint Python files with Ruff.
-fn bi_ruff_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("ruff")
-        .args(["check", "--output-format=json", &path])
-        .output();
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(json) => Ok(json_to_value(json)),
-                Err(_) => {
-                    let mut rec = BTreeMap::new();
-                    rec.insert("success".to_string(), Value::Bool(o.status.success()));
-                    rec.insert("output".to_string(), Value::Str(stdout.trim().to_string()));
-                    Ok(Value::Record(rec))
-                }
-            }
-        }
-        Err(e) => Err(crate::safety::tool_missing("ruff", "ruff", &e.to_string())),
+fn bi_ruff_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "ruff_check";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = pkg_path_arg(B, &args, 0, ".")?;
+    let mut run = tool_run(
+        B,
+        "ruff",
+        None,
+        &["check", "--output-format=json", path.as_str()],
+        Keep::Head(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    // ruff exits 1 when it reports violations: that is the answer, not a
+    // failure. Any other nonzero exit is a failure, and tool_json reports it.
+    if run.code == Some(1) {
+        run.success = true;
     }
+    tool_json(B, run)
 }
 
 /// ruff format — Format Python files with Ruff.
-fn bi_ruff_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("ruff")
-        .args(["format", &path])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stdout".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-            );
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing("ruff", "ruff", &e.to_string())),
-    }
+fn bi_ruff_format(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "ruff_format";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = pkg_path_arg(B, &args, 0, ".")?;
+    let run = pkg_run(B, "ruff", &["format", path.as_str()], PKG_RUN_DEADLINE_SECS)?;
+    pkg_done(B, run, vec![("path", Value::Str(path))])
 }
 
 // --- black (1100) ---
 
 /// black — Format Python code with Black.
-fn bi_black_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ".".to_string(),
-    };
-    let output = std::process::Command::new("black").arg(&path).output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            rec.insert(
-                "stderr".to_string(),
-                Value::Str(String::from_utf8_lossy(&o.stderr).trim().to_string()),
-            );
-            Ok(Value::Record(rec))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "black",
-            "black",
-            &e.to_string(),
-        )),
-    }
+fn bi_black_format(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "black_format";
+    pkg_shape(B, &args, &input, 1)?;
+    let path = pkg_path_arg(B, &args, 0, ".")?;
+    let run = pkg_run(B, "black", &[path.as_str()], PKG_RUN_DEADLINE_SECS)?;
+    pkg_done(B, run, vec![("path", Value::Str(path))])
 }
 
 // --- mypy (1101) ---
