@@ -49397,6 +49397,271 @@ fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ]))
 }
 
+// ---------------------------------------------------------------------------
+// Monitor builtins: shared argument checks, sampling and the alert store.
+// ---------------------------------------------------------------------------
+
+/// The most rules the alert store keeps. A create past this is refused.
+const MONITOR_MAX_RULES: usize = 1000;
+/// The most history events the alert store keeps; the oldest are dropped.
+const MONITOR_MAX_HISTORY: usize = 1000;
+/// Gap between the CPU samples of `monitor_watch_cpu`.
+const MONITOR_WATCH_INTERVAL_MS: u64 = 500;
+const MONITOR_METRICS: &[&str] = &["cpu", "memory", "disk"];
+const MONITOR_CONDITIONS: &[&str] = &[">", ">=", "<", "<="];
+const MONITOR_SEVERITIES: &[&str] = &["info", "warning", "critical"];
+
+/// Refuse pipeline input and more than `max` arguments: these builtins read the
+/// machine, so input piped in would otherwise be dropped without a word.
+fn monitor_direct_call(
+    builtin: &str,
+    args: &[Value],
+    input: &Option<Value>,
+    max: usize,
+) -> Result<()> {
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a direct call; pipeline input is not accepted",
+            "pipeline input",
+        ));
+    }
+    if args.len() > max {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            &format!("at most {max} argument(s)"),
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    Ok(())
+}
+
+/// How a rejected argument is described to the caller.
+fn monitor_got(v: Option<&Value>) -> String {
+    match v {
+        None => "nothing".to_string(),
+        Some(Value::Str(s)) => format!("\"{}\"", s.chars().take(40).collect::<String>()),
+        Some(other) => other.type_name().to_string(),
+    }
+}
+
+/// An optional Int argument from `lo` to `hi`, or `default` when absent.
+fn monitor_int_arg(
+    builtin: &str,
+    args: &[Value],
+    idx: usize,
+    default: i64,
+    lo: i64,
+    hi: i64,
+    what: &str,
+) -> Result<i64> {
+    let expected = format!("{what} from {lo} to {hi}");
+    match args.get(idx) {
+        None => Ok(default),
+        Some(Value::Int(n)) if (lo..=hi).contains(n) => Ok(*n),
+        Some(Value::Int(n)) => Err(crate::safety::bad_arg(builtin, &expected, &n.to_string())),
+        Some(_) => Err(crate::safety::bad_arg(
+            builtin,
+            &expected,
+            &monitor_got(args.get(idx)),
+        )),
+    }
+}
+
+/// An optional percentage (Int or Float) from 0 to 100, or `default` when absent.
+fn monitor_percent_arg(builtin: &str, args: &[Value], idx: usize, default: f64) -> Result<f64> {
+    let expected = "a finite percentage from 0 to 100";
+    match args.get(idx) {
+        None => Ok(default),
+        Some(Value::Int(n)) if (0..=100).contains(n) => Ok(*n as f64),
+        Some(Value::Float(f)) if f.is_finite() && (0.0..=100.0).contains(f) => Ok(*f),
+        Some(Value::Int(n)) => Err(crate::safety::bad_arg(builtin, expected, &n.to_string())),
+        Some(Value::Float(f)) => Err(crate::safety::bad_arg(builtin, expected, &f.to_string())),
+        Some(_) => Err(crate::safety::bad_arg(
+            builtin,
+            expected,
+            &monitor_got(args.get(idx)),
+        )),
+    }
+}
+
+/// An optional string argument that must be one of `choices`.
+fn monitor_choice_arg(
+    builtin: &str,
+    args: &[Value],
+    idx: usize,
+    choices: &[&str],
+    default: &str,
+) -> Result<String> {
+    match args.get(idx) {
+        None => Ok(default.to_string()),
+        Some(Value::Str(s)) if choices.contains(&s.as_str()) => Ok(s.clone()),
+        Some(_) => {
+            let listed = choices
+                .iter()
+                .map(|c| format!("\"{c}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            Err(crate::safety::bad_arg(
+                builtin,
+                &format!("one of {listed}"),
+                &monitor_got(args.get(idx)),
+            ))
+        }
+    }
+}
+
+/// A System with CPU usage. sysinfo reports 0% from a single refresh, because a
+/// usage figure is the change between two refreshes.
+fn monitor_sample_system() -> System {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+    sys.refresh_all();
+    sys
+}
+
+/// Percent of the summed disk space in use across all mounts.
+fn monitor_disk_used_percent() -> f64 {
+    let disks = Disks::new_with_refreshed_list();
+    let total: u64 = disks.iter().map(|d| d.total_space()).sum();
+    let avail: u64 = disks.iter().map(|d| d.available_space()).sum();
+    if total > 0 {
+        total.saturating_sub(avail) as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    }
+}
+
+fn monitor_memory_used_percent(sys: &System) -> f64 {
+    let total = sys.total_memory();
+    if total > 0 {
+        sys.used_memory() as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    }
+}
+
+/// The live reading for an alert metric; None for a metric it does not know.
+fn monitor_metric_value(metric: &str, sys: &System, disk_pct: f64) -> Option<f64> {
+    match metric {
+        "cpu" => Some(sys.global_cpu_usage() as f64),
+        "memory" => Some(monitor_memory_used_percent(sys)),
+        "disk" => Some(disk_pct),
+        _ => None,
+    }
+}
+
+fn monitor_breached(value: f64, condition: &str, threshold: f64) -> bool {
+    match condition {
+        ">" => value > threshold,
+        ">=" => value >= threshold,
+        "<" => value < threshold,
+        "<=" => value <= threshold,
+        _ => false,
+    }
+}
+
+/// The alert store: `alerts.json` in the monitor directory of the data
+/// directory. `AETHER_DATA_HOME` moves it, which is how tests keep it out of
+/// the real data directory.
+fn monitor_store_path() -> std::path::PathBuf {
+    crate::config::ShellConfig::data_dir()
+        .join("monitor")
+        .join("alerts.json")
+}
+
+#[derive(Default)]
+struct MonitorStore {
+    rules: Vec<serde_json::Value>,
+    history: Vec<serde_json::Value>,
+}
+
+/// A store file that exists but does not parse. It is reported and left
+/// alone: starting an empty store over it would destroy the user's rules.
+fn monitor_store_error(builtin: &str, path: &std::path::Path, why: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::Io,
+        message: format!(
+            "{builtin}: the alert store {} cannot be read: {why}",
+            path.display()
+        ),
+        builtin: builtin.to_string(),
+        hint: "move the file aside to start with an empty store; nothing was changed".to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "an alert store written by monitor_alert_create".to_string(),
+        got: "a file that does not parse".to_string(),
+    })
+}
+
+fn monitor_store_load(builtin: &str) -> Result<MonitorStore> {
+    let path = monitor_store_path();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(MonitorStore::default()),
+        Err(e) => return Err(crate::safety::fs_error(builtin, &path, &e)),
+    };
+    let doc: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| monitor_store_error(builtin, &path, &e.to_string()))?;
+    let list = |key: &str| -> Result<Vec<serde_json::Value>> {
+        doc.get(key)
+            .and_then(|v| v.as_array())
+            .cloned()
+            .ok_or_else(|| monitor_store_error(builtin, &path, &format!("no \"{key}\" array")))
+    };
+    Ok(MonitorStore {
+        rules: list("rules")?,
+        history: list("history")?,
+    })
+}
+
+/// Write the store through a temporary file, so a crash leaves either the old
+/// store or the new one.
+fn monitor_store_save(builtin: &str, store: &MonitorStore) -> Result<()> {
+    let path = monitor_store_path();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| crate::safety::fs_error(builtin, dir, &e))?;
+    }
+    let doc = serde_json::json!({ "rules": store.rules, "history": store.history });
+    let bytes = serde_json::to_vec_pretty(&doc)?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, bytes).map_err(|e| crate::safety::fs_error(builtin, &tmp, &e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| crate::safety::fs_error(builtin, &path, &e))?;
+    Ok(())
+}
+
+fn monitor_history_push(store: &mut MonitorStore, event: &str, rule: &serde_json::Value) {
+    store.history.push(serde_json::json!({
+        "event": event,
+        "rule_id": rule.get("id").cloned().unwrap_or(serde_json::Value::Null),
+        "name": rule.get("name").cloned().unwrap_or(serde_json::Value::Null),
+        "at": chrono::Local::now().to_rfc3339(),
+    }));
+    let overflow = store.history.len().saturating_sub(MONITOR_MAX_HISTORY);
+    store.history.drain(..overflow);
+}
+
+fn monitor_rule_str<'a>(builtin: &str, rule: &'a serde_json::Value, key: &str) -> Result<&'a str> {
+    rule.get(key).and_then(|v| v.as_str()).ok_or_else(|| {
+        monitor_store_error(
+            builtin,
+            &monitor_store_path(),
+            &format!("a rule has no \"{key}\" text"),
+        )
+    })
+}
+
+fn monitor_rule_f64(builtin: &str, rule: &serde_json::Value, key: &str) -> Result<f64> {
+    rule.get(key).and_then(|v| v.as_f64()).ok_or_else(|| {
+        monitor_store_error(
+            builtin,
+            &monitor_store_path(),
+            &format!("a rule has no \"{key}\" number"),
+        )
+    })
+}
+
 // ============================================================================
 // Monitoring & Diagnostics Builtins (1015-1034)
 // System monitoring, network diagnostics, performance counters
@@ -49414,13 +49679,11 @@ fn bi_gpg_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1015: bi_htop_snapshot - Interactive-style process monitor (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
-pub fn bi_htop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let count = match args.first() {
-        Some(Value::Int(n)) => *n as usize,
-        _ => 20,
-    };
-    let mut sys = System::new_all();
-    sys.refresh_all();
+pub fn bi_htop_snapshot(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_htop";
+    monitor_direct_call(B, &args, &input, 1)?;
+    let count = monitor_int_arg(B, &args, 0, 20, 1, 500, "a process count")? as usize;
+    let sys = monitor_sample_system();
     let mut procs: Vec<_> = sys.processes().iter().collect();
     procs.sort_by(|a, b| b.1.memory().cmp(&a.1.memory()));
     let entries: Vec<Value> = procs
@@ -49453,13 +49716,11 @@ pub fn bi_htop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ---------------------------------------------------------------------------
 // 1016: bi_iotop_snapshot - I/O monitor snapshot (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
-fn bi_iotop_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let count = match args.first() {
-        Some(Value::Int(n)) => *n as usize,
-        _ => 20,
-    };
-    let mut sys = System::new_all();
-    sys.refresh_all();
+fn bi_iotop_snapshot(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_iotop";
+    monitor_direct_call(B, &args, &input, 1)?;
+    let count = monitor_int_arg(B, &args, 0, 20, 1, 500, "a process count")? as usize;
+    let sys = monitor_sample_system();
     let mut procs: Vec<_> = sys.processes().iter().collect();
     procs.sort_by(|a, b| {
         let a_io = a.1.disk_usage().total_read_bytes + a.1.disk_usage().total_written_bytes;
@@ -49699,10 +49960,9 @@ fn bi_iftop_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1017: bi_nmon_snapshot - System performance snapshot (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
-pub fn bi_nmon_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    let mut sys = System::new_all();
-    sys.refresh_all();
+pub fn bi_nmon_snapshot(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    monitor_direct_call("monitor_nmon", &args, &input, 0)?;
+    let sys = monitor_sample_system();
     let load = System::load_average();
     let total_mem = sys.total_memory();
     let used_mem = sys.used_memory();
@@ -49722,7 +49982,7 @@ pub fn bi_nmon_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     rec.insert("memory_used".to_string(), Value::Int(used_mem as i64));
     rec.insert(
         "memory_free".to_string(),
-        Value::Int((total_mem - used_mem) as i64),
+        Value::Int(total_mem.saturating_sub(used_mem) as i64),
     );
     rec.insert("disk_total".to_string(), Value::Int(total_disk as i64));
     rec.insert("disk_available".to_string(), Value::Int(avail_disk as i64));
@@ -49735,10 +49995,9 @@ pub fn bi_nmon_snapshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 // ---------------------------------------------------------------------------
 // 1018: bi_glances_info - Comprehensive system info (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
-fn bi_glances_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    let mut sys = System::new_all();
-    sys.refresh_all();
+fn bi_glances_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    monitor_direct_call("monitor_glances", &args, &input, 0)?;
+    let sys = monitor_sample_system();
     let total_mem = sys.total_memory();
     let used_mem = sys.used_memory();
     let total_swap = sys.total_swap();
@@ -50676,10 +50935,10 @@ fn bi_perf_record(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1019: bi_free_mem - Memory usage (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
-pub fn bi_free_mem(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    let mut sys = System::new_all();
-    sys.refresh_all();
+pub fn bi_free_mem(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    monitor_direct_call("monitor_memory", &args, &input, 0)?;
+    let mut sys = System::new();
+    sys.refresh_memory();
     let total = sys.total_memory();
     let used = sys.used_memory();
     let free = sys.free_memory();
@@ -51088,10 +51347,9 @@ fn bi_syslog_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 1034: bi_dstat_info - System resource stats (cross-platform via sysinfo)
 // ---------------------------------------------------------------------------
-pub fn bi_dstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    let mut sys = System::new_all();
-    sys.refresh_all();
+pub fn bi_dstat_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    monitor_direct_call("monitor_dstat", &args, &input, 0)?;
+    let sys = monitor_sample_system();
     let mut stats = BTreeMap::new();
     // Per-CPU usage
     let cpus: Vec<Value> = sys
@@ -51120,7 +51378,7 @@ pub fn bi_dstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     mem.insert("used".to_string(), Value::Int(used_mem as i64));
     mem.insert(
         "free".to_string(),
-        Value::Int((total_mem - used_mem) as i64),
+        Value::Int(total_mem.saturating_sub(used_mem) as i64),
     );
     stats.insert("memory".to_string(), Value::Record(mem));
     // Disks
@@ -51184,10 +51442,9 @@ pub fn bi_dstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ===========================================================================
 
 // 836: bi_health_check - Comprehensive system health check
-pub fn bi_health_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    let mut sys = System::new_all();
-    sys.refresh_all();
+pub fn bi_health_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    monitor_direct_call("monitor_health_check", &args, &input, 0)?;
+    let sys = monitor_sample_system();
 
     let cpu = sys.global_cpu_usage() as f64;
     let total_mem = sys.total_memory();
@@ -51202,7 +51459,7 @@ pub fn bi_health_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let total_disk: u64 = disks.iter().map(|d| d.total_space()).sum();
     let avail_disk: u64 = disks.iter().map(|d| d.available_space()).sum();
     let disk_pct = if total_disk > 0 {
-        (total_disk - avail_disk) as f64 / total_disk as f64 * 100.0
+        total_disk.saturating_sub(avail_disk) as f64 / total_disk as f64 * 100.0
     } else {
         0.0
     };
@@ -51300,190 +51557,179 @@ pub fn bi_health_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 // 837: bi_alert_create - Create an alert rule for a metric
-pub fn bi_alert_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+pub fn bi_alert_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_alert_create";
+    monitor_direct_call(B, &args, &input, 5)?;
     let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("alert_create: name string required")),
-    };
-    let metric = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
+        Some(Value::Str(s)) if !s.trim().is_empty() && s.chars().count() <= 100 => {
+            s.trim().to_string()
+        }
         _ => {
             return Err(crate::safety::bad_arg(
-                "monitor_alert_create",
-                "a metric name: cpu, memory or disk",
-                "nothing",
+                B,
+                "a rule name: a non-empty String of at most 100 characters",
+                &monitor_got(args.first()),
             ))
         }
     };
-    let condition = match args.get(2) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => ">".to_string(),
+    let metric = match args.get(1) {
+        Some(Value::Str(s)) if MONITOR_METRICS.contains(&s.as_str()) => s.clone(),
+        _ => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "a metric: \"cpu\", \"memory\" or \"disk\"",
+                &monitor_got(args.get(1)),
+            ))
+        }
     };
-    let threshold = match args.get(3) {
-        Some(Value::Float(f)) => *f,
-        Some(Value::Int(i)) => *i as f64,
-        _ => 80.0,
-    };
-    let severity = match args.get(4) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "warning".to_string(),
-    };
+    let condition = monitor_choice_arg(B, &args, 2, MONITOR_CONDITIONS, ">")?;
+    let threshold = monitor_percent_arg(B, &args, 3, 80.0)?;
+    let severity = monitor_choice_arg(B, &args, 4, MONITOR_SEVERITIES, "warning")?;
 
-    let id = format!(
+    let mut store = monitor_store_load(B)?;
+    if store.rules.len() >= MONITOR_MAX_RULES {
+        return Err(crate::safety::budget_exceeded(
+            B,
+            format!("the alert store already holds {MONITOR_MAX_RULES} rules"),
+            "remove a rule with monitor_alert_remove before creating another",
+        ));
+    }
+    let base = format!(
         "alert_{}_{}",
         metric,
         chrono::Local::now().timestamp_millis()
     );
-
-    let mut rec = BTreeMap::new();
-    rec.insert("id".to_string(), Value::Str(id));
-    rec.insert("name".to_string(), Value::Str(name));
-    rec.insert("metric".to_string(), Value::Str(metric));
-    rec.insert("condition".to_string(), Value::Str(condition));
-    rec.insert("threshold".to_string(), Value::Float(threshold));
-    rec.insert("severity".to_string(), Value::Str(severity));
-    rec.insert("status".to_string(), Value::Str("active".to_string()));
-    rec.insert(
-        "created_at".to_string(),
-        Value::Str(chrono::Local::now().to_rfc3339()),
-    );
-    Ok(Value::Record(rec))
+    let mut id = base.clone();
+    let mut n = 1usize;
+    while store
+        .rules
+        .iter()
+        .any(|r| r.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+    {
+        id = format!("{base}_{n}");
+        n += 1;
+    }
+    let rule = serde_json::json!({
+        "id": id,
+        "name": name,
+        "metric": metric,
+        "condition": condition,
+        "threshold": threshold,
+        "severity": severity,
+        "status": "active",
+        "created_at": chrono::Local::now().to_rfc3339(),
+    });
+    store.rules.push(rule.clone());
+    monitor_history_push(&mut store, "created", &rule);
+    monitor_store_save(B, &store)?;
+    Ok(json_to_value(rule))
 }
 
 // 838: bi_alert_list - List active alert rules
-pub fn bi_alert_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    // Check current system state against common thresholds
-    let mut sys = System::new_all();
-    sys.refresh_all();
-
-    let cpu = sys.global_cpu_usage() as f64;
-    let total_mem = sys.total_memory();
-    let used_mem = sys.used_memory();
-    let mem_pct = if total_mem > 0 {
-        used_mem as f64 / total_mem as f64 * 100.0
-    } else {
-        0.0
-    };
-
-    let disks = Disks::new_with_refreshed_list();
-    let total_disk: u64 = disks.iter().map(|d| d.total_space()).sum();
-    let avail_disk: u64 = disks.iter().map(|d| d.available_space()).sum();
-    let disk_pct = if total_disk > 0 {
-        (total_disk - avail_disk) as f64 / total_disk as f64 * 100.0
-    } else {
-        0.0
-    };
-
-    let mut active = Vec::new();
-
-    // Default alert rules
-    let rules = vec![
-        ("cpu_high", "cpu", 90.0, cpu, "critical"),
-        ("cpu_warn", "cpu", 80.0, cpu, "warning"),
-        ("mem_high", "memory", 90.0, mem_pct, "critical"),
-        ("mem_warn", "memory", 80.0, mem_pct, "warning"),
-        ("disk_high", "disk", 90.0, disk_pct, "critical"),
-        ("disk_warn", "disk", 85.0, disk_pct, "warning"),
-    ];
-
-    for (name, metric, threshold, value, severity) in rules {
-        let mut rec = BTreeMap::new();
-        rec.insert("name".to_string(), Value::Str(name.to_string()));
-        rec.insert("metric".to_string(), Value::Str(metric.to_string()));
-        rec.insert("threshold".to_string(), Value::Float(threshold));
-        rec.insert("current_value".to_string(), Value::Float(value));
-        rec.insert("severity".to_string(), Value::Str(severity.to_string()));
-        rec.insert("triggered".to_string(), Value::Bool(value > threshold));
-        active.push(Value::Record(rec));
+pub fn bi_alert_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_alert_list";
+    monitor_direct_call(B, &args, &input, 0)?;
+    let store = monitor_store_load(B)?;
+    if store.rules.is_empty() {
+        return Ok(Value::Array(Vec::new()));
     }
-
-    Ok(Value::Array(active))
+    let sys = monitor_sample_system();
+    let disk_pct = monitor_disk_used_percent();
+    let mut out = Vec::with_capacity(store.rules.len());
+    for rule in &store.rules {
+        let metric = monitor_rule_str(B, rule, "metric")?;
+        let condition = monitor_rule_str(B, rule, "condition")?;
+        let threshold = monitor_rule_f64(B, rule, "threshold")?;
+        let current = monitor_metric_value(metric, &sys, disk_pct).ok_or_else(|| {
+            monitor_store_error(
+                B,
+                &monitor_store_path(),
+                &format!("a rule has the unknown metric \"{metric}\""),
+            )
+        })?;
+        let mut rec = rule.clone();
+        rec["current_value"] = serde_json::json!(current);
+        rec["triggered"] = serde_json::json!(monitor_breached(current, condition, threshold));
+        out.push(json_to_value(rec));
+    }
+    Ok(Value::Array(out))
 }
 
 // 839: bi_alert_history - Get alert history
-pub fn bi_alert_history(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let limit = match args.first() {
-        Some(Value::Int(n)) => *n as usize,
-        _ => 50,
-    };
-    // Return a snapshot-based history (current state as the latest entry)
-    let mut sys = System::new_all();
-    sys.refresh_all();
-
-    let cpu = sys.global_cpu_usage() as f64;
-    let total_mem = sys.total_memory();
-    let used_mem = sys.used_memory();
-    let mem_pct = if total_mem > 0 {
-        used_mem as f64 / total_mem as f64 * 100.0
-    } else {
-        0.0
-    };
-
-    let mut history = Vec::new();
-    let mut entry = BTreeMap::new();
-    entry.insert(
-        "timestamp".to_string(),
-        Value::Str(chrono::Local::now().to_rfc3339()),
-    );
-    entry.insert("cpu_percent".to_string(), Value::Float(cpu));
-    entry.insert("memory_percent".to_string(), Value::Float(mem_pct));
-    entry.insert(
-        "alerts_fired".to_string(),
-        Value::Int(if cpu > 80.0 { 1 } else { 0 } + if mem_pct > 80.0 { 1 } else { 0 }),
-    );
-    history.push(Value::Record(entry));
-
-    let _ = limit; // Would limit historical entries in a persistent store
-    Ok(Value::Array(history))
+pub fn bi_alert_history(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_alert_history";
+    monitor_direct_call(B, &args, &input, 1)?;
+    let limit = monitor_int_arg(B, &args, 0, 50, 1, 1000, "an event count")? as usize;
+    let store = monitor_store_load(B)?;
+    let out: Vec<Value> = store
+        .history
+        .iter()
+        .rev()
+        .take(limit)
+        .cloned()
+        .map(json_to_value)
+        .collect();
+    Ok(Value::Array(out))
 }
 
 // 840: bi_alert_remove - Remove an alert rule by ID
-pub fn bi_alert_remove(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+pub fn bi_alert_remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_alert_remove";
+    monitor_direct_call(B, &args, &input, 1)?;
     let id = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
+        Some(Value::Str(s)) if !s.is_empty() && s.len() <= 100 => s.clone(),
         _ => {
-            return Err(crate::safety::arg_err(
-                "alert_remove: alert ID string required",
+            return Err(crate::safety::bad_arg(
+                B,
+                "an alert id: a non-empty String of at most 100 bytes",
+                &monitor_got(args.first()),
             ))
         }
     };
-    let mut rec = BTreeMap::new();
-    rec.insert("id".to_string(), Value::Str(id));
-    rec.insert("removed".to_string(), Value::Bool(true));
-    rec.insert(
-        "timestamp".to_string(),
-        Value::Str(chrono::Local::now().to_rfc3339()),
-    );
-    Ok(Value::Record(rec))
+    let mut store = monitor_store_load(B)?;
+    let Some(pos) = store
+        .rules
+        .iter()
+        .position(|r| r.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+    else {
+        return Err(crate::safety::not_found(B, "alert", &id));
+    };
+    let rule = store.rules.remove(pos);
+    monitor_history_push(&mut store, "removed", &rule);
+    monitor_store_save(B, &store)?;
+    Ok(json_to_value(serde_json::json!({
+        "id": id,
+        "removed": true,
+        "timestamp": chrono::Local::now().to_rfc3339(),
+    })))
 }
 
 // 841: bi_watch_cpu - Monitor CPU usage with threshold alerting
-pub fn bi_watch_cpu(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let threshold = match args.first() {
-        Some(Value::Float(f)) => *f,
-        Some(Value::Int(i)) => *i as f64,
-        _ => 80.0,
-    };
-    let samples = match args.get(1) {
-        Some(Value::Int(n)) => *n as usize,
-        _ => 5,
-    };
+pub fn bi_watch_cpu(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_watch_cpu";
+    monitor_direct_call(B, &args, &input, 2)?;
+    let threshold = monitor_percent_arg(B, &args, 0, 80.0)?;
+    // At most 10 samples, 500 ms apart: a watch lasts at most about 5 seconds.
+    let samples = monitor_int_arg(B, &args, 1, 5, 1, 10, "a sample count")? as usize;
 
-    let mut sys = System::new_all();
-    let mut readings = Vec::new();
-
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    let mut readings = Vec::with_capacity(samples);
+    let mut total = 0.0_f64;
+    let mut breaches = 0_usize;
     for i in 0..samples {
+        std::thread::sleep(std::time::Duration::from_millis(MONITOR_WATCH_INTERVAL_MS));
         sys.refresh_cpu_all();
-        if i > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            sys.refresh_cpu_all();
-        }
         let cpu = sys.global_cpu_usage() as f64;
+        let above = cpu > threshold;
+        total += cpu;
+        if above {
+            breaches += 1;
+        }
         let mut sample = BTreeMap::new();
         sample.insert("sample".to_string(), Value::Int(i as i64 + 1));
         sample.insert("cpu_percent".to_string(), Value::Float(cpu));
-        sample.insert("above_threshold".to_string(), Value::Bool(cpu > threshold));
+        sample.insert("above_threshold".to_string(), Value::Bool(above));
         sample.insert(
             "timestamp".to_string(),
             Value::Str(chrono::Local::now().to_rfc3339()),
@@ -51491,33 +51737,7 @@ pub fn bi_watch_cpu(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         readings.push(Value::Record(sample));
     }
 
-    let avg: f64 = readings
-        .iter()
-        .filter_map(|v| {
-            if let Value::Record(r) = v {
-                if let Some(Value::Float(f)) = r.get("cpu_percent") {
-                    Some(*f)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .sum::<f64>()
-        / samples as f64;
-
-    let breaches = readings
-        .iter()
-        .filter(|v| {
-            if let Value::Record(r) = v {
-                matches!(r.get("above_threshold"), Some(Value::Bool(true)))
-            } else {
-                false
-            }
-        })
-        .count();
-
+    let avg = total / samples as f64;
     let mut rec = BTreeMap::new();
     rec.insert("threshold".to_string(), Value::Float(threshold));
     rec.insert("samples".to_string(), Value::Int(samples as i64));
@@ -51529,14 +51749,12 @@ pub fn bi_watch_cpu(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 // 842: bi_watch_memory - Monitor memory usage with threshold alerting
-pub fn bi_watch_memory(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let threshold = match args.first() {
-        Some(Value::Float(f)) => *f,
-        Some(Value::Int(i)) => *i as f64,
-        _ => 80.0,
-    };
-    let mut sys = System::new_all();
-    sys.refresh_all();
+pub fn bi_watch_memory(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_watch_memory";
+    monitor_direct_call(B, &args, &input, 1)?;
+    let threshold = monitor_percent_arg(B, &args, 0, 80.0)?;
+    let mut sys = System::new();
+    sys.refresh_memory();
 
     let total = sys.total_memory();
     let used = sys.used_memory();
@@ -51584,12 +51802,10 @@ pub fn bi_watch_memory(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 }
 
 // 843: bi_watch_disk - Monitor disk usage with threshold alerting
-pub fn bi_watch_disk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let threshold = match args.first() {
-        Some(Value::Float(f)) => *f,
-        Some(Value::Int(i)) => *i as f64,
-        _ => 85.0,
-    };
+pub fn bi_watch_disk(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "monitor_watch_disk";
+    monitor_direct_call(B, &args, &input, 1)?;
+    let threshold = monitor_percent_arg(B, &args, 0, 85.0)?;
     let disks = Disks::new_with_refreshed_list();
     let mut disk_entries = Vec::new();
     let mut any_alert = false;
