@@ -32594,276 +32594,578 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 // 430-459: Web Automation
 // ============================================================================
 
-fn bi_web_open_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_open_url",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+/// Largest response body a `web_*` builtin buffers or returns. A longer body is
+/// `E_BUDGET_EXCEEDED`: the caller gets an error, never a prefix.
+const WEB_BODY_MAX: usize = 8 * 1024 * 1024;
+/// Largest file `web_download` will write.
+const WEB_DOWNLOAD_MAX: u64 = 512 * 1024 * 1024;
+/// Most elements `web_scrape` returns for one selector.
+const WEB_SCRAPE_MAX_MATCHES: usize = 1000;
+/// Wall-clock limit for one request, handed to curl.
+const WEB_MAX_TIME_SECS: &str = "30";
+/// Redirects followed before a request is refused.
+const WEB_MAX_REDIRS: &str = "10";
+/// Trailing bytes of curl's stderr kept for an error message.
+const WEB_STDERR_TAIL: usize = 4 * 1024;
+const WEB_URL_EXPECTED: &str = "an absolute http or https URL such as https://example.com";
 
-    // The rest of the `web_*` family gates here; this one did not, so it was
-    // both unmetered and outside the `AETHER_NET_ALLOW` egress allowlist — a URL
-    // is a fine channel for carrying data off the machine in its query string.
+/// Refuse piped input for a `web_*` builtin, which takes none.
+fn web_no_input(builtin: &str, input: &Option<Value>) -> Result<()> {
+    match input {
+        None => Ok(()),
+        Some(v) => Err(crate::safety::bad_arg(
+            builtin,
+            "no piped input; pass the arguments directly",
+            v.type_name(),
+        )),
+    }
+}
+
+/// A string argument at `idx`, or `E_BAD_ARG` naming what was expected.
+fn web_text_arg<'a>(
+    builtin: &str,
+    args: &'a [Value],
+    idx: usize,
+    expected: &str,
+) -> Result<&'a str> {
+    match args.get(idx) {
+        Some(Value::Str(s)) | Some(Value::Uri(s)) => Ok(s.as_str()),
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            expected,
+            other.map(|v| v.type_name()).unwrap_or("nothing"),
+        )),
+    }
+}
+
+/// Parse an absolute `http` or `https` URL and return its normalised text.
+///
+/// Refused before any effect: control characters (a newline ends a shell
+/// command and an HTTP header), every other scheme (`file:` would make curl
+/// read the local disk outside the file guards, and `ftp:`, `gopher:` and
+/// `dict:` reach protocols nothing here audits), and text `url` cannot parse.
+/// The normalised text is what gets passed to curl, so both agree on the target.
+fn web_http_url(builtin: &str, text: &str) -> Result<String> {
+    // A leading `-` is an option to curl, which can read a config file.
+    crate::safety::reject_option_like(builtin, &[text.to_string()])?;
+    if text.chars().any(|c| c.is_control()) {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            WEB_URL_EXPECTED,
+            "text with a control character",
+        ));
+    }
+    let parsed = url::Url::parse(text).map_err(|e| {
+        crate::safety::bad_arg(builtin, WEB_URL_EXPECTED, &format!("{text:?} ({e})"))
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            WEB_URL_EXPECTED,
+            &format!("a {} URL", parsed.scheme()),
+        ));
+    }
+    Ok(parsed.to_string())
+}
+
+/// A coded `E_TOOL_FAILED` for a web request that could not be completed.
+fn web_failure(builtin: &str, message: String, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::ToolFailed,
+        message: format!("{builtin}: {message}"),
+        builtin: builtin.to_string(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
+    })
+}
+
+/// What one curl run produced.
+struct WebRun {
+    status: std::process::ExitStatus,
+    /// stdout, up to `WEB_BODY_MAX` bytes.
+    body: Vec<u8>,
+    /// stdout was longer than `WEB_BODY_MAX`.
+    over: bool,
+    /// The last `WEB_STDERR_TAIL` bytes of stderr.
+    stderr: Vec<u8>,
+}
+
+/// Run curl with `args` as an argv, never through a shell.
+///
+/// Every run is limited to http and https, including across redirects
+/// (`--proto`, `--proto-redir`), to a fixed number of redirects and to a
+/// wall-clock limit. stdout is read only up to `WEB_BODY_MAX`; the byte past
+/// the limit closes the pipe, so curl stops writing rather than the shell
+/// buffering an unbounded body. The caller's last argument is the URL.
+fn web_curl(builtin: &str, args: &[&str]) -> Result<WebRun> {
+    let mut child = std::process::Command::new("curl")
+        .args([
+            "-sS",
+            "--proto",
+            "=http,https",
+            "--proto-redir",
+            "=http,https",
+            "--max-redirs",
+            WEB_MAX_REDIRS,
+            "--max-time",
+            WEB_MAX_TIME_SECS,
+        ])
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| crate::safety::spawn_error(builtin, "curl", &e))?;
+    let out_pipe = child.stdout.take();
+    let err_pipe = child.stderr.take();
+    let out_reader = std::thread::spawn(move || read_capped(out_pipe, WEB_BODY_MAX));
+    let err_reader = std::thread::spawn(move || read_tail(err_pipe, WEB_STDERR_TAIL));
+    let status = child.wait().map_err(|e| {
+        web_failure(
+            builtin,
+            format!("could not wait for curl: {e}"),
+            "retry the call",
+        )
+    })?;
+    let (body, over) = web_join(builtin, out_reader)?;
+    let stderr = web_join(builtin, err_reader)?;
+    Ok(WebRun {
+        status,
+        body,
+        over,
+        stderr,
+    })
+}
+
+fn web_join<T>(builtin: &str, handle: std::thread::JoinHandle<std::io::Result<T>>) -> Result<T> {
+    match handle.join() {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(e)) => Err(web_failure(
+            builtin,
+            format!("could not read curl's output: {e}"),
+            "retry the call",
+        )),
+        Err(_) => Err(web_failure(
+            builtin,
+            "reading curl's output failed".to_string(),
+            "retry the call",
+        )),
+    }
+}
+
+/// The body of a run that completed. A body over the cap is
+/// `E_BUDGET_EXCEEDED`; a nonzero exit is `E_TOOL_FAILED` carrying curl's own
+/// message, which for `--fail` names the HTTP status.
+fn web_body(builtin: &str, run: WebRun) -> Result<Vec<u8>> {
+    if run.over {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("the response is longer than {WEB_BODY_MAX} bytes"),
+            "request a smaller resource; this shell returns no truncated body",
+        ));
+    }
+    if !run.status.success() {
+        return Err(web_tool_failed(builtin, &run));
+    }
+    Ok(run.body)
+}
+
+fn web_tool_failed(builtin: &str, run: &WebRun) -> anyhow::Error {
+    crate::safety::tool_failed(
+        builtin,
+        "curl",
+        run.status.code(),
+        &String::from_utf8_lossy(&run.stderr),
+    )
+}
+
+fn web_text(body: Vec<u8>) -> Value {
+    Value::Str(String::from_utf8_lossy(&body).into_owned())
+}
+
+fn web_json_value(builtin: &str, body: &[u8]) -> Result<Value> {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .map(json_to_value)
+        .map_err(|e| {
+            web_failure(
+                builtin,
+                format!("the response is not JSON: {e}"),
+                "use web_fetch for a response that is not JSON",
+            )
+        })
+}
+
+/// A request body as text: a String goes as it is, any other value as JSON.
+fn web_request_body(builtin: &str, value: &Value) -> Result<String> {
+    match value {
+        Value::Str(s) => Ok(s.clone()),
+        other => serde_json::to_string(&value_to_json(other.clone())).map_err(|e| {
+            crate::safety::bad_arg(builtin, "a value that encodes as JSON", &e.to_string())
+        }),
+    }
+}
+
+/// GET `url` and return the body as text. The caller has validated the URL and
+/// guarded it. An HTTP error status is a coded failure: an error page is not
+/// the resource that was asked for.
+fn web_get_body(builtin: &str, url: &str) -> Result<Value> {
+    let run = web_curl(builtin, &["-L", "--fail", url])?;
+    Ok(web_text(web_body(builtin, run)?))
+}
+
+fn bi_web_open_url(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_open_url", &input)?;
+    let url = web_browser_target("web_open_url", &args)?;
     guard_network("web_open_url", &url)?;
-    crate::safety::reject_unsafe_url("web_open_url", &url)?;
+    open_in_browser("web_open_url", &url)
+}
 
+fn bi_web_browser_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_browser_open", &input)?;
+    let url = web_browser_target("web_browser_open", &args)?;
+    open_in_browser("web_browser_open", &url)
+}
+
+/// The URL a browser builtin will hand to the desktop, checked before any
+/// effect: an http or https URL, then the desktop-launcher checks, which refuse
+/// option-like text and control characters.
+fn web_browser_target(builtin: &str, args: &[Value]) -> Result<String> {
+    let url = web_http_url(builtin, web_text_arg(builtin, args, 0, WEB_URL_EXPECTED)?)?;
+    crate::safety::reject_unsafe_url(builtin, &url)?;
+    Ok(url)
+}
+
+/// Launch the desktop's web handler on an already-checked URL. A launcher that
+/// starts is `true`; one that cannot start, or exits with an error, is a coded
+/// failure rather than `false`.
+fn open_in_browser(builtin: &str, url: &str) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        // Not `cmd /C start`. `cmd` splits its command line on `&`, and `&` is
-        // the query-string separator, so no amount of validating the URL can
-        // make that call site safe — `http://example.com&echo.>marker.txt` ran
-        // `echo`. `rundll32 url.dll,FileProtocolHandler` is the same
-        // `ShellExecute` dispatch with no shell in front of it.
-        //
-        // Spawned rather than waited on: the old `.output()` blocked until the
-        // launched process exited, which for a browser is until the user closes
-        // it. The result is whether the launch started, which is all the caller
-        // could ever have learned about a detached GUI program anyway.
-        let started = std::process::Command::new("rundll32.exe")
-            .args(["url.dll,FileProtocolHandler", &url])
+        // Not `cmd /C start`: `cmd` splits its command line on `&`, which is the
+        // query-string separator, so no URL check can make that call safe.
+        // `rundll32 url.dll,FileProtocolHandler` is the same ShellExecute
+        // dispatch with no shell in front of it. Spawned, not waited on: a
+        // browser runs until the user closes it.
+        std::process::Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", url])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .spawn()
-            .is_ok();
-        Ok(Value::Bool(started))
+            .map_err(|e| crate::safety::spawn_error(builtin, "rundll32.exe", &e))?;
+        return Ok(Value::Bool(true));
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("open")
-            .arg(&url)
-            .output()
-            .map_err(|e| crate::safety::spawn_error("web_open_url", "open", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg(url);
+        return launcher_result(builtin, "open", crate::safety::output_with_timeout(cmd, 30));
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdg-open")
-            .arg(&url)
-            .output()
-            .map_err(|e| crate::safety::spawn_error("web_open_url", "xdg-open", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+        let mut cmd = std::process::Command::new("xdg-open");
+        cmd.arg(url);
+        return launcher_result(
+            builtin,
+            "xdg-open",
+            crate::safety::output_with_timeout(cmd, 30),
+        );
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        return Err(crate::safety::unimplemented(
+            builtin,
+            "opening a browser is not implemented on this platform; NOTHING WAS DONE",
+            "open the URL with the system's browser",
+        ));
     }
 }
 
-fn bi_web_fetch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_fetch",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+/// The outcome of a desktop launcher that was run to completion.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn launcher_result(
+    builtin: &str,
+    program: &str,
+    ran: std::io::Result<std::process::Output>,
+) -> Result<Value> {
+    match ran {
+        Ok(out) if out.status.success() => Ok(Value::Bool(true)),
+        Ok(out) => Err(crate::safety::tool_failed(
+            builtin,
+            program,
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
+        )),
+        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Err(web_failure(
+            builtin,
+            format!("`{program}` did not return within 30 s"),
+            "check the desktop's URL handler",
+        )),
+        Err(e) => Err(crate::safety::spawn_error(builtin, program, &e)),
+    }
+}
+
+fn bi_web_fetch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_fetch", &input)?;
+    let url = web_http_url(
+        "web_fetch",
+        web_text_arg("web_fetch", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
     guard_network("web_fetch", &url)?;
-
-    let output = std::process::Command::new("curl")
-        .args(["-sS", "-L", &url])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_fetch", "curl", &e))?;
-
-    if output.status.success() {
-        Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ))
-    } else {
-        Ok(Value::Null)
-    }
+    web_get_body("web_fetch", &url)
 }
 
-fn bi_web_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    bi_web_fetch(args, None)
+// `web_get`, `web_browser_open`, `web_robots_txt` and `web_sitemap` are not in
+// `safety::SELF_GUARDED`, so the dispatcher's central guard meters and gates
+// them by name. Calling `guard_network` here as well would charge them twice.
+fn bi_web_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_get", &input)?;
+    let url = web_http_url(
+        "web_get",
+        web_text_arg("web_get", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
+    web_get_body("web_get", &url)
 }
 
-fn bi_web_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_post",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+fn bi_web_post(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_post", &input)?;
+    let url = web_http_url(
+        "web_post",
+        web_text_arg("web_post", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
+    let data = match args.get(1) {
+        Some(v) => web_request_body("web_post", v)?,
+        None => String::new(),
     };
     guard_network("web_post", &url)?;
-    let data = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        Some(v) => serde_json::to_string(&value_to_json(v.clone())).unwrap_or_default(),
-        _ => "".to_string(),
-    };
-
-    let output = std::process::Command::new("curl")
-        .args(["-sS", "-X", "POST", "-d", &data, &url])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_post", "curl", &e))?;
-
-    if output.status.success() {
-        Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ))
-    } else {
-        Ok(Value::Null)
-    }
+    // `--data-raw`, not `-d`: curl's `-d` reads a value beginning with `@` as a
+    // file name and sends that file's contents, which would be a local-file
+    // read leaving the machine.
+    let run = web_curl("web_post", &["-X", "POST", "--data-raw", &data, &url])?;
+    Ok(web_text(web_body("web_post", run)?))
 }
 
-fn bi_web_json_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_json_get",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+fn bi_web_json_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_json_get", &input)?;
+    let url = web_http_url(
+        "web_json_get",
+        web_text_arg("web_json_get", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
     guard_network("web_json_get", &url)?;
-
-    let output = std::process::Command::new("curl")
-        .args(["-sS", "-L", "-H", "Accept: application/json", &url])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_json_get", "curl", &e))?;
-
-    if output.status.success() {
-        let json_str = String::from_utf8_lossy(&output.stdout);
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-            return Ok(json_to_value(json));
-        }
-    }
-    Ok(Value::Null)
+    let run = web_curl(
+        "web_json_get",
+        &["-L", "-H", "Accept: application/json", &url],
+    )?;
+    web_json_value("web_json_get", &web_body("web_json_get", run)?)
 }
 
-fn bi_web_json_post(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
+fn bi_web_json_post(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_json_post", &input)?;
+    let url = web_http_url(
+        "web_json_post",
+        web_text_arg("web_json_post", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
+    let data = match args.get(1) {
+        Some(v) => serde_json::to_string(&value_to_json(v.clone())).map_err(|e| {
+            crate::safety::bad_arg(
                 "web_json_post",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+                "a value that encodes as JSON",
+                &e.to_string(),
+            )
+        })?,
+        None => "{}".to_string(),
     };
     guard_network("web_json_post", &url)?;
-    let data = match args.get(1) {
-        Some(v) => serde_json::to_string(&value_to_json(v.clone())).unwrap_or_default(),
-        _ => "{}".to_string(),
-    };
-
-    let output = std::process::Command::new("curl")
-        .args([
-            "-sS",
+    let run = web_curl(
+        "web_json_post",
+        &[
             "-X",
             "POST",
             "-H",
             "Content-Type: application/json",
             "-H",
             "Accept: application/json",
-            "-d",
+            "--data-raw",
             &data,
             &url,
-        ])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_json_post", "curl", &e))?;
-
-    if output.status.success() {
-        let json_str = String::from_utf8_lossy(&output.stdout);
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-            return Ok(json_to_value(json));
-        }
-    }
-    Ok(Value::Null)
+        ],
+    )?;
+    web_json_value("web_json_post", &web_body("web_json_post", run)?)
 }
 
-fn bi_web_scrape(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
+/// A selector `web_scrape` can honour: a bare tag name. Class and id selectors
+/// (`.x`, `#x`) and combinators are refused, because the earlier code treated
+/// `.x` as the tag `x` and answered with the wrong elements.
+fn web_tag_selector(selector: &str) -> Result<String> {
+    let mut chars = selector.chars();
+    let starts_with_letter = chars.next().is_some_and(|c| c.is_ascii_alphabetic());
+    if !starts_with_letter || !selector.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(crate::safety::bad_arg(
+            "web_scrape",
+            "a tag name such as \"h1\" or \"a\"; class (.x), id (#x) and combined selectors are not supported",
+            selector,
+        ));
+    }
+    Ok(selector.to_ascii_lowercase())
+}
+
+/// The index of the next `<tag` opening at or after `from`, where the tag name
+/// really ends (so `<a` does not match `<abbr`).
+fn web_next_open(lower: &str, from: usize, open: &str) -> Option<usize> {
+    let mut at = from;
+    while let Some(rel) = lower[at..].find(open) {
+        let idx = at + rel;
+        if matches!(
+            lower.as_bytes().get(idx + open.len()).copied(),
+            Some(b'>' | b' ' | b'\t' | b'\n' | b'\r' | b'/')
+        ) {
+            return Some(idx);
+        }
+        at = idx + 1;
+    }
+    None
+}
+
+/// Every element named `tag`, from its opening tag to its matching closing
+/// tag, nesting of the same name included. The search is over ASCII lowercase,
+/// which keeps byte offsets identical to the original text.
+fn web_scrape_elements(builtin: &str, html: &str, tag: &str) -> Result<Vec<Value>> {
+    let lower = html.to_ascii_lowercase();
+    let open = format!("<{tag}");
+    let close = format!("</{tag}>");
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(start) = web_next_open(&lower, from, &open) {
+        let mut depth = 1usize;
+        let mut cursor = start + open.len();
+        let end = loop {
+            let Some(rel) = lower[cursor..].find(&close) else {
+                break None; // never closed: nothing after this opening can close it either
+            };
+            let close_at = cursor + rel;
+            match web_next_open(&lower, cursor, &open) {
+                Some(open_at) if open_at < close_at => {
+                    depth += 1;
+                    cursor = open_at + open.len();
+                }
+                _ => {
+                    depth -= 1;
+                    cursor = close_at + close.len();
+                    if depth == 0 {
+                        break Some(cursor);
+                    }
+                }
+            }
+        };
+        match end {
+            Some(end) => {
+                if found.len() == WEB_SCRAPE_MAX_MATCHES {
+                    return Err(crate::safety::budget_exceeded(
+                        builtin,
+                        format!("more than {WEB_SCRAPE_MAX_MATCHES} <{tag}> elements"),
+                        "scrape a narrower page; this shell returns no partial list",
+                    ));
+                }
+                found.push(Value::Str(html[start..end].to_string()));
+                from = end;
+            }
+            None => break,
+        }
+    }
+    Ok(found)
+}
+
+fn bi_web_scrape(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_scrape", &input)?;
+    let url = web_http_url(
+        "web_scrape",
+        web_text_arg("web_scrape", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
+    let selector = match args.get(1) {
+        None => None,
+        Some(Value::Str(s)) => Some(web_tag_selector(s)?),
+        Some(other) => {
             return Err(crate::safety::bad_arg(
                 "web_scrape",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+                "selector: String",
+                other.type_name(),
             ))
         }
     };
     guard_network("web_scrape", &url)?;
-    let selector = args.get(1).and_then(|v| match v {
-        Value::Str(s) => Some(s.clone()),
-        _ => None,
-    });
-
-    let output = std::process::Command::new("curl")
-        .args(["-sS", "-L", &url])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_scrape", "curl", &e))?;
-
-    if output.status.success() {
-        let html = String::from_utf8_lossy(&output.stdout).to_string();
-        if let Some(sel) = selector {
-            // Simple tag extraction
-            let tag = sel.trim_start_matches('.').trim_start_matches('#');
-            let mut results = Vec::new();
-            let search = format!("<{}", tag);
-            let mut pos = 0;
-            while let Some(start) = html[pos..].find(&search) {
-                let abs_start = pos + start;
-                if let Some(end) = html[abs_start..].find(&format!("</{}>", tag)) {
-                    let content = &html[abs_start..abs_start + end + tag.len() + 3];
-                    results.push(Value::Str(content.to_string()));
-                    pos = abs_start + end + 1;
-                } else {
-                    break;
-                }
-                if results.len() > 100 {
-                    break;
-                }
-            }
-            return Ok(Value::Array(results));
-        }
-        return Ok(Value::Str(html));
+    let run = web_curl("web_scrape", &["-L", "--fail", &url])?;
+    let html = String::from_utf8_lossy(&web_body("web_scrape", run)?).into_owned();
+    match selector {
+        None => Ok(Value::Str(html)),
+        Some(tag) => Ok(Value::Array(web_scrape_elements(
+            "web_scrape",
+            &html,
+            &tag,
+        )?)),
     }
-    Ok(Value::Null)
 }
 
-fn bi_web_download(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
+/// The file name `web_download` uses when none is given: the last non-empty
+/// path segment of the URL, or `download`.
+fn web_download_name(url: &str) -> String {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|u| {
+            u.path_segments()
+                .and_then(|mut segments| segments.rfind(|s| !s.is_empty()).map(str::to_string))
+        })
+        .filter(|name| name != "." && name != "..")
+        .unwrap_or_else(|| "download".to_string())
+}
+
+fn bi_web_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_download", &input)?;
+    let url = web_http_url(
+        "web_download",
+        web_text_arg("web_download", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
+    let path = match args.get(1) {
+        None => web_download_name(&url),
+        Some(Value::Str(s)) if !s.is_empty() => s.clone(),
+        Some(Value::Str(_)) => {
             return Err(crate::safety::bad_arg(
                 "web_download",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+                "a nonempty file path",
+                "\"\"",
+            ))
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "web_download",
+                "path: String",
+                other.type_name(),
             ))
         }
     };
     guard_network("web_download", &url)?;
-    let path = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            // Extract filename from URL
-            url.split('/').next_back().unwrap_or("download").to_string()
-        }
-    };
-    // A download has two effects and the taxonomy carries one. `guard_network`
-    // gates the egress; nothing gated the *file*, so this wrote wherever it was
-    // pointed while `file_write` to the same path was refused by the jail.
+    // A download writes a local file as well as fetching, so the path goes
+    // through the same write jail `file_write` uses.
     let path = guard_local_write("web_download", &path)?;
-
-    let output = std::process::Command::new("curl")
-        .args(["-sS", "-L", "-o", &path, &url])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_download", "curl", &e))?;
-
-    Ok(Value::Bool(output.status.success()))
-}
-
-fn bi_web_browser_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    bi_web_open_url(args, None)
+    let max = WEB_DOWNLOAD_MAX.to_string();
+    let run = web_curl(
+        "web_download",
+        &["-L", "--fail", "--max-filesize", &max, "-o", &path, &url],
+    )?;
+    // curl's exit status 63 is "maximum file size exceeded".
+    if run.status.code() == Some(63) {
+        return Err(crate::safety::budget_exceeded(
+            "web_download",
+            format!("the file is larger than {WEB_DOWNLOAD_MAX} bytes"),
+            "download a smaller file",
+        ));
+    }
+    if !run.status.success() {
+        return Err(web_tool_failed("web_download", &run));
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_web_parse_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -33038,219 +33340,299 @@ fn bi_web_build_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     Ok(Value::Str(pairs.join("&")))
 }
 
-fn bi_web_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_headers",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
+/// The header record of the final response in a `curl -I -L` transcript. Each
+/// redirect hop prints its own block starting with `HTTP/`, so the record is
+/// reset at each one and only the block that answered is kept.
+fn web_final_headers(text: &str) -> std::collections::BTreeMap<String, Value> {
+    let mut rec = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.starts_with("HTTP/") {
+            rec.clear();
+        } else if let Some((k, v)) = line.split_once(':') {
+            rec.insert(k.trim().to_lowercase(), Value::Str(v.trim().to_string()));
         }
-    };
+    }
+    rec
+}
+
+fn bi_web_headers(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_headers", &input)?;
+    let url = web_http_url(
+        "web_headers",
+        web_text_arg("web_headers", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
     guard_network("web_headers", &url)?;
-
-    let output = std::process::Command::new("curl")
-        .args(["-sS", "-I", "-L", &url])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_headers", "curl", &e))?;
-
-    if output.status.success() {
-        let text = String::from_utf8_lossy(&output.stdout);
-        let mut rec = std::collections::BTreeMap::new();
-        for line in text.lines() {
-            if let Some((k, v)) = line.split_once(':') {
-                rec.insert(k.trim().to_lowercase(), Value::Str(v.trim().to_string()));
-            }
-        }
-        return Ok(Value::Record(rec));
-    }
-    Ok(Value::Null)
+    let run = web_curl("web_headers", &["-I", "-L", &url])?;
+    let text = String::from_utf8_lossy(&web_body("web_headers", run)?).into_owned();
+    Ok(Value::Record(web_final_headers(&text)))
 }
 
-fn bi_web_cookies(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_cookies",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+fn bi_web_cookies(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_cookies", &input)?;
+    let url = web_http_url(
+        "web_cookies",
+        web_text_arg("web_cookies", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
     guard_network("web_cookies", &url)?;
-
-    let output = std::process::Command::new("curl")
-        .args(["-sS", "-I", "-L", &url])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_cookies", "curl", &e))?;
-
-    if output.status.success() {
-        let text = String::from_utf8_lossy(&output.stdout);
-        let cookies: Vec<Value> = text
-            .lines()
-            .filter(|l| l.to_lowercase().starts_with("set-cookie:"))
-            .map(|l| Value::Str(l[11..].trim().to_string()))
-            .collect();
-        return Ok(Value::Array(cookies));
-    }
-    Ok(Value::Array(vec![]))
+    let run = web_curl("web_cookies", &["-I", "-L", &url])?;
+    let text = String::from_utf8_lossy(&web_body("web_cookies", run)?).into_owned();
+    // Every Set-Cookie line across the redirect hops, as the server sent it.
+    let cookies = text
+        .lines()
+        .filter_map(|line| {
+            let (name, value) = line.trim_end_matches('\r').split_once(':')?;
+            name.trim()
+                .eq_ignore_ascii_case("set-cookie")
+                .then(|| Value::Str(value.trim().to_string()))
+        })
+        .collect();
+    Ok(Value::Array(cookies))
 }
 
-fn bi_web_form_submit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
+/// Percent-encode text for a form: unreserved characters pass, every other
+/// byte becomes `%XX`.
+fn web_percent_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// A form record as `application/x-www-form-urlencoded` text, keys in sorted
+/// order. Values are encoded: a value containing `&` or `=` used to split into
+/// extra fields, and a non-text value used to be sent as its Debug form.
+fn web_form_encode(fields: &std::collections::BTreeMap<String, Value>) -> Result<String> {
+    let mut pairs = Vec::with_capacity(fields.len());
+    for (key, value) in fields {
+        let text = match value {
+            Value::Str(s) => s.clone(),
+            Value::Int(n) => n.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::Bool(b) => b.to_string(),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    "web_form_submit",
+                    &format!("field {key}: String, Int, Float or Bool"),
+                    other.type_name(),
+                ))
+            }
+        };
+        pairs.push(format!(
+            "{}={}",
+            web_percent_encode(key),
+            web_percent_encode(&text)
+        ));
+    }
+    Ok(pairs.join("&"))
+}
+
+fn bi_web_form_submit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_form_submit", &input)?;
+    let url = web_http_url(
+        "web_form_submit",
+        web_text_arg("web_form_submit", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
+    let body = match args.get(1) {
+        None => String::new(),
+        // Already encoded, sent as it is.
         Some(Value::Str(s)) => s.clone(),
-        other => {
+        Some(Value::Record(fields)) => web_form_encode(fields)?,
+        Some(other) => {
             return Err(crate::safety::bad_arg(
                 "web_form_submit",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+                "fields: Record, or an already-encoded String",
+                other.type_name(),
             ))
         }
     };
     guard_network("web_form_submit", &url)?;
-    let form_data = match args.get(1) {
-        Some(Value::Record(r)) => r
-            .iter()
-            .map(|(k, v)| {
-                format!(
-                    "{}={}",
-                    k,
-                    match v {
-                        Value::Str(s) => s.clone(),
-                        v => format!("{:?}", v),
-                    }
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("&"),
-        Some(Value::Str(s)) => s.clone(),
-        _ => "".to_string(),
-    };
-
-    let output = std::process::Command::new("curl")
-        .args(["-sS", "-X", "POST", "-d", &form_data, &url])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_form_submit", "curl", &e))?;
-
-    if output.status.success() {
-        Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ))
-    } else {
-        Ok(Value::Null)
-    }
+    let run = web_curl(
+        "web_form_submit",
+        &["-X", "POST", "--data-raw", &body, &url],
+    )?;
+    Ok(web_text(web_body("web_form_submit", run)?))
 }
 
-fn bi_web_upload_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
+/// A form field name curl will take unquoted.
+fn web_field_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
+fn bi_web_upload_file(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_upload_file", &input)?;
+    let url = web_http_url(
+        "web_upload_file",
+        web_text_arg("web_upload_file", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
+    let path = web_text_arg("web_upload_file", &args, 1, "a local file path")?;
+    // curl reads `;` and `"` inside `-F name=@path` as option separators, so a
+    // path containing them would send under a different name or type.
+    if path.is_empty() || path.contains(';') || path.contains('"') {
+        return Err(crate::safety::bad_arg(
+            "web_upload_file",
+            "a nonempty file path without ';' or '\"' characters",
+            path,
+        ));
+    }
+    let field = match args.get(2) {
+        None => "file".to_string(),
+        Some(Value::Str(s)) if web_field_name_ok(s) => s.clone(),
+        Some(Value::Str(s)) => {
             return Err(crate::safety::bad_arg(
                 "web_upload_file",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+                "a form field name of letters, digits, '_', '-' or '.'",
+                s,
+            ))
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "web_upload_file",
+                "field: String",
+                other.type_name(),
             ))
         }
     };
     guard_network("web_upload_file", &url)?;
-    let file_path = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_upload_file",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let field_name = args
-        .get(2)
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or("file".to_string());
-
-    let output = std::process::Command::new("curl")
-        .args([
-            "-sS",
-            "-X",
-            "POST",
-            "-F",
-            &format!("{}=@{}", field_name, file_path),
-            &url,
-        ])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_upload_file", "curl", &e))?;
-
-    Ok(Value::Bool(output.status.success()))
+    // The upload reads a local file, so it goes through the read guard that
+    // `file_read` uses. The read is unjailed by design, as it is for `file_read`.
+    let local = guard_local_read("web_upload_file", path)?;
+    let form = format!("{field}=@{local}");
+    let run = web_curl(
+        "web_upload_file",
+        &["-X", "POST", "--fail", "-F", &form, &url],
+    )?;
+    web_body("web_upload_file", run)?;
+    Ok(Value::Bool(true))
 }
 
-fn bi_web_rest_api(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// Methods `web_rest_api` will send.
+const WEB_METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
+/// An HTTP header name: RFC 9110 token characters, so a name cannot contain a
+/// space, a colon, a control character, or a leading `@` that curl would read
+/// as a file of headers.
+fn web_header_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c))
+}
+
+fn bi_web_rest_api(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_rest_api", &input)?;
     let method = match args.first() {
-        Some(Value::Str(s)) => s.to_uppercase(),
-        _ => "GET".to_string(),
-    };
-    let url = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
+        Some(Value::Str(s)) => s.to_ascii_uppercase(),
         other => {
             return Err(crate::safety::bad_arg(
                 "web_rest_api",
-                "String",
+                "method: String",
                 other.map(|v| v.type_name()).unwrap_or("nothing"),
             ))
         }
     };
-    guard_network("web_rest_api", &url)?;
-    let body = args
-        .get(2)
-        .map(|v| serde_json::to_string(&value_to_json(v.clone())).unwrap_or_default());
-    let headers = args.get(3).and_then(|v| match v {
-        Value::Record(r) => Some(r.clone()),
-        _ => None,
-    });
+    if !WEB_METHODS.contains(&method.as_str()) {
+        return Err(crate::safety::bad_arg(
+            "web_rest_api",
+            &format!("method: one of {}", WEB_METHODS.join(", ")),
+            &method,
+        ));
+    }
+    let url = web_http_url(
+        "web_rest_api",
+        web_text_arg("web_rest_api", &args, 1, WEB_URL_EXPECTED)?,
+    )?;
+    let body = match args.get(2) {
+        None => None,
+        Some(v) => Some(
+            serde_json::to_string(&value_to_json(v.clone())).map_err(|e| {
+                crate::safety::bad_arg(
+                    "web_rest_api",
+                    "a value that encodes as JSON",
+                    &e.to_string(),
+                )
+            })?,
+        ),
+    };
 
-    let mut cmd = std::process::Command::new("curl");
-    cmd.args(["-sS", "-X", &method]);
-
-    // Add headers
-    if let Some(hdrs) = headers {
-        for (k, v) in hdrs {
-            if let Value::Str(val) = v {
-                cmd.args(["-H", &format!("{}: {}", k, val)]);
+    // Headers are checked in full before any request is made. A value with a
+    // CR or LF would start a new header line, so it is refused, not sent.
+    let mut headers: Vec<String> = Vec::new();
+    let mut has_content_type = false;
+    match args.get(3) {
+        None => {}
+        Some(Value::Record(map)) => {
+            for (name, value) in map {
+                if !web_header_name_ok(name) {
+                    return Err(crate::safety::bad_arg(
+                        "web_rest_api",
+                        "a header name of letters, digits and !#$%&'*+-.^_`|~",
+                        name,
+                    ));
+                }
+                let Value::Str(val) = value else {
+                    return Err(crate::safety::bad_arg(
+                        "web_rest_api",
+                        &format!("header {name}: String"),
+                        value.type_name(),
+                    ));
+                };
+                if val.chars().any(|c| c.is_control()) {
+                    return Err(crate::safety::bad_arg(
+                        "web_rest_api",
+                        &format!("header {name}: a value without control characters"),
+                        "a value containing a CR, LF or other control character",
+                    ));
+                }
+                if name.eq_ignore_ascii_case("content-type") {
+                    has_content_type = true;
+                }
+                headers.push(format!("{name}: {val}"));
             }
         }
-    }
-
-    // Add body
-    if let Some(b) = body {
-        cmd.args(["-H", "Content-Type: application/json", "-d", &b]);
-    }
-
-    cmd.arg(&url);
-
-    let output = cmd
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_rest_api", "curl", &e))?;
-    if output.status.success() {
-        let json_str = String::from_utf8_lossy(&output.stdout);
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-            return Ok(json_to_value(json));
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "web_rest_api",
+                "headers: Record",
+                other.type_name(),
+            ))
         }
-        return Ok(Value::Str(json_str.to_string()));
     }
-    Ok(Value::Null)
+
+    guard_network("web_rest_api", &url)?;
+    let mut argv: Vec<&str> = vec!["-X", method.as_str()];
+    for header in &headers {
+        argv.push("-H");
+        argv.push(header.as_str());
+    }
+    if let Some(data) = body.as_deref() {
+        if !has_content_type {
+            argv.extend(["-H", "Content-Type: application/json"]);
+        }
+        argv.extend(["--data-raw", data]);
+    }
+    argv.push(url.as_str());
+    let run = web_curl("web_rest_api", &argv)?;
+    let response = web_body("web_rest_api", run)?;
+    match serde_json::from_slice::<serde_json::Value>(&response) {
+        Ok(json) => Ok(json_to_value(json)),
+        Err(_) => Ok(web_text(response)),
+    }
 }
 
-fn bi_web_websocket(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
+fn bi_web_websocket(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // Refused before anything is opened. This is a stub: the builtin needs a
+    // WebSocket client dependency, and that decision has not been made.
+    web_no_input("web_websocket", &input)?;
     Err(crate::safety::unimplemented(
         "web_websocket",
         "opening a WebSocket is not implemented; NOTHING WAS DONE",
@@ -33258,137 +33640,81 @@ fn bi_web_websocket(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_web_graphql(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_graphql",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+fn bi_web_graphql(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_graphql", &input)?;
+    let url = web_http_url(
+        "web_graphql",
+        web_text_arg("web_graphql", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
+    let query = web_text_arg("web_graphql", &args, 1, "query: String")?;
+    let variables = args
+        .get(2)
+        .map(|v| value_to_json(v.clone()))
+        .unwrap_or(serde_json::Value::Null);
+    let body = serde_json::json!({ "query": query, "variables": variables }).to_string();
     guard_network("web_graphql", &url)?;
-    let query = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_graphql",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let variables = args.get(2).map(|v| value_to_json(v.clone()));
-
-    let body = serde_json::json!({
-        "query": query,
-        "variables": variables.unwrap_or(serde_json::Value::Null)
-    });
-
-    let output = std::process::Command::new("curl")
-        .args([
-            "-sS",
+    let run = web_curl(
+        "web_graphql",
+        &[
             "-X",
             "POST",
             "-H",
             "Content-Type: application/json",
-            "-d",
-            &body.to_string(),
+            "--data-raw",
+            &body,
             &url,
-        ])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_graphql", "curl", &e))?;
-
-    if output.status.success() {
-        let json_str = String::from_utf8_lossy(&output.stdout);
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-            return Ok(json_to_value(json));
-        }
-    }
-    Ok(Value::Null)
+        ],
+    )?;
+    web_json_value("web_graphql", &web_body("web_graphql", run)?)
 }
 
-fn bi_web_check_url(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_check_url",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+fn bi_web_check_url(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_check_url", &input)?;
+    let url = web_http_url(
+        "web_check_url",
+        web_text_arg("web_check_url", &args, 0, WEB_URL_EXPECTED)?,
+    )?;
     guard_network("web_check_url", &url)?;
-
-    let output = std::process::Command::new("curl")
-        .args(["-sS", "-o", "/dev/null", "-w", "%{http_code}", "-L", &url])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("web_check_url", "curl", &e))?;
-
-    if output.status.success() {
-        let code: u16 = String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .parse()
-            .unwrap_or(0);
-        return Ok(Value::Bool((200..400).contains(&code)));
-    }
-    Ok(Value::Bool(false))
+    // The body goes to the null device; stdout carries only the status code.
+    let sink = if cfg!(windows) { "NUL" } else { "/dev/null" };
+    let run = web_curl(
+        "web_check_url",
+        &["-L", "-o", sink, "-w", "%{http_code}", &url],
+    )?;
+    let text = String::from_utf8_lossy(&web_body("web_check_url", run)?).into_owned();
+    let code: u16 = text.trim().parse().map_err(|_| {
+        web_failure(
+            "web_check_url",
+            format!("curl printed no HTTP status code: {:?}", text.trim()),
+            "retry the call",
+        )
+    })?;
+    // A transport failure is an error above, so `false` means the server
+    // answered with an error status.
+    Ok(Value::Bool((200..400).contains(&code)))
 }
 
-fn bi_web_robots_txt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_robots_txt",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    // Parse URL to get base
-    let base = if url.starts_with("http") {
-        let parts: Vec<&str> = url.splitn(4, '/').collect();
-        if parts.len() >= 3 {
-            format!("{}//{}", parts[0], parts[2])
-        } else {
-            url.clone()
-        }
-    } else {
-        format!("https://{}", url)
-    };
-
-    bi_web_fetch(vec![Value::Str(format!("{}/robots.txt", base))], None)
+/// The origin (`scheme://host[:port]`) of an absolute http or https URL. A bare
+/// host name is refused: guessing a scheme for it would request a host the
+/// caller did not name.
+fn web_site_root(builtin: &str, args: &[Value]) -> Result<String> {
+    let text = web_text_arg(builtin, args, 0, WEB_URL_EXPECTED)?;
+    let normalised = web_http_url(builtin, text)?;
+    let parsed = url::Url::parse(&normalised)
+        .map_err(|e| crate::safety::bad_arg(builtin, WEB_URL_EXPECTED, &e.to_string()))?;
+    Ok(parsed.origin().ascii_serialization())
 }
 
-fn bi_web_sitemap(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let url = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "web_sitemap",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+fn bi_web_robots_txt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_robots_txt", &input)?;
+    let url = format!("{}/robots.txt", web_site_root("web_robots_txt", &args)?);
+    web_get_body("web_robots_txt", &url)
+}
 
-    let base = if url.starts_with("http") {
-        let parts: Vec<&str> = url.splitn(4, '/').collect();
-        if parts.len() >= 3 {
-            format!("{}//{}", parts[0], parts[2])
-        } else {
-            url.clone()
-        }
-    } else {
-        format!("https://{}", url)
-    };
-
-    bi_web_fetch(vec![Value::Str(format!("{}/sitemap.xml", base))], None)
+fn bi_web_sitemap(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    web_no_input("web_sitemap", &input)?;
+    let url = format!("{}/sitemap.xml", web_site_root("web_sitemap", &args)?);
+    web_get_body("web_sitemap", &url)
 }
 
 fn bi_web_extract_emails(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -33557,12 +33883,10 @@ fn bi_web_json_path(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(current)
 }
 
-fn bi_web_xpath(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
+fn bi_web_xpath(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // Refused before anything runs. This is a stub: querying XPath needs an XML
+    // dependency, and that decision has not been made.
+    web_no_input("web_xpath", &input)?;
     Err(crate::safety::unimplemented(
         "web_xpath",
         "querying with XPath is not implemented; NOTHING WAS DONE",
