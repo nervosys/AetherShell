@@ -46682,42 +46682,271 @@ fn bi_podman_pull(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // ============================================================================
 
 // ---------------------------------------------------------------------------
-// Helper: run kubectl with JSON output and parse the result
+// kubectl runner shared by every k8s_* builtin.
+//
+// argv only, never a shell. A hard deadline ends a call that hangs (a rollout
+// that never finishes, an API server that does not answer). Output is bounded:
+// stdout is held up to `max_bytes` and refused beyond that, and stderr keeps
+// only its tail. A nonzero exit is a coded E_TOOL_FAILED carrying that tail; a
+// kubectl that is not installed is E_TOOL_MISSING.
 // ---------------------------------------------------------------------------
-fn kubectl_json(args: &[&str]) -> Result<Value> {
-    let output = std::process::Command::new("kubectl")
+
+/// How long one kubectl call may run before it is killed.
+const K8S_DEADLINE_SECS: u64 = 30;
+/// Largest text output: describe, logs, apply, exec, cluster-info, top.
+const K8S_MAX_TEXT: usize = 4 * 1024 * 1024;
+/// Largest JSON output: get and the list builtins.
+const K8S_MAX_JSON: usize = 16 * 1024 * 1024;
+/// The last bytes of stderr kept for a failure message.
+const K8S_STDERR_TAIL: usize = 2048;
+/// Log lines k8s_logs returns when no tail is given, and the most it will return.
+const K8S_LOG_DEFAULT_TAIL: i64 = 200;
+const K8S_LOG_MAX_TAIL: i64 = 10_000;
+/// Largest replica count k8s_scale will request.
+const K8S_MAX_REPLICAS: i64 = 1_000;
+/// Most argv elements k8s_exec will pass to a container.
+const K8S_MAX_EXEC_ARGV: usize = 256;
+
+/// A check that turns one caller string into a value kubectl may be given.
+type K8sCheck = fn(&str, &str, &str) -> Result<String>;
+
+/// Read a pipe to its end, holding at most `limit` bytes. The rest is drained
+/// and counted, not stored, so the child never blocks on a full pipe while the
+/// deadline runs. The flag reports whether the output was larger than `limit`.
+fn k8s_read_head(mut pipe: impl std::io::Read, limit: usize) -> (Vec<u8>, bool) {
+    let mut kept: Vec<u8> = Vec::new();
+    let mut total: usize = 0;
+    let mut chunk = [0u8; 8192];
+    loop {
+        match pipe.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                total = total.saturating_add(n);
+                let room = limit.saturating_sub(kept.len());
+                kept.extend_from_slice(&chunk[..n.min(room)]);
+            }
+        }
+    }
+    (kept, total > limit)
+}
+
+/// Read a pipe to its end, keeping only its last `keep` bytes.
+fn k8s_read_tail(mut pipe: impl std::io::Read, keep: usize) -> Vec<u8> {
+    let mut buf: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match pipe.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if buf.len() > 2 * keep {
+                    let cut = buf.len() - keep;
+                    buf.drain(..cut);
+                }
+            }
+        }
+    }
+    if buf.len() > keep {
+        let cut = buf.len() - keep;
+        buf.drain(..cut);
+    }
+    buf
+}
+
+/// Run `kubectl` with `args` and return its stdout.
+fn kubectl_run(builtin: &str, args: &[&str], max_bytes: usize) -> Result<String> {
+    use std::process::Stdio;
+    let command = format!("kubectl {}", args.join(" "));
+    let mut child = std::process::Command::new("kubectl")
         .args(args)
-        .output()
-        .map_err(|e| crate::safety::tool_missing("kubectl", "kubectl", &e.to_string()))?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "kubectl {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| crate::safety::spawn_error(builtin, "kubectl", &e))?;
+    let out_pipe = child.stdout.take();
+    let err_pipe = child.stderr.take();
+    let out_h = std::thread::spawn(move || match out_pipe {
+        Some(pipe) => k8s_read_head(pipe, max_bytes),
+        None => (Vec::new(), false),
+    });
+    let err_h = std::thread::spawn(move || match err_pipe {
+        Some(pipe) => k8s_read_tail(pipe, K8S_STDERR_TAIL),
+        None => Vec::new(),
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(K8S_DEADLINE_SECS);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::safety::budget_exceeded(
+                    builtin,
+                    format!("`{command}` did not finish within {K8S_DEADLINE_SECS} s"),
+                    "check that the cluster answers, or narrow the call",
+                ));
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            Err(e) => {
+                return Err(crate::safety::tool_failed(
+                    builtin,
+                    &command,
+                    None,
+                    &e.to_string(),
+                ))
+            }
+        }
+    };
+    let (stdout, too_large) = out_h.join().unwrap_or_else(|_| (Vec::new(), false));
+    let stderr = err_h.join().unwrap_or_default();
+    if !status.success() {
+        return Err(crate::safety::tool_failed(
+            builtin,
+            &command,
+            status.code(),
+            &String::from_utf8_lossy(&stderr),
         ));
     }
-    let json_str = String::from_utf8_lossy(&output.stdout);
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-        Ok(json_to_value(json))
-    } else {
-        Ok(Value::Str(json_str.to_string()))
+    if too_large {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("`{command}` printed more than {max_bytes} bytes"),
+            "narrow the call: give a namespace or a name, or ask for fewer lines",
+        ));
+    }
+    Ok(String::from_utf8_lossy(&stdout).into_owned())
+}
+
+/// Run `kubectl` with JSON output and parse it.
+fn kubectl_json(builtin: &str, args: &[&str], max_bytes: usize) -> Result<Value> {
+    let text = kubectl_run(builtin, args, max_bytes)?;
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(json) => Ok(json_to_value(json)),
+        Err(e) => Err(crate::safety::tool_failed(
+            builtin,
+            &format!("kubectl {}", args.join(" ")),
+            Some(0),
+            &format!("printed output that is not JSON ({e})"),
+        )),
     }
 }
 
-// Helper: run kubectl and return stdout as a plain string
-fn kubectl_text(args: &[&str]) -> Result<String> {
-    let output = std::process::Command::new("kubectl")
-        .args(args)
-        .output()
-        .map_err(|e| crate::safety::tool_missing("kubectl", "kubectl", &e.to_string()))?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "kubectl {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr)
-        ));
+/// A resource type, object name, context or namespace as kubectl will read it:
+/// 1-253 letters, digits or `-._/:@,`, and never a leading `-`, which kubectl
+/// would take for a flag. The leading-`-` refusal is the option-injection
+/// guard; the character set keeps everything else inside what names can be.
+fn k8s_token(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    let well_formed = !value.is_empty()
+        && value.len() <= 253
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-._/:@,".contains(c));
+    if !well_formed {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be 1-253 characters of letters, digits or -._/:@, (got {value:?})"
+        )));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Ok(value.to_string())
+}
+
+/// A Kubernetes object name or namespace: the token rule, narrowed to letters,
+/// digits, `-` and `.`, so no resource path or list separator can be smuggled
+/// into a `type/name` argument.
+fn k8s_object_name(builtin: &str, what: &str, value: &str) -> Result<String> {
+    let name = k8s_token(builtin, what, value)?;
+    if name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+    {
+        Ok(name)
+    } else {
+        Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} is a Kubernetes object name (letters, digits, '-' and '.'), got {value:?}"
+        )))
+    }
+}
+
+/// The string argument at `index`, checked, when it is present.
+fn k8s_arg(
+    builtin: &str,
+    what: &str,
+    args: &[Value],
+    index: usize,
+    check: K8sCheck,
+) -> Result<Option<String>> {
+    match args.get(index) {
+        None => Ok(None),
+        Some(Value::Str(s)) => check(builtin, what, s).map(Some),
+        Some(other) => Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be a String, got {}",
+            other.type_name()
+        ))),
+    }
+}
+
+/// The string argument at `index`, checked, and required.
+fn k8s_need(
+    builtin: &str,
+    what: &str,
+    args: &[Value],
+    index: usize,
+    check: K8sCheck,
+) -> Result<String> {
+    k8s_arg(builtin, what, args, index, check)?
+        .ok_or_else(|| crate::safety::arg_err(format!("{builtin} requires {what}")))
+}
+
+/// Refuse a pipeline subject. None of the k8s_* builtins takes one, and an
+/// ignored subject would look like a filtered result.
+fn k8s_no_input(builtin: &str, input: &Option<Value>) -> Result<()> {
+    if input.is_some() {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin} takes no pipeline input"
+        )));
+    }
+    Ok(())
+}
+
+/// Refuse more arguments than the builtin takes; none is silently dropped.
+fn k8s_max_args(builtin: &str, args: &[Value], max: usize) -> Result<()> {
+    if args.len() > max {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin} takes at most {max} argument(s), got {}",
+            args.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Append `-n <namespace>` when a namespace was given.
+fn k8s_push_ns<'a>(cmd: &mut Vec<&'a str>, ns: Option<&'a str>) {
+    if let Some(ns) = ns {
+        cmd.extend(["-n", ns]);
+    }
+}
+
+/// `kubectl get <resource> -o json`, for the list builtins. A namespaced list
+/// takes an optional namespace; a cluster-scoped one takes no arguments.
+fn k8s_list(
+    builtin: &str,
+    resource: &str,
+    namespaced: bool,
+    args: &[Value],
+    input: Option<Value>,
+) -> Result<Value> {
+    k8s_no_input(builtin, &input)?;
+    k8s_max_args(builtin, args, usize::from(namespaced))?;
+    let ns = if namespaced {
+        k8s_arg(builtin, "namespace", args, 0, k8s_object_name)?
+    } else {
+        None
+    };
+    let mut cmd: Vec<&str> = vec!["get", "-o", "json"];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    cmd.extend(["--", resource]);
+    kubectl_json(builtin, &cmd, K8S_MAX_JSON)
 }
 
 // Helper: run helm with JSON output and parse the result
@@ -46793,430 +47022,367 @@ fn parse_kubectl_table(text: &str) -> Vec<Value> {
 // ---------------------------------------------------------------------------
 // 850: bi_k8s_get - kubectl get <resource> [-n namespace] -o json
 // ---------------------------------------------------------------------------
-fn bi_k8s_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let resource = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.get requires resource type as first argument",
-            ))
-        }
-    };
-    let mut cmd_args = vec!["get", &resource, "-o", "json"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.get(1) {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    kubectl_json(&cmd_args)
+fn bi_k8s_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("k8s_get", &input)?;
+    k8s_max_args("k8s_get", &args, 2)?;
+    let resource = k8s_need("k8s_get", "a resource type", &args, 0, k8s_token)?;
+    let ns = k8s_arg("k8s_get", "namespace", &args, 1, k8s_object_name)?;
+    let mut cmd: Vec<&str> = vec!["get", "-o", "json"];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    cmd.extend(["--", resource.as_str()]);
+    kubectl_json("k8s_get", &cmd, K8S_MAX_JSON)
 }
 
 // ---------------------------------------------------------------------------
-// 851: bi_k8s_apply - kubectl apply -f <file/url> [-n namespace]
+// 851: bi_k8s_apply - kubectl apply -f <local manifest> [-n namespace]
+//
+// The manifest is a local file inside the workspace, read through the same
+// guard as the file builtins before kubectl is given its resolved path. A URL
+// is refused: kubectl would fetch it outside that guard.
 // ---------------------------------------------------------------------------
-fn bi_k8s_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let file = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.apply requires a file or URL as first argument",
-            ))
-        }
+fn bi_k8s_apply(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_apply";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    let Some(Value::Str(file)) = args.first() else {
+        return Err(crate::safety::arg_err(
+            "k8s_apply requires a manifest file path as first argument",
+        ));
     };
-    let mut cmd_args = vec!["apply", "-f", &file];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.get(1) {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
+    crate::safety::reject_option_like(B, std::slice::from_ref(file))?;
+    if file.contains("://") {
+        return Err(crate::safety::arg_err(
+            "k8s_apply reads a local manifest; a URL is not fetched, because kubectl would read it outside the workspace guard",
+        ));
     }
-    let text = kubectl_text(&cmd_args)?;
+    let ns = k8s_arg(B, "namespace", &args, 1, k8s_object_name)?;
+    let resolved = crate::safety::resolve_path_str(file);
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: B,
+        effect: crate::safety::Effect::ReadLocal,
+        what: "read manifest",
+        targets: vec![resolved.clone()],
+        blast_radius: serde_json::json!({ "files": 1 }),
+        reversible: true,
+        fs_paths: true,
+    })?;
+    let path = crate::security::validate_read_path(&resolved)?;
+    let meta = std::fs::metadata(&path).map_err(|e| crate::safety::fs_error(B, &path, &e))?;
+    if !meta.is_file() {
+        return Err(crate::safety::arg_err(format!(
+            "{B} requires a regular file, got {resolved:?}"
+        )));
+    }
+    let path_text = path.display().to_string();
+    let mut cmd: Vec<&str> = vec!["apply", "-f", path_text.as_str()];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    let text = kubectl_run(B, &cmd, K8S_MAX_TEXT)?;
     Ok(Value::Str(text.trim().to_string()))
 }
 
 // ---------------------------------------------------------------------------
 // 852: bi_k8s_delete - kubectl delete <resource> <name> [-n namespace]
 // ---------------------------------------------------------------------------
-fn bi_k8s_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let resource = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.delete requires resource type as first argument",
-            ))
-        }
-    };
-    let name = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.delete requires resource name as second argument",
-            ))
-        }
-    };
+fn bi_k8s_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_delete";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 3)?;
+    let resource = k8s_need(B, "a resource type", &args, 0, k8s_token)?;
+    let name = k8s_need(B, "a resource name", &args, 1, k8s_object_name)?;
+    let ns = k8s_arg(B, "namespace", &args, 2, k8s_object_name)?;
     crate::safety::guard(crate::safety::GuardCtx {
-        builtin: "k8s_delete",
+        builtin: B,
         effect: crate::safety::Effect::Destructive,
         what: "k8s_delete",
         targets: vec![format!("{}/{}", resource, name)],
-        blast_radius: serde_json::json!({ "resource": resource, "name": name }),
+        blast_radius: serde_json::json!({ "resource": resource, "name": name, "namespace": ns }),
         reversible: false,
         fs_paths: false,
     })?;
-    let mut cmd_args = vec!["delete", &resource, &name];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.get(2) {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    let text = kubectl_text(&cmd_args)?;
+    let mut cmd: Vec<&str> = vec!["delete"];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    cmd.extend(["--", resource.as_str(), name.as_str()]);
+    let text = kubectl_run(B, &cmd, K8S_MAX_TEXT)?;
     Ok(Value::Str(text.trim().to_string()))
 }
 
 // ---------------------------------------------------------------------------
 // 853: bi_k8s_describe - kubectl describe <resource> <name> [-n namespace]
 // ---------------------------------------------------------------------------
-fn bi_k8s_describe(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let resource = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.describe requires resource type as first argument",
-            ))
-        }
-    };
-    let name = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.describe requires resource name as second argument",
-            ))
-        }
-    };
-    let mut cmd_args = vec!["describe", &resource, &name];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.get(2) {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    let text = kubectl_text(&cmd_args)?;
+fn bi_k8s_describe(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_describe";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 3)?;
+    let resource = k8s_need(B, "a resource type", &args, 0, k8s_token)?;
+    let name = k8s_need(B, "a resource name", &args, 1, k8s_object_name)?;
+    let ns = k8s_arg(B, "namespace", &args, 2, k8s_object_name)?;
+    let mut cmd: Vec<&str> = vec!["describe"];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    cmd.extend(["--", resource.as_str(), name.as_str()]);
+    let text = kubectl_run(B, &cmd, K8S_MAX_TEXT)?;
     Ok(Value::Str(text.trim().to_string()))
 }
 
 // ---------------------------------------------------------------------------
-// 854: bi_k8s_logs - kubectl logs <pod> [-n namespace] [--tail N]
+// 854: bi_k8s_logs - kubectl logs <pod> [-n namespace] --tail=N
+//
+// Always bounded: the tail defaults to K8S_LOG_DEFAULT_TAIL lines and cannot
+// exceed K8S_LOG_MAX_TAIL.
 // ---------------------------------------------------------------------------
-fn bi_k8s_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pod = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.logs requires pod name as first argument",
-            ))
+fn bi_k8s_logs(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_logs";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 3)?;
+    let pod = k8s_need(B, "a pod name", &args, 0, k8s_object_name)?;
+    let ns = k8s_arg(B, "namespace", &args, 1, k8s_object_name)?;
+    let tail = match args.get(2) {
+        None => K8S_LOG_DEFAULT_TAIL,
+        Some(Value::Int(n)) if (1..=K8S_LOG_MAX_TAIL).contains(n) => *n,
+        Some(Value::Int(n)) => {
+            return Err(crate::safety::arg_err(format!(
+                "k8s_logs tail must be in 1..={K8S_LOG_MAX_TAIL} lines, got {n}"
+            )))
+        }
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "k8s_logs tail must be an Int, got {}",
+                other.type_name()
+            )))
         }
     };
-    let mut cmd_args = vec!["logs".to_string(), pod];
-    if let Some(Value::Str(ns)) = args.get(1) {
-        cmd_args.push("-n".to_string());
-        cmd_args.push(ns.clone());
-    }
-    if let Some(Value::Int(n)) = args.get(2) {
-        cmd_args.push("--tail".to_string());
-        cmd_args.push(n.to_string());
-    }
-    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-    let text = kubectl_text(&refs)?;
-    Ok(Value::Str(text))
+    let tail_flag = format!("--tail={tail}");
+    let mut cmd: Vec<&str> = vec!["logs", tail_flag.as_str()];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    cmd.extend(["--", pod.as_str()]);
+    Ok(Value::Str(kubectl_run(B, &cmd, K8S_MAX_TEXT)?))
 }
 
 // ---------------------------------------------------------------------------
-// 855: bi_k8s_exec - kubectl exec <pod> [-n namespace] -- <command...>
+// 855: bi_k8s_exec - kubectl exec <pod> [-n namespace] -- <argv...>
+//
+// The command is an Array of Strings, the argv the container runs. A string is
+// refused rather than split on spaces, and nothing is run through a shell.
 // ---------------------------------------------------------------------------
-fn bi_k8s_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pod = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.exec requires pod name as first argument",
-            ))
-        }
+fn bi_k8s_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_exec";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 3)?;
+    let pod = k8s_need(B, "a pod name", &args, 0, k8s_object_name)?;
+    let Some(Value::Array(items)) = args.get(1) else {
+        return Err(crate::safety::arg_err(
+            "k8s_exec command must be an Array of Strings (the argv); a shell string is not run",
+        ));
     };
-    let command = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.exec requires command as second argument",
-            ))
+    if items.is_empty() || items.len() > K8S_MAX_EXEC_ARGV {
+        return Err(crate::safety::arg_err(format!(
+            "k8s_exec command must have 1..={K8S_MAX_EXEC_ARGV} elements, got {}",
+            items.len()
+        )));
+    }
+    let mut argv: Vec<String> = Vec::with_capacity(items.len());
+    for item in items {
+        match item {
+            Value::Str(s) if !s.contains('\0') => argv.push(s.clone()),
+            _ => {
+                return Err(crate::safety::arg_err(
+                    "k8s_exec command elements must be Strings without NUL bytes",
+                ))
+            }
         }
-    };
-    crate::safety::guard_exec("k8s_exec", format!("kubectl exec {pod} -- {command}"))?;
-    let mut cmd_args = vec!["exec".to_string(), pod];
-    if let Some(Value::Str(ns)) = args.get(2) {
-        cmd_args.push("-n".to_string());
-        cmd_args.push(ns.clone());
     }
-    cmd_args.push("--".to_string());
-    for part in command.split_whitespace() {
-        cmd_args.push(part.to_string());
-    }
-    let refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-    let text = kubectl_text(&refs)?;
-    Ok(Value::Str(text))
+    let ns = k8s_arg(B, "namespace", &args, 2, k8s_object_name)?;
+    crate::safety::guard_exec(B, format!("kubectl exec {pod} -- {}", argv.join(" ")))?;
+    let mut cmd: Vec<&str> = vec!["exec", pod.as_str()];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    cmd.push("--");
+    cmd.extend(argv.iter().map(String::as_str));
+    Ok(Value::Str(kubectl_run(B, &cmd, K8S_MAX_TEXT)?))
 }
 
 // ---------------------------------------------------------------------------
-// 856: bi_k8s_pods - kubectl get pods [-n namespace] -o json (convenience)
+// 856-866: list builtins (kubectl get <resource> -o json)
 // ---------------------------------------------------------------------------
-fn bi_k8s_pods(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args = vec!["get", "pods", "-o", "json"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.first() {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    kubectl_json(&cmd_args)
+fn bi_k8s_pods(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_list("k8s_pods", "pods", true, &args, input)
+}
+
+fn bi_k8s_services(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_list("k8s_services", "services", true, &args, input)
+}
+
+fn bi_k8s_deployments(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_list("k8s_deployments", "deployments", true, &args, input)
+}
+
+fn bi_k8s_namespaces(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_list("k8s_namespaces", "namespaces", false, &args, input)
+}
+
+fn bi_k8s_nodes(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_list("k8s_nodes", "nodes", false, &args, input)
+}
+
+fn bi_k8s_events(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_list("k8s_events", "events", true, &args, input)
+}
+
+fn bi_k8s_configmaps(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_list("k8s_configmaps", "configmaps", true, &args, input)
+}
+
+fn bi_k8s_ingresses(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_list("k8s_ingresses", "ingresses", true, &args, input)
 }
 
 // ---------------------------------------------------------------------------
-// 857: bi_k8s_services - kubectl get services [-n namespace] -o json
+// 863: bi_k8s_secrets - secret names only
+//
+// The jsonpath selects metadata.name and nothing else, so no secret value is
+// read into the shell.
 // ---------------------------------------------------------------------------
-fn bi_k8s_services(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args = vec!["get", "services", "-o", "json"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.first() {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    kubectl_json(&cmd_args)
-}
-
-// ---------------------------------------------------------------------------
-// 858: bi_k8s_deployments - kubectl get deployments [-n namespace] -o json
-// ---------------------------------------------------------------------------
-fn bi_k8s_deployments(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args = vec!["get", "deployments", "-o", "json"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.first() {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    kubectl_json(&cmd_args)
-}
-
-// ---------------------------------------------------------------------------
-// 859: bi_k8s_namespaces - kubectl get namespaces -o json
-// ---------------------------------------------------------------------------
-fn bi_k8s_namespaces(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    kubectl_json(&["get", "namespaces", "-o", "json"])
-}
-
-// ---------------------------------------------------------------------------
-// 860: bi_k8s_nodes - kubectl get nodes -o json
-// ---------------------------------------------------------------------------
-fn bi_k8s_nodes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    kubectl_json(&["get", "nodes", "-o", "json"])
-}
-
-// ---------------------------------------------------------------------------
-// 861: bi_k8s_events - kubectl get events [-n namespace] -o json
-// ---------------------------------------------------------------------------
-fn bi_k8s_events(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args = vec!["get", "events", "-o", "json"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.first() {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    kubectl_json(&cmd_args)
-}
-
-// ---------------------------------------------------------------------------
-// 862: bi_k8s_configmaps - kubectl get configmaps [-n namespace] -o json
-// ---------------------------------------------------------------------------
-fn bi_k8s_configmaps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args = vec!["get", "configmaps", "-o", "json"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.first() {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    kubectl_json(&cmd_args)
-}
-
-// ---------------------------------------------------------------------------
-// 863: bi_k8s_secrets - kubectl get secrets [-n namespace] -o json (names only)
-// ---------------------------------------------------------------------------
-fn bi_k8s_secrets(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Return only metadata (names/types), not secret data
-    let mut cmd_args = vec!["get", "secrets", "-o", "jsonpath={.items[*].metadata.name}"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.first() {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    let text = kubectl_text(&cmd_args)?;
+fn bi_k8s_secrets(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_secrets";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let ns = k8s_arg(B, "namespace", &args, 0, k8s_object_name)?;
+    let mut cmd: Vec<&str> = vec!["get", "-o", "jsonpath={.items[*].metadata.name}"];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    cmd.extend(["--", "secrets"]);
+    let text = kubectl_run(B, &cmd, K8S_MAX_JSON)?;
     let names: Vec<Value> = text
         .split_whitespace()
-        .filter(|s| !s.is_empty())
         .map(|s| Value::Str(s.to_string()))
         .collect();
     Ok(Value::Array(names))
 }
 
 // ---------------------------------------------------------------------------
-// 864: bi_k8s_ingresses - kubectl get ingresses [-n namespace] -o json
+// 865-866: bi_k8s_rollout_status / bi_k8s_rollout_restart
+//
+// `rollout status` is given its own deadline, so kubectl ends a rollout that
+// never completes with a coded failure before the call's deadline kills it.
 // ---------------------------------------------------------------------------
-fn bi_k8s_ingresses(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args = vec!["get", "ingresses", "-o", "json"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.first() {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    kubectl_json(&cmd_args)
-}
-
-// ---------------------------------------------------------------------------
-// 865: bi_k8s_rollout_status - kubectl rollout status deployment/<name> [-n ns]
-// ---------------------------------------------------------------------------
-fn bi_k8s_rollout_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.rollout_status requires deployment name",
-            ))
-        }
-    };
-    let resource = format!("deployment/{}", name);
-    let mut cmd_args = vec!["rollout", "status", &resource];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.get(1) {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    let text = kubectl_text(&cmd_args)?;
+fn bi_k8s_rollout_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_rollout_status";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    let name = k8s_need(B, "a deployment name", &args, 0, k8s_object_name)?;
+    let ns = k8s_arg(B, "namespace", &args, 1, k8s_object_name)?;
+    let target = format!("deployment/{name}");
+    let mut cmd: Vec<&str> = vec!["rollout", "status", "--timeout=25s"];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    cmd.extend(["--", target.as_str()]);
+    let text = kubectl_run(B, &cmd, K8S_MAX_TEXT)?;
     Ok(Value::Str(text.trim().to_string()))
 }
 
-// ---------------------------------------------------------------------------
-// 866: bi_k8s_rollout_restart - kubectl rollout restart deployment/<name> [-n ns]
-// ---------------------------------------------------------------------------
-fn bi_k8s_rollout_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.rollout_restart requires deployment name",
-            ))
-        }
-    };
-    let resource = format!("deployment/{}", name);
-    let mut cmd_args = vec!["rollout", "restart", &resource];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.get(1) {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    let text = kubectl_text(&cmd_args)?;
+fn bi_k8s_rollout_restart(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_rollout_restart";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 2)?;
+    let name = k8s_need(B, "a deployment name", &args, 0, k8s_object_name)?;
+    let ns = k8s_arg(B, "namespace", &args, 1, k8s_object_name)?;
+    let target = format!("deployment/{name}");
+    let mut cmd: Vec<&str> = vec!["rollout", "restart"];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    cmd.extend(["--", target.as_str()]);
+    let text = kubectl_run(B, &cmd, K8S_MAX_TEXT)?;
     Ok(Value::Str(text.trim().to_string()))
 }
 
 // ---------------------------------------------------------------------------
 // 867: bi_k8s_scale - kubectl scale deployment/<name> --replicas=N [-n ns]
 // ---------------------------------------------------------------------------
-fn bi_k8s_scale(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "k8s.scale requires deployment name as first argument",
-            ))
-        }
-    };
+fn bi_k8s_scale(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_scale";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 3)?;
+    let name = k8s_need(B, "a deployment name", &args, 0, k8s_object_name)?;
     let replicas = match args.get(1) {
-        Some(Value::Int(n)) => *n,
-        _ => {
+        Some(Value::Int(n)) if (0..=K8S_MAX_REPLICAS).contains(n) => *n,
+        Some(Value::Int(n)) => {
+            return Err(crate::safety::arg_err(format!(
+                "k8s_scale replicas must be in 0..={K8S_MAX_REPLICAS}, got {n}"
+            )))
+        }
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "k8s_scale replicas must be an Int, got {}",
+                other.type_name()
+            )))
+        }
+        None => {
             return Err(crate::safety::arg_err(
-                "k8s.scale requires replica count (Int) as second argument",
+                "k8s_scale requires a replica count as second argument",
             ))
         }
     };
-    let resource = format!("deployment/{}", name);
-    let replicas_flag = format!("--replicas={}", replicas);
-    let mut cmd_args = vec!["scale", &resource, &replicas_flag];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.get(2) {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    let text = kubectl_text(&cmd_args)?;
+    let ns = k8s_arg(B, "namespace", &args, 2, k8s_object_name)?;
+    let target = format!("deployment/{name}");
+    let replicas_flag = format!("--replicas={replicas}");
+    let mut cmd: Vec<&str> = vec!["scale", replicas_flag.as_str()];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    cmd.extend(["--", target.as_str()]);
+    let text = kubectl_run(B, &cmd, K8S_MAX_TEXT)?;
     Ok(Value::Str(text.trim().to_string()))
 }
 
 // ---------------------------------------------------------------------------
 // 868: bi_k8s_top_pods - kubectl top pods [-n namespace] (parsed table)
 // ---------------------------------------------------------------------------
-fn bi_k8s_top_pods(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd_args = vec!["top", "pods", "--no-headers=false"];
-    let ns_owned;
-    if let Some(Value::Str(ns)) = args.first() {
-        ns_owned = ns.clone();
-        cmd_args.push("-n");
-        cmd_args.push(&ns_owned);
-    }
-    let text = kubectl_text(&cmd_args)?;
-    let rows = parse_kubectl_table(&text);
-    Ok(Value::Array(rows))
+fn bi_k8s_top_pods(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_top_pods";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let ns = k8s_arg(B, "namespace", &args, 0, k8s_object_name)?;
+    let mut cmd: Vec<&str> = vec!["top", "pods"];
+    k8s_push_ns(&mut cmd, ns.as_deref());
+    let text = kubectl_run(B, &cmd, K8S_MAX_TEXT)?;
+    Ok(Value::Array(parse_kubectl_table(&text)))
 }
 
 // ---------------------------------------------------------------------------
 // 869: bi_k8s_top_nodes - kubectl top nodes (parsed table)
 // ---------------------------------------------------------------------------
-fn bi_k8s_top_nodes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    let text = kubectl_text(&["top", "nodes", "--no-headers=false"])?;
-    let rows = parse_kubectl_table(&text);
-    Ok(Value::Array(rows))
+fn bi_k8s_top_nodes(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("k8s_top_nodes", &input)?;
+    k8s_max_args("k8s_top_nodes", &args, 0)?;
+    let text = kubectl_run("k8s_top_nodes", &["top", "nodes"], K8S_MAX_TEXT)?;
+    Ok(Value::Array(parse_kubectl_table(&text)))
 }
 
 // ---------------------------------------------------------------------------
-// 870: bi_k8s_context - current-context (no args) or use-context (with arg)
+// 870: bi_k8s_context - current-context (no argument) or use-context (a name)
 // ---------------------------------------------------------------------------
-fn bi_k8s_context(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if let Some(Value::Str(ctx)) = args.first() {
-        let text = kubectl_text(&["config", "use-context", ctx])?;
-        Ok(Value::Str(text.trim().to_string()))
-    } else {
-        let text = kubectl_text(&["config", "current-context"])?;
-        Ok(Value::Str(text.trim().to_string()))
-    }
+fn bi_k8s_context(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "k8s_context";
+    k8s_no_input(B, &input)?;
+    k8s_max_args(B, &args, 1)?;
+    let text = match k8s_arg(B, "a context name", &args, 0, k8s_token)? {
+        Some(ctx) => kubectl_run(
+            B,
+            &["config", "use-context", "--", ctx.as_str()],
+            K8S_MAX_TEXT,
+        )?,
+        None => kubectl_run(B, &["config", "current-context"], K8S_MAX_TEXT)?,
+    };
+    Ok(Value::Str(text.trim().to_string()))
 }
 
 // ---------------------------------------------------------------------------
 // 871: bi_k8s_contexts - kubectl config get-contexts -o name
 // ---------------------------------------------------------------------------
-fn bi_k8s_contexts(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    let text = kubectl_text(&["config", "get-contexts", "-o", "name"])?;
+fn bi_k8s_contexts(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("k8s_contexts", &input)?;
+    k8s_max_args("k8s_contexts", &args, 0)?;
+    let text = kubectl_run(
+        "k8s_contexts",
+        &["config", "get-contexts", "-o", "name"],
+        K8S_MAX_TEXT,
+    )?;
     let contexts: Vec<Value> = text
         .lines()
-        .map(|l| l.trim())
+        .map(str::trim)
         .filter(|l| !l.is_empty())
         .map(|l| Value::Str(l.to_string()))
         .collect();
@@ -47226,9 +47392,10 @@ fn bi_k8s_contexts(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // 872: bi_k8s_cluster_info - kubectl cluster-info
 // ---------------------------------------------------------------------------
-fn bi_k8s_cluster_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = args;
-    let text = kubectl_text(&["cluster-info"])?;
+fn bi_k8s_cluster_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("k8s_cluster_info", &input)?;
+    k8s_max_args("k8s_cluster_info", &args, 0)?;
+    let text = kubectl_run("k8s_cluster_info", &["cluster-info"], K8S_MAX_TEXT)?;
     Ok(Value::Str(text.trim().to_string()))
 }
 

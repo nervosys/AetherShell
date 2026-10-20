@@ -530,7 +530,10 @@ fn remote_and_container_executors_require_approval_in_agent_mode() {
         ),
         (
             "k8s_exec",
-            vec![Value::Str("pod-1".into()), Value::Str("id".into())],
+            vec![
+                Value::Str("pod-1".into()),
+                Value::Array(vec![Value::Str("id".into())]),
+            ],
         ),
         ("tool_exec", vec![Value::Str("curl".into())]),
     ] {
