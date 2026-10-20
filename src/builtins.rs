@@ -12840,21 +12840,37 @@ fn bi_pow(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // ==================== Utility Functions ====================
 
-/// exit(code?) - Exit the program
+/// exit(code?) - Exit the shell process with a status.
 /// Args:
-///   - code: Int (optional) - Exit code (default 0)
-/// Returns: Never returns
+///   - code: Int (optional) - 0..=255, default 0
+/// Returns: never; the process ends
+///
+/// A code outside 0..=255 was truncated by the OS (256 exited 0, -1 exited
+/// 255), and pipeline input and surplus arguments were dropped. All three are
+/// refused before anything ends.
 ///
 /// Example:
 ///   exit(0)     # Exit with success
-fn bi_exit(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let code = if args.is_empty() {
-        0
-    } else {
-        expect_int("exit", &args[0])?
+fn bi_exit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("exit", &input)?;
+    if args.len() > 1 {
+        return Err(crate::safety::bad_arg(
+            "exit",
+            "at most one argument, the exit code",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    let code = match args.first() {
+        None => 0,
+        Some(Value::Int(n)) if (0..=255).contains(n) => *n as i32,
+        Some(Value::Int(n)) => {
+            return Err(crate::safety::bad_arg("exit", "code: Int 0..=255", &n.to_string()))
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg("exit", "code: Int 0..=255", other.type_name()))
+        }
     };
-
-    std::process::exit(code as i32);
+    std::process::exit(code);
 }
 
 /// env(key) - Get environment variable
@@ -17494,14 +17510,16 @@ mod split_command_words_tests {
     }
 }
 
-fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    use std::process::Command;
-
-    // Security gate: require explicit opt-in
-    validate_sh_allowed()?;
+fn bi_sh(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("sh", &input)?;
+    k8s_max_args("sh", &args, 1)?;
 
     if args.is_empty() {
-        return Err(crate::safety::arg_err("sh requires command arguments"));
+        return Err(crate::safety::bad_arg(
+            "sh",
+            "a command String or an argv Array",
+            "nothing",
+        ));
     }
 
     let (program, cmd_args): (String, Vec<String>) = match &args[0] {
@@ -17532,13 +17550,19 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
         Value::Array(arr) => {
             if arr.is_empty() {
-                return Err(anyhow!("sh: empty command array"));
+                return Err(crate::safety::bad_arg(
+                    "sh",
+                    "a non-empty command",
+                    "an empty array",
+                ));
             }
             let program = match &arr[0] {
                 Value::Str(s) => s.clone(),
-                _ => {
-                    return Err(crate::safety::arg_err(
-                        "sh: first argument must be program name string",
+                other => {
+                    return Err(crate::safety::bad_arg(
+                        "sh",
+                        "a program name String as the first element",
+                        other.type_name(),
                     ))
                 }
             };
@@ -17548,17 +17572,27 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     Value::Str(s) => Ok(s.clone()),
                     Value::Int(n) => Ok(n.to_string()),
                     Value::Float(f) => Ok(f.to_string()),
-                    _ => Err(anyhow!("sh: arguments must be strings or numbers")),
+                    other => Err(crate::safety::bad_arg(
+                        "sh",
+                        "arguments that are strings or numbers",
+                        other.type_name(),
+                    )),
                 })
                 .collect();
             (program, args?)
         }
-        _ => {
-            return Err(crate::safety::arg_err(
-                "sh requires string or array of strings",
+        other => {
+            return Err(crate::safety::bad_arg(
+                "sh",
+                "a command String or an argv Array",
+                other.type_name(),
             ))
         }
     };
+
+    // Security gate: require explicit opt-in. Checked after the shape, so a
+    // malformed call says what is wrong with it whether or not sh is enabled.
+    validate_sh_allowed()?;
 
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "sh",
@@ -17572,30 +17606,34 @@ fn bi_sh(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         fs_paths: false,
     })?;
 
-    let output = Command::new(&program)
-        .args(&cmd_args)
-        .output()
-        .with_context(|| format!("sh: failed to execute '{}'", program))?;
+    // Directly, never through a shell, with stdin closed. This was
+    // `Command::output()`: no deadline, so a program that never exits held the
+    // session forever, and both streams were kept whole, so one that printed
+    // without end grew without bound. A missing program was an uncoded error.
+    let argv: Vec<&str> = cmd_args.iter().map(String::as_str).collect();
+    let run = tool_run_stderr(
+        "sh",
+        &program,
+        None,
+        &argv,
+        Keep::Tail(TOOL_KEEP_TAIL),
+        TOOL_KEEP_TAIL,
+        TOOL_LONG_DEADLINE_SECS,
+    )?;
 
-    // Audit log the execution
-    eprintln!(
-        "[SECURITY] sh() executed: program='{}', args={:?}",
-        program, cmd_args
-    );
-
+    // A nonzero exit is the program's answer, not a failure of `sh`: the record
+    // carries it, as a shell's `$?` does.
     let mut record = BTreeMap::new();
-    record.insert(
-        "stdout".to_string(),
-        Value::Str(String::from_utf8_lossy(&output.stdout).to_string()),
-    );
-    record.insert(
-        "stderr".to_string(),
-        Value::Str(String::from_utf8_lossy(&output.stderr).to_string()),
-    );
-    record.insert("success".to_string(), Value::Bool(output.status.success()));
+    record.insert("stdout".to_string(), Value::Str(run.stdout));
+    record.insert("stderr".to_string(), Value::Str(run.stderr));
+    record.insert("success".to_string(), Value::Bool(run.success));
     record.insert(
         "exit_code".to_string(),
-        Value::Int(output.status.code().unwrap_or(-1) as i64),
+        Value::Int(run.code.unwrap_or(-1) as i64),
+    );
+    record.insert(
+        "stdout_truncated".to_string(),
+        Value::Bool(run.stdout_truncated),
     );
 
     Ok(Value::Record(record))
@@ -27650,243 +27688,106 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-fn bi_svc_start(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "svc_start",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
+/// The service name `svc_start` and its siblings take: letters, digits and
+/// `-_.@:`, not beginning with `-`. Systemd units (`getty@tty1.service`),
+/// launchd labels (`com.example.agent`) and Windows service names all fit.
+fn svc_name(builtin: &str, args: &[Value], input: &Option<Value>) -> Result<String> {
+    refuse_piped(builtin, input)?;
+    k8s_max_args(builtin, args, 1)?;
+    match args.first() {
+        Some(Value::Str(s))
+            if !s.is_empty()
+                && !s.starts_with('-')
+                && s.len() <= 256
+                && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.@:".contains(c)) =>
+        {
+            Ok(s.clone())
         }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!("Start-Service {}", crate::safety::ps_quote(&name)),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_start", "powershell", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let output = std::process::Command::new("systemctl")
-            .args(["start", &name])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_start", "systemctl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("launchctl")
-            .args(["start", &name])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_start", "launchctl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[allow(unreachable_code)]
-    {
-        let _ = name;
-        Ok(Value::Bool(false))
+        Some(Value::Str(s)) => Err(crate::safety::bad_arg(
+            builtin,
+            "a service name of letters, digits and -_.@: not beginning with -",
+            s,
+        )),
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            "a service name String",
+            other.map(|v| v.type_name()).unwrap_or("nothing"),
+        )),
     }
 }
 
-fn bi_svc_stop(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "svc_stop",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!("Stop-Service {}", crate::safety::ps_quote(&name)),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_stop", "powershell", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+/// Run one service-manager command and turn a nonzero exit into E_TOOL_FAILED.
+fn svc_run(builtin: &str, program: &str, argv: &[&str]) -> Result<()> {
+    let run = tool_run(builtin, program, None, argv, Keep::Tail(TOOL_STDERR_TAIL), TOOL_DEADLINE_SECS)?;
+    if !run.success {
+        return Err(crate::safety::tool_failed(builtin, &run.command, run.code, &run.stderr));
     }
-    #[cfg(target_os = "linux")]
-    {
-        let output = std::process::Command::new("systemctl")
-            .args(["stop", &name])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_stop", "systemctl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("launchctl")
-            .args(["stop", &name])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_stop", "launchctl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[allow(unreachable_code)]
-    {
-        let _ = name;
-        Ok(Value::Bool(false))
-    }
+    Ok(())
 }
 
-fn bi_svc_restart(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "svc_restart",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
+/// Start, stop, restart, enable or disable one service through the platform
+/// service manager: `systemctl` on Linux, `launchctl` on macOS, and the
+/// PowerShell service cmdlets on Windows (the name single-quoted by
+/// `ps_quote`). The result is {name, action}. A refusal by the manager (no such
+/// service, not permitted) is E_TOOL_FAILED; another OS is E_UNIMPLEMENTED.
+///
+/// Each of these used to answer `true` or `false` as a value, so an unknown
+/// service or a denied request read as an ordinary result; to drop surplus
+/// arguments and pipeline input; and to run with no deadline. On an
+/// unsupported OS they answered `false` without trying.
+fn svc_action(builtin: &str, action: &str, args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let name = svc_name(builtin, &args, &input)?;
+    if cfg!(windows) {
+        let quoted = crate::safety::ps_quote(&name);
+        let script = match action {
+            "start" => crate::ps_script!("Start-Service {} -ErrorAction Stop", quoted),
+            "stop" => crate::ps_script!("Stop-Service {} -ErrorAction Stop", quoted),
+            "restart" => crate::ps_script!("Restart-Service {} -ErrorAction Stop", quoted),
+            "enable" => crate::ps_script!("Set-Service {} -StartupType Automatic -ErrorAction Stop", quoted),
+            _ => crate::ps_script!("Set-Service {} -StartupType Disabled -ErrorAction Stop", quoted),
+        };
+        svc_run(builtin, "powershell", &["-NoProfile", "-NonInteractive", "-Command", &script])?;
+    } else if cfg!(target_os = "linux") {
+        svc_run(builtin, "systemctl", &[action, "--", &name])?;
+    } else if cfg!(target_os = "macos") {
+        let domain = format!("system/{name}");
+        match action {
+            // launchctl has no restart; kickstart -k kills and restarts the job.
+            "restart" => svc_run(builtin, "launchctl", &["kickstart", "-k", &domain])?,
+            "enable" | "disable" => svc_run(builtin, "launchctl", &[action, &domain])?,
+            _ => svc_run(builtin, "launchctl", &[action, &name])?,
         }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!("Restart-Service {}", crate::safety::ps_quote(&name)),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_restart", "powershell", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+    } else {
+        return Err(crate::safety::unimplemented(
+            builtin,
+            "service control is not implemented on this OS; nothing was changed",
+            "use the service manager directly",
+        ));
     }
-    #[cfg(target_os = "linux")]
-    {
-        let output = std::process::Command::new("systemctl")
-            .args(["restart", &name])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_restart", "systemctl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("launchctl")
-            .args(["stop", &name])
-            .output();
-        let output = std::process::Command::new("launchctl")
-            .args(["start", &name])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_restart", "launchctl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[allow(unreachable_code)]
-    {
-        let _ = name;
-        Ok(Value::Bool(false))
-    }
+    let mut rec = BTreeMap::new();
+    rec.insert("name".to_string(), Value::Str(name));
+    rec.insert("action".to_string(), Value::Str(action.to_string()));
+    Ok(Value::Record(rec))
 }
 
-fn bi_svc_enable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "svc_enable",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!(
-                    "Set-Service {} -StartupType Automatic",
-                    crate::safety::ps_quote(&name)
-                ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_enable", "powershell", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let output = std::process::Command::new("systemctl")
-            .args(["enable", &name])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_enable", "systemctl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("launchctl")
-            .args(["enable", &format!("system/{}", name)])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_enable", "launchctl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[allow(unreachable_code)]
-    {
-        let _ = name;
-        Ok(Value::Bool(false))
-    }
+fn bi_svc_start(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    svc_action("svc_start", "start", args, input)
 }
 
-fn bi_svc_disable(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "svc_disable",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
+fn bi_svc_stop(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    svc_action("svc_stop", "stop", args, input)
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!(
-                    "Set-Service {} -StartupType Disabled",
-                    crate::safety::ps_quote(&name)
-                ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_disable", "powershell", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let output = std::process::Command::new("systemctl")
-            .args(["disable", &name])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_disable", "systemctl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("launchctl")
-            .args(["disable", &format!("system/{}", name)])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_disable", "launchctl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    #[allow(unreachable_code)]
-    {
-        let _ = name;
-        Ok(Value::Bool(false))
-    }
+fn bi_svc_restart(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    svc_action("svc_restart", "restart", args, input)
+}
+
+fn bi_svc_enable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    svc_action("svc_enable", "enable", args, input)
+}
+
+fn bi_svc_disable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    svc_action("svc_disable", "disable", args, input)
 }
 
 fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -49998,7 +49899,6 @@ fn bi_ansible_vault(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // pub enum Value { Str(String), Int(i64), Float(f64), Bool(bool), Array(Vec<Value>), Record(BTreeMap<String,Value>), Null }
 // fn json_to_value(json: serde_json::Value) -> Value;
 
-/// 950: bi_rm - Remove file(s). Args: path (string), optional force bool.
 /// cd(path) - Change the process working directory.
 ///
 /// The catalog has advertised this with a full signature and an example --
@@ -50016,13 +49916,15 @@ fn bi_ansible_vault(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// returns a different answer afterwards. Classifying it `Pure` would tell an
 /// agent the call is referentially transparent and safe to reorder, which is
 /// the one thing it certainly is not.
-fn bi_cd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_cd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("cd", &input)?;
+    k8s_max_args("cd", &args, 1)?;
     let raw = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
+        Some(Value::Str(s)) if !s.is_empty() => s.clone(),
         other => {
             return Err(crate::safety::bad_arg(
                 "cd",
-                "path: String",
+                "path: a non-empty String",
                 other.map(|v| v.type_name()).unwrap_or("nothing"),
             ))
         }
@@ -50044,7 +49946,24 @@ fn bi_cd(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(now))
 }
 
-pub fn bi_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// An optional Bool flag argument. A value of any other type used to read as
+/// false, so `rm(p, "yes")` was a plain `rm` that said nothing about it.
+fn fs_flag(builtin: &str, what: &str, value: Option<&Value>) -> Result<bool> {
+    match value {
+        None => Ok(false),
+        Some(Value::Bool(b)) => Ok(*b),
+        Some(other) => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{what}: Bool"),
+            other.type_name(),
+        )),
+    }
+}
+
+/// 950: bi_rm - Remove one file. Args: path (string), optional force bool.
+pub fn bi_rm(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("rm", &input)?;
+    k8s_max_args("rm", &args, 2)?;
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -50055,7 +49974,7 @@ pub fn bi_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-    let force = matches!(args.get(1), Some(Value::Bool(true)));
+    let force = fs_flag("rm", "force", args.get(1))?;
     // Jailed: relative paths are workspace-relative; resolve before the jail check
     // so the guard validates the path that is actually deleted.
     let path = crate::safety::resolve_path_str(&path);
@@ -50069,20 +49988,34 @@ pub fn bi_rm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         fs_paths: true,
     })?;
     crate::tx::snapshot(&path); // record pre-delete state if a transaction is active
+    // `force` excuses a file that is already gone, as `rm -f` does, and nothing
+    // else. It used to turn every failure -- a directory, a locked file, a
+    // permission refusal -- into a success string, so a delete that did not
+    // happen read as one that had.
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(Value::Str(format!("removed: {}", path))),
-        Err(e) if force => Ok(Value::Str(format!("rm (forced): {}", e))),
-        Err(e) => Err(anyhow!("rm: {}: {}", path, e)),
+        Err(e) if force && e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(Value::Str(format!("already absent: {}", path)))
+        }
+        Err(e) => Err(crate::safety::fs_error("rm", &path, &e)),
     }
 }
 
 /// 951: bi_rmdir - Remove directory. Args: path, optional recursive bool.
-pub fn bi_rmdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+pub fn bi_rmdir(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("rmdir", &input)?;
+    k8s_max_args("rmdir", &args, 2)?;
     let path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("rmdir: expected path string")),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "rmdir",
+                "path: String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
+        }
     };
-    let recursive = matches!(args.get(1), Some(Value::Bool(true)));
+    let recursive = fs_flag("rmdir", "recursive", args.get(1))?;
     // Jailed: relative paths are workspace-relative (resolve before the jail check).
     let path = crate::safety::resolve_path_str(&path);
     crate::safety::guard(crate::safety::GuardCtx {
@@ -50095,10 +50028,12 @@ pub fn bi_rmdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         fs_paths: true,
     })?;
     crate::tx::snapshot(&path); // back up the directory tree if a transaction is active
+    // `remove_dir_all` removes a symbolic link rather than following it, so a
+    // link inside the workspace to a directory outside it is not a way out.
     if recursive {
-        std::fs::remove_dir_all(&path).map_err(|e| anyhow!("rmdir -r: {}: {}", path, e))?;
+        std::fs::remove_dir_all(&path).map_err(|e| crate::safety::fs_error("rmdir", &path, &e))?;
     } else {
-        std::fs::remove_dir(&path).map_err(|e| anyhow!("rmdir: {}: {}", path, e))?;
+        std::fs::remove_dir(&path).map_err(|e| crate::safety::fs_error("rmdir", &path, &e))?;
     }
     Ok(Value::Str(format!("removed directory: {}", path)))
 }
@@ -50966,44 +50901,87 @@ fn bi_top_snapshot(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(entries))
 }
 
-/// 970: bi_dd_copy - Disk copy (Unix).
-fn bi_dd_copy(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(not(target_os = "windows"))]
-    {
-        let src = match args.first() {
-            Some(Value::Str(s)) => s.clone(),
-            _ => return Err(crate::safety::arg_err("dd_copy: expected source path (if)")),
-        };
-        let dst = match args.get(1) {
-            Some(Value::Str(s)) => s.clone(),
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "dd_copy: expected destination path (of)",
-                ))
-            }
-        };
-        let mut cmd = Command::new("dd");
-        cmd.arg(format!("if={}", src)).arg(format!("of={}", dst));
-        // Optional bs and count from third arg Record
-        if let Some(Value::Record(opts)) = args.get(2) {
-            if let Some(Value::Str(bs)) = opts.get("bs") {
-                cmd.arg(format!("bs={}", bs));
-            }
-            if let Some(Value::Int(count)) = opts.get("count") {
-                cmd.arg(format!("count={}", count));
+/// 970: bi_dd_copy - Copy with `dd if=<source> of=<destination>` (Unix).
+///
+/// Each operand is one argv element, so a path cannot add a second operand. It
+/// used to drop an options value that was not a Record, any key but `bs` and
+/// `count`, and a `count` that was not an Int; a failed copy came back as a
+/// record with `success: false`; and `dd` ran with no deadline.
+fn bi_dd_copy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("dd_copy", &input)?;
+    let text = |i: usize, what: &str| -> Result<String> {
+        match args.get(i) {
+            Some(Value::Str(s)) if !s.is_empty() => Ok(s.clone()),
+            other => Err(crate::safety::bad_arg(
+                "dd_copy",
+                &format!("{what}: a non-empty String"),
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            )),
+        }
+    };
+    let src = text(0, "source")?;
+    let dst = text(1, "destination")?;
+    let mut operands = vec![format!("if={src}"), format!("of={dst}")];
+    match args.get(2) {
+        None => {}
+        Some(Value::Record(opts)) => {
+            for (key, value) in opts {
+                match (key.as_str(), value) {
+                    ("bs", Value::Str(bs)) if dd_block_size(bs) => operands.push(format!("bs={bs}")),
+                    ("bs", Value::Int(n)) if *n >= 1 => operands.push(format!("bs={n}")),
+                    ("count", Value::Int(n)) if *n >= 1 => operands.push(format!("count={n}")),
+                    ("bs", v) | ("count", v) => {
+                        return Err(crate::safety::bad_arg(
+                            "dd_copy",
+                            "bs: a positive Int or a size such as 4M; count: a positive Int",
+                            &format!("{key} = {}", v.type_name()),
+                        ))
+                    }
+                    _ => {
+                        return Err(crate::safety::bad_arg(
+                            "dd_copy",
+                            "options with only bs and count",
+                            key,
+                        ))
+                    }
+                }
             }
         }
-        let out = cmd.output().map_err(|e| anyhow!("dd_copy: {}", e))?;
-        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-        let mut rec = BTreeMap::new();
-        rec.insert("success".to_string(), Value::Bool(out.status.success()));
-        rec.insert("output".to_string(), Value::Str(stderr));
-        Ok(Value::Record(rec))
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "dd_copy",
+                "options: a Record {bs?, count?}",
+                other.type_name(),
+            ))
+        }
     }
-    #[cfg(target_os = "windows")]
-    {
-        Err(anyhow!("dd_copy: only supported on Unix (Linux/macOS)"))
+    if cfg!(windows) {
+        return Err(crate::safety::unimplemented(
+            "dd_copy",
+            "dd is not available on Windows; nothing was copied",
+            "use copy_file",
+        ));
     }
+    let argv: Vec<&str> = operands.iter().map(String::as_str).collect();
+    let run = tool_run("dd_copy", "dd", None, &argv, Keep::Tail(TOOL_STDERR_TAIL), TOOL_LONG_DEADLINE_SECS)?;
+    if !run.success {
+        return Err(crate::safety::tool_failed("dd_copy", &run.command, run.code, &run.stderr));
+    }
+    let mut rec = BTreeMap::new();
+    rec.insert("success".to_string(), Value::Bool(true));
+    // dd reports what it copied on stderr.
+    rec.insert("output".to_string(), Value::Str(run.stderr));
+    Ok(Value::Record(rec))
+}
+
+/// A `dd` block size: digits with at most one unit suffix (`512`, `4M`, `1k`).
+fn dd_block_size(bs: &str) -> bool {
+    let digits = bs.trim_end_matches(|c: char| "cwbkKMGT".contains(c));
+    !digits.is_empty()
+        && digits.len() <= 12
+        && bs.len() - digits.len() <= 1
+        && digits.bytes().all(|b| b.is_ascii_digit())
+        && digits.bytes().any(|b| b != b'0')
 }
 
 /// 975: bi_mount_info - Detailed mount info (cross-platform via sysinfo::Disks).
@@ -58837,132 +58815,141 @@ fn bi_timeout_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // --- pkill (1003) ---
 
-/// pkill — Kill processes by name pattern.
-fn bi_pkill(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pattern = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "pkill requires a process name pattern",
-            ))
+/// The process-name pattern `pkill` and `pgrep` take: a literal name prefix.
+///
+/// Both used to hand the pattern to an OS tool with different rules. On Unix it
+/// was a pkill regex matched anywhere in the name, so `.` matched every process;
+/// on Windows it became `taskkill /IM pattern*`, so an empty pattern was `*`.
+/// Wildcards are refused rather than escaped, because a caller writing one
+/// meant it, and a literal match would quietly do something else.
+fn proc_name_pattern(builtin: &str, args: &[Value], input: &Option<Value>) -> Result<String> {
+    refuse_piped(builtin, input)?;
+    k8s_max_args(builtin, args, 1)?;
+    match args.first() {
+        Some(Value::Str(s))
+            if !s.trim().is_empty()
+                && !s.chars().any(|c| c.is_control() || "*?[]".contains(c)) =>
+        {
+            Ok(s.clone())
+        }
+        other => Err(crate::safety::bad_arg(
+            builtin,
+            "a process name prefix: a non-empty String with no wildcard or control character",
+            other.map(|v| v.type_name()).unwrap_or("nothing"),
+        )),
+    }
+}
+
+/// Processes whose name begins with `pattern`, sorted by pid. Names compare
+/// without regard to case on Windows, where the file system does the same.
+fn proc_name_matches(pattern: &str) -> Vec<(u32, String, String)> {
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let fold = |s: &str| {
+        if cfg!(windows) {
+            s.to_lowercase()
+        } else {
+            s.to_string()
         }
     };
-    if cfg!(target_os = "windows") {
-        let output = std::process::Command::new("taskkill")
-            .args(["/IM", &format!("{}*", pattern), "/F"])
-            .output();
-        match output {
-            Ok(o) => {
-                let mut rec = BTreeMap::new();
-                rec.insert("pattern".to_string(), Value::Str(pattern));
-                rec.insert("success".to_string(), Value::Bool(o.status.success()));
-                rec.insert(
-                    "stdout".to_string(),
-                    Value::Str(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-                );
-                Ok(Value::Record(rec))
+    let want = fold(pattern);
+    let mut found: Vec<(u32, String, String)> = sys
+        .processes()
+        .iter()
+        // On Linux each thread is listed too, under its process name; a
+        // thread is not a process to report or to kill.
+        .filter(|(_, p)| p.thread_kind().is_none())
+        .filter_map(|(pid, p)| {
+            let name = p.name().to_string_lossy().to_string();
+            if !fold(&name).starts_with(&want) {
+                return None;
             }
-            Err(e) => Err(anyhow!("taskkill failed: {}", e)),
-        }
-    } else {
-        let output = std::process::Command::new("pkill").arg(&pattern).output();
-        match output {
-            Ok(o) => {
-                let mut rec = BTreeMap::new();
-                rec.insert("pattern".to_string(), Value::Str(pattern));
-                rec.insert("success".to_string(), Value::Bool(o.status.success()));
-                Ok(Value::Record(rec))
-            }
-            Err(e) => Err(crate::safety::tool_missing(
-                "pkill",
-                "pkill",
-                &e.to_string(),
-            )),
+            let command = p
+                .cmd()
+                .iter()
+                .map(|a| a.to_string_lossy().to_string())
+                .collect::<Vec<_>>()
+                .join(" ");
+            Some((pid.as_u32(), name, command))
+        })
+        .collect();
+    found.sort_by_key(|(pid, _, _)| *pid);
+    found
+}
+
+/// pkill — Kill every process whose name begins with a prefix.
+/// Usage: pkill(prefix). The prefix is literal; wildcards are refused. This shell
+/// and pid 0 and 1 are never killed. Each match is killed forcibly (SIGKILL,
+/// or TerminateProcess on Windows). The result is {pattern, killed: [pid]};
+/// no match is an empty list. A match that could not be killed is
+/// E_TOOL_FAILED, naming the pids that were killed before it.
+///
+/// It used to report `success: false` as a value when nothing was killed or the
+/// kill was refused, and it ran a different matcher on each OS.
+fn bi_pkill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let pattern = proc_name_pattern("pkill", &args, &input)?;
+    let me = std::process::id();
+    let targets: Vec<(u32, String)> = proc_name_matches(&pattern)
+        .into_iter()
+        .filter(|(pid, _, _)| *pid > 1 && *pid != me)
+        .map(|(pid, name, _)| (pid, name))
+        .collect();
+    let mut sys = System::new();
+    let mut killed = Vec::new();
+    let mut failed = Vec::new();
+    for (pid, name) in targets {
+        let spid = sysinfo::Pid::from_u32(pid);
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[spid]), true);
+        match sys.process(spid) {
+            // Exited between the listing and now: nothing left to kill.
+            None => {}
+            Some(p) if p.kill() => killed.push(pid),
+            Some(_) => failed.push(format!("{pid} ({name})")),
         }
     }
+    if !failed.is_empty() {
+        let done: Vec<String> = killed.iter().map(u32::to_string).collect();
+        return Err(crate::safety::tool_failed(
+            "pkill",
+            &format!("kill processes named {pattern}*"),
+            None,
+            &format!(
+                "could not kill {}; killed [{}]",
+                failed.join(", "),
+                done.join(", ")
+            ),
+        ));
+    }
+    let mut rec = BTreeMap::new();
+    rec.insert("pattern".to_string(), Value::Str(pattern));
+    rec.insert(
+        "killed".to_string(),
+        Value::Array(killed.into_iter().map(|p| Value::Int(i64::from(p))).collect()),
+    );
+    Ok(Value::Record(rec))
 }
 
 // --- pgrep (1004) ---
 
-/// pgrep — Find processes by name pattern.
-fn bi_pgrep(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let pattern = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "pgrep requires a process name pattern",
-            ))
-        }
-    };
-    if cfg!(target_os = "windows") {
-        let output = std::process::Command::new("tasklist")
-            .args([
-                "/FI",
-                &format!("IMAGENAME eq {}*", pattern),
-                "/FO",
-                "CSV",
-                "/NH",
-            ])
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                let procs: Vec<Value> = stdout
-                    .lines()
-                    .filter(|l| !l.is_empty() && !l.contains("No tasks"))
-                    .map(|line| {
-                        let parts: Vec<&str> = line.split(',').collect();
-                        let mut rec = BTreeMap::new();
-                        rec.insert(
-                            "name".to_string(),
-                            Value::Str(parts.first().unwrap_or(&"").trim_matches('"').to_string()),
-                        );
-                        rec.insert(
-                            "pid".to_string(),
-                            Value::Str(parts.get(1).unwrap_or(&"").trim_matches('"').to_string()),
-                        );
-                        Value::Record(rec)
-                    })
-                    .collect();
-                Ok(Value::Array(procs))
-            }
-            Ok(o) => Ok(Value::Array(vec![])),
-            Err(e) => Err(anyhow!("tasklist failed: {}", e)),
-        }
-    } else {
-        let output = std::process::Command::new("pgrep")
-            .args(["-la", &pattern])
-            .output();
-        match output {
-            Ok(o) if o.status.success() => {
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                let procs: Vec<Value> = stdout
-                    .lines()
-                    .filter(|l| !l.is_empty())
-                    .map(|line| {
-                        let parts: Vec<&str> = line.splitn(2, ' ').collect();
-                        let mut rec = BTreeMap::new();
-                        rec.insert(
-                            "pid".to_string(),
-                            Value::Int(parts.first().unwrap_or(&"0").parse().unwrap_or(0)),
-                        );
-                        rec.insert(
-                            "name".to_string(),
-                            Value::Str(parts.get(1).unwrap_or(&"").to_string()),
-                        );
-                        Value::Record(rec)
-                    })
-                    .collect();
-                Ok(Value::Array(procs))
-            }
-            Ok(_) => Ok(Value::Array(vec![])),
-            Err(e) => Err(crate::safety::tool_missing(
-                "pgrep",
-                "pgrep",
-                &e.to_string(),
-            )),
-        }
-    }
+/// pgrep — Find processes whose name begins with a prefix.
+/// Usage: pgrep(prefix). The prefix is literal; wildcards are refused. The
+/// result is [{pid, name, command}] sorted by pid, empty when nothing matches.
+///
+/// The pid used to be a String on Windows and an Int elsewhere, and a failed
+/// listing came back as an empty list.
+fn bi_pgrep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let pattern = proc_name_pattern("pgrep", &args, &input)?;
+    let procs = proc_name_matches(&pattern)
+        .into_iter()
+        .map(|(pid, name, command)| {
+            let mut rec = BTreeMap::new();
+            rec.insert("pid".to_string(), Value::Int(i64::from(pid)));
+            rec.insert("name".to_string(), Value::Str(name));
+            rec.insert("command".to_string(), Value::Str(command));
+            Value::Record(rec)
+        })
+        .collect();
+    Ok(Value::Array(procs))
 }
 
 // --- lnav (1005) ---
@@ -59554,32 +59541,53 @@ fn bi_strings_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
 // --- chgrp (1020) ---
 
-/// chgrp — Change group ownership of a file.
-fn bi_chgrp(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let group = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("chgrp requires a group name")),
-    };
+/// chgrp — Change the group of one file (Unix).
+/// Usage: chgrp(group, path). The group is a name or numeric id and may not begin
+/// with '-'; the path must exist and is passed after `--`. The result is
+/// {group, path}. A refusal by chgrp (unknown group, not permitted) is
+/// E_TOOL_FAILED; on Windows the call is E_UNIMPLEMENTED and changes nothing.
+///
+/// It used to answer `success: false` as a value when chgrp refused, ignore
+/// surplus arguments and pipeline input, and run with no deadline.
+fn bi_chgrp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped("chgrp", &input)?;
+    k8s_max_args("chgrp", &args, 2)?;
+    let group = k8s_need("chgrp", "a group name", &args, 0, tf_plain)?;
     let path = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(crate::safety::arg_err("chgrp requires a file path")),
-    };
-    if cfg!(target_os = "windows") {
-        return Err(anyhow!("chgrp is not supported on Windows"));
-    }
-    let output = std::process::Command::new("chgrp")
-        .args([&group, &path])
-        .output();
-    match output {
-        Ok(o) => {
-            let mut rec = BTreeMap::new();
-            rec.insert("group".to_string(), Value::Str(group));
-            rec.insert("path".to_string(), Value::Str(path));
-            rec.insert("success".to_string(), Value::Bool(o.status.success()));
-            Ok(Value::Record(rec))
+        Some(Value::Str(s)) if !s.is_empty() && !s.contains('\0') => s.clone(),
+        other => {
+            return Err(crate::safety::bad_arg(
+                "chgrp",
+                "path: a non-empty String",
+                other.map(|v| v.type_name()).unwrap_or("nothing"),
+            ))
         }
-        Err(e) => Err(anyhow!("chgrp failed: {}", e)),
+    };
+    if cfg!(windows) {
+        return Err(crate::safety::unimplemented(
+            "chgrp",
+            "Windows files have no Unix group; nothing was changed",
+            "use perm_set or icacls",
+        ));
     }
+    if std::fs::symlink_metadata(&path).is_err() {
+        return Err(crate::safety::not_found("chgrp", "file", &path));
+    }
+    let run = tool_run(
+        "chgrp",
+        "chgrp",
+        None,
+        &["--", &group, &path],
+        Keep::Tail(TOOL_STDERR_TAIL),
+        TOOL_DEADLINE_SECS,
+    )?;
+    if !run.success {
+        return Err(crate::safety::tool_failed("chgrp", &run.command, run.code, &run.stderr));
+    }
+    let mut rec = BTreeMap::new();
+    rec.insert("group".to_string(), Value::Str(group));
+    rec.insert("path".to_string(), Value::Str(path));
+    Ok(Value::Record(rec))
 }
 
 // --- mtr (1021) ---

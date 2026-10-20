@@ -12841,6 +12841,146 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "Ask a question on the terminal and answer one of the choices. An answer that equals a choice exactly wins; otherwise a case-insensitive prefix that matches exactly one choice wins. An ambiguous prefix lists up to 20 matches on stderr and asks again; no match says so and asks again. After 5 answers that win nothing the call refuses with E_BAD_ARG. Reads one line per answer from stdin: with no UI attached (stdin closed) the call refuses with E_NO_UI. Direct-only: piped input and wrong argument shapes refuse with E_BAD_ARG before anything is printed.",
         examples: &[(r#"(try { input_autocomplete("Pick: ", []) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
+    Signature {
+        name: "cd", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("path", Ty::Str, "the new working directory; relative paths resolve against the workspace")],
+        returns: "String",
+        doc: "Change the process working directory, which decides what every later relative path means. The path passes the workspace jail first, so in agent mode cd cannot leave the workspace. Returns the new working directory as an absolute path. A missing directory or a file is a coded file-system error. Pipeline input, an empty path and surplus arguments are refused with E_BAD_ARG.",
+        examples: &[
+            (r#"(try { cd("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { cd(".", ".") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "rm", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("path", Ty::Str, "the file to delete; relative paths resolve against the workspace"), opt("force", Ty::Bool, "true: a file that is already absent is not an error (default false)")],
+        returns: "String",
+        doc: "Delete one file. The path passes the workspace jail and the Destructive gate first, and inside a transaction the file is snapshotted before it goes. Returns \"removed: <path>\", or with force, \"already absent: <path>\" when there was nothing to delete. force excuses only absence: a directory, a locked file or a permission refusal is a coded file-system error either way. A force that is not a Bool, pipeline input and surplus arguments are refused with E_BAD_ARG.",
+        examples: &[
+            (r#"(try { rm(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { rm("x", "yes") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "rmdir", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("path", Ty::Str, "the directory to delete; relative paths resolve against the workspace"), opt("recursive", Ty::Bool, "true: delete its contents too (default false: it must be empty)")],
+        returns: "String",
+        doc: "Delete one directory: an empty one, or with recursive, the whole tree. The path passes the workspace jail and the Destructive gate first, and inside a transaction the tree is snapshotted before it goes. A symbolic link inside the tree is removed, never followed. Returns \"removed directory: <path>\". A missing directory, a non-empty one without recursive, or a refusal is a coded file-system error. A recursive that is not a Bool, pipeline input and surplus arguments are refused with E_BAD_ARG.",
+        examples: &[
+            (r#"(try { rmdir(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { rmdir("x", "yes") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "sh", category: None, subject_required: false, aliases: &["shell"], subject: None,
+        params: &[req("command", Ty::Any, "a command String split into words as a POSIX shell would (quotes and backslashes honoured; nothing expanded), or an argv Array whose first element is the program and whose other elements are Strings or numbers")],
+        returns: "Record",
+        doc: "Run one program directly, never through a shell: no globbing, variables, pipes or redirection. Disabled unless AETHER_ALLOW_SH is true, 1 or yes (E_POLICY_DENY otherwise), and gated as Exec. stdin is closed and the run is killed at a 900 s deadline. Returns {stdout, stderr, success, exit_code, stdout_truncated}; only the tail of each stream is kept. A nonzero exit is in the record, as a shell's $? is, not an error. A missing program is E_TOOL_MISSING. An empty command, unbalanced quotes, a wrong argument type, pipeline input and surplus arguments are refused with E_BAD_ARG before the opt-in is checked.",
+        examples: &[
+            (r#"(try { sh([]) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { sh("echo 'open") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "exit", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[opt("code", Ty::Int, "the exit status, 0..=255 (default 0)")],
+        returns: "Null",
+        doc: "End the shell process with an exit status. It does not return. A code outside 0..=255 (which the OS would truncate), a code that is not an Int, pipeline input and surplus arguments are refused with E_BAD_ARG, and the process keeps running.",
+        examples: &[
+            (r#"(try { exit(256) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { exit("1") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "dd_copy", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("source", Ty::Str, "the input file or device, passed as if=<source>"), req("destination", Ty::Str, "the output file or device, passed as of=<destination>"), opt("options", Ty::Record, "optional {bs: positive Int or a size such as 4M, count: positive Int}")],
+        returns: "Record",
+        doc: "Unix only. Copy with dd if=<source> of=<destination> [bs=] [count=], each operand one argument, so a path cannot add another operand. dd runs directly with a 900 s deadline. Returns {success: true, output: dd's own report from stderr}. A nonzero exit is E_TOOL_FAILED. An empty path, an option other than bs and count, a bad value for either, pipeline input and surplus arguments are refused with E_BAD_ARG. On Windows the call is E_UNIMPLEMENTED and nothing is copied; use copy_file.",
+        examples: &[
+            (r#"(try { dd_copy("", "b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { dd_copy("a", "b", {skip: 1}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "pkill", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("prefix", Ty::Str, "a literal process-name prefix; no wildcard (* ? [ ]) or control character")],
+        returns: "Record",
+        doc: "Kill every process whose name begins with prefix (case-insensitively on Windows), forcibly: SIGKILL, or TerminateProcess on Windows. This shell and pids 0 and 1 are never killed. Gated as Process. Returns {pattern, killed: [pid]}; no match is an empty list, not an error. A match that could not be killed is E_TOOL_FAILED, which names the pids killed before it. An empty prefix, a wildcard, pipeline input and surplus arguments are refused with E_BAD_ARG.",
+        examples: &[
+            (r#"(try { pkill("*") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { pkill("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "pgrep", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("prefix", Ty::Str, "a literal process-name prefix; no wildcard (* ? [ ]) or control character")],
+        returns: "Array",
+        doc: "List the processes whose name begins with prefix (case-insensitively on Windows), read from the process table with no external tool. Returns [{pid: Int, name: String, command: String}] sorted by pid; command is the argument vector joined with spaces and may be empty where the OS withholds it. No match is an empty list. An empty prefix, a wildcard, pipeline input and surplus arguments are refused with E_BAD_ARG.",
+        examples: &[
+            (r#"pgrep("ae-no-such-process-zq")"#, "[]"),
+            (r#"(try { pgrep("a?") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "chgrp", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("group", Ty::Str, "a group name or numeric id, not beginning with '-'"), req("path", Ty::Str, "an existing file, passed after --")],
+        returns: "Record",
+        doc: "Unix only. Change the group of one file with chgrp -- <group> <path>, with a 120 s deadline. Returns {group, path}. A missing file is E_NOT_FOUND; a refusal by chgrp (unknown group, not permitted) is E_TOOL_FAILED. An empty or option-like group, an empty path, pipeline input and surplus arguments are refused with E_BAD_ARG. On Windows the call is E_UNIMPLEMENTED and nothing is changed.",
+        examples: &[
+            (r#"(try { chgrp("staff", "") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { chgrp("-R", "f") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "svc_start", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "a service name of letters, digits and -_.@: not beginning with -")],
+        returns: "Record",
+        doc: "Start one service: systemctl start on Linux, launchctl start on macOS, Start-Service on Windows. Gated as Process. Returns {name, action: \"start\"}. A refusal by the service manager (no such service, not permitted) is E_TOOL_FAILED; another OS is E_UNIMPLEMENTED. A malformed name, pipeline input and surplus arguments are refused with E_BAD_ARG. 120 s deadline.",
+        examples: &[
+            (r#"(try { svc_start("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { svc_start("a b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "svc_stop", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "a service name of letters, digits and -_.@: not beginning with -")],
+        returns: "Record",
+        doc: "Stop one service: systemctl stop on Linux, launchctl stop on macOS, Stop-Service on Windows. Gated as Process. Returns {name, action: \"stop\"}. A refusal by the service manager (no such service, not permitted) is E_TOOL_FAILED; another OS is E_UNIMPLEMENTED. A malformed name, pipeline input and surplus arguments are refused with E_BAD_ARG. 120 s deadline.",
+        examples: &[
+            (r#"(try { svc_stop("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { svc_stop("a;b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "svc_restart", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "a service name of letters, digits and -_.@: not beginning with -")],
+        returns: "Record",
+        doc: "Restart one service: systemctl restart on Linux, launchctl kickstart -k system/<name> on macOS, Restart-Service on Windows. Gated as Process. Returns {name, action: \"restart\"}. A refusal by the service manager (no such service, not permitted) is E_TOOL_FAILED; another OS is E_UNIMPLEMENTED. A malformed name, pipeline input and surplus arguments are refused with E_BAD_ARG. 120 s deadline.",
+        examples: &[
+            (r#"(try { svc_restart("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { svc_restart("") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "svc_enable", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "a service name of letters, digits and -_.@: not beginning with -")],
+        returns: "Record",
+        doc: "Make one service start at boot: systemctl enable on Linux, launchctl enable system/<name> on macOS, Set-Service -StartupType Automatic on Windows. Gated as Process. Returns {name, action: \"enable\"}. A refusal by the service manager (no such service, not permitted) is E_TOOL_FAILED; another OS is E_UNIMPLEMENTED. A malformed name, pipeline input and surplus arguments are refused with E_BAD_ARG. 120 s deadline.",
+        examples: &[
+            (r#"(try { svc_enable("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { svc_enable("a/b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "svc_disable", category: None, subject_required: false, aliases: &[], subject: None,
+        params: &[req("name", Ty::Str, "a service name of letters, digits and -_.@: not beginning with -")],
+        returns: "Record",
+        doc: "Stop one service from starting at boot: systemctl disable on Linux, launchctl disable system/<name> on macOS, Set-Service -StartupType Disabled on Windows. It does not stop a running service. Gated as Process. Returns {name, action: \"disable\"}. A refusal by the service manager (no such service, not permitted) is E_TOOL_FAILED; another OS is E_UNIMPLEMENTED. A malformed name, pipeline input and surplus arguments are refused with E_BAD_ARG. 120 s deadline.",
+        examples: &[
+            (r#"(try { svc_disable("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { svc_disable("a b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
 ];
 
 /// The declaration for `name`, if it has one.

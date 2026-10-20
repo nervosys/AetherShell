@@ -47,12 +47,13 @@ fn the_other_spelling_of_a_shell_passthrough_is_guarded_too() {
     agent_mode();
 
     // The guarded spelling. If this ever stops being refused the test below
-    // proves nothing, so assert it rather than assume it.
+    // proves nothing, so assert it rather than assume it. One command string:
+    // `sh` refuses a second argument by shape, which would pass without the gate.
     let refused =
-        call("sh", vec!["echo", "hi"]).expect_err("`sh` is Exec and must be refused in agent mode");
+        call("sh", vec!["echo hi"]).expect_err("`sh` is Exec and must be refused in agent mode");
 
     // The same dispatch index, one letter longer.
-    let via_alias = call("shell", vec!["echo", "hi"]);
+    let via_alias = call("shell", vec!["echo hi"]);
     assert!(
         via_alias.is_err(),
         "`shell` reached the same implementation as `sh` without meeting the \
