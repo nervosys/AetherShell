@@ -499,7 +499,8 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // five local model ports and `mcp_client` seven MCP ports. Found by
         // `benches/agentic/network-egress.mjs`, which traces connect(2) across
         // the whole catalogue rather than trusting this table.
-        "ai" | "agent" | "swarm" | "rlm_agent" | "ai_backends" | "mcp_client" | "mcp_detect"
+        "ai" | "agent" | "agent_with_mcp" | "swarm" | "rlm_agent" | "ai_backends" | "mcp_client"
+        | "mcp_detect"
         | "mcp_servers" => {
             Some(Effect::Network)
         }
@@ -4121,6 +4122,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "age_decrypt",
     "age_encrypt",
     "age_keygen",
+    "agent_with_mcp",
     "apply",
     "at_remove",
     "at_schedule",

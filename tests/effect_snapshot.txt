@@ -51,7 +51,7 @@ agent	Network
 agent_completed	Pure
 agent_started	Pure
 agent_thinking	Pure
-agent_with_mcp	Pure
+agent_with_mcp	Network
 aggregate	Pure
 aggregate_results	Pure
 ai	Network
