@@ -3219,7 +3219,7 @@ pub fn reject_unsafe_url(builtin: &str, url: &str) -> anyhow::Result<()> {
     ///
     /// This list may only shrink. Every addition widens the set of registered
     /// protocol handlers an agent can reach with a caller-controlled argument.
-    const ALLOWED_SCHEMES: &[&str] = &["http", "https", "ftp", "ftps", "mailto", "file"];
+    const ALLOWED_SCHEMES: &[&str] = &["http", "https"];
 
     let err = |message: String, hint: &str| {
         anyhow::Error::new(SafetyError {

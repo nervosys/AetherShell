@@ -314,6 +314,11 @@ fn a_url_scheme_outside_the_web_set_is_refused() {
         "javascript:alert(1)",
         "vbscript:x",
         "data:text/html,payload",
+        // Not web pages: `file:` opens whatever is registered for the
+        // extension, and the web builtins only speak http and https.
+        "file:///C:/Users/x/payload.hta",
+        "mailto:someone@example.com",
+        "ftp://ftp.example.com/pub/",
     ] {
         assert!(
             aethershell::safety::reject_unsafe_url("web_open_url", url).is_err(),
@@ -358,9 +363,6 @@ fn ordinary_urls_still_open() {
         "http://example.com/path?a=1&b=2",
         "https://example.com/?q=a%20b&r=1",
         "HTTPS://EXAMPLE.COM",
-        "mailto:someone@example.com?subject=hi&body=x",
-        "file:///C:/Users/x/report.html",
-        "ftp://ftp.example.com/pub/",
     ] {
         assert!(
             aethershell::safety::reject_unsafe_url("web_open_url", url).is_ok(),
