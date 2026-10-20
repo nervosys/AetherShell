@@ -589,10 +589,11 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "svc_stop"
         | "tmux_attach" => Some(Effect::Process),
 
-        // ---- WriteLocal (47) ----
+        // ---- WriteLocal (54) ----
         | "age_decrypt"
         | "age_encrypt"
         | "age_keygen"
+        | "audit_log"
         | "black_format"
         | "bzip2_compress"
         | "bzip2_decompress"
@@ -611,11 +612,16 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "gui_screenshot_window"
         | "gzip_compress"
         | "gzip_decompress"
+        | "marketplace_rate"
         | "mypy_check"
         | "platform_db_export"
         | "platform_db_import"
         | "platform_db_init"
         | "platform_db_store"
+        | "plugin_disable"
+        | "plugin_enable"
+        | "plugin_load"
+        | "plugin_unload"
         | "refactor_rename_file"
         | "ruff_check"
         | "ruff_format"
@@ -625,6 +631,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "set_env"
         | "shfmt_format"
         | "ssh_keygen"
+        | "sso_init"
         | "tar_create"
         | "tar_extract"
         | "tee_output"
@@ -726,17 +733,19 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "yarn_run"
         | "yq_query" => Some(Effect::Exec),
 
-        // ---- ReadLocal (144) ----
+        // ---- ReadLocal (146) ----
         | "archive_test"
         | "asdf_list"
         | "at_list"
+        | "audit_tail"
+        | "audit_verify"
         | "bat_view"
         | "blkid"
         | "buildah_images"
         | "capabilities"
         | "clipboard_get"
-        | "clipboard_types"
         | "clipboard_history"
+        | "clipboard_types"
         | "cron_list"
         | "crypto_base64_decode"
         | "crypto_base64_encode"
@@ -1081,7 +1090,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // referentially transparent, so an agent may cache it, reorder it, or
         // skip a repeat. `ls` and `cat` are the plain counterexamples: their
         // answers change the moment anything touches the directory.
-        "archive_info" | "audit_log" | "cat" | "code_comments" |
+        "archive_info" | "cat" | "code_comments" |
         "code_exports" | "code_imports" | "code_parse" | "code_symbols" |
         "code_todos" | "diag_config" | "docs_changelog" | "docs_examples" |
         "env" | "env_container" | "env_path" | "env_shell" |
@@ -4286,6 +4295,27 @@ pub fn existing_paths(args: &[String]) -> Vec<String> {
         .cloned()
         .collect()
 }
+/// Declared parameter names whose argument is a credential.
+const CREDENTIAL_PARAMS: &[&str] = &["password", "private_key", "token"];
+
+/// `args` with every argument in a credential position replaced by
+/// [`REDACTION_MARKER`], or `None` when the builtin declares no such position
+/// or the call does not reach one.
+fn without_credentials(
+    builtin: &str,
+    args: &[crate::value::Value],
+) -> Option<Vec<crate::value::Value>> {
+    let sig = crate::signature::signature_of(builtin)?;
+    let mut out: Option<Vec<crate::value::Value>> = None;
+    for (i, p) in sig.params.iter().enumerate() {
+        if i < args.len() && CREDENTIAL_PARAMS.contains(&p.name) {
+            out.get_or_insert_with(|| args.to_vec())[i] =
+                crate::value::Value::Str(REDACTION_MARKER.to_string());
+        }
+    }
+    out
+}
+
 pub fn guard_dispatch(builtin: &str, args: &[crate::value::Value]) -> Result<(), SafetyError> {
     let effect = effect_of(builtin);
     // `Pure` and `ReadLocal` are neither centrally enforced nor audited, so
@@ -4295,6 +4325,12 @@ pub fn guard_dispatch(builtin: &str, args: &[crate::value::Value]) -> Result<(),
     if matches!(effect, Effect::Pure | Effect::ReadLocal) {
         return Ok(());
     }
+    // A credential passed by position must not become an audit target or part
+    // of the logged descriptor: `rbac_login(user, password)` wrote the password
+    // into the hash-chained audit log. `redact_str` catches secret *shapes*, and
+    // a password has none; the declared parameter name is the evidence.
+    let redacted = without_credentials(builtin, args);
+    let args = redacted.as_deref().unwrap_or(args);
     let args_as_strings: Vec<String> = args
         .iter()
         .filter_map(|a| match a {

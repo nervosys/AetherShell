@@ -175,3 +175,49 @@ fn audit_log_never_persists_secrets_and_still_verifies() {
     let _ = std::fs::remove_file(&log);
     clear();
 }
+
+#[test]
+fn a_password_argument_never_reaches_the_audit_log() {
+    // `rbac_login` is Privileged, so in agent mode the dispatcher refuses it
+    // and audits the refusal. The audit entry used to carry every string
+    // argument as a target, the password included, and a password has no
+    // secret *shape* for `redact_str` to catch.
+    let _l = lock();
+    clear();
+    let dir = std::env::temp_dir().join(format!("ae_secret_pw_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("audit.log");
+    let _ = std::fs::remove_file(&log);
+    std::env::set_var("AETHER_AUDIT_LOG", log.to_string_lossy().to_string());
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", &dir);
+
+    let mut env = aethershell::env::Env::new();
+    let out = aethershell::builtins::call(
+        "rbac_login",
+        vec![
+            Value::Str("alice".into()),
+            Value::Str("plain-words-pw-7731".into()),
+        ],
+        &mut env,
+    );
+    assert!(
+        out.is_err(),
+        "rbac_login is Privileged and refused in agent mode"
+    );
+
+    let content = std::fs::read_to_string(&log).expect("the refusal is audited");
+    assert!(content.contains("rbac_login"), "entry written: {content}");
+    assert!(
+        !content.contains("plain-words-pw-7731"),
+        "the password reached the audit log: {content}"
+    );
+    // Non-vacuity: the user name is not a credential and is still recorded.
+    assert!(
+        content.contains("alice"),
+        "the call is still attributable: {content}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+    clear();
+}
