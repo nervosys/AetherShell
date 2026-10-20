@@ -16,7 +16,7 @@
 //!
 //! One declaration now serves both jobs. These tests assert that it does.
 
-use aethershell::builtins::{call, call_with_input, is_dispatched, BUILTIN_LOOKUP};
+use aethershell::builtins::{call, call_with_input, is_dispatched};
 use aethershell::env::Env;
 use aethershell::signature::{signature_of, Ty, SIGNATURES};
 use aethershell::value::Value;
@@ -327,7 +327,6 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "hw_sensors",
         "the hardware present; null when none is found (values await the Phase 0 hardware check)",
     ),
-    ("clipboard_types", "the clipboard (Windows only)"),
     ("platform_db_export", "the user's platform store"),
     // platform_*: readers of this machine's hardware, tools and environment.
     ("platform_snapshot", "this host's OS, installed tool versions, environment variables and clock"),
@@ -577,49 +576,6 @@ fn the_calls_the_declarations_describe_all_run() {
         )
         .expect("piped sum"),
         Value::Int(3)
-    );
-}
-
-#[test]
-fn an_undeclared_builtin_is_unaffected() {
-    // The migration is incremental: validation must not reach builtins that
-    // have not been declared, or the slice becomes a rewrite.
-    //
-    // This used to name a builtin -- `upper`, then `abs` -- and each time that
-    // builtin was declared, the test went red and had to be repointed. The
-    // property has nothing to do with which builtin it is, so it is now taken
-    // from the dispatch table at run time and cannot go stale.
-    let undeclared: Vec<&str> = BUILTIN_LOOKUP
-        .keys()
-        .copied()
-        .filter(|n| signature_of(n).is_none())
-        .collect();
-    // The floor is non-vacuity, not a quota: one undeclared builtin is enough
-    // for the loop below to test the property. It was 100 while most of the
-    // catalogue was undeclared; the tranches have taken it below that.
-    assert!(
-        !undeclared.is_empty(),
-        "{} builtins are undeclared: the migration is complete, so this test has          served its purpose and should be deleted rather than weakened",
-        undeclared.len()
-    );
-
-    // `validate` must pass every one of them, whatever it is handed: an
-    // undeclared builtin has no contract to check, and inventing one would be
-    // the name-based reasoning this whole mechanism exists to remove.
-    let junk = vec![
-        Value::Int(-2),
-        Value::Str("unexpected".into()),
-        Value::Array(vec![Value::Bool(true)]),
-    ];
-    for name in &undeclared {
-        aethershell::signature::validate(name, &junk, Some(&Value::Int(1)))
-            .unwrap_or_else(|e| panic!("validation reached undeclared builtin `{name}`: {e}"));
-    }
-
-    // ...and a declared one is still checked, or the loop above proves nothing.
-    assert!(
-        aethershell::signature::validate("round", &junk, None).is_err(),
-        "validate accepted junk for a declared builtin"
     );
 }
 

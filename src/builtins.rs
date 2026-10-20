@@ -32120,10 +32120,466 @@ fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // 400-429: GUI Automation
 // ============================================================================
 
-fn bi_gui_list_windows(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+/// Largest window title, prompt, message or path a GUI builtin takes.
+const GUI_FIELD_MAX_BYTES: usize = 4096;
+/// Largest text `gui_type_text` types in one call.
+const GUI_TYPE_MAX_BYTES: usize = 10_000;
+/// Largest clipboard text one call reads or writes.
+const CLIPBOARD_MAX_BYTES: usize = 8 * 1024 * 1024;
+/// Longest key spec `gui_key_press` and `gui_key_combo` accept.
+const GUI_KEY_MAX_BYTES: usize = 64;
+/// Bound on a screen coordinate, in pixels, in either direction.
+const GUI_COORD_LIMIT: i64 = 100_000;
+/// The keys a key call names by word. A single letter or digit is also accepted.
+const GUI_NAMED_KEYS: &[&str] = &[
+    "enter",
+    "tab",
+    "esc",
+    "space",
+    "backspace",
+    "delete",
+    "home",
+    "end",
+    "pageup",
+    "pagedown",
+    "up",
+    "down",
+    "left",
+    "right",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f7",
+    "f8",
+    "f9",
+    "f10",
+    "f11",
+    "f12",
+];
+
+/// A String argument of a GUI or clipboard builtin: at most `max` bytes, free
+/// of control characters other than newline and tab, and non-empty unless
+/// `allow_empty`. Anything else is refused before a tool runs.
+fn gui_text(
+    name: &str,
+    what: &str,
+    value: &Value,
+    max: usize,
+    allow_empty: bool,
+) -> Result<String> {
+    let s = match value {
+        Value::Str(s) => s,
+        other => {
+            return Err(crate::safety::bad_arg(
+                name,
+                &format!("{what}: String"),
+                other.type_name(),
+            ))
+        }
+    };
+    if s.len() > max {
+        return Err(crate::safety::bad_arg(
+            name,
+            &format!("{what} of at most {max} bytes"),
+            &format!("{} bytes", s.len()),
+        ));
+    }
+    if s.is_empty() && !allow_empty {
+        return Err(crate::safety::bad_arg(
+            name,
+            &format!("{what}: a non-empty String"),
+            "an empty String",
+        ));
+    }
+    if s.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        return Err(crate::safety::bad_arg(
+            name,
+            &format!("{what} without control characters"),
+            "a control character",
+        ));
+    }
+    Ok(s.clone())
+}
+
+/// The argument at `index`, which the signature makes required. A caller that
+/// reaches here without it is refused, not allowed to panic.
+fn gui_required<'a>(name: &str, args: &'a [Value], index: usize, what: &str) -> Result<&'a Value> {
+    args.get(index)
+        .ok_or_else(|| crate::safety::bad_arg(name, what, "nothing"))
+}
+
+/// Refuses pipeline input for a GUI or clipboard builtin that takes none.
+fn refuse_piped_input(name: &str, input: &Option<Value>) -> Result<()> {
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            name,
+            "no pipeline input",
+            "piped input",
+        ));
+    }
+    Ok(())
+}
+
+/// A screen coordinate or pointer position: an Int within `GUI_COORD_LIMIT`.
+fn gui_coord(name: &str, what: &str, value: &Value) -> Result<i64> {
+    match value {
+        Value::Int(n) if (-GUI_COORD_LIMIT..=GUI_COORD_LIMIT).contains(n) => Ok(*n),
+        Value::Int(n) => Err(crate::safety::bad_arg(
+            name,
+            &format!("{what} in -{GUI_COORD_LIMIT}..={GUI_COORD_LIMIT}"),
+            &n.to_string(),
+        )),
+        other => Err(crate::safety::bad_arg(
+            name,
+            &format!("{what}: Int"),
+            other.type_name(),
+        )),
+    }
+}
+
+/// A window size in pixels: an Int from 1 to `GUI_COORD_LIMIT`.
+fn gui_size(name: &str, what: &str, value: &Value) -> Result<i64> {
+    match value {
+        Value::Int(n) if (1..=GUI_COORD_LIMIT).contains(n) => Ok(*n),
+        Value::Int(n) => Err(crate::safety::bad_arg(
+            name,
+            &format!("{what} in 1..={GUI_COORD_LIMIT}"),
+            &n.to_string(),
+        )),
+        other => Err(crate::safety::bad_arg(
+            name,
+            &format!("{what}: Int"),
+            other.type_name(),
+        )),
+    }
+}
+
+/// The last kilobyte of a tool's stderr, for a coded error: a noisy tool
+/// cannot flood the message.
+fn gui_stderr_tail(output: &std::process::Output) -> String {
+    let owned = String::from_utf8_lossy(&output.stderr).into_owned();
+    let text = owned.trim();
+    let mut start = text.len().saturating_sub(1024);
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    text[start..].to_string()
+}
+
+/// The answer of a desktop action whose tool reports only success or failure:
+/// `true` when it worked. A failure is a coded tool error, never a `false`
+/// that could just as well mean the target was not there.
+fn gui_action(name: &str, tool: &str, output: &std::process::Output) -> Result<Value> {
+    if output.status.success() {
+        Ok(Value::Bool(true))
+    } else {
+        Err(crate::safety::tool_failed(
+            name,
+            tool,
+            output.status.code(),
+            &gui_stderr_tail(output),
+        ))
+    }
+}
+
+/// `gui_action` for a window operation. `missing` is the exit status the tool
+/// or script uses when no window has the title: E_NOT_FOUND, not a failure.
+fn gui_window_action(
+    name: &str,
+    tool: &str,
+    title: &str,
+    missing: i32,
+    output: &std::process::Output,
+) -> Result<Value> {
+    if output.status.code() == Some(missing) {
+        return Err(crate::safety::not_found(name, "window", title));
+    }
+    gui_action(name, tool, output)
+}
+
+/// A dialog that answers with a path or text on stdout. Exit 0 is the answer
+/// (an empty one is Null); `cancel` is the exit status of a user who closed
+/// the dialog, which is Null too. Any other exit is a coded tool failure.
+fn gui_dialog_answer(
+    name: &str,
+    tool: &str,
+    cancel: Option<i32>,
+    output: &std::process::Output,
+) -> Result<Value> {
+    if output.status.success() {
+        let answer = String::from_utf8_lossy(&output.stdout)
+            .trim_end_matches(['\r', '\n'])
+            .trim()
+            .to_string();
+        return Ok(if answer.is_empty() {
+            Value::Null
+        } else {
+            Value::Str(answer)
+        });
+    }
+    if cancel.is_some() && output.status.code() == cancel {
+        return Ok(Value::Null);
+    }
+    Err(crate::safety::tool_failed(
+        name,
+        tool,
+        output.status.code(),
+        &gui_stderr_tail(output),
+    ))
+}
+
+/// A confirmation dialog: `true` when it was acknowledged, `false` when the
+/// user dismissed it (exit 1, which both zenity and osascript use for that).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn gui_dialog_ack(name: &str, tool: &str, output: &std::process::Output) -> Result<Value> {
+    if output.status.success() {
+        return Ok(Value::Bool(true));
+    }
+    if output.status.code() == Some(1) {
+        return Ok(Value::Bool(false));
+    }
+    Err(crate::safety::tool_failed(
+        name,
+        tool,
+        output.status.code(),
+        &gui_stderr_tail(output),
+    ))
+}
+
+/// A JSON answer on stdout, as a Value. A failed run, or an answer that is
+/// not JSON, is a coded tool failure.
+#[cfg(target_os = "windows")]
+fn gui_json_answer(name: &str, tool: &str, output: &std::process::Output) -> Result<Value> {
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            name,
+            tool,
+            output.status.code(),
+            &gui_stderr_tail(output),
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    serde_json::from_str::<serde_json::Value>(text.trim())
+        .map(json_to_value)
+        .map_err(|e| {
+            crate::safety::tool_failed(
+                name,
+                tool,
+                Some(0),
+                &format!("its answer was not JSON: {e}"),
+            )
+        })
+}
+
+/// Runs a PowerShell script with no profile, no prompts, and errors that
+/// stop the script (so a failed step exits nonzero instead of passing).
+#[cfg(target_os = "windows")]
+fn gui_powershell(name: &str, script: &str) -> Result<std::process::Output> {
+    let full = format!("$ErrorActionPreference = 'Stop'\n{script}");
+    std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &full])
+        .output()
+        .map_err(|e| crate::safety::spawn_error(name, "powershell", &e))
+}
+
+/// A key named by a key call: its modifiers, then one key.
+#[derive(Clone, Copy)]
+enum GuiMod {
+    Ctrl,
+    Alt,
+    Shift,
+}
+
+struct GuiKey {
+    mods: Vec<GuiMod>,
+    key: String,
+}
+
+/// Parses `ctrl+shift+t`, `enter`, `a`, `f5` and the like. Modifiers come
+/// first, then exactly one key: a letter, a digit, or a name from
+/// `GUI_NAMED_KEYS`. Anything else is refused before a tool runs.
+fn parse_gui_key(name: &str, spec: &str) -> Result<GuiKey> {
+    const EXPECTED: &str = "a key such as enter, a, f5 or ctrl+shift+t";
+    if spec.len() > GUI_KEY_MAX_BYTES {
+        return Err(crate::safety::bad_arg(
+            name,
+            EXPECTED,
+            &format!("{} bytes", spec.len()),
+        ));
+    }
+    let lowered = spec.to_ascii_lowercase();
+    let mut tokens: Vec<&str> = lowered.split('+').map(str::trim).collect();
+    let key = tokens.pop().unwrap_or("");
+    let mut mods = Vec::new();
+    for token in tokens {
+        mods.push(match token {
+            "ctrl" | "control" => GuiMod::Ctrl,
+            "alt" => GuiMod::Alt,
+            "shift" => GuiMod::Shift,
+            _ => return Err(crate::safety::bad_arg(name, EXPECTED, spec)),
+        });
+    }
+    let single = key.chars().count() == 1 && key.chars().all(|c| c.is_ascii_alphanumeric());
+    if !single && !GUI_NAMED_KEYS.contains(&key) {
+        return Err(crate::safety::bad_arg(name, EXPECTED, spec));
+    }
+    Ok(GuiKey {
+        mods,
+        key: key.to_string(),
+    })
+}
+
+/// The SendKeys spelling of a parsed key.
+#[cfg(target_os = "windows")]
+fn gui_sendkeys(key: &GuiKey) -> String {
+    let mut out = String::new();
+    for m in &key.mods {
+        out.push_str(match m {
+            GuiMod::Ctrl => "^",
+            GuiMod::Alt => "%",
+            GuiMod::Shift => "+",
+        });
+    }
+    let key_text = match key.key.as_str() {
+        "pageup" => "{PGUP}".to_string(),
+        "pagedown" => "{PGDN}".to_string(),
+        named if GUI_NAMED_KEYS.contains(&named) => format!("{{{}}}", named.to_ascii_uppercase()),
+        single => single.to_string(),
+    };
+    out.push_str(&key_text);
+    out
+}
+
+/// The SendKeys spelling of literal text: every character SendKeys treats as
+/// syntax is sent as itself.
+#[cfg(target_os = "windows")]
+fn gui_sendkeys_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '{' => out.push_str("{{}"),
+            '}' => out.push_str("{}}"),
+            '+' | '^' | '%' | '~' | '(' | ')' | '[' | ']' => {
+                out.push('{');
+                out.push(c);
+                out.push('}');
+            }
+            '\n' => out.push_str("{ENTER}"),
+            '\t' => out.push_str("{TAB}"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// The xdotool spelling of a parsed key, e.g. `ctrl+shift+t` or `Return`.
+#[cfg(target_os = "linux")]
+fn gui_xdotool_key(key: &GuiKey) -> String {
+    let mut parts: Vec<String> = key
+        .mods
+        .iter()
+        .map(|m| match m {
+            GuiMod::Ctrl => "ctrl".to_string(),
+            GuiMod::Alt => "alt".to_string(),
+            GuiMod::Shift => "shift".to_string(),
+        })
+        .collect();
+    let key_name = match key.key.as_str() {
+        "enter" => "Return".to_string(),
+        "tab" => "Tab".to_string(),
+        "esc" => "Escape".to_string(),
+        "space" => "space".to_string(),
+        "backspace" => "BackSpace".to_string(),
+        "delete" => "Delete".to_string(),
+        "home" => "Home".to_string(),
+        "end" => "End".to_string(),
+        "pageup" => "Prior".to_string(),
+        "pagedown" => "Next".to_string(),
+        "up" => "Up".to_string(),
+        "down" => "Down".to_string(),
+        "left" => "Left".to_string(),
+        "right" => "Right".to_string(),
+        named if GUI_NAMED_KEYS.contains(&named) => named.to_ascii_uppercase(),
+        single => single.to_string(),
+    };
+    parts.push(key_name);
+    parts.join("+")
+}
+
+/// The Windows button codes for a mouse button, as (down, up).
+#[cfg(target_os = "windows")]
+fn gui_mouse_codes(button: &str) -> (u32, u32) {
+    match button {
+        "right" => (0x0008, 0x0010),
+        "middle" => (0x0020, 0x0040),
+        _ => (0x0002, 0x0004),
+    }
+}
+
+/// The button of a click: "left", "right" or "middle", or 1, 2 or 3 (left,
+/// middle, right, as xdotool numbers them). Absent means left.
+fn gui_button(name: &str, args: &[Value], index: usize) -> Result<&'static str> {
+    match args.get(index) {
+        None => Ok("left"),
+        Some(Value::Str(s)) => match s.as_str() {
+            "left" => Ok("left"),
+            "right" => Ok("right"),
+            "middle" => Ok("middle"),
+            _ => Err(crate::safety::bad_arg(
+                name,
+                "button: \"left\", \"right\" or \"middle\" (or 1, 2 or 3)",
+                s,
+            )),
+        },
+        Some(Value::Int(1)) => Ok("left"),
+        Some(Value::Int(2)) => Ok("middle"),
+        Some(Value::Int(3)) => Ok("right"),
+        Some(other) => Err(crate::safety::bad_arg(
+            name,
+            "button: \"left\", \"right\" or \"middle\" (or 1, 2 or 3)",
+            other.type_name(),
+        )),
+    }
+}
+
+/// Escapes a window title for xdotool's regular-expression `--name`.
+#[cfg(target_os = "linux")]
+fn gui_regex_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 2);
+    for c in text.chars() {
+        if ".^$*+?()[]{}|\\".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Clipboard text as a String, refused above `CLIPBOARD_MAX_BYTES` rather than
+/// returned in part.
+fn clipboard_answer(name: &str, bytes: &[u8]) -> Result<Value> {
+    if bytes.len() > CLIPBOARD_MAX_BYTES {
+        return Err(crate::safety::budget_exceeded(
+            name,
+            format!(
+                "the clipboard holds {} bytes of text, more than the {CLIPBOARD_MAX_BYTES} this call returns",
+                bytes.len()
+            ),
+            "read the clipboard with a platform tool that streams it",
+        ));
+    }
+    Ok(Value::Str(String::from_utf8_lossy(bytes).into_owned()))
+}
+
+#[allow(unused_variables)]
+fn bi_gui_list_windows(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("gui_list_windows", &args, &input)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = r#"
+        let script = r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -32154,60 +32610,97 @@ public class WindowHelper {
 "@
 [WindowHelper]::windows.Clear()
 [WindowHelper]::EnumWindows([WindowHelper+EnumWindowsProc]{ param($h,$l) [WindowHelper]::EnumWindow($h,$l) }, [IntPtr]::Zero) | Out-Null
-[WindowHelper]::windows | ConvertTo-Json
+ConvertTo-Json -InputObject @([WindowHelper]::windows)
 "#;
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_list_windows", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
-            }
-        }
+        let output = gui_powershell("gui_list_windows", script)?;
+        gui_json_answer("gui_list_windows", "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("wmctrl")
-            .args(["-l"])
+            .arg("-l")
             .output()
             .map_err(|e| crate::safety::spawn_error("gui_list_windows", "wmctrl", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut windows = Vec::new();
-            for line in text.lines() {
-                let parts: Vec<&str> = line.splitn(4, ' ').collect();
-                if parts.len() >= 4 {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert("hwnd".to_string(), Value::Str(parts[0].to_string()));
-                    rec.insert("title".to_string(), Value::Str(parts[3].to_string()));
-                    windows.push(Value::Record(rec));
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "gui_list_windows",
+                "wmctrl",
+                output.status.code(),
+                &gui_stderr_tail(&output),
+            ));
+        }
+        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        let mut windows = Vec::new();
+        for line in text.lines() {
+            // `wmctrl -l` pads its columns: window id, desktop, host, then the
+            // title to the end of the line.
+            let mut rest = line.trim_start();
+            let mut fields = [""; 3];
+            let mut complete = true;
+            for field in fields.iter_mut() {
+                match rest.split_once(char::is_whitespace) {
+                    Some((head, tail)) => {
+                        *field = head;
+                        rest = tail.trim_start();
+                    }
+                    None => {
+                        complete = false;
+                        break;
+                    }
                 }
             }
-            return Ok(Value::Array(windows));
+            if !complete {
+                continue;
+            }
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("hwnd".to_string(), Value::Str(fields[0].to_string()));
+            rec.insert("title".to_string(), Value::Str(rest.trim_end().to_string()));
+            windows.push(Value::Record(rec));
         }
+        Ok(Value::Array(windows))
     }
-    Ok(Value::Array(vec![]))
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            "gui_list_windows",
+            "listing windows is implemented on Windows and Linux; NOTHING WAS READ",
+            "run this on Windows or Linux",
+        ))
+    }
 }
 
 #[allow(unused_variables)]
-fn bi_gui_focus_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let title_or_hwnd = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        Some(Value::Int(h)) => h.to_string(),
+fn bi_gui_focus_window(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_focus_window";
+    refuse_piped_input(NAME, &input)?;
+    let (label, handle) = match gui_required(NAME, &args, 0, "a window title or handle")? {
+        Value::Int(h) if *h > 0 => (h.to_string(), Some(*h)),
+        Value::Int(h) => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "a window handle above 0",
+                &h.to_string(),
+            ))
+        }
+        v @ Value::Str(_) => (
+            gui_text(NAME, "window title", v, GUI_FIELD_MAX_BYTES, false)?,
+            None,
+        ),
         other => {
             return Err(crate::safety::bad_arg(
-                "gui_focus_window",
+                NAME,
                 "Int or String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
+                other.type_name(),
             ))
         }
     };
-
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let (is_handle, arg) = match handle {
+            Some(h) => (1, crate::safety::ps_quote(&h.to_string())),
+            None => (0, crate::safety::ps_quote(&label)),
+        };
+        let script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -32217,54 +32710,56 @@ public class WindowFocus {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowFocus]::FindWindow($null, {})
-if ($hwnd -eq [IntPtr]::Zero) {{ $hwnd = [IntPtr]::new({}) }}
-[WindowFocus]::SetForegroundWindow($hwnd)
+$hwnd = if ({} -eq 1) {{ [IntPtr]::new([int64]{}) }} else {{ [WindowFocus]::FindWindow($null, {}) }}
+if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
+if (-not [WindowFocus]::SetForegroundWindow($hwnd)) {{ exit 4 }}
 "#,
-            crate::safety::ps_quote(&title_or_hwnd),
-            crate::safety::ps_quote(&title_or_hwnd)
+            is_handle,
+            arg,
+            arg
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_focus_window", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_window_action(NAME, "powershell", &label, 3, &output)
     }
     #[cfg(target_os = "linux")]
     {
+        let args: Vec<String> = match handle {
+            Some(h) => vec!["-i".into(), "-a".into(), format!("0x{h:x}")],
+            None => {
+                crate::safety::reject_option_like(NAME, std::slice::from_ref(&label))?;
+                vec!["-a".into(), label.clone()]
+            }
+        };
         let output = std::process::Command::new("wmctrl")
-            .args(["-a", &title_or_hwnd])
+            .args(&args)
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_focus_window", "wmctrl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "wmctrl", &e))?;
+        gui_window_action(NAME, "wmctrl", &label, 1, &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.focus_window: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
 #[allow(unused_variables)]
-fn bi_gui_minimize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let title = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_minimize_window",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
+fn bi_gui_minimize_window(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_minimize_window";
+    refuse_piped_input(NAME, &input)?;
+    let title = gui_text(
+        NAME,
+        "window title",
+        gui_required(NAME, &args, 0, "a window title")?,
+        GUI_FIELD_MAX_BYTES,
+        false,
+    )?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -32275,51 +32770,55 @@ public class WindowMin {{
 }}
 "@
 $hwnd = [WindowMin]::FindWindow($null, {})
-[WindowMin]::ShowWindow($hwnd, 6)
+if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
+[WindowMin]::ShowWindow($hwnd, 6) | Out-Null
 "#,
             crate::safety::ps_quote(&title)
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_minimize_window", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_window_action(NAME, "powershell", &title, 3, &output)
     }
     #[cfg(target_os = "linux")]
     {
+        crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
+        let pattern = format!("^{}$", gui_regex_escape(&title));
         let output = std::process::Command::new("xdotool")
-            .args(["search", "--name", &title, "windowminimize"])
+            .args([
+                "search",
+                "--limit",
+                "1",
+                "--name",
+                &pattern,
+                "windowminimize",
+            ])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_minimize_window", "xdotool", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        gui_window_action(NAME, "xdotool", &title, 1, &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.minimize_window: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
 #[allow(unused_variables)]
-fn bi_gui_maximize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let title = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_maximize_window",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
+fn bi_gui_maximize_window(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_maximize_window";
+    refuse_piped_input(NAME, &input)?;
+    let title = gui_text(
+        NAME,
+        "window title",
+        gui_required(NAME, &args, 0, "a window title")?,
+        GUI_FIELD_MAX_BYTES,
+        false,
+    )?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -32330,51 +32829,47 @@ public class WindowMax {{
 }}
 "@
 $hwnd = [WindowMax]::FindWindow($null, {})
-[WindowMax]::ShowWindow($hwnd, 3)
+if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
+[WindowMax]::ShowWindow($hwnd, 3) | Out-Null
 "#,
             crate::safety::ps_quote(&title)
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_maximize_window", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_window_action(NAME, "powershell", &title, 3, &output)
     }
     #[cfg(target_os = "linux")]
     {
+        crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
         let output = std::process::Command::new("wmctrl")
             .args(["-r", &title, "-b", "add,maximized_vert,maximized_horz"])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_maximize_window", "wmctrl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "wmctrl", &e))?;
+        gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.maximize_window: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
 #[allow(unused_variables)]
-fn bi_gui_close_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let title = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_close_window",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
+fn bi_gui_close_window(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_close_window";
+    refuse_piped_input(NAME, &input)?;
+    let title = gui_text(
+        NAME,
+        "window title",
+        gui_required(NAME, &args, 0, "a window title")?,
+        GUI_FIELD_MAX_BYTES,
+        false,
+    )?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -32385,71 +32880,49 @@ public class WindowClose {{
 }}
 "@
 $hwnd = [WindowClose]::FindWindow($null, {})
-[WindowClose]::SendMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
+if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
+[WindowClose]::SendMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 "#,
             crate::safety::ps_quote(&title)
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_close_window", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_window_action(NAME, "powershell", &title, 3, &output)
     }
     #[cfg(target_os = "linux")]
     {
+        crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
         let output = std::process::Command::new("wmctrl")
             .args(["-c", &title])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_close_window", "wmctrl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "wmctrl", &e))?;
+        gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.close_window: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
 #[allow(unused_variables)]
-fn bi_gui_move_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let title = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_move_window",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let x = match args.get(1) {
-        Some(Value::Int(n)) => *n,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_move_window",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let y = match args.get(2) {
-        Some(Value::Int(n)) => *n,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_move_window",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
+fn bi_gui_move_window(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_move_window";
+    refuse_piped_input(NAME, &input)?;
+    let title = gui_text(
+        NAME,
+        "window title",
+        gui_required(NAME, &args, 0, "a window title")?,
+        GUI_FIELD_MAX_BYTES,
+        false,
+    )?;
+    let x = gui_coord(NAME, "x", gui_required(NAME, &args, 1, "an Int x")?)?;
+    let y = gui_coord(NAME, "y", gui_required(NAME, &args, 2, "an Int y")?)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -32460,73 +32933,55 @@ public class WindowMove {{
 }}
 "@
 $hwnd = [WindowMove]::FindWindow($null, {})
-[WindowMove]::SetWindowPos($hwnd, [IntPtr]::Zero, {}, {}, 0, 0, 0x0001)
+if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
+if (-not [WindowMove]::SetWindowPos($hwnd, [IntPtr]::Zero, {}, {}, 0, 0, 0x0001)) {{ exit 4 }}
 "#,
             crate::safety::ps_quote(&title),
             x,
             y
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_move_window", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_window_action(NAME, "powershell", &title, 3, &output)
     }
     #[cfg(target_os = "linux")]
     {
+        crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
         let output = std::process::Command::new("wmctrl")
-            .args(["-r", &title, "-e", &format!("0,{},{},−1,−1", x, y)])
+            .args(["-r", &title, "-e", &format!("0,{x},{y},-1,-1")])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_move_window", "wmctrl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "wmctrl", &e))?;
+        gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.move_window: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
 #[allow(unused_variables)]
-fn bi_gui_resize_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let title = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_resize_window",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let w = match args.get(1) {
-        Some(Value::Int(n)) => *n,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_resize_window",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let h = match args.get(2) {
-        Some(Value::Int(n)) => *n,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_resize_window",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
+fn bi_gui_resize_window(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_resize_window";
+    refuse_piped_input(NAME, &input)?;
+    let title = gui_text(
+        NAME,
+        "window title",
+        gui_required(NAME, &args, 0, "a window title")?,
+        GUI_FIELD_MAX_BYTES,
+        false,
+    )?;
+    let w = gui_size(NAME, "width", gui_required(NAME, &args, 1, "an Int width")?)?;
+    let h = gui_size(
+        NAME,
+        "height",
+        gui_required(NAME, &args, 2, "an Int height")?,
+    )?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -32537,164 +32992,154 @@ public class WindowResize {{
 }}
 "@
 $hwnd = [WindowResize]::FindWindow($null, {})
-[WindowResize]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, {}, {}, 0x0002)
+if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
+if (-not [WindowResize]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, {}, {}, 0x0002)) {{ exit 4 }}
 "#,
             crate::safety::ps_quote(&title),
             w,
             h
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_resize_window", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_window_action(NAME, "powershell", &title, 3, &output)
     }
     #[cfg(target_os = "linux")]
     {
+        crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
         let output = std::process::Command::new("wmctrl")
-            .args(["-r", &title, "-e", &format!("0,−1,−1,{},{}", w, h)])
+            .args(["-r", &title, "-e", &format!("0,-1,-1,{w},{h}")])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_resize_window", "wmctrl", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "wmctrl", &e))?;
+        gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.resize_window: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
-fn bi_gui_screenshot(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| {
+#[allow(unused_variables)]
+fn bi_gui_screenshot(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_screenshot";
+    refuse_piped_input(NAME, &input)?;
+    let path = match args.first() {
+        None => {
             let ts = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
             format!("screenshot_{}.png", ts)
-        });
-
-    // Where it writes is checked like any other write (it was not), and the
-    // path goes to scrot/screencapture positionally.
-    crate::safety::reject_option_like("gui_screenshot", std::slice::from_ref(&path))?;
-    let path = guard_local_write("gui_screenshot", &path)?;
+        }
+        Some(v) => gui_text(NAME, "screenshot path", v, GUI_FIELD_MAX_BYTES, false)?,
+    };
+    // Where it writes is checked like any other write, and the path goes to
+    // scrot/screencapture positionally.
+    crate::safety::reject_option_like(NAME, std::slice::from_ref(&path))?;
+    let path = guard_local_write(NAME, &path)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $bitmap = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
 $bitmap.Save({})
+$graphics.Dispose()
+$bitmap.Dispose()
 "#,
             crate::safety::ps_quote(&path)
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_screenshot", "powershell", &e))?;
+        let output = gui_powershell(NAME, &script)?;
         if output.status.success() {
-            return Ok(Value::Str(path));
+            Ok(Value::Str(path))
+        } else {
+            // A failed capture answered null.
+            Err(crate::safety::tool_failed(
+                NAME,
+                "powershell",
+                output.status.code(),
+                &gui_stderr_tail(&output),
+            ))
         }
-        // A failed capture answered null.
-        return Err(crate::safety::tool_failed(
-            "gui_screenshot",
-            "powershell",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("scrot")
             .arg(&path)
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_screenshot", "scrot", &e))?;
+            .map_err(|e| crate::safety::spawn_error(NAME, "scrot", &e))?;
         if output.status.success() {
-            return Ok(Value::Str(path));
+            Ok(Value::Str(path))
+        } else {
+            Err(crate::safety::tool_failed(
+                NAME,
+                "scrot",
+                output.status.code(),
+                &gui_stderr_tail(&output),
+            ))
         }
-        // A failed capture answered null.
-        return Err(crate::safety::tool_failed(
-            "gui_screenshot",
-            "scrot",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
     }
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("screencapture")
             .args(["-x", &path])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_screenshot", "screencapture", &e))?;
+            .map_err(|e| crate::safety::spawn_error(NAME, "screencapture", &e))?;
         if output.status.success() {
-            return Ok(Value::Str(path));
+            Ok(Value::Str(path))
+        } else {
+            Err(crate::safety::tool_failed(
+                NAME,
+                "screencapture",
+                output.status.code(),
+                &gui_stderr_tail(&output),
+            ))
         }
-        // A failed capture answered null.
-        return Err(crate::safety::tool_failed(
-            "gui_screenshot",
-            "screencapture",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
     }
-    #[allow(unreachable_code)]
-    Err(crate::safety::unimplemented(
-        "gui_screenshot",
-        "screen capture is not implemented on this OS; NOTHING WAS CAPTURED",
-        "use the platform's screenshot tool",
-    ))
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "screen capture is not implemented on this OS; NOTHING WAS CAPTURED",
+            "use the platform's screenshot tool",
+        ))
+    }
 }
 
-fn bi_gui_screenshot_window(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // This promised the window with a given title. The title was never used:
-    // on Linux `scrot -u` captured whichever window had focus, and every other
-    // OS answered null. Capturing by title is not implemented anywhere.
-    let _ = &args;
+fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_screenshot_window";
+    refuse_piped_input(NAME, &input)?;
+    gui_text(
+        NAME,
+        "window title",
+        gui_required(NAME, &args, 0, "a window title")?,
+        GUI_FIELD_MAX_BYTES,
+        false,
+    )?;
+    // This promised the window with a given title. Capturing by title is not
+    // implemented on any OS, so nothing is captured and nothing is claimed.
     Err(crate::safety::unimplemented(
-        "gui_screenshot_window",
+        NAME,
         "capturing a window by title is not implemented; NOTHING WAS CAPTURED",
-        "screenshot(path) captures the whole screen",
+        "gui_screenshot(path) captures the whole screen",
     ))
 }
 
 #[allow(unused_variables)]
-fn bi_gui_mouse_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let x = match args.first() {
-        Some(Value::Int(n)) => *n,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_mouse_move",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let y = match args.get(1) {
-        Some(Value::Int(n)) => *n,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_mouse_move",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
+fn bi_gui_mouse_move(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_mouse_move";
+    refuse_piped_input(NAME, &input)?;
+    let x = gui_coord(NAME, "x", gui_required(NAME, &args, 0, "an Int x")?)?;
+    let y = gui_coord(NAME, "y", gui_required(NAME, &args, 1, "an Int y")?)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -32703,57 +33148,41 @@ public class MouseMove {{
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
 }}
 "@
-[MouseMove]::SetCursorPos({}, {})
+if (-not [MouseMove]::SetCursorPos({}, {})) {{ exit 4 }}
 "#,
             x,
             y
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_mouse_move", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_action(NAME, "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdotool")
             .args(["mousemove", &x.to_string(), &y.to_string()])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_mouse_move", "xdotool", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        gui_action(NAME, "xdotool", &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.mouse_move: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
 #[allow(unused_variables)]
-fn bi_gui_mouse_click(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let button = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.as_str()),
-            Value::Int(1) => Some("left"),
-            Value::Int(2) => Some("middle"),
-            Value::Int(3) => Some("right"),
-            _ => None,
-        })
-        .unwrap_or("left");
-
+fn bi_gui_mouse_click(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_mouse_click";
+    refuse_piped_input(NAME, &input)?;
+    let button = gui_button(NAME, &args, 0)?;
     #[cfg(target_os = "windows")]
     {
-        let (down, up) = match button {
-            "right" => (0x0008, 0x0010),
-            "middle" => (0x0020, 0x0040),
-            _ => (0x0002, 0x0004), // left
-        };
-        let ps_script = crate::ps_script!(
+        let (down, up) = gui_mouse_codes(button);
+        let script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -32768,11 +33197,8 @@ public class MouseClick {{
             down,
             up
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_mouse_click", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_action(NAME, "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
@@ -32784,68 +33210,62 @@ public class MouseClick {{
         let output = std::process::Command::new("xdotool")
             .args(["click", btn])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_mouse_click", "xdotool", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        gui_action(NAME, "xdotool", &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.mouse_click: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
-fn bi_gui_mouse_double_click(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gui_mouse_double_click(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_piped_input("gui_mouse_double_click", &input)?;
+    // Each click validates the button again, so a bad button is refused before
+    // the first click is sent.
+    gui_button("gui_mouse_double_click", &args, 0)?;
     bi_gui_mouse_click(args.clone(), None)?;
     std::thread::sleep(std::time::Duration::from_millis(50));
     bi_gui_mouse_click(args, None)
 }
 
-fn bi_gui_mouse_drag(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let x1 = match args.first() {
-        Some(Value::Int(n)) => *n,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_mouse_drag",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let y1 = match args.get(1) {
-        Some(Value::Int(n)) => *n,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_mouse_drag",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let x2 = match args.get(2) {
-        Some(Value::Int(n)) => *n,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_mouse_drag",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-    let y2 = match args.get(3) {
-        Some(Value::Int(n)) => *n,
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_mouse_drag",
-                "Int",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
+#[allow(unused_variables)]
+fn bi_gui_mouse_drag(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_mouse_drag";
+    refuse_piped_input(NAME, &input)?;
+    let x1 = gui_coord(NAME, "x1", gui_required(NAME, &args, 0, "an Int x1")?)?;
+    let y1 = gui_coord(NAME, "y1", gui_required(NAME, &args, 1, "an Int y1")?)?;
+    let x2 = gui_coord(NAME, "x2", gui_required(NAME, &args, 2, "an Int x2")?)?;
+    let y2 = gui_coord(NAME, "y2", gui_required(NAME, &args, 3, "an Int y2")?)?;
+    #[cfg(target_os = "windows")]
+    {
+        let script = crate::ps_script!(
+            r#"
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class MouseDrag {{
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
+}}
+"@
+if (-not [MouseDrag]::SetCursorPos({}, {})) {{ exit 4 }}
+[MouseDrag]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+if (-not [MouseDrag]::SetCursorPos({}, {})) {{ exit 4 }}
+[MouseDrag]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+"#,
+            x1,
+            y1,
+            x2,
+            y2
+        );
+        let output = gui_powershell(NAME, &script)?;
+        gui_action(NAME, "powershell", &output)
+    }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdotool")
@@ -32862,26 +33282,41 @@ fn bi_gui_mouse_drag(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "1",
             ])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_mouse_drag", "xdotool", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        gui_action(NAME, "xdotool", &output)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        let _ = (x1, y1, x2, y2);
-        Ok(Value::Bool(false))
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
+        ))
     }
 }
 
 #[allow(unused_variables)]
-fn bi_gui_mouse_scroll(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gui_mouse_scroll(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_mouse_scroll";
+    refuse_piped_input(NAME, &input)?;
+    // Notches: positive scrolls up, negative down. Bounded, so the wheel delta
+    // below cannot overflow.
     let amount = match args.first() {
-        Some(Value::Int(n)) => *n,
-        _ => 3,
+        None => 3,
+        Some(Value::Int(n)) if (-100..=100).contains(n) => *n,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "amount: Int in -100..=100 (default 3)",
+                &other.to_display_string(),
+            ))
+        }
     };
-
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        // One notch is WHEEL_DELTA (120); a negative delta is its two's complement.
+        let wheel = (amount * 120) as i32 as u32;
+        let script = crate::ps_script!(
             r#"
 Add-Type @"
 using System;
@@ -32892,38 +33327,36 @@ public class MouseScroll {{
 "@
 [MouseScroll]::mouse_event(0x0800, 0, 0, {}, [UIntPtr]::Zero)
 "#,
-            amount * 120
+            wheel
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_mouse_scroll", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_action(NAME, "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
         let dir = if amount > 0 { "4" } else { "5" };
         let output = std::process::Command::new("xdotool")
-            .args(["click", "--repeat", &amount.abs().to_string(), dir])
+            .args(["click", "--repeat", &amount.unsigned_abs().to_string(), dir])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_mouse_scroll", "xdotool", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        gui_action(NAME, "xdotool", &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.mouse_scroll: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
-fn bi_gui_mouse_position(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gui_mouse_position(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_mouse_position";
+    no_args_or_input(NAME, &args, &input)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = r#"
+        let script = r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -32933,198 +33366,205 @@ public class MousePos {
 }
 "@
 $point = New-Object MousePos+POINT
-[MousePos]::GetCursorPos([ref]$point) | Out-Null
+if (-not [MousePos]::GetCursorPos([ref]$point)) { exit 4 }
 @{x=$point.X;y=$point.Y} | ConvertTo-Json
 "#;
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_mouse_position", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
-            }
-        }
+        let output = gui_powershell(NAME, script)?;
+        gui_json_answer(NAME, "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdotool")
-            .args(["getmouselocation"])
+            .arg("getmouselocation")
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_mouse_position", "xdotool", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut rec = std::collections::BTreeMap::new();
-            for part in text.split_whitespace() {
-                if let Some((k, v)) = part.split_once(':') {
-                    if k == "x" || k == "y" {
-                        rec.insert(k.to_string(), Value::Int(v.parse().unwrap_or(0)));
-                    }
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "xdotool",
+                output.status.code(),
+                &gui_stderr_tail(&output),
+            ));
+        }
+        // "x:123 y:456 screen:0 window:789"
+        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        let mut rec = std::collections::BTreeMap::new();
+        for part in text.split_whitespace() {
+            if let Some((k, v)) = part.split_once(':') {
+                if k == "x" || k == "y" {
+                    let n: i64 = v.parse().map_err(|_| {
+                        crate::safety::tool_failed(
+                            NAME,
+                            "xdotool",
+                            Some(0),
+                            &format!("its answer had no usable {k}: {}", text.trim()),
+                        )
+                    })?;
+                    rec.insert(k.to_string(), Value::Int(n));
                 }
             }
-            return Ok(Value::Record(rec));
         }
-    }
-    Ok(Value::Null)
-}
-
-#[allow(unused_variables)]
-fn bi_gui_key_press(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let key = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_key_press",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
+        if rec.len() != 2 {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "xdotool",
+                Some(0),
+                &format!("its answer had no x and y: {}", text.trim()),
+            ));
         }
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!(
-                    r#"
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.SendKeys]::SendWait({})
-"#,
-                    crate::safety::ps_quote(&key)
-                ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_key_press", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        Ok(Value::Record(rec))
     }
-    #[cfg(target_os = "linux")]
-    {
-        let output = std::process::Command::new("xdotool")
-            .args(["key", &key])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_key_press", "xdotool", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.key_press: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "reading the pointer is implemented on Windows and Linux; NOTHING WAS READ",
+            "run this on Windows or Linux",
         ))
     }
 }
 
 #[allow(unused_variables)]
-fn bi_gui_key_combo(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let keys: Vec<String> = args
-        .iter()
-        .filter_map(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
-
-    #[cfg(target_os = "linux")]
-    {
-        let combo = keys.join("+");
-        let output = std::process::Command::new("xdotool")
-            .args(["key", &combo])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_key_combo", "xdotool", &e))?;
-        return Ok(Value::Bool(output.status.success()));
-    }
+fn bi_gui_key_press(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_key_press";
+    refuse_piped_input(NAME, &input)?;
+    let spec = gui_text(
+        NAME,
+        "key",
+        gui_required(NAME, &args, 0, "a key name")?,
+        GUI_KEY_MAX_BYTES,
+        false,
+    )?;
+    let key = parse_gui_key(NAME, &spec)?;
     #[cfg(target_os = "windows")]
     {
-        let combo = keys.join("");
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!(
-                    r#"
+        let keys = gui_sendkeys(&key);
+        let script = crate::ps_script!(
+            r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait({})
 "#,
-                    crate::safety::ps_quote(&combo)
-                ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_key_combo", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+            crate::safety::ps_quote(&keys)
+        );
+        let output = gui_powershell(NAME, &script)?;
+        gui_action(NAME, "powershell", &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
+    #[cfg(target_os = "linux")]
+    {
+        let output = std::process::Command::new("xdotool")
+            .args(["key", &gui_xdotool_key(&key)])
+            .output()
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        gui_action(NAME, "xdotool", &output)
+    }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.key_combo: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
 #[allow(unused_variables)]
-fn bi_gui_type_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let text = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_type_text",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
+fn bi_gui_key_combo(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_key_combo";
+    refuse_piped_input(NAME, &input)?;
+    // The keys join into one spec: ("ctrl", "shift", "t") is ctrl+shift+t.
+    let mut parts = Vec::with_capacity(args.len());
+    for (i, arg) in args.iter().enumerate() {
+        parts.push(gui_text(
+            NAME,
+            &format!("key {}", i + 1),
+            arg,
+            GUI_KEY_MAX_BYTES,
+            false,
+        )?);
+    }
+    if parts.is_empty() {
+        return Err(crate::safety::bad_arg(NAME, "at least one key", "nothing"));
+    }
+    let key = parse_gui_key(NAME, &parts.join("+"))?;
     #[cfg(target_os = "windows")]
     {
-        let escaped = text
-            .replace("{", "{{")
-            .replace("}", "}}")
-            .replace("+", "{+}")
-            .replace("^", "{^}")
-            .replace("%", "{%}");
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!(
-                    r#"
+        let keys = gui_sendkeys(&key);
+        let script = crate::ps_script!(
+            r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait({})
 "#,
-                    crate::safety::ps_quote(&escaped)
-                ),
-            ])
+            crate::safety::ps_quote(&keys)
+        );
+        let output = gui_powershell(NAME, &script)?;
+        gui_action(NAME, "powershell", &output)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let output = std::process::Command::new("xdotool")
+            .args(["key", &gui_xdotool_key(&key)])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_type_text", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        gui_action(NAME, "xdotool", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
+        ))
+    }
+}
+
+#[allow(unused_variables)]
+fn bi_gui_type_text(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_type_text";
+    refuse_piped_input(NAME, &input)?;
+    let text = gui_text(
+        NAME,
+        "text",
+        gui_required(NAME, &args, 0, "the text to type")?,
+        GUI_TYPE_MAX_BYTES,
+        false,
+    )?;
+    #[cfg(target_os = "windows")]
+    {
+        let keys = gui_sendkeys_text(&text);
+        let script = crate::ps_script!(
+            r#"
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.SendKeys]::SendWait({})
+"#,
+            crate::safety::ps_quote(&keys)
+        );
+        let output = gui_powershell(NAME, &script)?;
+        gui_action(NAME, "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdotool")
             .args(["type", "--", &text])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_type_text", "xdotool", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        gui_action(NAME, "xdotool", &output)
     }
-    // No implementation on this platform (macOS, BSD, ...). An explicit
-    // error keeps "unsupported here" distinguishable from "the target was
-    // not found", which a bare `false` would conflate.
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        Err(anyhow!(
-            "gui.type_text: desktop automation is not implemented on this platform"
+        Err(crate::safety::unimplemented(
+            NAME,
+            "desktop automation is not implemented on this platform; NOTHING WAS DONE",
+            "run this on Windows or Linux",
         ))
     }
 }
 
-fn bi_gui_get_active_window(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gui_get_active_window(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_get_active_window";
+    no_args_or_input(NAME, &args, &input)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = r#"
+        let script = r#"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -33139,73 +33579,97 @@ $title = New-Object System.Text.StringBuilder 256
 [ActiveWindow]::GetWindowText($hwnd, $title, 256) | Out-Null
 @{hwnd=$hwnd.ToInt64();title=$title.ToString()} | ConvertTo-Json
 "#;
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_get_active_window", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
-            }
-        }
+        let output = gui_powershell(NAME, script)?;
+        gui_json_answer(NAME, "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdotool")
             .args(["getactivewindow", "getwindowname"])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_get_active_window", "xdotool", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "xdotool",
+                output.status.code(),
+                &gui_stderr_tail(&output),
             ));
         }
+        let title = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let mut rec = std::collections::BTreeMap::new();
+        rec.insert("title".to_string(), Value::Str(title));
+        Ok(Value::Record(rec))
     }
-    Ok(Value::Null)
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "reading the active window is implemented on Windows and Linux; NOTHING WAS READ",
+            "run this on Windows or Linux",
+        ))
+    }
 }
 
-fn bi_gui_screen_size(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gui_screen_size(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_screen_size";
+    no_args_or_input(NAME, &args, &input)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = r#"
+        let script = r#"
 Add-Type -AssemblyName System.Windows.Forms
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 @{width=$screen.Width;height=$screen.Height} | ConvertTo-Json
 "#;
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_screen_size", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
-            }
-        }
+        let output = gui_powershell(NAME, script)?;
+        gui_json_answer(NAME, "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xdpyinfo")
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_screen_size", "xdpyinfo", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            for line in text.lines() {
-                if line.contains("dimensions:") {
-                    if let Some(dims) = line.split_whitespace().nth(1) {
-                        if let Some((w, h)) = dims.split_once('x') {
-                            let mut rec = std::collections::BTreeMap::new();
-                            rec.insert("width".to_string(), Value::Int(w.parse().unwrap_or(0)));
-                            rec.insert("height".to_string(), Value::Int(h.parse().unwrap_or(0)));
-                            return Ok(Value::Record(rec));
-                        }
+            .map_err(|e| crate::safety::spawn_error(NAME, "xdpyinfo", &e))?;
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "xdpyinfo",
+                output.status.code(),
+                &gui_stderr_tail(&output),
+            ));
+        }
+        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        // "  dimensions:    1920x1080 pixels (508x285 millimeters)"
+        for line in text.lines() {
+            if line.contains("dimensions:") {
+                if let Some((w, h)) = line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|dims| dims.split_once('x'))
+                {
+                    if let (Ok(w), Ok(h)) = (w.parse::<i64>(), h.parse::<i64>()) {
+                        let mut rec = std::collections::BTreeMap::new();
+                        rec.insert("width".to_string(), Value::Int(w));
+                        rec.insert("height".to_string(), Value::Int(h));
+                        return Ok(Value::Record(rec));
                     }
                 }
             }
         }
+        Err(crate::safety::tool_failed(
+            NAME,
+            "xdpyinfo",
+            Some(0),
+            "its answer had no dimensions line",
+        ))
     }
-    Ok(Value::Null)
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "reading the screen size is implemented on Windows and Linux; NOTHING WAS READ",
+            "run this on Windows or Linux",
+        ))
+    }
 }
 
 /// Options accepted by `gui_find_image`, after validation.
@@ -33415,52 +33879,52 @@ fn bi_gui_find_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     ))
 }
 
-fn bi_gui_ocr(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let image_path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_ocr",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
-    };
-
-    crate::safety::reject_option_like("gui_ocr", std::slice::from_ref(&image_path))?;
+fn bi_gui_ocr(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_ocr";
+    refuse_piped_input(NAME, &input)?;
+    let image_path = gui_text(
+        NAME,
+        "image path",
+        gui_required(NAME, &args, 0, "an image path")?,
+        GUI_FIELD_MAX_BYTES,
+        false,
+    )?;
+    crate::safety::reject_option_like(NAME, std::slice::from_ref(&image_path))?;
+    // A read is guarded like any other read: inside the workspace in agent mode.
+    let image_path = guard_local_read(NAME, &image_path)?;
     let output = std::process::Command::new("tesseract")
         .args([&image_path, "stdout"])
-        .output();
-
-    match output {
-        Ok(out) if out.status.success() => {
-            Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
-        }
-        // Both failures answered the String "OCR requires tesseract to be
-        // installed" -- as the text recognised in the image.
-        Ok(out) => Err(crate::safety::tool_failed(
-            "gui_ocr",
+        .output()
+        .map_err(|e| crate::safety::spawn_error(NAME, "tesseract", &e))?;
+    if output.status.success() {
+        Ok(Value::Str(
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+        ))
+    } else {
+        Err(crate::safety::tool_failed(
+            NAME,
             "tesseract",
-            out.status.code(),
-            &String::from_utf8_lossy(&out.stderr),
-        )),
-        Err(e) => Err(crate::safety::spawn_error("gui_ocr", "tesseract", &e)),
+            output.status.code(),
+            &gui_stderr_tail(&output),
+        ))
     }
 }
 
-fn bi_gui_notify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+#[allow(unused_variables)]
+fn bi_gui_notify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_notify";
+    refuse_piped_input(NAME, &input)?;
     let title = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "Notification".to_string(),
+        None => "Notification".to_string(),
+        Some(v) => gui_text(NAME, "title", v, GUI_FIELD_MAX_BYTES, false)?,
     };
     let message = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "".to_string(),
+        None => String::new(),
+        Some(v) => gui_text(NAME, "message", v, GUI_FIELD_MAX_BYTES, true)?,
     };
-
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 $template = [Windows.UI.Notifications.ToastTemplateType]::ToastText02
@@ -33474,19 +33938,18 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             crate::safety::ps_quote(&title),
             crate::safety::ps_quote(&message)
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_notify", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_action(NAME, "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
+        // `--` ends notify-send's options, so a title or message that begins
+        // with a dash is text.
         let output = std::process::Command::new("notify-send")
-            .args([&title, &message])
+            .args(["--", &title, &message])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_notify", "notify-send", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "notify-send", &e))?;
+        gui_action(NAME, "notify-send", &output)
     }
     #[cfg(target_os = "macos")]
     {
@@ -33500,34 +33963,38 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 ),
             ])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_notify", "osascript", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "osascript", &e))?;
+        gui_action(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "notifications are not implemented on this platform; NOTHING WAS SHOWN",
+            "run this on Windows, Linux or macOS",
+        ))
     }
 }
 
-fn bi_gui_dialog_message(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    crate::safety::refuse_if_headless("gui_dialog_message")?;
-    let message = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        other => {
-            return Err(crate::safety::bad_arg(
-                "gui_dialog_message",
-                "String",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
-        }
+#[allow(unused_variables)]
+fn bi_gui_dialog_message(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_dialog_message";
+    refuse_piped_input(NAME, &input)?;
+    let message = gui_text(
+        NAME,
+        "message",
+        gui_required(NAME, &args, 0, "the message to show")?,
+        GUI_FIELD_MAX_BYTES,
+        false,
+    )?;
+    let title = match args.get(1) {
+        None => "Message".to_string(),
+        Some(v) => gui_text(NAME, "title", v, GUI_FIELD_MAX_BYTES, false)?,
     };
-    let title = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or("Message".to_string());
-
+    crate::safety::refuse_if_headless(NAME)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.MessageBox]::Show({}, {})
@@ -33535,19 +34002,16 @@ Add-Type -AssemblyName System.Windows.Forms
             crate::safety::ps_quote(&message),
             crate::safety::ps_quote(&title)
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_dialog_message", "powershell", &e))?;
-        Ok(Value::Bool(output.status.success()))
+        let output = gui_powershell(NAME, &script)?;
+        gui_action(NAME, "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("zenity")
             .args(["--info", "--title", &title, "--text", &message])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_dialog_message", "zenity", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        gui_dialog_ack(NAME, "zenity", &output)
     }
     #[cfg(target_os = "macos")]
     {
@@ -33561,53 +34025,76 @@ Add-Type -AssemblyName System.Windows.Forms
                 ),
             ])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_dialog_message", "osascript", &e))?;
-        return Ok(Value::Bool(output.status.success()));
+            .map_err(|e| crate::safety::spawn_error(NAME, "osascript", &e))?;
+        gui_dialog_ack(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "dialogs are not implemented on this platform; NOTHING WAS SHOWN",
+            "run this on Windows, Linux or macOS",
+        ))
     }
 }
 
-fn bi_gui_dialog_input(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    crate::safety::refuse_if_headless("gui_dialog_input")?;
+#[allow(unused_variables)]
+fn bi_gui_dialog_input(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_dialog_input";
+    refuse_piped_input(NAME, &input)?;
     let prompt = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => "Enter value:".to_string(),
+        None => "Enter value:".to_string(),
+        Some(v) => gui_text(NAME, "prompt", v, GUI_FIELD_MAX_BYTES, false)?,
     };
-    let title = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or("Input".to_string());
-
+    let title = match args.get(1) {
+        None => "Input".to_string(),
+        Some(v) => gui_text(NAME, "title", v, GUI_FIELD_MAX_BYTES, false)?,
+    };
+    crate::safety::refuse_if_headless(NAME)?;
+    #[cfg(target_os = "windows")]
+    {
+        // The VisualBasic InputBox returns "" on cancel, so an empty answer is Null.
+        let script = crate::ps_script!(
+            r#"
+Add-Type -AssemblyName Microsoft.VisualBasic
+[Microsoft.VisualBasic.Interaction]::InputBox({}, {})
+"#,
+            crate::safety::ps_quote(&prompt),
+            crate::safety::ps_quote(&title)
+        );
+        let output = gui_powershell(NAME, &script)?;
+        gui_dialog_answer(NAME, "powershell", None, &output)
+    }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("zenity")
             .args(["--entry", "--title", &title, "--text", &prompt])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_dialog_input", "zenity", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        gui_dialog_answer(NAME, "zenity", Some(1), &output)
     }
-    Ok(Value::Null)
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "input dialogs are implemented on Windows and Linux; NOTHING WAS ASKED",
+            "use input_read_line on the terminal",
+        ))
+    }
 }
 
-fn bi_gui_dialog_file_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    crate::safety::refuse_if_headless("gui_dialog_file_open")?;
-    let title = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or("Open File".to_string());
-
+#[allow(unused_variables)]
+fn bi_gui_dialog_file_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_dialog_file_open";
+    refuse_piped_input(NAME, &input)?;
+    let title = match args.first() {
+        None => "Open File".to_string(),
+        Some(v) => gui_text(NAME, "title", v, GUI_FIELD_MAX_BYTES, false)?,
+    };
+    crate::safety::refuse_if_headless(NAME)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
@@ -33616,45 +34103,39 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
 "#,
             crate::safety::ps_quote(&title)
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_dialog_file_open", "powershell", &e))?;
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(Value::Str(path));
-            }
-        }
+        let output = gui_powershell(NAME, &script)?;
+        gui_dialog_answer(NAME, "powershell", None, &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("zenity")
             .args(["--file-selection", "--title", &title])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_dialog_file_open", "zenity", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        gui_dialog_answer(NAME, "zenity", Some(1), &output)
     }
-    Ok(Value::Null)
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "file dialogs are implemented on Windows and Linux; NOTHING WAS SHOWN",
+            "pass the path as an argument instead",
+        ))
+    }
 }
 
-fn bi_gui_dialog_file_save(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    crate::safety::refuse_if_headless("gui_dialog_file_save")?;
-    let title = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or("Save File".to_string());
-
+#[allow(unused_variables)]
+fn bi_gui_dialog_file_save(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_dialog_file_save";
+    refuse_piped_input(NAME, &input)?;
+    let title = match args.first() {
+        None => "Save File".to_string(),
+        Some(v) => gui_text(NAME, "title", v, GUI_FIELD_MAX_BYTES, false)?,
+    };
+    crate::safety::refuse_if_headless(NAME)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.SaveFileDialog
@@ -33663,45 +34144,39 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
 "#,
             crate::safety::ps_quote(&title)
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_dialog_file_save", "powershell", &e))?;
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(Value::Str(path));
-            }
-        }
+        let output = gui_powershell(NAME, &script)?;
+        gui_dialog_answer(NAME, "powershell", None, &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("zenity")
             .args(["--file-selection", "--save", "--title", &title])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_dialog_file_save", "zenity", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        gui_dialog_answer(NAME, "zenity", Some(1), &output)
     }
-    Ok(Value::Null)
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "file dialogs are implemented on Windows and Linux; NOTHING WAS SHOWN",
+            "pass the path as an argument instead",
+        ))
+    }
 }
 
-fn bi_gui_dialog_folder(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    crate::safety::refuse_if_headless("gui_dialog_folder")?;
-    let title = args
-        .first()
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        })
-        .unwrap_or("Select Folder".to_string());
-
+#[allow(unused_variables)]
+fn bi_gui_dialog_folder(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_dialog_folder";
+    refuse_piped_input(NAME, &input)?;
+    let title = match args.first() {
+        None => "Select Folder".to_string(),
+        Some(v) => gui_text(NAME, "title", v, GUI_FIELD_MAX_BYTES, false)?,
+    };
+    crate::safety::refuse_if_headless(NAME)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = crate::ps_script!(
+        let script = crate::ps_script!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -33710,33 +34185,30 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
 "#,
             crate::safety::ps_quote(&title)
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_dialog_folder", "powershell", &e))?;
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(Value::Str(path));
-            }
-        }
+        let output = gui_powershell(NAME, &script)?;
+        gui_dialog_answer(NAME, "powershell", None, &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("zenity")
             .args(["--file-selection", "--directory", "--title", &title])
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_dialog_folder", "zenity", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        gui_dialog_answer(NAME, "zenity", Some(1), &output)
     }
-    Ok(Value::Null)
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "folder dialogs are implemented on Windows and Linux; NOTHING WAS SHOWN",
+            "pass the path as an argument instead",
+        ))
+    }
 }
 
-fn bi_gui_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_gui_wait(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_wait";
+    refuse_piped_input(NAME, &input)?;
     // A negative Int became u64::MAX milliseconds: gui_wait(-1) slept forever.
     let ms = match args.first() {
         None => 1000,
@@ -33744,7 +34216,7 @@ fn bi_gui_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Some(Value::Float(f)) if (0.0..=3_600_000.0).contains(f) => *f as u64,
         Some(other) => {
             return Err(crate::safety::bad_arg(
-                "gui_wait",
+                NAME,
                 "milliseconds from 0 to 3600000",
                 &other.to_display_string(),
             ))
@@ -33754,41 +34226,89 @@ fn bi_gui_wait(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Bool(true))
 }
 
-fn bi_gui_color_picker(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    crate::safety::refuse_if_headless("gui_color_picker")?;
+fn bi_gui_color_picker(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "gui_color_picker";
+    no_args_or_input(NAME, &args, &input)?;
+    crate::safety::refuse_if_headless(NAME)?;
     #[cfg(target_os = "windows")]
     {
-        let ps_script = r#"
+        // Cancelled, the dialog prints nothing: Null.
+        let script = r#"
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.ColorDialog
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     @{r=$dialog.Color.R;g=$dialog.Color.G;b=$dialog.Color.B;hex=('#' + $dialog.Color.R.ToString('X2') + $dialog.Color.G.ToString('X2') + $dialog.Color.B.ToString('X2'))} | ConvertTo-Json
 }
 "#;
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", ps_script])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_color_picker", "powershell", &e))?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
-            }
+        let output = gui_powershell(NAME, script)?;
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "powershell",
+                output.status.code(),
+                &gui_stderr_tail(&output),
+            ));
         }
+        if String::from_utf8_lossy(&output.stdout).trim().is_empty() {
+            return Ok(Value::Null);
+        }
+        gui_json_answer(NAME, "powershell", &output)
     }
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("zenity")
-            .args(["--color-selection"])
+            .arg("--color-selection")
             .output()
-            .map_err(|e| crate::safety::spawn_error("gui_color_picker", "zenity", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        if output.status.code() == Some(1) {
+            return Ok(Value::Null);
+        }
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "zenity",
+                output.status.code(),
+                &gui_stderr_tail(&output),
             ));
         }
+        // zenity answers "rgb(255,0,0)".
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let parsed: Option<(i64, i64, i64)> = text
+            .strip_prefix("rgb(")
+            .and_then(|t| t.strip_suffix(')'))
+            .and_then(|t| {
+                let mut it = t.split(',').map(|p| p.trim().parse::<i64>());
+                match (it.next(), it.next(), it.next(), it.next()) {
+                    (Some(Ok(r)), Some(Ok(g)), Some(Ok(b)), None) => Some((r, g, b)),
+                    _ => None,
+                }
+            });
+        let Some((r, g, b)) = parsed else {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "zenity",
+                Some(0),
+                &format!("its answer was not rgb(r,g,b): {text}"),
+            ));
+        };
+        let mut rec = std::collections::BTreeMap::new();
+        rec.insert("r".to_string(), Value::Int(r));
+        rec.insert("g".to_string(), Value::Int(g));
+        rec.insert("b".to_string(), Value::Int(b));
+        rec.insert(
+            "hex".to_string(),
+            Value::Str(format!("#{r:02X}{g:02X}{b:02X}")),
+        );
+        Ok(Value::Record(rec))
     }
-    Ok(Value::Null)
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "the colour picker is implemented on Windows and Linux; NOTHING WAS SHOWN",
+            "run this on Windows or Linux",
+        ))
+    }
 }
 
 // ============================================================================
@@ -35118,88 +35638,125 @@ fn strip_html_tags(html: &str) -> String {
 // 460-479: Clipboard & Input
 // ============================================================================
 
-fn bi_clipboard_get(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+#[allow(unused_variables)]
+fn bi_clipboard_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "clipboard_get";
+    no_args_or_input(NAME, &args, &input)?;
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-Clipboard"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("clipboard_get", "powershell", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout)
-                    .trim_end()
-                    .to_string(),
+        let output = gui_powershell(NAME, "Get-Clipboard")?;
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "Get-Clipboard",
+                output.status.code(),
+                &gui_stderr_tail(&output),
             ));
         }
+        let text = String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .to_string();
+        clipboard_answer(NAME, text.as_bytes())
     }
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("pbpaste")
             .output()
-            .map_err(|e| crate::safety::spawn_error("clipboard_get", "pbpaste", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
+            .map_err(|e| crate::safety::spawn_error(NAME, "pbpaste", &e))?;
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "pbpaste",
+                output.status.code(),
+                &gui_stderr_tail(&output),
             ));
         }
+        clipboard_answer(NAME, &output.stdout)
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xclip")
-            .args(["-selection", "clipboard", "-o"])
-            .output();
-        if let Ok(out) = output {
-            if out.status.success() {
-                return Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()));
+        // xclip reports an empty clipboard as "target not available": that is
+        // the empty answer, not a failure.
+        let read = |tool: &str, args: &[&str]| -> Result<Option<Vec<u8>>> {
+            match std::process::Command::new(tool).args(args).output() {
+                Ok(out) if out.status.success() => Ok(Some(out.stdout)),
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    if stderr.contains("not available") {
+                        Ok(Some(Vec::new()))
+                    } else {
+                        Err(crate::safety::tool_failed(
+                            NAME,
+                            tool,
+                            out.status.code(),
+                            &gui_stderr_tail(&out),
+                        ))
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(crate::safety::spawn_error(NAME, tool, &e)),
             }
-        }
-        // Try xsel as fallback
-        let output = std::process::Command::new("xsel")
-            .args(["--clipboard", "--output"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("clipboard_get", "xsel", &e))?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).to_string(),
-            ));
-        }
+        };
+        let bytes = match read("xclip", &["-selection", "clipboard", "-o"])? {
+            Some(bytes) => bytes,
+            None => read("xsel", &["--clipboard", "--output"])?.ok_or_else(|| {
+                crate::safety::tool_missing(
+                    NAME,
+                    "xclip or xsel",
+                    "install xclip or xsel to read the clipboard",
+                )
+            })?,
+        };
+        clipboard_answer(NAME, &bytes)
     }
-    Ok(Value::Null)
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "reading the clipboard is implemented on Windows, macOS and Linux; NOTHING WAS READ",
+            "run this on Windows, macOS or Linux",
+        ))
+    }
 }
 
 fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // With nothing to copy this returned `false`, indistinguishable from a
-    // clipboard that refused; and a non-string argument fell through to the
-    // pipe input, or to that same `false`.
-    let text = match (args.first(), input) {
-        (Some(v), _) => expect_string("clipboard_set", v)?.to_string(),
-        (None, Some(Value::Str(s))) => s,
-        (None, Some(v)) => v.to_display_string(),
-        (None, None) => {
-            return Err(crate::safety::bad_arg(
-                "clipboard_set",
-                "the text to copy",
-                "nothing",
-            ))
+    const NAME: &str = "clipboard_set";
+    // The text comes either as the argument or from the pipe, never both. A
+    // call with neither is refused: it used to answer false.
+    let text = match args.first() {
+        Some(v) => {
+            if input.is_some() {
+                return Err(crate::safety::bad_arg(
+                    NAME,
+                    "the text as the argument or as piped text, not both",
+                    "both",
+                ));
+            }
+            gui_text(NAME, "text", v, CLIPBOARD_MAX_BYTES, true)?
         }
+        None => match input {
+            Some(piped) => gui_text(NAME, "piped text", &piped, CLIPBOARD_MAX_BYTES, true)?,
+            None => return Err(crate::safety::bad_arg(NAME, "the text to copy", "nothing")),
+        },
     };
 
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
             .args([
+                "-NoProfile",
+                "-NonInteractive",
                 "-Command",
                 &crate::ps_script!("Set-Clipboard -Value {}", crate::safety::ps_quote(&text)),
             ])
             .output()
-            .map_err(|e| crate::safety::spawn_error("clipboard_set", "powershell", &e))?;
+            .map_err(|e| crate::safety::spawn_error(NAME, "powershell", &e))?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
-                "clipboard_set",
+                NAME,
                 "Set-Clipboard",
                 output.status.code(),
-                &String::from_utf8_lossy(&output.stderr),
+                &gui_stderr_tail(&output),
             ));
         }
         Ok(Value::Bool(true))
@@ -35209,7 +35766,7 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let mut child = std::process::Command::new("pbcopy")
             .stdin(std::process::Stdio::piped())
             .spawn()
-            .map_err(|e| crate::safety::spawn_error("clipboard_set", "pbcopy", &e))?;
+            .map_err(|e| crate::safety::spawn_error(NAME, "pbcopy", &e))?;
         if let Some(stdin) = child.stdin.as_mut() {
             use std::io::Write;
             stdin.write_all(text.as_bytes())?;
@@ -35217,45 +35774,34 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let status = child.wait()?;
         if !status.success() {
             return Err(crate::safety::tool_failed(
-                "clipboard_set",
-                "the clipboard tool",
+                NAME,
+                "pbcopy",
                 status.code(),
                 "it exited unsuccessfully",
             ));
         }
-        return Ok(Value::Bool(true));
+        Ok(Value::Bool(true))
     }
     #[cfg(target_os = "linux")]
     {
-        // Not `mut`: the binding is moved into the `if let` below, never
-        // reassigned. (rustc's unused_mut fires here only on Linux, so it was
-        // invisible to a Windows checkout.)
-        let child = std::process::Command::new("xclip")
+        // xclip first, xsel when xclip is not installed. A tool that is
+        // installed and fails is an error, whichever it is.
+        let (tool, mut child) = match std::process::Command::new("xclip")
             .args(["-selection", "clipboard"])
             .stdin(std::process::Stdio::piped())
-            .spawn();
-        if let Ok(mut c) = child {
-            if let Some(stdin) = c.stdin.as_mut() {
-                use std::io::Write;
-                stdin.write_all(text.as_bytes())?;
-            }
-            let status = c.wait()?;
-            if !status.success() {
-                return Err(crate::safety::tool_failed(
-                    "clipboard_set",
-                    "the clipboard tool",
-                    status.code(),
-                    "it exited unsuccessfully",
-                ));
-            }
-            return Ok(Value::Bool(true));
-        }
-        // Try xsel
-        let mut child = std::process::Command::new("xsel")
-            .args(["--clipboard", "--input"])
-            .stdin(std::process::Stdio::piped())
             .spawn()
-            .map_err(|e| crate::safety::spawn_error("clipboard_set", "xsel", &e))?;
+        {
+            Ok(child) => ("xclip", child),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
+                "xsel",
+                std::process::Command::new("xsel")
+                    .args(["--clipboard", "--input"])
+                    .stdin(std::process::Stdio::piped())
+                    .spawn()
+                    .map_err(|e| crate::safety::spawn_error(NAME, "xsel", &e))?,
+            ),
+            Err(e) => return Err(crate::safety::spawn_error(NAME, "xclip", &e)),
+        };
         if let Some(stdin) = child.stdin.as_mut() {
             use std::io::Write;
             stdin.write_all(text.as_bytes())?;
@@ -35263,28 +35809,44 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let status = child.wait()?;
         if !status.success() {
             return Err(crate::safety::tool_failed(
-                "clipboard_set",
-                "the clipboard tool",
+                NAME,
+                tool,
                 status.code(),
                 "it exited unsuccessfully",
             ));
         }
-        return Ok(Value::Bool(true));
+        Ok(Value::Bool(true))
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "writing the clipboard is implemented on Windows, macOS and Linux; NOTHING WAS COPIED",
+            "run this on Windows, macOS or Linux",
+        ))
     }
 }
 
-fn bi_clipboard_clear(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    bi_clipboard_set(vec![Value::Str("".to_string())], None)
+fn bi_clipboard_clear(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("clipboard_clear", &args, &input)?;
+    bi_clipboard_set(vec![Value::Str(String::new())], None)
 }
 
-fn bi_clipboard_has_text(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_clipboard_has_text(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("clipboard_has_text", &args, &input)?;
     match bi_clipboard_get(vec![], None)? {
         Value::Str(s) => Ok(Value::Bool(!s.is_empty())),
-        _ => Ok(Value::Bool(false)),
+        other => Err(crate::safety::bad_arg(
+            "clipboard_has_text",
+            "text from the clipboard",
+            other.type_name(),
+        )),
     }
 }
 
-fn bi_clipboard_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+#[allow(unused_variables)]
+fn bi_clipboard_types(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("clipboard_types", &args, &input)?;
     // This always listed "text" -- on Linux and macOS without looking at the
     // clipboard at all, on Windows even when the clipboard was empty or held
     // an image. It now asks the clipboard what it holds.
@@ -35293,6 +35855,7 @@ fn bi_clipboard_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         let output = std::process::Command::new("powershell")
             .args([
                 "-NoProfile",
+                "-NonInteractive",
                 "-STA",
                 "-Command",
                 "Add-Type -AssemblyName System.Windows.Forms; $c = [Windows.Forms.Clipboard]; @(if ($c::ContainsText()) {'text'}; if ($c::ContainsImage()) {'image'}; if ($c::ContainsFileDropList()) {'files'}; if ($c::ContainsAudio()) {'audio'}) -join ','",
@@ -35304,7 +35867,7 @@ fn bi_clipboard_types(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
                 "clipboard_types",
                 "powershell",
                 output.status.code(),
-                &String::from_utf8_lossy(&output.stderr),
+                &gui_stderr_tail(&output),
             ));
         }
         let text = String::from_utf8_lossy(&output.stdout);
@@ -37791,12 +38354,10 @@ fn bi_db_csv_to_json(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // Missing Clipboard & Input implementations
 // ============================================================================
 
-fn bi_clipboard_get_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
+fn bi_clipboard_get_image(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("clipboard_get_image", &args, &input)?;
+    // Did no work and returned a value. An agent could not tell this apart
+    // from a result, so it is an error.
     Err(crate::safety::unimplemented(
         "clipboard_get_image",
         "reading an image from the clipboard is not implemented; NOTHING WAS DONE",
@@ -37804,38 +38365,60 @@ fn bi_clipboard_get_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
     ))
 }
 
-fn bi_clipboard_set_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
+fn bi_clipboard_set_image(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "clipboard_set_image";
+    refuse_piped_input(NAME, &input)?;
+    gui_text(
+        NAME,
+        "image path",
+        gui_required(NAME, &args, 0, "an image path")?,
+        GUI_FIELD_MAX_BYTES,
+        false,
+    )?;
     Err(crate::safety::unimplemented(
-        "clipboard_set_image",
+        NAME,
         "writing an image to the clipboard is not implemented; NOTHING WAS DONE",
         "use a platform clipboard tool",
     ))
 }
 
-fn bi_clipboard_history(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_clipboard_history(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "clipboard_history";
+    no_args_or_input(NAME, &args, &input)?;
     #[cfg(target_os = "windows")]
     {
         let output = std::process::Command::new("powershell")
             .args([
+                "-NoProfile",
+                "-NonInteractive",
                 "-Command",
                 "Get-ClipboardHistory | Select-Object -First 10 | ForEach-Object { $_.Text }",
             ])
             .output()
-            .map_err(|e| crate::safety::spawn_error("clipboard_history", "powershell", &e))?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let items: Vec<Value> = text.lines().map(|l| Value::Str(l.to_string())).collect();
-            return Ok(Value::Array(items));
+            .map_err(|e| crate::safety::spawn_error(NAME, "powershell", &e))?;
+        if !output.status.success() {
+            // Previously answered a String explaining the requirement, which
+            // read as a list of one entry. The requirement is an error.
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "Get-ClipboardHistory",
+                output.status.code(),
+                &gui_stderr_tail(&output),
+            ));
         }
+        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        Ok(Value::Array(
+            text.lines().map(|l| Value::Str(l.to_string())).collect(),
+        ))
     }
-    Ok(Value::Str(
-        "Clipboard history requires Windows 10+ with history enabled".to_string(),
-    ))
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "clipboard history is implemented on Windows 10 and later only; NOTHING WAS READ",
+            "clipboard() reads the current clipboard text",
+        ))
+    }
 }
 
 /// `input_read_char(timeout_ms?)`: one keypress from the terminal, answered as
