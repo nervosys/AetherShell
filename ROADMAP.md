@@ -69,14 +69,14 @@ This document tracks the development progress of AetherShell, the world's first 
 | TUI Interface     | ✅ Complete | Tabs, chat, dashboard                     |
 | Theme System      | ✅ Complete | 38 themes                                 |
 | Config System     | ✅ Complete | XDG-compliant                             |
-| Plugin System     | ✅ Complete | Dynamic loading, TOML                     |
+| Plugin System     | ⚠️ Partial  | TOML metadata registration; script builtins refused |
 | Standard Library  | ✅ Complete | 7 modules (lib/)                          |
 | Performance       | ✅ Complete | 5 benchmark suites                        |
 | Test Coverage     | ✅ Complete | 1,140 tests, 18 ignored                   |
 | Documentation     | ✅ Complete | Comprehensive                             |
 | Publishing        | ✅ Complete | crates.io v1.2.0                          |
 | WASM Support      | ✅ Complete | Browser REPL ready                        |
-| Enterprise        | ✅ Complete | RBAC, Audit, SSO                          |
+| Enterprise        | ⚠️ Partial  | RBAC, Audit; sso_auth refuses             |
 | LSP Server        | ✅ Complete | tower-lsp, crates.io                      |
 | VS Code Extension | ✅ Complete | Marketplace published                     |
 | MCP Protocol      | ✅ Complete | 130+ tools, HTTP server                   |
@@ -222,7 +222,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Agent API server (`ae agent serve`)
 - [x] OpenAI / Claude / Gemini function calling schemas
 - [x] RAG, Knowledge Graphs, Semantic Caching
-- [x] Fine-tuning management
+- [ ] Fine-tuning management (finetune_start refuses with E_UNIMPLEMENTED: no training backend; no job is created)
 
 ### Protocols
 - [x] MCP (Model Context Protocol): 130+ tools, 27 categories, HTTP server
@@ -240,9 +240,9 @@ This document tracks the development progress of AetherShell, the world's first 
 ### Enterprise
 - [x] RBAC (role_create, role_grant, check_permission, etc.)
 - [x] Audit logging (audit_log, audit_query, audit_export)
-- [x] SSO integration (sso_init, sso_auth, sso_validate)
-- [x] Compliance reporting
-- [x] Distributed computing (cluster, job scheduling)
+- [ ] SSO integration (sso_init records configuration; sso_auth refuses with E_UNIMPLEMENTED, so no session is started)
+- [x] Compliance reporting (compliance_check never reports compliant while a control is unverified)
+- [ ] Distributed computing: the cluster node registry works, but job scheduling is not implemented (job_submit refuses with E_UNIMPLEMENTED)
 
 ### ML Built-ins
 - [x] Neural networks (nn_create, nn_forward)
@@ -293,9 +293,9 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] CLI flags `--zsh`/`-z`, `--pwsh`/`-p` and auto-detection by file extension
 
 ### Q4 2026 — Cloud & Scale
-- [x] Cloud platform (hosted AetherShell instances) — `cloud` module: 8 builtins (deploy, instances, instance_create/destroy/status/connect, regions, config)
-- [x] Remote REPL via WebSocket — `repl` module: 5 builtins (serve, connect, sessions, disconnect, broadcast)
-- [x] Team workspaces with shared agents — `workspace` module: 8 builtins (create, list, join, leave, members, share_agent, agents, sync)
+- [ ] Cloud platform (hosted AetherShell instances) — `cloud_deploy`, `cloud_instance_create`, `cloud_instance_status` and `cloud_instance_connect` refuse with E_UNIMPLEMENTED: no provider client is wired in
+- [ ] Remote REPL via WebSocket — `repl_serve`, `repl_connect` and `repl_broadcast` refuse with E_UNIMPLEMENTED: no listener is started and nothing is transmitted
+- [ ] Team workspaces with shared agents — `workspace_sync` refuses with E_UNIMPLEMENTED: there are no remote peers
 - [x] Marketplace for community plugins and agents — `marketplace` module: 8 builtins (publish, search, install, uninstall, list, info, rate, update)
 - [x] Telemetry and usage analytics (opt-in) — `telemetry` module: 6 builtins (enable, disable, status, report, events, reset)
 

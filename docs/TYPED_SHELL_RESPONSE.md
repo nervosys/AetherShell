@@ -4,6 +4,11 @@
 arXiv:2609.11999) and *Testing if bash is all you need* (Vercel, 2026), with
 measurements from AetherShell 12.0.2.**
 
+> **Note:** the measurements describe 12.0.2 and are kept as they were. Since
+> then, `finetune_status` answers `E_NOT_FOUND` for an unknown job (the table
+> below records its 12.0.2 `E_UNKNOWN`), and `finetune_start` refuses with
+> `E_UNIMPLEMENTED`.
+
 Nervosys builds AetherShell. Everything below is re-runnable from
 `benches/agentic/` in this repository, including the results that go against
 us, of which there are several, including a headline in §3 that we had to

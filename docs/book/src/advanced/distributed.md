@@ -1,45 +1,56 @@
 # Distributed Computing
 
-AetherShell supports distributed agent execution across multiple nodes with cluster management, job scheduling, and result aggregation.
+AetherShell has a node registry, a local in-memory consensus tally and a
+local `aggregate_results` over an Array. Work that would go to other machines
+is not implemented in this build: job submission and remote execution refuse
+with `E_UNIMPLEMENTED`, and no node is contacted by the cluster builtins.
 
 ## Cluster Management
 
 ### Creating a Cluster
 
 ```aethershell
-cluster_create "my-cluster" { max_nodes: 10, timeout: 30000 }
+cluster_create("my-cluster")
+# {name: "my-cluster", status: "created", node_count: 0, created_at: …}
 ```
+
+`cluster_create` takes an optional name of at most 128 bytes (default
+`default`) and at most one argument. It contacts no node and stores the name
+nowhere: nodes added with `cluster_add_node` join one process-wide registry
+that does not record which cluster they belong to.
 
 ### Adding Nodes
 
 ```aethershell
-cluster_add_node "my-cluster" { address: "192.168.1.10", port: 3000 }
-cluster_add_node "my-cluster" { address: "192.168.1.11", port: 3000 }
+cluster_add_node("node-1", "192.168.1.10:3000")
+cluster_add_node("node-2", "192.168.1.11:3000", ["compute"])
+
+{id: "node-3", address: "192.168.1.12:3000"} | cluster_add_node
 ```
+
+The third argument is an Array of String capabilities (default `compute` and
+`storage`). The address must have no whitespace. Each call returns
+`{id, address, capabilities, status: "registered"}`. Nothing contacts the node,
+so it is registered, not online, and no heartbeat is checked.
 
 ### Cluster Status
 
 ```aethershell
-cluster_status "my-cluster"
-# {
-#   name: "my-cluster",
-#   nodes: 2,
-#   healthy: 2,
-#   total_jobs: 0,
-#   uptime_seconds: 120
-# }
+cluster_status()
+# {total_nodes, online_nodes, busy_nodes, total_jobs, pending_jobs,
+#  running_jobs, average_load}
 ```
+
+`online_nodes` counts nodes stored with an Online status. A node added by
+`cluster_add_node` is stored that way, so this count is not a liveness check.
 
 ### Node Management
 
 ```aethershell
-cluster_nodes "my-cluster"
-# [
-#   { address: "192.168.1.10", port: 3000, status: "active", load: 0.2 },
-#   { address: "192.168.1.11", port: 3000, status: "active", load: 0.1 }
-# ]
+cluster_nodes()
+# [ {id: "node-1", address: "192.168.1.10:3000", load: 0.0, status: …}, … ]
 
-cluster_remove_node "my-cluster" "192.168.1.11"
+cluster_remove_node("node-2")   # reports whether that node existed
 ```
 
 ## Job Scheduling
@@ -47,18 +58,19 @@ cluster_remove_node "my-cluster" "192.168.1.11"
 ### Submitting Jobs
 
 Job submission is not implemented in this build. `job_submit` (alias `submit`)
-has no job executor behind it, so it refuses rather than return a job id for a
-job that would never run. Nothing is recorded:
+has no executor behind it, so it refuses with `E_UNIMPLEMENTED`. No job is
+queued and nothing runs:
 
 ```aethershell
-try { job_submit("my-cluster", "ls src") } catch e { e.error.code }
+try { job_submit("build", "cargo test") } catch e { e.error.code }
 # "E_UNIMPLEMENTED"
 ```
 
 ### Job Status, Results and Listing
 
-`job_status`, `job_results` and `job_list` read the distributed job table, and
-only `job_submit` fills it. Until a job can be submitted, the table is empty:
+`job_status`, `job_results` and `job_list` read the distributed job table. In
+this build nothing adds to it, because `job_submit` refuses, so the table is
+empty:
 
 ```aethershell
 job_list()
@@ -70,32 +82,34 @@ job_status("job-abc123")    # an unknown id is E_NOT_FOUND
 
 ## Remote Execution
 
-> **`remote_exec` is a stub — it does not run anything.** There is no SSH/RPC
-> transport behind it. It validates that the node is registered and echoes the
-> request back with `status: "simulated"` and `simulated: true`. This page
-> previously showed it returning a real result (`# 15`), which it never did.
->
-> For **real** remote execution use `ssh_exec`, which is effect-tagged `Exec` and
-> approval-gated in agent mode.
+> **`remote_exec` refuses with `E_UNIMPLEMENTED`; it runs nothing.** No SSH or
+> cluster transport is wired in, so the command is not sent to the node. The
+> node and command are checked first: a node that is not registered is
+> `E_NOT_FOUND`, and a valid call is refused as above.
 
 ```aethershell
-remote_exec "192.168.1.10:3000" 'ls "src" | len'
-# { node_id: "192.168.1.10:3000", command: "ls \"src\" | len",
-#   status: "simulated", simulated: true,
-#   output: "remote_exec is a stub: the command was NOT run. …" }
+try { remote_exec("node-1", "ls src") } catch e { e.error.code }
+# "E_UNIMPLEMENTED" for a registered node, "E_NOT_FOUND" for an unknown one
 
-# Actually run it:
+# Run a command on a real host:
 ssh_exec "user@192.168.1.10" "ls src | wc -l"
 ```
 
 ## Result Aggregation
 
-Collect and merge results from multiple nodes:
+`aggregate_results` combines an Array that is already in hand. It does not
+collect anything from nodes:
 
 ```aethershell
-let results = aggregate_results "my-cluster" "job-batch-1"
-# Merges results from all nodes into a single value
+aggregate_results([1, 2, 3], "sum")    # adds finite numbers
+[1, 2, 3] | aggregate_results("sum")   # the piped form takes the strategy only
+aggregate_results(["a", "b"])          # concat, the default, returns the Array
 ```
+
+The strategies are `concat` (the default), `sum`, `count`, `first` and `last`.
+`sum` refuses any element that is not a finite number instead of skipping it,
+`first` and `last` refuse an empty Array, and an unknown strategy is
+`E_BAD_ARG`.
 
 ## NANDA Consensus
 
@@ -119,7 +133,9 @@ nanda_quorum(p.id)
 # The approval ratio against the threshold
 nanda_consensus(p.id)
 
-# Commit the outcome in this process: needs quorum and a ratio at or above the threshold
+# Commit the outcome in this process: refused unless there is quorum and the
+# approval ratio is at or above the threshold. A ratio below the threshold
+# rejects the proposal.
 nanda_commit(p.id)
 ```
 

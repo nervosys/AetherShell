@@ -38,10 +38,11 @@ plugin_categories
 ### Load an External Plugin
 
 ```aether
-# Load a plugin from its manifest file
+# Register a plugin's metadata from its manifest file. A manifest with a
+# non-empty [builtins] table is refused with E_UNIMPLEMENTED (see below).
 plugin_load("~/.config/aethershell/plugins/my-plugin/plugin.toml")
 
-# Enable/disable a plugin
+# Enable/disable a plugin (enabling does not make its builtins callable)
 plugin_enable("my-plugin")
 plugin_disable("my-plugin")
 
@@ -153,11 +154,14 @@ plugin_info("builtin.json")
 
 ### `plugin_enable(id)`
 
-Enable a disabled plugin.
+Set a registered plugin's enabled flag to true, reporting `true`. The flag is
+what `plugin_info` reports as enabled. Nothing dispatches on it yet, so
+enabling a plugin does not make its builtins callable. An unknown plugin is
+`E_NOT_FOUND`.
 
 ```aether
 plugin_enable("my-plugin")
-# Returns: true on success
+# Returns: true
 ```
 
 ### `plugin_disable(id)`
@@ -171,17 +175,24 @@ plugin_disable("my-plugin")
 
 ### `plugin_load(path)`
 
-Load a plugin from its manifest file.
+Register a plugin from a TOML manifest with a `[plugin]` table. Only metadata is
+registered. The id must be 1 to 128 letters, digits, `.`, `_` or `-`, and the
+manifest is at most 1 MiB.
 
 ```aether
 plugin_load("./plugins/my-plugin/plugin.toml")
-# Returns: Record with loaded plugin info
-# { id: "my-plugin", name: "My Plugin", version: "1.0.0", status: "loaded" }
+# Returns: Record with the registered plugin info
+# { id: "my-plugin", name: "My Plugin", version: "1.0.0", status: "registered" }
 ```
+
+A manifest whose `[builtins]` table is not empty is refused with
+`E_UNIMPLEMENTED`, because nothing runs a plugin's builtins. A duplicate id is
+`E_BAD_STATE`. Native and script plugins are not loaded by this builtin.
 
 ### `plugin_unload(id)`
 
-Unload a dynamically loaded plugin. Built-in plugins cannot be unloaded.
+Remove a registered plugin and what it registered. Built-in plugins cannot be
+unloaded (`E_POLICY_DENY`), and an unknown plugin is `E_NOT_FOUND`.
 
 ```aether
 plugin_unload("my-plugin")
@@ -203,6 +214,12 @@ plugin_categories
 ## Plugin Development Guide
 
 ### Creating a Simple Builtin Plugin
+
+> **Not runnable in this build.** Script builtins in a `[builtins]` table are
+> not loaded: `plugin_load` refuses such a manifest with `E_UNIMPLEMENTED`, and
+> the `hello` functions below are never defined. The steps are kept as the
+> intended manifest shape; a manifest with no `[builtins]` entries registers
+> its metadata only.
 
 1. **Create the plugin directory:**
 
@@ -226,12 +243,11 @@ hello = "fn(name) => 'Hello, ' + name + '!'"
 hello_upper = "fn(name) => upper('Hello, ' + name + '!')"
 ```
 
-3. **Load and use the plugin:**
+3. **Register the plugin (refused while it has a `[builtins]` table):**
 
 ```aether
 plugin_load("~/.config/aethershell/plugins/hello-plugin/plugin.toml")
-hello("World")  # => "Hello, World!"
-hello_upper("World")  # => "HELLO, WORLD!"
+# E_UNIMPLEMENTED in this build; hello("World") would be undefined
 ```
 
 ### Creating a File Handler Plugin
@@ -365,6 +381,10 @@ AetherShell ships with these built-in plugins:
 ---
 
 ## Example Plugins
+
+> Each example below has a `[builtins]` table, which `plugin_load` refuses
+> with `E_UNIMPLEMENTED` in this build. They show the intended manifest shape
+> only.
 
 ### 1. Math Utilities Plugin
 

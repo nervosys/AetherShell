@@ -37,9 +37,16 @@ plugin_disable "git-tools"
 
 ### Loading and Unloading
 
+`plugin_load` takes the path to a plugin's TOML manifest, not a plugin name. It
+registers the plugin's metadata with `status: "registered"`. A manifest with a
+non-empty `[builtins]` table is refused with `E_UNIMPLEMENTED`, because nothing
+runs a plugin's builtins, so script builtins are not callable in this build.
+Native and script plugins are not loaded by this builtin. A duplicate id is
+`E_BAD_STATE`.
+
 ```aethershell
-plugin_load "my-custom-plugin"      # Load into memory
-plugin_unload "my-custom-plugin"    # Remove from memory
+plugin_load "./plugins/my-custom-plugin/plugin.toml"   # Register its metadata
+plugin_unload "my-custom-plugin"                       # Remove it (built-in plugins cannot be unloaded)
 ```
 
 ### Categories

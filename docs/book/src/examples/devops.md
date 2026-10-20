@@ -102,9 +102,8 @@ nodes | each(fn(node) => {
   echo "  Draining connections..."
   sleep 5000
 
-  # Deploy. Use ssh_exec: it really runs the command. `remote_exec` is a stub
-  # that reports `simulated` and executes nothing — in a rolling deploy that
-  # would mean every node "succeeds" without ever being restarted.
+  # Deploy. Use ssh_exec: it really runs the command. `remote_exec` refuses
+  # with E_UNIMPLEMENTED and runs nothing, so it cannot deploy anything.
   ssh_exec "${node}" "sudo systemctl restart aethershell"
 
   # Health check

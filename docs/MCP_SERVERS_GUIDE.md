@@ -1,5 +1,16 @@
 # MCP Servers Guide for AetherShell
 
+> **Note on `agent_with_mcp` examples.** `agent_with_mcp` takes a goal and an
+> array of builtin tool names (an `mcp:` prefix is stripped). It contacts no MCP
+> server, and an endpoint argument is refused with `E_UNIMPLEMENTED`. It returns
+> a Record, so methods such as `agent.execute`, `agent.call_mcp_tool` and
+> `devops_agent.execute` are not part of it. Every `agent_with_mcp` example in
+> this guide that passes an endpoint, or calls a method on the result, is
+> refused as written. Use `agent_with_mcp("goal", ["ls", "cat"])` for a working
+> call. The other examples in this guide (`mcp_server_start`, the `mcp.*`
+> calls and the server configurations) were not checked against the code in
+> this revision.
+
 ## 🔧 What Are MCP Servers?
 
 **MCP (Model Context Protocol) Servers** are local services that provide AI agents with **safe, controlled access** to tools and resources. Instead of giving agents raw command execution (dangerous!), MCP servers expose specific, validated operations through a standardized protocol.

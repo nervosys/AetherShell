@@ -35,6 +35,12 @@ marketplace_install "code-reviewer"
 marketplace_install "code-reviewer" "1.0.0"    # Specific version
 ```
 
+`marketplace_install` downloads the package's archive from the registry into
+the package cache and unpacks it. Nothing in the package is run, and links
+inside the archive are refused. A package the registry does not hold is
+`E_NOT_FOUND`; there is no fallback to the local catalogue, which holds
+records but no archives.
+
 Via the API:
 
 ```bash

@@ -376,8 +376,9 @@ ae --agent mcp stdio  # …with default-deny gating on dangerous effects
 ```
 
 ```ae
-let monitor = mcp.connect("http://localhost:3006")
-agent_with_mcp("Check system health", monitor.tools, "http://localhost:3006")
+agent_with_mcp("Check system health", ["monitor_sockets", "sys_info"])
+# The tools are builtins. An endpoint argument is refused with E_UNIMPLEMENTED,
+# and no MCP server is contacted by agent_with_mcp.
 ```
 
 No other shell in this comparison is an MCP server.

@@ -83,26 +83,35 @@ audit_stats
 
 ## SSO (Single Sign-On)
 
-Integrate with enterprise identity providers:
+`sso_init` records the provider configuration for this process. Nothing
+contacts the provider. It takes the provider (`oauth2`, `saml` or `oidc`), a
+client id and an https issuer URL (http is allowed only for localhost):
 
 ```aethershell
-sso_init { provider: "oauth2", client_id: "...", issuer: "https://auth.example.com" }
+sso_init("oidc", "example-app", "https://auth.example.com")
+# {status: "initialized", provider: "oidc"}
+
 sso_auth                # Refused (E_UNIMPLEMENTED): the identity provider callback is not verified, so no session is started; use rbac_login
-sso_validate            # Validate current session
-sso_status              # Check SSO status
-sso_logout              # End session
+sso_validate            # Reports valid: false in this build, since sso_auth never creates a session
+sso_status              # Reports the configuration and active_sessions
+sso_logout("token")     # Reports not_found for a token that is not held
 ```
 
 ## Compliance
 
-Run compliance checks against security policies:
+Run compliance checks against a named standard (`GDPR`, `HIPAA`, `SOC2` or
+`PCI`). The only scope is `all`:
 
 ```aethershell
-compliance_check
-# { passed: 12, failed: 2, warnings: 3 }
+compliance_check("SOC2")
+# {standard, scope, passed, failed, unverified, compliant}
+# A control the shell cannot observe (such as encryption at rest) is
+# unverified, and compliant is true only when nothing failed and nothing is
+# unverified.
 
-compliance_report
-# Generates detailed compliance report with remediation steps
+compliance_report("SOC2")
+# The compliance_check verdict, plus generated_at, the audit entry count,
+# the role count and whether SSO is configured. It has no remediation steps.
 ```
 
 ## Cryptographic Operations

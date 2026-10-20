@@ -98,11 +98,14 @@ refused attempts are written to the security audit log.
 
 ## MCP tools
 
-`agent_with_mcp` takes a goal and an array of MCP tool names, for agents that
-should reach tools served over the Model Context Protocol rather than builtins:
+`agent_with_mcp` takes a goal and an array of tool names. Each name is a builtin:
+an `mcp:` prefix is stripped, and a name the dispatcher does not serve is
+`E_NOT_FOUND`. No MCP server is contacted. Passing an endpoint argument is
+refused with `E_UNIMPLEMENTED`, and the run is refused if it ends without a
+final answer:
 
 ```aethershell
-agent_with_mcp("Check the deployment status", ["k8s_get_pods", "k8s_logs"])
+agent_with_mcp("Check the deployment status", ["k8s_pods", "k8s_logs"])
 ```
 
 ## Rate limiting

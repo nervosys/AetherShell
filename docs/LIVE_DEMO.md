@@ -159,14 +159,12 @@ aws := mcp_server_start {
 }
 ```
 
-### Agent with MCP Tools
+### Agent with Builtin Tools
+`agent_with_mcp` takes a goal and builtin tool names. An endpoint argument is
+refused with `E_UNIMPLEMENTED`, so the earlier `mcp_server_start` servers are
+not contacted by it.
 ```ae
-devops := agent_with_mcp
-  "DevOps automation agent"
-  ["mcp:list_files", "mcp:read_file", "mcp:s3_list"]
-  [fs.endpoint, aws.endpoint]
-
-result := devops.execute {task: "List all project files and S3 buckets"}
+result = agent_with_mcp("List the project files", ["ls"])
 ```
 
 ---

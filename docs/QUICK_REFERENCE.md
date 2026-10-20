@@ -199,18 +199,14 @@ aws_server := mcp_server_start({
 })
 ```
 
-### Agent with MCP Tools
+### Agent with Builtin Tools
+
+`agent_with_mcp` takes a goal and an array of builtin tool names (an `mcp:`
+prefix is stripped). No MCP server is contacted: an endpoint argument is refused
+with `E_UNIMPLEMENTED`. It returns a Record, not an object with methods.
 
 ```aethershell
-devops := agent_with_mcp(
-  "DevOps automation agent",
-  ["mcp:list_files", "mcp:read_file", "mcp:git_status"],
-  fs_server.endpoint
-)
-
-result := devops.execute({
-  task: "Check Git status and list modified files"
-})
+result = agent_with_mcp("List this directory and summarise README.md", ["ls", "cat"])
 ```
 
 ## AI Protocols

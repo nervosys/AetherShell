@@ -101,16 +101,19 @@ has been validated yet, so prefer exporting it before starting `ae`.
 
 ## Agents with MCP tools
 
-`agent_with_mcp` takes a goal, an array of tool names, and optionally one
-endpoint or an array of endpoints:
+`agent_with_mcp` takes a goal and an array of tool names. The tools are builtins
+(an `mcp:` prefix is stripped), and no MCP server is contacted. An endpoint
+argument is refused with `E_UNIMPLEMENTED`, so the call below is refused as
+written:
 
 ```aethershell
-agent_with_mcp("Analyze repository", ["read_file", "list_dir"], "http://localhost:9090")
+agent_with_mcp("Analyze repository", ["ls", "cat"])                     # works
+agent_with_mcp("Analyze repository", ["ls", "cat"], "http://localhost:9090")  # E_UNIMPLEMENTED
 ```
 
-The agent discovers the available tools from the server and can call them
-during its loop. Note that `mcp_server_start` takes a **configuration record**,
-not a URL string.
+The agent can call only the named builtins during its loop, and each call
+passes the same dispatch guard as any other builtin call. Note that
+`mcp_server_start` takes a **configuration record**, not a URL string.
 
 ## Practical examples
 
