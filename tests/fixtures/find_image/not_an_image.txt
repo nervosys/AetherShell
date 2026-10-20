@@ -1,0 +1,1 @@
+This file is plain text, not an image. gui_find_image must refuse it with E_BAD_ARG.

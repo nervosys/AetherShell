@@ -31364,16 +31364,210 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     Ok(Value::Null)
 }
 
+/// Options accepted by `gui_find_image`, after validation.
+#[cfg(feature = "native")]
+struct FindImageOptions {
+    tolerance: u8,
+    all: bool,
+    limit: usize,
+}
+
+#[cfg(feature = "native")]
+fn find_image_options(value: Option<&Value>) -> Result<FindImageOptions> {
+    let mut opts = FindImageOptions {
+        tolerance: 0,
+        all: false,
+        limit: 100,
+    };
+    let Some(value) = value else {
+        return Ok(opts);
+    };
+    let Value::Record(map) = value else {
+        return Err(crate::safety::bad_arg(
+            "gui_find_image",
+            "options: Record",
+            value.type_name(),
+        ));
+    };
+    for (key, value) in map {
+        match (key.as_str(), value) {
+            ("tolerance", Value::Int(n)) if (0..=255i64).contains(n) => opts.tolerance = *n as u8,
+            ("all", Value::Bool(b)) => opts.all = *b,
+            ("limit", Value::Int(n)) if (1..=1000i64).contains(n) => opts.limit = *n as usize,
+            ("tolerance", _) | ("all", _) | ("limit", _) => {
+                return Err(crate::safety::arg_err(format!(
+                    "gui_find_image: option {key} has the wrong value; \
+                     tolerance is an Int in 0..=255, all a Bool, limit an Int in 1..=1000"
+                )))
+            }
+            _ => {
+                return Err(crate::safety::arg_err(format!(
+                    "gui_find_image: unknown option {key}"
+                )))
+            }
+        }
+    }
+    Ok(opts)
+}
+
+/// Resolve one image path through the same read guards `cat` uses, then read
+/// only its header. Returns the validated path and its (width, height).
+#[cfg(feature = "native")]
+fn find_image_header(path: &str) -> Result<(std::path::PathBuf, u32, u32)> {
+    if !std::path::Path::new(path).exists() {
+        return Err(crate::safety::not_found("gui_find_image", "file", path));
+    }
+    let validated = validate_read_path(path)?;
+    let meta = fs::metadata(&validated)
+        .map_err(|e| crate::safety::fs_error("gui_find_image", &validated, &e))?;
+    if !meta.is_file() {
+        return Err(crate::safety::arg_err(format!(
+            "gui_find_image: `{path}` is not a regular file"
+        )));
+    }
+    let reader = image::io::Reader::open(&validated)
+        .and_then(|r| r.with_guessed_format())
+        .map_err(|e| crate::safety::fs_error("gui_find_image", &validated, &e))?;
+    let (w, h) = reader.into_dimensions().map_err(|e| {
+        crate::safety::arg_err(format!(
+            "gui_find_image: `{path}` is not a PNG, JPEG, GIF or WebP image that can be read ({e})"
+        ))
+    })?;
+    Ok((validated, w, h))
+}
+
+/// Decode one already-validated image to RGBA8.
+#[cfg(feature = "native")]
+fn find_image_decode(path: &std::path::Path, shown: &str) -> Result<image::RgbaImage> {
+    let reader = image::io::Reader::open(path)
+        .and_then(|r| r.with_guessed_format())
+        .map_err(|e| crate::safety::fs_error("gui_find_image", path, &e))?;
+    let img = reader.decode().map_err(|e| {
+        crate::safety::arg_err(format!("gui_find_image: `{shown}` failed to decode ({e})"))
+    })?;
+    Ok(img.to_rgba8())
+}
+
+/// `gui_find_image(haystack, needle, options?)`: template matching over image
+/// files. Pure computation over pixels; it reads the two files and writes
+/// nothing. See `signature.rs` for the contract.
+#[cfg(feature = "native")]
+fn bi_gui_find_image(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    use image_match::{self as im, Frame, MatchError};
+
+    const BUILTIN: &str = "gui_find_image";
+    if input.is_some() {
+        return Err(crate::safety::bad_arg(
+            BUILTIN,
+            "a direct call; pipeline input is not accepted",
+            "pipeline input",
+        ));
+    }
+    if args.len() < 2 || args.len() > 3 {
+        return Err(crate::safety::arg_err(format!(
+            "gui_find_image takes a haystack, a needle and optional options; got {} arguments",
+            args.len()
+        )));
+    }
+    let mut paths = Vec::with_capacity(2);
+    for arg in &args[..2] {
+        match arg {
+            Value::Str(s) => paths.push(s.clone()),
+            other => {
+                return Err(crate::safety::bad_arg(
+                    BUILTIN,
+                    "a String path to an image file",
+                    other.type_name(),
+                ))
+            }
+        }
+    }
+    crate::safety::reject_option_like(BUILTIN, &paths)?;
+    let opts = find_image_options(args.get(2))?;
+
+    // Headers first: every refusal below happens before any pixel is decoded.
+    let (hay_path, hw, hh) = find_image_header(&paths[0])?;
+    let (needle_path, nw, nh) = find_image_header(&paths[1])?;
+    for (shown, w, h) in [(&paths[0], hw, hh), (&paths[1], nw, nh)] {
+        let pixels = u64::from(w) * u64::from(h);
+        if pixels > im::MAX_PIXELS {
+            return Err(crate::safety::budget_exceeded(
+                BUILTIN,
+                format!(
+                    "`{shown}` is {w}x{h} = {pixels} pixels, above the {} pixel limit; not decoded",
+                    im::MAX_PIXELS
+                ),
+                "use a smaller image",
+            ));
+        }
+    }
+    match im::plan(hw, hh, nw, nh) {
+        Ok(_) => {}
+        Err(MatchError::NeedleTooLarge { haystack, needle }) => {
+            return Err(crate::safety::arg_err(format!(
+                "gui_find_image: needle {}x{} does not fit in haystack {}x{}",
+                needle.0, needle.1, haystack.0, haystack.1
+            )))
+        }
+        Err(MatchError::WorkExceeded { work }) => {
+            let shown = work.map_or("more than 2^64".to_string(), |w| w.to_string());
+            return Err(crate::safety::budget_exceeded(
+                BUILTIN,
+                format!(
+                    "worst case {shown} pixel comparisons exceeds the {} limit",
+                    im::MAX_WORK
+                ),
+                "use a smaller needle or haystack, or a smaller search area",
+            ));
+        }
+        Err(_) => {
+            return Err(crate::safety::arg_err(
+                "gui_find_image: an image has a zero dimension",
+            ))
+        }
+    }
+
+    let hay = find_image_decode(&hay_path, &paths[0])?;
+    let needle = find_image_decode(&needle_path, &paths[1])?;
+    let hits = im::find_matches(
+        Frame {
+            width: hay.width(),
+            height: hay.height(),
+            rgba: hay.as_raw(),
+        },
+        Frame {
+            width: needle.width(),
+            height: needle.height(),
+            rgba: needle.as_raw(),
+        },
+        opts.tolerance,
+        opts.all,
+        opts.limit,
+    )
+    .map_err(|e| crate::safety::arg_err(format!("gui_find_image: match refused ({e:?})")))?;
+
+    let record = |h: &im::Hit| {
+        let mut rec = BTreeMap::new();
+        rec.insert("x".to_string(), Value::Int(i64::from(h.x)));
+        rec.insert("y".to_string(), Value::Int(i64::from(h.y)));
+        rec.insert("width".to_string(), Value::Int(i64::from(nw)));
+        rec.insert("height".to_string(), Value::Int(i64::from(nh)));
+        Value::Record(rec)
+    };
+    if opts.all {
+        Ok(Value::Array(hits.iter().map(record).collect()))
+    } else {
+        Ok(hits.first().map_or(Value::Null, record))
+    }
+}
+
+#[cfg(not(feature = "native"))]
 fn bi_gui_find_image(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Did no work and returned a value. An agent could not tell this
-    // apart from a result -- and for this family that matters more
-    // than most, because "it needs privileges" read as a String at
-    // exit 0 looks exactly like the account, package or service
-    // operation having succeeded.
+    // Without the `image` crate there is no decoder, so no answer is given.
     Err(crate::safety::unimplemented(
         "gui_find_image",
-        "locating an image on screen is not implemented; NOTHING WAS DONE",
-        "use an image-matching library such as OpenCV",
+        "image decoding needs the `native` feature; NOTHING WAS DONE",
+        "build with the default `native` feature",
     ))
 }
 
@@ -46217,6 +46411,10 @@ mod linux_diagnostics;
 
 #[path = "stdin_lines.rs"]
 mod stdin_lines;
+
+#[cfg(feature = "native")]
+#[path = "image_match.rs"]
+mod image_match;
 
 #[path = "pkg_query.rs"]
 mod pkg_query;
