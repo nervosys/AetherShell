@@ -11,7 +11,7 @@ have their own milestones; this checklist governs the current release.
 
 | Area | Verified state | Remaining gate |
 | --- | --- | --- |
-| Signature migration | 635/1,171 implementations; 762/1,437 callable names | 536 implementations and 675 callable names |
+| Signature migration | All 1,318 dispatch names declared (2026-10-20, BUILTIN_LOOKUP at run time) | Desktop paths of gui_* and clipboard_* unverified; final-tree validation |
 | Latest targeted validation | Linux system-administration backends: 19 system-changing tests passed as root in the disposable distro; Windows and Linux each passed 16 suites, Clippy and (Windows) the Rust 1.88 check; prior 286-test filesystem-watch checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
