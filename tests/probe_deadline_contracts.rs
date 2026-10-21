@@ -50,9 +50,13 @@ fn silent_command() -> Command {
     }
 }
 
-/// A scratch directory unique to this test process.
+/// A directory of its own for each call: tests run in parallel and each removes
+/// its directory, so a shared one let a test delete another's fake tool mid-run
+/// (on Windows `cmd` then printed "cannot find", which read as a version).
 fn scratch_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("probe-deadline-{}", std::process::id()));
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("probe-deadline-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("create scratch dir");
     dir
 }
