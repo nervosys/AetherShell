@@ -14,6 +14,7 @@ have their own milestones; this checklist governs the current release.
 | Signature migration | All 1,318 dispatch names declared (2026-10-20, BUILTIN_LOOKUP at run time) | Desktop paths of gui_* and clipboard_* unverified; final-tree validation |
 | Latest targeted validation | Linux system-administration backends: 19 system-changing tests passed as root in the disposable distro; Windows and Linux each passed 16 suites, Clippy and (Windows) the Rust 1.88 check; prior 286-test filesystem-watch checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
+| Process runners, stdin deadlocks and pipeline input | Fixed in commits 2a0d298 to 4d7756d (bounded runs kill the process tree; three stdin deadlocks fixed; pipeline stages get only their own input). No test result for these commits is recorded here | Validate on the final tree; open runner items in section 3 |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
 | Package versions | Root and LSP remain 12.0.2 | Update the release metadata together |
@@ -128,6 +129,9 @@ and malformed-call regressions pass without broad skip lists masking failures.
 - [ ] Verify that unsupported, absent-tool, failed-tool, invalid-input and policy refusals remain distinct, coded outcomes.
 - [ ] Complete native Unix validation for ownership, modes, execute bits, symlink targets, dangling links and audit aliases. Validate Windows privilege and read-only behavior separately.
 - [ ] Verify bounded reads, allocations, edit batches, output sizes and time limits for the remaining contracts.
+- [ ] Give every remaining subprocess runner a deadline, a process-tree kill and an output cap. Open: container_cli (no deadline); run_tool for ssh, scp, rsync, gpg, age, zip and tar (kills only the direct child); pkg_admin exec (joins its readers unbounded after a normal exit); test_watch and archive_cli Windows taskkill (unbounded); external_tools manifest probes (no deadline); web_curl (relies on curl --max-time); about 250 short `.output()` probes in builtins.rs (no deadline). Being fixed by another agent; the coordinator updates this item.
+- [ ] Replace the lossy UTF-8 conversion of legacy CBC decrypt plaintext (`from_utf8_lossy`) with a coded refusal. Being fixed by another agent; the coordinator updates this item.
+- [ ] Decide the wget_download classification: tests/write_evidence.rs fails because wget_download is Network-labelled and writes its download through guard_local_write. Choose between an ALLOWED entry and reclassifying it WriteLocal.
 - [ ] Verify atomic publication, owned temporary-file cleanup, preflight refusal without mutation, and transaction rollback for supported filesystem changes.
 - [ ] Recheck agent policy enforcement, effect provenance, aliases, audit protection and network restrictions after the catalogue is fully migrated.
 
