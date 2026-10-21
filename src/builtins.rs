@@ -30052,6 +30052,20 @@ fn bi_archive_test(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// builtin's own body: tests/guard_enforcement.rs reads `bi_*` bodies, not
 /// helpers, to decide which builtins guard themselves.
 fn gzip_file(builtin: &str, input: &str, out_path: &str, decompress: bool) -> Result<Value> {
+    gzip_file_capped(builtin, input, out_path, decompress, FILE_OUTPUT_CAP)
+}
+
+/// [`gzip_file`] with the decompressed-size cap given. A decompression that
+/// would write more than `cap` bytes is stopped before the write, refused as
+/// E_BUDGET_EXCEEDED, and its partial output removed. Every failure removes the
+/// output file, so none is left behind.
+fn gzip_file_capped(
+    builtin: &str,
+    input: &str,
+    out_path: &str,
+    decompress: bool,
+    cap: u64,
+) -> Result<Value> {
     let src =
         std::fs::File::open(input).map_err(|e| crate::safety::fs_error(builtin, input, &e))?;
     if std::path::Path::new(&out_path).exists() {
@@ -30064,28 +30078,78 @@ fn gzip_file(builtin: &str, input: &str, out_path: &str, decompress: bool) -> Re
     let dst = std::fs::File::create(out_path)
         .map_err(|e| crate::safety::fs_error(builtin, out_path, &e))?;
     let result = if decompress {
-        std::io::copy(
-            &mut flate2::read::GzDecoder::new(src),
-            &mut std::io::BufWriter::new(dst),
-        )
+        let mut out = std::io::BufWriter::new(dst);
+        gunzip_capped(flate2::read::GzDecoder::new(src), &mut out, cap)
     } else {
         let mut enc = flate2::write::GzEncoder::new(dst, flate2::Compression::default());
         std::io::copy(&mut std::io::BufReader::new(src), &mut enc)
-            .and_then(|n| enc.finish().map(|_| n))
+            .and_then(|_| enc.finish())
+            .map(|_| true)
     };
-    if let Err(e) = result {
-        let _ = std::fs::remove_file(out_path); // no half-written output
-        return Err(crate::safety::bad_arg(
-            builtin,
-            if decompress {
-                "valid gzip data"
-            } else {
-                "a readable file"
-            },
-            &format!("{input}: {e}"),
-        ));
+    match result {
+        Ok(true) => Ok(Value::Bool(true)),
+        Ok(false) => {
+            // The writer is closed by now (it is local to the branch above), so
+            // the partial file can be removed on every platform.
+            remove_partial(out_path);
+            Err(crate::safety::budget_exceeded(
+                builtin,
+                format!("{input} decompresses to more than {cap} bytes and was stopped"),
+                "the output would be cut short, so it is refused and no file is left; check that the archive is the one you meant",
+            ))
+        }
+        Err(e) => {
+            remove_partial(out_path); // no half-written output
+            Err(crate::safety::bad_arg(
+                builtin,
+                if decompress {
+                    "valid gzip data"
+                } else {
+                    "a readable file"
+                },
+                &format!("{input}: {e}"),
+            ))
+        }
     }
-    Ok(Value::Bool(true))
+}
+
+/// Copies the gzip stream `src` into `dst`, flushing at the end. Returns
+/// `Ok(false)` as soon as the output would pass `cap`; the chunk that would have
+/// passed it is not written. Every read consumes input, so the loop ends.
+fn gunzip_capped<R: std::io::Read, W: std::io::Write>(
+    mut src: R,
+    dst: &mut W,
+    cap: u64,
+) -> std::io::Result<bool> {
+    let mut chunk = [0u8; 8192];
+    let mut total: u64 = 0;
+    loop {
+        let n = match src.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        total = total.saturating_add(n as u64);
+        if total > cap {
+            return Ok(false);
+        }
+        dst.write_all(&chunk[..n])?;
+    }
+    dst.flush()?;
+    Ok(true)
+}
+
+/// Test hook: `gzip_decompress` of `file` with a decompressed-size cap the test
+/// chooses (the builtin uses FILE_OUTPUT_CAP). The jail check still runs.
+/// Not part of the public API.
+#[doc(hidden)]
+pub fn __test_gzip_decompress_capped(file: &str, cap: u64) -> Result<Value> {
+    let out = guard_local_write(
+        "gzip_decompress",
+        &gzip_out_path("gzip_decompress", file, true)?,
+    )?;
+    gzip_file_capped("gzip_decompress", file, &out, true, cap)
 }
 
 /// Where gzip_file writes: path.gz, or the path without its .gz.
@@ -38460,6 +38524,11 @@ fn bi_db_kv_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     })
 }
 
+/// Deadline for one `db_json_query` run of jq over a file.
+const DB_JQ_DEADLINE_SECS: u64 = 30;
+/// The most output one `db_json_query` may produce. More is E_BUDGET_EXCEEDED.
+const DB_JQ_MAX_OUTPUT: usize = 16 * 1024 * 1024;
+
 fn bi_db_json_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let json_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -38478,10 +38547,18 @@ fn bi_db_json_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Both go to jq positionally, so a leading `-` would be read as an option.
     crate::safety::reject_option_like("db_json_query", &[json_path.clone(), jq_filter.clone()])?;
 
-    let output = std::process::Command::new("jq")
-        .args([&jq_filter, &json_path])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("db_json_query", "jq", &e))?;
+    // jq reads the file itself and gets no stdin, so nothing is written to it
+    // here. The run has a deadline and an output cap like every other tool run.
+    let output = run_output(
+        "db_json_query",
+        "jq",
+        "jq",
+        &[jq_filter.as_str(), json_path.as_str()],
+        |_| {},
+        None,
+        DB_JQ_DEADLINE_SECS,
+        DB_JQ_MAX_OUTPUT,
+    )?;
 
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
@@ -53979,11 +54056,28 @@ fn bi_rsync_sync(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // ---------------------------------------------------------------------------
 // Helper: run a command, return stdout or error
 // ---------------------------------------------------------------------------
+/// Deadline for one security-tool query, such as gpg listing its keyring.
+const SEC_RUN_DEADLINE_SECS: u64 = 60;
+/// The most output one security-tool query may print. More is E_BUDGET_EXCEEDED.
+const SEC_RUN_MAX_OUTPUT: usize = 16 * 1024 * 1024;
+
 fn sec_run_cmd(program: &str, args: &[&str]) -> Result<String> {
-    let output = Command::new(program)
-        .args(args)
-        .output()
-        .map_err(|e| crate::safety::spawn_error(program, program, &e))?;
+    sec_run_cmd_within(program, args, SEC_RUN_DEADLINE_SECS)
+}
+
+/// [`sec_run_cmd`] with its deadline given. Past it the tree is killed and the
+/// call is a coded budget error. Output over the cap is refused the same way.
+fn sec_run_cmd_within(program: &str, args: &[&str], deadline_secs: u64) -> Result<String> {
+    let output = run_output(
+        program,
+        program,
+        program,
+        args,
+        |_| {},
+        None,
+        deadline_secs,
+        SEC_RUN_MAX_OUTPUT,
+    )?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(crate::safety::tool_failed(
@@ -53998,6 +54092,13 @@ fn sec_run_cmd(program: &str, args: &[&str]) -> Result<String> {
 
 fn sec_run_cmd_ok(program: &str, args: &[&str]) -> Option<String> {
     sec_run_cmd(program, args).ok()
+}
+
+/// Test hook: [`sec_run_cmd`] with a deadline the test chooses, so a silent
+/// child can be shown to be killed at it. Not part of the public API.
+#[doc(hidden)]
+pub fn __test_sec_run_cmd(program: &str, args: &[&str], deadline_secs: u64) -> Result<String> {
+    sec_run_cmd_within(program, args, deadline_secs)
 }
 
 fn cmd_exists(program: &str) -> bool {
@@ -54154,8 +54255,9 @@ fn bi_openssl_genrsa(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // ============================================================================
 // 1012: bi_gpg_list_keys
 // ============================================================================
-fn bi_gpg_list_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let _ = &args;
+fn bi_gpg_list_keys(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // Takes no arguments and no piped input; both used to be silently dropped.
+    no_args_or_input("gpg_list_keys", &args, &input)?;
 
     let out = sec_run_cmd("gpg", &["--list-keys", "--with-colons"])?;
     let mut keys = Vec::new();
