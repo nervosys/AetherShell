@@ -343,11 +343,8 @@ fn kill_tree(child: &mut std::process::Child) {
     }
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        // Bounded: the shared helper gives taskkill a short limit.
+        super::taskkill_tree(child.id());
     }
     let _ = child.kill();
     let _ = child.wait();

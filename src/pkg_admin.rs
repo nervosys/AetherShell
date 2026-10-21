@@ -573,85 +573,54 @@ fn apt_argv(subcommand: &str) -> Vec<String> {
 /// with the dpkg it spawned; killing only apt-get would leave dpkg running and
 /// holding the lock.
 fn exec(builtin: &str, tool: &str, args: &[String]) -> Result<Output> {
-    use std::io::Read;
+    exec_for(builtin, tool, args, RUN_TIMEOUT_SECS)
+}
+
+/// [`exec`] with the deadline given in seconds (a test runs it with a short one).
+pub(crate) fn exec_for(
+    builtin: &str,
+    tool: &str,
+    args: &[String],
+    deadline_secs: u64,
+) -> Result<Output> {
     use std::process::Stdio;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     let mut cmd = Command::new(format!("/usr/bin/{tool}"));
     cmd.args(args)
         .env("DEBIAN_FRONTEND", "noninteractive")
         .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
+        .stdin(Stdio::null());
+    // The shared bounded runner: the child leads its own process group, the
+    // deadline kills that whole group, and a pipe that a leftover descendant
+    // keeps open is killed after a grace rather than joined without bound.
+    let run = super::run_tree_cmd(
+        cmd,
+        None,
+        Duration::from_secs(deadline_secs),
+        super::Keep::Head(usize::MAX),
+        super::Keep::Head(usize::MAX),
+    )
+    .map_err(|e| match e {
+        super::TreeError::Spawn(e) | super::TreeError::Wait(e) => {
+            safety::spawn_error(builtin, tool, &e)
+        }
+    })?;
+    match run.status {
+        Some(status) if !run.timed_out => Ok(Output {
+            status,
+            stdout: run.stdout,
+            stderr: run.stderr,
+        }),
+        _ => Err(safety::budget_exceeded(
+            builtin,
+            format!(
+                "`{tool}` did not finish within {deadline_secs} s and its process group \
+                 was killed; whether it changed anything is UNKNOWN and must be checked"
+            ),
+            "check the state with pkg_list or pkg_info before retrying",
+        )),
     }
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| safety::spawn_error(builtin, tool, &e))?;
-    let mut out_pipe = child.stdout.take();
-    let mut err_pipe = child.stderr.take();
-    let out_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        if let Some(p) = out_pipe.as_mut() {
-            let _ = p.read_to_end(&mut bytes);
-        }
-        bytes
-    });
-    let err_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        if let Some(p) = err_pipe.as_mut() {
-            let _ = p.read_to_end(&mut bytes);
-        }
-        bytes
-    });
-
-    let deadline = Instant::now() + Duration::from_secs(RUN_TIMEOUT_SECS);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {}
-            Err(e) => {
-                kill_group(&mut child);
-                return Err(safety::spawn_error(builtin, tool, &e));
-            }
-        }
-        if Instant::now() >= deadline {
-            kill_group(&mut child);
-            return Err(safety::budget_exceeded(
-                builtin,
-                format!(
-                    "`{tool}` did not finish within {RUN_TIMEOUT_SECS} s and its process group \
-                     was killed; whether it changed anything is UNKNOWN and must be checked"
-                ),
-                "check the state with pkg_list or pkg_info before retrying",
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    };
-    Ok(Output {
-        status,
-        stdout: out_reader.join().unwrap_or_default(),
-        stderr: err_reader.join().unwrap_or_default(),
-    })
-}
-
-/// SIGKILL the child's whole process group (the child is its leader, see
-/// `exec`), then the child itself, and reap it.
-fn kill_group(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    {
-        // SAFETY: a negative pid addresses the process group that
-        // `process_group(0)` made the child's own; kill has no memory effects.
-        unsafe {
-            libc::kill(-(child.id() as i32), libc::SIGKILL);
-        }
-    }
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 /// Run a tool that must succeed. A held lock is `E_BAD_STATE`; any other

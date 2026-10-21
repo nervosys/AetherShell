@@ -28,7 +28,8 @@ fn test_simon_self_describing() {
     let simon_path = simon_path.as_path();
 
     // Check if simon is self-describing
-    let is_sd = ExternalToolRegistry::is_self_describing(simon_path);
+    let is_sd = ExternalToolRegistry::is_self_describing(simon_path)
+        .expect("simon's manifest probe should answer");
     println!("simon is_self_describing: {}", is_sd);
     assert!(is_sd, "simon should be self-describing");
 

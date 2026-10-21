@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
@@ -31,6 +31,53 @@ const EXTERNAL_TOOL_STDERR_TAIL: usize = 64 * 1024;
 // ============================================================================
 // Self-Describing Tool Support (e.g., simon with `ai manifest`)
 // ============================================================================
+
+/// Deadline for one manifest probe; the tool's whole process tree is killed at it.
+const MANIFEST_PROBE_SECS: u64 = 10;
+/// Most stdout or stderr one manifest probe may print. More is a coded budget error.
+const MANIFEST_PROBE_MAX_OUTPUT: usize = 1024 * 1024;
+
+/// Run a tool-provided manifest command with argv (never a shell), bounded in
+/// time and output. A breach is a coded budget error; a failure to start is
+/// the io error with its context.
+fn run_manifest_probe(exe: &Path, args: &[&str]) -> Result<std::process::Output> {
+    let mut cmd = Command::new(exe);
+    cmd.args(args);
+    let run = crate::builtins::run_tree_cmd(
+        cmd,
+        None,
+        Duration::from_secs(MANIFEST_PROBE_SECS),
+        Keep::Head(MANIFEST_PROBE_MAX_OUTPUT),
+        Keep::Head(MANIFEST_PROBE_MAX_OUTPUT),
+    )
+    .map_err(|e| match e {
+        TreeError::Spawn(e) | TreeError::Wait(e) => anyhow::Error::new(e),
+    })
+    .with_context(|| format!("Failed to run ai manifest on {}", exe.display()))?;
+    let command = format!("{} {}", exe.display(), args.join(" "));
+    let status = match run.status {
+        Some(status) if !run.timed_out => status,
+        _ => {
+            return Err(crate::safety::budget_exceeded(
+                "external_tool_manifest",
+                format!("`{command}` did not answer within {MANIFEST_PROBE_SECS} s and was killed"),
+                "the tool's manifest is not available; check that the tool answers `ai manifest` promptly",
+            ))
+        }
+    };
+    if run.stdout_truncated || run.stderr_truncated {
+        return Err(crate::safety::budget_exceeded(
+            "external_tool_manifest",
+            format!("`{command}` printed more than {MANIFEST_PROBE_MAX_OUTPUT} bytes"),
+            "the manifest was not used; the call was refused rather than cut short",
+        ));
+    }
+    Ok(std::process::Output {
+        status,
+        stdout: run.stdout,
+        stderr: run.stderr,
+    })
+}
 
 /// Manifest returned by self-describing tools via `tool ai manifest -f json`
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -557,28 +604,19 @@ impl ExternalToolRegistry {
         Ok(tool_name)
     }
 
-    /// Check if executable supports `ai manifest` command
-    pub fn is_self_describing(executable_path: &Path) -> bool {
+    /// Check if executable supports `ai manifest` command. A probe that does
+    /// not answer within the manifest deadline is a coded budget error.
+    pub fn is_self_describing(executable_path: &Path) -> Result<bool> {
         if !executable_path.exists() {
-            return false;
+            return Ok(false);
         }
-        Command::new(executable_path)
-            .args(["ai", "manifest", "--help"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+        let output = run_manifest_probe(executable_path, &["ai", "manifest", "--help"])?;
+        Ok(output.status.success())
     }
 
     /// Load manifest from self-describing tool
     fn load_self_describing_manifest(exe_path: &Path) -> Result<SelfDescribingManifest> {
-        let output = Command::new(exe_path)
-            .args(["ai", "manifest", "-f", "json"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .with_context(|| format!("Failed to run ai manifest on {}", exe_path.display()))?;
+        let output = run_manifest_probe(exe_path, &["ai", "manifest", "-f", "json"])?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -686,12 +724,8 @@ impl ExternalToolRegistry {
             return Ok(None);
         }
 
-        let output = Command::new(&tool.executable_path)
-            .args(["ai", "manifest", "-f", provider])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .with_context(|| format!("Failed to get {} manifest", provider))?;
+        let output =
+            run_manifest_probe(&tool.executable_path, &["ai", "manifest", "-f", provider])?;
 
         if !output.status.success() {
             return Err(anyhow!("Manifest command failed"));

@@ -37429,9 +37429,16 @@ fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
         CRYPTO_LEGACY_MAX_BYTES,
     )?;
     if output.status.success() {
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
+        // The same refusal as the authenticated path: a lossy conversion would
+        // silently change the plaintext, so non-UTF-8 output is not returned.
+        return String::from_utf8(output.stdout)
+            .map(Value::Str)
+            .map_err(|_| {
+                anyhow::anyhow!(
+                "E_DECRYPT_FAILED: plaintext is not valid UTF-8; the legacy decrypt succeeded but \
+                 its bytes are not text, so nothing was returned"
+            )
+            });
     }
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     Err(anyhow::anyhow!(
@@ -48452,6 +48459,8 @@ const CONTAINER_STDERR_TAIL: usize = 4 * 1024;
 const CONTAINER_LOG_TAIL_DEFAULT: i64 = 1000;
 const CONTAINER_LOG_TAIL_MAX: i64 = 10_000;
 const CONTAINER_ARGV_MAX: usize = 256;
+/// Deadline for one container CLI call; past it the call's tree is killed.
+const CONTAINER_DEADLINE_SECS: u64 = 300;
 
 /// A coded `E_TOOL_FAILED` for a container tool whose output cannot be read.
 fn container_error(builtin: &str, message: String, hint: &str, got: &str) -> anyhow::Error {
@@ -48510,77 +48519,76 @@ fn read_tail<R: std::io::Read>(pipe: Option<R>, keep: usize) -> std::io::Result<
     Ok(kept)
 }
 
-fn join_reader<T>(
-    builtin: &str,
-    program: &str,
-    handle: std::thread::JoinHandle<std::io::Result<T>>,
-) -> Result<T> {
-    match handle.join() {
-        Ok(Ok(value)) => Ok(value),
-        Ok(Err(e)) => Err(container_error(
-            builtin,
-            format!("could not read the output of `{program}`: {e}"),
-            "retry the call",
-            "unreadable output",
-        )),
-        Err(_) => Err(container_error(
-            builtin,
-            format!("reading the output of `{program}` failed"),
-            "retry the call",
-            "reader thread failed",
-        )),
-    }
-}
-
 /// Run `program` with `args` as an argv, never through a shell, and return its
 /// stdout (followed by its stderr when `with_stderr` is set). A nonzero exit is
 /// `E_TOOL_FAILED` carrying the stderr tail; a missing program is
 /// `E_TOOL_MISSING`; output over the bound is `E_BUDGET_EXCEEDED`.
 fn container_cli(builtin: &str, program: &str, args: &[&str], with_stderr: bool) -> Result<String> {
+    container_cli_within(builtin, program, args, with_stderr, CONTAINER_DEADLINE_SECS)
+}
+
+/// [`container_cli`] with its deadline given, so a test can run a silent child
+/// past a short one. The call's tree is killed at `deadline_secs`.
+fn container_cli_within(
+    builtin: &str,
+    program: &str,
+    args: &[&str],
+    with_stderr: bool,
+    deadline_secs: u64,
+) -> Result<String> {
     let verb = args.first().copied().unwrap_or("");
-    let mut child = std::process::Command::new(program)
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| crate::safety::spawn_error(builtin, program, &e))?;
-    let out_pipe = child.stdout.take();
-    let err_pipe = child.stderr.take();
-    let out_reader = std::thread::spawn(move || read_capped(out_pipe, CONTAINER_OUTPUT_MAX));
-    let err_reader = std::thread::spawn(move || -> std::io::Result<(Vec<u8>, bool)> {
-        if with_stderr {
-            read_capped(err_pipe, CONTAINER_OUTPUT_MAX)
-        } else {
-            read_tail(err_pipe, CONTAINER_STDERR_TAIL).map(|tail| (tail, false))
-        }
-    });
-    let status = child.wait().map_err(|e| {
-        container_error(
+    let command = format!("{program} {verb}");
+    let stderr_keep = if with_stderr {
+        Keep::Head(CONTAINER_OUTPUT_MAX)
+    } else {
+        Keep::Tail(CONTAINER_STDERR_TAIL)
+    };
+    let run = run_tree(
+        program,
+        args,
+        |_| {},
+        None,
+        std::time::Duration::from_secs(deadline_secs),
+        Keep::Head(CONTAINER_OUTPUT_MAX),
+        stderr_keep,
+    )
+    .map_err(|e| match e {
+        TreeError::Spawn(e) => crate::safety::spawn_error(builtin, program, &e),
+        TreeError::Wait(e) => container_error(
             builtin,
-            format!("could not wait for `{program} {verb}`: {e}"),
+            format!("could not wait for `{command}`: {e}"),
             "retry the call",
             "no exit status",
-        )
+        ),
     })?;
-    let (stdout, out_more) = join_reader(builtin, program, out_reader)?;
-    let (stderr, err_more) = join_reader(builtin, program, err_reader)?;
-    if out_more || err_more {
+    if run.timed_out {
         return Err(crate::safety::budget_exceeded(
             builtin,
-            format!("`{program} {verb}` wrote more than {CONTAINER_OUTPUT_MAX} bytes"),
+            format!("`{command}` did not finish within {deadline_secs} s"),
+            "the call was killed and its result discarded; check the state with the matching read builtin before retrying",
+        ));
+    }
+    // A stderr tail is kept short on purpose; only a stream returned whole
+    // (stdout, or stderr when it is appended) can be over budget.
+    if run.stdout_truncated || (with_stderr && run.stderr_truncated) {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("`{command}` wrote more than {CONTAINER_OUTPUT_MAX} bytes"),
             "ask for less output: a smaller tail, or one container at a time",
         ));
     }
-    if !status.success() {
+    if !run.success {
+        let stderr = &run.stderr;
         let tail = &stderr[stderr.len().saturating_sub(CONTAINER_STDERR_TAIL)..];
         return Err(crate::safety::tool_failed(
             builtin,
-            &format!("{program} {verb}"),
-            status.code(),
+            &command,
+            run.code,
             &String::from_utf8_lossy(tail),
         ));
     }
+    let stdout = run.stdout;
+    let stderr = run.stderr;
     let mut text = String::from_utf8_lossy(&stdout).into_owned();
     if with_stderr && !stderr.is_empty() {
         if !text.is_empty() && !text.ends_with('\n') {
@@ -50117,6 +50125,35 @@ pub fn __test_scheduler_run_tool(
     scheduler::run_tool("test", tool, args, stdin)
 }
 
+/// Test hook: the container CLI runner with its deadline given in seconds.
+/// Not part of the public API.
+#[doc(hidden)]
+pub fn __test_container_cli(program: &str, args: &[&str], deadline_secs: u64) -> Result<String> {
+    container_cli_within("test", program, args, false, deadline_secs)
+}
+
+/// Test hook: the checked tool runner (`run_checked`, behind `run_tool`) with
+/// its deadline given in seconds. Not part of the public API.
+#[doc(hidden)]
+pub fn __test_run_checked(tool: &str, args: &[&str], deadline_secs: u64) -> Result<String> {
+    let mut cmd = std::process::Command::new(tool);
+    cmd.args(args);
+    run_checked("test", tool, cmd, deadline_secs).map(|(out, _)| out)
+}
+
+/// Test hook: the package manager's exec helper (Linux only) with its deadline
+/// given in seconds. Not part of the public API.
+#[cfg(target_os = "linux")]
+#[doc(hidden)]
+pub fn __test_pkg_exec(
+    tool: &str,
+    args: &[&str],
+    deadline_secs: u64,
+) -> Result<std::process::Output> {
+    let argv: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
+    pkg_admin::exec_for("test", tool, &argv, deadline_secs)
+}
+
 /// Test hook: the account tools' spawn helper (Linux; elsewhere a refusal).
 /// Not part of the public API.
 #[doc(hidden)]
@@ -50267,7 +50304,7 @@ fn kill_group(pid: u32) {
 /// `taskkill /T /F` on the tree rooted at `pid`, given at most
 /// [`TASKKILL_LIMIT`]. It runs with argv (no shell) and its output is discarded.
 #[cfg(windows)]
-fn taskkill_tree(pid: u32) {
+pub(crate) fn taskkill_tree(pid: u32) {
     use std::process::{Command, Stdio};
     let pid_text = pid.to_string();
     let Ok(mut killer) = Command::new("taskkill")
@@ -53232,12 +53269,17 @@ where
     })
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        // The child leads its own group, so a deadline or cap kills its whole tree.
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     let mut child = cmd
         .spawn()
         .map_err(|e| crate::safety::spawn_error(builtin, tool, &e))?;
     let (Some(out_pipe), Some(err_pipe)) = (child.stdout.take(), child.stderr.take()) else {
-        let _ = child.kill();
-        let _ = child.wait();
+        kill_tree(&mut child);
         return Err(crate::safety::tool_failed(
             builtin,
             tool,
@@ -53271,8 +53313,7 @@ where
             Ok(Some(status)) => break status,
             Ok(None) => {}
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_tree(&mut child);
                 return Err(crate::safety::tool_failed(
                     builtin,
                     tool,
@@ -53282,8 +53323,7 @@ where
             }
         }
         if halt.load(Ordering::SeqCst) != HALT_NONE || started.elapsed() >= limit {
-            let _ = child.kill();
-            let _ = child.wait();
+            kill_tree(&mut child);
             return Err(halt_error(
                 builtin,
                 tool,
@@ -53299,6 +53339,11 @@ where
     let wait = Duration::from_secs(2);
     let closed = out_closed.recv_timeout(wait).is_ok() && err_closed.recv_timeout(wait).is_ok();
     let flag = halt.load(Ordering::SeqCst);
+    if !closed || flag != HALT_NONE {
+        // A descendant still holds a pipe, or the run was halted: kill its group
+        // so nothing it started keeps running after the call returns.
+        kill_group(child.id());
+    }
     if flag != HALT_NONE {
         return Err(halt_error(builtin, tool, flag, secs, cap));
     }
