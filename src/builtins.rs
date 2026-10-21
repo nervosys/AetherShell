@@ -49807,9 +49807,8 @@ fn tool_run_stderr(
 
 /// The bounded runner behind [`tool_run_stderr`], with stderr left as the
 /// program wrote it. Stdout keeps `keep` and stderr its last `stderr_keep`
-/// bytes; both are read to the end so the child never blocks on a full pipe.
-/// Past `deadline_secs` the child is killed and the call is refused. Never
-/// through a shell, with stdin closed.
+/// bytes. Past `deadline_secs` the whole process tree is killed and the call is
+/// refused. Never through a shell, with stdin closed.
 pub(crate) fn run_bounded(
     builtin: &str,
     program: &str,
@@ -49819,72 +49818,346 @@ pub(crate) fn run_bounded(
     stderr_keep: usize,
     deadline_secs: u64,
 ) -> Result<ToolRun> {
-    use std::process::Stdio;
     let command = format!("{program} {}", args.join(" "));
-    let mut cmd = std::process::Command::new(program);
-    cmd.args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if let Some(dir) = dir {
-        cmd.current_dir(dir);
-    }
-    if program == "terraform" {
-        // Automation mode drops the interactive "run terraform apply" hints.
-        cmd.env("TF_IN_AUTOMATION", "1");
-    }
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| crate::safety::spawn_error(builtin, program, &e))?;
-    let out_pipe = child.stdout.take();
-    let err_pipe = child.stderr.take();
-    let out_h = std::thread::spawn(move || match out_pipe {
-        Some(pipe) => match keep {
-            Keep::Head(max) => k8s_read_head(pipe, max),
-            Keep::Tail(max) => tool_read_tail(pipe, max),
+    let run = run_tree(
+        program,
+        args,
+        |cmd| {
+            if let Some(dir) = dir {
+                cmd.current_dir(dir);
+            }
+            if program == "terraform" {
+                // Automation mode drops the interactive "run terraform apply" hints.
+                cmd.env("TF_IN_AUTOMATION", "1");
+            }
         },
-        None => (Vec::new(), false),
-    });
-    let err_h = std::thread::spawn(move || match err_pipe {
-        Some(pipe) => tool_read_tail(pipe, stderr_keep),
-        None => (Vec::new(), false),
-    });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(deadline_secs);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if std::time::Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(crate::safety::budget_exceeded(
-                    builtin,
-                    format!("`{command}` did not finish within {deadline_secs} s"),
-                    "a killed call can leave work half done; check the state with the matching read builtin before retrying",
-                ));
-            }
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
-            Err(e) => {
-                return Err(crate::safety::tool_failed(
-                    builtin,
-                    &command,
-                    None,
-                    &e.to_string(),
-                ))
-            }
-        }
-    };
-    let (stdout, stdout_truncated) = out_h.join().unwrap_or_else(|_| (Vec::new(), false));
-    let (stderr, stderr_truncated) = err_h.join().unwrap_or_else(|_| (Vec::new(), false));
+        None,
+        std::time::Duration::from_secs(deadline_secs),
+        keep,
+        Keep::Tail(stderr_keep),
+    )
+    .map_err(|e| match e {
+        TreeError::Spawn(e) => crate::safety::spawn_error(builtin, program, &e),
+        TreeError::Wait(e) => crate::safety::tool_failed(builtin, &command, None, &e.to_string()),
+    })?;
+    if run.timed_out {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("`{command}` did not finish within {deadline_secs} s"),
+            "a killed call can leave work half done; check the state with the matching read builtin before retrying",
+        ));
+    }
     Ok(ToolRun {
         command,
         keep,
-        success: status.success(),
-        code: status.code(),
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        success: run.success,
+        code: run.code,
+        stdout: String::from_utf8_lossy(&run.stdout).into_owned(),
+        stdout_truncated: run.stdout_truncated,
+        stderr: String::from_utf8_lossy(&run.stderr).into_owned(),
+        stderr_truncated: run.stderr_truncated,
+    })
+}
+
+/// How one bounded run ended. A pipe that a descendant of the child kept open
+/// past the grace is abandoned: what it had produced is kept, and its stream is
+/// marked truncated.
+pub(crate) struct TreeRun {
+    /// The child exited on its own with status 0.
+    pub(crate) success: bool,
+    /// The exit code; `None` when killed by a signal or at the deadline.
+    pub(crate) code: Option<i32>,
+    /// The deadline passed and the child's tree was killed.
+    pub(crate) timed_out: bool,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stdout_truncated: bool,
+    pub(crate) stderr: Vec<u8>,
+    pub(crate) stderr_truncated: bool,
+}
+
+/// Why a bounded run could not be completed.
+pub(crate) enum TreeError {
+    /// The program did not start.
+    Spawn(std::io::Error),
+    /// Waiting on the child failed; the child's tree was killed.
+    Wait(std::io::Error),
+}
+
+/// How long a run's pipes may stay open after its child has exited or been
+/// killed. Only a descendant that outlived the child can keep them open.
+const PIPE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+/// How long the pipes may take to close once a leftover group was killed.
+const AFTER_KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
+/// Bound on one `taskkill` at a deadline, so the kill itself cannot hang a call.
+#[cfg(windows)]
+const TASKKILL_LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The one bounded runner that the builtins, the diagnostics runner and the
+/// tool-run runner share. `program` runs with `args` directly (never through a
+/// shell); `configure` may set the directory and environment; `stdin` is a
+/// fixed payload, or the child gets a null stdin when `None`.
+///
+/// The child leads its own process group (unix). At `limit` the child's tree is
+/// killed (the group on unix, `taskkill /T` on Windows) and the child is reaped.
+/// After a normal exit, a pipe still open after [`PIPE_GRACE`] means a leftover
+/// descendant holds it, so the group is killed. A pipe still open after the
+/// grace that follows a kill is abandoned, not joined. The call therefore takes
+/// at most `limit` plus a few seconds, whatever the descendants do.
+pub(crate) fn run_tree(
+    program: &str,
+    args: &[&str],
+    configure: impl FnOnce(&mut std::process::Command),
+    stdin: Option<String>,
+    limit: std::time::Duration,
+    stdout_keep: Keep,
+    stderr_keep: Keep,
+) -> std::result::Result<TreeRun, TreeError> {
+    use std::process::{Command, Stdio};
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    configure(&mut command);
+    let mut child = command.spawn().map_err(TreeError::Spawn)?;
+    if let (Some(payload), Some(mut pipe)) = (stdin, child.stdin.take()) {
+        // Detached: a child that never reads its stdin blocks this write until
+        // the kill closes the pipe, which then fails the write.
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let _ = pipe.write_all(payload.as_bytes());
+        });
+    }
+    let out = PipeReader::start(child.stdout.take(), stdout_keep);
+    let err = PipeReader::start(child.stderr.take(), stderr_keep);
+
+    let started = std::time::Instant::now();
+    let exited = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {}
+            Err(e) => {
+                kill_tree(&mut child);
+                return Err(TreeError::Wait(e));
+            }
+        }
+        if started.elapsed() >= limit {
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    let (success, code, timed_out, out_closed, err_closed) = match exited {
+        Some(status) => {
+            let (mut out_closed, mut err_closed) = wait_pipes(&out, &err, PIPE_GRACE);
+            if !(out_closed && err_closed) {
+                // A descendant that outlived the child holds a pipe: kill its
+                // group rather than wait for it.
+                kill_group(child.id());
+                (out_closed, err_closed) = wait_pipes(&out, &err, AFTER_KILL_GRACE);
+            }
+            (
+                status.success(),
+                status.code(),
+                false,
+                out_closed,
+                err_closed,
+            )
+        }
+        None => {
+            kill_tree(&mut child);
+            let (out_closed, err_closed) = wait_pipes(&out, &err, PIPE_GRACE);
+            (false, None, true, out_closed, err_closed)
+        }
+    };
+    let (stdout, stdout_truncated) = out.finish(!out_closed);
+    let (stderr, stderr_truncated) = err.finish(!err_closed);
+    Ok(TreeRun {
+        success,
+        code,
+        timed_out,
+        stdout,
         stdout_truncated,
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        stderr,
         stderr_truncated,
     })
+}
+
+/// What one pipe has produced, kept to its `Keep` bound while it is read.
+struct PipeBuf {
+    keep: Keep,
+    kept: Vec<u8>,
+    total: usize,
+}
+
+impl PipeBuf {
+    fn limit(&self) -> usize {
+        match self.keep {
+            Keep::Head(n) | Keep::Tail(n) => n,
+        }
+    }
+
+    fn push(&mut self, bytes: &[u8]) {
+        self.total = self.total.saturating_add(bytes.len());
+        match self.keep {
+            Keep::Head(max) => {
+                let room = max.saturating_sub(self.kept.len());
+                self.kept.extend_from_slice(&bytes[..bytes.len().min(room)]);
+            }
+            Keep::Tail(max) => {
+                self.kept.extend_from_slice(bytes);
+                if self.kept.len() > max.saturating_mul(2) {
+                    let cut = self.kept.len() - max;
+                    self.kept.drain(..cut);
+                }
+            }
+        }
+    }
+}
+
+/// A pipe read to its end on its own thread. The thread signals `done` when
+/// the pipe reaches end-of-file; the waiter never joins the thread.
+struct PipeReader {
+    buf: std::sync::Arc<std::sync::Mutex<PipeBuf>>,
+    done: std::sync::mpsc::Receiver<()>,
+}
+
+impl PipeReader {
+    fn start<R: std::io::Read + Send + 'static>(pipe: Option<R>, keep: Keep) -> Self {
+        let buf = std::sync::Arc::new(std::sync::Mutex::new(PipeBuf {
+            keep,
+            kept: Vec::new(),
+            total: 0,
+        }));
+        let (tx, done) = std::sync::mpsc::channel();
+        match pipe {
+            Some(mut pipe) => {
+                let shared = std::sync::Arc::clone(&buf);
+                std::thread::spawn(move || {
+                    let mut chunk = [0u8; 8192];
+                    loop {
+                        match pipe.read(&mut chunk) {
+                            Ok(0) => break,
+                            Ok(n) => shared
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .push(&chunk[..n]),
+                            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                            Err(_) => break,
+                        }
+                    }
+                    let _ = tx.send(());
+                });
+            }
+            None => {
+                let _ = tx.send(());
+            }
+        }
+        PipeReader { buf, done }
+    }
+
+    /// Whether the pipe reached end-of-file by `until`. A reader that has
+    /// finished (its sender is gone) counts as closed on every later call.
+    fn wait_until(&self, until: std::time::Instant) -> bool {
+        let wait = until.saturating_duration_since(std::time::Instant::now());
+        !matches!(
+            self.done.recv_timeout(wait),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        )
+    }
+
+    /// The kept bytes and whether output was dropped. An abandoned pipe is
+    /// reported as truncated, since what follows it was never read.
+    fn finish(self, abandoned: bool) -> (Vec<u8>, bool) {
+        let mut buf = self
+            .buf
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let max = buf.limit();
+        let truncated = buf.total > max || abandoned;
+        if let Keep::Tail(_) = buf.keep {
+            if buf.kept.len() > max {
+                let cut = buf.kept.len() - max;
+                buf.kept.drain(..cut);
+            }
+        }
+        (std::mem::take(&mut buf.kept), truncated)
+    }
+}
+
+/// Wait for both pipes to close within one shared grace.
+fn wait_pipes(out: &PipeReader, err: &PipeReader, grace: std::time::Duration) -> (bool, bool) {
+    let until = std::time::Instant::now() + grace;
+    (out.wait_until(until), err.wait_until(until))
+}
+
+/// Kill the child's tree, then reap the child. Unix: the child leads its own
+/// process group, so the whole group is signalled. Windows: `taskkill /T` walks
+/// the tree, which only works while the child is alive, so it runs first.
+fn kill_tree(child: &mut std::process::Child) {
+    kill_group(child.id());
+    #[cfg(windows)]
+    {
+        taskkill_tree(child.id());
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Signal the process group whose id is `pid` (the child's own group on unix).
+fn kill_group(pid: u32) {
+    #[cfg(unix)]
+    {
+        // SAFETY: a negative pid addresses the process group that
+        // `process_group(0)` made the child's own; kill has no memory effects.
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+    }
+}
+
+/// `taskkill /T /F` on the tree rooted at `pid`, given at most
+/// [`TASKKILL_LIMIT`]. It runs with argv (no shell) and its output is discarded.
+#[cfg(windows)]
+fn taskkill_tree(pid: u32) {
+    use std::process::{Command, Stdio};
+    let pid_text = pid.to_string();
+    let Ok(mut killer) = Command::new("taskkill")
+        .args(["/T", "/F", "/PID", pid_text.as_str()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return;
+    };
+    let until = std::time::Instant::now() + TASKKILL_LIMIT;
+    loop {
+        match killer.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if std::time::Instant::now() < until => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = killer.kill();
+                let _ = killer.wait();
+                return;
+            }
+        }
+    }
 }
 
 /// Text with terminal colour sequences removed. Terraform colours some errors on

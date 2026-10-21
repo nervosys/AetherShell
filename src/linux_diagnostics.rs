@@ -5,15 +5,12 @@
 //! ended. The runner follows `test_watch::run_once`.
 #![cfg_attr(not(unix), allow(dead_code))]
 
+use crate::builtins::{Keep, TreeError};
 use crate::safety;
 use crate::value::Value;
 use anyhow::Result;
-use std::io::{ErrorKind, Read};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex, PoisonError};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Most output kept from one run. Output past it is drained and dropped, and
 /// the run is marked `truncated`, which callers turn into a budget error.
@@ -256,138 +253,25 @@ pub(crate) fn run_bounded_capped(
     limit: Duration,
     max_output: usize,
 ) -> Result<Run> {
-    let started = Instant::now();
-    let mut command = Command::new(program);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|e| safety::spawn_error(builtin, tool, &e))?;
-    let (out, out_done) = drain(child.stdout.take(), max_output);
-    let (err, err_done) = drain(child.stderr.take(), max_output);
-
-    let mut timed_out = false;
-    let code = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status.code(),
-            Ok(None) => {}
-            Err(e) => {
-                kill_tree(&mut child);
-                return Err(e.into());
-            }
-        }
-        if started.elapsed() >= limit {
-            kill_tree(&mut child);
-            timed_out = true;
-            break None;
-        }
-        thread::sleep(Duration::from_millis(5));
-    };
-
-    // A descendant that outlived the child can hold a pipe open; the group is
-    // killed rather than waited for.
-    let out_closed = wait_for(&out_done);
-    let err_closed = wait_for(&err_done);
-    if !(out_closed && err_closed) {
-        kill_tree(&mut child);
-        wait_for(&out_done);
-        wait_for(&err_done);
-    }
-
-    let (stdout, out_cut) = snapshot(&out);
-    let (stderr, err_cut) = snapshot(&err);
+    let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+    let run = crate::builtins::run_tree(
+        program,
+        &argv,
+        |_| {},
+        None,
+        limit,
+        Keep::Head(max_output),
+        Keep::Head(max_output),
+    )
+    .map_err(|e| match e {
+        TreeError::Spawn(e) => safety::spawn_error(builtin, tool, &e),
+        TreeError::Wait(e) => e.into(),
+    })?;
     Ok(Run {
-        code,
-        timed_out,
-        truncated: out_cut || err_cut,
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        code: run.code,
+        timed_out: run.timed_out,
+        truncated: run.stdout_truncated || run.stderr_truncated,
+        stdout: String::from_utf8_lossy(&run.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&run.stderr).into_owned(),
     })
-}
-
-struct Kept {
-    bytes: Vec<u8>,
-    truncated: bool,
-}
-
-/// Read a pipe to its end on a thread, keeping at most `max_output` bytes but
-/// draining the rest so the child never blocks on a full pipe. The receiver
-/// gets one message when the pipe reaches end-of-file.
-fn drain<R: Read + Send + 'static>(
-    pipe: Option<R>,
-    max_output: usize,
-) -> (Arc<Mutex<Kept>>, mpsc::Receiver<()>) {
-    let kept = Arc::new(Mutex::new(Kept {
-        bytes: Vec::new(),
-        truncated: false,
-    }));
-    let (tx, rx) = mpsc::channel();
-    match pipe {
-        Some(mut pipe) => {
-            let shared = Arc::clone(&kept);
-            thread::spawn(move || {
-                let mut chunk = [0u8; 8192];
-                loop {
-                    match pipe.read(&mut chunk) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            let mut k = shared.lock().unwrap_or_else(PoisonError::into_inner);
-                            let room = max_output.saturating_sub(k.bytes.len());
-                            if n > room {
-                                k.truncated = true;
-                            }
-                            let take = n.min(room);
-                            k.bytes.extend_from_slice(&chunk[..take]);
-                        }
-                        Err(e) if e.kind() == ErrorKind::Interrupted => {}
-                        Err(_) => break,
-                    }
-                }
-                let _ = tx.send(());
-            });
-        }
-        None => {
-            let _ = tx.send(());
-        }
-    }
-    (kept, rx)
-}
-
-fn wait_for(done: &mpsc::Receiver<()>) -> bool {
-    done.recv_timeout(SETTLE).is_ok()
-}
-
-fn snapshot(kept: &Arc<Mutex<Kept>>) -> (Vec<u8>, bool) {
-    let k = kept.lock().unwrap_or_else(PoisonError::into_inner);
-    (k.bytes.clone(), k.truncated)
-}
-
-/// Kill the child and everything in its process group, then reap it.
-fn kill_tree(child: &mut Child) {
-    #[cfg(unix)]
-    {
-        // SAFETY: a negative pid addresses the process group that
-        // `process_group(0)` made the child's own; kill has no memory effects.
-        unsafe {
-            libc::kill(-(child.id() as i32), libc::SIGKILL);
-        }
-    }
-    #[cfg(windows)]
-    {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    let _ = child.kill();
-    let _ = child.wait();
 }

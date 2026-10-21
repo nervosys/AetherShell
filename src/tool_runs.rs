@@ -7,16 +7,13 @@
 //! payload, and its output is kept to the last 64 KiB per stream. On timeout
 //! the whole process tree is killed and reaped before the call returns, so no
 //! watcher or server is left running behind the result.
+use crate::builtins::{Keep, TreeError};
 use crate::safety;
 use crate::value::Value;
 use anyhow::Result;
 use std::collections::BTreeMap;
-use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex, PoisonError};
-use std::thread;
 use std::time::{Duration, Instant};
 
 const IPERF3: &str = "iperf3_server";
@@ -221,93 +218,6 @@ fn paths(name: &str, value: &Value, as_argv: bool) -> Result<Vec<String>> {
     Ok(out)
 }
 
-/// Captures one pipe on its own thread, keeping only the last `OUTPUT_KEEP`
-/// bytes so a chatty tool cannot exhaust memory.
-struct Capture {
-    buf: Arc<Mutex<Vec<u8>>>,
-    done: mpsc::Receiver<()>,
-}
-
-fn capture<R: Read + Send + 'static>(pipe: Option<R>) -> Capture {
-    let buf = Arc::new(Mutex::new(Vec::new()));
-    let (tx, done) = mpsc::channel();
-    if let Some(mut pipe) = pipe {
-        let shared = Arc::clone(&buf);
-        thread::spawn(move || {
-            let mut chunk = [0u8; 8192];
-            loop {
-                match pipe.read(&mut chunk) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        let mut kept = shared.lock().unwrap_or_else(PoisonError::into_inner);
-                        kept.extend_from_slice(&chunk[..n]);
-                        if kept.len() > OUTPUT_KEEP {
-                            let excess = kept.len() - OUTPUT_KEEP;
-                            kept.drain(..excess);
-                        }
-                    }
-                    Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-                    Err(_) => break,
-                }
-            }
-            let _ = tx.send(());
-        });
-    }
-    Capture { buf, done }
-}
-
-impl Capture {
-    /// The retained text. A grandchild that holds the pipe open cannot delay
-    /// the caller past two seconds; whatever arrived by then is returned.
-    fn finish(self) -> String {
-        let _ = self.done.recv_timeout(Duration::from_secs(2));
-        let kept = self.buf.lock().unwrap_or_else(PoisonError::into_inner);
-        String::from_utf8_lossy(&kept).into_owned()
-    }
-}
-
-/// Kills the child and everything it started, then reaps the child.
-///
-/// Unix: the child leads its own process group (see `run_bounded`), so the
-/// whole group is signalled. Windows: `taskkill /T` walks the tree, which only
-/// works while the child is still alive, so it runs before `kill`.
-fn kill_tree(child: &mut Child) {
-    #[cfg(unix)]
-    {
-        // SAFETY: a negative pid addresses the process group that
-        // `process_group(0)` made the child's own; kill has no memory effects.
-        unsafe {
-            libc::kill(-(child.id() as i32), libc::SIGKILL);
-        }
-    }
-    #[cfg(windows)]
-    {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-/// After a normal exit, members of the group that the leader started may still
-/// be running. Signal the group too (Unix only; on Windows the tree is only
-/// walked while the child is alive, so this is a no-op there).
-fn reap_group(child: &mut Child) {
-    #[cfg(unix)]
-    {
-        // SAFETY: as in `kill_tree`; the group id is the reaped leader's pid,
-        // which the kernel keeps reserved while any member of the group lives.
-        unsafe {
-            libc::kill(-(child.id() as i32), libc::SIGKILL);
-        }
-    }
-    #[cfg(not(unix))]
-    let _ = child;
-}
-
 /// What a bounded run observed.
 pub(super) struct Finished {
     exit_code: Option<i32>,
@@ -336,8 +246,9 @@ impl Finished {
 }
 
 /// Runs `argv` for at most `limit`. `stdin` is a fixed payload written once and
-/// closed; `None` gives the child a null stdin. The child is killed with its
-/// tree at the deadline and is reaped before this returns.
+/// closed; `None` gives the child a null stdin. The child's tree is killed at
+/// the deadline and the child is reaped before this returns. Each stream keeps
+/// its last `OUTPUT_KEEP` bytes.
 pub(super) fn run_bounded(
     name: &str,
     argv: &[String],
@@ -345,65 +256,27 @@ pub(super) fn run_bounded(
     limit: Duration,
 ) -> Result<Finished> {
     let started = Instant::now();
-    let mut command = Command::new(&argv[0]);
-    command
-        .args(&argv[1..])
-        .stdin(if stdin.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|e| safety::spawn_error(name, &argv[0], &e))?;
-    if let (Some(payload), Some(mut pipe)) = (stdin, child.stdin.take()) {
-        // Detached: a child that never reads its stdin blocks this write until
-        // the kill below closes the pipe, which then fails the write.
-        thread::spawn(move || {
-            let _ = pipe.write_all(payload.as_bytes());
-        });
-    }
-    let out = capture(child.stdout.take());
-    let err = capture(child.stderr.take());
-
-    let exited = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {}
-            Err(e) => {
-                kill_tree(&mut child);
-                return Err(e.into());
-            }
-        }
-        if started.elapsed() >= limit {
-            break None;
-        }
-        thread::sleep(Duration::from_millis(5));
-    };
-    let (exit_code, timed_out) = match exited {
-        Some(status) => {
-            reap_group(&mut child);
-            (status.code(), false)
-        }
-        None => {
-            kill_tree(&mut child);
-            (None, true)
-        }
-    };
+    let args: Vec<&str> = argv[1..].iter().map(String::as_str).collect();
+    let run = crate::builtins::run_tree(
+        &argv[0],
+        &args,
+        |_| {},
+        stdin,
+        limit,
+        Keep::Tail(OUTPUT_KEEP),
+        Keep::Tail(OUTPUT_KEEP),
+    )
+    .map_err(|e| match e {
+        TreeError::Spawn(e) => safety::spawn_error(name, &argv[0], &e),
+        TreeError::Wait(e) => e.into(),
+    })?;
     let duration_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
     Ok(Finished {
-        exit_code,
-        timed_out,
+        exit_code: run.code,
+        timed_out: run.timed_out,
         duration_ms,
-        stdout: out.finish(),
-        stderr: err.finish(),
+        stdout: String::from_utf8_lossy(&run.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&run.stderr).into_owned(),
     })
 }
 
