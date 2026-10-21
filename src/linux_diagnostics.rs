@@ -270,7 +270,7 @@ pub(crate) fn run_bounded_capped(
     Ok(Run {
         code: run.code,
         timed_out: run.timed_out,
-        truncated: run.stdout_truncated || run.stderr_truncated,
+        truncated: run.stdout_truncated || run.stderr_truncated || run.pipes_abandoned,
         stdout: String::from_utf8_lossy(&run.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&run.stderr).into_owned(),
     })

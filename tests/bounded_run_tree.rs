@@ -150,6 +150,10 @@ fn a_grandchild_holding_the_pipe_does_not_hold_the_call() {
     let (result, elapsed) = bounded_call("sh", sh("sleep 30 & echo started"), 60);
     let out = expect_ok(result);
     assert!(
+        !out.stdout_truncated,
+        "a pipe a grandchild still held is not output past the bound"
+    );
+    assert!(
         elapsed < Duration::from_secs(10),
         "the call waited {elapsed:?} on a pipe that a grandchild held open"
     );
@@ -205,6 +209,10 @@ fn a_grandchild_holding_the_pipe_does_not_hold_the_call() {
     let script = "start /b ping -n 30 127.0.0.1 >nul & echo started";
     let (result, elapsed) = bounded_call("cmd", vec!["/c".to_string(), script.to_string()], 60);
     let out = expect_ok(result);
+    assert!(
+        !out.stdout_truncated,
+        "a pipe a grandchild still held is not output past the bound"
+    );
     assert!(
         elapsed < Duration::from_secs(10),
         "the call waited {elapsed:?} on a pipe that a grandchild held open"

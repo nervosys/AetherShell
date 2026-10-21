@@ -49860,8 +49860,10 @@ pub(crate) fn run_bounded(
 }
 
 /// How one bounded run ended. A pipe that a descendant of the child kept open
-/// past the grace is abandoned: what it had produced is kept, and its stream is
-/// marked truncated.
+/// past the grace is abandoned: what it had produced is kept, and
+/// `pipes_abandoned` says so. The `_truncated` flags mean only that output went
+/// past its bound, so a child that finished while a helper it started still
+/// held the pipe is not reported as having printed too much.
 pub(crate) struct TreeRun {
     /// The child exited on its own with status 0.
     pub(crate) success: bool,
@@ -49873,6 +49875,9 @@ pub(crate) struct TreeRun {
     pub(crate) stdout_truncated: bool,
     pub(crate) stderr: Vec<u8>,
     pub(crate) stderr_truncated: bool,
+    /// A descendant still held stdout or stderr after the grace, so whatever
+    /// it would have printed after that was not read.
+    pub(crate) pipes_abandoned: bool,
 }
 
 /// Why a bounded run could not be completed.
@@ -49979,8 +49984,8 @@ pub(crate) fn run_tree(
             (false, None, true, out_closed, err_closed)
         }
     };
-    let (stdout, stdout_truncated) = out.finish(!out_closed);
-    let (stderr, stderr_truncated) = err.finish(!err_closed);
+    let (stdout, stdout_truncated) = out.finish();
+    let (stderr, stderr_truncated) = err.finish();
     Ok(TreeRun {
         success,
         code,
@@ -49989,6 +49994,7 @@ pub(crate) fn run_tree(
         stdout_truncated,
         stderr,
         stderr_truncated,
+        pipes_abandoned: !out_closed || !err_closed,
     })
 }
 
@@ -50075,15 +50081,14 @@ impl PipeReader {
         )
     }
 
-    /// The kept bytes and whether output was dropped. An abandoned pipe is
-    /// reported as truncated, since what follows it was never read.
-    fn finish(self, abandoned: bool) -> (Vec<u8>, bool) {
+    /// The kept bytes and whether output went past the bound and was dropped.
+    fn finish(self) -> (Vec<u8>, bool) {
         let mut buf = self
             .buf
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let max = buf.limit();
-        let truncated = buf.total > max || abandoned;
+        let truncated = buf.total > max;
         if let Keep::Tail(_) = buf.keep {
             if buf.kept.len() > max {
                 let cut = buf.kept.len() - max;
