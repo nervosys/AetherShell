@@ -665,14 +665,24 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value> {
             args,
             named: _,
         } => {
-            // Collect evaluated positional args
+            // The pipe input belongs to this call, not to calls nested in its
+            // arguments. Evaluating the arguments with it still set handed it
+            // to every inner call as well: `"hello" | slice(1, len("hello"))`
+            // ran `len` with "hello" piped in *and* as its argument, and was
+            // refused. A `.field` argument is already a lambda over the row, so
+            // nothing in an argument needs the input.
+            let pin = env.take_input();
             let mut vals = Vec::with_capacity(args.len());
             for a in args {
-                vals.push(eval_expr(a, env)?);
+                match eval_expr(a, env) {
+                    Ok(v) => vals.push(v),
+                    Err(e) => {
+                        env.set_input(pin);
+                        return Err(e);
+                    }
+                }
             }
-
-            // Capture pipe input if any (don’t move it)
-            let pin = env.input().cloned();
+            env.set_input(pin.clone());
 
             // 1) If callee is a plain identifier, prefer builtin (unless a var is bound)
             if let Expr::Ident(name) = &**callee {
