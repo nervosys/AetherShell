@@ -670,8 +670,11 @@ impl McpServer {
 
         // A tool that hangs must not hang the caller. `Command::output` waited
         // forever; the deadline below kills it.
-        let output = crate::safety::output_with_timeout(cmd, MCP_TOOL_TIMEOUT_SECS)
-            .map_err(|e| anyhow!("Failed to execute command '{}': {}", cmd_name, e))?;
+        let output =
+            crate::safety::output_with_timeout(cmd, MCP_TOOL_TIMEOUT_SECS).map_err(|e| {
+                crate::safety::io_budget_error(&e)
+                    .unwrap_or_else(|| anyhow!("Failed to execute command '{}': {}", cmd_name, e))
+            })?;
 
         // Output is capped as well: a tool that printed without limit filled the
         // agent's context with it.

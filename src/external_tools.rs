@@ -13,6 +13,7 @@
 //! Tools are exposed through the same Agent API as built-in tools, allowing
 //! AI agents to seamlessly use external capabilities.
 
+use crate::builtins::{Keep, TreeError};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
@@ -21,6 +22,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
+
+/// Most stdout one capability call may print. More is a coded budget error.
+const EXTERNAL_TOOL_MAX_OUTPUT: usize = 16 * 1024 * 1024;
+/// Stderr kept for a failed call's message (its last bytes).
+const EXTERNAL_TOOL_STDERR_TAIL: usize = 64 * 1024;
 
 // ============================================================================
 // Self-Describing Tool Support (e.g., simon with `ai manifest`)
@@ -763,73 +769,55 @@ impl ExternalToolRegistry {
             cmd.arg(arg);
         }
 
-        // Configure output capture
-        cmd.stdout(Stdio::piped());
-        if tool.manifest.agent.capture_stderr {
-            cmd.stderr(Stdio::piped());
-        }
-
-        // Execute with timeout enforcement
-        let timeout = Duration::from_secs(tool.manifest.agent.timeout_secs);
-        let child = cmd
-            .spawn()
-            .with_context(|| format!("Failed to spawn {}", tool_name))?;
-
-        // Watchdog thread enforces timeout by killing the process
-        let child_id = child.id();
-        let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let timed_out_clone = timed_out.clone();
+        // Run through the shared bounded runner: at the deadline the tool's whole
+        // process tree is killed, a descendant that keeps the pipes open cannot
+        // hold the call, and output past the cap is refused, not cut short.
+        // Stderr is kept only when the manifest captures it.
         let timeout_secs = tool.manifest.agent.timeout_secs;
-
-        let _watchdog = std::thread::spawn(move || {
-            std::thread::sleep(timeout);
-            timed_out_clone.store(true, std::sync::atomic::Ordering::SeqCst);
-            #[cfg(windows)]
-            {
-                let _ = Command::new("taskkill")
-                    .args(["/F", "/PID", &child_id.to_string()])
-                    .output();
+        let timeout = Duration::from_secs(timeout_secs);
+        let stderr_keep = if tool.manifest.agent.capture_stderr {
+            Keep::Tail(EXTERNAL_TOOL_STDERR_TAIL)
+        } else {
+            Keep::Tail(0)
+        };
+        let run = crate::builtins::run_tree_cmd(
+            cmd,
+            None,
+            timeout,
+            Keep::Head(EXTERNAL_TOOL_MAX_OUTPUT),
+            stderr_keep,
+        )
+        .map_err(|e| match e {
+            TreeError::Spawn(e) => {
+                anyhow::Error::from(e).context(format!("Failed to spawn {}", tool_name))
             }
-            #[cfg(unix)]
-            {
-                unsafe {
-                    libc::kill(child_id as i32, libc::SIGKILL);
-                }
+            TreeError::Wait(e) => {
+                anyhow::Error::from(e).context(format!("Failed to execute {}", tool_name))
             }
-            #[cfg(not(any(windows, unix)))]
-            {
-                // Best-effort: no platform-specific kill available
-                let _ = child_id;
-            }
-        });
+        })?;
 
-        let output = child
-            .wait_with_output()
-            .with_context(|| format!("Failed to execute {}", tool_name))?;
-
-        // Check if watchdog killed it
-        if timed_out.load(std::sync::atomic::Ordering::SeqCst) {
-            return Ok(ExternalToolResult {
-                tool: tool_name.to_string(),
-                capability: capability_name.to_string(),
-                success: false,
-                output: None,
-                error: Some(format!(
-                    "External tool '{}' timed out after {}s",
-                    tool_name, timeout_secs
-                )),
-                duration_ms: timeout.as_millis() as u64,
-                exit_code: None,
-            });
+        if run.timed_out {
+            return Err(crate::safety::budget_exceeded(
+                tool_name,
+                format!("`{capability_name}` did not finish within {timeout_secs} s"),
+                "a killed tool can leave work half done; check its effects before retrying",
+            ));
+        }
+        if run.stdout_truncated {
+            return Err(crate::safety::budget_exceeded(
+                tool_name,
+                format!("`{capability_name}` printed more than {EXTERNAL_TOOL_MAX_OUTPUT} bytes"),
+                "the output was not used; the call was refused rather than cut short",
+            ));
         }
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
         // Parse output
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        let stderr = String::from_utf8_lossy(&run.stderr);
 
-        if output.status.success() {
+        if run.success {
             // Try to parse as JSON if expected
             let parsed_output = match capability.output_format {
                 OutputFormat::Json => serde_json::from_str(&stdout).unwrap_or(json!(stdout.trim())),
@@ -843,7 +831,7 @@ impl ExternalToolRegistry {
                 output: Some(parsed_output),
                 error: None,
                 duration_ms,
-                exit_code: output.status.code(),
+                exit_code: run.code,
             })
         } else {
             let error_msg = if !stderr.is_empty() {
@@ -851,7 +839,7 @@ impl ExternalToolRegistry {
             } else if !stdout.is_empty() {
                 stdout.to_string()
             } else {
-                format!("Command failed with exit code {:?}", output.status.code())
+                format!("Command failed with exit code {:?}", run.code)
             };
 
             Ok(ExternalToolResult {
@@ -861,7 +849,7 @@ impl ExternalToolRegistry {
                 output: None,
                 error: Some(error_msg),
                 duration_ms,
-                exit_code: output.status.code(),
+                exit_code: run.code,
             })
         }
     }

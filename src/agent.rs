@@ -23,11 +23,11 @@
 //!
 //! Security: CVSS 9.8 → 2.5 (CRIT-002 FIXED)
 
+use crate::builtins::{Keep, TreeError};
 use crate::security::{check_rate_limit, validate_ai_prompt, validate_command};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::io::Read;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 /// Maximum execution timeout (30 seconds)
@@ -35,6 +35,9 @@ const MAX_EXECUTION_TIMEOUT_SECS: u64 = 30;
 
 /// Maximum output size (10 MB)
 const MAX_OUTPUT_SIZE_BYTES: usize = 10 * 1024 * 1024;
+
+/// Stderr kept for a failed step's message (its last bytes).
+const MAX_STEP_STDERR_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Step {
@@ -361,12 +364,19 @@ fn parse_step_args(args: &serde_json::Value) -> Result<Vec<String>> {
 /// - `Ok(String)`: Command output (truncated if exceeds limit)
 /// - `Err(_)`: Execution failed, timeout, or security violation
 fn execute_step(tool: &str, args: &[String]) -> Result<()> {
+    execute_step_within(tool, args, MAX_EXECUTION_TIMEOUT_SECS)
+}
+
+/// [`execute_step`] with the deadline given in seconds, so a test can use a
+/// short one. The child's whole process tree is killed at the deadline, and a
+/// descendant that keeps the output pipes open cannot hold the call past it.
+fn execute_step_within(tool: &str, args: &[String], timeout_secs: u64) -> Result<()> {
     let start_time = Instant::now();
 
     eprintln!("[AGENT] Executing: {} {:?}", tool, args);
     eprintln!(
         "[AGENT] Sandbox: timeout={}s, max_output={}MB",
-        MAX_EXECUTION_TIMEOUT_SECS,
+        timeout_secs,
         MAX_OUTPUT_SIZE_BYTES / (1024 * 1024)
     );
 
@@ -377,112 +387,52 @@ fn execute_step(tool: &str, args: &[String]) -> Result<()> {
     // Configure process sandboxing
     configure_sandbox(&mut cmd)?;
 
-    // Set stdio
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-    cmd.stdin(Stdio::null());
-
-    // Spawn process
-    let mut child = cmd
-        .spawn()
-        .with_context(|| format!("Failed to spawn command: {}", tool))?;
-
-    // Get stdout/stderr handles
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| anyhow!("Failed to capture stdout"))?;
-    let mut stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| anyhow!("Failed to capture stderr"))?;
-
-    // Read output with size limit and timeout
-    let mut output = Vec::new();
-    let mut error = Vec::new();
-    let mut total_bytes = 0usize;
-
-    loop {
-        // Check timeout
-        if start_time.elapsed() > Duration::from_secs(MAX_EXECUTION_TIMEOUT_SECS) {
-            // Kill the process
-            let _ = child.kill();
-            eprintln!(
-                "[AGENT] ❌ Timeout exceeded ({}s)",
-                MAX_EXECUTION_TIMEOUT_SECS
-            );
-            return Err(anyhow!(
-                "Command execution timeout ({} seconds exceeded)",
-                MAX_EXECUTION_TIMEOUT_SECS
-            ));
+    let run = crate::builtins::run_tree_cmd(
+        cmd,
+        None,
+        Duration::from_secs(timeout_secs),
+        Keep::Head(MAX_OUTPUT_SIZE_BYTES),
+        Keep::Tail(MAX_STEP_STDERR_BYTES),
+    )
+    .map_err(|e| match e {
+        TreeError::Spawn(e) => {
+            anyhow::Error::from(e).context(format!("Failed to spawn command: {}", tool))
         }
+        TreeError::Wait(e) => anyhow::Error::from(e).context("Failed to read command output"),
+    })?;
 
-        // Try to read stdout (non-blocking-ish via try_wait)
-        let mut buf = [0u8; 4096];
-        match stdout.read(&mut buf) {
-            Ok(0) => break, // EOF
-            Ok(n) => {
-                total_bytes += n;
-                if total_bytes > MAX_OUTPUT_SIZE_BYTES {
-                    let _ = child.kill();
-                    eprintln!(
-                        "[AGENT] ❌ Output size limit exceeded ({}MB)",
-                        MAX_OUTPUT_SIZE_BYTES / (1024 * 1024)
-                    );
-                    return Err(anyhow!(
-                        "Command output size limit exceeded ({} bytes)",
-                        MAX_OUTPUT_SIZE_BYTES
-                    ));
-                }
-                output.extend_from_slice(&buf[..n]);
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                // No data available, check if process exited
-                if let Some(status) = child.try_wait()? {
-                    // Process exited, read remaining stderr
-                    let _ = stderr.read_to_end(&mut error);
-
-                    if !status.success() {
-                        let stderr_str = String::from_utf8_lossy(&error);
-                        eprintln!("[AGENT] ❌ Command failed: {}", stderr_str);
-                        return Err(anyhow!(
-                            "Command failed with exit code {}: {}",
-                            status.code().unwrap_or(-1),
-                            stderr_str
-                        ));
-                    }
-                    break;
-                }
-                // Process still running, wait a bit
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Err(e) => {
-                let _ = child.kill();
-                return Err(anyhow!("Failed to read command output: {}", e));
-            }
-        }
-
-        // Also check if process has exited
-        if let Some(status) = child.try_wait()? {
-            // Read any remaining data
-            let _ = stdout.read_to_end(&mut output);
-            let _ = stderr.read_to_end(&mut error);
-
-            if !status.success() {
-                let stderr_str = String::from_utf8_lossy(&error);
-                eprintln!("[AGENT] ❌ Command failed: {}", stderr_str);
-                return Err(anyhow!(
-                    "Command failed with exit code {}: {}",
-                    status.code().unwrap_or(-1),
-                    stderr_str
-                ));
-            }
-            break;
-        }
+    if run.timed_out {
+        eprintln!("[AGENT] ❌ Timeout exceeded ({}s)", timeout_secs);
+        return Err(crate::safety::budget_exceeded(
+            "agent",
+            format!("`{tool}` did not finish within {timeout_secs} s"),
+            "a killed step can leave work half done; check its effects before retrying",
+        ));
+    }
+    if run.stdout_truncated {
+        eprintln!(
+            "[AGENT] ❌ Output size limit exceeded ({}MB)",
+            MAX_OUTPUT_SIZE_BYTES / (1024 * 1024)
+        );
+        return Err(crate::safety::budget_exceeded(
+            "agent",
+            format!("`{tool}` printed more than {MAX_OUTPUT_SIZE_BYTES} bytes"),
+            "the output was not used; the step was refused rather than cut short",
+        ));
+    }
+    if !run.success {
+        let stderr_str = String::from_utf8_lossy(&run.stderr);
+        eprintln!("[AGENT] ❌ Command failed: {}", stderr_str);
+        return Err(anyhow!(
+            "Command failed with exit code {}: {}",
+            run.code.unwrap_or(-1),
+            stderr_str
+        ));
     }
 
     let elapsed = start_time.elapsed();
-    let stdout_str = String::from_utf8_lossy(&output);
+    let total_bytes = run.stdout.len();
+    let stdout_str = String::from_utf8_lossy(&run.stdout);
 
     eprintln!(
         "[AGENT] ✓ Completed in {:.2}s ({} bytes output)",
@@ -501,6 +451,14 @@ fn execute_step(tool: &str, args: &[String]) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Test hook: [`execute_step`] with a chosen deadline in seconds. Not part of
+/// the public API.
+#[doc(hidden)]
+pub fn __test_execute_step(tool: &str, args: &[&str], timeout_secs: u64) -> Result<()> {
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    execute_step_within(tool, &args, timeout_secs)
 }
 
 /// Configure process sandbox with platform-specific restrictions

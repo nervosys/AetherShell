@@ -1586,56 +1586,55 @@ pub fn not_found(builtin: &str, kind: &str, name: &str) -> anyhow::Error {
 /// while the child writes to a pipe nobody reads deadlocks once the pipe
 /// buffer fills, which would turn a timeout guard into a new way to hang.
 pub fn output_with_timeout(
-    mut cmd: std::process::Command,
+    cmd: std::process::Command,
     secs: u64,
 ) -> std::io::Result<std::process::Output> {
-    use std::io::Read;
-    use std::process::Stdio;
+    use crate::builtins::{Keep, TreeError};
 
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .spawn()?;
-
-    let mut out = child.stdout.take();
-    let mut err = child.stderr.take();
-    let out_h = std::thread::spawn(move || {
-        let mut b = Vec::new();
-        if let Some(h) = out.as_mut() {
-            let _ = h.read_to_end(&mut b);
-        }
-        b
-    });
-    let err_h = std::thread::spawn(move || {
-        let mut b = Vec::new();
-        if let Some(h) = err.as_mut() {
-            let _ = h.read_to_end(&mut b);
-        }
-        b
-    });
-
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
-    let status = loop {
-        match child.try_wait()? {
-            Some(st) => break st,
-            None if std::time::Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    format!("no response after {secs}s"),
-                ));
-            }
-            None => std::thread::sleep(std::time::Duration::from_millis(20)),
+    // Output past this is refused, not cut short: a report that stops partway
+    // would look whole to the caller.
+    const OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
+    let program = cmd.get_program().to_string_lossy().into_owned();
+    let run = crate::builtins::run_tree_cmd(
+        cmd,
+        None,
+        std::time::Duration::from_secs(secs),
+        Keep::Head(OUTPUT_LIMIT),
+        Keep::Head(OUTPUT_LIMIT),
+    )
+    .map_err(|e| match e {
+        TreeError::Spawn(e) | TreeError::Wait(e) => e,
+    })?;
+    let status = match run.status {
+        Some(status) if !run.timed_out => status,
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("no response after {secs}s"),
+            ))
         }
     };
-
+    if run.stdout_truncated || run.stderr_truncated {
+        return Err(std::io::Error::other(budget_error(
+            &program,
+            format!("printed more than {OUTPUT_LIMIT} bytes"),
+            "the output was not used; the call was refused rather than cut short",
+        )));
+    }
     Ok(std::process::Output {
         status,
-        stdout: out_h.join().unwrap_or_default(),
-        stderr: err_h.join().unwrap_or_default(),
+        stdout: run.stdout,
+        stderr: run.stderr,
     })
+}
+
+/// The coded budget error an [`output_with_timeout`] refusal carries, if `e`
+/// is one. Callers that map io errors pass it through unchanged.
+pub fn io_budget_error(e: &std::io::Error) -> Option<anyhow::Error> {
+    let se = e
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<SafetyError>())?;
+    Some(anyhow::Error::new(se.clone()))
 }
 
 /// Classify a failure to *start* an external process.
@@ -1652,6 +1651,11 @@ pub fn output_with_timeout(
 /// the tool being unusable rather than absent, and saying "install it" there
 /// would be advice that cannot work.
 pub fn spawn_error(builtin: &str, tool: &str, e: &std::io::Error) -> anyhow::Error {
+    // A coded error an io-returning runner already made (a refused output) is
+    // the answer, not a failure to start.
+    if let Some(coded) = io_budget_error(e) {
+        return coded;
+    }
     if e.kind() == std::io::ErrorKind::NotFound {
         return tool_missing(builtin, tool, &e.to_string());
     }

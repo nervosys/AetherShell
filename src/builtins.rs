@@ -49450,112 +49450,71 @@ const K8S_MAX_EXEC_ARGV: usize = 256;
 /// A check that turns one caller string into a value kubectl may be given.
 type K8sCheck = fn(&str, &str, &str) -> Result<String>;
 
-/// Read a pipe to its end, holding at most `limit` bytes. The rest is drained
-/// and counted, not stored, so the child never blocks on a full pipe while the
-/// deadline runs. The flag reports whether the output was larger than `limit`.
-fn k8s_read_head(mut pipe: impl std::io::Read, limit: usize) -> (Vec<u8>, bool) {
-    let mut kept: Vec<u8> = Vec::new();
-    let mut total: usize = 0;
-    let mut chunk = [0u8; 8192];
-    loop {
-        match pipe.read(&mut chunk) {
-            Ok(0) | Err(_) => break,
-            Ok(n) => {
-                total = total.saturating_add(n);
-                let room = limit.saturating_sub(kept.len());
-                kept.extend_from_slice(&chunk[..n.min(room)]);
-            }
-        }
-    }
-    (kept, total > limit)
-}
-
-/// Read a pipe to its end, keeping only its last `keep` bytes.
-fn k8s_read_tail(mut pipe: impl std::io::Read, keep: usize) -> Vec<u8> {
-    let mut buf: Vec<u8> = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        match pipe.read(&mut chunk) {
-            Ok(0) | Err(_) => break,
-            Ok(n) => {
-                buf.extend_from_slice(&chunk[..n]);
-                if buf.len() > 2 * keep {
-                    let cut = buf.len() - keep;
-                    buf.drain(..cut);
-                }
-            }
-        }
-    }
-    if buf.len() > keep {
-        let cut = buf.len() - keep;
-        buf.drain(..cut);
-    }
-    buf
-}
-
 /// Run `kubectl` with `args` and return its stdout.
 fn kubectl_run(builtin: &str, args: &[&str], max_bytes: usize) -> Result<String> {
-    use std::process::Stdio;
-    let command = format!("kubectl {}", args.join(" "));
-    let mut child = std::process::Command::new("kubectl")
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| crate::safety::spawn_error(builtin, "kubectl", &e))?;
-    let out_pipe = child.stdout.take();
-    let err_pipe = child.stderr.take();
-    let out_h = std::thread::spawn(move || match out_pipe {
-        Some(pipe) => k8s_read_head(pipe, max_bytes),
-        None => (Vec::new(), false),
-    });
-    let err_h = std::thread::spawn(move || match err_pipe {
-        Some(pipe) => k8s_read_tail(pipe, K8S_STDERR_TAIL),
-        None => Vec::new(),
-    });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(K8S_DEADLINE_SECS);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if std::time::Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(crate::safety::budget_exceeded(
-                    builtin,
-                    format!("`{command}` did not finish within {K8S_DEADLINE_SECS} s"),
-                    "check that the cluster answers, or narrow the call",
-                ));
-            }
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
-            Err(e) => {
-                return Err(crate::safety::tool_failed(
-                    builtin,
-                    &command,
-                    None,
-                    &e.to_string(),
-                ))
-            }
-        }
-    };
-    let (stdout, too_large) = out_h.join().unwrap_or_else(|_| (Vec::new(), false));
-    let stderr = err_h.join().unwrap_or_default();
-    if !status.success() {
+    kubectl_run_program(builtin, "kubectl", args, max_bytes, K8S_DEADLINE_SECS)
+}
+
+/// [`kubectl_run`] with the program and the deadline given, so a test can aim
+/// it at a stand-in. Through the shared bounded runner: past `deadline_secs`
+/// the whole process tree is killed and the call is a coded budget error, and
+/// a grandchild that keeps the pipes open cannot hold the call.
+fn kubectl_run_program(
+    builtin: &str,
+    program: &str,
+    args: &[&str],
+    max_bytes: usize,
+    deadline_secs: u64,
+) -> Result<String> {
+    let command = format!("{program} {}", args.join(" "));
+    let run = run_tree(
+        program,
+        args,
+        |_| {},
+        None,
+        std::time::Duration::from_secs(deadline_secs),
+        Keep::Head(max_bytes),
+        Keep::Tail(K8S_STDERR_TAIL),
+    )
+    .map_err(|e| match e {
+        TreeError::Spawn(e) => crate::safety::spawn_error(builtin, program, &e),
+        TreeError::Wait(e) => crate::safety::tool_failed(builtin, &command, None, &e.to_string()),
+    })?;
+    if run.timed_out {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("`{command}` did not finish within {deadline_secs} s"),
+            "check that the cluster answers, or narrow the call",
+        ));
+    }
+    if !run.success {
         return Err(crate::safety::tool_failed(
             builtin,
             &command,
-            status.code(),
-            &String::from_utf8_lossy(&stderr),
+            run.code,
+            &String::from_utf8_lossy(&run.stderr),
         ));
     }
-    if too_large {
+    if run.stdout_truncated {
         return Err(crate::safety::budget_exceeded(
             builtin,
             format!("`{command}` printed more than {max_bytes} bytes"),
             "narrow the call: give a namespace or a name, or ask for fewer lines",
         ));
     }
-    Ok(String::from_utf8_lossy(&stdout).into_owned())
+    Ok(String::from_utf8_lossy(&run.stdout).into_owned())
+}
+
+/// Test hook: [`kubectl_run`] against `program` with a chosen deadline. Not
+/// part of the public API.
+#[doc(hidden)]
+pub fn __test_kubectl_run(
+    program: &str,
+    args: &[&str],
+    max_bytes: usize,
+    deadline_secs: u64,
+) -> Result<String> {
+    kubectl_run_program("test", program, args, max_bytes, deadline_secs)
 }
 
 /// Run `kubectl` with JSON output and parse it.
@@ -49923,10 +49882,24 @@ pub(crate) fn run_tree(
     stdout_keep: Keep,
     stderr_keep: Keep,
 ) -> std::result::Result<TreeRun, TreeError> {
-    use std::process::{Command, Stdio};
-    let mut command = Command::new(program);
+    let mut command = std::process::Command::new(program);
+    command.args(args);
+    configure(&mut command);
+    run_tree_cmd(command, stdin, limit, stdout_keep, stderr_keep)
+}
+
+/// [`run_tree`] for a `Command` the caller has already built (its program,
+/// arguments, environment and directory are kept). Its stdio is set here, so
+/// the caller's stdin, stdout and stderr settings are replaced.
+pub(crate) fn run_tree_cmd(
+    mut command: std::process::Command,
+    stdin: Option<Vec<u8>>,
+    limit: std::time::Duration,
+    stdout_keep: Keep,
+    stderr_keep: Keep,
+) -> std::result::Result<TreeRun, TreeError> {
+    use std::process::Stdio;
     command
-        .args(args)
         .stdin(if stdin.is_some() {
             Stdio::piped()
         } else {
@@ -49939,7 +49912,6 @@ pub(crate) fn run_tree(
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    configure(&mut command);
     let mut child = command.spawn().map_err(TreeError::Spawn)?;
     if let (Some(payload), Some(mut pipe)) = (stdin, child.stdin.take()) {
         // Detached: a child that never reads its stdin blocks this write until
