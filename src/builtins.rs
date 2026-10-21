@@ -37403,6 +37403,26 @@ const CRYPTO_LEGACY_DEADLINE_SECS: u64 = 30;
 #[cfg(unix)]
 const CRYPTO_LEGACY_MAX_BYTES: usize = 64 * 1024 * 1024;
 
+/// Re-wrap legacy base64 the way `openssl enc -base64` writes it: 64-character
+/// lines, each newline-terminated.
+///
+/// `openssl enc -d -base64` without `-A` reads line by line, and a final line
+/// with no newline fails with "error reading input file". Callers trim their
+/// input, so a short ciphertext always arrived that way. Whitespace is dropped
+/// first, so one unbroken line and openssl's own wrapped form both reach
+/// openssl in the shape it reads.
+#[cfg(unix)]
+fn legacy_base64_lines(data: &str) -> String {
+    const LINE: usize = 64;
+    let compact: Vec<char> = data.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut out = String::with_capacity(compact.len() + compact.len() / LINE + 1);
+    for chunk in compact.chunks(LINE) {
+        out.extend(chunk.iter());
+        out.push('\n');
+    }
+    out
+}
+
 #[cfg(unix)]
 fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
     let output = run_output(
@@ -37424,7 +37444,7 @@ fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
         |cmd| {
             cmd.env("AE_OPENSSL_PASS", password);
         },
-        Some(data.as_bytes().to_vec()),
+        Some(legacy_base64_lines(data).into_bytes()),
         CRYPTO_LEGACY_DEADLINE_SECS,
         CRYPTO_LEGACY_MAX_BYTES,
     )?;
@@ -37434,22 +37454,30 @@ fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
         return String::from_utf8(output.stdout)
             .map(Value::Str)
             .map_err(|_| {
-                anyhow::anyhow!(
-                "E_DECRYPT_FAILED: plaintext is not valid UTF-8; the legacy decrypt succeeded but \
-                 its bytes are not text, so nothing was returned"
-            )
+                crate::safety::decrypt_failed(
+                    "crypto_decrypt",
+                    "crypto_decrypt: plaintext is not valid UTF-8; the legacy decrypt \
+                     succeeded but its bytes are not text, so nothing was returned",
+                    "the plaintext is binary; decrypt it with `openssl enc -d` and handle \
+                     the bytes there",
+                )
             });
     }
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(anyhow::anyhow!(
-        "E_DECRYPT_FAILED: legacy (unauthenticated) decrypt failed -- the password may be \
-         wrong, or the ciphertext may have been modified. AES-256-CBC is not authenticated, \
-         so a *successful* legacy decrypt is not proof of integrity either. openssl: {}",
-        if stderr.is_empty() {
-            "(no detail)".to_string()
-        } else {
-            stderr
-        }
+    Err(crate::safety::decrypt_failed(
+        "crypto_decrypt",
+        format!(
+            "crypto_decrypt: legacy (unauthenticated) decrypt failed -- the password may be \
+             wrong, or the ciphertext may have been modified. AES-256-CBC is not authenticated, \
+             so a *successful* legacy decrypt is not proof of integrity either. openssl: {}",
+            if stderr.is_empty() {
+                "(no detail)".to_string()
+            } else {
+                stderr
+            }
+        ),
+        "check the password; if it is right, the ciphertext was altered and should not be \
+         trusted. Nothing was decrypted",
     ))
 }
 
@@ -37488,14 +37516,17 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // format is opt-in, by whoever runs the shell rather than by whoever
         // supplies the ciphertext.
         if !crate::safety::truthy_env("AETHER_CRYPTO_LEGACY_DECRYPT") {
-            return Err(anyhow::anyhow!(
-                "E_DECRYPT_UNAUTHENTICATED: this is not an authenticated `{}` ciphertext. It \
-                 was most likely produced by AetherShell before 10.0.0, when crypto.encrypt \
-                 used unauthenticated AES-256-CBC (AS-2026-04), so decrypting it cannot \
-                 detect tampering. Set AETHER_CRYPTO_LEGACY_DECRYPT=1 to decrypt it anyway, \
-                 then re-encrypt with crypto.encrypt to gain integrity protection. Nothing \
-                 was decrypted",
-                CRYPTO_ENVELOPE_V1
+            return Err(crate::safety::decrypt_failed(
+                "crypto_decrypt",
+                format!(
+                    "crypto_decrypt: this is not an authenticated `{}` ciphertext. It was \
+                     most likely produced by AetherShell before 10.0.0, when crypto.encrypt \
+                     used unauthenticated AES-256-CBC (AS-2026-04), so decrypting it cannot \
+                     detect tampering. Nothing was decrypted",
+                    CRYPTO_ENVELOPE_V1
+                ),
+                "set AETHER_CRYPTO_LEGACY_DECRYPT=1 to decrypt it anyway, then re-encrypt \
+                 with crypto.encrypt to gain integrity protection",
             ));
         }
         #[cfg(unix)]
@@ -37511,32 +37542,40 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         ));
     }
 
+    let malformed = |what: &str| {
+        crate::safety::decrypt_failed(
+            "crypto_decrypt",
+            format!("crypto_decrypt: malformed ciphertext ({what}); nothing was decrypted"),
+            "pass the unmodified output of crypto.encrypt",
+        )
+    };
     let decode = |what: &str, s: &str| -> Result<Vec<u8>> {
-        STANDARD.decode(s).map_err(|e| {
-            anyhow::anyhow!(
-                "E_DECRYPT_FAILED: malformed ciphertext ({} is not valid base64: {}); \
-                 nothing was decrypted",
-                what,
-                e
-            )
-        })
+        STANDARD
+            .decode(s)
+            .map_err(|e| malformed(&format!("{what} is not valid base64: {e}")))
     };
     let salt = decode("salt", parts[1])?;
     let nonce_bytes = decode("nonce", parts[2])?;
     let ct = decode("body", parts[3])?;
     if nonce_bytes.len() != 12 {
-        return Err(anyhow::anyhow!(
-            "E_DECRYPT_FAILED: malformed ciphertext (nonce is {} bytes, expected 12); \
-             nothing was decrypted",
+        return Err(malformed(&format!(
+            "nonce is {} bytes, expected 12",
             nonce_bytes.len()
-        ));
+        )));
     }
 
-    // The KDF comes from the envelope, never from the ambient FIPS mode.
+    // The KDF comes from the envelope, never from the ambient FIPS mode. The
+    // salt is attacker-chosen text, so a salt the KDF refuses is a malformed
+    // ciphertext, not a shell fault.
     let kdf = kdf.expect("checked above");
-    let key = crypto_derive_key(&password, &salt, kdf)?;
+    let key = crypto_derive_key(&password, &salt, kdf).map_err(|e| {
+        malformed(&format!(
+            "the key could not be derived from its salt: {}",
+            strip_code_prefix(&e.to_string())
+        ))
+    })?;
     let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: bad key length: {}", e))?;
+        .map_err(|e| malformed(&format!("the key has the wrong length: {e}")))?;
 
     // AES-GCM verifies the tag before any plaintext is released, so a wrong
     // password and a modified ciphertext give the same answer here -- and
@@ -37551,15 +37590,32 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             },
         )
         .map_err(|_| {
-            anyhow::anyhow!(
-                "E_DECRYPT_FAILED: authentication failed -- the password is wrong or the \
-                 ciphertext was modified. No plaintext was released"
+            crate::safety::decrypt_failed(
+                "crypto_decrypt",
+                "crypto_decrypt: authentication failed -- the password is wrong or the \
+                 ciphertext was modified. No plaintext was released",
+                "check the password; if it is right, the ciphertext was altered and should \
+                 not be trusted",
             )
         })?;
 
-    String::from_utf8(plaintext)
-        .map(Value::Str)
-        .map_err(|_| anyhow::anyhow!("E_DECRYPT_FAILED: plaintext is not valid UTF-8"))
+    String::from_utf8(plaintext).map(Value::Str).map_err(|_| {
+        crate::safety::decrypt_failed(
+            "crypto_decrypt",
+            "crypto_decrypt: plaintext is not valid UTF-8; nothing was returned",
+            "the plaintext is binary; crypto.decrypt returns text only",
+        )
+    })
+}
+
+/// Drop a leading `E_CODE: ` token from an error's text. Used where a shared
+/// helper's own code would otherwise appear inside a message that already
+/// carries the `E_DECRYPT_FAILED` code.
+fn strip_code_prefix(text: &str) -> &str {
+    match text.split_once(": ") {
+        Some((head, rest)) if head.starts_with("E_") => rest,
+        _ => text,
+    }
 }
 
 #[path = "digital_signatures.rs"]

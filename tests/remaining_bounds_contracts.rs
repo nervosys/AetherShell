@@ -40,6 +40,31 @@ fn assert_code(e: &anyhow::Error, code: &str) {
     );
 }
 
+/// Asserts that a refusal is a structured error whose `code` field is `code`.
+/// A message that merely contains the code name fails: the error must render
+/// as the `{"error": {"code": ...}}` JSON an agent branches on.
+#[cfg(unix)]
+fn assert_structured_code(e: &anyhow::Error, code: &str) {
+    let text = e.to_string();
+    let parsed: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|_| panic!("expected a structured {code} refusal, got prose: {text}"));
+    assert_eq!(
+        parsed["error"]["code"].as_str(),
+        Some(code),
+        "expected the structured code {code}, got: {text}"
+    );
+}
+
+/// The legacy tests set and clear `AETHER_CRYPTO_LEGACY_DECRYPT`, which is
+/// process-wide, so they run one at a time.
+#[cfg(unix)]
+static LEGACY_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(unix)]
+fn legacy_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    LEGACY_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 /// A child that sleeps and prints nothing, past any short deadline.
 #[cfg(unix)]
 const SILENT: (&str, &[&str]) = ("sh", &["-c", "sleep 60"]);
@@ -416,6 +441,7 @@ fn legacy_decrypt_refuses_plaintext_that_is_not_utf8() {
         return;
     };
 
+    let _lock = legacy_env_lock();
     std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
     let got = bounded("legacy crypto_decrypt (not UTF-8)", move || {
         let mut env = Env::new();
@@ -428,8 +454,87 @@ fn legacy_decrypt_refuses_plaintext_that_is_not_utf8() {
     std::env::remove_var("AETHER_CRYPTO_LEGACY_DECRYPT");
 
     match got {
-        Err(e) => assert_code(&e, "E_DECRYPT_FAILED"),
+        Err(e) => assert_structured_code(&e, "E_DECRYPT_FAILED"),
         Ok(value) => panic!("non-UTF-8 plaintext must not come back as a string: {value:?}"),
+    }
+}
+
+/// Runs a legacy decrypt of `ciphertext` with the switch on, returning the
+/// result. Callers hold `legacy_env_lock`.
+#[cfg(unix)]
+fn legacy_decrypt(
+    ciphertext: String,
+    password: &'static str,
+    what: &'static str,
+) -> anyhow::Result<Value> {
+    std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
+    let got = bounded(what, move || {
+        let mut env = Env::new();
+        aethershell::builtins::call(
+            "crypto_decrypt",
+            vec![Value::Str(ciphertext), Value::Str(password.to_string())],
+            &mut env,
+        )
+    });
+    std::env::remove_var("AETHER_CRYPTO_LEGACY_DECRYPT");
+    got
+}
+
+/// A short ciphertext is one base64 line. A caller that trims the trailing
+/// newline (as `crypto_decrypt` does) used to hand openssl a line with no
+/// terminator, and openssl refused it with "error reading input file".
+#[cfg(unix)]
+#[test]
+fn legacy_decrypt_of_a_short_single_line_ciphertext_decrypts() {
+    if !openssl_present() {
+        eprintln!("skipped: no openssl CLI on PATH");
+        return;
+    }
+    let password = "remaining-bounds-test-password";
+    let plain = "hello";
+    let Some(ciphertext) = openssl_encrypt_legacy(plain.as_bytes(), password) else {
+        eprintln!("skipped: openssl could not produce a legacy ciphertext here");
+        return;
+    };
+    let trimmed = ciphertext.trim().to_string();
+    assert!(
+        !trimmed.contains('\n'),
+        "a short ciphertext is one line: {trimmed:?}"
+    );
+
+    let _lock = legacy_env_lock();
+    match legacy_decrypt(trimmed, password, "legacy crypto_decrypt (short, trimmed)") {
+        Ok(Value::Str(text)) => assert_eq!(text, plain),
+        other => panic!("a short legacy ciphertext must decrypt: {other:?}"),
+    }
+}
+
+/// The same ciphertext with its line breaks removed, so the whole body is one
+/// long base64 line with no terminator. It must decrypt too: the builtin
+/// re-wraps it to openssl's line length before reading.
+#[cfg(unix)]
+#[test]
+fn legacy_decrypt_of_a_long_ciphertext_on_one_line_decrypts() {
+    if !openssl_present() {
+        eprintln!("skipped: no openssl CLI on PATH");
+        return;
+    }
+    let password = "remaining-bounds-test-password";
+    let plain = "legacy line of text\n".repeat(40);
+    let Some(ciphertext) = openssl_encrypt_legacy(plain.as_bytes(), password) else {
+        eprintln!("skipped: openssl could not produce a legacy ciphertext here");
+        return;
+    };
+    let one_line: String = ciphertext.split_whitespace().collect();
+    assert!(
+        one_line.len() > 64,
+        "the test needs a body longer than one openssl line"
+    );
+
+    let _lock = legacy_env_lock();
+    match legacy_decrypt(one_line, password, "legacy crypto_decrypt (long, one line)") {
+        Ok(Value::Str(text)) => assert_eq!(text, plain),
+        other => panic!("a long single-line legacy ciphertext must decrypt: {other:?}"),
     }
 }
 
@@ -447,6 +552,7 @@ fn legacy_decrypt_still_returns_utf8_plaintext_whole() {
         return;
     };
 
+    let _lock = legacy_env_lock();
     std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
     let got = bounded("legacy crypto_decrypt (UTF-8)", move || {
         let mut env = Env::new();

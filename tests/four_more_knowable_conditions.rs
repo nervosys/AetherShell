@@ -32,6 +32,7 @@ fn the_four_codes_carry_distinct_contracts() {
         (ErrorCode::BadState, "E_BAD_STATE", 76, true),
         (ErrorCode::NotFound, "E_NOT_FOUND", 66, true),
         (ErrorCode::ToolFailed, "E_TOOL_FAILED", 69, false),
+        (ErrorCode::DecryptFailed, "E_DECRYPT_FAILED", 65, false),
     ] {
         assert_eq!(code.as_str(), text);
         assert_eq!(code.exit_code(), exit, "{text} exit status");

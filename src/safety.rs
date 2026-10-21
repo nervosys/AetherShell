@@ -1319,6 +1319,15 @@ pub enum ErrorCode {
     /// actionable. `Unknown` would say the shell has no idea what
     /// happened, and it does.
     Io,
+    /// `crypto_decrypt` could not produce plaintext: the ciphertext is malformed,
+    /// the password is wrong, the ciphertext was modified, the plaintext is not
+    /// text, or the legacy openssl child refused it.
+    ///
+    /// Not retryable as the same call: the same ciphertext and password fail the
+    /// same way. A different password or an unmodified ciphertext may succeed,
+    /// and the hint says which. Reported as `Unknown` until now, which hid the
+    /// one failure a decryption caller most needs to recognise.
+    DecryptFailed,
     /// A failure that reached the boundary without a specific code. The message
     /// is whatever the builtin produced; treat it as opaque and **not**
     /// retryable — an agent that cannot identify the fault should stop rather
@@ -1344,6 +1353,7 @@ impl ErrorCode {
             ErrorCode::NotFound => "E_NOT_FOUND",
             ErrorCode::ToolFailed => "E_TOOL_FAILED",
             ErrorCode::Io => "E_IO",
+            ErrorCode::DecryptFailed => "E_DECRYPT_FAILED",
             ErrorCode::Unknown => "E_UNKNOWN",
         }
     }
@@ -1378,6 +1388,9 @@ impl ErrorCode {
             // The disk does not get less full because the call was made
             // twice.
             ErrorCode::Io => false,
+            // The same ciphertext and password fail identically on a second
+            // call; only a different input can change the outcome.
+            ErrorCode::DecryptFailed => false,
             ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded | ErrorCode::Unknown => false,
         }
     }
@@ -1423,6 +1436,9 @@ impl ErrorCode {
             ErrorCode::BadState => 76,
             // EX_IOERR.
             ErrorCode::Io => 74,
+            // EX_DATAERR -- the input data was incorrect: the ciphertext, the
+            // password, or what they decode to.
+            ErrorCode::DecryptFailed => 65,
             ErrorCode::Unknown => 1,
         }
     }
@@ -1671,6 +1687,27 @@ pub fn spawn_error(builtin: &str, tool: &str, e: &std::io::Error) -> anyhow::Err
         did_you_mean: Vec::new(),
         expected: format!("`{tool}` to start"),
         got: e.kind().to_string(),
+    })
+}
+
+/// Build a structured decryption failure (`E_DECRYPT_FAILED`).
+///
+/// `message` states what failed and must not repeat the code name; `hint` says
+/// what the caller can change. Not retryable as the same call.
+pub fn decrypt_failed(
+    builtin: &str,
+    message: impl Into<String>,
+    hint: impl Into<String>,
+) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::DecryptFailed,
+        message: message.into(),
+        builtin: builtin.to_string(),
+        hint: hint.into(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
     })
 }
 

@@ -43,9 +43,29 @@ fn encrypt(plaintext: &str, password: &str) -> String {
     }
 }
 
-fn decrypt_err(ciphertext: &str, password: &str) -> String {
+/// The structured error a refusal carries, as an agent reads it: the JSON the
+/// error renders to, not a substring of its prose. A message that merely
+/// contains a code name fails here, because it is not JSON with that `code`.
+struct Refusal {
+    code: String,
+    message: String,
+    hint: String,
+}
+
+fn structured(e: &anyhow::Error) -> Refusal {
+    let v: serde_json::Value = serde_json::from_str(&e.to_string())
+        .unwrap_or_else(|_| panic!("refusal is not a structured error: {e}"));
+    let field = |k: &str| v["error"][k].as_str().unwrap_or_default().to_string();
+    Refusal {
+        code: field("code"),
+        message: field("message"),
+        hint: field("hint"),
+    }
+}
+
+fn decrypt_err(ciphertext: &str, password: &str) -> Refusal {
     match call("crypto_decrypt", vec![ciphertext, password]) {
-        Err(e) => e.to_string(),
+        Err(e) => structured(&e),
         Ok(v) => panic!(
             "crypto_decrypt accepted input it should have rejected and returned {v:?} — a \
              caller would treat this as verified plaintext"
@@ -105,9 +125,10 @@ fn a_modified_ciphertext_is_rejected_rather_than_decrypted() {
     let tampered = format!("{}.{}.{}.{}", parts[0], parts[1], parts[2], body);
 
     let err = decrypt_err(&tampered, "pw");
-    assert!(
-        err.contains("E_DECRYPT_FAILED"),
-        "a tampered ciphertext must fail with a branchable code, got: {err}"
+    assert_eq!(
+        err.code, "E_DECRYPT_FAILED",
+        "a tampered ciphertext must fail with a branchable code, got: {}",
+        err.message
     );
 }
 
@@ -123,11 +144,50 @@ fn tampering_with_the_salt_or_nonce_is_also_rejected() {
         chars[0] = if chars[0] == 'A' { 'B' } else { 'A' };
         swapped[field] = chars.into_iter().collect();
         let err = decrypt_err(&swapped.join("."), "pw");
-        assert!(
-            err.contains("E_DECRYPT_FAILED"),
-            "modifying field {field} must be detected, got: {err}"
+        assert_eq!(
+            err.code, "E_DECRYPT_FAILED",
+            "modifying field {field} must be detected, got: {}",
+            err.message
         );
     }
+}
+
+/// A body that is not base64 is refused as malformed, with the structured code
+/// and nothing decrypted.
+#[test]
+fn malformed_base64_is_a_structured_decrypt_failure() {
+    let _g = fips_lock();
+    let ct = encrypt("payload", "pw");
+    let parts: Vec<&str> = ct.split('.').collect();
+    let bad = format!("{}.{}.{}.!!!not-base64!!!", parts[0], parts[1], parts[2]);
+
+    let err = decrypt_err(&bad, "pw");
+    assert_eq!(err.code, "E_DECRYPT_FAILED", "got: {}", err.message);
+    assert!(
+        err.message.contains("not valid base64"),
+        "the prose still names the defect: {}",
+        err.message
+    );
+    assert!(!err.hint.is_empty(), "a coded refusal carries a hint");
+}
+
+/// A nonce that is valid base64 but not 12 bytes is malformed, not a shell
+/// fault: 8 zero bytes stand in for it.
+#[test]
+fn a_wrong_length_nonce_is_a_structured_decrypt_failure() {
+    let _g = fips_lock();
+    let ct = encrypt("payload", "pw");
+    let parts: Vec<&str> = ct.split('.').collect();
+    let short_nonce = "AAAAAAAAAAA="; // base64 of eight zero bytes
+    let bad = format!("{}.{}.{}.{}", parts[0], parts[1], short_nonce, parts[3]);
+
+    let err = decrypt_err(&bad, "pw");
+    assert_eq!(err.code, "E_DECRYPT_FAILED", "got: {}", err.message);
+    assert!(
+        err.message.contains("expected 12"),
+        "the prose still names the defect: {}",
+        err.message
+    );
 }
 
 #[test]
@@ -135,11 +195,17 @@ fn the_wrong_password_fails_closed_without_releasing_plaintext() {
     let _g = fips_lock();
     let ct = encrypt("secret", "right");
     let err = decrypt_err(&ct, "wrong");
-    assert!(
-        err.contains("E_DECRYPT_FAILED"),
-        "wrong password must be a coded failure, got: {err}"
+    assert_eq!(
+        err.code, "E_DECRYPT_FAILED",
+        "wrong password must be a coded failure, got: {}",
+        err.message
     );
-    assert!(!err.contains("secret"), "the error leaked plaintext: {err}");
+    assert!(
+        !err.message.contains("secret") && !err.hint.contains("secret"),
+        "the error leaked plaintext: {} / {}",
+        err.message,
+        err.hint
+    );
 }
 
 /// Salt and nonce are fresh per call, so encrypting the same value twice must
@@ -167,14 +233,22 @@ fn stripping_the_envelope_does_not_reach_the_unauthenticated_path() {
     let bare = ct.splitn(4, '.').nth(3).expect("body").to_string();
 
     let err = decrypt_err(&bare, "pw");
-    assert!(
-        err.contains("E_DECRYPT_UNAUTHENTICATED"),
-        "a bare blob must be refused as unauthenticated, not decrypted; got: {err}"
+    assert_eq!(
+        err.code, "E_DECRYPT_FAILED",
+        "a bare blob must be refused as a structured decrypt failure, not decrypted; \
+         got: {}",
+        err.message
     );
     assert!(
-        err.contains("AETHER_CRYPTO_LEGACY_DECRYPT"),
+        err.message.contains("not an authenticated"),
+        "a bare blob must be refused as unauthenticated: {}",
+        err.message
+    );
+    assert!(
+        err.hint.contains("AETHER_CRYPTO_LEGACY_DECRYPT"),
         "the refusal must name the one switch that recovers genuinely old data, \
-         otherwise it reads as data loss: {err}"
+         otherwise it reads as data loss: {}",
+        err.hint
     );
 }
 
