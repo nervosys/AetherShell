@@ -165,28 +165,6 @@ impl CrossPlatformCommand {
             OperatingSystem::Android => self.android.as_ref().or(self.linux.as_ref()),
         }
     }
-
-    /// Translate arguments from canonical form to OS-specific form
-    pub fn translate_args(&self, args: &[String], os: &OperatingSystem) -> Vec<String> {
-        let os_key = match os {
-            OperatingSystem::Linux => "linux",
-            OperatingSystem::BSD => "bsd",
-            OperatingSystem::MacOS => "macos",
-            OperatingSystem::Windows => "windows",
-            OperatingSystem::iOS => "ios",
-            OperatingSystem::Android => "android",
-        };
-
-        args.iter()
-            .map(|arg| {
-                self.arg_mappings
-                    .get(arg)
-                    .and_then(|m| m.get(os_key))
-                    .cloned()
-                    .unwrap_or_else(|| arg.clone())
-            })
-            .collect()
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8172,21 +8150,6 @@ impl OSToolsDatabase {
             .get(canonical)
             .and_then(|cmd| cmd.for_os(&current_os).cloned())
     }
-
-    /// Translate a command from one OS to another
-    pub fn translate_command(
-        &self,
-        canonical: &str,
-        args: &[String],
-        target_os: &OperatingSystem,
-    ) -> Option<(String, Vec<String>)> {
-        self.cross_platform_map.get(canonical).and_then(|cmd| {
-            cmd.for_os(target_os).map(|command| {
-                let translated_args = cmd.translate_args(args, target_os);
-                (command.clone(), translated_args)
-            })
-        })
-    }
 }
 
 /// Result of tool execution
@@ -8386,48 +8349,6 @@ pub fn execute_tool_safe(
     }
 
     execute_tool(db, tool_name, args)
-}
-
-/// Execute a cross-platform command using the canonical name
-pub fn execute_cross_platform(
-    db: &OSToolsDatabase,
-    canonical_name: &str,
-    args: &[String],
-) -> Result<ToolExecutionResult, String> {
-    let current_os = OperatingSystem::current();
-
-    let (command, translated_args) = db
-        .translate_command(canonical_name, args, &current_os)
-        .ok_or_else(|| format!("No cross-platform mapping for '{}'", canonical_name))?;
-
-    let full_args: Vec<&str> = translated_args.iter().map(|s| s.as_str()).collect();
-
-    let start_time = std::time::Instant::now();
-
-    let output = std::process::Command::new(&command)
-        .args(&full_args)
-        .output()
-        .map_err(|e| format!("Failed to execute '{}': {}", command, e))?;
-
-    let execution_time = start_time.elapsed().as_millis() as u64;
-
-    let command_executed = if translated_args.is_empty() {
-        command.clone()
-    } else {
-        format!("{} {}", command, translated_args.join(" "))
-    };
-
-    Ok(ToolExecutionResult {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stdout_truncated: false,
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        stderr_truncated: false,
-        exit_code: output.status.code(),
-        tool_name: canonical_name.to_string(),
-        command_executed,
-        execution_time_ms: execution_time,
-    })
 }
 
 impl Default for OSToolsDatabase {

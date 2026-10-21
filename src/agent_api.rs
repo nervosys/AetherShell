@@ -31,8 +31,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
+use crate::ast::{Expr, Stmt};
 use crate::builtins::BUILTIN_LOOKUP;
-use crate::eval::eval_program;
+use crate::eval::{eval_expr, eval_program};
 use crate::marketplace::{RegistryClient, SearchQuery, SortBy};
 use crate::modules::all_modules;
 use crate::parser::parse_program;
@@ -394,47 +395,176 @@ fn execute_call(builtin: &str, args: &JsonValue) -> AgentResponse {
 
 /// Execute a pipeline of operations
 fn execute_pipeline(steps: &[PipelineStep], input: Option<&JsonValue>) -> AgentResponse {
-    if steps.is_empty() {
-        return AgentResponse {
+    match run_pipeline_steps(steps, input, |_| {}) {
+        Ok((value, code)) => response_from_value(value, &code),
+        Err(failure) => AgentResponse {
             success: false,
             result: None,
-            error: Some("Pipeline must have at least one step".to_string()),
+            error: Some(failure.message),
             result_type: None,
-            metadata: None,
-        };
+            metadata: failure
+                .code_attempted
+                .map(|code| json!({ "code_attempted": code })),
+        },
+    }
+}
+
+/// A pipeline that did not produce a value.
+struct PipelineFailure {
+    /// 0-based index of the step that failed, when a step did.
+    step: Option<usize>,
+    message: String,
+    /// The pipeline as one program, once it had been assembled.
+    code_attempted: Option<String>,
+}
+
+/// Name of the environment slot that carries stage `j`'s output to stage `j + 1`.
+fn pipeline_slot(j: usize) -> String {
+    format!("__pipeline_stage_{j}")
+}
+
+/// Parse `source` as exactly one expression statement.
+fn single_expression(source: &str) -> Result<Expr, String> {
+    let mut stmts = parse_program(source).map_err(|e| format!("Parse error: {}", e))?;
+    match (stmts.len(), stmts.pop()) {
+        (1, Some(Stmt::Expr(expr))) => Ok(expr),
+        _ => Err("Parse error: a pipeline stage must be a single expression".to_string()),
+    }
+}
+
+/// Run a pipeline one stage at a time, and return its value with the pipeline
+/// as one program (the code it is reported under).
+///
+/// The stages are the optional input literal, then each step's code. Stage
+/// `j > 0` runs as `slot(j-1) | code`, so each step gets the previous output
+/// exactly as the joined program `input | step1 | step2` would pass it on.
+/// Everything is built and parsed before the first stage runs, so a malformed
+/// pipeline has no effects. `on_step_done(i)` runs after step `i` (0-based)
+/// completes; a failure stops the pipeline at that step.
+fn run_pipeline_steps(
+    steps: &[PipelineStep],
+    input: Option<&JsonValue>,
+    mut on_step_done: impl FnMut(usize),
+) -> Result<(Value, String), PipelineFailure> {
+    if steps.is_empty() {
+        return Err(PipelineFailure {
+            step: None,
+            message: "Pipeline must have at least one step".to_string(),
+            code_attempted: None,
+        });
     }
 
-    // Build the pipeline code
-    let mut code_parts = Vec::new();
-
-    // Handle initial input if provided
+    let mut stage_codes: Vec<String> = Vec::with_capacity(steps.len() + 1);
     if let Some(input_val) = input {
-        code_parts.push(json_to_ae_literal(input_val));
+        stage_codes.push(json_to_ae_literal(input_val));
+    }
+    for step in steps {
+        let code = build_step_code(step).map_err(|e| PipelineFailure {
+            step: None,
+            message: format!("Failed to build step '{}': {}", step.builtin, e),
+            code_attempted: None,
+        })?;
+        stage_codes.push(code);
     }
 
-    for step in steps {
-        let step_code = match build_step_code(step) {
-            Ok(c) => c,
-            Err(e) => {
-                return AgentResponse {
-                    success: false,
-                    result: None,
-                    error: Some(format!("Failed to build step '{}': {}", step.builtin, e)),
-                    result_type: None,
-                    metadata: None,
-                }
-            }
-        };
-
-        if code_parts.is_empty() {
-            code_parts.push(step_code);
+    let joined = stage_codes.join(" | ");
+    if let Err(e) = parse_program(&joined) {
+        return Err(PipelineFailure {
+            step: None,
+            message: format!("Parse error: {}", e),
+            code_attempted: Some(joined),
+        });
+    }
+    let mut stage_exprs = Vec::with_capacity(stage_codes.len());
+    for (j, code) in stage_codes.iter().enumerate() {
+        let source = if j == 0 {
+            code.clone()
         } else {
-            code_parts.push(format!("| {}", step_code));
+            format!("{} | {}", pipeline_slot(j - 1), code)
+        };
+        match single_expression(&source) {
+            Ok(expr) => stage_exprs.push(expr),
+            Err(message) => {
+                return Err(PipelineFailure {
+                    step: None,
+                    message,
+                    code_attempted: Some(joined.clone()),
+                })
+            }
         }
     }
 
-    let code = code_parts.join(" ");
-    execute_eval(&code)
+    // Stage `j` is the step `j - offset`; the input literal, when present, is stage 0.
+    let offset = usize::from(input.is_some());
+    let last_stage = stage_exprs.len() - 1;
+    let mut env = crate::modules::env_with_modules();
+    let mut output = Value::Null;
+    for (j, expr) in stage_exprs.into_iter().enumerate() {
+        let step = j.checked_sub(offset);
+        let fail = |message: String| PipelineFailure {
+            step,
+            message,
+            code_attempted: Some(joined.clone()),
+        };
+        // Statements start with no pipe input; so does each stage.
+        env.set_input(None);
+        let value = eval_expr(&expr, &mut env).map_err(|e| fail(format!("{}", e)))?;
+        if let Some(i) = step {
+            on_step_done(i);
+        }
+        if j < last_stage {
+            env.set_var(pipeline_slot(j), value).map_err(fail)?;
+        } else {
+            output = value;
+        }
+    }
+
+    // As eval_program does: an error value from the final expression is an uncaught error.
+    if let Value::Error(msg) = &output {
+        return Err(PipelineFailure {
+            step: steps.len().checked_sub(1),
+            message: format!("uncaught error: {msg}"),
+            code_attempted: Some(joined),
+        });
+    }
+    Ok((output, joined))
+}
+
+/// The response for an evaluated value. Agent mode renders tabular results as
+/// AECON text; everything else is native JSON.
+fn response_from_value(value: Value, code: &str) -> AgentResponse {
+    let result_type = value_type_name(&value);
+    // Agent mode mirrors the CLI default: tabular results (Array/Table,
+    // where keys would otherwise repeat per row) are returned as compact
+    // AECON text instead of verbose JSON, paged to AE_TOKEN_BUDGET when
+    // set. Scalars/records/strings stay native JSON (a bare number must
+    // not become a quoted string). Non-agent consumers are unchanged.
+    if crate::safety::current_mode() == crate::safety::Mode::Agent
+        && matches!(value, Value::Array(_) | Value::Table(_))
+    {
+        let budget = std::env::var("AE_TOKEN_BUDGET")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .filter(|m| *m > 0);
+        if let Some(text) = crate::builtins::render_agent(&value, budget) {
+            return AgentResponse {
+                success: true,
+                result: Some(JsonValue::String(text)),
+                error: None,
+                result_type: Some("aecon".to_string()),
+                metadata: Some(json!({ "code_executed": code, "render": "aecon" })),
+            };
+        }
+    }
+    AgentResponse {
+        success: true,
+        result: Some(value_to_json(&value)),
+        error: None,
+        result_type: Some(result_type),
+        metadata: Some(json!({
+            "code_executed": code
+        })),
+    }
 }
 
 /// Execute raw AetherShell code
@@ -445,40 +575,7 @@ fn execute_eval(code: &str) -> AgentResponse {
 
     match parse_program(code) {
         Ok(stmts) => match eval_program(&stmts, &mut env) {
-            Ok(value) => {
-                let result_type = value_type_name(&value);
-                // Agent mode mirrors the CLI default: tabular results (Array/Table,
-                // where keys would otherwise repeat per row) are returned as compact
-                // AECON text instead of verbose JSON, paged to AE_TOKEN_BUDGET when
-                // set. Scalars/records/strings stay native JSON (a bare number must
-                // not become a quoted string). Non-agent consumers are unchanged.
-                if crate::safety::current_mode() == crate::safety::Mode::Agent
-                    && matches!(value, Value::Array(_) | Value::Table(_))
-                {
-                    let budget = std::env::var("AE_TOKEN_BUDGET")
-                        .ok()
-                        .and_then(|s| s.parse::<usize>().ok())
-                        .filter(|m| *m > 0);
-                    if let Some(text) = crate::builtins::render_agent(&value, budget) {
-                        return AgentResponse {
-                            success: true,
-                            result: Some(JsonValue::String(text)),
-                            error: None,
-                            result_type: Some("aecon".to_string()),
-                            metadata: Some(json!({ "code_executed": code, "render": "aecon" })),
-                        };
-                    }
-                }
-                AgentResponse {
-                    success: true,
-                    result: Some(value_to_json(&value)),
-                    error: None,
-                    result_type: Some(result_type),
-                    metadata: Some(json!({
-                        "code_executed": code
-                    })),
-                }
-            }
+            Ok(value) => response_from_value(value, code),
             Err(e) => AgentResponse {
                 success: false,
                 result: None,
@@ -4369,6 +4466,54 @@ pub mod server {
         events
     }
 
+    /// The SSE events for a pipeline: `start`, then a `progress` after each step
+    /// that really completed, then `complete` (with the same result
+    /// `process_request` gives for the pipeline) or `error` naming the step that
+    /// failed. `deadline` bounds the evaluation as it does for the other handlers.
+    pub fn stream_pipeline_events(
+        steps: &[PipelineStep],
+        input: Option<&JsonValue>,
+        deadline: Option<std::time::Duration>,
+    ) -> Vec<StreamEvent> {
+        let total = steps.len();
+        let mut events = vec![StreamEvent::start(&format!(
+            "Starting pipeline with {} steps",
+            total
+        ))];
+        let _guard = deadline.map(crate::safety::enter_deadline);
+
+        let outcome = run_pipeline_steps(steps, input, |i| {
+            events.push(StreamEvent::progress(
+                i + 1,
+                total,
+                &format!("Completed step {}/{}: {}", i + 1, total, steps[i].builtin),
+            ));
+        });
+        match outcome {
+            Ok((value, code)) => {
+                let response = response_from_value(value, &code);
+                events.push(StreamEvent::complete(
+                    response.result.unwrap_or(JsonValue::Null),
+                    response.result_type.as_deref(),
+                ));
+            }
+            Err(failure) => {
+                let message = match failure.step {
+                    Some(i) => format!(
+                        "Step {}/{} ({}) failed: {}",
+                        i + 1,
+                        total,
+                        steps[i].builtin,
+                        failure.message
+                    ),
+                    None => failure.message,
+                };
+                events.push(StreamEvent::error(&message));
+            }
+        }
+        events
+    }
+
     /// Stream pipeline execution with progress updates
     async fn handle_stream_pipeline(Json(body): Json<JsonValue>) -> impl IntoResponse {
         let steps: Vec<PipelineStep> = serde_json::from_value(
@@ -4379,56 +4524,18 @@ pub mod server {
         .unwrap_or_default();
 
         let input = body.get("input").cloned();
-        let total_steps = steps.len();
+        let deadline = eval_deadline();
 
         create_sse_response(async move {
-            let mut events = vec![StreamEvent::start(&format!(
-                "Starting pipeline with {} steps",
-                total_steps
-            ))];
-
-            if steps.is_empty() {
-                events.push(StreamEvent::error("Pipeline must have at least one step"));
-                return events;
+            // Evaluation is synchronous: keep it off the async workers, as run_blocking does.
+            match tokio::task::spawn_blocking(move || {
+                stream_pipeline_events(&steps, input.as_ref(), deadline)
+            })
+            .await
+            {
+                Ok(events) => events,
+                Err(e) => vec![StreamEvent::error(&format!("request handler failed: {e}"))],
             }
-
-            // Process pipeline using existing infrastructure
-            let request = AgentRequest::Pipeline {
-                steps: steps.clone(),
-                input: input.clone(),
-            };
-
-            // Emit progress for each step (simulated since actual execution is atomic)
-            for (i, step) in steps.iter().enumerate() {
-                events.push(StreamEvent::progress(
-                    i + 1,
-                    total_steps,
-                    &format!(
-                        "Processing step {}/{}: {}",
-                        i + 1,
-                        total_steps,
-                        step.builtin
-                    ),
-                ));
-            }
-
-            // Execute the full pipeline
-            let response = process_request(&request);
-
-            if response.success {
-                events.push(StreamEvent::complete(
-                    response.result.unwrap_or(JsonValue::Null),
-                    response.result_type.as_deref(),
-                ));
-            } else {
-                events.push(StreamEvent::error(
-                    &response
-                        .error
-                        .unwrap_or_else(|| "Unknown error".to_string()),
-                ));
-            }
-
-            events
         })
     }
 
