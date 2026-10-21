@@ -256,10 +256,13 @@ fn stripping_the_envelope_does_not_reach_the_unauthenticated_path() {
 fn an_empty_password_is_refused_rather_than_silently_accepted() {
     let _g = fips_lock();
     match call("crypto_encrypt", vec!["data", ""]) {
-        Err(e) => assert!(
-            e.to_string().contains("E_CRYPTO_BAD_INPUT"),
-            "unexpected error: {e}"
-        ),
+        // The refusal is a structured E_BAD_ARG: the code is in `.code`, not
+        // spelled out in the prose.
+        Err(e) => {
+            let r = structured(&e);
+            assert_eq!(r.code, "E_BAD_ARG", "unexpected error: {e}");
+            assert!(!r.message.contains("E_CRYPTO_BAD_INPUT"), "{e}");
+        }
         Ok(v) => panic!("an empty password produced {v:?} instead of a refusal"),
     }
 }

@@ -15238,7 +15238,12 @@ fn checked_nn_parameter_count(total: usize, input: usize, output: usize) -> Resu
                 })?,
         )
         .filter(|&n| n <= MAX_NN_PARAMETERS)
-        .ok_or_else(|| anyhow!("E_BUDGET_EXCEEDED: neural network: exceeds 1000000 parameters"))
+        .ok_or_else(|| {
+            budget_unnamed(
+                "neural network: exceeds 1000000 parameters",
+                "reduce the number of layers or their sizes; the limit is 1000000 parameters",
+            )
+        })
 }
 
 fn validate_nn(network: &NeuralNetwork) -> Result<()> {
@@ -15302,8 +15307,9 @@ fn value_to_nn(v: &Value) -> Result<NeuralNetwork> {
     if let Value::Record(rec) = v {
         if let Some(Value::Str(data)) = rec.get("_data") {
             if data.len() > 64 * 1024 * 1024 {
-                return Err(anyhow!(
-                    "E_BUDGET_EXCEEDED: neural network: encoded data exceeds 64 MiB"
+                return Err(budget_unnamed(
+                    "neural network: encoded data exceeds 64 MiB",
+                    "the encoded network is larger than 64 MiB and cannot be decoded",
                 ));
             }
             let network = serde_json::from_str(data).map_err(|e| {
@@ -37317,7 +37323,13 @@ fn crypto_derive_key(password: &str, salt: &[u8], kdf: CryptoKdf) -> Result<[u8;
     match kdf {
         CryptoKdf::Argon2id => argon2::Argon2::default()
             .hash_password_into(password.as_bytes(), salt, &mut key)
-            .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: key derivation failed: {}", e))?,
+            .map_err(|e| {
+                crate::safety::crypto_failed(
+                    "",
+                    format!("key derivation failed: {e}"),
+                    "no ciphertext was produced; the same input fails the same way, so check the host's Argon2 support",
+                )
+            })?,
         CryptoKdf::Pbkdf2HmacSha256 => {
             pbkdf2::pbkdf2_hmac::<sha2::Sha256>(
                 password.as_bytes(),
@@ -37356,8 +37368,7 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     if password.is_empty() {
         return Err(crate::safety::arg_err(
-            "E_CRYPTO_BAD_INPUT: crypto.encrypt requires a non-empty password; \
-             nothing was encrypted",
+            "crypto.encrypt requires a non-empty password; nothing was encrypted",
         ));
     }
 
@@ -37368,8 +37379,13 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let kdf = CryptoKdf::for_new_ciphertext();
     let key = crypto_derive_key(&password, &salt, kdf)?;
 
-    let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| anyhow::anyhow!("E_CRYPTO_KDF: bad key length: {}", e))?;
+    let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key).map_err(|e| {
+        crate::safety::crypto_failed(
+            "",
+            format!("bad key length: {e}"),
+            "no ciphertext was produced; the derived key was rejected by the cipher",
+        )
+    })?;
     let ct = cipher
         .encrypt(
             aes_gcm::Nonce::from_slice(&nonce_bytes),
@@ -37379,7 +37395,11 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             },
         )
         .map_err(|_| {
-            anyhow::anyhow!("E_CRYPTO_FAILED: encryption failed; nothing was encrypted")
+            crate::safety::crypto_failed(
+                "",
+                "encryption failed; nothing was encrypted",
+                "retry once; if it fails again the in-process cipher is refusing this input",
+            )
         })?;
 
     Ok(Value::Str(format!(
@@ -38247,6 +38267,37 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     Ok(Value::Bool(true))
 }
 
+/// A coded budget refusal whose builtin name is left empty: the boundary
+/// (`ensure_structured`) fills it in, so the message carries no builtin prefix.
+fn budget_unnamed(message: &str, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::BudgetExceeded,
+        message: message.to_string(),
+        builtin: String::new(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
+    })
+}
+
+/// A coded I/O failure from a library whose error is not an `io::Error` (here
+/// rusqlite), so `safety::fs_error` does not apply. `E_IO` is the code for a
+/// failure that is neither absence nor refusal.
+fn coded_io(builtin: &str, message: String, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::Io,
+        message,
+        builtin: builtin.to_string(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
+    })
+}
+
 fn bi_db_csv_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     const NAME: &str = "db_csv_to_sqlite";
     let db_path = args
@@ -38265,12 +38316,22 @@ fn bi_db_csv_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let table = format!("\"{}\"", crate::safety::sql_identifier(NAME, table)?);
     let csv_path = crate::safety::resolve_path_str(csv_path);
     std::fs::metadata(&csv_path).map_err(|e| crate::safety::fs_error(NAME, &csv_path, &e))?;
-    let source = crate::security::validate_read_path(&csv_path)
-        .map_err(|e| anyhow!("E_POLICY_DENY: {NAME}: {e}"))?;
+    let source = crate::security::validate_read_path(&csv_path).map_err(|e| {
+        crate::safety::policy_deny(
+            NAME,
+            format!("{NAME}: {e}"),
+            "the shell's read policy refuses this file; choose a file it permits",
+        )
+    })?;
     let metadata =
         std::fs::metadata(&source).map_err(|e| crate::safety::fs_error(NAME, &csv_path, &e))?;
-    crate::security::check_file_size_limit(metadata.len())
-        .map_err(|e| anyhow!("E_BUDGET_EXCEEDED: {NAME}: {e}"))?;
+    crate::security::check_file_size_limit(metadata.len()).map_err(|e| {
+        crate::safety::budget_exceeded(
+            NAME,
+            e.to_string(),
+            "the CSV file is larger than the read limit; split it into smaller files",
+        )
+    })?;
     let content = std::fs::read_to_string(&source)
         .map_err(|e| crate::safety::fs_error(NAME, &csv_path, &e))?;
     let csv_error = |e: csv::Error| {
@@ -38308,8 +38369,10 @@ fn bi_db_csv_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         .enumerate()
         .map(|(index, row)| {
             if index >= 1_000_000 {
-                return Err(anyhow!(
-                    "E_BUDGET_EXCEEDED: {NAME}: CSV exceeds 1000000 rows"
+                return Err(crate::safety::budget_exceeded(
+                    NAME,
+                    "CSV exceeds 1000000 rows".to_string(),
+                    "split the CSV into files of at most 1000000 rows",
                 ));
             }
             row.map_err(csv_error)
@@ -38317,8 +38380,20 @@ fn bi_db_csv_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         .collect::<Result<Vec<_>>>()?;
     let db_path = guard_local_write(NAME, db_path)?;
     crate::tx::snapshot(&db_path);
-    let mut db = rusqlite::Connection::open(&db_path).map_err(|e| anyhow!("E_IO: {NAME}: {e}"))?;
-    let transaction = db.transaction().map_err(|e| anyhow!("E_IO: {NAME}: {e}"))?;
+    let mut db = rusqlite::Connection::open(&db_path).map_err(|e| {
+        coded_io(
+            NAME,
+            format!("{NAME}: cannot open the database: {e}"),
+            "check that the database path is writable and not locked by another process",
+        )
+    })?;
+    let transaction = db.transaction().map_err(|e| {
+        coded_io(
+            NAME,
+            format!("{NAME}: cannot begin the import transaction: {e}"),
+            "no rows were written; check that the database is not locked or corrupt",
+        )
+    })?;
     let sql_error = |e: rusqlite::Error| {
         crate::safety::arg_err(&format!(
             "{NAME}: SQLite rejected import: {e}; no rows committed"
@@ -38350,7 +38425,13 @@ fn bi_db_csv_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
     transaction
         .commit()
-        .map_err(|e| anyhow!("E_IO: {NAME}: committing import: {e}"))?;
+        .map_err(|e| {
+            coded_io(
+                NAME,
+                format!("{NAME}: committing import: {e}"),
+                "the import was rolled back and no rows were committed; check that the database is writable and has space",
+            )
+        })?;
     Ok(Value::Bool(true))
 }
 

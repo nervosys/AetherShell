@@ -131,11 +131,19 @@ pub fn fips_enabled() -> bool {
 /// when FIPS mode is off) pass through. Pure aside from reading the FIPS flag.
 pub fn require_fips_hash(algo: &str) -> anyhow::Result<()> {
     if fips_enabled() && is_weak_hash(algo) {
-        return Err(anyhow::anyhow!(
-            "E_FIPS_DISALLOWED: hash algorithm '{}' is not FIPS-approved (AETHER_FIPS active); \
-             use sha256/sha384/sha512",
-            algo
-        ));
+        // The builtin name is left empty: `ensure_structured` fills it in at the
+        // boundary, as it does for `arg_err`.
+        return Err(anyhow::Error::new(SafetyError {
+            code: ErrorCode::FipsDisallowed,
+            message: format!("hash algorithm '{algo}' is not FIPS-approved (AETHER_FIPS active)"),
+            builtin: String::new(),
+            hint: "use sha256, sha384 or sha512; MD5 and SHA-1 are refused in FIPS mode"
+                .to_string(),
+            approval: None,
+            did_you_mean: Vec::new(),
+            expected: "a FIPS-approved hash algorithm".to_string(),
+            got: algo.to_string(),
+        }));
     }
     Ok(())
 }
@@ -1328,6 +1336,17 @@ pub enum ErrorCode {
     /// and the hint says which. Reported as `Unknown` until now, which hid the
     /// one failure a decryption caller most needs to recognise.
     DecryptFailed,
+    /// FIPS mode refused a hash algorithm that is not on the approved list
+    /// (`md5`, `sha1`). Its code is documented in `docs/security/CRYPTO_AND_FIPS.md`
+    /// as `E_FIPS_DISALLOWED`, so it keeps that name rather than collapsing into
+    /// `PolicyDeny`: operators grep for it. Not retryable; the hint names the
+    /// approved algorithms.
+    FipsDisallowed,
+    /// An in-process cryptographic operation failed: key derivation, cipher
+    /// setup, or sealing. Distinct from `DecryptFailed`, which is the caller's
+    /// input being wrong; this is the library refusing to produce output for a
+    /// valid request. Deterministic for the same input, so not retryable.
+    CryptoFailed,
     /// A failure that reached the boundary without a specific code. The message
     /// is whatever the builtin produced; treat it as opaque and **not**
     /// retryable — an agent that cannot identify the fault should stop rather
@@ -1354,6 +1373,8 @@ impl ErrorCode {
             ErrorCode::ToolFailed => "E_TOOL_FAILED",
             ErrorCode::Io => "E_IO",
             ErrorCode::DecryptFailed => "E_DECRYPT_FAILED",
+            ErrorCode::FipsDisallowed => "E_FIPS_DISALLOWED",
+            ErrorCode::CryptoFailed => "E_CRYPTO_FAILED",
             ErrorCode::Unknown => "E_UNKNOWN",
         }
     }
@@ -1391,6 +1412,8 @@ impl ErrorCode {
             // The same ciphertext and password fail identically on a second
             // call; only a different input can change the outcome.
             ErrorCode::DecryptFailed => false,
+            ErrorCode::FipsDisallowed => false,
+            ErrorCode::CryptoFailed => false,
             ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded | ErrorCode::Unknown => false,
         }
     }
@@ -1439,6 +1462,10 @@ impl ErrorCode {
             // EX_DATAERR -- the input data was incorrect: the ciphertext, the
             // password, or what they decode to.
             ErrorCode::DecryptFailed => 65,
+            // EX_NOPERM -- refused by policy, like PolicyDeny.
+            ErrorCode::FipsDisallowed => 77,
+            // EX_SOFTWARE -- the library failed on a valid request.
+            ErrorCode::CryptoFailed => 70,
             ErrorCode::Unknown => 1,
         }
     }
@@ -1701,6 +1728,27 @@ pub fn decrypt_failed(
 ) -> anyhow::Error {
     anyhow::Error::new(SafetyError {
         code: ErrorCode::DecryptFailed,
+        message: message.into(),
+        builtin: builtin.to_string(),
+        hint: hint.into(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
+    })
+}
+
+/// Build a structured in-process cryptography failure (`E_CRYPTO_FAILED`).
+///
+/// `message` states what failed and must not repeat the code name; `hint` says
+/// what the caller can change. Not retryable as the same call.
+pub fn crypto_failed(
+    builtin: &str,
+    message: impl Into<String>,
+    hint: impl Into<String>,
+) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::CryptoFailed,
         message: message.into(),
         builtin: builtin.to_string(),
         hint: hint.into(),
