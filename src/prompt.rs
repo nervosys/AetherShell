@@ -398,11 +398,14 @@ pub fn parse_head(head: &str) -> GitInfo {
 
 /// Ask git whether the worktree is dirty. Opt-in — this is the expensive path.
 fn worktree_dirty(repo: &Path) -> bool {
-    std::process::Command::new("git")
-        .arg("-C")
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("-C")
         .arg(repo)
-        .args(["status", "--porcelain", "--untracked-files=no"])
-        .output()
+        .args(["status", "--porcelain", "--untracked-files=no"]);
+    // The prompt is redrawn on every command, so this gets 10s rather than 30.
+    // A status that does not arrive in time reads as clean, the same as an
+    // error, so a slow repo cannot stall the prompt.
+    crate::safety::output_with_timeout(cmd, 10)
         .map(|o| !o.stdout.is_empty())
         .unwrap_or(false)
 }

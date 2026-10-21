@@ -208,24 +208,20 @@ fn detect_linux_package_manager() -> PackageManagerType {
     }
 }
 
+/// Does `tool --version` start and finish within 10s? A probe that hangs is
+/// treated as a tool that is not there.
+fn probe_runs(tool: &str) -> bool {
+    let mut cmd = std::process::Command::new(tool);
+    cmd.arg("--version");
+    crate::safety::output_with_timeout(cmd, 10).is_ok()
+}
+
 fn detect_container_runtime() -> Option<ContainerType> {
     // Use PATH-based lookup for cross-platform compatibility (macOS installs to /usr/local/bin/)
-    if std::process::Command::new("docker")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok()
-    {
+    if probe_runs("docker") {
         return Some(ContainerType::Docker);
     }
-    if std::process::Command::new("podman")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok()
-    {
+    if probe_runs("podman") {
         return Some(ContainerType::Podman);
     }
     None
@@ -239,11 +235,10 @@ fn detect_windows_container() -> Option<ContainerType> {
             return Some(ContainerType::Docker);
         }
         // Check for WSL
-        if std::process::Command::new("wsl")
-            .arg("--version")
-            .output()
-            .is_ok()
-        {
+        let mut cmd = std::process::Command::new("wsl");
+        cmd.arg("--version");
+        // A hung `wsl --version` probe, bounded at 10s, means WSL is not usable.
+        if crate::safety::output_with_timeout(cmd, 10).is_ok() {
             return Some(ContainerType::WSL);
         }
     }
@@ -817,10 +812,10 @@ impl PlatformExecutor {
         let args = self.substitute_params(&impl_.args_template, params);
 
         // Execute command
-        let output = std::process::Command::new(&impl_.command)
-            .args(&args)
-            .envs(&impl_.env_vars)
-            .output()
+        let mut cmd = std::process::Command::new(&impl_.command);
+        cmd.args(&args).envs(&impl_.env_vars);
+        // An operation that does not finish in 30s is stopped with its tree.
+        let output = crate::safety::output_with_timeout(cmd, 30)
             .map_err(|e| anyhow!("Failed to execute command: {}", e))?;
 
         Ok(ExecutionResult {
@@ -926,7 +921,11 @@ impl PlatformExecutor {
         {
             // Simplified Windows elevation check
             use std::process::Command;
-            match Command::new("net").args(["session"]).output() {
+            // `net session` answers quickly when it works; a hung probe, bounded
+            // at 10s, counts as not elevated.
+            let mut cmd = Command::new("net");
+            cmd.args(["session"]);
+            match crate::safety::output_with_timeout(cmd, 10) {
                 Ok(output) => output.status.success(),
                 Err(_) => false,
             }

@@ -197,12 +197,13 @@ pub struct GpuMemoryInfo {
 
 /// Query GPU memory via nvidia-smi
 pub fn query_gpu_memory() -> Vec<GpuMemoryInfo> {
-    let output = std::process::Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=index,name,memory.total,memory.used,memory.free",
-            "--format=csv,noheader,nounits",
-        ])
-        .output();
+    let mut cmd = std::process::Command::new("nvidia-smi");
+    cmd.args([
+        "--query-gpu=index,name,memory.total,memory.used,memory.free",
+        "--format=csv,noheader,nounits",
+    ]);
+    // A GPU query that does not answer in 30s is treated as no GPU memory data.
+    let output = crate::safety::output_with_timeout(cmd, 30);
 
     match output {
         Ok(out) if out.status.success() => {

@@ -17,6 +17,48 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
+/// Deadline for a `--version` probe. A probe that does not answer in time is
+/// the same as a failed one: the tool's version is unknown.
+const VERSION_PROBE_SECS: u64 = 10;
+
+/// The first line of `tool_name --version` (or its per-tool flag), probing
+/// each candidate flag under `secs`. A probe that fails or times out yields
+/// `None` for that flag and the next flag is tried.
+#[doc(hidden)]
+pub fn tool_version_within(tool_name: &str, secs: u64) -> Option<String> {
+    // Most tools support --version
+    let version_flags = match tool_name {
+        "go" => vec!["version"],
+        "node" | "bun" | "deno" => vec!["--version"],
+        "python3" | "python" => vec!["--version"],
+        "java" => vec!["-version"],
+        _ => vec!["--version"],
+    };
+
+    for flag in version_flags {
+        let mut cmd = std::process::Command::new(tool_name);
+        cmd.arg(flag);
+        if let Ok(output) = crate::safety::output_with_timeout(cmd, secs) {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let text = if stdout.trim().is_empty() {
+                stderr.to_string()
+            } else {
+                stdout.to_string()
+            };
+
+            // Extract first line, trim to reasonable length
+            if let Some(line) = text.lines().next() {
+                let version = line.trim();
+                if !version.is_empty() && version.len() < 200 {
+                    return Some(version.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 // ============================================================================
 // CAPABILITY DOMAINS
 // ============================================================================
@@ -2504,40 +2546,7 @@ impl CLIToolRegistry {
 
     /// Try to get the version of a tool
     fn get_tool_version(tool_name: &str) -> Option<String> {
-        // Most tools support --version
-        let version_flags = match tool_name {
-            "go" => vec!["version"],
-            "node" | "bun" | "deno" => vec!["--version"],
-            "python3" | "python" => vec!["--version"],
-            "java" => vec!["-version"],
-            _ => vec!["--version"],
-        };
-
-        for flag in version_flags {
-            if let Ok(output) = std::process::Command::new(tool_name)
-                .arg(flag)
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .output()
-            {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let text = if stdout.trim().is_empty() {
-                    stderr.to_string()
-                } else {
-                    stdout.to_string()
-                };
-
-                // Extract first line, trim to reasonable length
-                if let Some(line) = text.lines().next() {
-                    let version = line.trim();
-                    if !version.is_empty() && version.len() < 200 {
-                        return Some(version.to_string());
-                    }
-                }
-            }
-        }
-        None
+        tool_version_within(tool_name, VERSION_PROBE_SECS)
     }
 
     /// Define all 150+ CLI tool wrappers with their mappings

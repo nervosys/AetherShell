@@ -419,12 +419,21 @@ mod sys {
     /// coded tool failure carrying stderr; a missing program is E_TOOL_MISSING.
     fn run(builtin: &str, program: &str, args: &[&str]) -> Result<String> {
         let name = program.rsplit('/').next().unwrap_or(program);
-        let output = std::process::Command::new(program)
-            .args(args)
-            .env("LC_ALL", "C")
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|e| safety::spawn_error(builtin, name, &e))?;
+        let mut cmd = std::process::Command::new(program);
+        cmd.args(args).env("LC_ALL", "C");
+        // A mount tool that does not finish in 30s is stopped with its tree and
+        // refused as a budget error, not reported as a failure to start.
+        let output = safety::output_with_timeout(cmd, 30).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::TimedOut {
+                safety::budget_exceeded(
+                    builtin,
+                    format!("`{name}` did not finish within 30s and was stopped"),
+                    "the mount table or the tool is wedged; retry, or inspect the tool directly",
+                )
+            } else {
+                safety::spawn_error(builtin, name, &e)
+            }
+        })?;
         if !output.status.success() {
             return Err(safety::tool_failed(
                 builtin,

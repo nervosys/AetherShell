@@ -235,17 +235,39 @@ pub fn vault_bin() -> String {
 /// the two failures a caller actually hits are "`iv` is not installed" and
 /// "`IRONVAULT_PASSPHRASE` is not set", and only the vault can tell them apart.
 pub fn vault_run(args: &[&str]) -> Result<String> {
+    vault_run_within(args, VAULT_QUERY_SECS)
+}
+
+/// Deadline for an inventory or listing query (`iv list`, `iv list-conversions`).
+const VAULT_QUERY_SECS: u64 = 30;
+
+/// Deadline for `iv convert`. Converting a model legitimately takes minutes,
+/// so it gets an hour; the bound exists so a wedged vault still ends the call.
+const VAULT_CONVERT_SECS: u64 = 3600;
+
+/// [`vault_run`] with an explicit deadline. A vault that does not finish in
+/// `secs` is killed with its tree and reported as a failed call.
+#[doc(hidden)]
+pub fn vault_run_within(args: &[&str], secs: u64) -> Result<String> {
     let bin = vault_bin();
-    let out = std::process::Command::new(&bin)
-        .args(args)
-        .output()
-        .map_err(|e| {
-            anyhow!(
-                "IronVault CLI '{bin}' could not be run: {e}. \
-                 Install it with `cargo install ironvault`, or set IRONVAULT_BIN \
-                 to its path."
-            )
-        })?;
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.args(args);
+    let out = crate::safety::output_with_timeout(cmd, secs).map_err(|e| {
+        if let Some(coded) = crate::safety::io_budget_error(&e) {
+            return coded;
+        }
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            return anyhow!(
+                "`{bin} {}` did not finish within {secs}s and was stopped",
+                args.join(" ")
+            );
+        }
+        anyhow!(
+            "IronVault CLI '{bin}' could not be run: {e}. \
+             Install it with `cargo install ironvault`, or set IRONVAULT_BIN \
+             to its path."
+        )
+    })?;
 
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -265,9 +287,10 @@ pub fn vault_run(args: &[&str]) -> Result<String> {
 
 /// Is the vault CLI present?
 pub fn vault_available() -> bool {
-    std::process::Command::new(vault_bin())
-        .arg("--version")
-        .output()
+    // A probe that does not answer in 10s counts as unavailable.
+    let mut cmd = std::process::Command::new(vault_bin());
+    cmd.arg("--version");
+    crate::safety::output_with_timeout(cmd, 10)
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
@@ -319,7 +342,7 @@ pub fn vault_convert(
     }
 
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    vault_run(&refs)
+    vault_run_within(&refs, VAULT_CONVERT_SECS)
 }
 
 /// The pure half of [`gate_root`], split out so it is testable without the

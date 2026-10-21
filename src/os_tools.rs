@@ -8333,12 +8333,11 @@ pub fn execute_tool_safe(
         // On Windows, check if running as administrator
         #[cfg(windows)]
         {
-            let admin_check = std::process::Command::new("net")
-                .args(["session"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-            if !admin_check.map(|s| s.success()).unwrap_or(false) {
+            // A hung `net session` probe, bounded at 10s, counts as not admin.
+            let mut cmd = std::process::Command::new("net");
+            cmd.args(["session"]);
+            let admin_check = crate::safety::output_with_timeout(cmd, 10);
+            if !admin_check.map(|o| o.status.success()).unwrap_or(false) {
                 return Err(ToolRefusal(format!(
                     "Tool '{}' requires administrator privileges",
                     tool_name
