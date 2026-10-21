@@ -60,53 +60,7 @@ fn bad_arg_reports_the_offending_type() {
     assert!(msg.contains("Int"), "names the got type: {msg}");
 }
 
-#[test]
-fn shared_extraction_helpers_emit_structured_bad_arg() {
-    // A wrong-typed argument to ANY builtin that uses the shared `expect_*`
-    // helpers surfaces a structured, catchable E_BAD_ARG — not ad-hoc prose.
-    // The same upgrade covers the ~90 call sites of
-    // expect_string/expect_int/expect_array/need_lambda.
-    //
-    // This has been repointed twice -- `env(123)`, then `upper(123)` -- because
-    // each builtin it named was later given a declared signature, which is
-    // refused at dispatch and never reaches the shared helper. Relaxing the
-    // assertion would leave the test passing while covering nothing, so it now
-    // finds a still-undeclared builtin using `expect_string` at run time.
-    // `tests/declared_signatures.rs` covers the declared path.
-    // mcp_connect checks its endpoint before attempting server discovery.
-    let (name, arguments) = [("mcp_connect", "123"), ("json_parse", "123"), ("syntax_search", "123"), ("lower", "123"), ("trim", "123"), ("upper", "123")]
-        .into_iter()
-        .find(|(n, _)| {
-            aethershell::signature::signature_of(n).is_none()
-                && aethershell::builtins::is_dispatched(n)
-        })
-        .unwrap_or_else(|| {
-            panic!(
-                "every candidate is now declared; name another undeclared builtin that uses expect_string, or delete this test and rely on declared_signatures.rs"
-            )
-        });
-    let src = format!("try {{ {name}({arguments}) }} catch e {{ e }}");
-    let src = src.as_str();
-    let stmts = aethershell::parser::parse_program(src).expect("parse");
-    let mut env = aethershell::env::Env::new();
-    let result = aethershell::eval::eval_program(&stmts, &mut env).expect("eval");
-
-    match result {
-        Value::Record(m) => match m.get("error") {
-            Some(Value::Record(e)) => {
-                assert_eq!(e.get("code"), Some(&Value::Str("E_BAD_ARG".to_string())));
-                let msg = match e.get("message") {
-                    Some(Value::Str(s)) => s.clone(),
-                    _ => String::new(),
-                };
-                assert!(msg.contains("a string"), "names the expected type: {msg}");
-                assert!(msg.contains("Int"), "names the got type: {msg}");
-            }
-            other => panic!("error should be a nested record, got {other:?}"),
-        },
-        other => panic!("catch should bind a structured record, got {other:?}"),
-    }
-}
+// Shared expect_* refusals are covered per declared builtin by tests/declared_signatures.rs.
 
 #[test]
 fn missing_argument_is_structured_bad_arg() {

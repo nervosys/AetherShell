@@ -122,13 +122,23 @@ fn a_piped_subject_is_refused_by_every_core_builtin() {
 fn surplus_arguments_are_refused_not_dropped() {
     refused("cd", vec![s("."), s(".")], "E_BAD_ARG");
     refused("rm", vec![s("a"), Value::Bool(true), s("b")], "E_BAD_ARG");
-    refused("rmdir", vec![s("a"), Value::Bool(true), s("b")], "E_BAD_ARG");
+    refused(
+        "rmdir",
+        vec![s("a"), Value::Bool(true), s("b")],
+        "E_BAD_ARG",
+    );
     refused("sh", vec![s("echo"), s("hi")], "E_BAD_ARG");
     refused("exit", vec![Value::Int(0), Value::Int(1)], "E_BAD_ARG");
     refused("pkill", vec![s("aepk"), s("x")], "E_BAD_ARG");
     refused("pgrep", vec![s("aepk"), s("x")], "E_BAD_ARG");
     refused("chgrp", vec![s("g"), s("f"), s("x")], "E_BAD_ARG");
-    for svc in ["svc_start", "svc_stop", "svc_restart", "svc_enable", "svc_disable"] {
+    for svc in [
+        "svc_start",
+        "svc_stop",
+        "svc_restart",
+        "svc_enable",
+        "svc_disable",
+    ] {
         refused(svc, vec![s("cron"), s("x")], "E_BAD_ARG");
     }
 }
@@ -176,7 +186,10 @@ fn rmdir_refuses_a_non_empty_directory_unless_recursive() {
     std::fs::write(tree.join("inner").join("f.txt"), "x").unwrap();
 
     refused("rmdir", vec![p(&tree)], "E_");
-    assert!(tree.join("inner").join("f.txt").exists(), "a refused rmdir deleted content");
+    assert!(
+        tree.join("inner").join("f.txt").exists(),
+        "a refused rmdir deleted content"
+    );
 
     refused("rmdir", vec![p(&tree), s("yes")], "E_BAD_ARG");
     assert!(tree.exists());
@@ -234,7 +247,11 @@ fn cd_changes_the_working_directory_and_refuses_bad_shapes() {
     refused("cd", vec![s("")], "E_BAD_ARG");
     refused("cd", vec![Value::Int(1)], "E_BAD_ARG");
     refused("cd", vec![p(&dir.join("missing"))], "E_");
-    assert_eq!(std::env::current_dir().unwrap(), before, "a refused cd moved");
+    assert_eq!(
+        std::env::current_dir().unwrap(),
+        before,
+        "a refused cd moved"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -246,7 +263,10 @@ fn cd_changes_the_working_directory_and_refuses_bad_shapes() {
 /// This test binary, run with `--list`, is a program present on every OS that
 /// prints and exits 0; with an unknown flag it exits nonzero.
 fn me() -> String {
-    std::env::current_exe().unwrap().to_string_lossy().into_owned()
+    std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[test]
@@ -258,7 +278,11 @@ fn sh_reports_a_malformed_call_before_the_opt_in() {
     refused("sh", vec![Value::Array(vec![Value::Int(1)])], "E_BAD_ARG");
     refused("sh", vec![Value::Bool(true)], "E_BAD_ARG");
     // A well-formed call is refused by policy until sh is enabled.
-    refused("shell", vec![Value::Array(vec![s(&me()), s("--list")])], "E_POLICY_DENY");
+    refused(
+        "shell",
+        vec![Value::Array(vec![s(&me()), s("--list")])],
+        "E_POLICY_DENY",
+    );
 }
 
 #[test]
@@ -310,15 +334,27 @@ fn dd_copy_refuses_bad_options_before_running() {
     refused("dd_copy", vec![s("a"), s("")], "E_BAD_ARG");
     let mut opts = BTreeMap::new();
     opts.insert("skip".to_string(), Value::Int(1));
-    refused("dd_copy", vec![s("a"), s("b"), Value::Record(opts)], "E_BAD_ARG");
+    refused(
+        "dd_copy",
+        vec![s("a"), s("b"), Value::Record(opts)],
+        "E_BAD_ARG",
+    );
     for bad in [Value::Int(0), s("0"), s("4MM"), s("-1"), s("x")] {
         let mut opts = BTreeMap::new();
         opts.insert("bs".to_string(), bad.clone());
-        refused("dd_copy", vec![s("a"), s("b"), Value::Record(opts)], "E_BAD_ARG");
+        refused(
+            "dd_copy",
+            vec![s("a"), s("b"), Value::Record(opts)],
+            "E_BAD_ARG",
+        );
     }
     let mut opts = BTreeMap::new();
     opts.insert("count".to_string(), s("3"));
-    refused("dd_copy", vec![s("a"), s("b"), Value::Record(opts)], "E_BAD_ARG");
+    refused(
+        "dd_copy",
+        vec![s("a"), s("b"), Value::Record(opts)],
+        "E_BAD_ARG",
+    );
     refused("dd_copy", vec![s("a"), s("b"), s("bs=1M")], "E_BAD_ARG");
 }
 
@@ -349,7 +385,11 @@ fn dd_copy_copies_the_requested_blocks() {
     assert_eq!(std::fs::read_to_string(&dst).unwrap(), "abcdef");
 
     // A failed copy is an error, not a record that says so.
-    refused("dd_copy", vec![p(&dir.join("missing")), p(&dst)], "E_TOOL_FAILED");
+    refused(
+        "dd_copy",
+        vec![p(&dir.join("missing")), p(&dst)],
+        "E_TOOL_FAILED",
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -466,14 +506,22 @@ fn chgrp_sets_a_group_the_caller_already_has() {
     let file = dir.join("f.txt");
     std::fs::write(&file, "x").unwrap();
     let gid = String::from_utf8(
-        std::process::Command::new("id").arg("-g").output().unwrap().stdout,
+        std::process::Command::new("id")
+            .arg("-g")
+            .output()
+            .unwrap()
+            .stdout,
     )
     .unwrap()
     .trim()
     .to_string();
     let out = ok("chgrp", vec![s(&gid), p(&file)]);
     assert_eq!(field(&out, "group"), &s(&gid));
-    refused("chgrp", vec![s(&gid), p(&dir.join("missing"))], "E_NOT_FOUND");
+    refused(
+        "chgrp",
+        vec![s(&gid), p(&dir.join("missing"))],
+        "E_NOT_FOUND",
+    );
     refused(
         "chgrp",
         vec![s("ae-no-such-group-zq"), p(&file)],
@@ -488,7 +536,13 @@ fn chgrp_sets_a_group_the_caller_already_has() {
 
 #[test]
 fn a_malformed_service_name_is_refused_before_any_manager_runs() {
-    for svc in ["svc_start", "svc_stop", "svc_restart", "svc_enable", "svc_disable"] {
+    for svc in [
+        "svc_start",
+        "svc_stop",
+        "svc_restart",
+        "svc_enable",
+        "svc_disable",
+    ] {
         for bad in ["", "-x", "--now", "a b", "a;b", "a/b", "a'b", "a$b"] {
             refused(svc, vec![s(bad)], "E_BAD_ARG");
         }

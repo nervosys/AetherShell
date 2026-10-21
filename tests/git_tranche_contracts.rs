@@ -435,7 +435,52 @@ fn read_only_builtins_answer_what_git_answers() {
 
     let blame = fx.git(&repo, &["blame", "--", "README.md"]);
     let got: String = serde_json::from_value(fx.json(&repo, "git_blame(\"README.md\")")).unwrap();
-    assert_eq!(got, blame);
+    assert_eq!(mask_uncommitted_times(&got), mask_uncommitted_times(&blame));
+}
+
+/// Blank the timestamp on `Not Committed Yet` lines of `git blame` output. Git stamps
+/// those lines with the wall-clock time of each run, so two runs that straddle a second
+/// differ there and nowhere else. Committed lines are compared exactly.
+fn mask_uncommitted_times(blame: &str) -> String {
+    fn looks_like_date(t: &str) -> bool {
+        let b = t.as_bytes();
+        b.len() == 10 && b[4] == b'-' && b[7] == b'-'
+    }
+    fn looks_like_time(t: &str) -> bool {
+        let b = t.as_bytes();
+        b.len() == 8 && b[2] == b':' && b[5] == b':'
+    }
+    fn looks_like_zone(t: &str) -> bool {
+        let b = t.as_bytes();
+        b.len() == 5 && (b[0] == b'+' || b[0] == b'-')
+    }
+    let mut out = String::new();
+    for line in blame.lines() {
+        if !line.contains("Not Committed Yet") {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        let tokens: Vec<&str> = line.split(' ').collect();
+        let mut kept: Vec<&str> = Vec::with_capacity(tokens.len());
+        let mut i = 0;
+        while i < tokens.len() {
+            if i + 2 < tokens.len()
+                && looks_like_date(tokens[i])
+                && looks_like_time(tokens[i + 1])
+                && looks_like_zone(tokens[i + 2])
+            {
+                kept.push("<time>");
+                i += 3;
+            } else {
+                kept.push(tokens[i]);
+                i += 1;
+            }
+        }
+        out.push_str(&kept.join(" "));
+        out.push('\n');
+    }
+    out
 }
 
 /// A directory argument selects the repository the status is taken from.

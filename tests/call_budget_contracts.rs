@@ -140,13 +140,13 @@ fn dynamic_dispatch_keeps_the_target_effect_gate() {
     }
     let mut env = Env::default();
     // The requested shell command only prints if the guard ever regresses.
+    // sh takes one command string (commit 1c56353), split into words by sh itself.
     code(
         call(
             "call",
             vec![
                 Value::Str("shell".into()),
-                Value::Str("echo".into()),
-                Value::Str("ae_contract_test".into()),
+                Value::Str("echo ae_contract_test".into()),
             ],
             &mut env,
         ),

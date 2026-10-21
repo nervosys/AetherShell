@@ -41,7 +41,10 @@ fn the_stdlib_capitalize_shape_works() {
 #[test]
 fn the_stage_still_receives_its_input() {
     // The fix must not take the input away from the stage itself.
-    assert_eq!(run(r#""ab" | upper()"#).expect("upper"), Value::Str("AB".into()));
+    assert_eq!(
+        run(r#""ab" | upper()"#).expect("upper"),
+        Value::Str("AB".into())
+    );
     assert_eq!(
         run("[3, 1, 2] | take(2)").expect("take"),
         Value::Array(vec![Value::Int(3), Value::Int(1)])

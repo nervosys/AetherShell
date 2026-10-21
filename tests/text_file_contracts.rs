@@ -77,7 +77,7 @@ fn edit_record(fields: Vec<(&str, Value)>) -> Value {
 }
 #[test]
 fn chown_refuses_invalid_ids_and_conflicting_calls_without_changes() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -119,18 +119,31 @@ fn chown_refuses_invalid_ids_and_conflicting_calls_without_changes() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
 }
 #[test]
-fn chown_guards_paths_and_refuses_untracked_transaction_changes() {
-    let _lock = LOCK.lock().unwrap();
+fn chown_guards_paths_and_codes_a_denied_transaction_change() {
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
     std::fs::write(&path, "unchanged").unwrap();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    // Inside a transaction a Unix chown is journaled (tests/tx_metadata_contracts.rs
+    // rolls one back as root); giving a file to root without privilege is the
+    // operating system's refusal, coded. Windows has no chown at all.
+    #[cfg(unix)]
+    let refused = if unsafe { libc::geteuid() } == 0 {
+        None
+    } else {
+        Some("E_POLICY_DENY")
+    };
+    #[cfg(not(unix))]
+    let refused = Some("E_UNIMPLEMENTED");
     aethershell::tx::begin().unwrap();
-    code(
-        call("fs_chown", vec![s("input"), Value::Int(0)], &mut env),
-        "E_UNIMPLEMENTED",
-    );
+    if let Some(expected) = refused {
+        code(
+            call("fs_chown", vec![s("input"), Value::Int(0)], &mut env),
+            expected,
+        );
+    }
     aethershell::tx::rollback().unwrap();
     let jail = fixture.root.join("jail");
     std::fs::create_dir(&jail).unwrap();
@@ -144,7 +157,7 @@ fn chown_guards_paths_and_refuses_untracked_transaction_changes() {
 #[cfg(not(unix))]
 #[test]
 fn chown_reports_non_unix_support_explicitly_instead_of_false() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -166,7 +179,7 @@ fn chown_reports_non_unix_support_explicitly_instead_of_false() {
 #[test]
 fn chown_native_calls_preserve_omitted_group_and_code_missing_files() {
     use std::os::unix::fs::MetadataExt;
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -236,7 +249,7 @@ fn chown_native_calls_preserve_omitted_group_and_code_missing_files() {
 }
 #[test]
 fn structured_edits_support_aliases_pipes_and_descending_operation_order() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -320,7 +333,7 @@ fn structured_edits_support_aliases_pipes_and_descending_operation_order() {
 }
 #[test]
 fn structured_edits_refuse_entire_malformed_or_inapplicable_batches() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -417,7 +430,7 @@ fn structured_edits_refuse_entire_malformed_or_inapplicable_batches() {
 }
 #[test]
 fn structured_edits_bound_batches_work_lines_and_output_before_writing() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -473,7 +486,7 @@ fn structured_edits_bound_batches_work_lines_and_output_before_writing() {
 }
 #[test]
 fn structured_edits_code_read_failures_guard_aliases_and_roll_back() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -523,7 +536,7 @@ fn structured_edits_code_read_failures_guard_aliases_and_roll_back() {
 }
 #[test]
 fn chmod_validates_modes_and_preserves_platform_permission_semantics() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -558,7 +571,7 @@ fn chmod_validates_modes_and_preserves_platform_permission_semantics() {
 }
 #[test]
 fn chmod_refuses_invalid_modes_and_calls_without_changing_permissions() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -604,8 +617,8 @@ fn chmod_refuses_invalid_modes_and_calls_without_changing_permissions() {
     assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
 }
 #[test]
-fn chmod_codes_missing_paths_guards_aliases_and_refuses_untracked_transaction_changes() {
-    let _lock = LOCK.lock().unwrap();
+fn chmod_codes_missing_paths_guards_aliases_and_journals_transaction_changes() {
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -616,15 +629,17 @@ fn chmod_codes_missing_paths_guards_aliases_and_refuses_untracked_transaction_ch
     );
     std::fs::write(&path, "unchanged").unwrap();
     let original = std::fs::metadata(&path).unwrap().permissions();
+    // Inside a transaction a mode change is journaled, not refused: rollback restores
+    // the pre-image (commit 1b55800 replaced the old E_UNIMPLEMENTED refusal).
     aethershell::tx::begin().unwrap();
     for name in ["fs_chmod", "chmod"] {
-        code(
-            call(name, vec![s("input"), Value::Int(0)], &mut env),
-            "E_UNIMPLEMENTED",
+        assert_eq!(
+            call(name, vec![s("input"), Value::Int(0)], &mut env).unwrap(),
+            Value::Bool(true)
         );
-        assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
     }
     aethershell::tx::rollback().unwrap();
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
     let jail = fixture.root.join("jail");
     std::fs::create_dir(&jail).unwrap();
     std::env::set_var("AETHER_WORKSPACE", jail);
@@ -639,7 +654,7 @@ fn chmod_codes_missing_paths_guards_aliases_and_refuses_untracked_transaction_ch
 }
 #[test]
 fn hard_links_share_binary_content_and_roll_back_new_destinations() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -662,7 +677,7 @@ fn hard_links_share_binary_content_and_roll_back_new_destinations() {
 }
 #[test]
 fn hard_links_refuse_invalid_calls_and_existing_destinations_without_snapshotting() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -715,7 +730,7 @@ fn hard_links_refuse_invalid_calls_and_existing_destinations_without_snapshottin
 }
 #[test]
 fn hard_links_code_missing_paths_and_refuse_directory_sources() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let source = fixture.path("source");
@@ -751,7 +766,7 @@ fn hard_links_code_missing_paths_and_refuse_directory_sources() {
 }
 #[test]
 fn hard_links_guard_both_source_and_new_destination() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let workspace = fixture.root.join("workspace");
@@ -785,7 +800,7 @@ fn hard_links_guard_both_source_and_new_destination() {
 #[cfg(unix)]
 #[test]
 fn hard_links_refuse_symlink_sources_and_destinations() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let source = fixture.root.join("source");
@@ -818,7 +833,7 @@ fn hard_links_refuse_symlink_sources_and_destinations() {
 }
 #[test]
 fn delete_lines_preserves_aliases_ranges_and_literal_selectors() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -884,7 +899,7 @@ fn delete_lines_preserves_aliases_ranges_and_literal_selectors() {
 }
 #[test]
 fn delete_lines_handles_empty_files_and_ranges_beyond_eof() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -919,7 +934,7 @@ fn delete_lines_handles_empty_files_and_ranges_beyond_eof() {
 }
 #[test]
 fn delete_lines_refuses_malformed_selections_without_modifying_files() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -973,7 +988,7 @@ fn delete_lines_refuses_malformed_selections_without_modifying_files() {
 }
 #[test]
 fn delete_lines_codes_read_failures_guards_paths_and_supports_rollback() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -1024,7 +1039,7 @@ fn delete_lines_codes_read_failures_guards_paths_and_supports_rollback() {
 }
 #[test]
 fn file_copy_aliases_preserve_binary_bytes_and_resolve_workspace_paths() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -1041,7 +1056,7 @@ fn file_copy_aliases_preserve_binary_bytes_and_resolve_workspace_paths() {
 }
 #[test]
 fn file_copy_preflights_conflicts_overlap_and_budget_without_writes() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let source = fixture.path("source");
@@ -1102,7 +1117,7 @@ fn file_copy_preflights_conflicts_overlap_and_budget_without_writes() {
 }
 #[test]
 fn file_copy_refuses_invalid_calls_and_reports_missing_paths() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let source = fixture.path("input");
@@ -1143,7 +1158,7 @@ fn file_copy_refuses_invalid_calls_and_reports_missing_paths() {
 }
 #[test]
 fn file_copy_imports_outside_sources_and_rolls_back_directory_merges() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let source = fixture.path("source");
@@ -1205,7 +1220,7 @@ fn file_copy_imports_outside_sources_and_rolls_back_directory_merges() {
 #[cfg(unix)]
 #[test]
 fn file_copy_refuses_source_and_destination_symlinks_before_merging() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let source = fixture.root.join("source");
@@ -1264,7 +1279,7 @@ fn file_copy_refuses_source_and_destination_symlinks_before_merging() {
 }
 #[test]
 fn file_backup_preserves_binary_content_and_supports_both_call_forms() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -1288,7 +1303,7 @@ fn file_backup_preserves_binary_content_and_supports_both_call_forms() {
 }
 #[test]
 fn file_backup_validates_suffixes_without_creating_or_clobbering_files() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let source = fixture.path("input");
@@ -1333,7 +1348,7 @@ fn file_backup_validates_suffixes_without_creating_or_clobbering_files() {
 }
 #[test]
 fn file_backup_jails_paths_and_rolls_back_new_and_existing_destinations() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let workspace = fixture.root.join("workspace");
@@ -1371,7 +1386,7 @@ fn file_backup_jails_paths_and_rolls_back_new_and_existing_destinations() {
 }
 #[test]
 fn file_backup_codes_read_and_copy_failures_and_bounds_source_size() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -1412,7 +1427,7 @@ fn file_backup_codes_read_and_copy_failures_and_bounds_source_size() {
 }
 #[test]
 fn file_backup_preserves_source_permissions() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let source = fixture.path("readonly");
@@ -1470,7 +1485,7 @@ fn pager_file(file: bool) -> Value {
 }
 #[test]
 fn bat_reads_literal_plain_files_and_guards_both_aliases() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let workspace = fixture.root.join("workspace");
@@ -1506,7 +1521,7 @@ fn bat_reads_literal_plain_files_and_guards_both_aliases() {
 }
 #[test]
 fn pager_preserves_short_text_and_exact_page_boundaries() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     for name in ["less", "pager"] {
@@ -1540,7 +1555,7 @@ fn pager_preserves_short_text_and_exact_page_boundaries() {
 }
 #[test]
 fn pager_validates_options_and_guards_resolved_file_reads() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let workspace = fixture.root.join("workspace");
@@ -1605,7 +1620,7 @@ fn pager_validates_options_and_guards_resolved_file_reads() {
 }
 #[test]
 fn bat_and_pager_code_read_errors_and_bound_file_sizes() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let bad = fixture.path("bad");
@@ -1638,7 +1653,7 @@ fn diff_record(value: Value) -> std::collections::BTreeMap<String, Value> {
 }
 #[test]
 fn file_diff_preserves_positional_changes_counts_and_line_equality() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let a = fixture.path("a");
     let b = fixture.path("b");
@@ -1700,7 +1715,7 @@ fn file_diff_preserves_positional_changes_counts_and_line_equality() {
 }
 #[test]
 fn file_diff_declares_and_guards_both_actual_read_targets() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let workspace = fixture.root.join("workspace");
     std::fs::create_dir(&workspace).unwrap();
@@ -1733,7 +1748,7 @@ fn file_diff_declares_and_guards_both_actual_read_targets() {
 }
 #[test]
 fn file_diff_bounds_reads_and_refuses_invalid_arguments() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let good = fixture.path("good");
@@ -1783,7 +1798,7 @@ fn file_diff_bounds_reads_and_refuses_invalid_arguments() {
 }
 #[test]
 fn file_diff_bounds_difference_records_at_the_exact_limit() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let a = fixture.path("a");
@@ -1805,7 +1820,7 @@ fn file_diff_bounds_difference_records_at_the_exact_limit() {
 }
 #[test]
 fn sd_uses_native_regex_and_preserves_capture_and_line_semantics() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     for name in ["sd", "sd_replace"] {
@@ -1839,7 +1854,7 @@ fn sd_uses_native_regex_and_preserves_capture_and_line_semantics() {
 }
 #[test]
 fn sd_refuses_invalid_regex_types_and_conflicting_input() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     for name in ["sd", "sd_replace"] {
@@ -1877,7 +1892,7 @@ fn sd_refuses_invalid_regex_types_and_conflicting_input() {
 }
 #[test]
 fn sd_is_declared_pure_and_runs_under_strict_agent_policy() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     std::env::set_var("AETHER_MODE", "agent");
     std::env::set_var("AETHER_POLICY", "strict");
@@ -1903,7 +1918,7 @@ fn sed_options(global: bool, file: bool) -> Value {
 }
 #[test]
 fn sed_preserves_capture_expansion_and_whole_string_match_semantics() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     for name in ["sed", "sed_replace"] {
@@ -1942,7 +1957,7 @@ fn sed_preserves_capture_expansion_and_whole_string_match_semantics() {
 }
 #[test]
 fn sed_refuses_bad_options_regex_and_conflicts_without_writing() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let path = fixture.path("original");
     std::fs::write(&path, "original").unwrap();
@@ -2006,7 +2021,7 @@ fn sed_refuses_bad_options_regex_and_conflicts_without_writing() {
 }
 #[test]
 fn sed_file_mode_resolves_paths_and_rolls_back_atomic_edits() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
     std::fs::write(fixture.root.join("input"), "aba").unwrap();
@@ -2053,7 +2068,7 @@ fn sed_file_mode_resolves_paths_and_rolls_back_atomic_edits() {
 }
 #[test]
 fn sed_file_mode_jails_aliases_and_bounds_reads() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let outside = fixture.path("outside");
     std::fs::write(&outside, "original").unwrap();
@@ -2105,7 +2120,7 @@ fn sed_file_mode_jails_aliases_and_bounds_reads() {
 }
 #[test]
 fn awk_preserves_fields_whole_lines_and_literal_filter_semantics() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     for name in ["awk", "awk_process"] {
@@ -2144,7 +2159,7 @@ fn awk_preserves_fields_whole_lines_and_literal_filter_semantics() {
 }
 #[test]
 fn awk_honours_optional_separators_in_direct_and_piped_forms() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     // An empty separator is outside the awk subset and is refused.
@@ -2194,7 +2209,7 @@ fn awk_honours_optional_separators_in_direct_and_piped_forms() {
 }
 #[test]
 fn awk_refuses_unhandled_programs_invalid_options_and_conflicts() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     // Unsupported constructs and malformed programs are all coded bad arguments.
@@ -2258,7 +2273,7 @@ fn awk_refuses_unhandled_programs_invalid_options_and_conflicts() {
 }
 #[test]
 fn awk_bounds_field_reference_expansion() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     // A bare `$1,$1` is a range pattern in awk, which the subset refuses; a
@@ -2283,7 +2298,7 @@ fn awk_bounds_field_reference_expansion() {
 }
 #[test]
 fn cut_preserves_field_order_duplicates_and_literal_delimiters() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     for name in ["cut", "cut_columns"] {
@@ -2322,7 +2337,7 @@ fn cut_preserves_field_order_duplicates_and_literal_delimiters() {
 }
 #[test]
 fn cut_refuses_malformed_conflicting_and_oversized_selections() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     for spec in [
@@ -2388,7 +2403,7 @@ fn code(result: anyhow::Result<Value>, expected: &str) {
 }
 #[test]
 fn tail_preserves_both_file_orders_and_pipeline_line_semantics() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let path = fixture.path("input");
     std::fs::write(&path, "a\r\nb\r\nc\r\n").unwrap();
@@ -2426,7 +2441,7 @@ fn tail_preserves_both_file_orders_and_pipeline_line_semantics() {
 }
 #[test]
 fn tail_bounds_reads_and_codes_missing_or_invalid_utf8_files() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     code(
@@ -2445,7 +2460,7 @@ fn tail_bounds_reads_and_codes_missing_or_invalid_utf8_files() {
 }
 #[test]
 fn tee_overwrites_appends_and_formats_data_in_both_forms_and_aliases() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let path = fixture.path("output");
     let mut env = Env::default();
@@ -2485,7 +2500,7 @@ fn tee_overwrites_appends_and_formats_data_in_both_forms_and_aliases() {
 }
 #[test]
 fn malformed_tee_options_are_refused_without_clobbering() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let path = fixture.path("output");
     let mut env = Env::default();
@@ -2524,7 +2539,7 @@ fn malformed_tee_options_are_refused_without_clobbering() {
 }
 #[test]
 fn tee_jails_new_destinations_and_resolves_relative_paths_to_workspace() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let workspace = fixture.root.join("workspace");
     std::fs::create_dir(&workspace).unwrap();
@@ -2546,7 +2561,7 @@ fn tee_jails_new_destinations_and_resolves_relative_paths_to_workspace() {
 }
 #[test]
 fn tee_snapshots_overwrites_appends_and_new_files_for_rollback() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
     let path = fixture.path("existing");
@@ -2569,7 +2584,7 @@ fn tee_snapshots_overwrites_appends_and_new_files_for_rollback() {
 
 #[test]
 fn head_preserves_both_file_orders_and_pipeline_line_semantics() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let path = fixture.path("input");
     std::fs::write(&path, "a\r\nb\r\nc\r\n").unwrap();
@@ -2607,7 +2622,7 @@ fn head_preserves_both_file_orders_and_pipeline_line_semantics() {
 }
 #[test]
 fn head_bounds_reads_and_codes_missing_or_invalid_utf8_files() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     code(
@@ -2627,7 +2642,7 @@ fn head_bounds_reads_and_codes_missing_or_invalid_utf8_files() {
 
 #[test]
 fn symlink_refuses_invalid_calls_and_existing_destinations() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let destination = fixture.path("existing");
@@ -2656,8 +2671,8 @@ fn symlink_refuses_invalid_calls_and_existing_destinations() {
     assert_eq!(std::fs::read_to_string(&destination).unwrap(), "unchanged");
 }
 #[test]
-fn symlink_guards_referred_targets_and_refuses_transactions() {
-    let _lock = LOCK.lock().unwrap();
+fn symlink_guards_referred_targets_and_journals_transactions() {
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -2687,17 +2702,33 @@ fn symlink_guards_referred_targets_and_refuses_transactions() {
         ),
         "E_OUTSIDE_WORKSPACE",
     );
+    // Inside a transaction the new link is journaled, not refused (commit 1b55800):
+    // rollback removes it and leaves the target alone. The target exists so that
+    // Windows, which needs a link kind, can resolve it.
+    std::fs::write(fixture.path("target"), "kept").unwrap();
     aethershell::tx::begin().unwrap();
-    code(
-        call("fs_symlink", vec![s("target"), s(&destination)], &mut env),
-        "E_UNIMPLEMENTED",
-    );
+    let created = call("fs_symlink", vec![s("target"), s(&destination)], &mut env);
+    match &created {
+        Ok(value) => assert_eq!(value, &Value::Bool(true)),
+        #[cfg(windows)]
+        Err(error) => assert!(
+            error.to_string().contains("E_POLICY_DENY")
+                || error.to_string().contains("os error 1314"),
+            "{error}"
+        ),
+        #[cfg(not(windows))]
+        Err(error) => panic!("{error}"),
+    }
     aethershell::tx::rollback().unwrap();
     assert!(std::fs::symlink_metadata(&destination).is_err());
+    assert_eq!(
+        std::fs::read_to_string(fixture.path("target")).unwrap(),
+        "kept"
+    );
 }
 #[test]
 fn symlink_relative_target_uses_destination_parent() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::fs::create_dir(fixture.root.join("nested")).unwrap();
@@ -2733,7 +2764,7 @@ fn symlink_relative_target_uses_destination_parent() {
 #[cfg(windows)]
 #[test]
 fn symlink_windows_refuses_ambiguous_and_missing_targets_before_creation() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let destination = fixture.path("link");
@@ -2753,7 +2784,7 @@ fn symlink_windows_refuses_ambiguous_and_missing_targets_before_creation() {
 #[cfg(unix)]
 #[test]
 fn symlink_unix_preserves_dangling_targets_and_protects_audit_aliases() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -2785,7 +2816,7 @@ fn symlink_unix_preserves_dangling_targets_and_protects_audit_aliases() {
 
 #[test]
 fn permission_checks_validate_calls_and_code_missing_paths() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -2819,7 +2850,7 @@ fn permission_checks_validate_calls_and_code_missing_paths() {
 
 #[test]
 fn permission_checks_report_metadata_and_resolve_workspace_paths() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -2853,7 +2884,7 @@ fn permission_checks_report_metadata_and_resolve_workspace_paths() {
 
 #[test]
 fn permission_set_validates_calls_and_never_discards_pipeline_input() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -2886,8 +2917,8 @@ fn permission_set_validates_calls_and_never_discards_pipeline_input() {
 }
 
 #[test]
-fn permission_set_guards_and_audits_its_own_name_and_refuses_transactions() {
-    let _lock = LOCK.lock().unwrap();
+fn permission_set_guards_and_audits_its_own_name_and_journals_transactions() {
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -2897,12 +2928,16 @@ fn permission_set_guards_and_audits_its_own_name_and_refuses_transactions() {
         call("perm_set", vec![s("missing"), Value::Int(0o600)], &mut env),
         "E_NOT_FOUND",
     );
+    // Inside a transaction the mode change is journaled, not refused (commit 1b55800):
+    // rollback restores the pre-image.
+    let original = std::fs::metadata(&path).unwrap().permissions();
     aethershell::tx::begin().unwrap();
-    code(
-        call("perm_set", vec![s("input"), Value::Int(0o600)], &mut env),
-        "E_UNIMPLEMENTED",
+    assert_eq!(
+        call("perm_set", vec![s("input"), Value::Int(0o400)], &mut env).unwrap(),
+        Value::Bool(true)
     );
     aethershell::tx::rollback().unwrap();
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
     let jail = fixture.root.join("jail");
     std::fs::create_dir(&jail).unwrap();
     std::env::set_var("AETHER_WORKSPACE", &jail);
@@ -2919,7 +2954,7 @@ fn permission_set_guards_and_audits_its_own_name_and_refuses_transactions() {
 #[cfg(unix)]
 #[test]
 fn permission_check_execute_uses_any_unix_execute_bit() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
@@ -2938,7 +2973,7 @@ fn permission_check_execute_uses_any_unix_execute_bit() {
 
 #[test]
 fn unsupported_acl_operations_refuse_without_mutation() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("owned");
@@ -2967,7 +3002,7 @@ fn unsupported_acl_operations_refuse_without_mutation() {
 
 #[test]
 fn sudo_check_rejects_ignored_input_and_inspects_without_elevating() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     for args in [vec![Value::Int(1)], vec![s("ignored")], vec![Value::Null]] {
@@ -2997,7 +3032,7 @@ fn sudo_check_rejects_ignored_input_and_inspects_without_elevating() {
 
 #[test]
 fn unsupported_filesystem_operations_refuse_without_mutation() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("owned");
@@ -3037,7 +3072,7 @@ fn unsupported_filesystem_operations_refuse_without_mutation() {
 
 #[test]
 fn password_hashes_use_stored_salts_and_bounded_parameters() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     let password = "-secret\n\0雪";
@@ -3177,7 +3212,7 @@ fn password_hashes_use_stored_salts_and_bounded_parameters() {
 
 #[test]
 fn crypto_refusals_and_key_generation_reject_discarded_input() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::new();
     for name in ["crypto_sign", "crypto_verify_signature"] {
@@ -3221,7 +3256,7 @@ fn crypto_refusals_and_key_generation_reject_discarded_input() {
 
 #[test]
 fn certificate_inspection_validates_owned_files_before_platform_or_tool_checks() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::new();
     let path = fixture.path("invalid.pem");
@@ -3283,7 +3318,7 @@ fn certificate_inspection_validates_owned_files_before_platform_or_tool_checks()
 #[cfg(unix)]
 #[test]
 fn generated_ec_key_is_checkable_by_openssl_in_an_owned_fixture() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::new();
     let key = match call("crypto_generate_key", vec![s("EC")], &mut env) {
@@ -3307,7 +3342,7 @@ fn generated_ec_key_is_checkable_by_openssl_in_an_owned_fixture() {
 
 #[test]
 fn scheduling_contracts_reject_ignored_input_without_scheduling_jobs() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::new();
     for name in ["cron_add", "at_schedule", "at_remove"] {
@@ -3337,7 +3372,7 @@ fn scheduling_contracts_reject_ignored_input_without_scheduling_jobs() {
 
 #[test]
 fn scheduler_lifecycle_is_gated_before_native_backend_access() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::new();
     std::env::set_var("AETHER_MODE", "agent");
@@ -3391,7 +3426,7 @@ fn scheduler_lifecycle_is_gated_before_native_backend_access() {
 
 #[test]
 fn rust_documentation_extracts_real_declarations_without_running_source() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::new();
     let source = r#"// fn fake() {}
@@ -3461,7 +3496,7 @@ fn tcp_binary_transfer_eof_timeout_and_handle_lifecycle() {
     use std::io::{Read, Write};
     use std::net::{Shutdown, TcpListener};
     use std::time::Duration;
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -3560,7 +3595,7 @@ fn tcp_contracts_policy_and_transactions_gate_actual_peer() {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::time::Duration;
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
     let mut env = Env::default();
@@ -3652,7 +3687,7 @@ fn tcp_one_shot_listener_accepts_and_releases_port_on_timeout() {
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::time::{Duration, Instant};
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
     let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -3723,7 +3758,7 @@ fn tcp_one_shot_listener_accepts_and_releases_port_on_timeout() {
 fn tcp_handle_budget_releases_capacity_and_close_interrupts_reader() {
     use std::net::TcpListener;
     use std::time::{Duration, Instant};
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
     struct Handles(Vec<Value>);
@@ -3803,7 +3838,7 @@ fn tcp_waits_respect_short_and_expired_evaluation_deadlines() {
             "{error}"
         );
     }
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -3849,7 +3884,7 @@ fn tcp_waits_respect_short_and_expired_evaluation_deadlines() {
 }
 #[test]
 fn source_navigation_inspects_real_bindings_references_and_signatures_without_effects() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     std::env::set_var("AETHER_MODE", "agent");
     std::env::set_var("AETHER_WORKSPACE", &fixture.root);
@@ -3923,7 +3958,7 @@ fn source_navigation_inspects_real_bindings_references_and_signatures_without_ef
 
 #[test]
 fn source_navigation_counts_dynamic_calls_pipelines_unicode_positions_and_completions() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     let source = "f = fn(x) => [abs(x), len(x), (fn(y) => y)(x), x | len]";
@@ -4032,7 +4067,7 @@ fn source_navigation_counts_dynamic_calls_pipelines_unicode_positions_and_comple
 
 #[test]
 fn source_navigation_refuses_invalid_shapes_syntax_and_complexity() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     for name in [
@@ -4106,7 +4141,7 @@ fn source_navigation_refuses_invalid_shapes_syntax_and_complexity() {
 
 #[test]
 fn project_scripts_reads_json_jsonc_python_and_cargo_without_running_commands() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     let cases = [
@@ -4193,7 +4228,7 @@ fn project_scripts_reads_json_jsonc_python_and_cargo_without_running_commands() 
 
 #[test]
 fn project_scripts_refuses_malformed_missing_and_oversized_manifests_without_partial_results() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
     code(call("project_scripts", vec![], &mut env), "E_BAD_ARG");
@@ -4283,7 +4318,7 @@ fn ed_fixture() -> (Value, Value, Value) {
 }
 #[test]
 fn ed25519_matches_rfc8032_vector_and_rejects_tampering() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     let (private, public, signature) = ed_fixture();
@@ -4337,7 +4372,7 @@ fn ed25519_matches_rfc8032_vector_and_rejects_tampering() {
 }
 #[test]
 fn ed25519_generated_keys_sign_binary_and_language_examples() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     let key = call("crypto_generate_key", vec![s("ED25519")], &mut env).unwrap();
@@ -4373,7 +4408,7 @@ fn ed25519_generated_keys_sign_binary_and_language_examples() {
 }
 #[test]
 fn ed25519_rejects_bad_encodings_arguments_and_inconsistent_keys() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::default();
     let (private, public, signature) = ed_fixture();
@@ -4470,7 +4505,7 @@ fn ed25519_rejects_bad_encodings_arguments_and_inconsistent_keys() {
 }
 #[test]
 fn ed25519_fips_policy_refuses_unvalidated_backend() {
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     std::env::set_var("AETHER_FIPS", "1");
     let mut env = Env::default();

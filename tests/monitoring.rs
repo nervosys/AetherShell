@@ -2,6 +2,36 @@
 
 use aethershell::builtins::*;
 use aethershell::value::Value;
+use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
+
+/// The alert store lives under AETHER_DATA_HOME and is one process-wide file, so
+/// every test that touches it holds this lock and points the store at its own directory.
+static STORE: Mutex<()> = Mutex::new(());
+
+struct IsolatedStore {
+    dir: PathBuf,
+    _guard: MutexGuard<'static, ()>,
+}
+
+fn isolated_store() -> IsolatedStore {
+    let guard = STORE.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!(
+        "ae-monitoring-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&dir).expect("create the temporary data directory");
+    std::env::set_var("AETHER_DATA_HOME", &dir);
+    IsolatedStore { dir, _guard: guard }
+}
+
+impl Drop for IsolatedStore {
+    fn drop(&mut self) {
+        std::env::remove_var("AETHER_DATA_HOME");
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
 
 // ============================================================================
 // Health Check
@@ -46,6 +76,7 @@ fn test_health_check_returns_record() {
 
 #[test]
 fn test_alert_create_returns_record() {
+    let _store = isolated_store();
     let result = bi_alert_create(
         vec![
             Value::Str("high_cpu".to_string()),
@@ -87,6 +118,7 @@ fn test_alert_create_requires_metric() {
 
 #[test]
 fn test_alert_create_defaults() {
+    let _store = isolated_store();
     let result = bi_alert_create(
         vec![
             Value::Str("test_alert".to_string()),
@@ -114,16 +146,30 @@ fn test_alert_create_defaults() {
 
 #[test]
 fn test_alert_list_returns_array() {
-    let result = bi_alert_list(vec![], None);
-    assert!(result.is_ok());
-    match result.unwrap() {
+    let _store = isolated_store();
+    // alert_list reports only stored rules; fixed default rules were removed (commit 11beb85).
+    match bi_alert_list(vec![], None).unwrap() {
+        Value::Array(arr) => assert!(arr.is_empty(), "a fresh store lists no rules, got {arr:?}"),
+        other => panic!("alert_list should return Array, got: {:?}", other),
+    }
+    bi_alert_create(
+        vec![
+            Value::Str("high_cpu".to_string()),
+            Value::Str("cpu".to_string()),
+        ],
+        None,
+    )
+    .unwrap();
+    match bi_alert_list(vec![], None).unwrap() {
         Value::Array(arr) => {
-            assert!(!arr.is_empty(), "should return default alert rules");
+            assert_eq!(arr.len(), 1, "the one stored rule is listed");
             if let Value::Record(rec) = &arr[0] {
                 assert!(rec.contains_key("name"));
                 assert!(rec.contains_key("metric"));
                 assert!(rec.contains_key("threshold"));
                 assert!(rec.contains_key("triggered"));
+            } else {
+                panic!("a rule is a Record, got {:?}", arr[0]);
             }
         }
         other => panic!("alert_list should return Array, got: {:?}", other),
@@ -132,6 +178,7 @@ fn test_alert_list_returns_array() {
 
 #[test]
 fn test_alert_history_returns_array() {
+    let _store = isolated_store();
     let result = bi_alert_history(vec![], None);
     assert!(result.is_ok());
     assert!(matches!(result.unwrap(), Value::Array(_)));
@@ -143,14 +190,39 @@ fn test_alert_history_returns_array() {
 
 #[test]
 fn test_alert_remove_returns_confirmation() {
-    let result = bi_alert_remove(vec![Value::Str("alert_123".to_string())], None);
+    let _store = isolated_store();
+    let created = match bi_alert_create(
+        vec![
+            Value::Str("high_cpu".to_string()),
+            Value::Str("cpu".to_string()),
+        ],
+        None,
+    )
+    .unwrap()
+    {
+        Value::Record(rec) => rec,
+        other => panic!("alert_create should return Record, got: {:?}", other),
+    };
+    let id = match created.get("id") {
+        Some(Value::Str(id)) => id.clone(),
+        other => panic!("the created rule has no string id: {other:?}"),
+    };
+
+    let result = bi_alert_remove(vec![Value::Str(id.clone())], None);
     assert!(result.is_ok());
     match result.unwrap() {
         Value::Record(rec) => {
-            assert_eq!(rec.get("id"), Some(&Value::Str("alert_123".to_string())));
+            assert_eq!(rec.get("id"), Some(&Value::Str(id.clone())));
             assert_eq!(rec.get("removed"), Some(&Value::Bool(true)));
         }
         other => panic!("alert_remove should return Record, got: {:?}", other),
+    }
+
+    // Removing a rule that is gone, or was never stored, is a coded not-found refusal.
+    for unknown in [id.as_str(), "alert_123"] {
+        let err = bi_alert_remove(vec![Value::Str(unknown.to_string())], None)
+            .expect_err("removing an unknown alert must fail");
+        assert!(err.to_string().contains("E_NOT_FOUND"), "{err}");
     }
 }
 

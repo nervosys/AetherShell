@@ -4,6 +4,11 @@ use aethershell::{
     value::Value,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Mutex;
+
+/// The evolution builtins draw from one process-wide RNG (evolution.rs `rand_f64`) and
+/// share the population state the tests inspect, so the tests in this file run one at a time.
+static EVOLUTION: Mutex<()> = Mutex::new(());
 
 fn lambda(source: &str) -> Value {
     let program = aethershell::parser::parse_program(source).unwrap();
@@ -63,6 +68,7 @@ fn error_code(result: anyhow::Result<Value>, expected: &str) {
 
 #[test]
 fn callback_failures_and_invalid_scores_are_never_zero_fitness() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     for genome in ["nn", "vec"] {
         let pop = population(genome, &mut env);
@@ -102,6 +108,7 @@ impl Drop for CallbackFile {
 
 #[test]
 fn invalid_callback_score_stops_after_the_first_call() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     for name in ["fitness", "evolve_step", "evolve"] {
         let path = std::env::temp_dir().join(format!("ae-fitness-{}.txt", uuid::Uuid::new_v4()));
@@ -123,6 +130,7 @@ fn invalid_callback_score_stops_after_the_first_call() {
 
 #[test]
 fn fitness_caches_scores_and_preserves_history_across_direct_and_pipeline_calls() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     for genome in ["nn", "vec"] {
         let initial = population(genome, &mut env);
@@ -156,6 +164,7 @@ fn fitness_caches_scores_and_preserves_history_across_direct_and_pipeline_calls(
 
 #[test]
 fn generations_preserve_history_and_never_reuse_current_individual_ids() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     for genome in ["nn", "vec"] {
         let initial = population(genome, &mut env);
@@ -216,6 +225,7 @@ fn generations_preserve_history_and_never_reuse_current_individual_ids() {
 
 #[test]
 fn zero_generations_and_legacy_next_id_are_supported_but_bad_limits_are_refused() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     let initial = population("vec", &mut env);
     let result = call(
@@ -277,6 +287,7 @@ fn zero_generations_and_legacy_next_id_are_supported_but_bad_limits_are_refused(
 
 #[test]
 fn malformed_population_state_is_refused_before_any_callback() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     let pop = population("vec", &mut env);
     let cases = [
@@ -326,6 +337,7 @@ fn malformed_population_state_is_refused_before_any_callback() {
 
 #[test]
 fn computed_statistics_overflow_is_a_coded_refusal() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     let pop = population("vec", &mut env);
     let numeric_callback = |score| {
@@ -352,6 +364,7 @@ fn computed_statistics_overflow_is_a_coded_refusal() {
 
 #[test]
 fn work_and_history_budgets_are_checked_before_callbacks() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     let large = call(
         "population",
@@ -414,6 +427,7 @@ fn work_and_history_budgets_are_checked_before_callbacks() {
 
 #[test]
 fn coevolve_preserves_order_and_checks_all_states_before_callbacks() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     let vector = population("vec", &mut env);
     let neural = population("nn", &mut env);
@@ -461,6 +475,7 @@ fn coevolve_preserves_order_and_checks_all_states_before_callbacks() {
 
 #[test]
 fn coevolve_refuses_combined_work_and_size_budgets() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     let initial = population("vec", &mut env);
     let wide = changed(&initial, "_individuals", |data| {
@@ -533,6 +548,7 @@ fn coevolve_refuses_combined_work_and_size_budgets() {
 
 #[test]
 fn coevolve_callbacks_and_generation_options_have_strict_contracts() {
+    let _lock = EVOLUTION.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::new();
     let initial = population("vec", &mut env);
     let batch = Value::Array(vec![initial]);
