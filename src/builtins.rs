@@ -37330,10 +37330,22 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Decrypt a pre-AS-2026-04 `openssl enc -aes-256-cbc` ciphertext. Kept so data
 /// written by an older AetherShell stays recoverable, but off by default: see
 /// the refusal in `bi_crypto_decrypt` for why.
+/// Deadline for one legacy decrypt. OpenSSL on a few MiB finishes in well under
+/// a second; this bounds a hung child, not a slow one.
+#[cfg(unix)]
+const CRYPTO_LEGACY_DEADLINE_SECS: u64 = 30;
+/// The most plaintext one legacy decrypt may return. Past it the call is
+/// refused: a plaintext cut short would look whole.
+#[cfg(unix)]
+const CRYPTO_LEGACY_MAX_BYTES: usize = 64 * 1024 * 1024;
+
 #[cfg(unix)]
 fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
-    let mut child = std::process::Command::new("openssl")
-        .args([
+    let output = run_output(
+        "crypto_decrypt",
+        "openssl",
+        "openssl",
+        &[
             "enc",
             "-aes-256-cbc",
             "-pbkdf2",
@@ -37344,22 +37356,14 @@ fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
             // environment, which is owner-readable only (AS-2026-03).
             "-pass",
             "env:AE_OPENSSL_PASS",
-        ])
-        .env("AE_OPENSSL_PASS", password)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| crate::safety::spawn_error("crypto_decrypt", "openssl", &e))?;
-    if let Some(stdin) = child.stdin.as_mut() {
-        use std::io::Write;
-        stdin
-            .write_all(data.as_bytes())
-            .map_err(|e| anyhow::anyhow!("E_IO: crypto_decrypt: writing legacy ciphertext: {e}"))?;
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|e| anyhow::anyhow!("E_IO: crypto_decrypt: waiting for OpenSSL: {e}"))?;
+        ],
+        |cmd| {
+            cmd.env("AE_OPENSSL_PASS", password);
+        },
+        Some(data.as_bytes().to_vec()),
+        CRYPTO_LEGACY_DEADLINE_SECS,
+        CRYPTO_LEGACY_MAX_BYTES,
+    )?;
     if output.status.success() {
         return Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).to_string(),
@@ -49878,6 +49882,8 @@ pub(crate) struct TreeRun {
     /// A descendant still held stdout or stderr after the grace, so whatever
     /// it would have printed after that was not read.
     pub(crate) pipes_abandoned: bool,
+    /// The child's exit status; `None` only when the deadline killed it.
+    pub(crate) status: Option<std::process::ExitStatus>,
 }
 
 /// Why a bounded run could not be completed.
@@ -49912,7 +49918,7 @@ pub(crate) fn run_tree(
     program: &str,
     args: &[&str],
     configure: impl FnOnce(&mut std::process::Command),
-    stdin: Option<String>,
+    stdin: Option<Vec<u8>>,
     limit: std::time::Duration,
     stdout_keep: Keep,
     stderr_keep: Keep,
@@ -49940,7 +49946,7 @@ pub(crate) fn run_tree(
         // the kill closes the pipe, which then fails the write.
         std::thread::spawn(move || {
             use std::io::Write;
-            let _ = pipe.write_all(payload.as_bytes());
+            let _ = pipe.write_all(&payload);
         });
     }
     let out = PipeReader::start(child.stdout.take(), stdout_keep);
@@ -49961,7 +49967,7 @@ pub(crate) fn run_tree(
         }
         std::thread::sleep(std::time::Duration::from_millis(5));
     };
-    let (success, code, timed_out, out_closed, err_closed) = match exited {
+    let (success, code, status, timed_out, out_closed, err_closed) = match exited {
         Some(status) => {
             let (mut out_closed, mut err_closed) = wait_pipes(&out, &err, PIPE_GRACE);
             if !(out_closed && err_closed) {
@@ -49973,6 +49979,7 @@ pub(crate) fn run_tree(
             (
                 status.success(),
                 status.code(),
+                Some(status),
                 false,
                 out_closed,
                 err_closed,
@@ -49981,7 +49988,7 @@ pub(crate) fn run_tree(
         None => {
             kill_tree(&mut child);
             let (out_closed, err_closed) = wait_pipes(&out, &err, PIPE_GRACE);
-            (false, None, true, out_closed, err_closed)
+            (false, None, None, true, out_closed, err_closed)
         }
     };
     let (stdout, stdout_truncated) = out.finish();
@@ -49995,7 +50002,81 @@ pub(crate) fn run_tree(
         stderr,
         stderr_truncated,
         pipes_abandoned: !out_closed || !err_closed,
+        status,
     })
+}
+
+/// Run `tool` (executed as `program`) through [`run_tree`] and return the
+/// `Output` its callers read. Stdin is written on run_tree's own thread, so a
+/// payload larger than the pipe buffer cannot deadlock against a child that is
+/// still writing. Past `deadline_secs` the child's tree is killed and the call
+/// is a coded budget error. Output over `max_output` in either stream is also a
+/// budget error: a report cut short would look whole. Nothing is judged here.
+pub(crate) fn run_output(
+    builtin: &str,
+    tool: &str,
+    program: &str,
+    args: &[&str],
+    configure: impl FnOnce(&mut std::process::Command),
+    stdin: Option<Vec<u8>>,
+    deadline_secs: u64,
+    max_output: usize,
+) -> Result<std::process::Output> {
+    let run = run_tree(
+        program,
+        args,
+        configure,
+        stdin,
+        std::time::Duration::from_secs(deadline_secs),
+        Keep::Head(max_output),
+        Keep::Head(max_output),
+    )
+    .map_err(|e| match e {
+        TreeError::Spawn(e) | TreeError::Wait(e) => crate::safety::spawn_error(builtin, tool, &e),
+    })?;
+    match run.status {
+        Some(status) if !run.timed_out => {
+            if run.stdout_truncated || run.stderr_truncated {
+                return Err(crate::safety::budget_exceeded(
+                    builtin,
+                    format!("`{tool}` printed more than {max_output} bytes"),
+                    "the output was not used; the call was refused rather than cut short",
+                ));
+            }
+            Ok(std::process::Output {
+                status,
+                stdout: run.stdout,
+                stderr: run.stderr,
+            })
+        }
+        _ => Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("`{tool}` did not finish within {deadline_secs} s"),
+            "the call was killed and its result discarded; check the state with the matching read builtin before retrying",
+        )),
+    }
+}
+
+/// Test hook: the scheduler's tool runner, so a test can feed it a payload
+/// larger than the pipe buffer. Not part of the public API.
+#[doc(hidden)]
+pub fn __test_scheduler_run_tool(
+    tool: &str,
+    args: &[&str],
+    stdin: Option<&[u8]>,
+) -> Result<std::process::Output> {
+    scheduler::run_tool("test", tool, args, stdin)
+}
+
+/// Test hook: the account tools' spawn helper (Linux; elsewhere a refusal).
+/// Not part of the public API.
+#[doc(hidden)]
+pub fn __test_accounts_spawn(
+    tool: &str,
+    args: &[&str],
+    stdin: Option<&str>,
+) -> Result<std::process::Output> {
+    accounts::spawn("test", tool, args, stdin)
 }
 
 /// What one pipe has produced, kept to its `Keep` bound while it is read.

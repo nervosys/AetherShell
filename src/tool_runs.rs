@@ -261,7 +261,7 @@ pub(super) fn run_bounded(
         &argv[0],
         &args,
         |_| {},
-        stdin,
+        stdin.map(String::into_bytes),
         limit,
         Keep::Tail(OUTPUT_KEEP),
         Keep::Tail(OUTPUT_KEEP),

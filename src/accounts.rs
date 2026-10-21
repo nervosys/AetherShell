@@ -923,10 +923,12 @@ fn run(
 /// Starts `tool` with argv only, never through a shell. The optional stdin
 /// payload is the only channel for secrets.
 #[cfg(target_os = "linux")]
-fn spawn(builtin: &str, tool: &str, args: &[&str], stdin: Option<&str>) -> Result<Output> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
+pub(super) fn spawn(
+    builtin: &str,
+    tool: &str,
+    args: &[&str],
+    stdin: Option<&str>,
+) -> Result<Output> {
     // Debian and most distributions install the shadow tools under /usr/sbin,
     // which a non-root PATH often omits. Prefer the absolute path, else PATH.
     const TOOL_DIRS: [&str; 4] = ["/usr/sbin", "/sbin", "/usr/bin", "/bin"];
@@ -935,30 +937,33 @@ fn spawn(builtin: &str, tool: &str, args: &[&str], stdin: Option<&str>) -> Resul
         .map(|dir| format!("{dir}/{tool}"))
         .find(|candidate| Path::new(candidate).is_file())
         .unwrap_or_else(|| tool.to_string());
-    let mut child = Command::new(&path)
-        .args(args)
-        .stdin(if stdin.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| crate::safety::spawn_error(builtin, tool, &e))?;
-    if let Some(payload) = stdin {
-        if let Some(mut pipe) = child.stdin.take() {
-            // A tool that exits without reading its input is reported by its status.
-            let _ = pipe.write_all(payload.as_bytes());
-        }
-    }
-    child
-        .wait_with_output()
-        .map_err(|e| crate::safety::spawn_error(builtin, tool, &e))
+    // A tool that exits without reading its input is reported by its status.
+    crate::builtins::run_output(
+        builtin,
+        tool,
+        &path,
+        args,
+        |_| {},
+        stdin.map(|payload| payload.as_bytes().to_vec()),
+        ACCOUNT_TOOL_DEADLINE_SECS,
+        ACCOUNT_TOOL_MAX_OUTPUT,
+    )
 }
 
+/// Deadline for one account or group tool, or getent lookup.
+#[cfg(target_os = "linux")]
+const ACCOUNT_TOOL_DEADLINE_SECS: u64 = 60;
+/// The most output one account tool call may print in either stream.
+#[cfg(target_os = "linux")]
+const ACCOUNT_TOOL_MAX_OUTPUT: usize = crate::builtins::TOOL_MAX_JSON;
+
 #[cfg(not(target_os = "linux"))]
-fn spawn(builtin: &str, _tool: &str, _args: &[&str], _stdin: Option<&str>) -> Result<Output> {
+pub(super) fn spawn(
+    builtin: &str,
+    _tool: &str,
+    _args: &[&str],
+    _stdin: Option<&str>,
+) -> Result<Output> {
     Err(crate::safety::unimplemented(
         builtin,
         "account and group administration is implemented on Linux only in 13.0.0; NOTHING WAS CHANGED",

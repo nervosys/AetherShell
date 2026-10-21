@@ -4,44 +4,42 @@ use super::{cron_success_output, parse_cron_listing, CRON_CHANGE_LOCK};
 use crate::{safety, value::Value};
 use anyhow::Result;
 use chrono::TimeZone;
-use std::{
-    io::Write,
-    process::{Command, Output, Stdio},
-};
+use std::process::Output;
 
+/// Deadline for a crontab, at, atrm or schtasks call.
+const TOOL_DEADLINE_SECS: u64 = 30;
+/// Deadline for a PowerShell task registration or listing, which starts slowly.
+const POWERSHELL_DEADLINE_SECS: u64 = 60;
+/// The most output one scheduler tool call may print in either stream.
+const TOOL_MAX_OUTPUT: usize = super::TOOL_MAX_JSON;
+
+/// Runs one scheduler tool with `LC_ALL=C`, stdin as `stdin` (or closed), and
+/// a deadline. The payload is written on its own thread, so a large one cannot
+/// deadlock against the tool's own output. A tool that exits without reading
+/// its input is judged by its status.
 pub(super) fn run_tool(
     name: &str,
     tool: &str,
     args: &[&str],
     stdin: Option<&[u8]>,
 ) -> Result<Output> {
-    let mut child = Command::new(tool)
-        .args(args)
-        .env("LC_ALL", "C")
-        .stdin(if stdin.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| safety::spawn_error(name, tool, &e))?;
-    if let Some(bytes) = stdin {
-        let write = child
-            .stdin
-            .take()
-            .expect("piped scheduler stdin")
-            .write_all(bytes);
-        if let Err(e) = write {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(safety::spawn_error(name, tool, &e));
-        }
-    }
-    child
-        .wait_with_output()
-        .map_err(|e| safety::spawn_error(name, tool, &e))
+    let deadline = if tool == "powershell" {
+        POWERSHELL_DEADLINE_SECS
+    } else {
+        TOOL_DEADLINE_SECS
+    };
+    crate::builtins::run_output(
+        name,
+        tool,
+        tool,
+        args,
+        |cmd| {
+            cmd.env("LC_ALL", "C");
+        },
+        stdin.map(<[u8]>::to_vec),
+        deadline,
+        TOOL_MAX_OUTPUT,
+    )
 }
 
 fn check(name: &str, tool: &str, output: &Output) -> Result<()> {
