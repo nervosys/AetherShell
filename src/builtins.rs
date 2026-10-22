@@ -38011,11 +38011,10 @@ fn bi_crypto_cert_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     }
     #[cfg(unix)]
     {
-        let output = std::process::Command::new("openssl")
-            .args(["x509", "-in", &path, "-text", "-noout"])
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|e| crate::safety::spawn_error(name, "openssl", &e))?;
+        let mut cmd = std::process::Command::new("openssl");
+        cmd.args(["x509", "-in", &path, "-text", "-noout"])
+            .stdin(std::process::Stdio::null());
+        let output = bounded_cmd_output(name, "openssl", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 name,
@@ -38114,10 +38113,9 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     crate::tx::snapshot(&db_path);
 
-    let output = std::process::Command::new("sqlite3")
-        .args([&db_path, &sql])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("db_sqlite_exec", "sqlite3", &e))?;
+    let mut cmd = std::process::Command::new("sqlite3");
+    cmd.args([&db_path, &sql]);
+    let output = bounded_cmd_output("db_sqlite_exec", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
     // Every mutating sqlite builtin comes through here, and a SQL error was a
     // bare `false` with sqlite3's message discarded.
     if !output.status.success() {
@@ -38196,10 +38194,9 @@ fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     crate::safety::reject_option_like("db_sqlite_create", std::slice::from_ref(&db_path))?;
     // Just touch the file to create empty database
-    let output = std::process::Command::new("sqlite3")
-        .args([&db_path, "SELECT 1"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("db_sqlite_create", "sqlite3", &e))?;
+    let mut cmd = std::process::Command::new("sqlite3");
+    cmd.args([&db_path, "SELECT 1"]);
+    let output = bounded_cmd_output("db_sqlite_create", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
     if !output.status.success() {
         return Err(crate::safety::tool_failed(
             "db_sqlite_create",
@@ -38251,10 +38248,9 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             &backup_path,
         ));
     }
-    let output = std::process::Command::new("sqlite3")
-        .args([&db_path, &format!(".backup '{}'", backup_path)])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("db_sqlite_backup", "sqlite3", &e))?;
+    let mut cmd = std::process::Command::new("sqlite3");
+    cmd.args([&db_path, &format!(".backup '{}'", backup_path)]);
+    let output = bounded_cmd_output("db_sqlite_backup", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
 
     if !output.status.success() {
         return Err(crate::safety::tool_failed(
@@ -38477,10 +38473,9 @@ fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 
     crate::safety::reject_sqlite_dot_command("db_sqlite_export_csv", &query)?;
     crate::safety::reject_option_like("db_sqlite_export_csv", std::slice::from_ref(&db_path))?;
-    let output = std::process::Command::new("sqlite3")
-        .args(["-header", "-csv", &db_path, &query])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("db_sqlite_export_csv", "sqlite3", &e))?;
+    let mut cmd = std::process::Command::new("sqlite3");
+    cmd.args(["-header", "-csv", &db_path, &query]);
+    let output = bounded_cmd_output("db_sqlite_export_csv", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
 
     if output.status.success() {
         let csv = String::from_utf8_lossy(&output.stdout).to_string();
@@ -38882,15 +38877,14 @@ fn bi_clipboard_history(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     no_args_or_input(NAME, &args, &input)?;
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Get-ClipboardHistory | Select-Object -First 10 | ForEach-Object { $_.Text }",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-ClipboardHistory | Select-Object -First 10 | ForEach-Object { $_.Text }",
+        ]);
+        let output = bounded_cmd_output(NAME, "powershell", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             // Previously answered a String explaining the requirement, which
             // read as a list of one entry. The requirement is an error.
@@ -39567,10 +39561,9 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
                 &e,
             ));
         }
-        let output = std::process::Command::new("openssl")
-            .args(["verify", &cert_path])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("crypto_cert_verify", "openssl", &e))?;
+        let mut cmd = std::process::Command::new("openssl");
+        cmd.args(["verify", &cert_path]);
+        let output = bounded_cmd_output("crypto_cert_verify", "openssl", cmd, TOOL_DEADLINE_SECS)?;
         return Ok(Value::Bool(output.status.success()));
     }
     #[cfg(not(unix))]
@@ -40073,10 +40066,9 @@ fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             &db_path,
         ));
     }
-    let output = std::process::Command::new("sqlite3")
-        .args([&db_path, ".dump"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("db_sqlite_dump", "sqlite3", &e))?;
+    let mut cmd = std::process::Command::new("sqlite3");
+    cmd.args([&db_path, ".dump"]);
+    let output = bounded_cmd_output("db_sqlite_dump", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
 
     if output.status.success() {
         return Ok(Value::Str(
@@ -42396,10 +42388,10 @@ fn git_succeeded(builtin: &str, output: &std::process::Output, dir: &str) -> Res
     // says "not a git repository", `git diff` says "Not a git repository" and
     // prints usage, `git diff --staged` says only "unknown option", and all
     // of it is translated under a non-English locale.
-    let in_repo = std::process::Command::new("git")
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .current_dir(dir)
-        .output()
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["rev-parse", "--is-inside-work-tree"]);
+    cmd.current_dir(dir);
+    let in_repo = bounded_cmd_output("git_succeeded", "git", cmd, TOOL_DEADLINE_SECS)
         .is_ok_and(|o| o.status.success());
     if !in_repo {
         return Err(crate::safety::bad_state(
@@ -42448,11 +42440,10 @@ fn bi_git_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => ".".to_string(),
     };
     let path = git_dir_arg("git_status", &path)?;
-    let output = std::process::Command::new("git")
-        .args(["status", "--porcelain", "-b"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_status", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["status", "--porcelain", "-b"]);
+    cmd.current_dir(&path);
+    let output = bounded_cmd_output("git_status", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_status", &output, &path)?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let lines: Vec<Value> = stdout.lines().map(|l| Value::Str(l.to_string())).collect();
@@ -42466,11 +42457,10 @@ fn bi_git_diff(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => ".".to_string(),
     };
     let path = git_dir_arg("git_diff", &path)?;
-    let output = std::process::Command::new("git")
-        .args(["diff"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_diff", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["diff"]);
+    cmd.current_dir(&path);
+    let output = bounded_cmd_output("git_diff", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_diff", &output, &path)?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -42484,11 +42474,10 @@ fn bi_git_diff_staged(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => ".".to_string(),
     };
     let path = git_dir_arg("git_diff_staged", &path)?;
-    let output = std::process::Command::new("git")
-        .args(["diff", "--staged"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_diff_staged", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["diff", "--staged"]);
+    cmd.current_dir(&path);
+    let output = bounded_cmd_output("git_diff_staged", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_diff_staged", &output, &path)?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -42510,10 +42499,9 @@ fn bi_git_log(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             &format!("{count}"),
         ));
     }
-    let output = std::process::Command::new("git")
-        .args(["log", &format!("-{}", count), "--oneline"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_log", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["log", &format!("-{}", count), "--oneline"]);
+    let output = bounded_cmd_output("git_log", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_log", &output, ".")?;
     let lines: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -42526,10 +42514,9 @@ fn bi_git_blame(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_blame", &input)?;
     let file = git_ref_arg("git_blame", &args, "a file path")?;
     crate::safety::reject_option_like("git_blame", std::slice::from_ref(&file))?;
-    let output = std::process::Command::new("git")
-        .args(["blame", "--", &file])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_blame", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["blame", "--", &file]);
+    let output = bounded_cmd_output("git_blame", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_blame", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -42537,10 +42524,9 @@ fn bi_git_blame(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_branch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["branch", "--show-current"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_branch", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["branch", "--show-current"]);
+    let output = bounded_cmd_output("git_branch", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_branch", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -42548,10 +42534,9 @@ fn bi_git_branch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_branches(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["branch", "-a"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_branches", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["branch", "-a"]);
+    let output = bounded_cmd_output("git_branches", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_branches", &output, ".")?;
     let branches: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -42567,10 +42552,9 @@ fn bi_git_checkout(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // The `--` makes git resolve the name as a revision only. Without it,
     // `git checkout README.md` restores that file from the index and silently
     // discards its uncommitted edits. With it, a path is "invalid reference".
-    let output = std::process::Command::new("git")
-        .args(["checkout", &branch, "--"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_checkout", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["checkout", &branch, "--"]);
+    let output = bounded_cmd_output("git_checkout", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_checkout", &output, ".")?;
     Ok(Value::Bool(true))
 }
@@ -42590,10 +42574,9 @@ fn bi_git_commit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     // The message is the argument of `-m`, which consumes it, so a message
     // beginning with '-' is text, not an option.
-    let output = std::process::Command::new("git")
-        .args(["commit", "-m", &msg])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_commit", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["commit", "-m", &msg]);
+    let output = bounded_cmd_output("git_commit", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_commit", &output, ".")?;
     Ok(Value::Bool(true))
 }
@@ -42617,12 +42600,11 @@ fn bi_git_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             &format!("{bad:?}"),
         ));
     }
-    let output = std::process::Command::new("git")
-        .arg("add")
-        .arg("--")
-        .args(&files)
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_add", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("add");
+    cmd.arg("--");
+    cmd.args(&files);
+    let output = bounded_cmd_output("git_add", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_add", &output, ".")?;
     Ok(Value::Bool(true))
 }
@@ -42658,39 +42640,35 @@ fn bi_git_reset(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if !target.starts_with('-') {
         argv.push("--");
     }
-    let output = std::process::Command::new("git")
-        .args(&argv)
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_reset", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(&argv);
+    let output = bounded_cmd_output("git_reset", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_reset", &output, ".")?;
     Ok(Value::Bool(true))
 }
 
 fn bi_git_stash(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_stash", &input)?;
-    let output = std::process::Command::new("git")
-        .args(["stash"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_stash", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["stash"]);
+    let output = bounded_cmd_output("git_stash", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_stash", &output, ".")?;
     Ok(Value::Bool(true))
 }
 
 fn bi_git_stash_pop(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_stash_pop", &input)?;
-    let output = std::process::Command::new("git")
-        .args(["stash", "pop"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_stash_pop", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["stash", "pop"]);
+    let output = bounded_cmd_output("git_stash_pop", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_stash_pop", &output, ".")?;
     Ok(Value::Bool(true))
 }
 
 fn bi_git_stash_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["stash", "list"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_stash_list", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["stash", "list"]);
+    let output = bounded_cmd_output("git_stash_list", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_stash_list", &output, ".")?;
     let stashes: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -42700,10 +42678,9 @@ fn bi_git_stash_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 }
 
 fn bi_git_remote(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["remote", "-v"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_remote", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["remote", "-v"]);
+    let output = bounded_cmd_output("git_remote", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_remote", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -42712,30 +42689,27 @@ fn bi_git_remote(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_git_fetch(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_fetch", &input)?;
-    let output = std::process::Command::new("git")
-        .args(["fetch"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_fetch", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["fetch"]);
+    let output = bounded_cmd_output("git_fetch", "git", cmd, NETWORK_DEADLINE_SECS)?;
     git_succeeded("git_fetch", &output, ".")?;
     Ok(Value::Bool(true))
 }
 
 fn bi_git_pull(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_pull", &input)?;
-    let output = std::process::Command::new("git")
-        .args(["pull"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_pull", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["pull"]);
+    let output = bounded_cmd_output("git_pull", "git", cmd, NETWORK_DEADLINE_SECS)?;
     git_succeeded("git_pull", &output, ".")?;
     Ok(Value::Bool(true))
 }
 
 fn bi_git_push(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_push", &input)?;
-    let output = std::process::Command::new("git")
-        .args(["push"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_push", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["push"]);
+    let output = bounded_cmd_output("git_push", "git", cmd, NETWORK_DEADLINE_SECS)?;
     git_succeeded("git_push", &output, ".")?;
     Ok(Value::Bool(true))
 }
@@ -42745,10 +42719,9 @@ fn bi_git_merge(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let branch = git_ref_arg("git_merge", &args, "a branch name")?;
     crate::safety::reject_option_like("git_merge", std::slice::from_ref(&branch))?;
     // --no-edit: never open an editor for the merge message.
-    let output = std::process::Command::new("git")
-        .args(["merge", "--no-edit", &branch])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_merge", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["merge", "--no-edit", &branch]);
+    let output = bounded_cmd_output("git_merge", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_merge", &output, ".")?;
     Ok(Value::Bool(true))
 }
@@ -42757,10 +42730,9 @@ fn bi_git_rebase(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_rebase", &input)?;
     let branch = git_ref_arg("git_rebase", &args, "a branch name")?;
     crate::safety::reject_option_like("git_rebase", std::slice::from_ref(&branch))?;
-    let output = std::process::Command::new("git")
-        .args(["rebase", &branch])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_rebase", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["rebase", &branch]);
+    let output = bounded_cmd_output("git_rebase", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_rebase", &output, ".")?;
     Ok(Value::Bool(true))
 }
@@ -42769,19 +42741,17 @@ fn bi_git_cherry_pick(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_cherry_pick", &input)?;
     let commit = git_ref_arg("git_cherry_pick", &args, "a commit")?;
     crate::safety::reject_option_like("git_cherry_pick", std::slice::from_ref(&commit))?;
-    let output = std::process::Command::new("git")
-        .args(["cherry-pick", &commit])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_cherry_pick", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["cherry-pick", &commit]);
+    let output = bounded_cmd_output("git_cherry_pick", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_cherry_pick", &output, ".")?;
     Ok(Value::Bool(true))
 }
 
 fn bi_git_tags(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["tag", "-l"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_tags", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["tag", "-l"]);
+    let output = bounded_cmd_output("git_tags", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_tags", &output, ".")?;
     let tags: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -42799,10 +42769,9 @@ fn bi_git_show(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         crate::safety::reject_option_like("git_show", std::slice::from_ref(&value))?;
         value
     };
-    let output = std::process::Command::new("git")
-        .args(["show", &commit])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_show", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["show", &commit]);
+    let output = bounded_cmd_output("git_show", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_show", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -42818,10 +42787,9 @@ fn bi_git_rev_parse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         crate::safety::reject_option_like("git_rev_parse", std::slice::from_ref(&value))?;
         value
     };
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", &rev])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_rev_parse", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["rev-parse", &rev]);
+    let output = bounded_cmd_output("git_rev_parse", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_rev_parse", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -42829,10 +42797,9 @@ fn bi_git_rev_parse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_root", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["rev-parse", "--show-toplevel"]);
+    let output = bounded_cmd_output("git_root", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_root", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -42855,10 +42822,9 @@ fn bi_git_ignore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     // A .gitignore written outside a repository is a file nobody asked for,
     // so the refusal is the same one the other git builtins give.
-    let inside = std::process::Command::new("git")
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_ignore", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["rev-parse", "--is-inside-work-tree"]);
+    let inside = bounded_cmd_output("git_ignore", "git", cmd, TOOL_DEADLINE_SECS)?;
     if !(inside.status.success() && inside.stdout.starts_with(b"true")) {
         return Err(crate::safety::bad_state(
             "git_ignore",
@@ -42904,10 +42870,9 @@ fn bi_git_clean(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => true,
     };
     let flag = if dry_run { "-n" } else { "-f" };
-    let output = std::process::Command::new("git")
-        .args(["clean", "-d", flag])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("git_clean", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["clean", "-d", flag]);
+    let output = bounded_cmd_output("git_clean", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_clean", &output, ".")?;
     let files: Vec<Value> = String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -43054,21 +43019,22 @@ fn bi_code_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .unwrap_or("");
     // The path goes to the formatter positionally.
     crate::safety::reject_option_like("code_format", std::slice::from_ref(&file))?;
-    let (program, result) = match ext {
-        "rs" => (
-            "rustfmt",
-            std::process::Command::new("rustfmt").arg(&file).output(),
-        ),
-        "py" => (
-            "black",
-            std::process::Command::new("black").arg(&file).output(),
-        ),
-        "js" | "ts" => (
-            "prettier",
-            std::process::Command::new("prettier")
-                .args(["--write", &file])
-                .output(),
-        ),
+    let (program, cmd) = match ext {
+        "rs" => {
+            let mut cmd = std::process::Command::new("rustfmt");
+            cmd.arg(&file);
+            ("rustfmt", cmd)
+        }
+        "py" => {
+            let mut cmd = std::process::Command::new("black");
+            cmd.arg(&file);
+            ("black", cmd)
+        }
+        "js" | "ts" => {
+            let mut cmd = std::process::Command::new("prettier");
+            cmd.args(["--write", &file]);
+            ("prettier", cmd)
+        }
         // An unsupported extension, a missing formatter and a formatter that
         // failed were all `false`.
         other => {
@@ -43079,7 +43045,7 @@ fn bi_code_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-    let output = result.map_err(|e| crate::safety::spawn_error("code_format", program, &e))?;
+    let output = bounded_cmd_output("code_format", program, cmd, TOOL_DEADLINE_SECS)?;
     if !output.status.success() {
         return Err(crate::safety::tool_failed(
             "code_format",
@@ -43190,9 +43156,9 @@ fn bi_project_type(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_project_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output();
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["rev-parse", "--show-toplevel"]);
+    let output = bounded_cmd_output("project_root", "git", cmd, TOOL_DEADLINE_SECS);
     if let Ok(o) = output {
         if o.status.success() {
             return Ok(Value::Str(
@@ -44175,10 +44141,9 @@ fn bi_diag_explain(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("error code required"))?;
     crate::safety::reject_option_like("diag_explain", std::slice::from_ref(&code))?;
-    let output = std::process::Command::new("rustc")
-        .args(["--explain", &code])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("diag_explain", "rustc", &e))?;
+    let mut cmd = std::process::Command::new("rustc");
+    cmd.args(["--explain", &code]);
+    let output = bounded_cmd_output("diag_explain", "rustc", cmd, TOOL_DEADLINE_SECS)?;
     // A code rustc does not know ("E9999") answered "".
     if !output.status.success() {
         return Err(crate::safety::tool_failed(
@@ -44468,20 +44433,18 @@ fn bi_session_checkpoint(args: Vec<Value>, input: Option<Value>) -> Result<Value
     // touching the tree; `stash store` keeps that record in the stash list.
     // Both git calls are checked the same way: outside a repository these
     // are E_BAD_STATE, a failed git is E_TOOL_FAILED with its stderr tail.
-    let output = std::process::Command::new("git")
-        .args(["stash", "create"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("session_checkpoint", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["stash", "create"]);
+    let output = bounded_cmd_output("session_checkpoint", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_checkpoint", &output, ".")?;
     let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if sha.is_empty() {
         // Not an error: the tree has no changes, so there is nothing to keep.
         return Ok(Value::Bool(false));
     }
-    let output = std::process::Command::new("git")
-        .args(["stash", "store", "-m", &name, &sha])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("session_checkpoint", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["stash", "store", "-m", &name, &sha]);
+    let output = bounded_cmd_output("session_checkpoint", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_checkpoint", &output, ".")?;
     Ok(Value::Bool(true))
 }
@@ -44493,21 +44456,20 @@ fn bi_session_restore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .map(|v| expect_int("session_restore", v))
         .transpose()?
         .unwrap_or(0);
-    let check = std::process::Command::new("git")
-        .args([
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("stash@{{{}}}", index),
-        ])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("session_restore", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args([
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        &format!("stash@{{{}}}", index),
+    ]);
+    let check = bounded_cmd_output("session_restore", "git", cmd, TOOL_DEADLINE_SECS)?;
     if !check.status.success() {
         // A missing checkpoint is not a git failure: git's own answer for it
         // is exit 1 with no text, which the generic path reported as E_TOOL_FAILED.
-        let in_repo = std::process::Command::new("git")
-            .args(["rev-parse", "--is-inside-work-tree"])
-            .output()
+        let mut cmd = std::process::Command::new("git");
+        cmd.args(["rev-parse", "--is-inside-work-tree"]);
+        let in_repo = bounded_cmd_output("session_restore", "git", cmd, TOOL_DEADLINE_SECS)
             .is_ok_and(|o| o.status.success());
         if in_repo {
             return Err(crate::safety::not_found(
@@ -44518,10 +44480,9 @@ fn bi_session_restore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
         git_succeeded("session_restore", &check, ".")?;
     }
-    let output = std::process::Command::new("git")
-        .args(["stash", "apply", &format!("stash@{{{}}}", index)])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("session_restore", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["stash", "apply", &format!("stash@{{{}}}", index)]);
+    let output = bounded_cmd_output("session_restore", "git", cmd, TOOL_DEADLINE_SECS)?;
     // `false` said "not restored" and dropped why: no repository, no such
     // checkpoint, or a conflict. Those need different next steps.
     git_succeeded("session_restore", &output, ".")?;
@@ -44541,10 +44502,9 @@ fn bi_session_diff_since(args: Vec<Value>, input: Option<Value>) -> Result<Value
         .transpose()?
         .unwrap_or("HEAD~1".to_string());
     crate::safety::reject_option_like("session_diff_since", std::slice::from_ref(&commit))?;
-    let output = std::process::Command::new("git")
-        .args(["diff", &commit])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("session_diff_since", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["diff", &commit]);
+    let output = bounded_cmd_output("session_diff_since", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_diff_since", &output, ".")?;
     Ok(Value::Str(
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -44564,10 +44524,9 @@ fn bi_session_rollback(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         None => "HEAD".to_string(),
     };
     crate::safety::reject_option_like("session_rollback", std::slice::from_ref(&commit))?;
-    let output = std::process::Command::new("git")
-        .args(["reset", "--hard", &commit])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("session_rollback", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["reset", "--hard", &commit]);
+    let output = bounded_cmd_output("session_rollback", "git", cmd, TOOL_DEADLINE_SECS)?;
     // Was `Bool(success)`: a failed reset answered false with no reason.
     git_succeeded("session_rollback", &output, ".")?;
     Ok(Value::Bool(true))
@@ -44582,10 +44541,9 @@ fn bi_session_export(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .unwrap_or("session.patch".to_string());
     // Same again: labelled `ReadLocal`, writes an arbitrary path.
     let file = guard_local_write("session_export", &file)?;
-    let output = std::process::Command::new("git")
-        .args(["diff"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("session_export", "git", &e))?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["diff"]);
+    let output = bounded_cmd_output("session_export", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_export", &output, ".")?;
     std::fs::write(&file, &output.stdout)
         .map_err(|e| crate::safety::fs_error("session_export", &file, &e))?;
@@ -44829,10 +44787,9 @@ fn bi_env_python(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_node(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("node")
-        .args(["--version"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("env_node", "node", &e))?;
+    let mut cmd = std::process::Command::new("node");
+    cmd.args(["--version"]);
+    let output = bounded_cmd_output("env_node", "node", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
     // back as the answer. On WSL, `docker` is a shim that exists,
     // prints "could not be found in this WSL 2 distro" and exits
@@ -44857,10 +44814,9 @@ fn bi_env_node(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_rust(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("rustc")
-        .args(["--version"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("env_rust", "rustc", &e))?;
+    let mut cmd = std::process::Command::new("rustc");
+    cmd.args(["--version"]);
+    let output = bounded_cmd_output("env_rust", "rustc", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
     // back as the answer. On WSL, `docker` is a shim that exists,
     // prints "could not be found in this WSL 2 distro" and exits
@@ -44885,13 +44841,10 @@ fn bi_env_rust(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_go(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("go")
-        .args(["version"])
-        // In a module whose go.mod asks for a newer Go, `go version` would
-        // download that toolchain first.
-        .env("GOTOOLCHAIN", "local")
-        .output()
-        .map_err(|e| crate::safety::spawn_error("env_go", "go", &e))?;
+    let mut cmd = std::process::Command::new("go");
+    cmd.args(["version"]);
+    cmd.env("GOTOOLCHAIN", "local");
+    let output = bounded_cmd_output("env_go", "go", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
     // back as the answer. On WSL, `docker` is a shim that exists,
     // prints "could not be found in this WSL 2 distro" and exits
@@ -44916,10 +44869,9 @@ fn bi_env_go(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_java(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("java")
-        .args(["--version"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("env_java", "java", &e))?;
+    let mut cmd = std::process::Command::new("java");
+    cmd.args(["--version"]);
+    let output = bounded_cmd_output("env_java", "java", cmd, PROBE_DEADLINE_SECS)?;
     // Same exit-status gap as the rest of the family; this one takes only
     // the first line, so a multi-line failure message was truncated into
     // something that looked even more like a version string.
@@ -44941,10 +44893,9 @@ fn bi_env_java(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_dotnet(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("dotnet")
-        .args(["--version"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("env_dotnet", "dotnet", &e))?;
+    let mut cmd = std::process::Command::new("dotnet");
+    cmd.args(["--version"]);
+    let output = bounded_cmd_output("env_dotnet", "dotnet", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
     // back as the answer. On WSL, `docker` is a shim that exists,
     // prints "could not be found in this WSL 2 distro" and exits
@@ -44969,10 +44920,9 @@ fn bi_env_dotnet(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_ruby(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("ruby")
-        .args(["--version"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("env_ruby", "ruby", &e))?;
+    let mut cmd = std::process::Command::new("ruby");
+    cmd.args(["--version"]);
+    let output = bounded_cmd_output("env_ruby", "ruby", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
     // back as the answer. On WSL, `docker` is a shim that exists,
     // prints "could not be found in this WSL 2 distro" and exits
@@ -45076,10 +45026,9 @@ fn bi_env_unset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_docker(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("docker")
-        .args(["--version"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("env_docker", "docker", &e))?;
+    let mut cmd = std::process::Command::new("docker");
+    cmd.args(["--version"]);
+    let output = bounded_cmd_output("env_docker", "docker", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
     // back as the answer. On WSL, `docker` is a shim that exists,
     // prints "could not be found in this WSL 2 distro" and exits
@@ -45489,13 +45438,17 @@ fn bi_platform_snapshot(_args: Vec<Value>, input: Option<Value>) -> Result<Value
     );
 
     // Hostname
-    if let Ok(hostname) = std::process::Command::new(if cfg!(windows) {
+    let hostname_cmd = std::process::Command::new(if cfg!(windows) {
         "hostname"
     } else {
         "hostname"
-    })
-    .output()
-    {
+    });
+    if let Ok(hostname) = bounded_cmd_output(
+        "platform_snapshot",
+        "hostname",
+        hostname_cmd,
+        PROBE_DEADLINE_SECS,
+    ) {
         let h = String::from_utf8_lossy(&hostname.stdout).trim().to_string();
         snapshot.insert("hostname".to_string(), Value::Str(h));
     }
@@ -45503,17 +45456,15 @@ fn bi_platform_snapshot(_args: Vec<Value>, input: Option<Value>) -> Result<Value
     // OS version
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("cmd")
-            .args(["/c", "ver"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/c", "ver"]);
+        if let Ok(out) = bounded_cmd_output("platform_snapshot", "cmd", cmd, PROBE_DEADLINE_SECS) {
             let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
             snapshot.insert("os_version".to_string(), Value::Str(ver));
         }
-        if let Ok(out) = std::process::Command::new("wmic")
-            .args(["os", "get", "BuildNumber"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("wmic");
+        cmd.args(["os", "get", "BuildNumber"]);
+        if let Ok(out) = bounded_cmd_output("platform_snapshot", "wmic", cmd, PROBE_DEADLINE_SECS) {
             let build = String::from_utf8_lossy(&out.stdout)
                 .lines()
                 .nth(1)
@@ -45526,11 +45477,17 @@ fn bi_platform_snapshot(_args: Vec<Value>, input: Option<Value>) -> Result<Value
 
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(out) = std::process::Command::new("uname").arg("-r").output() {
+        let mut cmd = std::process::Command::new("uname");
+        cmd.arg("-r");
+        if let Ok(out) = bounded_cmd_output("platform_snapshot", "uname", cmd, PROBE_DEADLINE_SECS)
+        {
             let kernel = String::from_utf8_lossy(&out.stdout).trim().to_string();
             snapshot.insert("kernel".to_string(), Value::Str(kernel));
         }
-        if let Ok(out) = std::process::Command::new("uname").arg("-v").output() {
+        let mut cmd = std::process::Command::new("uname");
+        cmd.arg("-v");
+        if let Ok(out) = bounded_cmd_output("platform_snapshot", "uname", cmd, PROBE_DEADLINE_SECS)
+        {
             let build = String::from_utf8_lossy(&out.stdout).trim().to_string();
             snapshot.insert("build".to_string(), Value::Str(build));
         }
@@ -45629,9 +45586,9 @@ fn md5_simple(s: &str) -> u64 {
 fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("cmd")
-            .args(["/c", "ver"])
-            .output()
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/c", "ver"]);
+        if let Ok(out) = bounded_cmd_output("platform_os_version", "cmd", cmd, PROBE_DEADLINE_SECS)
         {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&out.stdout).trim().to_string(),
@@ -45640,9 +45597,10 @@ fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
     }
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("sw_vers")
-            .arg("-productVersion")
-            .output()
+        let mut cmd = std::process::Command::new("sw_vers");
+        cmd.arg("-productVersion");
+        if let Ok(out) =
+            bounded_cmd_output("platform_os_version", "sw_vers", cmd, PROBE_DEADLINE_SECS)
         {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&out.stdout).trim().to_string(),
@@ -45664,7 +45622,11 @@ fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
                 }
             }
         }
-        if let Ok(out) = std::process::Command::new("uname").arg("-r").output() {
+        let mut cmd = std::process::Command::new("uname");
+        cmd.arg("-r");
+        if let Ok(out) =
+            bounded_cmd_output("platform_os_version", "uname", cmd, PROBE_DEADLINE_SECS)
+        {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&out.stdout).trim().to_string(),
             ));
@@ -45676,10 +45638,9 @@ fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
 fn bi_platform_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("wmic")
-            .args(["os", "get", "Version"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("wmic");
+        cmd.args(["os", "get", "Version"]);
+        if let Ok(out) = bounded_cmd_output("platform_kernel", "wmic", cmd, PROBE_DEADLINE_SECS) {
             let ver = String::from_utf8_lossy(&out.stdout)
                 .lines()
                 .nth(1)
@@ -45691,7 +45652,9 @@ fn bi_platform_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(out) = std::process::Command::new("uname").arg("-r").output() {
+        let mut cmd = std::process::Command::new("uname");
+        cmd.arg("-r");
+        if let Ok(out) = bounded_cmd_output("platform_kernel", "uname", cmd, PROBE_DEADLINE_SECS) {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&out.stdout).trim().to_string(),
             ));
@@ -45703,10 +45666,9 @@ fn bi_platform_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_platform_build(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("wmic")
-            .args(["os", "get", "BuildNumber"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("wmic");
+        cmd.args(["os", "get", "BuildNumber"]);
+        if let Ok(out) = bounded_cmd_output("platform_build", "wmic", cmd, PROBE_DEADLINE_SECS) {
             let build = String::from_utf8_lossy(&out.stdout)
                 .lines()
                 .nth(1)
@@ -45718,10 +45680,9 @@ fn bi_platform_build(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     }
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("sw_vers")
-            .arg("-buildVersion")
-            .output()
-        {
+        let mut cmd = std::process::Command::new("sw_vers");
+        cmd.arg("-buildVersion");
+        if let Ok(out) = bounded_cmd_output("platform_build", "sw_vers", cmd, PROBE_DEADLINE_SECS) {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&out.stdout).trim().to_string(),
             ));
@@ -45729,7 +45690,9 @@ fn bi_platform_build(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     }
     #[cfg(target_os = "linux")]
     {
-        if let Ok(out) = std::process::Command::new("uname").arg("-v").output() {
+        let mut cmd = std::process::Command::new("uname");
+        cmd.arg("-v");
+        if let Ok(out) = bounded_cmd_output("platform_build", "uname", cmd, PROBE_DEADLINE_SECS) {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&out.stdout).trim().to_string(),
             ));
@@ -45757,9 +45720,10 @@ fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
     }
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("ioreg")
-            .args(["-rd1", "-c", "IOPlatformExpertDevice"])
-            .output()
+        let mut cmd = std::process::Command::new("ioreg");
+        cmd.args(["-rd1", "-c", "IOPlatformExpertDevice"]);
+        if let Ok(out) =
+            bounded_cmd_output("platform_machine_id", "ioreg", cmd, PROBE_DEADLINE_SECS)
         {
             let output = String::from_utf8_lossy(&out.stdout);
             for line in output.lines() {
@@ -45773,9 +45737,9 @@ fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
     }
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("wmic")
-            .args(["csproduct", "get", "UUID"])
-            .output()
+        let mut cmd = std::process::Command::new("wmic");
+        cmd.args(["csproduct", "get", "UUID"]);
+        if let Ok(out) = bounded_cmd_output("platform_machine_id", "wmic", cmd, PROBE_DEADLINE_SECS)
         {
             let uuid = String::from_utf8_lossy(&out.stdout)
                 .lines()
@@ -46126,9 +46090,9 @@ fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<
     #[cfg(target_os = "windows")]
     {
         // Check if running as admin
-        let is_admin = std::process::Command::new("net")
-            .args(["session"])
-            .output()
+        let mut cmd = std::process::Command::new("net");
+        cmd.args(["session"]);
+        let is_admin = bounded_cmd_output("platform_capabilities", "net", cmd, PROBE_DEADLINE_SECS)
             .map(|o| o.status.success())
             .unwrap_or(false);
         caps.insert("has_admin".to_string(), Value::Bool(is_admin));
@@ -46218,9 +46182,9 @@ fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<
 fn bi_platform_has_admin(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let is_admin = std::process::Command::new("net")
-            .args(["session"])
-            .output()
+        let mut cmd = std::process::Command::new("net");
+        cmd.args(["session"]);
+        let is_admin = bounded_cmd_output("platform_has_admin", "net", cmd, PROBE_DEADLINE_SECS)
             .map(|o| o.status.success())
             .unwrap_or(false);
         Ok(Value::Bool(is_admin))
@@ -47150,9 +47114,9 @@ fn bi_platform_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ];
 
     for lib in check_libs {
-        if let Ok(out) = std::process::Command::new("pkg-config")
-            .args(["--modversion", lib])
-            .output()
+        let mut cmd = std::process::Command::new("pkg-config");
+        cmd.args(["--modversion", lib]);
+        if let Ok(out) = bounded_cmd_output("platform_libs", "pkg-config", cmd, PROBE_DEADLINE_SECS)
         {
             if out.status.success() {
                 let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -47170,12 +47134,17 @@ fn bi_platform_lib_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
     // A missing pkg-config and an absent library were both null, so "not
     // installed" could not be told from "could not ask". Null now means only
     // the library is unknown to pkg-config.
-    let out = std::process::Command::new("pkg-config")
-        .args(["--modversion", lib])
-        .output()
-        .map_err(|e| {
-            crate::safety::tool_missing("platform_lib_version", "pkg-config", &e.to_string())
-        })?;
+    let mut cmd = std::process::Command::new("pkg-config");
+    cmd.args(["--modversion", lib]);
+    let out = bounded_cmd_output(
+        "platform_lib_version",
+        "pkg-config",
+        cmd,
+        PROBE_DEADLINE_SECS,
+    )
+    .map_err(|e| {
+        crate::safety::tool_missing("platform_lib_version", "pkg-config", &e.to_string())
+    })?;
     if out.status.success() {
         return Ok(Value::Str(
             String::from_utf8_lossy(&out.stdout).trim().to_string(),
@@ -47190,16 +47159,20 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
     #[cfg(target_os = "linux")]
     {
         // Get glibc version
-        if let Ok(out) = std::process::Command::new("ldd").arg("--version").output() {
+        let mut cmd = std::process::Command::new("ldd");
+        cmd.arg("--version");
+        if let Ok(out) = bounded_cmd_output("platform_system_libs", "ldd", cmd, PROBE_DEADLINE_SECS)
+        {
             let ver = String::from_utf8_lossy(&out.stdout);
             if let Some(line) = ver.lines().next() {
                 info.insert("glibc".to_string(), Value::Str(line.to_string()));
             }
         }
         // Get libstdc++ version
-        if let Ok(out) = std::process::Command::new("strings")
-            .args(["/usr/lib/x86_64-linux-gnu/libstdc++.so.6"])
-            .output()
+        let mut cmd = std::process::Command::new("strings");
+        cmd.args(["/usr/lib/x86_64-linux-gnu/libstdc++.so.6"]);
+        if let Ok(out) =
+            bounded_cmd_output("platform_system_libs", "strings", cmd, PROBE_DEADLINE_SECS)
         {
             let output = String::from_utf8_lossy(&out.stdout);
             let glibcxx: Vec<&str> = output
@@ -47215,18 +47188,23 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
     #[cfg(target_os = "macos")]
     {
         // Get macOS SDK version
-        if let Ok(out) = std::process::Command::new("xcrun")
-            .args(["--show-sdk-version"])
-            .output()
+        let mut cmd = std::process::Command::new("xcrun");
+        cmd.args(["--show-sdk-version"]);
+        if let Ok(out) =
+            bounded_cmd_output("platform_system_libs", "xcrun", cmd, PROBE_DEADLINE_SECS)
         {
             let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
             info.insert("macos_sdk".to_string(), Value::Str(ver));
         }
         // Get Xcode version
-        if let Ok(out) = std::process::Command::new("xcodebuild")
-            .arg("-version")
-            .output()
-        {
+        let mut cmd = std::process::Command::new("xcodebuild");
+        cmd.arg("-version");
+        if let Ok(out) = bounded_cmd_output(
+            "platform_system_libs",
+            "xcodebuild",
+            cmd,
+            PROBE_DEADLINE_SECS,
+        ) {
             let ver = String::from_utf8_lossy(&out.stdout);
             if let Some(line) = ver.lines().next() {
                 info.insert("xcode".to_string(), Value::Str(line.to_string()));
@@ -47248,7 +47226,9 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
             info.insert("vs_path".to_string(), Value::Str(vs_path));
         }
         // Get MSVC version
-        if let Ok(out) = std::process::Command::new("cl").output() {
+        let cmd = std::process::Command::new("cl");
+        if let Ok(out) = bounded_cmd_output("platform_system_libs", "cl", cmd, PROBE_DEADLINE_SECS)
+        {
             let ver = String::from_utf8_lossy(&out.stderr);
             if let Some(line) = ver.lines().next() {
                 info.insert("msvc".to_string(), Value::Str(line.to_string()));
@@ -47281,9 +47261,10 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             }
         }
         "ios" | "macos" | "xcode" => {
-            if let Ok(out) = std::process::Command::new("xcrun")
-                .args(["--show-sdk-version"])
-                .output()
+            let mut cmd = std::process::Command::new("xcrun");
+            cmd.args(["--show-sdk-version"]);
+            if let Ok(out) =
+                bounded_cmd_output("platform_sdk_version", "xcrun", cmd, PROBE_DEADLINE_SECS)
             {
                 // A failing xcrun answered "".
                 if !out.status.success() {
@@ -47305,9 +47286,10 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             }
         }
         "dotnet" => {
-            if let Ok(out) = std::process::Command::new("dotnet")
-                .args(["--list-sdks"])
-                .output()
+            let mut cmd = std::process::Command::new("dotnet");
+            cmd.args(["--list-sdks"]);
+            if let Ok(out) =
+                bounded_cmd_output("platform_sdk_version", "dotnet", cmd, PROBE_DEADLINE_SECS)
             {
                 if !out.status.success() {
                     return Err(crate::safety::tool_failed(
@@ -47347,7 +47329,9 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 fn bi_platform_libc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
-        if let Ok(out) = std::process::Command::new("ldd").arg("--version").output() {
+        let mut cmd = std::process::Command::new("ldd");
+        cmd.arg("--version");
+        if let Ok(out) = bounded_cmd_output("platform_libc", "ldd", cmd, PROBE_DEADLINE_SECS) {
             let ver = String::from_utf8_lossy(&out.stdout);
             if let Some(line) = ver.lines().next() {
                 return Ok(Value::Str(line.to_string()));
@@ -47370,10 +47354,9 @@ fn bi_platform_libc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         // MSVC runtime
-        if let Ok(out) = std::process::Command::new("where")
-            .arg("ucrtbase.dll")
-            .output()
-        {
+        let mut cmd = std::process::Command::new("where");
+        cmd.arg("ucrtbase.dll");
+        if let Ok(out) = bounded_cmd_output("platform_libc", "where", cmd, PROBE_DEADLINE_SECS) {
             if out.status.success() {
                 return Ok(Value::Str("ucrt (Universal CRT)".to_string()));
             }
@@ -47586,9 +47569,9 @@ fn bi_platform_libcpp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 fn bi_platform_ssl_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Try openssl first
-    if let Ok(out) = std::process::Command::new("openssl")
-        .arg("version")
-        .output()
+    let mut cmd = std::process::Command::new("openssl");
+    cmd.arg("version");
+    if let Ok(out) = bounded_cmd_output("platform_ssl_version", "openssl", cmd, PROBE_DEADLINE_SECS)
     {
         if out.status.success() {
             return Ok(Value::Str(
@@ -47597,10 +47580,14 @@ fn bi_platform_ssl_version(_args: Vec<Value>, _input: Option<Value>) -> Result<V
         }
     }
     // Try pkg-config
-    if let Ok(out) = std::process::Command::new("pkg-config")
-        .args(["--modversion", "openssl"])
-        .output()
-    {
+    let mut cmd = std::process::Command::new("pkg-config");
+    cmd.args(["--modversion", "openssl"]);
+    if let Ok(out) = bounded_cmd_output(
+        "platform_ssl_version",
+        "pkg-config",
+        cmd,
+        PROBE_DEADLINE_SECS,
+    ) {
         if out.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&out.stdout).trim().to_string(),
@@ -47614,7 +47601,9 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     let mut info = std::collections::BTreeMap::new();
 
     // CUDA Toolkit version
-    if let Ok(out) = std::process::Command::new("nvcc").arg("--version").output() {
+    let mut cmd = std::process::Command::new("nvcc");
+    cmd.arg("--version");
+    if let Ok(out) = bounded_cmd_output("platform_cuda_version", "nvcc", cmd, PROBE_DEADLINE_SECS) {
         let output = String::from_utf8_lossy(&out.stdout);
         for line in output.lines() {
             if line.contains("release") {
@@ -47630,10 +47619,14 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     // NVIDIA driver version
     #[cfg(target_os = "linux")]
     {
-        if let Ok(out) = std::process::Command::new("nvidia-smi")
-            .args(["--query-gpu=driver_version", "--format=csv,noheader"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("nvidia-smi");
+        cmd.args(["--query-gpu=driver_version", "--format=csv,noheader"]);
+        if let Ok(out) = bounded_cmd_output(
+            "platform_cuda_version",
+            "nvidia-smi",
+            cmd,
+            PROBE_DEADLINE_SECS,
+        ) {
             if out.status.success() {
                 let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 info.insert("nvidia_driver".to_string(), Value::Str(ver));
@@ -47642,7 +47635,13 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     }
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("nvidia-smi").output() {
+        let cmd = std::process::Command::new("nvidia-smi");
+        if let Ok(out) = bounded_cmd_output(
+            "platform_cuda_version",
+            "nvidia-smi",
+            cmd,
+            PROBE_DEADLINE_SECS,
+        ) {
             let output = String::from_utf8_lossy(&out.stdout);
             for line in output.lines() {
                 if line.contains("Driver Version") {
@@ -47662,9 +47661,9 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     }
 
     // Check for ROCm/HIP as alternative
-    if let Ok(out) = std::process::Command::new("hipcc")
-        .arg("--version")
-        .output()
+    let mut cmd = std::process::Command::new("hipcc");
+    cmd.arg("--version");
+    if let Ok(out) = bounded_cmd_output("platform_cuda_version", "hipcc", cmd, PROBE_DEADLINE_SECS)
     {
         let ver = String::from_utf8_lossy(&out.stdout);
         if let Some(line) = ver.lines().next() {
@@ -47689,9 +47688,9 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         // Get CPU info from PowerShell (more reliable than WMIC which may not be available)
-        if let Ok(out) = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json"])
-            .output()
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-Command", "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json"]);
+        if let Ok(out) = bounded_cmd_output("platform_cpu", "powershell", cmd, PROBE_DEADLINE_SECS)
         {
             if out.status.success() {
                 let json_str = String::from_utf8_lossy(&out.stdout);
@@ -47702,7 +47701,10 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     if let Some(cores) = json.get("NumberOfCores").and_then(|v| v.as_i64()) {
                         info.insert("cores".to_string(), Value::Int(cores));
                     }
-                    if let Some(lp) = json.get("NumberOfLogicalProcessors").and_then(|v| v.as_i64()) {
+                    if let Some(lp) = json
+                        .get("NumberOfLogicalProcessors")
+                        .and_then(|v| v.as_i64())
+                    {
                         info.insert("logical_processors".to_string(), Value::Int(lp));
                     }
                     if let Some(mhz) = json.get("MaxClockSpeed").and_then(|v| v.as_i64()) {
@@ -47756,27 +47758,24 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("sysctl")
-            .args(["-n", "machdep.cpu.brand_string"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("sysctl");
+        cmd.args(["-n", "machdep.cpu.brand_string"]);
+        if let Ok(out) = bounded_cmd_output("platform_cpu", "sysctl", cmd, PROBE_DEADLINE_SECS) {
             info.insert(
                 "name".to_string(),
                 Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()),
             );
         }
-        if let Ok(out) = std::process::Command::new("sysctl")
-            .args(["-n", "hw.physicalcpu"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("sysctl");
+        cmd.args(["-n", "hw.physicalcpu"]);
+        if let Ok(out) = bounded_cmd_output("platform_cpu", "sysctl", cmd, PROBE_DEADLINE_SECS) {
             if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
                 info.insert("cores".to_string(), Value::Int(n));
             }
         }
-        if let Ok(out) = std::process::Command::new("sysctl")
-            .args(["-n", "hw.logicalcpu"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("sysctl");
+        cmd.args(["-n", "hw.logicalcpu"]);
+        if let Ok(out) = bounded_cmd_output("platform_cpu", "sysctl", cmd, PROBE_DEADLINE_SECS) {
             if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
                 info.insert("logical_processors".to_string(), Value::Int(n));
             }
@@ -47806,12 +47805,13 @@ fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     #[cfg(target_os = "windows")]
     {
         // Use PowerShell instead of WMIC (more reliable)
-        if let Ok(out) = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "(Get-CimInstance Win32_Processor).MaxClockSpeed",
-            ])
-            .output()
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "(Get-CimInstance Win32_Processor).MaxClockSpeed",
+        ]);
+        if let Ok(out) =
+            bounded_cmd_output("platform_cpu_freq", "powershell", cmd, PROBE_DEADLINE_SECS)
         {
             if out.status.success() {
                 if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<f64>() {
@@ -47836,9 +47836,9 @@ fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     }
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("sysctl")
-            .args(["-n", "hw.cpufrequency"])
-            .output()
+        let mut cmd = std::process::Command::new("sysctl");
+        cmd.args(["-n", "hw.cpufrequency"]);
+        if let Ok(out) = bounded_cmd_output("platform_cpu_freq", "sysctl", cmd, PROBE_DEADLINE_SECS)
         {
             if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
                 return Ok(Value::Float(n as f64 / 1_000_000.0)); // Hz to MHz
@@ -47859,9 +47859,9 @@ fn bi_platform_memory(_args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     {
         // Use PowerShell instead of WMIC
         let query = "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | ConvertTo-Json";
-        let out = std::process::Command::new("powershell")
-            .args(["-Command", query])
-            .output()
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-Command", query]);
+        let out = bounded_cmd_output("platform_memory", "powershell", cmd, PROBE_DEADLINE_SECS)
             .map_err(|e| {
                 crate::safety::tool_missing("platform_memory", "powershell", &e.to_string())
             })?;
@@ -47948,9 +47948,9 @@ fn bi_platform_memory(_args: Vec<Value>, input: Option<Value>) -> Result<Value> 
 
     #[cfg(target_os = "macos")]
     {
-        let out = std::process::Command::new("sysctl")
-            .args(["-n", "hw.memsize"])
-            .output()
+        let mut cmd = std::process::Command::new("sysctl");
+        cmd.args(["-n", "hw.memsize"]);
+        let out = bounded_cmd_output("platform_memory", "sysctl", cmd, PROBE_DEADLINE_SECS)
             .map_err(|e| {
                 crate::safety::tool_missing("platform_memory", "sysctl", &e.to_string())
             })?;
@@ -48008,13 +48008,17 @@ fn bi_platform_memory_total(_args: Vec<Value>, _input: Option<Value>) -> Result<
     #[cfg(target_os = "windows")]
     {
         // Use PowerShell instead of WMIC
-        if let Ok(out) = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "(Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize",
-            ])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "(Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize",
+        ]);
+        if let Ok(out) = bounded_cmd_output(
+            "platform_memory_total",
+            "powershell",
+            cmd,
+            PROBE_DEADLINE_SECS,
+        ) {
             if out.status.success() {
                 if let Ok(kb) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
                     return Ok(Value::Int(kb * 1024)); // Return bytes
@@ -48037,9 +48041,10 @@ fn bi_platform_memory_total(_args: Vec<Value>, _input: Option<Value>) -> Result<
     }
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("sysctl")
-            .args(["-n", "hw.memsize"])
-            .output()
+        let mut cmd = std::process::Command::new("sysctl");
+        cmd.args(["-n", "hw.memsize"]);
+        if let Ok(out) =
+            bounded_cmd_output("platform_memory_total", "sysctl", cmd, PROBE_DEADLINE_SECS)
         {
             if let Ok(bytes) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
                 return Ok(Value::Int(bytes));
@@ -48073,9 +48078,10 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     #[cfg(target_os = "windows")]
     {
         // Use PowerShell instead of WMIC
-        if let Ok(out) = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,Size,FreeSpace,FileSystem,VolumeName | ConvertTo-Json"])
-            .output()
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-Command", "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,Size,FreeSpace,FileSystem,VolumeName | ConvertTo-Json"]);
+        if let Ok(out) =
+            bounded_cmd_output("platform_disks", "powershell", cmd, PROBE_DEADLINE_SECS)
         {
             if out.status.success() {
                 let json_str = String::from_utf8_lossy(&out.stdout);
@@ -48093,11 +48099,17 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
                         }
                         if let Some(size) = item.get("Size").and_then(|v| v.as_i64()) {
                             disk.insert("size_bytes".to_string(), Value::Int(size));
-                            disk.insert("size_gb".to_string(), Value::Float(size as f64 / 1024.0 / 1024.0 / 1024.0));
+                            disk.insert(
+                                "size_gb".to_string(),
+                                Value::Float(size as f64 / 1024.0 / 1024.0 / 1024.0),
+                            );
                         }
                         if let Some(free) = item.get("FreeSpace").and_then(|v| v.as_i64()) {
                             disk.insert("free_bytes".to_string(), Value::Int(free));
-                            disk.insert("free_gb".to_string(), Value::Float(free as f64 / 1024.0 / 1024.0 / 1024.0));
+                            disk.insert(
+                                "free_gb".to_string(),
+                                Value::Float(free as f64 / 1024.0 / 1024.0 / 1024.0),
+                            );
                         }
                         if let Some(fs) = item.get("FileSystem").and_then(|v| v.as_str()) {
                             disk.insert("filesystem".to_string(), Value::Str(fs.to_string()));
@@ -48116,10 +48128,9 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     #[cfg(target_os = "linux")]
     {
-        if let Ok(out) = std::process::Command::new("df")
-            .args(["-B1", "--output=source,target,fstype,size,avail"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("df");
+        cmd.args(["-B1", "--output=source,target,fstype,size,avail"]);
+        if let Ok(out) = bounded_cmd_output("platform_disks", "df", cmd, PROBE_DEADLINE_SECS) {
             let output = String::from_utf8_lossy(&out.stdout);
             for line in output.lines().skip(1) {
                 let parts: Vec<&str> = line.split_whitespace().collect();
@@ -48153,7 +48164,9 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("df").args(["-b"]).output() {
+        let mut cmd = std::process::Command::new("df");
+        cmd.args(["-b"]);
+        if let Ok(out) = bounded_cmd_output("platform_disks", "df", cmd, PROBE_DEADLINE_SECS) {
             let output = String::from_utf8_lossy(&out.stdout);
             for line in output.lines().skip(1) {
                 let parts: Vec<&str> = line.split_whitespace().collect();
@@ -48241,11 +48254,9 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut gpus = Vec::new();
 
     // NVIDIA GPUs via nvidia-smi
-    if let Ok(out) = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=index,name,memory.total,memory.free,driver_version,temperature.gpu,utilization.gpu", 
-               "--format=csv,noheader,nounits"])
-        .output()
-    {
+    let mut cmd = std::process::Command::new("nvidia-smi");
+    cmd.args(["--query-gpu=index,name,memory.total,memory.free,driver_version,temperature.gpu,utilization.gpu", "--format=csv,noheader,nounits"]);
+    if let Ok(out) = bounded_cmd_output("platform_gpus", "nvidia-smi", cmd, PROBE_DEADLINE_SECS) {
         if out.status.success() {
             let output = String::from_utf8_lossy(&out.stdout);
             for line in output.lines() {
@@ -48279,16 +48290,15 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // AMD GPUs via rocm-smi (Linux)
     #[cfg(target_os = "linux")]
     if gpus.is_empty() {
-        if let Ok(out) = std::process::Command::new("rocm-smi")
-            .args([
-                "--showproductname",
-                "--showmeminfo",
-                "vram",
-                "--showtemp",
-                "--showuse",
-            ])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("rocm-smi");
+        cmd.args([
+            "--showproductname",
+            "--showmeminfo",
+            "vram",
+            "--showtemp",
+            "--showuse",
+        ]);
+        if let Ok(out) = bounded_cmd_output("platform_gpus", "rocm-smi", cmd, PROBE_DEADLINE_SECS) {
             if out.status.success() {
                 let mut gpu = std::collections::BTreeMap::new();
                 gpu.insert("vendor".to_string(), Value::Str("AMD".to_string()));
@@ -48302,16 +48312,15 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Fallback: Windows DirectX
     #[cfg(target_os = "windows")]
     if gpus.is_empty() {
-        if let Ok(out) = std::process::Command::new("wmic")
-            .args([
-                "path",
-                "win32_VideoController",
-                "get",
-                "Name,AdapterRAM,DriverVersion",
-                "/format:list",
-            ])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("wmic");
+        cmd.args([
+            "path",
+            "win32_VideoController",
+            "get",
+            "Name,AdapterRAM,DriverVersion",
+            "/format:list",
+        ]);
+        if let Ok(out) = bounded_cmd_output("platform_gpus", "wmic", cmd, PROBE_DEADLINE_SECS) {
             let output = String::from_utf8_lossy(&out.stdout);
             let mut current = std::collections::BTreeMap::new();
             for line in output.lines() {
@@ -48355,13 +48364,17 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_platform_gpu_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut info = std::collections::BTreeMap::new();
 
-    if let Ok(out) = std::process::Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=memory.total,memory.used,memory.free",
-            "--format=csv,noheader,nounits",
-        ])
-        .output()
-    {
+    let mut cmd = std::process::Command::new("nvidia-smi");
+    cmd.args([
+        "--query-gpu=memory.total,memory.used,memory.free",
+        "--format=csv,noheader,nounits",
+    ]);
+    if let Ok(out) = bounded_cmd_output(
+        "platform_gpu_memory",
+        "nvidia-smi",
+        cmd,
+        PROBE_DEADLINE_SECS,
+    ) {
         if out.status.success() {
             let output = String::from_utf8_lossy(&out.stdout);
             if let Some(line) = output.lines().next() {
@@ -48393,17 +48406,21 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
 
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("wmic")
-            .args([
-                "nic",
-                "where",
-                "NetEnabled=true",
-                "get",
-                "Name,MACAddress,Speed",
-                "/format:list",
-            ])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("wmic");
+        cmd.args([
+            "nic",
+            "where",
+            "NetEnabled=true",
+            "get",
+            "Name,MACAddress,Speed",
+            "/format:list",
+        ]);
+        if let Ok(out) = bounded_cmd_output(
+            "platform_network_interfaces",
+            "wmic",
+            cmd,
+            PROBE_DEADLINE_SECS,
+        ) {
             let output = String::from_utf8_lossy(&out.stdout);
             let mut current = std::collections::BTreeMap::new();
             for line in output.lines() {
@@ -48440,7 +48457,13 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
             }
         }
         // Also get IP addresses
-        if let Ok(out) = std::process::Command::new("ipconfig").output() {
+        let cmd = std::process::Command::new("ipconfig");
+        if let Ok(out) = bounded_cmd_output(
+            "platform_network_interfaces",
+            "ipconfig",
+            cmd,
+            PROBE_DEADLINE_SECS,
+        ) {
             let output = String::from_utf8_lossy(&out.stdout);
             // Just add raw output for now
             if interfaces.is_empty() {
@@ -48453,10 +48476,14 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
 
     #[cfg(target_os = "linux")]
     {
-        if let Ok(out) = std::process::Command::new("ip")
-            .args(["--json", "addr"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("ip");
+        cmd.args(["--json", "addr"]);
+        if let Ok(out) = bounded_cmd_output(
+            "platform_network_interfaces",
+            "ip",
+            cmd,
+            PROBE_DEADLINE_SECS,
+        ) {
             if out.status.success() {
                 if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
                     if let Some(arr) = json.as_array() {
@@ -48491,7 +48518,13 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
 
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("ifconfig").output() {
+        let cmd = std::process::Command::new("ifconfig");
+        if let Ok(out) = bounded_cmd_output(
+            "platform_network_interfaces",
+            "ifconfig",
+            cmd,
+            PROBE_DEADLINE_SECS,
+        ) {
             let output = String::from_utf8_lossy(&out.stdout);
             let mut current_name = String::new();
             let mut current = std::collections::BTreeMap::new();
@@ -51265,10 +51298,18 @@ fn bi_helm_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// Run a command, return stdout on success or an error with stderr.
 fn vm_run_cmd(program: &str, args: &[&str]) -> Result<String> {
-    let output = std::process::Command::new(program)
-        .args(args)
-        .output()
-        .map_err(|e| crate::safety::tool_missing(program, program, &e.to_string()))?;
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args);
+    // A deadline is a budget, not a missing tool, so it keeps its own code.
+    let output = crate::safety::output_with_timeout(cmd, TOOL_DEADLINE_SECS).map_err(|e| {
+        match crate::safety::io_budget_error(&e) {
+            Some(coded) => coded,
+            None if e.kind() == std::io::ErrorKind::TimedOut => {
+                crate::safety::spawn_error(program, program, &e)
+            }
+            None => crate::safety::tool_missing(program, program, &e.to_string()),
+        }
+    })?;
     if !output.status.success() {
         return Err(crate::safety::tool_failed(
             program,
@@ -51389,13 +51430,13 @@ fn detect_hypervisor() -> &'static str {
     #[cfg(target_os = "windows")]
     {
         // On Windows, prefer Hyper-V
-        if std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-Command Get-VM -ErrorAction SilentlyContinue",
-            ])
-            .output()
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-Command",
+            "Get-Command Get-VM -ErrorAction SilentlyContinue",
+        ]);
+        if bounded_cmd_output("detect_hypervisor", "powershell", cmd, PROBE_DEADLINE_SECS)
             .map(|o| o.status.success())
             .unwrap_or(false)
         {
@@ -51403,18 +51444,18 @@ fn detect_hypervisor() -> &'static str {
         }
     }
     // Try virsh (Linux / macOS with libvirt)
-    if std::process::Command::new("virsh")
-        .arg("version")
-        .output()
+    let mut cmd = std::process::Command::new("virsh");
+    cmd.arg("version");
+    if bounded_cmd_output("detect_hypervisor", "virsh", cmd, PROBE_DEADLINE_SECS)
         .map(|o| o.status.success())
         .unwrap_or(false)
     {
         return "virsh";
     }
     // Try VBoxManage
-    if std::process::Command::new("VBoxManage")
-        .arg("--version")
-        .output()
+    let mut cmd = std::process::Command::new("VBoxManage");
+    cmd.arg("--version");
+    if bounded_cmd_output("detect_hypervisor", "VBoxManage", cmd, PROBE_DEADLINE_SECS)
         .map(|o| o.status.success())
         .unwrap_or(false)
     {
@@ -60157,10 +60198,9 @@ fn bi_netstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     } else {
         vec!["-tuln".to_string()]
     };
-    let out = std::process::Command::new("netstat")
-        .args(&flags)
-        .output()
-        .map_err(|e| crate::safety::spawn_error("netstat", "netstat", &e))?;
+    let mut cmd = std::process::Command::new("netstat");
+    cmd.args(&flags);
+    let out = bounded_cmd_output("netstat", "netstat", cmd, PROBE_DEADLINE_SECS)?;
     if !out.status.success() {
         return Err(crate::safety::tool_failed(
             "netstat",
@@ -60443,13 +60483,13 @@ fn bi_tmux_new(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// tmux list-sessions — List active tmux sessions.
 fn bi_tmux_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("tmux")
-        .args([
-            "list-sessions",
-            "-F",
-            "#{session_name}:#{session_windows}:#{session_attached}",
-        ])
-        .output();
+    let mut cmd = std::process::Command::new("tmux");
+    cmd.args([
+        "list-sessions",
+        "-F",
+        "#{session_name}:#{session_windows}:#{session_attached}",
+    ]);
+    let output = bounded_cmd_output("tmux_list", "tmux", cmd, TOOL_DEADLINE_SECS);
     match output {
         Ok(o) if o.status.success() => {
             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -60573,7 +60613,9 @@ fn bi_screen_new(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// screen list — List screen sessions.
 fn bi_screen_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("screen").args(["-ls"]).output();
+    let mut cmd = std::process::Command::new("screen");
+    cmd.args(["-ls"]);
+    let output = bounded_cmd_output("screen_list", "screen", cmd, PROBE_DEADLINE_SECS);
     match output {
         Ok(o) => {
             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -61161,9 +61203,9 @@ fn bi_objdump_disasm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     // The path goes to objdump positionally; a leading `-` would be an option.
     crate::safety::reject_option_like("objdump_disasm", std::slice::from_ref(&path))?;
-    let output = std::process::Command::new("objdump")
-        .args(["-d", &path])
-        .output();
+    let mut cmd = std::process::Command::new("objdump");
+    cmd.args(["-d", &path]);
+    let output = bounded_cmd_output("objdump_disasm", "objdump", cmd, TOOL_DEADLINE_SECS);
     match output {
         // A failed run answered {success: false, ...} at exit 0: a missing or
         // non-binary file read as an inspection result.
@@ -61202,9 +61244,9 @@ fn bi_objdump_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     };
     // The path goes to objdump positionally; a leading `-` would be an option.
     crate::safety::reject_option_like("objdump_headers", std::slice::from_ref(&path))?;
-    let output = std::process::Command::new("objdump")
-        .args(["-h", &path])
-        .output();
+    let mut cmd = std::process::Command::new("objdump");
+    cmd.args(["-h", &path]);
+    let output = bounded_cmd_output("objdump_headers", "objdump", cmd, TOOL_DEADLINE_SECS);
     match output {
         // A failed run answered {success: false, ...} at exit 0: a missing or
         // non-binary file read as an inspection result.
@@ -61276,9 +61318,9 @@ fn bi_readelf_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     };
     // The path goes to readelf positionally; a leading `-` would be an option.
     crate::safety::reject_option_like("readelf_headers", std::slice::from_ref(&path))?;
-    let output = std::process::Command::new("readelf")
-        .args(["-h", &path])
-        .output();
+    let mut cmd = std::process::Command::new("readelf");
+    cmd.args(["-h", &path]);
+    let output = bounded_cmd_output("readelf_headers", "readelf", cmd, TOOL_DEADLINE_SECS);
     match output {
         // A failed run answered {success: false, ...} at exit 0: a missing or
         // non-binary file read as an inspection result.
@@ -61317,9 +61359,9 @@ fn bi_readelf_sections(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     };
     // The path goes to readelf positionally; a leading `-` would be an option.
     crate::safety::reject_option_like("readelf_sections", std::slice::from_ref(&path))?;
-    let output = std::process::Command::new("readelf")
-        .args(["-S", &path])
-        .output();
+    let mut cmd = std::process::Command::new("readelf");
+    cmd.args(["-S", &path]);
+    let output = bounded_cmd_output("readelf_sections", "readelf", cmd, TOOL_DEADLINE_SECS);
     match output {
         // A failed run answered {success: false, ...} at exit 0: a missing or
         // non-binary file read as an inspection result.
@@ -62909,7 +62951,9 @@ fn bi_pipx_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// pipx list — List pipx-installed packages.
 fn bi_pipx_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("pipx").arg("list").output();
+    let mut cmd = std::process::Command::new("pipx");
+    cmd.arg("list");
+    let output = bounded_cmd_output("pipx_list", "pipx", cmd, PROBE_DEADLINE_SECS);
     match output {
         Ok(o) if o.status.success() => Ok(Value::Str(
             String::from_utf8_lossy(&o.stdout).trim().to_string(),
@@ -63090,7 +63134,9 @@ fn bi_cargo_test_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// rustup show — Show installed Rust toolchains.
 fn bi_rustup_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("rustup").arg("show").output();
+    let mut cmd = std::process::Command::new("rustup");
+    cmd.arg("show");
+    let output = bounded_cmd_output("rustup_show", "rustup", cmd, PROBE_DEADLINE_SECS);
     match output {
         Ok(o) if o.status.success() => Ok(Value::Str(
             String::from_utf8_lossy(&o.stdout).trim().to_string(),
@@ -63327,9 +63373,9 @@ fn bi_buildah_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// buildah images — List Buildah images.
 fn bi_buildah_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("buildah")
-        .args(["images", "--json"])
-        .output();
+    let mut cmd = std::process::Command::new("buildah");
+    cmd.args(["images", "--json"]);
+    let output = bounded_cmd_output("buildah_images", "buildah", cmd, TOOL_DEADLINE_SECS);
     match output {
         Ok(o) if o.status.success() => {
             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -63474,9 +63520,9 @@ fn bi_shellcheck_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         _ => return Err(crate::safety::arg_err("shellcheck requires a script path")),
     };
     crate::safety::reject_option_like("shellcheck", std::slice::from_ref(&path))?;
-    let output = std::process::Command::new("shellcheck")
-        .args(["--format=json", &path])
-        .output();
+    let mut cmd = std::process::Command::new("shellcheck");
+    cmd.args(["--format=json", &path]);
+    let output = bounded_cmd_output("shellcheck_check", "shellcheck", cmd, TOOL_DEADLINE_SECS);
     match output {
         // Exit 0 is clean and 1 means issues; 2 and up are failures. A file
         // that did not exist exits 2 and still prints `[]`, which read as
@@ -63538,9 +63584,9 @@ fn bi_yamllint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Err(crate::safety::arg_err("yamllint requires a file path")),
     };
     crate::safety::reject_option_like("yamllint", std::slice::from_ref(&path))?;
-    let output = std::process::Command::new("yamllint")
-        .args(["-f", "parsable", &path])
-        .output();
+    let mut cmd = std::process::Command::new("yamllint");
+    cmd.args(["-f", "parsable", &path]);
+    let output = bounded_cmd_output("yamllint_check", "yamllint", cmd, TOOL_DEADLINE_SECS);
     match output {
         Ok(o) => {
             let stdout = String::from_utf8_lossy(&o.stdout);
