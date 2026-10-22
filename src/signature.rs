@@ -1224,7 +1224,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "crypto_decrypt", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("data", Ty::Str, "versioned authenticated ciphertext"), req("password", Ty::Str, "encryption password")], returns: "String",
-        doc: "Authenticate and decrypt a versioned envelope to UTF-8 text. The envelope selects its KDF. Legacy unauthenticated CBC requires explicit environment opt-in and Unix OpenSSL.",
+        doc: "Authenticate and decrypt a versioned envelope to UTF-8 text. The envelope selects its KDF. Legacy unauthenticated CBC requires explicit environment opt-in (AETHER_CRYPTO_LEGACY_DECRYPT) and the openssl CLI on every OS; an absent openssl is E_TOOL_MISSING.",
         examples: &[(r#"crypto_decrypt(crypto_encrypt("hello", "example-password"), "example-password")"#, "hello")],
     },
     Signature {
@@ -8956,7 +8956,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "crypto_cert_info", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("path", Ty::Str, "regular PEM certificate file, at most 64 MiB")], returns: "String",
-        doc: "Unix OpenSSL certificate details as text. Resolve relative paths against the configured workspace; reject option-like paths, surplus arguments and pipeline input. Missing files, failed tools and malformed successful output have distinct coded errors. After validating the file, non-Unix builds explicitly refuse. Metadata size preflight is not a snapshot against concurrent file changes.",
+        doc: "OpenSSL certificate details as text, from the openssl CLI on every OS (openssl.exe on Windows). Resolve relative paths against the configured workspace; reject option-like paths, surplus arguments and pipeline input. Missing files are E_NOT_FOUND, an openssl that is not on PATH is E_TOOL_MISSING, failed tools and malformed successful output have distinct coded errors. Metadata size preflight is not a snapshot against concurrent file changes.",
         examples: &[(r#"crypto_cert_info("/etc/ssl/certs/ca-certificates.crt")"#, "certificate details")],
     },
     Signature {
@@ -8974,7 +8974,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "crypto_generate_key", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[opt("type", Ty::Str, "rsa (default), ec, ecdsa or ed25519; case insensitive"), opt("bits", Ty::Int, "RSA-only size 2048 through 16384; default 2048")], returns: "String",
-        doc: "Private-key PEM text: native Ed25519 PKCS#8 v2 on all native platforms, or Unix OpenSSL RSA/P-256 EC. Native Ed25519 uses operating-system randomness, rejects bit sizes and refuses AETHER_FIPS because its backend is not FIPS validated. No file is written. Reject unsupported types, wrong types, inapplicable EC bit sizes, surplus arguments and pipeline input before subprocess execution. Failed tools and malformed successful output carry coded errors. Non-Unix RSA/EC builds explicitly refuse after argument validation. Existing conservative WriteLocal classification is retained.",
+        doc: "Private-key PEM text: native Ed25519 PKCS#8 v2 on all native platforms, or OpenSSL RSA/P-256 EC from the openssl CLI on every OS (openssl.exe on Windows; an absent one is E_TOOL_MISSING). Native Ed25519 uses operating-system randomness, rejects bit sizes and refuses AETHER_FIPS because its backend is not FIPS validated. No file is written. Reject unsupported types, wrong types, inapplicable EC bit sizes, surplus arguments and pipeline input before subprocess execution. Failed tools and malformed successful output carry coded errors. Failed tools and absent openssl are coded after argument validation. Existing conservative WriteLocal classification is retained.",
         examples: &[("crypto_generate_key()", "PEM private key"), (r#"crypto_generate_key("rsa")"#, "PEM private key"), (r#"crypto_generate_key("rsa", 2048)"#, "PEM private key"), (r#"crypto_generate_key("ec")"#, "PEM private key"), (r#"typeof(crypto_generate_key("ed25519"))"#, "String")],
     },
     Signature {
@@ -10299,7 +10299,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("path", Ty::Str, "a PEM certificate file")],
         returns: "Bool",
-        doc: "Whether a certificate verifies against the system trust store. A missing file is E_NOT_FOUND; one that exists but cannot be read is a coded error, never false.",
+        doc: "Whether `openssl verify` accepts a certificate against OpenSSL's default trust store, on every OS (openssl.exe on Windows). A missing file is E_NOT_FOUND; one that exists but cannot be read is a coded error, never false; an openssl not on PATH is E_TOOL_MISSING. A missing or empty trust store makes openssl refuse, which reads as false.",
         examples: &[
             (r#"crypto_cert_verify("/etc/ssl/certs/ca-certificates.crt")"#, r#"true"#),
         ],

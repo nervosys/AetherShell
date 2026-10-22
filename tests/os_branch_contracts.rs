@@ -449,7 +449,6 @@ fn clipboard_types_refuses_off_windows_with_a_coded_error() {
 
 // ------------------------------------------------------- crypto_cert_verify
 
-#[cfg(unix)]
 #[test]
 fn crypto_cert_verify_reports_a_missing_file_as_not_found() {
     assert_eq!(
@@ -464,7 +463,6 @@ fn crypto_cert_verify_reports_a_missing_file_as_not_found() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn crypto_cert_verify_answers_false_for_a_readable_file_that_is_not_a_certificate() {
     let path = std::env::temp_dir().join(format!("ae_osbranch_cert_{}.pem", std::process::id()));
@@ -476,12 +474,4 @@ fn crypto_cert_verify_answers_false_for_a_readable_file_that_is_not_a_certificat
         Some(other) => panic!("crypto_cert_verify should return a Bool, got {other:?}"),
         None => {}
     }
-}
-
-#[cfg(not(unix))]
-#[test]
-fn crypto_cert_verify_refuses_off_unix_without_verifying_anything() {
-    let err = run("crypto_cert_verify", vec![s("cert.pem")])
-        .expect_err("no certificate may be reported verified off Unix");
-    assert_eq!(code_of(&err), "E_UNIMPLEMENTED");
 }

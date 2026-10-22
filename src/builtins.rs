@@ -37521,11 +37521,9 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// the refusal in `bi_crypto_decrypt` for why.
 /// Deadline for one legacy decrypt. OpenSSL on a few MiB finishes in well under
 /// a second; this bounds a hung child, not a slow one.
-#[cfg(unix)]
 const CRYPTO_LEGACY_DEADLINE_SECS: u64 = 30;
 /// The most plaintext one legacy decrypt may return. Past it the call is
 /// refused: a plaintext cut short would look whole.
-#[cfg(unix)]
 const CRYPTO_LEGACY_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// Re-wrap legacy base64 the way `openssl enc -base64` writes it: 64-character
@@ -37536,7 +37534,6 @@ const CRYPTO_LEGACY_MAX_BYTES: usize = 64 * 1024 * 1024;
 /// input, so a short ciphertext always arrived that way. Whitespace is dropped
 /// first, so one unbroken line and openssl's own wrapped form both reach
 /// openssl in the shape it reads.
-#[cfg(unix)]
 fn legacy_base64_lines(data: &str) -> String {
     const LINE: usize = 64;
     let compact: Vec<char> = data.chars().filter(|c| !c.is_whitespace()).collect();
@@ -37548,7 +37545,6 @@ fn legacy_base64_lines(data: &str) -> String {
     out
 }
 
-#[cfg(unix)]
 fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
     let output = run_output(
         "crypto_decrypt",
@@ -37654,17 +37650,7 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                  with crypto.encrypt to gain integrity protection",
             ));
         }
-        #[cfg(unix)]
-        {
-            return crypto_decrypt_legacy_cbc(trimmed, &password);
-        }
-        #[allow(unreachable_code)]
-        return Err(crate::safety::unimplemented(
-            "crypto.decrypt",
-            "legacy ciphertext needs the openssl CLI, which is Unix-only; \
-             NOTHING WAS DECRYPTED",
-            "run `openssl enc -d` yourself, or re-encrypt with crypto.encrypt",
-        ));
+        return crypto_decrypt_legacy_cbc(trimmed, &password);
     }
 
     let malformed = |what: &str| {
@@ -37788,31 +37774,22 @@ fn bi_crypto_key_generate(args: Vec<Value>, input: Option<Value>) -> Result<Valu
     if key_type == "ed25519" {
         return digital_signatures::generate_key();
     }
-    #[cfg(unix)]
-    {
-        let mut command = std::process::Command::new("openssl");
-        if key_type == "rsa" {
-            command.args(["genrsa", &bits.to_string()]);
-        } else {
-            command.args(["ecparam", "-genkey", "-noout", "-name", "prime256v1"]);
-        }
-        command.stdin(std::process::Stdio::null());
-        // Generating an RSA key can be slow; the long deadline covers it.
-        let output = bounded_cmd_output(name, "openssl", command, TOOL_LONG_DEADLINE_SECS)?;
-        return crypto_key_output(output);
+    // The key is returned as PEM text and no file is written, so there is no
+    // file mode to set here. A caller that saves the key owns that file's
+    // protection: on Unix it should chmod 0600; on Windows the file inherits
+    // the ACL of the directory it is written into.
+    let mut command = std::process::Command::new("openssl");
+    if key_type == "rsa" {
+        command.args(["genrsa", &bits.to_string()]);
+    } else {
+        command.args(["ecparam", "-genkey", "-noout", "-name", "prime256v1"]);
     }
-    #[cfg(not(unix))]
-    {
-        let _ = (key_type, bits);
-        Err(crate::safety::unimplemented(
-            name,
-            "key generation uses the openssl CLI only on Unix; no key was generated",
-            "generate a key with a supported external tool",
-        ))
-    }
+    command.stdin(std::process::Stdio::null());
+    // Generating an RSA key can be slow; the long deadline covers it.
+    let output = bounded_cmd_output(name, "openssl", command, TOOL_LONG_DEADLINE_SECS)?;
+    crypto_key_output(output)
 }
 
-#[cfg(any(unix, test))]
 fn crypto_key_output(output: std::process::Output) -> Result<Value> {
     let name = "crypto_generate_key";
     if !output.status.success() {
@@ -38113,44 +38090,35 @@ fn bi_crypto_cert_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
             "inspect a smaller file",
         ));
     }
-    #[cfg(unix)]
-    {
-        let mut cmd = std::process::Command::new("openssl");
-        cmd.args(["x509", "-in", &path, "-text", "-noout"])
-            .stdin(std::process::Stdio::null());
-        let output = bounded_cmd_output(name, "openssl", cmd, TOOL_DEADLINE_SECS)?;
-        if !output.status.success() {
-            return Err(crate::safety::tool_failed(
-                name,
-                "openssl",
-                output.status.code(),
-                &String::from_utf8_lossy(&output.stderr),
-            ));
-        }
-        let text = String::from_utf8(output.stdout).map_err(|_| {
-            crate::safety::bad_state(
-                name,
-                "non-UTF-8 certificate output",
-                "textual certificate details",
-            )
-        })?;
-        if text.trim().is_empty() {
-            return Err(crate::safety::bad_state(
-                name,
-                "empty successful tool output",
-                "textual certificate details",
-            ));
-        }
-        Ok(Value::Str(text))
-    }
-    #[cfg(not(unix))]
-    {
-        Err(crate::safety::unimplemented(
+    // The same `openssl` on every OS: the Command resolves it through PATH
+    // (openssl.exe on Windows), and an absent tool is E_TOOL_MISSING.
+    let mut cmd = std::process::Command::new("openssl");
+    cmd.args(["x509", "-in", &path, "-text", "-noout"])
+        .stdin(std::process::Stdio::null());
+    let output = bounded_cmd_output(name, "openssl", cmd, TOOL_DEADLINE_SECS)?;
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
             name,
-            "certificate inspection uses the openssl CLI only on Unix",
-            "inspect the certificate with a supported external tool",
-        ))
+            "openssl",
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
     }
+    let text = String::from_utf8(output.stdout).map_err(|_| {
+        crate::safety::bad_state(
+            name,
+            "non-UTF-8 certificate output",
+            "textual certificate details",
+        )
+    })?;
+    if text.trim().is_empty() {
+        return Err(crate::safety::bad_state(
+            name,
+            "empty successful tool output",
+            "textual certificate details",
+        ));
+    }
+    Ok(Value::Str(text))
 }
 
 // ============================================================================
@@ -39645,44 +39613,31 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         }
     };
 
-    #[cfg(unix)]
-    {
-        crate::safety::reject_option_like("crypto_cert_verify", std::slice::from_ref(&cert_path))?;
-        // A certificate file that did not exist answered false, "invalid".
-        if !std::path::Path::new(&cert_path).is_file() {
-            return Err(crate::safety::not_found(
-                "crypto_cert_verify",
-                "certificate file",
-                &cert_path,
-            ));
-        }
-        // A file that exists but cannot be opened makes openssl exit non-zero,
-        // which answered false: an unreadable certificate read as an invalid one.
-        if let Err(e) = std::fs::File::open(&cert_path) {
-            return Err(crate::safety::fs_error(
-                "crypto_cert_verify",
-                &cert_path,
-                &e,
-            ));
-        }
-        let mut cmd = std::process::Command::new("openssl");
-        cmd.args(["verify", &cert_path]);
-        let output = bounded_cmd_output("crypto_cert_verify", "openssl", cmd, TOOL_DEADLINE_SECS)?;
-        return Ok(Value::Bool(output.status.success()));
+    crate::safety::reject_option_like("crypto_cert_verify", std::slice::from_ref(&cert_path))?;
+    // A certificate file that did not exist answered false, "invalid".
+    if !std::path::Path::new(&cert_path).is_file() {
+        return Err(crate::safety::not_found(
+            "crypto_cert_verify",
+            "certificate file",
+            &cert_path,
+        ));
     }
-    #[cfg(not(unix))]
-    {
-        let _ = cert_path;
-        // The Unix arm above returns Value::Bool from openssl's exit status. A
-        // string here would be truthy, so certificate verification would appear
-        // to *succeed* on every non-Unix platform.
-        Err(crate::safety::unimplemented(
-            "crypto.verify_cert",
-            "certificate verification requires the openssl CLI, which is \
-             Unix-only; THE CERTIFICATE WAS NOT VERIFIED",
-            "run `openssl verify` yourself",
-        ))
+    // A file that exists but cannot be opened makes openssl exit non-zero,
+    // which answered false: an unreadable certificate read as an invalid one.
+    if let Err(e) = std::fs::File::open(&cert_path) {
+        return Err(crate::safety::fs_error(
+            "crypto_cert_verify",
+            &cert_path,
+            &e,
+        ));
     }
+    // `openssl verify` against its default trust store on every OS. A missing
+    // or empty trust store makes openssl exit non-zero, which reads as false;
+    // that is the documented limitation and it is deliberately unchanged.
+    let mut cmd = std::process::Command::new("openssl");
+    cmd.args(["verify", &cert_path]);
+    let output = bounded_cmd_output("crypto_cert_verify", "openssl", cmd, TOOL_DEADLINE_SECS)?;
+    Ok(Value::Bool(output.status.success()))
 }
 
 fn bi_crypto_generate_key(args: Vec<Value>, input: Option<Value>) -> Result<Value> {

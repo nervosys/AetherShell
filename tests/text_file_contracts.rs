@@ -3239,19 +3239,6 @@ fn crypto_refusals_and_key_generation_reject_discarded_input() {
         call_with_input("crypto_generate_key", vec![], Some(s("ignored")), &mut env),
         "E_BAD_ARG",
     );
-    #[cfg(not(unix))]
-    for args in [
-        vec![],
-        vec![s("RSA")],
-        vec![s("rsa"), Value::Int(2048)],
-        vec![s("ec")],
-        vec![s("ecdsa")],
-    ] {
-        code(
-            call("crypto_generate_key", args, &mut env),
-            "E_UNIMPLEMENTED",
-        );
-    }
 }
 
 #[test]
@@ -3305,13 +3292,11 @@ fn certificate_inspection_validates_owned_files_before_platform_or_tool_checks()
     let err = call("crypto_cert_info", vec![s(&path)], &mut env)
         .unwrap_err()
         .to_string();
-    #[cfg(unix)]
+    // openssl refuses the garbage (E_TOOL_FAILED), or is not on PATH.
     assert!(
         err.contains("E_TOOL_FAILED") || err.contains("E_TOOL_MISSING"),
         "{err}"
     );
-    #[cfg(not(unix))]
-    assert!(err.contains("E_UNIMPLEMENTED"), "{err}");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "not a certificate");
 }
 
