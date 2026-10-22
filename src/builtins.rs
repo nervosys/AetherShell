@@ -50229,8 +50229,10 @@ pub(crate) fn run_tree_cmd(
 }
 
 /// Deadline for a probe that only asks a tool about itself or the host
-/// (`--version`, `uname`, `which`, a status read).
-pub(crate) const PROBE_DEADLINE_SECS: u64 = 10;
+/// (`--version`, `uname`, `which`, a status read). It bounds a hung probe, not
+/// a slow one: 10 s was measured too short, because a cold `powershell` start
+/// under a parallel test run took longer than that on Windows.
+pub(crate) const PROBE_DEADLINE_SECS: u64 = 30;
 
 /// `cmd.output()` with a deadline: the whole process tree is killed past
 /// `deadline_secs`, and output over 64 MiB is refused (see
