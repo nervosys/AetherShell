@@ -196,6 +196,16 @@ fn settle(expected: &[&str]) -> Vec<String> {
     }
 }
 
+/// Whether the X server accepts a connection on the abstract socket named
+/// like [`SOCKET`].
+#[cfg(target_os = "linux")]
+fn abstract_socket_accepts() -> bool {
+    use std::os::linux::net::SocketAddrExt;
+    std::os::unix::net::SocketAddr::from_abstract_name(SOCKET.as_bytes())
+        .and_then(|addr| std::os::unix::net::UnixStream::connect_addr(&addr))
+        .is_ok()
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 #[ignore = "disposable environment only: scripts/disposable_linux_tests.sh"]
@@ -211,7 +221,10 @@ fn clipboard_types_lists_the_formats_of_a_real_x11_clipboard() {
         X11Guard { xvfb }
     };
     let started = std::time::Instant::now();
-    while !std::path::Path::new(SOCKET).exists() {
+    // Xvfb also listens on the abstract socket of the same name. Under WSL,
+    // /tmp/.X11-unix belongs to WSLg and the file may never appear, while
+    // clients still connect through the abstract socket.
+    while !std::path::Path::new(SOCKET).exists() && !abstract_socket_accepts() {
         assert!(
             started.elapsed() < std::time::Duration::from_secs(10),
             "Xvfb did not open {SOCKET} within 10 s"
