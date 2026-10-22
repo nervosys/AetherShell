@@ -186,3 +186,45 @@ fn a_tool_stopped_at_its_deadline_is_a_budget_error_not_a_failure_to_start() {
     let err = aethershell::safety::spawn_error("probe", "tool", &e).to_string();
     assert!(err.contains("\"code\":\"E_BUDGET_EXCEEDED\""), "{err}");
 }
+
+/// Every process builtins.rs starts must have a deadline. `.output()` waits
+/// forever, so it is allowed only where a person is expected to answer: a
+/// dialog or a password prompt has no deadline that would not cut them off.
+#[test]
+fn builtins_starts_no_unbounded_output_outside_human_prompts() {
+    const HUMAN_PROMPTS: &[&str] = &[
+        "bi_gui_dialog_message",
+        "bi_gui_dialog_input",
+        "bi_gui_dialog_file_open",
+        "bi_gui_dialog_file_save",
+        "bi_gui_dialog_folder",
+        "bi_gui_color_picker",
+        "read_terminal_password",
+    ];
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/builtins.rs");
+    let source = std::fs::read_to_string(&path).expect("read src/builtins.rs");
+    let mut current_fn = String::new();
+    let mut offenders = Vec::new();
+    for (n, line) in source.lines().enumerate() {
+        let code = line.trim_start();
+        if code.starts_with("//") {
+            continue;
+        }
+        if let Some(at) = code.find("fn ") {
+            let prefix = &code[..at];
+            if prefix.is_empty() || prefix.ends_with("pub ") || prefix.ends_with(") ") {
+                current_fn = code[at + 3..]
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+            }
+        }
+        if code.contains(".output()") && !HUMAN_PROMPTS.contains(&current_fn.as_str()) {
+            offenders.push(format!("src/builtins.rs:{} in {current_fn}", n + 1));
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "unbounded .output() (use bounded_cmd_output or run_output): {offenders:#?}"
+    );
+}
