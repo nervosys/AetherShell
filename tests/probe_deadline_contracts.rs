@@ -177,3 +177,12 @@ fn vault_query_that_hangs_is_stopped_and_reported() {
     let text = normal.expect("a normal vault query returns its output");
     assert!(text.contains("vault-ok"), "stdout was {text:?}");
 }
+
+#[test]
+fn a_tool_stopped_at_its_deadline_is_a_budget_error_not_a_failure_to_start() {
+    // output_with_timeout reports its deadline as TimedOut; callers hand that
+    // to spawn_error, which used to call it "could not start" (E_TOOL_FAILED).
+    let e = std::io::Error::new(std::io::ErrorKind::TimedOut, "deadline");
+    let err = aethershell::safety::spawn_error("probe", "tool", &e).to_string();
+    assert!(err.contains("\"code\":\"E_BUDGET_EXCEEDED\""), "{err}");
+}

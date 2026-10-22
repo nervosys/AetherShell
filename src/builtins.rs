@@ -44802,10 +44802,9 @@ fn bi_env_detect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_python(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let output = std::process::Command::new("python")
-        .args(["--version"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("env_python", "python", &e))?;
+    let mut cmd = std::process::Command::new("python");
+    cmd.args(["--version"]);
+    let output = bounded_cmd_output("env_python", "python", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
     // back as the answer. On WSL, `docker` is a shim that exists,
     // prints "could not be found in this WSL 2 distro" and exits
@@ -50198,6 +50197,25 @@ pub(crate) fn run_tree_cmd(
         pipes_abandoned: !out_closed || !err_closed,
         status,
     })
+}
+
+/// Deadline for a probe that only asks a tool about itself or the host
+/// (`--version`, `uname`, `which`, a status read).
+pub(crate) const PROBE_DEADLINE_SECS: u64 = 10;
+
+/// `cmd.output()` with a deadline: the whole process tree is killed past
+/// `deadline_secs`, and output over 64 MiB is refused (see
+/// [`crate::safety::output_with_timeout`]). A tool that is absent is
+/// E_TOOL_MISSING, a deadline is E_BUDGET_EXCEEDED, and a nonzero exit is left
+/// in the returned status for the caller to judge, as `output()` left it.
+pub(crate) fn bounded_cmd_output(
+    builtin: &str,
+    tool: &str,
+    cmd: std::process::Command,
+    deadline_secs: u64,
+) -> Result<std::process::Output> {
+    crate::safety::output_with_timeout(cmd, deadline_secs)
+        .map_err(|e| crate::safety::spawn_error(builtin, tool, &e))
 }
 
 /// Run `tool` (executed as `program`) through [`run_tree`] and return the

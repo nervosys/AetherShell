@@ -1699,6 +1699,15 @@ pub fn spawn_error(builtin: &str, tool: &str, e: &std::io::Error) -> anyhow::Err
     if let Some(coded) = io_budget_error(e) {
         return coded;
     }
+    // `output_with_timeout` reports its deadline as `TimedOut`: the tool ran
+    // and was stopped, which is a budget, not a failure to start.
+    if e.kind() == std::io::ErrorKind::TimedOut {
+        return budget_exceeded(
+            builtin,
+            format!("`{tool}` did not finish in time and was stopped: {e}"),
+            "a stopped tool can leave work half done; check the state before retrying",
+        );
+    }
     if e.kind() == std::io::ErrorKind::NotFound {
         return tool_missing(builtin, tool, &e.to_string());
     }
