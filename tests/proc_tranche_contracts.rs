@@ -13,7 +13,7 @@
 //! - Linux tests that change a process's state (suspend, resume, nice) are
 //!   `#[ignore]`d and call `disposable::require()`, run by
 //!   scripts/disposable_linux_tests.sh.
-//! - Windows has no suspend, so proc_suspend is checked for its coded refusal.
+//! - Windows suspend and resume are in tests/proc_suspend_windows.rs.
 //!   Priority is read back through proc_priority, which reads Get-Process; no
 //!   independent Windows check is used for it.
 
@@ -611,21 +611,8 @@ fn set_priority_on_a_child_is_read_back_as_its_class() {
     assert_eq!(r.get("nice"), Some(&Value::Int(10)), "nice of {pid}");
 }
 
-#[cfg(windows)]
-#[test]
-fn suspend_and_resume_are_unimplemented_on_windows_and_touch_nothing() {
-    let mut child = Sleeper::start();
-    let pid = child.pid();
-    expect_code("proc_suspend", vec![Value::Int(pid)], "E_UNIMPLEMENTED");
-    expect_code("proc_resume", vec![Value::Int(pid)], "E_UNIMPLEMENTED");
-    // The refusal sent nothing: the child is still live and still running.
-    let ended = run("proc_wait", vec![Value::Int(pid), Value::Int(0)]).expect("proc_wait");
-    assert_eq!(
-        ended,
-        Value::Bool(false),
-        "the child ended after a refused suspend"
-    );
-}
+// Windows suspend and resume (NtSuspendProcess / NtResumeProcess) are tested
+// in tests/proc_suspend_windows.rs.
 
 // Windows reads another process's environment and directory: see
 // tests/proc_env_cwd_windows.rs.

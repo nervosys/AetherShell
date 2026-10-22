@@ -9781,7 +9781,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("pid", Ty::Any, "a positive process id, Int or numeric String")],
         returns: "Bool",
-        doc: "Stops a process with SIGSTOP and answers true. Unix only: Windows is E_UNIMPLEMENTED. This shell's own pid, zero and negative pids are E_BAD_ARG; a pid that is not live is E_NOT_FOUND; a process the user does not own is E_POLICY_DENY.",
+        doc: "Stops a process and answers true. Unix sends SIGSTOP; Windows opens the process with PROCESS_SUSPEND_RESUME and calls ntdll NtSuspendProcess, so every thread stops. This shell's own pid, zero and negative pids are E_BAD_ARG; a pid that is not live is E_NOT_FOUND; a process the user does not own (or a protected one, such as System on Windows) is E_POLICY_DENY; any other OS or ntdll failure is E_TOOL_FAILED.",
         examples: &[
             (r#"(try { proc_suspend(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_suspend(2000000000) } catch e { e.error.code })"#, r#"E_NOT_FOUND"#),
@@ -9795,7 +9795,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("pid", Ty::Any, "a positive process id, Int or numeric String")],
         returns: "Bool",
-        doc: "Continues a stopped process with SIGCONT and answers true. Unix only: Windows is E_UNIMPLEMENTED. The refusals are those of proc_suspend.",
+        doc: "Continues a stopped process and answers true. Unix sends SIGCONT; Windows calls ntdll NtResumeProcess on a PROCESS_SUSPEND_RESUME handle. The refusals are those of proc_suspend.",
         examples: &[
             (r#"(try { proc_resume(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_resume(2000000000) } catch e { e.error.code })"#, r#"E_NOT_FOUND"#),

@@ -24923,8 +24923,8 @@ fn bi_proc_start_time(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// Sends a stop or continue signal. Unix sends it with kill(2), as proc_kill
-/// does. Windows has no such signal in this shell, so it is refused as
-/// unimplemented rather than answered false.
+/// does. Windows opens the process with PROCESS_SUSPEND_RESUME and calls
+/// ntdll's NtSuspendProcess or NtResumeProcess: see the Windows definition.
 #[cfg(unix)]
 fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
     let sig = if name == "STOP" {
@@ -24960,12 +24960,76 @@ fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
     })
 }
 
-#[cfg(not(unix))]
+/// The Windows half of [`proc_signal`]. A PowerShell script, built with
+/// `ps_script!` so no caller text reaches it, opens the process with
+/// PROCESS_SUSPEND_RESUME (0x0800), calls NtSuspendProcess or NtResumeProcess
+/// through Add-Type P/Invoke, and closes the handle. It prints one coded line:
+/// `ok`, `err:open:<GetLastError>` or `err:nt:<NTSTATUS in hex>`. That line is
+/// the only thing read back; prose from PowerShell is never parsed.
+#[cfg(windows)]
+fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
+    const PRELUDE: &str = "$ErrorActionPreference = 'Stop'; Add-Type -Namespace AetherProc -Name Native -MemberDefinition '[DllImport(\"kernel32.dll\", SetLastError=true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid); [DllImport(\"kernel32.dll\", SetLastError=true)] public static extern bool CloseHandle(IntPtr handle); [DllImport(\"ntdll.dll\")] public static extern int NtSuspendProcess(IntPtr handle); [DllImport(\"ntdll.dll\")] public static extern int NtResumeProcess(IntPtr handle);'; ";
+    let nt: &'static str = if name == "STOP" {
+        "NtSuspendProcess"
+    } else {
+        "NtResumeProcess"
+    };
+    let cmd = crate::ps_script!(
+        "{}$h = [AetherProc.Native]::OpenProcess(0x0800, $false, {}); if ($h -eq [IntPtr]::Zero) {{ 'err:open:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error() }} else {{ $s = [AetherProc.Native]::{}($h); [void][AetherProc.Native]::CloseHandle($h); if ($s -eq 0) {{ 'ok' }} else {{ 'err:nt:' + $s.ToString('X8') }} }}",
+        PRELUDE,
+        pid,
+        nt
+    );
+    let mut c = Command::new("powershell");
+    c.args(["-NoProfile", "-NonInteractive", "-Command", &cmd]);
+    let out = bounded_cmd_output(builtin, "powershell", c, TOOL_DEADLINE_SECS)?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let verdict = stdout
+        .lines()
+        .map(str::trim)
+        .find(|l| *l == "ok" || l.starts_with("err:"));
+    match verdict {
+        Some("ok") => Ok(Value::Bool(true)),
+        Some("err:open:5") => Err(crate::safety::policy_deny(
+            builtin,
+            format!("{builtin}: the operating system denied PROCESS_SUSPEND_RESUME to process {pid} (ERROR_ACCESS_DENIED)"),
+            "the process is protected or belongs to another user; act on a process this user owns",
+        )),
+        Some("err:open:87") => Err(crate::safety::not_found(
+            builtin,
+            "process",
+            &pid.to_string(),
+        )),
+        Some(line) if line.starts_with("err:open:") => Err(crate::safety::tool_failed(
+            builtin,
+            "OpenProcess",
+            None,
+            &format!("OpenProcess on process {pid} failed: {line}"),
+        )),
+        Some(line) if line.starts_with("err:nt:") => Err(crate::safety::tool_failed(
+            builtin,
+            nt,
+            None,
+            &format!(
+                "{nt} on process {pid} returned NTSTATUS 0x{}",
+                &line["err:nt:".len()..]
+            ),
+        )),
+        _ => Err(crate::safety::tool_failed(
+            builtin,
+            "powershell",
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
+        )),
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
     Err(crate::safety::unimplemented(
         builtin,
-        &format!("sending the {name} signal to process {pid}: Windows has no such signal, and this shell does not call its suspend or resume API"),
-        "on Windows, proc_kill sends TERM (graceful) or KILL (forced)",
+        &format!("sending the {name} signal to process {pid}: this platform has no suspend or resume call in this shell"),
+        "use proc_kill to end the process",
     ))
 }
 
