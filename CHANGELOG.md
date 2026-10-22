@@ -72,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that named a code only in their prose. An external tool stopped at its
   deadline is `E_BUDGET_EXCEEDED`, no longer reported as a failure to start.
 
+### Added (platform backends)
+
+- Windows: `proc_env` and `proc_cwd` for another process, `proc_suspend` and
+  `proc_resume`, and the openssl-backed `crypto_cert_info`, `crypto_cert_verify`,
+  RSA/EC `crypto_generate_key` and opt-in legacy decrypt (E_TOOL_MISSING without
+  `openssl`). Linux: `clipboard_types` (X11 and Wayland).
+
 ### Fixed
 
 - `glob` matched `*.rs` against any name containing `.rs` (`main.rsx`,
