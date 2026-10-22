@@ -32067,7 +32067,7 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("lsusb");
+        let cmd = std::process::Command::new("lsusb");
         let output = bounded_cmd_output("hw_usb", "lsusb", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
@@ -32121,7 +32121,7 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("lspci");
+        let cmd = std::process::Command::new("lspci");
         let output = bounded_cmd_output("hw_pci", "lspci", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
@@ -34012,7 +34012,7 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("xdpyinfo");
+        let cmd = std::process::Command::new("xdpyinfo");
         let output = bounded_cmd_output(NAME, "xdpyinfo", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
@@ -47184,10 +47184,7 @@ fn bi_platform_lib_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         "pkg-config",
         cmd,
         PROBE_DEADLINE_SECS,
-    )
-    .map_err(|e| {
-        crate::safety::tool_missing("platform_lib_version", "pkg-config", &e.to_string())
-    })?;
+    )?;
     if out.status.success() {
         return Ok(Value::Str(
             String::from_utf8_lossy(&out.stdout).trim().to_string(),
