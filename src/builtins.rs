@@ -23518,11 +23518,10 @@ fn proc_pid(builtin: &str, v: Option<&Value>) -> Result<i64> {
 fn proc_tool(
     builtin: &str,
     tool: &str,
-    cmd: &mut std::process::Command,
+    cmd: std::process::Command,
+    deadline_secs: u64,
 ) -> Result<std::process::Output> {
-    let out = cmd
-        .output()
-        .map_err(|e| crate::safety::spawn_error(builtin, tool, &e))?;
+    let out = bounded_cmd_output(builtin, tool, cmd, deadline_secs)?;
     if out.status.success() {
         return Ok(out);
     }
@@ -23637,10 +23636,15 @@ fn bi_proc_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let out = proc_tool(
             "proc_list",
             "powershell",
-            Command::new("powershell").args([
-                "-Command",
-                "Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json",
-            ]),
+            {
+                let mut c = Command::new("powershell");
+                c.args([
+                    "-Command",
+                    "Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json",
+                ]);
+                c
+            },
+            PROBE_DEADLINE_SECS,
         )?;
         let mut procs = Vec::new();
         for item in proc_json_items("proc_list", &String::from_utf8_lossy(&out.stdout))? {
@@ -23675,7 +23679,16 @@ fn bi_proc_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     #[cfg(not(windows))]
     let procs = {
-        let out = proc_tool("proc_list", "ps", Command::new("ps").arg("aux"))?;
+        let out = proc_tool(
+            "proc_list",
+            "ps",
+            {
+                let mut c = Command::new("ps");
+                c.arg("aux");
+                c
+            },
+            PROBE_DEADLINE_SECS,
+        )?;
         let mut procs = Vec::new();
         for line in String::from_utf8_lossy(&out.stdout).lines().skip(1) {
             if line.trim().is_empty() {
@@ -23854,9 +23867,7 @@ fn bi_proc_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         if force {
             cmd.arg("/F");
         }
-        let output = cmd
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_kill", "taskkill", &e))?;
+        let output = bounded_cmd_output("proc_kill", "taskkill", cmd, TOOL_DEADLINE_SECS)?;
         if output.status.success() {
             return Ok(proc_kill_sent(pid, signal));
         }
@@ -24160,23 +24171,21 @@ fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_exists", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            &crate::ps_script!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
+        ]);
+        let output = bounded_cmd_output("proc_exists", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         Ok(Value::Bool(
             output.status.success() && !output.stdout.is_empty(),
         ))
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_exists", "kill", &e))?;
+        let mut cmd = std::process::Command::new("kill");
+        cmd.args(["-0", &pid.to_string()]);
+        let output = bounded_cmd_output("proc_exists", "kill", cmd, PROBE_DEADLINE_SECS)?;
         return Ok(Value::Bool(output.status.success()));
     }
 }
@@ -24191,7 +24200,12 @@ fn proc_child_pids(pid: i64) -> Result<Vec<i64>> {
     let out = proc_tool(
         "proc_children",
         "powershell",
-        Command::new("powershell").args(["-Command", &cmd]),
+        {
+            let mut c = Command::new("powershell");
+            c.args(["-Command", &cmd]);
+            c
+        },
+        PROBE_DEADLINE_SECS,
     )?;
     proc_json_items("proc_children", &String::from_utf8_lossy(&out.stdout))?
         .iter()
@@ -24212,10 +24226,9 @@ fn proc_child_pids(pid: i64) -> Result<Vec<i64>> {
 
 #[cfg(not(windows))]
 fn proc_child_pids(pid: i64) -> Result<Vec<i64>> {
-    let out = Command::new("pgrep")
-        .args(["-P", &pid.to_string()])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("proc_children", "pgrep", &e))?;
+    let mut cmd = Command::new("pgrep");
+    cmd.args(["-P", &pid.to_string()]);
+    let out = bounded_cmd_output("proc_children", "pgrep", cmd, PROBE_DEADLINE_SECS)?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     match out.status.code() {
         Some(0) => text
@@ -24267,7 +24280,12 @@ fn bi_proc_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let out = proc_tool(
             "proc_priority",
             "powershell",
-            Command::new("powershell").args(["-Command", &cmd]),
+            {
+                let mut c = Command::new("powershell");
+                c.args(["-Command", &cmd]);
+                c
+            },
+            PROBE_DEADLINE_SECS,
         )?;
         let class = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let nice: i64 = match class.as_str() {
@@ -24293,7 +24311,12 @@ fn bi_proc_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let out = proc_tool(
             "proc_priority",
             "ps",
-            Command::new("ps").args(["-o", "ni=", "-p", &pid.to_string()]),
+            {
+                let mut c = Command::new("ps");
+                c.args(["-o", "ni=", "-p", &pid.to_string()]);
+                c
+            },
+            PROBE_DEADLINE_SECS,
         )?;
         let nice: i64 = proc_parse("proc_priority", "ps", &String::from_utf8_lossy(&out.stdout))?;
         let class = match nice {
@@ -24354,10 +24377,14 @@ fn bi_proc_set_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value>
             pid,
             crate::safety::ps_quote(class)
         );
-        let out = Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_set_priority", "powershell", &e))?;
+        let mut bounded_cmd = Command::new("powershell");
+        bounded_cmd.args(["-Command", &cmd]);
+        let out = bounded_cmd_output(
+            "proc_set_priority",
+            "powershell",
+            bounded_cmd,
+            TOOL_DEADLINE_SECS,
+        )?;
         if !out.status.success() {
             return Err(proc_refused(
                 "proc_set_priority",
@@ -24370,10 +24397,9 @@ fn bi_proc_set_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     }
     #[cfg(not(windows))]
     {
-        let out = Command::new("renice")
-            .args(["-n", &priority.to_string(), "-p", &pid.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("proc_set_priority", "renice", &e))?;
+        let mut cmd = Command::new("renice");
+        cmd.args(["-n", &priority.to_string(), "-p", &pid.to_string()]);
+        let out = bounded_cmd_output("proc_set_priority", "renice", cmd, TOOL_DEADLINE_SECS)?;
         if !out.status.success() {
             return Err(proc_refused(
                 "proc_set_priority",
@@ -24399,7 +24425,12 @@ fn bi_proc_cpu_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let out = proc_tool(
             "proc_cpu_usage",
             "powershell",
-            Command::new("powershell").args(["-Command", &cmd]),
+            {
+                let mut c = Command::new("powershell");
+                c.args(["-Command", &cmd]);
+                c
+            },
+            PROBE_DEADLINE_SECS,
         )?;
         proc_parse(
             "proc_cpu_usage",
@@ -24411,11 +24442,14 @@ fn bi_proc_cpu_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let cpu: f64 = {
         let out = proc_tool(
             "proc_cpu_usage",
-            "ps",
-            // LC_ALL=C: a decimal comma would not parse.
-            Command::new("ps")
-                .env("LC_ALL", "C")
-                .args(["-o", "%cpu=", "-p", &pid.to_string()]),
+            "ps", // LC_ALL=C: a decimal comma would not parse.
+            {
+                let mut c = Command::new("ps");
+                c.env("LC_ALL", "C")
+                    .args(["-o", "%cpu=", "-p", &pid.to_string()]);
+                c
+            },
+            PROBE_DEADLINE_SECS,
         )?;
         proc_parse(
             "proc_cpu_usage",
@@ -24436,7 +24470,12 @@ fn bi_proc_mem_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let out = proc_tool(
             "proc_mem_usage",
             "powershell",
-            Command::new("powershell").args(["-Command", &cmd]),
+            {
+                let mut c = Command::new("powershell");
+                c.args(["-Command", &cmd]);
+                c
+            },
+            PROBE_DEADLINE_SECS,
         )?;
         proc_parse(
             "proc_mem_usage",
@@ -24449,7 +24488,12 @@ fn bi_proc_mem_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let out = proc_tool(
             "proc_mem_usage",
             "ps",
-            Command::new("ps").args(["-o", "rss=", "-p", &pid.to_string()]),
+            {
+                let mut c = Command::new("ps");
+                c.args(["-o", "rss=", "-p", &pid.to_string()]);
+                c
+            },
+            PROBE_DEADLINE_SECS,
         )?;
         // ps reports resident kilobytes.
         proc_parse::<i64>(
@@ -24472,7 +24516,12 @@ fn bi_proc_threads(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let out = proc_tool(
             "proc_threads",
             "powershell",
-            Command::new("powershell").args(["-Command", &cmd]),
+            {
+                let mut c = Command::new("powershell");
+                c.args(["-Command", &cmd]);
+                c
+            },
+            PROBE_DEADLINE_SECS,
         )?;
         proc_parse(
             "proc_threads",
@@ -24496,7 +24545,12 @@ fn bi_proc_threads(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let out = proc_tool(
             "proc_threads",
             "ps",
-            Command::new("ps").args(["-M", "-p", &pid.to_string()]),
+            {
+                let mut c = Command::new("ps");
+                c.args(["-M", "-p", &pid.to_string()]);
+                c
+            },
+            PROBE_DEADLINE_SECS,
         )?;
         // ps -M prints a header, then one line per thread.
         let lines = String::from_utf8_lossy(&out.stdout).lines().count();
@@ -24560,7 +24614,12 @@ fn proc_cwd_of(pid: i64) -> Result<String> {
     let out = proc_tool(
         "proc_cwd",
         "lsof",
-        Command::new("lsof").args(["-p", &pid.to_string(), "-Fn", "-d", "cwd"]),
+        {
+            let mut c = Command::new("lsof");
+            c.args(["-p", &pid.to_string(), "-Fn", "-d", "cwd"]);
+            c
+        },
+        PROBE_DEADLINE_SECS,
     )?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     let named = text
@@ -24604,7 +24663,12 @@ fn proc_exe_of(pid: i64) -> Result<String> {
     let out = proc_tool(
         "proc_exe",
         "powershell",
-        Command::new("powershell").args(["-Command", &cmd]),
+        {
+            let mut c = Command::new("powershell");
+            c.args(["-Command", &cmd]);
+            c
+        },
+        PROBE_DEADLINE_SECS,
     )?;
     let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if path.is_empty() {
@@ -24629,7 +24693,12 @@ fn proc_exe_of(pid: i64) -> Result<String> {
     let out = proc_tool(
         "proc_exe",
         "ps",
-        Command::new("ps").args(["-p", &pid.to_string(), "-o", "comm="]),
+        {
+            let mut c = Command::new("ps");
+            c.args(["-p", &pid.to_string(), "-o", "comm="]);
+            c
+        },
+        PROBE_DEADLINE_SECS,
     )?;
     let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if path.is_empty() {
@@ -24693,7 +24762,12 @@ fn proc_cmdline_of(pid: i64) -> Result<Vec<String>> {
     let out = proc_tool(
         "proc_cmdline",
         "powershell",
-        Command::new("powershell").args(["-Command", &cmd]),
+        {
+            let mut c = Command::new("powershell");
+            c.args(["-Command", &cmd]);
+            c
+        },
+        PROBE_DEADLINE_SECS,
     )?;
     let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if line.is_empty() {
@@ -24728,7 +24802,12 @@ fn proc_cmdline_of(pid: i64) -> Result<Vec<String>> {
     let out = proc_tool(
         "proc_cmdline",
         "ps",
-        Command::new("ps").args(["-p", &pid.to_string(), "-o", "args="]),
+        {
+            let mut c = Command::new("ps");
+            c.args(["-p", &pid.to_string(), "-o", "args="]);
+            c
+        },
+        PROBE_DEADLINE_SECS,
     )?;
     let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if line.is_empty() {
@@ -25553,10 +25632,12 @@ fn bi_fs_du(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("fs_df", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free | ConvertTo-Json",
+        ]);
+        let output = bounded_cmd_output("fs_df", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -25603,10 +25684,9 @@ fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         // df -h works on both Linux and macOS
-        let output = std::process::Command::new("df")
-            .args(["-h"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("fs_df", "df", &e))?;
+        let mut cmd = std::process::Command::new("df");
+        cmd.args(["-h"]);
+        let output = bounded_cmd_output("fs_df", "df", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut drives = Vec::new();
@@ -25640,13 +25720,12 @@ fn bi_fs_unmount(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Root | ConvertTo-Json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("fs_mounts", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Root | ConvertTo-Json",
+        ]);
+        let output = bounded_cmd_output("fs_mounts", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -25697,9 +25776,8 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "macos")]
     {
         // macOS: use mount command (no /proc/mounts)
-        let output = std::process::Command::new("mount")
-            .output()
-            .map_err(|e| crate::safety::spawn_error("fs_mounts", "mount", &e))?;
+        let mut cmd = std::process::Command::new("mount");
+        let output = bounded_cmd_output("fs_mounts", "mount", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut result = Vec::new();
@@ -27160,13 +27238,12 @@ fn bi_sys_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "(Get-CimInstance Win32_OperatingSystem).Caption",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_info", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "(Get-CimInstance Win32_OperatingSystem).Caption",
+        ]);
+        let output = bounded_cmd_output("sys_info", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             rec.insert(
                 "os_name".to_string(),
@@ -27190,12 +27267,12 @@ fn bi_sys_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("sw_vers")
-            .args(["-productName"])
-            .output();
-        let version = std::process::Command::new("sw_vers")
-            .args(["-productVersion"])
-            .output();
+        let mut name_cmd = std::process::Command::new("sw_vers");
+        name_cmd.args(["-productName"]);
+        let output = bounded_cmd_output("sys_info", "sw_vers", name_cmd, PROBE_DEADLINE_SECS);
+        let mut ver_cmd = std::process::Command::new("sw_vers");
+        ver_cmd.args(["-productVersion"]);
+        let version = bounded_cmd_output("sys_info", "sw_vers", ver_cmd, PROBE_DEADLINE_SECS);
         let name = output
             .as_ref()
             .ok()
@@ -27264,20 +27341,18 @@ fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // E_TOOL_MISSING on every Windows host. Nothing caught it because
         // nothing ran it -- declaring the signature made its example
         // executable, and the example failed on the first try.
-        let output = std::process::Command::new("cmd")
-            .args(["/C", "ver"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_kernel", "cmd", &e))?;
+        let mut bounded_cmd = std::process::Command::new("cmd");
+        bounded_cmd.args(["/C", "ver"]);
+        let output = bounded_cmd_output("sys_kernel", "cmd", bounded_cmd, PROBE_DEADLINE_SECS)?;
         Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).trim().to_string(),
         ))
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("uname")
-            .args(["-r"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_kernel", "uname", &e))?;
+        let mut cmd = std::process::Command::new("uname");
+        cmd.args(["-r"]);
+        let output = bounded_cmd_output("sys_kernel", "uname", cmd, PROBE_DEADLINE_SECS)?;
         return Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).trim().to_string(),
         ));
@@ -27287,10 +27362,12 @@ fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalSeconds"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("sys_uptime", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalSeconds",
+        ]);
+        let output = bounded_cmd_output("sys_uptime", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let secs: f64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -27311,10 +27388,9 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "macos")]
     {
         // macOS: sysctl kern.boottime returns "{ sec = 1234567890, usec = 0 }"
-        let output = std::process::Command::new("sysctl")
-            .args(["-n", "kern.boottime"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_uptime", "sysctl", &e))?;
+        let mut cmd = std::process::Command::new("sysctl");
+        cmd.args(["-n", "kern.boottime"]);
+        let output = bounded_cmd_output("sys_uptime", "sysctl", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             // Parse "{ sec = 1234567890, usec = 0 }" or "sec = 1234567890"
@@ -27342,13 +27418,12 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('o')",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_boot_time", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('o')",
+        ]);
+        let output = bounded_cmd_output("sys_boot_time", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -27362,10 +27437,9 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // the first try.
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("sysctl")
-            .args(["-n", "kern.boottime"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_boot_time", "sysctl", &e))?;
+        let mut cmd = std::process::Command::new("sysctl");
+        cmd.args(["-n", "kern.boottime"]);
+        let output = bounded_cmd_output("sys_boot_time", "sysctl", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -27380,10 +27454,9 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
-        let output = std::process::Command::new("uptime")
-            .args(["-s"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_boot_time", "uptime", &e))?;
+        let mut cmd = std::process::Command::new("uptime");
+        cmd.args(["-s"]);
+        let output = bounded_cmd_output("sys_boot_time", "uptime", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -27411,10 +27484,10 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns consistent Record {name: String, cores: Int, mhz: Float} on all platforms
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("sys_cpu_info", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd
+            .args(["-Command", "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json"]);
+        let output = bounded_cmd_output("sys_cpu_info", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -27487,9 +27560,9 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let mut rec = std::collections::BTreeMap::new();
         // CPU brand string
-        if let Ok(output) = std::process::Command::new("sysctl")
-            .args(["-n", "machdep.cpu.brand_string"])
-            .output()
+        let mut brand = std::process::Command::new("sysctl");
+        brand.args(["-n", "machdep.cpu.brand_string"]);
+        if let Ok(output) = bounded_cmd_output("sys_cpu_info", "sysctl", brand, PROBE_DEADLINE_SECS)
         {
             if output.status.success() {
                 rec.insert(
@@ -27499,9 +27572,10 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
         // Core count
-        if let Ok(output) = std::process::Command::new("sysctl")
-            .args(["-n", "hw.physicalcpu"])
-            .output()
+        let mut physical = std::process::Command::new("sysctl");
+        physical.args(["-n", "hw.physicalcpu"]);
+        if let Ok(output) =
+            bounded_cmd_output("sys_cpu_info", "sysctl", physical, PROBE_DEADLINE_SECS)
         {
             if output.status.success() {
                 rec.insert(
@@ -27516,9 +27590,9 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
         // CPU frequency (MHz)
-        if let Ok(output) = std::process::Command::new("sysctl")
-            .args(["-n", "hw.cpufrequency"])
-            .output()
+        let mut freq = std::process::Command::new("sysctl");
+        freq.args(["-n", "hw.cpufrequency"]);
+        if let Ok(output) = bounded_cmd_output("sys_cpu_info", "sysctl", freq, PROBE_DEADLINE_SECS)
         {
             if output.status.success() {
                 let hz: f64 = String::from_utf8_lossy(&output.stdout)
@@ -27558,13 +27632,12 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // error. It used to read as Null, the same answer as "not exposed".
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "(Get-CimInstance Win32_Processor).MaxClockSpeed",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_cpu_freq", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "(Get-CimInstance Win32_Processor).MaxClockSpeed",
+        ]);
+        let output = bounded_cmd_output("sys_cpu_freq", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 "sys_cpu_freq",
@@ -27611,10 +27684,9 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("sysctl")
-            .args(["-n", "hw.cpufrequency"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_cpu_freq", "sysctl", &e))?;
+        let mut cmd = std::process::Command::new("sysctl");
+        cmd.args(["-n", "hw.cpufrequency"]);
+        let output = bounded_cmd_output("sys_cpu_freq", "sysctl", cmd, PROBE_DEADLINE_SECS)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             // Apple Silicon has no such OID: the OS does not expose a frequency.
@@ -27748,9 +27820,10 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "macos")]
     {
         // macOS: sysctl vm.loadavg returns "{ 1.23 4.56 7.89 }"
-        if let Ok(output) = std::process::Command::new("sysctl")
-            .args(["-n", "vm.loadavg"])
-            .output()
+        let mut loadavg = std::process::Command::new("sysctl");
+        loadavg.args(["-n", "vm.loadavg"]);
+        if let Ok(output) =
+            bounded_cmd_output("sys_load_avg", "sysctl", loadavg, PROBE_DEADLINE_SECS)
         {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
@@ -27781,13 +27854,12 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         // Windows doesn't have load average; approximate with CPU usage as all three values
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "(Get-CimInstance Win32_Processor).LoadPercentage",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_load_avg", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "(Get-CimInstance Win32_Processor).LoadPercentage",
+        ]);
+        let output = bounded_cmd_output("sys_load_avg", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let load: f64 = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -27807,13 +27879,12 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "Get-LocalUser | Select-Object Name,Enabled,LastLogon | ConvertTo-Json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_users", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "Get-LocalUser | Select-Object Name,Enabled,LastLogon | ConvertTo-Json",
+        ]);
+        let output = bounded_cmd_output("sys_users", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -27878,13 +27949,12 @@ fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "Get-LocalGroup | Select-Object Name,Description | ConvertTo-Json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_groups", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "Get-LocalGroup | Select-Object Name,Description | ConvertTo-Json",
+        ]);
+        let output = bounded_cmd_output("sys_groups", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -28029,10 +28099,9 @@ fn bi_sys_env_all(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_locale(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-Culture).Name"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_locale", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-Command", "(Get-Culture).Name"]);
+        let output = bounded_cmd_output("sys_locale", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -28051,10 +28120,9 @@ fn bi_sys_locale(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_timezone(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-TimeZone).Id"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sys_timezone", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-Command", "(Get-TimeZone).Id"]);
+        let output = bounded_cmd_output("sys_timezone", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             return Ok(Value::Str(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -28094,13 +28162,12 @@ fn bi_sys_timezone(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "Get-Service | Select-Object Name,DisplayName,Status | ConvertTo-Json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_list", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "Get-Service | Select-Object Name,DisplayName,Status | ConvertTo-Json",
+        ]);
+        let output = bounded_cmd_output("svc_list", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -28137,15 +28204,14 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("systemctl")
-            .args([
-                "list-units",
-                "--type=service",
-                "--no-pager",
-                "--output=json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_list", "systemctl", &e))?;
+        let mut cmd = std::process::Command::new("systemctl");
+        cmd.args([
+            "list-units",
+            "--type=service",
+            "--no-pager",
+            "--output=json",
+        ]);
+        let output = bounded_cmd_output("svc_list", "systemctl", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -28155,10 +28221,9 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("launchctl")
-            .arg("list")
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_list", "launchctl", &e))?;
+        let mut cmd = std::process::Command::new("launchctl");
+        cmd.arg("list");
+        let output = bounded_cmd_output("svc_list", "launchctl", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             // Format: PID\tStatus\tLabel
@@ -28203,7 +28268,8 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("svc_status", std::slice::from_ref(&name))?;
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
+        let mut cmd = std::process::Command::new("powershell");
+        cmd
             .args([
                 "-Command",
                 // A missing service exits 3, distinct from every other failure.
@@ -28211,9 +28277,8 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     "try {{ Get-Service -Name {} -ErrorAction Stop | Select-Object Name,Status | ConvertTo-Json }} catch {{ if ($_.FullyQualifiedErrorId -like 'NoServiceFoundForGivenName*') {{ exit 3 }} else {{ throw }} }}",
                     crate::safety::ps_quote(&name)
                 ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_status", "powershell", &e))?;
+            ]);
+        let output = bounded_cmd_output("svc_status", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -28254,19 +28319,18 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // `systemctl is-active` says "inactive" for a unit that does not
         // exist, so a missing service read as a stopped one. LoadState tells
         // them apart.
-        let output = std::process::Command::new("systemctl")
-            .args([
-                "show",
-                "-p",
-                "LoadState",
-                "-p",
-                "ActiveState",
-                "-p",
-                "SubState",
-                &name,
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_status", "systemctl", &e))?;
+        let mut cmd = std::process::Command::new("systemctl");
+        cmd.args([
+            "show",
+            "-p",
+            "LoadState",
+            "-p",
+            "ActiveState",
+            "-p",
+            "SubState",
+            &name,
+        ]);
+        let output = bounded_cmd_output("svc_status", "systemctl", cmd, PROBE_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 "svc_status",
@@ -28302,10 +28366,9 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("launchctl")
-            .args(["list", &name])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_status", "launchctl", &e))?;
+        let mut cmd = std::process::Command::new("launchctl");
+        cmd.args(["list", &name]);
+        let output = bounded_cmd_output("svc_status", "launchctl", cmd, PROBE_DEADLINE_SECS)?;
         // `launchctl list <label>` fails for a label that is not loaded, which
         // read as "stopped", and succeeds for a loaded job whether or not it
         // is running, which read as "running". A running job has a PID.
@@ -28485,7 +28548,8 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
+        let mut cmd = std::process::Command::new("powershell");
+        cmd
             .args([
                 "-Command",
                 &crate::ps_script!(
@@ -28494,9 +28558,8 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     "ConvertTo-Json -InputObject @(Get-EventLog -LogName Application -Source {} -Newest {} -ErrorAction SilentlyContinue | Select-Object TimeGenerated,EntryType,Message)",
                     crate::safety::ps_quote(&name), lines
                 ),
-            ])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("svc_logs", "powershell", &e))?;
+            ]);
+        let output = bounded_cmd_output("svc_logs", "powershell", cmd, TOOL_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -28535,18 +28598,17 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("journalctl")
-            .args([
-                "-u",
-                &name,
-                "-n",
-                &lines.to_string(),
-                "--no-pager",
-                "-o",
-                "json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_logs", "journalctl", &e))?;
+        let mut cmd = std::process::Command::new("journalctl");
+        cmd.args([
+            "-u",
+            &name,
+            "-n",
+            &lines.to_string(),
+            "--no-pager",
+            "-o",
+            "json",
+        ]);
+        let output = bounded_cmd_output("svc_logs", "journalctl", cmd, TOOL_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let entries: Vec<Value> = text
@@ -28576,10 +28638,9 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Array(entries));
         }
         // Fallback: text parsing
-        let output = std::process::Command::new("journalctl")
-            .args(["-u", &name, "-n", &lines.to_string(), "--no-pager"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_logs", "journalctl", &e))?;
+        let mut cmd = std::process::Command::new("journalctl");
+        cmd.args(["-u", &name, "-n", &lines.to_string(), "--no-pager"]);
+        let output = bounded_cmd_output("svc_logs", "journalctl", cmd, TOOL_DEADLINE_SECS)?;
         // Unreadable journals (no systemd, no permission) answered [].
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
@@ -28614,18 +28675,17 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 &name,
             ));
         }
-        let output = std::process::Command::new("log")
-            .args([
-                "show",
-                "--predicate",
-                &format!("process == '{}'", name),
-                "--last",
-                "1h",
-                "--style",
-                "compact",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("svc_logs", "log", &e))?;
+        let mut cmd = std::process::Command::new("log");
+        cmd.args([
+            "show",
+            "--predicate",
+            &format!("process == '{}'", name),
+            "--last",
+            "1h",
+            "--style",
+            "compact",
+        ]);
+        let output = bounded_cmd_output("svc_logs", "log", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 "svc_logs",
@@ -28695,27 +28755,25 @@ fn bi_cron_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     #[cfg(windows)]
     {
         let script = "$ErrorActionPreference='Stop'; $OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=$OutputEncoding; ConvertTo-Json -InputObject @(Get-ScheduledTask -ErrorAction Stop | Select-Object TaskName,@{Name='State';Expression={$_.State.ToString()}},TaskPath) -Depth 3 -Compress";
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                script,
-            ])
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|e| crate::safety::spawn_error("cron_list", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
+        ])
+        .stdin(std::process::Stdio::null());
+        let output = bounded_cmd_output("cron_list", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         parse_cron_listing(output, true)
     }
     #[cfg(unix)]
     {
-        let output = std::process::Command::new("crontab")
-            .arg("-l")
+        let mut cmd = std::process::Command::new("crontab");
+        cmd.arg("-l")
             .env("LC_ALL", "C")
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|e| crate::safety::spawn_error("cron_list", "crontab", &e))?;
+            .stdin(std::process::Stdio::null());
+        let output = bounded_cmd_output("cron_list", "crontab", cmd, PROBE_DEADLINE_SECS)?;
         parse_cron_listing(output, false)
     }
     #[cfg(not(any(unix, windows)))]
@@ -29269,10 +29327,9 @@ fn bi_at_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(unix)]
     {
-        let output = std::process::Command::new("atq")
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|e| crate::safety::spawn_error("at_list", "atq", &e))?;
+        let mut cmd = std::process::Command::new("atq");
+        cmd.stdin(std::process::Stdio::null());
+        let output = bounded_cmd_output("at_list", "atq", cmd, PROBE_DEADLINE_SECS)?;
         parse_at_queue(output)
     }
     #[cfg(windows)]
@@ -29406,10 +29463,10 @@ fn bi_at_remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("startup_list", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd
+            .args(["-Command", "Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location | ConvertTo-Json"]);
+        let output = bounded_cmd_output("startup_list", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -29451,16 +29508,15 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("systemctl")
-            .args([
-                "list-unit-files",
-                "--type=service",
-                "--state=enabled",
-                "--no-pager",
-                "--no-legend",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("startup_list", "systemctl", &e))?;
+        let mut cmd = std::process::Command::new("systemctl");
+        cmd.args([
+            "list-unit-files",
+            "--type=service",
+            "--state=enabled",
+            "--no-pager",
+            "--no-legend",
+        ]);
+        let output = bounded_cmd_output("startup_list", "systemctl", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let services: Vec<Value> = text
@@ -29493,10 +29549,9 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("launchctl")
-            .args(["list"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("startup_list", "launchctl", &e))?;
+        let mut cmd = std::process::Command::new("launchctl");
+        cmd.args(["list"]);
+        let output = bounded_cmd_output("startup_list", "launchctl", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let services: Vec<Value> = text
@@ -29666,10 +29721,15 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             crate::safety::ps_quote(&archive),
             crate::safety::ps_quote(&dest)
         );
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", &cmd])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("zip_extract", "powershell", &e))?;
+        let mut bounded_cmd = std::process::Command::new("powershell");
+        bounded_cmd.args(["-Command", &cmd]);
+        // Archives can be large; extraction is bounded by the long deadline.
+        let output = bounded_cmd_output(
+            "zip_extract",
+            "powershell",
+            bounded_cmd,
+            TOOL_LONG_DEADLINE_SECS,
+        )?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 "zip_extract",
@@ -29685,10 +29745,10 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         crate::safety::reject_option_like("zip_extract", std::slice::from_ref(&archive))?;
         crate::safety::reject_option_like("zip_extract", std::slice::from_ref(&dest))?;
         let dest = guard_local_write("zip_extract", &dest)?;
-        let output = std::process::Command::new("unzip")
-            .args([&archive, "-d", &dest])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("zip_extract", "unzip", &e))?;
+        let mut cmd = std::process::Command::new("unzip");
+        cmd.args([&archive, "-d", &dest]);
+        // Archives can be large; extraction is bounded by the long deadline.
+        let output = bounded_cmd_output("zip_extract", "unzip", cmd, TOOL_LONG_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 "zip_extract",
@@ -29829,9 +29889,8 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let d = guard_local_write("tar_extract", &d)?;
         cmd.args(["-C", &d]);
     }
-    let output = cmd
-        .output()
-        .map_err(|e| crate::safety::spawn_error("tar_extract", "tar", &e))?;
+    // Archives can be large; extraction is bounded by the long deadline.
+    let output = bounded_cmd_output("tar_extract", "tar", cmd, TOOL_LONG_DEADLINE_SECS)?;
     if !output.status.success() {
         return Err(crate::safety::tool_failed(
             "tar_extract",
@@ -30220,10 +30279,10 @@ fn bi_bzip2_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     // The file goes to bzip2 positionally; a leading `-` would be an option.
     crate::safety::reject_option_like("bzip2_compress", std::slice::from_ref(&file))?;
-    let output = std::process::Command::new("bzip2")
-        .args(["-k", &file])
-        .output()
-        .map_err(|e| crate::safety::spawn_error("bzip2_compress", "bzip2", &e))?;
+    let mut cmd = std::process::Command::new("bzip2");
+    cmd.args(["-k", &file]);
+    // Compressing a large file can outlast the short deadlines.
+    let output = bounded_cmd_output("bzip2_compress", "bzip2", cmd, TOOL_LONG_DEADLINE_SECS)?;
     // A failure was a bare `false`, with bzip2's reason discarded.
     if !output.status.success() {
         return Err(crate::safety::tool_failed(
@@ -30450,16 +30509,15 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("group_members", std::slice::from_ref(&group))?;
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                &crate::ps_script!(
-                    "Get-LocalGroupMember {} | Select-Object Name | ConvertTo-Json",
-                    crate::safety::ps_quote(&group)
-                ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("group_members", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            &crate::ps_script!(
+                "Get-LocalGroupMember {} | Select-Object Name | ConvertTo-Json",
+                crate::safety::ps_quote(&group)
+            ),
+        ]);
+        let output = bounded_cmd_output("group_members", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -30489,10 +30547,9 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let output = std::process::Command::new("getent")
-            .args(["group", &group])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("group_members", "getent", &e))?;
+        let mut cmd = std::process::Command::new("getent");
+        cmd.args(["group", &group]);
+        let output = bounded_cmd_output("group_members", "getent", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let line = String::from_utf8_lossy(&output.stdout);
             if let Some(members) = line.split(':').nth(3) {
@@ -30648,11 +30705,11 @@ fn bi_sudo_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(windows)]
     {
-        let output = std::process::Command::new("powershell")
+        let mut cmd = std::process::Command::new("powershell");
+        cmd
             .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|e| crate::safety::spawn_error("sudo_check", "powershell", &e))?;
+            .stdin(std::process::Stdio::null());
+        let output = bounded_cmd_output("sudo_check", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         parse_windows_admin_status(output)
     }
     #[cfg(unix)]
@@ -31237,26 +31294,31 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pm = detect_package_manager();
 
     let output = match pm {
-        "apt" => std::process::Command::new("apt-cache")
-            .args(["search", &query])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_search", "apt-cache", &e))?,
-        "dnf" | "yum" => std::process::Command::new(pm)
-            .args(["search", &query])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_search", pm, &e))?,
-        "pacman" => std::process::Command::new("pacman")
-            .args(["-Ss", &query])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_search", "pacman", &e))?,
-        "brew" => std::process::Command::new("brew")
-            .args(["search", &query])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_search", "brew", &e))?,
-        "winget" => std::process::Command::new("winget")
-            .args(["search", &query])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_search", "winget", &e))?,
+        "apt" => {
+            let mut cmd = std::process::Command::new("apt-cache");
+            cmd.args(["search", &query]);
+            bounded_cmd_output("pkg_search", "apt-cache", cmd, TOOL_DEADLINE_SECS)?
+        }
+        "dnf" | "yum" => {
+            let mut cmd = std::process::Command::new(pm);
+            cmd.args(["search", &query]);
+            bounded_cmd_output("pkg_search", pm, cmd, TOOL_DEADLINE_SECS)?
+        }
+        "pacman" => {
+            let mut cmd = std::process::Command::new("pacman");
+            cmd.args(["-Ss", &query]);
+            bounded_cmd_output("pkg_search", "pacman", cmd, TOOL_DEADLINE_SECS)?
+        }
+        "brew" => {
+            let mut cmd = std::process::Command::new("brew");
+            cmd.args(["search", &query]);
+            bounded_cmd_output("pkg_search", "brew", cmd, TOOL_DEADLINE_SECS)?
+        }
+        "winget" => {
+            let mut cmd = std::process::Command::new("winget");
+            cmd.args(["search", &query]);
+            bounded_cmd_output("pkg_search", "winget", cmd, TOOL_DEADLINE_SECS)?
+        }
         other => return Err(pkg_unsupported("pkg_search", other)),
     };
     let program = match pm {
@@ -31330,26 +31392,31 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pm = detect_package_manager();
 
     let output = match pm {
-        "apt" => std::process::Command::new("apt-cache")
-            .args(["show", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_info", "apt-cache", &e))?,
-        "dnf" | "yum" => std::process::Command::new(pm)
-            .args(["info", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_info", pm, &e))?,
-        "pacman" => std::process::Command::new("pacman")
-            .args(["-Qi", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_info", "pacman", &e))?,
-        "brew" => std::process::Command::new("brew")
-            .args(["info", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_info", "brew", &e))?,
-        "winget" => std::process::Command::new("winget")
-            .args(["show", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_info", "winget", &e))?,
+        "apt" => {
+            let mut cmd = std::process::Command::new("apt-cache");
+            cmd.args(["show", &package]);
+            bounded_cmd_output("pkg_info", "apt-cache", cmd, TOOL_DEADLINE_SECS)?
+        }
+        "dnf" | "yum" => {
+            let mut cmd = std::process::Command::new(pm);
+            cmd.args(["info", &package]);
+            bounded_cmd_output("pkg_info", pm, cmd, TOOL_DEADLINE_SECS)?
+        }
+        "pacman" => {
+            let mut cmd = std::process::Command::new("pacman");
+            cmd.args(["-Qi", &package]);
+            bounded_cmd_output("pkg_info", "pacman", cmd, TOOL_DEADLINE_SECS)?
+        }
+        "brew" => {
+            let mut cmd = std::process::Command::new("brew");
+            cmd.args(["info", &package]);
+            bounded_cmd_output("pkg_info", "brew", cmd, TOOL_DEADLINE_SECS)?
+        }
+        "winget" => {
+            let mut cmd = std::process::Command::new("winget");
+            cmd.args(["show", &package]);
+            bounded_cmd_output("pkg_info", "winget", cmd, TOOL_DEADLINE_SECS)?
+        }
         other => return Err(pkg_unsupported("pkg_info", other)),
     };
     let program = match pm {
@@ -31465,14 +31532,16 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pm = detect_package_manager();
 
     let output = match pm {
-        "apt" => std::process::Command::new("dpkg")
-            .args(["-L", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_files", "dpkg", &e))?,
-        "pacman" => std::process::Command::new("pacman")
-            .args(["-Ql", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_files", "pacman", &e))?,
+        "apt" => {
+            let mut cmd = std::process::Command::new("dpkg");
+            cmd.args(["-L", &package]);
+            bounded_cmd_output("pkg_files", "dpkg", cmd, TOOL_DEADLINE_SECS)?
+        }
+        "pacman" => {
+            let mut cmd = std::process::Command::new("pacman");
+            cmd.args(["-Ql", &package]);
+            bounded_cmd_output("pkg_files", "pacman", cmd, TOOL_DEADLINE_SECS)?
+        }
         other => return Err(pkg_unsupported("pkg_files", other)),
     };
     let program = match pm {
@@ -31514,14 +31583,16 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pm = detect_package_manager();
 
     let output = match pm {
-        "apt" => std::process::Command::new("dpkg")
-            .args(["-S", &file])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_owner", "dpkg", &e))?,
-        "pacman" => std::process::Command::new("pacman")
-            .args(["-Qo", &file])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_owner", "pacman", &e))?,
+        "apt" => {
+            let mut cmd = std::process::Command::new("dpkg");
+            cmd.args(["-S", &file]);
+            bounded_cmd_output("pkg_owner", "dpkg", cmd, TOOL_DEADLINE_SECS)?
+        }
+        "pacman" => {
+            let mut cmd = std::process::Command::new("pacman");
+            cmd.args(["-Qo", &file]);
+            bounded_cmd_output("pkg_owner", "pacman", cmd, TOOL_DEADLINE_SECS)?
+        }
         other => return Err(pkg_unsupported("pkg_owner", other)),
     };
     let program = match pm {
@@ -31582,10 +31653,12 @@ fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pm = detect_package_manager();
 
     let output = match pm {
-        "apt" => std::process::Command::new("dpkg")
-            .args(["-V", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_verify", "dpkg", &e))?,
+        "apt" => {
+            let mut cmd = std::process::Command::new("dpkg");
+            cmd.args(["-V", &package]);
+            // Verifying every installed file of a package can be slow.
+            bounded_cmd_output("pkg_verify", "dpkg", cmd, TOOL_LONG_DEADLINE_SECS)?
+        }
         other => return Err(pkg_unsupported("pkg_verify", other)),
     };
 
@@ -31687,14 +31760,16 @@ fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pm = detect_package_manager();
 
     let output = match pm {
-        "apt" => std::process::Command::new("apt-cache")
-            .args(["depends", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_deps", "apt-cache", &e))?,
-        "pacman" => std::process::Command::new("pacman")
-            .args(["-Si", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_deps", "pacman", &e))?,
+        "apt" => {
+            let mut cmd = std::process::Command::new("apt-cache");
+            cmd.args(["depends", &package]);
+            bounded_cmd_output("pkg_deps", "apt-cache", cmd, TOOL_DEADLINE_SECS)?
+        }
+        "pacman" => {
+            let mut cmd = std::process::Command::new("pacman");
+            cmd.args(["-Si", &package]);
+            bounded_cmd_output("pkg_deps", "pacman", cmd, TOOL_DEADLINE_SECS)?
+        }
         other => return Err(pkg_unsupported("pkg_deps", other)),
     };
     let program = match pm {
@@ -31724,14 +31799,16 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pm = detect_package_manager();
 
     let output = match pm {
-        "apt" => std::process::Command::new("apt-cache")
-            .args(["rdepends", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_rdeps", "apt-cache", &e))?,
-        "pacman" => std::process::Command::new("pacman")
-            .args(["-Sii", &package])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("pkg_rdeps", "pacman", &e))?,
+        "apt" => {
+            let mut cmd = std::process::Command::new("apt-cache");
+            cmd.args(["rdepends", &package]);
+            bounded_cmd_output("pkg_rdeps", "apt-cache", cmd, TOOL_DEADLINE_SECS)?
+        }
+        "pacman" => {
+            let mut cmd = std::process::Command::new("pacman");
+            cmd.args(["-Sii", &package]);
+            bounded_cmd_output("pkg_rdeps", "pacman", cmd, TOOL_DEADLINE_SECS)?
+        }
         other => return Err(pkg_unsupported("pkg_rdeps", other)),
     };
     let program = match pm {
@@ -31855,10 +31932,10 @@ fn bi_hw_disk(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("hw_gpu", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd
+            .args(["-Command", "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion | ConvertTo-Json"]);
+        let output = bounded_cmd_output("hw_gpu", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -31891,10 +31968,9 @@ fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         // Use sh -c for proper shell pipeline expansion
-        let output = std::process::Command::new("sh")
-            .args(["-c", "lspci | grep -iE 'vga|3d|display'"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_gpu", "sh", &e))?;
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", "lspci | grep -iE 'vga|3d|display'"]);
+        let output = bounded_cmd_output("hw_gpu", "sh", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let gpus: Vec<Value> = text
@@ -31918,10 +31994,9 @@ fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("system_profiler")
-            .args(["SPDisplaysDataType", "-json"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_gpu", "system_profiler", &e))?;
+        let mut cmd = std::process::Command::new("system_profiler");
+        cmd.args(["SPDisplaysDataType", "-json"]);
+        let output = bounded_cmd_output("hw_gpu", "system_profiler", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -31958,13 +32033,12 @@ fn bi_hw_network(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "Get-PnpDevice -Class USB | Select-Object FriendlyName,Status | ConvertTo-Json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_usb", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "Get-PnpDevice -Class USB | Select-Object FriendlyName,Status | ConvertTo-Json",
+        ]);
+        let output = bounded_cmd_output("hw_usb", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -31993,9 +32067,8 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("lsusb")
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_usb", "lsusb", &e))?;
+        let mut cmd = std::process::Command::new("lsusb");
+        let output = bounded_cmd_output("hw_usb", "lsusb", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -32010,10 +32083,9 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("system_profiler")
-            .args(["SPUSBDataType", "-json"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_usb", "system_profiler", &e))?;
+        let mut cmd = std::process::Command::new("system_profiler");
+        cmd.args(["SPUSBDataType", "-json"]);
+        let output = bounded_cmd_output("hw_usb", "system_profiler", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -32049,9 +32121,8 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("lspci")
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_pci", "lspci", &e))?;
+        let mut cmd = std::process::Command::new("lspci");
+        let output = bounded_cmd_output("hw_pci", "lspci", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -32071,13 +32142,12 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "Get-PnpDevice | Select-Object FriendlyName,Class | ConvertTo-Json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_pci", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "Get-PnpDevice | Select-Object FriendlyName,Class | ConvertTo-Json",
+        ]);
+        let output = bounded_cmd_output("hw_pci", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -32106,10 +32176,9 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("system_profiler")
-            .args(["SPPCIDataType", "-json"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_pci", "system_profiler", &e))?;
+        let mut cmd = std::process::Command::new("system_profiler");
+        cmd.args(["SPPCIDataType", "-json"]);
+        let output = bounded_cmd_output("hw_pci", "system_profiler", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -32152,13 +32221,12 @@ fn bi_hw_audio(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-Command",
-                "Get-CimInstance Win32_SoundDevice | Select-Object Name,Status | ConvertTo-Json",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_audio", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "Get-CimInstance Win32_SoundDevice | Select-Object Name,Status | ConvertTo-Json",
+        ]);
+        let output = bounded_cmd_output("hw_audio", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -32187,10 +32255,9 @@ fn bi_hw_audio(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("aplay")
-            .args(["-l"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_audio", "aplay", &e))?;
+        let mut cmd = std::process::Command::new("aplay");
+        cmd.args(["-l"]);
+        let output = bounded_cmd_output("hw_audio", "aplay", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -32206,10 +32273,9 @@ fn bi_hw_audio(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("system_profiler")
-            .args(["SPAudioDataType", "-json"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_audio", "system_profiler", &e))?;
+        let mut cmd = std::process::Command::new("system_profiler");
+        cmd.args(["SPAudioDataType", "-json"]);
+        let output = bounded_cmd_output("hw_audio", "system_profiler", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -32258,10 +32324,10 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns consistent Record {capacity: Int (%), status: String}
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("hw_battery", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd
+            .args(["-Command", "Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json"]);
+        let output = bounded_cmd_output("hw_battery", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -32310,10 +32376,9 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("pmset")
-            .args(["-g", "batt"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("hw_battery", "pmset", &e))?;
+        let mut cmd = std::process::Command::new("pmset");
+        cmd.args(["-g", "batt"]);
+        let output = bounded_cmd_output("hw_battery", "pmset", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut rec = std::collections::BTreeMap::new();
@@ -32366,10 +32431,10 @@ fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns consistent Array of Records {name: String, temp_c: Float}
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args(["-Command", "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi 2>$null | Select-Object InstanceName,CurrentTemperature | ConvertTo-Json"])
-            .output()
-        .map_err(|e| crate::safety::spawn_error("hw_sensors", "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd
+            .args(["-Command", "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi 2>$null | Select-Object InstanceName,CurrentTemperature | ConvertTo-Json"]);
+        let output = bounded_cmd_output("hw_sensors", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -32433,9 +32498,9 @@ fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         // macOS doesn't expose thermal sensors easily without IOKit bindings;
         // use powermetrics or osx-cpu-temp if available, fallback to empty
-        let output = std::process::Command::new("sh")
-            .args(["-c", "which osx-cpu-temp && osx-cpu-temp"])
-            .output();
+        let mut sensors_cmd = std::process::Command::new("sh");
+        sensors_cmd.args(["-c", "which osx-cpu-temp && osx-cpu-temp"]);
+        let output = bounded_cmd_output("hw_sensors", "sh", sensors_cmd, PROBE_DEADLINE_SECS);
         if let Ok(out) = output {
             if out.status.success() {
                 let text = String::from_utf8_lossy(&out.stdout);
@@ -32719,10 +32784,9 @@ fn gui_json_answer(name: &str, tool: &str, output: &std::process::Output) -> Res
 #[cfg(target_os = "windows")]
 fn gui_powershell(name: &str, script: &str) -> Result<std::process::Output> {
     let full = format!("$ErrorActionPreference = 'Stop'\n{script}");
-    std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &full])
-        .output()
-        .map_err(|e| crate::safety::spawn_error(name, "powershell", &e))
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &full]);
+    bounded_cmd_output(name, "powershell", cmd, TOOL_DEADLINE_SECS)
 }
 
 /// A key named by a key call: its modifiers, then one key.
@@ -32957,10 +33021,9 @@ ConvertTo-Json -InputObject @([WindowHelper]::windows)
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("wmctrl")
-            .arg("-l")
-            .output()
-            .map_err(|e| crate::safety::spawn_error("gui_list_windows", "wmctrl", &e))?;
+        let mut cmd = std::process::Command::new("wmctrl");
+        cmd.arg("-l");
+        let output = bounded_cmd_output("gui_list_windows", "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 "gui_list_windows",
@@ -33070,10 +33133,9 @@ if (-not [WindowFocus]::SetForegroundWindow($hwnd)) {{ exit 4 }}
                 vec!["-a".into(), label.clone()]
             }
         };
-        let output = std::process::Command::new("wmctrl")
-            .args(&args)
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "wmctrl", &e))?;
+        let mut cmd = std::process::Command::new("wmctrl");
+        cmd.args(&args);
+        let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &label, 1, &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33122,17 +33184,16 @@ if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
     {
         crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
         let pattern = format!("^{}$", gui_regex_escape(&title));
-        let output = std::process::Command::new("xdotool")
-            .args([
-                "search",
-                "--limit",
-                "1",
-                "--name",
-                &pattern,
-                "windowminimize",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        let mut cmd = std::process::Command::new("xdotool");
+        cmd.args([
+            "search",
+            "--limit",
+            "1",
+            "--name",
+            &pattern,
+            "windowminimize",
+        ]);
+        let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "xdotool", &title, 1, &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33180,10 +33241,9 @@ if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
     #[cfg(target_os = "linux")]
     {
         crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
-        let output = std::process::Command::new("wmctrl")
-            .args(["-r", &title, "-b", "add,maximized_vert,maximized_horz"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "wmctrl", &e))?;
+        let mut cmd = std::process::Command::new("wmctrl");
+        cmd.args(["-r", &title, "-b", "add,maximized_vert,maximized_horz"]);
+        let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33231,10 +33291,9 @@ if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
     #[cfg(target_os = "linux")]
     {
         crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
-        let output = std::process::Command::new("wmctrl")
-            .args(["-c", &title])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "wmctrl", &e))?;
+        let mut cmd = std::process::Command::new("wmctrl");
+        cmd.args(["-c", &title]);
+        let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33286,10 +33345,9 @@ if (-not [WindowMove]::SetWindowPos($hwnd, [IntPtr]::Zero, {}, {}, 0, 0, 0x0001)
     #[cfg(target_os = "linux")]
     {
         crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
-        let output = std::process::Command::new("wmctrl")
-            .args(["-r", &title, "-e", &format!("0,{x},{y},-1,-1")])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "wmctrl", &e))?;
+        let mut cmd = std::process::Command::new("wmctrl");
+        cmd.args(["-r", &title, "-e", &format!("0,{x},{y},-1,-1")]);
+        let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33345,10 +33403,9 @@ if (-not [WindowResize]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, {}, {}, 0x000
     #[cfg(target_os = "linux")]
     {
         crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
-        let output = std::process::Command::new("wmctrl")
-            .args(["-r", &title, "-e", &format!("0,-1,-1,{w},{h}")])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "wmctrl", &e))?;
+        let mut cmd = std::process::Command::new("wmctrl");
+        cmd.args(["-r", &title, "-e", &format!("0,-1,-1,{w},{h}")]);
+        let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33410,10 +33467,9 @@ $bitmap.Dispose()
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("scrot")
-            .arg(&path)
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "scrot", &e))?;
+        let mut cmd = std::process::Command::new("scrot");
+        cmd.arg(&path);
+        let output = bounded_cmd_output(NAME, "scrot", cmd, TOOL_DEADLINE_SECS)?;
         if output.status.success() {
             Ok(Value::Str(path))
         } else {
@@ -33427,10 +33483,9 @@ $bitmap.Dispose()
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("screencapture")
-            .args(["-x", &path])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "screencapture", &e))?;
+        let mut cmd = std::process::Command::new("screencapture");
+        cmd.args(["-x", &path]);
+        let output = bounded_cmd_output(NAME, "screencapture", cmd, TOOL_DEADLINE_SECS)?;
         if output.status.success() {
             Ok(Value::Str(path))
         } else {
@@ -33498,10 +33553,9 @@ if (-not [MouseMove]::SetCursorPos({}, {})) {{ exit 4 }}
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdotool")
-            .args(["mousemove", &x.to_string(), &y.to_string()])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        let mut cmd = std::process::Command::new("xdotool");
+        cmd.args(["mousemove", &x.to_string(), &y.to_string()]);
+        let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33547,10 +33601,9 @@ public class MouseClick {{
             "middle" => "2",
             _ => "1",
         };
-        let output = std::process::Command::new("xdotool")
-            .args(["click", btn])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        let mut cmd = std::process::Command::new("xdotool");
+        cmd.args(["click", btn]);
+        let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33608,21 +33661,20 @@ if (-not [MouseDrag]::SetCursorPos({}, {})) {{ exit 4 }}
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdotool")
-            .args([
-                "mousemove",
-                &x1.to_string(),
-                &y1.to_string(),
-                "mousedown",
-                "1",
-                "mousemove",
-                &x2.to_string(),
-                &y2.to_string(),
-                "mouseup",
-                "1",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        let mut cmd = std::process::Command::new("xdotool");
+        cmd.args([
+            "mousemove",
+            &x1.to_string(),
+            &y1.to_string(),
+            "mousedown",
+            "1",
+            "mousemove",
+            &x2.to_string(),
+            &y2.to_string(),
+            "mouseup",
+            "1",
+        ]);
+        let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33675,10 +33727,9 @@ public class MouseScroll {{
     #[cfg(target_os = "linux")]
     {
         let dir = if amount > 0 { "4" } else { "5" };
-        let output = std::process::Command::new("xdotool")
-            .args(["click", "--repeat", &amount.unsigned_abs().to_string(), dir])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        let mut cmd = std::process::Command::new("xdotool");
+        cmd.args(["click", "--repeat", &amount.unsigned_abs().to_string(), dir]);
+        let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33714,10 +33765,9 @@ if (-not [MousePos]::GetCursorPos([ref]$point)) { exit 4 }
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdotool")
-            .arg("getmouselocation")
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        let mut cmd = std::process::Command::new("xdotool");
+        cmd.arg("getmouselocation");
+        let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 NAME,
@@ -33791,10 +33841,9 @@ Add-Type -AssemblyName System.Windows.Forms
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdotool")
-            .args(["key", &gui_xdotool_key(&key)])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        let mut cmd = std::process::Command::new("xdotool");
+        cmd.args(["key", &gui_xdotool_key(&key)]);
+        let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33841,10 +33890,9 @@ Add-Type -AssemblyName System.Windows.Forms
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdotool")
-            .args(["key", &gui_xdotool_key(&key)])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        let mut cmd = std::process::Command::new("xdotool");
+        cmd.args(["key", &gui_xdotool_key(&key)]);
+        let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33883,10 +33931,9 @@ Add-Type -AssemblyName System.Windows.Forms
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdotool")
-            .args(["type", "--", &text])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        let mut cmd = std::process::Command::new("xdotool");
+        cmd.args(["type", "--", &text]);
+        let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -33924,10 +33971,9 @@ $title = New-Object System.Text.StringBuilder 256
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdotool")
-            .args(["getactivewindow", "getwindowname"])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdotool", &e))?;
+        let mut cmd = std::process::Command::new("xdotool");
+        cmd.args(["getactivewindow", "getwindowname"]);
+        let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 NAME,
@@ -33966,9 +34012,8 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("xdpyinfo")
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "xdpyinfo", &e))?;
+        let mut cmd = std::process::Command::new("xdpyinfo");
+        let output = bounded_cmd_output(NAME, "xdpyinfo", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 NAME,
@@ -34232,10 +34277,9 @@ fn bi_gui_ocr(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like(NAME, std::slice::from_ref(&image_path))?;
     // A read is guarded like any other read: inside the workspace in agent mode.
     let image_path = guard_local_read(NAME, &image_path)?;
-    let output = std::process::Command::new("tesseract")
-        .args([&image_path, "stdout"])
-        .output()
-        .map_err(|e| crate::safety::spawn_error(NAME, "tesseract", &e))?;
+    let mut cmd = std::process::Command::new("tesseract");
+    cmd.args([&image_path, "stdout"]);
+    let output = bounded_cmd_output(NAME, "tesseract", cmd, TOOL_DEADLINE_SECS)?;
     if output.status.success() {
         Ok(Value::Str(
             String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -34285,25 +34329,23 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
     {
         // `--` ends notify-send's options, so a title or message that begins
         // with a dash is text.
-        let output = std::process::Command::new("notify-send")
-            .args(["--", &title, &message])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "notify-send", &e))?;
+        let mut cmd = std::process::Command::new("notify-send");
+        cmd.args(["--", &title, &message]);
+        let output = bounded_cmd_output(NAME, "notify-send", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "notify-send", &output)
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("osascript")
-            .args([
-                "-e",
-                &crate::applescript!(
-                    "display notification {} with title {}",
-                    crate::safety::applescript_quote(&message),
-                    crate::safety::applescript_quote(&title)
-                ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "osascript", &e))?;
+        let mut cmd = std::process::Command::new("osascript");
+        cmd.args([
+            "-e",
+            &crate::applescript!(
+                "display notification {} with title {}",
+                crate::safety::applescript_quote(&message),
+                crate::safety::applescript_quote(&title)
+            ),
+        ]);
+        let output = bounded_cmd_output(NAME, "osascript", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "osascript", &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
@@ -36000,9 +36042,8 @@ fn bi_clipboard_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("pbpaste")
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "pbpaste", &e))?;
+        let mut cmd = std::process::Command::new("pbpaste");
+        let output = bounded_cmd_output(NAME, "pbpaste", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 NAME,
@@ -36018,7 +36059,11 @@ fn bi_clipboard_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         // xclip reports an empty clipboard as "target not available": that is
         // the empty answer, not a failure.
         let read = |tool: &str, args: &[&str]| -> Result<Option<Vec<u8>>> {
-            match std::process::Command::new(tool).args(args).output() {
+            // Same deadline and error mapping as bounded_cmd_output, which
+            // cannot tell an absent tool (NotFound) apart from other failures.
+            let mut cmd = std::process::Command::new(tool);
+            cmd.args(args);
+            match crate::safety::output_with_timeout(cmd, TOOL_DEADLINE_SECS) {
                 Ok(out) if out.status.success() => Ok(Some(out.stdout)),
                 Ok(out) => {
                     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -36082,15 +36127,14 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                &crate::ps_script!("Set-Clipboard -Value {}", crate::safety::ps_quote(&text)),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "powershell", &e))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &crate::ps_script!("Set-Clipboard -Value {}", crate::safety::ps_quote(&text)),
+        ]);
+        let output = bounded_cmd_output(NAME, "powershell", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 NAME,
@@ -36192,16 +36236,16 @@ fn bi_clipboard_types(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // an image. It now asks the clipboard what it holds.
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("powershell")
+        let mut cmd = std::process::Command::new("powershell");
+        cmd
             .args([
                 "-NoProfile",
                 "-NonInteractive",
                 "-STA",
                 "-Command",
                 "Add-Type -AssemblyName System.Windows.Forms; $c = [Windows.Forms.Clipboard]; @(if ($c::ContainsText()) {'text'}; if ($c::ContainsImage()) {'image'}; if ($c::ContainsFileDropList()) {'files'}; if ($c::ContainsAudio()) {'audio'}) -join ','",
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error("clipboard_types", "powershell", &e))?;
+            ]);
+        let output = bounded_cmd_output("clipboard_types", "powershell", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
                 "clipboard_types",
@@ -37691,10 +37735,9 @@ fn bi_crypto_key_generate(args: Vec<Value>, input: Option<Value>) -> Result<Valu
         } else {
             command.args(["ecparam", "-genkey", "-noout", "-name", "prime256v1"]);
         }
-        let output = command
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|e| crate::safety::spawn_error(name, "openssl", &e))?;
+        command.stdin(std::process::Stdio::null());
+        // Generating an RSA key can be slow; the long deadline covers it.
+        let output = bounded_cmd_output(name, "openssl", command, TOOL_LONG_DEADLINE_SECS)?;
         return crypto_key_output(output);
     }
     #[cfg(not(unix))]
