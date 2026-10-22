@@ -65,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`sql` / `sqlite_query` / `db_sqlite_query` are read-only** and classed
   `ReadLocal` (were `Exec`). Use `db_sqlite_exec` to modify a database. A query
   SQLite cannot parse is `E_BAD_ARG` with the schema in the hint.
+- **Error codes.** `E_DECRYPT_UNAUTHENTICATED` is folded into `E_DECRYPT_FAILED`
+  (exit 65): every way `crypto_decrypt` can refuse, including legacy ciphertext
+  without `AETHER_CRYPTO_LEGACY_DECRYPT=1`, is now one branchable code. New
+  `E_CRYPTO_FAILED` (exit 70) and `E_FIPS_DISALLOWED` (exit 77) replace errors
+  that named a code only in their prose. An external tool stopped at its
+  deadline is `E_BUDGET_EXCEEDED`, no longer reported as a failure to start.
 
 ### Fixed
 

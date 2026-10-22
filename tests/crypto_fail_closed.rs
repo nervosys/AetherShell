@@ -94,7 +94,8 @@ fn encrypt_and_decrypt_do_not_return_prose_in_place_of_ciphertext() {
             // Since 10.0.0 there is a third, and it is now the one this call
             // actually produces: the input here is plaintext, so it is not an
             // authenticated `AE1.` envelope, and `crypto_decrypt` refuses it as
-            // E_DECRYPT_UNAUTHENTICATED rather than falling back to the
+            // E_DECRYPT_FAILED (13.0.0 merged E_DECRYPT_UNAUTHENTICATED into it)
+            // rather than falling back to the
             // unauthenticated CBC path — that fallback would be a downgrade
             // (AS-2026-04). `crypto_encrypt` no longer fails at all here; it is
             // in-process and cross-platform, so it returns real ciphertext,
@@ -105,9 +106,7 @@ fn encrypt_and_decrypt_do_not_return_prose_in_place_of_ciphertext() {
             Err(e) => {
                 let text = e.to_string();
                 assert!(
-                    text.contains("E_UNIMPLEMENTED")
-                        || text.contains("E_DECRYPT_FAILED")
-                        || text.contains("E_DECRYPT_UNAUTHENTICATED"),
+                    text.contains("E_UNIMPLEMENTED") || text.contains("E_DECRYPT_FAILED"),
                     "{name}: failure must carry a recognisable code, got: {e}"
                 );
             }

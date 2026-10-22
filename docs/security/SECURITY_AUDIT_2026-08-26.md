@@ -228,7 +228,8 @@ naming because each was a separate open item:
 **The downgrade, which is the part worth reviewing.** An attacker who cannot
 forge a tag will instead strip the envelope and present the remains as a legacy
 ciphertext, hoping decrypt falls back to the unauthenticated path. So legacy
-AES-256-CBC input is refused by default with `E_DECRYPT_UNAUTHENTICATED`, and is
+AES-256-CBC input is refused by default with `E_DECRYPT_UNAUTHENTICATED` (since
+13.0.0, `E_DECRYPT_FAILED`: the codes were merged, the refusal is unchanged), and is
 readable only when the operator sets `AETHER_CRYPTO_LEGACY_DECRYPT=1`. That is a
 breaking change for anyone holding pre-10.0.0 ciphertext, and deliberately a
 loud one: the refusal names the variable and says to re-encrypt. Data written by
