@@ -438,9 +438,9 @@ fn clipboard_types_lists_only_the_known_formats() {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 #[test]
-fn clipboard_types_refuses_off_windows_with_a_coded_error() {
+fn clipboard_types_refuses_on_macos_with_a_coded_error() {
     assert_eq!(
         code_of(&run("clipboard_types", vec![]).unwrap_err()),
         "E_UNIMPLEMENTED"

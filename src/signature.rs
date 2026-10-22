@@ -13097,7 +13097,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "The formats on the clipboard: text, image, files, audio.",
+        doc: "The formats on the clipboard: text, image, files, audio, in that order, each once; an empty clipboard answers []. Windows asks the clipboard itself. Linux asks xclip under X11 (xsel can only say whether there is text) and wl-paste under Wayland, and with neither display set it is refused as E_NO_UI. macOS is not implemented and is refused as E_UNIMPLEMENTED.",
         examples: &[
             (r#"(try { clipboard_types(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { 1 | clipboard_types() } catch e { e.error.code })"#, "E_BAD_ARG"),

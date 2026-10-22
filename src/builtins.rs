@@ -36145,6 +36145,74 @@ fn strip_html_tags(html: &str) -> String {
 // 460-479: Clipboard & Input
 // ============================================================================
 
+/// Whether an environment variable names a display: set and not empty.
+#[cfg(target_os = "linux")]
+fn display_env_set(var: &str) -> bool {
+    std::env::var_os(var).is_some_and(|v| !v.is_empty())
+}
+
+/// One clipboard tool run for the Linux clipboard builtins. `Ok(None)` when the
+/// tool is not installed, so the caller can try the next one. Same deadline and
+/// error mapping as bounded_cmd_output, which cannot tell an absent tool
+/// (NotFound) apart from the other failures.
+#[cfg(target_os = "linux")]
+fn linux_clipboard_tool(
+    name: &str,
+    tool: &str,
+    args: &[&str],
+) -> Result<Option<std::process::Output>> {
+    let mut cmd = std::process::Command::new(tool);
+    cmd.args(args);
+    match crate::safety::output_with_timeout(cmd, TOOL_DEADLINE_SECS) {
+        Ok(out) => Ok(Some(out)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(crate::safety::spawn_error(name, tool, &e)),
+    }
+}
+
+/// The formats `clipboard_types` names, in the order it answers them.
+#[cfg(target_os = "linux")]
+const CLIPBOARD_FORMATS: [&str; 4] = ["text", "image", "files", "audio"];
+
+/// Which of `CLIPBOARD_FORMATS` a clipboard target or MIME type stands for, if
+/// any. Everything else (TARGETS, TIMESTAMP, MULTIPLE, SAVE_TARGETS, ...) is
+/// ignored.
+#[cfg(target_os = "linux")]
+fn clipboard_format_index(target: &str) -> Option<usize> {
+    let t = target.trim().to_ascii_lowercase();
+    if matches!(t.as_str(), "utf8_string" | "string" | "text") || t.starts_with("text/plain") {
+        Some(0)
+    } else if t.starts_with("image/") {
+        Some(1)
+    } else if matches!(t.as_str(), "text/uri-list" | "x-special/gnome-copied-files") {
+        Some(2)
+    } else if t.starts_with("audio/") {
+        Some(3)
+    } else {
+        None
+    }
+}
+
+/// The answer for a listing of targets or MIME types, one per line: the formats
+/// it names, in `CLIPBOARD_FORMATS` order, each once.
+#[cfg(target_os = "linux")]
+fn clipboard_formats_of(listing: &[u8]) -> Value {
+    let mut seen = [false; 4];
+    for line in String::from_utf8_lossy(listing).lines() {
+        if let Some(i) = clipboard_format_index(line) {
+            seen[i] = true;
+        }
+    }
+    Value::Array(
+        CLIPBOARD_FORMATS
+            .iter()
+            .zip(seen)
+            .filter(|(_, present)| *present)
+            .map(|(name, _)| Value::Str(name.to_string()))
+            .collect(),
+    )
+}
+
 #[allow(unused_variables)]
 fn bi_clipboard_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const NAME: &str = "clipboard_get";
@@ -36184,13 +36252,10 @@ fn bi_clipboard_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         // xclip reports an empty clipboard as "target not available": that is
         // the empty answer, not a failure.
         let read = |tool: &str, args: &[&str]| -> Result<Option<Vec<u8>>> {
-            // Same deadline and error mapping as bounded_cmd_output, which
-            // cannot tell an absent tool (NotFound) apart from other failures.
-            let mut cmd = std::process::Command::new(tool);
-            cmd.args(args);
-            match crate::safety::output_with_timeout(cmd, TOOL_DEADLINE_SECS) {
-                Ok(out) if out.status.success() => Ok(Some(out.stdout)),
-                Ok(out) => {
+            match linux_clipboard_tool(NAME, tool, args)? {
+                None => Ok(None),
+                Some(out) if out.status.success() => Ok(Some(out.stdout)),
+                Some(out) => {
                     let stderr = String::from_utf8_lossy(&out.stderr);
                     if stderr.contains("not available") {
                         Ok(Some(Vec::new()))
@@ -36203,8 +36268,6 @@ fn bi_clipboard_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                         ))
                     }
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-                Err(e) => Err(crate::safety::spawn_error(NAME, tool, &e)),
             }
         };
         let bytes = match read("xclip", &["-selection", "clipboard", "-o"])? {
@@ -36388,11 +36451,87 @@ fn bi_clipboard_types(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 .collect(),
         ))
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        const NAME: &str = "clipboard_types";
+        // With no display there is no clipboard to ask, and no tool would answer.
+        if !display_env_set("DISPLAY") && !display_env_set("WAYLAND_DISPLAY") {
+            return Err(crate::safety::no_ui(NAME));
+        }
+        // Wayland first when it is the session: wl-paste reads the clipboard the
+        // desktop shows, where xclip would see only XWayland's copy.
+        if display_env_set("WAYLAND_DISPLAY") {
+            let out =
+                linux_clipboard_tool(NAME, "wl-paste", &["--list-types"])?.ok_or_else(|| {
+                    crate::safety::tool_missing(
+                        NAME,
+                        "wl-paste",
+                        "install wl-clipboard to list the clipboard's formats",
+                    )
+                })?;
+            if out.status.success() {
+                return Ok(clipboard_formats_of(&out.stdout));
+            }
+            // wl-paste exits 1 and says "Nothing is copied" when no client offers data.
+            if out.status.code() == Some(1)
+                && String::from_utf8_lossy(&out.stderr).contains("Nothing is copied")
+            {
+                return Ok(Value::Array(Vec::new()));
+            }
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "wl-paste",
+                out.status.code(),
+                &gui_stderr_tail(&out),
+            ));
+        }
+        // X11: xclip lists the targets. xsel cannot, so it only says whether the
+        // clipboard holds text.
+        if let Some(out) = linux_clipboard_tool(
+            NAME,
+            "xclip",
+            &["-selection", "clipboard", "-o", "-t", "TARGETS"],
+        )? {
+            if out.status.success() {
+                return Ok(clipboard_formats_of(&out.stdout));
+            }
+            // xclip reports an empty clipboard as "target TARGETS not available".
+            if String::from_utf8_lossy(&out.stderr).contains("not available") {
+                return Ok(Value::Array(Vec::new()));
+            }
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "xclip",
+                out.status.code(),
+                &gui_stderr_tail(&out),
+            ));
+        }
+        let Some(out) = linux_clipboard_tool(NAME, "xsel", &["--clipboard", "--output"])? else {
+            return Err(crate::safety::tool_missing(
+                NAME,
+                "xclip or xsel",
+                "install xclip or xsel to list the clipboard's formats",
+            ));
+        };
+        if !out.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "xsel",
+                out.status.code(),
+                &gui_stderr_tail(&out),
+            ));
+        }
+        Ok(if out.stdout.is_empty() {
+            Value::Array(Vec::new())
+        } else {
+            Value::Array(vec![Value::Str("text".to_string())])
+        })
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         Err(crate::safety::unimplemented(
             "clipboard_types",
-            "listing clipboard formats is implemented on Windows only; NOTHING WAS INSPECTED",
+            "listing clipboard formats is implemented on Windows and Linux only; NOTHING WAS INSPECTED",
             "clipboard() reads the text on the clipboard",
         ))
     }

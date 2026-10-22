@@ -288,7 +288,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_gui_find_image
 - [ ] bi_web_websocket
 - [ ] bi_web_xpath
-- [ ] bi_clipboard_types — no Linux/macOS implementation.
+- [ ] bi_clipboard_types — Linux implemented (X11 via xclip/xsel, Wayland via wl-paste); macOS open.
 - [x] bi_input_timeout
 - [x] bi_input_autocomplete
 - [x] bi_crypto_decrypt — authenticated AE1 everywhere; the opt-in legacy CBC path runs wherever `openssl` is on PATH, Windows included (35aefa5)
