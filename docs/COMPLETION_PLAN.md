@@ -291,11 +291,11 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_clipboard_types — no Linux/macOS implementation.
 - [x] bi_input_timeout
 - [x] bi_input_autocomplete
-- [ ] bi_crypto_decrypt
+- [x] bi_crypto_decrypt — authenticated AE1 everywhere; the opt-in legacy CBC path runs wherever `openssl` is on PATH, Windows included (35aefa5)
 - [x] bi_crypto_sign
-- [ ] bi_crypto_key_generate — native Ed25519 implemented; non-Unix RSA/EC remain open
+- [x] bi_crypto_key_generate — native Ed25519; RSA/EC through `openssl` on every OS, E_TOOL_MISSING without it (35aefa5)
 - [x] bi_crypto_password_verify
-- [ ] bi_crypto_cert_info
+- [x] bi_crypto_cert_info — `openssl x509` on every OS, E_TOOL_MISSING without it (35aefa5)
 - [ ] bi_clipboard_get_image
 - [ ] bi_clipboard_set_image
 - [x] bi_input_read_char
@@ -303,7 +303,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_input_progress
 - [x] bi_input_table
 - [x] bi_input_form
-- [ ] bi_crypto_cert_verify — no Windows implementation; a missing trust store reads as false because openssl's exit status does not distinguish it.
+- [x] bi_crypto_cert_verify — `openssl verify` on every OS (35aefa5). Accepted limitation: a missing trust store reads as false because openssl's exit status does not distinguish it.
 - [x] bi_crypto_verify_signature
 - [x] bi_code_references
 - [x] bi_code_definition
