@@ -34796,67 +34796,66 @@ struct WebRun {
     stderr: Vec<u8>,
 }
 
+/// How long past curl's own `--max-time` the shell waits before it kills
+/// curl's process tree itself: curl's timer does not cover a stalled DNS
+/// resolver thread or a curl that never starts its transfer.
+const WEB_KILL_GRACE_SECS: u64 = 15;
+
 /// Run curl with `args` as an argv, never through a shell.
 ///
 /// Every run is limited to http and https, including across redirects
 /// (`--proto`, `--proto-redir`), to a fixed number of redirects and to a
-/// wall-clock limit. stdout is read only up to `WEB_BODY_MAX`; the byte past
-/// the limit closes the pipe, so curl stops writing rather than the shell
-/// buffering an unbounded body. The caller's last argument is the URL.
+/// wall-clock limit. curl's `--max-time` is the first limit; [`run_tree`]
+/// enforces a second one, killing curl's tree and abandoning its pipes, so the
+/// call cannot outlive it. stdout is kept only up to `WEB_BODY_MAX`; a longer
+/// body is reported, not truncated. The caller's last argument is the URL.
 fn web_curl(builtin: &str, args: &[&str]) -> Result<WebRun> {
-    let mut child = std::process::Command::new("curl")
-        .args([
-            "-sS",
-            "--proto",
-            "=http,https",
-            "--proto-redir",
-            "=http,https",
-            "--max-redirs",
-            WEB_MAX_REDIRS,
-            "--max-time",
-            WEB_MAX_TIME_SECS,
-        ])
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| crate::safety::spawn_error(builtin, "curl", &e))?;
-    let out_pipe = child.stdout.take();
-    let err_pipe = child.stderr.take();
-    let out_reader = std::thread::spawn(move || read_capped(out_pipe, WEB_BODY_MAX));
-    let err_reader = std::thread::spawn(move || read_tail(err_pipe, WEB_STDERR_TAIL));
-    let status = child.wait().map_err(|e| {
-        web_failure(
+    let mut argv = vec![
+        "-sS",
+        "--proto",
+        "=http,https",
+        "--proto-redir",
+        "=http,https",
+        "--max-redirs",
+        WEB_MAX_REDIRS,
+        "--max-time",
+        WEB_MAX_TIME_SECS,
+    ];
+    argv.extend_from_slice(args);
+    let limit = WEB_MAX_TIME_SECS.parse::<u64>().unwrap_or(30) + WEB_KILL_GRACE_SECS;
+    let run = run_tree(
+        "curl",
+        &argv,
+        |_| {},
+        None,
+        std::time::Duration::from_secs(limit),
+        Keep::Head(WEB_BODY_MAX),
+        Keep::Tail(WEB_STDERR_TAIL),
+    )
+    .map_err(|e| match e {
+        TreeError::Spawn(e) => crate::safety::spawn_error(builtin, "curl", &e),
+        TreeError::Wait(e) => web_failure(
             builtin,
             format!("could not wait for curl: {e}"),
             "retry the call",
-        )
+        ),
     })?;
-    let (body, over) = web_join(builtin, out_reader)?;
-    let stderr = web_join(builtin, err_reader)?;
+    let status = match run.status {
+        Some(status) if !run.timed_out => status,
+        _ => {
+            return Err(crate::safety::budget_exceeded(
+                builtin,
+                format!("curl did not finish within {limit} s and was stopped"),
+                "the server is slow or unreachable; retry later or request a smaller resource",
+            ))
+        }
+    };
     Ok(WebRun {
         status,
-        body,
-        over,
-        stderr,
+        body: run.stdout,
+        over: run.stdout_truncated,
+        stderr: run.stderr,
     })
-}
-
-fn web_join<T>(builtin: &str, handle: std::thread::JoinHandle<std::io::Result<T>>) -> Result<T> {
-    match handle.join() {
-        Ok(Ok(value)) => Ok(value),
-        Ok(Err(e)) => Err(web_failure(
-            builtin,
-            format!("could not read curl's output: {e}"),
-            "retry the call",
-        )),
-        Err(_) => Err(web_failure(
-            builtin,
-            "reading curl's output failed".to_string(),
-            "retry the call",
-        )),
-    }
 }
 
 /// The body of a run that completed. A body over the cap is
@@ -48683,49 +48682,6 @@ fn container_error(builtin: &str, message: String, hint: &str, got: &str) -> any
         expected: String::new(),
         got: got.to_string(),
     })
-}
-
-/// Read up to `limit` bytes from a child's pipe and stop. Reading one byte past
-/// the limit tells the caller the stream was longer; dropping the pipe after
-/// that lets the child see a closed pipe instead of blocking.
-fn read_capped<R: std::io::Read>(
-    pipe: Option<R>,
-    limit: usize,
-) -> std::io::Result<(Vec<u8>, bool)> {
-    use std::io::Read;
-    let Some(pipe) = pipe else {
-        return Ok((Vec::new(), false));
-    };
-    let mut buf = Vec::new();
-    pipe.take(limit as u64 + 1).read_to_end(&mut buf)?;
-    let more = buf.len() > limit;
-    buf.truncate(limit);
-    Ok((buf, more))
-}
-
-/// Read a child's pipe to its end, keeping only the last `keep` bytes.
-fn read_tail<R: std::io::Read>(pipe: Option<R>, keep: usize) -> std::io::Result<Vec<u8>> {
-    let Some(mut pipe) = pipe else {
-        return Ok(Vec::new());
-    };
-    let mut kept: Vec<u8> = Vec::new();
-    let mut chunk = [0u8; 8192];
-    loop {
-        let n = pipe.read(&mut chunk)?;
-        if n == 0 {
-            break;
-        }
-        kept.extend_from_slice(&chunk[..n]);
-        if kept.len() > 2 * keep {
-            let cut = kept.len() - keep;
-            kept.drain(..cut);
-        }
-    }
-    if kept.len() > keep {
-        let cut = kept.len() - keep;
-        kept.drain(..cut);
-    }
-    Ok(kept)
 }
 
 /// Run `program` with `args` as an argv, never through a shell, and return its
