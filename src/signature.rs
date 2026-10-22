@@ -9659,7 +9659,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("pid", Ty::Any, "a positive process id, Int or numeric String")],
         returns: "Record",
-        doc: "The environment of a process as a record of name to value. This shell's own pid is answered on every OS; another process's environment is read on Linux and is E_UNIMPLEMENTED elsewhere. A pid that is not live is E_NOT_FOUND; a process the user does not own is E_POLICY_DENY.",
+        doc: "The environment of a process as a record of name to value. This shell's own pid is answered on every OS; another process's environment is read on Linux and Windows and is E_UNIMPLEMENTED on macOS. A pid that is not live is E_NOT_FOUND; a process the user does not own, or one Windows will not open, is E_POLICY_DENY.",
         examples: &[
             (r#"(try { proc_env(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_env(2000000000) } catch e { e.error.code })"#, r#"E_NOT_FOUND"#),
@@ -9673,7 +9673,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("pid", Ty::Any, "a positive process id, Int or numeric String")],
         returns: "String",
-        doc: "The working directory of a process. This shell's own pid is answered on every OS; another process's directory is read on Linux and macOS and is E_UNIMPLEMENTED on Windows. A pid that is not live is E_NOT_FOUND.",
+        doc: "The working directory of a process. This shell's own pid is answered on every OS; another process's directory is read on Linux, macOS and Windows. A process whose directory Windows will not give is E_POLICY_DENY. A pid that is not live is E_NOT_FOUND.",
         examples: &[
             (r#"(try { proc_cwd(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_cwd(2000000000) } catch e { e.error.code })"#, r#"E_NOT_FOUND"#),

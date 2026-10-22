@@ -24574,12 +24574,62 @@ fn proc_env_of(pid: i64) -> Result<BTreeMap<String, Value>> {
         .collect())
 }
 
-#[cfg(not(target_os = "linux"))]
+/// A process's `sysinfo` record with its environment and working directory
+/// refreshed, for one pid. Windows reads both through the process handle, so
+/// a protected or another user's process comes back with an empty environment
+/// and no directory; the readers turn that into E_POLICY_DENY.
+#[cfg(windows)]
+fn proc_sys_env_cwd(pid: i64) -> System {
+    let spid = sysinfo::Pid::from_u32(pid as u32);
+    let mut sys = System::new();
+    let kind = sysinfo::ProcessRefreshKind::nothing()
+        .with_environ(sysinfo::UpdateKind::Always)
+        .with_cwd(sysinfo::UpdateKind::Always);
+    sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[spid]), true, kind);
+    sys
+}
+
+/// E_POLICY_DENY for a live process whose environment or directory Windows
+/// would not give us.
+#[cfg(windows)]
+fn proc_access_denied(builtin: &str, what: &str, pid: i64) -> anyhow::Error {
+    crate::safety::policy_deny(
+        builtin,
+        format!("{builtin}: {what} of process {pid} is not readable"),
+        "the process is protected or belongs to another user; read a process this user owns",
+    )
+}
+
+#[cfg(windows)]
+fn proc_env_of(pid: i64) -> Result<BTreeMap<String, Value>> {
+    let sys = proc_sys_env_cwd(pid);
+    let process = sys
+        .process(sysinfo::Pid::from_u32(pid as u32))
+        .ok_or_else(|| crate::safety::not_found("proc_env", "process", &pid.to_string()))?;
+    if process.environ().is_empty() {
+        return Err(proc_access_denied("proc_env", "the environment", pid));
+    }
+    Ok(process
+        .environ()
+        .iter()
+        .filter_map(|entry| {
+            let text = entry.to_string_lossy();
+            let (k, v) = text.split_once('=')?;
+            // cmd keeps hidden per-drive entries named "=C:"; they are not variables.
+            if k.is_empty() {
+                return None;
+            }
+            Some((k.to_string(), Value::Str(v.to_string())))
+        })
+        .collect())
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 fn proc_env_of(pid: i64) -> Result<BTreeMap<String, Value>> {
     Err(crate::safety::unimplemented(
         "proc_env",
         &format!("reading the environment of process {pid} on this OS"),
-        "this shell's own environment is available from env() and sys_env_all(); other processes' environments are readable on Linux",
+        "this shell's own environment is available from env() and sys_env_all(); other processes' environments are readable on Linux and Windows",
     ))
 }
 
@@ -24635,7 +24685,19 @@ fn proc_cwd_of(pid: i64) -> Result<String> {
     })
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+fn proc_cwd_of(pid: i64) -> Result<String> {
+    let sys = proc_sys_env_cwd(pid);
+    let process = sys
+        .process(sysinfo::Pid::from_u32(pid as u32))
+        .ok_or_else(|| crate::safety::not_found("proc_cwd", "process", &pid.to_string()))?;
+    match process.cwd() {
+        Some(dir) if !dir.as_os_str().is_empty() => Ok(dir.to_string_lossy().into_owned()),
+        _ => Err(proc_access_denied("proc_cwd", "the working directory", pid)),
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn proc_cwd_of(pid: i64) -> Result<String> {
     Err(crate::safety::unimplemented(
         "proc_cwd",

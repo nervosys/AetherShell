@@ -627,17 +627,12 @@ fn suspend_and_resume_are_unimplemented_on_windows_and_touch_nothing() {
     );
 }
 
-#[cfg(windows)]
-#[test]
-fn cwd_and_env_of_another_process_are_unimplemented_on_windows() {
-    let mut child = Sleeper::start();
-    expect_code("proc_cwd", vec![child.value()], "E_UNIMPLEMENTED");
-    expect_code("proc_env", vec![child.value()], "E_UNIMPLEMENTED");
-}
+// Windows reads another process's environment and directory: see
+// tests/proc_env_cwd_windows.rs.
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 #[test]
-fn another_processes_environment_is_unimplemented_off_linux() {
+fn another_processes_environment_is_unimplemented_on_macos() {
     let mut child = Sleeper::start();
     expect_code("proc_env", vec![child.value()], "E_UNIMPLEMENTED");
 }
