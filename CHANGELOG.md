@@ -77,7 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows: `proc_env` and `proc_cwd` for another process, `proc_suspend` and
   `proc_resume`, and the openssl-backed `crypto_cert_info`, `crypto_cert_verify`,
   RSA/EC `crypto_generate_key` and opt-in legacy decrypt (E_TOOL_MISSING without
-  `openssl`). Linux: `clipboard_types` (X11 and Wayland).
+  `openssl`). Linux: `clipboard_types`, `clipboard_get_image` and
+  `clipboard_set_image` (X11 and Wayland).
+- `web_websocket`: a bounded one-shot WebSocket exchange (ws and wss), where it
+  was a stub refusing every call.
 
 ### Fixed
 
