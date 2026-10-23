@@ -174,6 +174,7 @@ impl Env {
     /// name once instead of twice, and marks it mutable only the first time:
     /// a lambda call binds and unbinds its parameters per element, so this is
     /// on the hottest path the evaluator has.
+    #[cfg_attr(not(feature = "native"), allow(dead_code))] // only the evaluator calls it
     pub(crate) fn bind_param(&mut self, name: &str, value: Value) {
         self.vars.insert(name.to_string(), value);
         if !self.mutable_vars.contains_key(name) {
@@ -183,6 +184,7 @@ impl Env {
 
     /// Replace a live parameter without reallocating its key. Collection
     /// builtins keep these slots alive for the duration of their loop.
+    #[cfg_attr(not(feature = "native"), allow(dead_code))] // only the evaluator calls it
     pub(crate) fn replace_param(&mut self, name: &str, value: Value) -> Option<Value> {
         if let Some(slot) = self.vars.get_mut(name) {
             Some(std::mem::replace(slot, value))
@@ -192,6 +194,7 @@ impl Env {
         }
     }
 
+    #[cfg_attr(not(feature = "native"), allow(dead_code))] // only the evaluator calls it
     pub(crate) fn restore_param(&mut self, name: &str, previous: Option<Value>) -> Option<Value> {
         match previous {
             Some(value) => self.replace_param(name, value),
@@ -199,6 +202,7 @@ impl Env {
         }
     }
 
+    #[cfg_attr(not(feature = "native"), allow(dead_code))] // only the evaluator calls it
     pub(crate) fn set_var_unchecked<S: Into<String>>(&mut self, name: S, value: Value) {
         let name_str = name.into();
         self.vars.insert(name_str.clone(), value);

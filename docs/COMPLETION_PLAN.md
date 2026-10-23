@@ -145,7 +145,7 @@ into apparent success, bypass its effect gate, or make a documented mutation uns
 - [ ] Temporarily clear inherited LC_ALL for the known locale-sensitive Windows check, restore it afterward, and record the environment adjustment.
 - [ ] Run cargo clippy --workspace --all-targets -- -D warnings.
 - [ ] Build ae, aimodel and the LSP in supported release configurations.
-- [ ] Validate the Rust 1.88 MSRV and the supported feature combinations, including optional local inference and WASM where advertised. Found 2026-10-22: `cargo check --no-default-features` fails in src/module_loader.rs (it imports `crate::safety` and `crate::eval`, which exist only with `native`).
+- [ ] Validate the Rust 1.88 MSRV and the supported feature combinations, including optional local inference and WASM where advertised. 2026-10-22: the library check without default features and the wasm32 library check had failed since 4ba43bc (import/export added an ungated module_loader); fixed by gating it on `native`, and both pass again, clippy clean. The `ae` and `aimodel` binaries and the tests need `native`, as before.
 - [ ] Run Linux, macOS and Windows CI, including the declared supported architectures and packaging targets.
 - [ ] Validate hardware, GUI, clipboard, service and other environment-dependent contracts on suitable hosts or disposable environments; document unavailable coverage.
 - [ ] Run uncoded-failure, second-path, discarded-argument, silent-success and network-egress probes in isolated environments; verify their non-vacuity checks and final thresholds.

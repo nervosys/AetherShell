@@ -179,6 +179,7 @@ pub mod metrics;
 #[cfg(feature = "native")]
 pub mod model_plane;
 /// `import` / `export` of `.ae` file modules.
+#[cfg(feature = "native")]
 pub mod module_loader;
 /// Module system — maps module.function() syntax to builtin dispatch.
 #[cfg(feature = "native")]
