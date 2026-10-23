@@ -131,11 +131,18 @@ fn risky_spawn_sites(src: &str) -> Vec<(String, String, String, String)> {
         if t.starts_with("//") || t.starts_with('*') {
             continue;
         }
-        let Some(tool) = RISKY_TOOLS
-            .iter()
-            .find(|p| t.contains(&format!("Command::new(\"{p}\")")))
-        else {
-            continue;
+        // `web_curl` is the one place curl is spawned (through `run_tree`), so
+        // each call of it is a curl spawn site, its slice the argument list.
+        let tool = if t.contains("web_curl(") && !t.starts_with("fn ") {
+            "curl"
+        } else {
+            let Some(tool) = RISKY_TOOLS
+                .iter()
+                .find(|p| t.contains(&format!("Command::new(\"{p}\")")))
+            else {
+                continue;
+            };
+            tool
         };
         let (start, name) = enclosing(i);
         let window = lines[i..(i + 10).min(lines.len())].join("\n");
@@ -169,8 +176,27 @@ fn passes_a_value(window: &str) -> bool {
     // Only the spawn statement itself, up to its terminating `;`. The window
     // extends further so the enclosing-fn walk has context; the argument list
     // does not.
-    let stmt = window.split_once(";\n").map(|(a, _)| a).unwrap_or(window);
-    let stmt = stmt.split_once(";\r\n").map(|(a, _)| a).unwrap_or(stmt);
+    let window = window.replace("\r\n", "\n");
+    let (first, tail) = window.split_once(";\n").unwrap_or((&window, ""));
+    let mut stmt = first.to_string();
+    // The bounded runners take a built `Command`, so a spawn is usually
+    // `let mut cmd = Command::new(..);` followed by `cmd.arg(..);` statements:
+    // those belong to the spawn too.
+    if let Some(var) = first
+        .split("let mut ")
+        .nth(1)
+        .and_then(|r| r.split_once('='))
+        .map(|(v, _)| v.trim().to_string())
+    {
+        for l in tail.lines() {
+            if !l.trim_start().starts_with(&format!("{var}.")) {
+                break;
+            }
+            stmt.push('\n');
+            stmt.push_str(l);
+        }
+    }
+    let stmt = stmt.as_str();
 
     let mut args: Vec<String> = Vec::new();
     let mut rest = stmt;
@@ -202,6 +228,23 @@ fn passes_a_value(window: &str) -> bool {
         }
         rest = &after[end..];
     }
+    // `web_curl(builtin, &["-L", url])`: the slice is curl's argument list.
+    if let Some(at) = stmt.find("web_curl(") {
+        let call = &stmt[at..];
+        if let (Some(open), Some(close)) = (call.find('['), call.find(']')) {
+            if open < close {
+                for part in call[open + 1..close].split(',') {
+                    let p = part.trim();
+                    if !p.is_empty() {
+                        args.push(p.to_string());
+                    }
+                }
+            }
+        } else if let Some(last) = call.split(')').next().and_then(|c| c.rsplit(',').next()) {
+            // `web_curl("web_rest_api", &argv)`
+            args.push(last.trim().to_string());
+        }
+    }
 
     args.iter().any(|a| {
         let a = a.trim().trim_matches(|c| c == '[' || c == ']').trim();
@@ -215,6 +258,46 @@ fn passes_a_value(window: &str) -> bool {
     })
 }
 
+/// Helper functions (not builtins) that refuse an option-like value: those
+/// that call `reject_option_like`, and those that call such a helper.
+fn guard_helpers(src: &str) -> BTreeSet<String> {
+    let mut bodies: Vec<(String, String)> = Vec::new();
+    for line in src.lines() {
+        let head = line
+            .strip_prefix("pub(crate) fn ")
+            .or_else(|| line.strip_prefix("pub fn "))
+            .or_else(|| line.strip_prefix("fn "));
+        if let Some(rest) = head {
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            bodies.push((name, String::new()));
+        }
+        if let Some((_, body)) = bodies.last_mut() {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    let mut guards: BTreeSet<String> = BTreeSet::from(["reject_option_like".to_string()]);
+    loop {
+        let found: Vec<String> = bodies
+            .iter()
+            .filter(|(n, b)| {
+                !n.starts_with("bi_")
+                    && !guards.contains(n)
+                    && guards.iter().any(|g| b.contains(&format!("{g}(")))
+            })
+            .map(|(n, _)| n.clone())
+            .collect();
+        if found.is_empty() {
+            break;
+        }
+        guards.extend(found);
+    }
+    guards
+}
+
 #[test]
 fn every_risky_spawn_guards_its_positional_values() {
     let src = source();
@@ -226,6 +309,7 @@ fn every_risky_spawn_guards_its_positional_values() {
         sites.len()
     );
 
+    let helpers = guard_helpers(&src);
     let mut offenders: BTreeSet<String> = BTreeSet::new();
     let mut checked = 0usize;
     for (tool, name, body, window) in &sites {
@@ -235,7 +319,11 @@ fn every_risky_spawn_guards_its_positional_values() {
         checked += 1;
         // `guard_network` calls `reject_option_like` on the URL, so a site that
         // goes through it is covered by the one door rather than at the site.
-        if body.contains("reject_option_like") || body.contains("guard_network") {
+        // So is one that goes through a validator such as `ssh_target_arg`.
+        if body.contains("reject_option_like")
+            || body.contains("guard_network")
+            || helpers.iter().any(|h| body.contains(&format!("{h}(")))
+        {
             continue;
         }
         if ALLOWED.iter().any(|(n, _)| n == name) {
@@ -297,6 +385,18 @@ fn the_scanner_finds_the_tools_it_claims_to() {
 #[test]
 fn the_value_test_tells_a_literal_from_a_caller_value() {
     assert!(passes_a_value(r#".args(["checkout", &branch])"#));
+    assert!(passes_a_value(
+        "let mut cmd = std::process::Command::new(\"git\");\n    cmd.args([\"checkout\", &branch]);\n    let o = bounded_cmd_output(\"g\", \"git\", cmd, 30)?;"
+    ));
+    assert!(!passes_a_value(
+        "let mut cmd = std::process::Command::new(\"git\");\n    cmd.args([\"stash\", \"list\"]);\n    let o = run(&path);"
+    ));
+    assert!(passes_a_value(
+        r#"let run = web_curl(builtin, &["-L", "--fail", url])?;"#
+    ));
+    assert!(!passes_a_value(
+        r#"let run = web_curl(builtin, &["-L", "--fail", "https://x"])?;"#
+    ));
     assert!(passes_a_value(r#"cmd.arg(&host).arg(&command);"#));
     assert!(!passes_a_value(r#".args(["stash", "pop"])"#));
     assert!(!passes_a_value(r#".args(["fetch"]).output()?;"#));

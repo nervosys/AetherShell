@@ -35144,6 +35144,9 @@ fn web_request_body(builtin: &str, value: &Value) -> Result<String> {
 /// guarded it. An HTTP error status is a coded failure: an error page is not
 /// the resource that was asked for.
 fn web_get_body(builtin: &str, url: &str) -> Result<Value> {
+    // Every caller has already checked the URL; this keeps a later caller from
+    // handing curl an option instead.
+    crate::safety::reject_option_like(builtin, &[url.to_string()])?;
     let run = web_curl(builtin, &["-L", "--fail", url])?;
     Ok(web_text(web_body(builtin, run)?))
 }

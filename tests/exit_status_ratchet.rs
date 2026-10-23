@@ -11,8 +11,14 @@
 //! builtin may legitimately answer false. So this does not demand zero: it
 //! pins the counts, which may only fall, and each fix is a reading of one
 //! body. Lower the ceilings whenever a fix lowers the count.
+//!
+//! `bounded_cmd_output` is `.output()` with a deadline and leaves the exit
+//! status to its caller just as `.output()` did, so it counts as a spawn here.
+//! When the probes moved onto it the ceiling was 49 and this scanner, which
+//! still looked only for `.output()`, found 5 and its non-vacuity check
+//! failed; counting both forms, it finds 38.
 
-const UNCHECKED_MAX: usize = 49;
+const UNCHECKED_MAX: usize = 38;
 const BOOL_SUCCESS_MAX: usize = 64;
 
 fn source() -> String {
@@ -47,7 +53,7 @@ fn unchecked(src: &str) -> Vec<String> {
         .into_iter()
         .filter(|(_, b)| {
             b.contains("Command::new(")
-                && b.contains(".output()")
+                && (b.contains(".output()") || b.contains("bounded_cmd_output("))
                 && !b.contains(".status")
                 && !b.contains("output_with_timeout")
                 && !b.contains("git_succeeded(")
@@ -103,8 +109,12 @@ fn the_scanner_sees_an_unchecked_body() {
                   Ok(Value::Str(String::from_utf8_lossy(&output.stdout).into()))\n}\n\
                   fn bi_y() -> Result<Value> {\n    \
                   let output = std::process::Command::new(\"git\").output()?;\n    \
-                  git_succeeded(\"y\", &output)?;\n    Ok(Value::Null)\n}\n";
-    assert_eq!(unchecked(sample), ["bi_x"]);
+                  git_succeeded(\"y\", &output)?;\n    Ok(Value::Null)\n}\n\
+                  fn bi_z() -> Result<Value> {\n    \
+                  let cmd = std::process::Command::new(\"uname\");\n    \
+                  let output = bounded_cmd_output(\"z\", \"uname\", cmd, 30)?;\n    \
+                  Ok(Value::Str(String::from_utf8_lossy(&output.stdout).into()))\n}\n";
+    assert_eq!(unchecked(sample), ["bi_x", "bi_z"]);
     assert_eq!(bool_success("Ok(Value::Bool(output.status.success()))"), 1);
     assert!(
         unchecked(&source()).len() > 10,
