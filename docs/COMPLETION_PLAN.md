@@ -183,9 +183,23 @@ no speedup is inferred from a refactor alone.
 ## 6. Prepare versions, documentation and packages
 
 - [ ] Update root and LSP manifests, lockfiles, SDK/extension/package metadata and API/OpenAPI versions to the intended release versions together.
+  - Inventory, 2026-10-23. Sites that state the shell version and move to 13.0.0 in the release commit:
+    - Cargo.toml:7, crates/aethershell-lsp/Cargo.toml:3, and that crate's dependency on the root crate (:42).
+    - Cargo.lock and web/Cargo.lock (regenerate both).
+    - .well-known/openapi.yaml: info.version (:4) and the /health example (:410).
+    - AGENTS.md:11, llms.txt:5, and llms-full.txt:4 and :505.
+    - Formula/aethershell.rb:8-9: the tag URL and its sha256, only after the tag exists.
+  - Every other version answer comes from CARGO_PKG_VERSION: the CLI, aimodel, /health, MCP serverInfo and ae_version in WASM.
+  - ROADMAP.md:3, :77, :385 and :387 describe the published release; change them at publication.
+  - The Python SDK (1.5.1), the VS Code extension (1.6.1), the browser extension (0.2.0) and web/ (1.2.0) version independently. The VS Code lockfile said 1.6.0 against package.json's 1.6.1; fixed.
 - [ ] Finalize CHANGELOG.md and release/13.0.0.md with breaking-call examples, migration guidance, supported platforms and accepted limitations.
 - [ ] Reconcile README, AGENTS.md, llms.txt, llms-full.txt, ROADMAP.md and generated discovery metadata with the final inventory and feature register. 2026-10-23: counts measured from `ae agent schema` and tests/documented_builtin_count.rs (1,171 builtins, 1,437 names the dispatcher accepts, 108 modules; the schema also listed `ask` as an alias of `ai`, which was never callable, so it is removed and every advertised name is now checked against the dispatcher), effect_coverage (905 of 1,318 dispatch names classified), crates.io and GitHub releases (12.0.2); stale versions (1.5.0, 1.4.0, 1.2.0, 0.3.1), MSRV 1.75, module counts 106/38 and test counts corrected. The 13.0.0 version strings wait for the release commit.
 - [ ] Update installation, upgrade and troubleshooting instructions; verify every advertised channel's actual package name and expected version.
+  - Channels checked against the registries, 2026-10-23:
+    - Match: crates.io aethershell and aethershell-lsp at 12.0.2. The GitHub release v12.0.2 has nine assets named as release.yml builds them. The VS Code Marketplace and Open VSX both have admercs.aethershell 1.6.1. The formula's sha256 matches the v12.0.2 tag archive.
+    - **Broken:** `brew install nervosys/tap/aethershell` (README.md:75, website/index.html:631). github.com/nervosys/homebrew-tap answers 404 (it may be private), and the formula exists only in this repository. Decision needed: create the tap, document `brew tap nervosys/aethershell https://github.com/nervosys/AetherShell`, or drop the channel.
+    - **Stale:** PyPI has only aethershell 1.5.0, a manual upload; the repository's SDK is 1.5.1. The SDK README now says so.
+    - Not channels: no npm package, Docker image, winget or scoop manifest exists, and none is advertised. release.yml:395 runs `npm publish` all the same.
 - [ ] Run scripts/test_release_version.py and scripts/test-release-preflight.ps1 under PowerShell 5.1 and 7. 2026-10-23, with git removed from PATH so only the shim could answer: the preflight passes 8/8 under Windows PowerShell 5.1.26100 and PowerShell 7.6.8, and test_release_version.py passes 3/3 under Python 3.12. It needs 3.11+ for tomllib: the host's default python, 3.10, fails to import it, and CI pins 3.12 (ubuntu-latest's python3 is 3.12). The preflight now deletes its temp directory when it passes; earlier runs left 16 under temp/. Rerun on the release commit.
 - [ ] Inspect package file lists, license/source inclusion, artifact names and platform coverage; build and smoke-test the packages intended for publication.
 - [ ] Check credentials only for channels included in this release, including crates.io and any chosen SDK or extension registries; never record secrets in the plan or logs.

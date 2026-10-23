@@ -28,8 +28,9 @@ Requires the `ae` binary on `PATH`. Install it with
 `cargo install aethershell`, or take a prebuilt binary from the
 [releases page](https://github.com/nervosys/AetherShell/releases).
 
-> **Versioning:** this SDK versions independently of the `ae` shell — SDK 1.5.0
-> is current against shell 5.0.0.
+> **Versioning:** this SDK versions independently of the `ae` shell. The SDK in
+> this repository is 1.5.1; PyPI carries 1.5.0, a manual upload, because CI has
+> never published it. `pip install ./integrations/python` installs the current one.
 
 ## Quick Start
 
