@@ -345,20 +345,20 @@ fn a_refused_call_changes_nothing() {
 }
 
 #[test]
-fn examples_and_module_aliases_execute_with_pure_effects() {
+fn examples_and_module_aliases_execute_with_their_effects() {
+    use aethershell::safety::Effect;
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _s = Session::new("examples");
-    for (name, alias) in [
-        ("session_undo", "session.undo"),
-        ("session_redo", "session.redo"),
-        ("session_history", "session.history"),
-        ("session_end", "session.end"),
+    // Rewinding and ending a session write files (recorded contents put
+    // back, the journal deleted), so they are WriteLocal and jailed; only
+    // reading the history is Pure. Their own writes are still never journaled.
+    for (name, alias, effect) in [
+        ("session_undo", "session.undo", Effect::WriteLocal),
+        ("session_redo", "session.redo", Effect::WriteLocal),
+        ("session_history", "session.history", Effect::Pure),
+        ("session_end", "session.end", Effect::WriteLocal),
     ] {
-        assert_eq!(
-            aethershell::safety::effect_of(name),
-            aethershell::safety::Effect::Pure,
-            "{name} must stay Pure: its own writes are never journaled"
-        );
+        assert_eq!(aethershell::safety::effect_of(name), effect, "{name}");
         for (code, expected) in aethershell::signature::signature_of(name).unwrap().examples {
             for source in [code.to_string(), code.replacen(name, alias, 1)] {
                 let mut env = aethershell::env::Env::default();
