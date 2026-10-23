@@ -82,3 +82,38 @@ fn every_advertised_count_is_reproducible() {
         );
     }
 }
+
+/// Every name and alias the ontology advertises must be one the dispatcher
+/// accepts. `ask` was listed as an alias of `ai` and calling it was
+/// E_UNKNOWN_BUILTIN, which put "1,438 callable names" in the schema against
+/// the dispatcher's 1,437.
+#[test]
+fn every_advertised_name_is_callable() {
+    let schema: serde_json::Value =
+        serde_json::from_str(&aethershell::agent_api::generate_schema("json").unwrap()).unwrap();
+    let mut callable: BTreeSet<&str> = BUILTIN_LOOKUP.keys().copied().collect();
+    callable.extend(FALLBACK_BUILTINS.iter().map(|(n, _)| *n));
+    let builtins = schema["builtins"]
+        .as_array()
+        .expect("schema lists builtins");
+    assert!(
+        builtins.len() > 1000,
+        "only {} builtins in the schema",
+        builtins.len()
+    );
+    let mut missing = Vec::new();
+    for b in builtins {
+        let name = b["name"].as_str().unwrap();
+        let aliases = b["aliases"].as_array().cloned().unwrap_or_default();
+        for n in std::iter::once(name).chain(aliases.iter().filter_map(|a| a.as_str())) {
+            if !callable.contains(n) {
+                missing.push(format!("{n} (listed under {name})"));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "the ontology advertises names the dispatcher does not accept:\n  {}",
+        missing.join("\n  ")
+    );
+}

@@ -1357,7 +1357,10 @@ fn get_builtin_definitions() -> Vec<BuiltinDefinition> {
                 code: "ai(\"Explain recursion\")".to_string(),
                 result: None,
             }],
-            aliases: Some(vec!["ask".to_string()]),
+            // `ask` was listed here but never dispatched: calling it was
+            // E_UNKNOWN_BUILTIN. tests/documented_builtin_count.rs now checks every
+            // advertised alias against the dispatcher.
+            aliases: None,
             json_schema: json!({
                 "type": "object",
                 "properties": {

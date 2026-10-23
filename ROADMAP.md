@@ -3,8 +3,8 @@
 > Current release status, 2026-10-19: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
-> owners, evidence and release gates. Signature coverage is 635/1171
-> implementations and 762/1437 callable names; migration remains incomplete.
+> owners, evidence and release gates. Every one of the 1,318
+> names in the dispatch table has a declared signature.
 > Measured evaluator improvements are recorded in the linked performance
 > report; final-tree cross-platform measurements remain pending.
 
@@ -62,19 +62,19 @@ This document tracks the development progress of AetherShell, the world's first 
 | ----------------- | ---------- | ----------------------------------------- |
 | Core Language     | ✅ Complete | AST-based, Hindley-Milner                 |
 | Type System       | ✅ Complete | Full inference                            |
-| Builtins Library  | ✅ Complete | 1,100+ functions, 106 modules             |
+| Builtins Library  | ✅ Complete | 1,100+ functions, 108 modules             |
 | AI Integration    | ✅ Complete | 9 providers, unified stack, streaming     |
 | Agent Framework   | ✅ Complete | Single + swarm + A2A                      |
-| AI Ontology       | ✅ Complete | 1,100+ builtins, 106 modules discoverable |
+| AI Ontology       | ✅ Complete | 1,100+ builtins, 108 modules discoverable |
 | TUI Interface     | ✅ Complete | Tabs, chat, dashboard                     |
 | Theme System      | ✅ Complete | 38 themes                                 |
 | Config System     | ✅ Complete | XDG-compliant                             |
 | Plugin System     | ⚠️ Partial  | TOML metadata registration; script builtins refused |
 | Standard Library  | ✅ Complete | 7 modules (lib/)                          |
 | Performance       | ✅ Complete | 5 benchmark suites                        |
-| Test Coverage     | ✅ Complete | 1,140 tests, 18 ignored                   |
+| Test Coverage     | ✅ Complete | 3,572 tests on Windows, 3,582 on Linux    |
 | Documentation     | ✅ Complete | Comprehensive                             |
-| Publishing        | ✅ Complete | crates.io v1.2.0                          |
+| Publishing        | ✅ Complete | crates.io v12.0.2                         |
 | WASM Support      | ✅ Complete | Browser REPL ready                        |
 | Enterprise        | ⚠️ Partial  | RBAC, Audit; sso_auth refuses             |
 | LSP Server        | ✅ Complete | tower-lsp, crates.io                      |
@@ -191,7 +191,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Module cache with cycle detection
 - [x] Standard library (7 modules: prelude, math, string, collection, functional, io, test_stdlib)
 
-### Builtins (1,100+ functions in 106 modules)
+### Builtins (1,100+ functions in 108 modules)
 - [x] `file`, `sys`, `proc`, `fs`, `net`, `http`, `gui`, `web`
 - [x] `crypto`, `db`, `svc`, `cron`, `archive`, `user`, `perm`, `pkg`
 - [x] `hw`, `clip`, `input`, `ai`, `agent`, `math`, `str`, `arr`, `json`
@@ -332,7 +332,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] **Connect OS ontology to Agent API** — wired `OS_ONTOLOGY` and `CLI_TOOL_REGISTRY` into `build_language_ontology()` with `os_ontology` and `cli_tools` fields; all 20+ schema builders use unified `ontology_tools()` helper
 - [x] **Unify tool schema systems** — added `ToolFormat` enum, `ToolSchema::from_builtin()`, `builtins_to_tools()` bridge in `providers/schema.rs`; all schema builders refactored to use single source of truth, eliminating ~400 lines of duplicated format logic
 - [x] **CLI tool ontology mappings** — `CLIToolRegistry` with 90+ tool definitions across 15 categories, `detect_tool()` using `which` crate, `get_tool_version()`, `to_json_schema()` export; `CLI_TOOL_REGISTRY` lazy_static wired into Agent API
-- [x] **Module-level schemas** — `get_module_definitions()` exposes typed signatures for all 106 modules with function mappings; `build_compact_ontology()` includes module data
+- [x] **Module-level schemas** — `get_module_definitions()` exposes typed signatures for all 108 modules with function mappings; `build_compact_ontology()` includes module data
 - [x] **Runtime type introspection** — builtins `typeof()`, `type_name()`, `type_fields()`, `type_schema()`, `is_type()` expose runtime Value types; `type_schema()` generates JSON Schema from any Value; `type_name()` provides detailed inner types (e.g., `Array<Int>`, `Record{a: Int, b: String}`)
 - [x] **Ontology versioning** — `ontology_version` field on `LanguageOntology`, included in compact and full schema exports
 - [x] **Ontology export formats** — added JSON-LD (`to_json_ld()`), OWL/RDF Turtle (`to_owl_turtle()`), and SHACL (`to_shacl()`) exports on `OSOperationRegistry`; Agent API schema endpoint supports `jsonld`, `owl`, `shacl` format params; builtins `ontology_json()`, `ontology_jsonld()`, `ontology_owl()`, `ontology_shacl()`
@@ -367,24 +367,24 @@ This document tracks the development progress of AetherShell, the world's first 
 ## Metrics
 
 ### Test Coverage
-- **Tests:** 1,121 passing (1 known failure, 18 ignored)
-- **Test Files:** 62 integration test files
-- **Test Suites:** 62 (unit + integration)
-- **Pass Rate:** 99.9%
-- **CI Status:** All workflows passing
+- **Tests (2026-10-23, `cargo test --workspace`):** 3,572 passed on Windows with 5 ignored;
+  3,582 passed on Linux with 49 ignored, 45 of which run only in a disposable distro
+- **Test Files:** 255 integration test files
+- **Test Suites:** 260 test binaries (unit + integration, all three workspace crates)
+- **CI Status:** not rerun for this tree; see the completion plan's release gates
 
 ### Codebase
 - **Language:** Rust
-- **Source Lines:** ~106,000 (src/)
-- **Test Lines:** ~15,000 (tests/)
-- **Builtins:** 1,100+ (1,381 names including aliases)
-- **Modules:** 106
+- **Source Lines:** ~198,000 (src/)
+- **Test Lines:** ~85,000 (tests/)
+- **Builtins:** 1,171 in the ontology (1,438 names including aliases)
+- **Modules:** 108
 - **Themes:** 38
 
 ### Distribution
-- **crates.io:** [aethershell v0.3.1](https://crates.io/crates/aethershell) + [aethershell-lsp v0.2.0](https://crates.io/crates/aethershell-lsp)
+- **crates.io:** [aethershell v12.0.2](https://crates.io/crates/aethershell) + [aethershell-lsp v12.0.2](https://crates.io/crates/aethershell-lsp)
 - **VS Code:** [admercs.aethershell](https://marketplace.visualstudio.com/items?itemName=admercs.aethershell)
-- **GitHub:** [nervosys/AetherShell](https://github.com/nervosys/AetherShell) — v0.3.1 release with binaries
+- **GitHub:** [nervosys/AetherShell](https://github.com/nervosys/AetherShell) — v12.0.2 release with binaries
 - **Homebrew:** `brew install nervosys/tap/aethershell`
 - **npm:** `npm install @nervosys/aethershell`
 

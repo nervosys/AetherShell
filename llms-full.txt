@@ -1,7 +1,7 @@
 # AetherShell - Complete AI Context
 
 > One language, every platform, deterministic typed output — the shell built for AI agents.
-> Version: 1.5.0 | License: AGPL-3.0-or-later | Language: Rust
+> Version: 12.0.2 (13.0.0 in preparation) | License: AGPL-3.0-or-later | Language: Rust
 > Repository: https://github.com/nervosys/AetherShell
 > Crate: https://crates.io/crates/aethershell (733 KiB compressed)
 
@@ -146,7 +146,7 @@ data = await http.get("https://api.example.com/data")
 
 ---
 
-## 5. Module System (106 Modules, 1,100+ Builtins)
+## 5. Module System (108 Modules, 1,100+ Builtins)
 
 All builtins return structured `Value` types, not raw text.
 
@@ -427,7 +427,7 @@ src/
   value.rs         # Value types (Int, Float, String, Array, Record, Lambda)
   typecheck.rs     # Hindley-Milner type inference
   types.rs         # Type definitions
-  builtins.rs      # 215+ builtin functions
+  builtins.rs      # 1,100+ builtin functions
   env.rs           # Environment (variable bindings)
   ai.rs            # AI provider router (2000+ lines)
   agent.rs         # Agent framework
@@ -501,8 +501,8 @@ file               # => {read, write, exists, copy, move, patch, ...}
 
 - **Name**: AetherShell
 - **Binary**: `ae`
-- **Language**: Rust (2021 edition, MSRV 1.75)
-- **Version**: 1.5.0
+- **Language**: Rust (2021 edition, MSRV 1.88)
+- **Version**: 12.0.2 (13.0.0 in preparation)
 - **License**: AGPL-3.0-or-later (commercial dual-license available)
 - **Author**: Nervosys <contact@nervosys.ai>
 - **Repository**: https://github.com/nervosys/AetherShell
@@ -510,8 +510,8 @@ file               # => {read, write, exists, copy, move, patch, ...}
 - **VS Code**: https://marketplace.visualstudio.com/items?itemName=admercs.aethershell
 - **Keywords**: shell, ai, multi-agent, functional, multimodal, typed-pipelines, mcp
 - **Categories**: command-line-utilities, development-tools
-- **Tests**: 1,237 passing (100% pass rate)
-- **Source**: ~86,000 lines
-- **Builtins**: 215+ across 38 modules
+- **Tests**: 3,572 passing on Windows, 3,582 on Linux (`cargo test --workspace`, 2026-10-23)
+- **Source**: ~198,000 lines (src/)
+- **Builtins**: 1,171 in the ontology (1,438 callable names with aliases) across 108 modules
 - **File Extension**: `.ae`
 - **MIME Type**: `text/x-aethershell`

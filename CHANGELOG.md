@@ -90,6 +90,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The ontology listed `ask` as an alias of `ai`, but nothing dispatched it:
+  an agent that called `ask(...)` got `E_UNKNOWN_BUILTIN`. The alias is
+  removed, and a test now checks every advertised name and alias against the
+  dispatcher.
 - On Linux with no display, `clipboard_get` and `clipboard_set` ran xclip
   anyway and failed as `E_TOOL_FAILED`. They are now `E_NO_UI` before any tool
   runs, or `E_UNIMPLEMENTED` under Wayland with no X display.

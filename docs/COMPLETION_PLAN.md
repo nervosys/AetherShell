@@ -140,10 +140,13 @@ into apparent success, bypass its effect gate, or make a documented mutation uns
 
 ## 4. Validate the complete release tree
 
-- [ ] Run cargo fmt --all -- --check and git diff --check.
-- [ ] Run cargo test --workspace --no-fail-fast on the complete final tree; preserve logs and account for every ignored test.
+- [ ] Run cargo fmt --all -- --check and git diff --check. 2026-10-23: both clean at 4e66585; rerun on the release commit.
+- [ ] Run cargo test --workspace --no-fail-fast on the complete final tree; preserve logs and account for every ignored test. 2026-10-23, every binary under a memory cap (4 GiB Job object on Windows, 8 GiB systemd scope on Linux):
+  - Windows: 260 binaries, 3,572 passed, 0 failed, 5 ignored: the `child_sleeper` helper process, `disposable_smoke` (disposable distro only), and examples 03 (network), 05 (an AI backend) and 22 (MCP servers present on the host).
+  - Linux (ae-disposable): 260 binaries, 3,582 passed, 49 ignored. The first run failed exit_status_ratchet and option_injection_ratchet: both scanners predated the move to bounded_cmd_output/run_tree and found almost nothing (fixed in 4e66585). Of the 49 ignored, 45 are disposable-only and all 45 pass with --ignored in ae-disposable; the other four are the helper and the three examples above.
+  - Not yet done on the release commit itself, nor on macOS.
 - [ ] Temporarily clear inherited LC_ALL for the known locale-sensitive Windows check, restore it afterward, and record the environment adjustment.
-- [ ] Run cargo clippy --workspace --all-targets -- -D warnings.
+- [ ] Run cargo clippy --workspace --all-targets -- -D warnings. 2026-10-23: clean on Windows and Linux; rerun on the release commit.
 - [ ] Build ae, aimodel and the LSP in supported release configurations.
 - [ ] Validate the Rust 1.88 MSRV and the supported feature combinations, including optional local inference and WASM where advertised. 2026-10-22: the library check without default features and the wasm32 library check had failed since 4ba43bc (import/export added an ungated module_loader); fixed by gating it on `native`, and both pass again, clippy clean. The `ae` and `aimodel` binaries and the tests need `native`, as before.
 - [ ] Run Linux, macOS and Windows CI, including the declared supported architectures and packaging targets.
@@ -171,7 +174,7 @@ no speedup is inferred from a refactor alone.
 
 - [ ] Update root and LSP manifests, lockfiles, SDK/extension/package metadata and API/OpenAPI versions to the intended release versions together.
 - [ ] Finalize CHANGELOG.md and release/13.0.0.md with breaking-call examples, migration guidance, supported platforms and accepted limitations.
-- [ ] Reconcile README, AGENTS.md, llms.txt, llms-full.txt, ROADMAP.md and generated discovery metadata with the final inventory and feature register.
+- [ ] Reconcile README, AGENTS.md, llms.txt, llms-full.txt, ROADMAP.md and generated discovery metadata with the final inventory and feature register. 2026-10-23: counts measured from `ae agent schema` (1,171 builtins, 267 aliases, 1,438 callable names, 108 modules), effect_coverage (905 of 1,318 dispatch names classified), crates.io and GitHub releases (12.0.2); stale versions (1.5.0, 1.4.0, 1.2.0, 0.3.1), MSRV 1.75, module counts 106/38 and test counts corrected. The 13.0.0 version strings wait for the release commit.
 - [ ] Update installation, upgrade and troubleshooting instructions; verify every advertised channel's actual package name and expected version.
 - [ ] Run scripts/test_release_version.py and scripts/test-release-preflight.ps1 under PowerShell 5.1 and 7.
 - [ ] Inspect package file lists, license/source inclusion, artifact names and platform coverage; build and smoke-test the packages intended for publication.

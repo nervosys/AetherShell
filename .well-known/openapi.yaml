@@ -407,7 +407,7 @@ paths:
                     example: ok
                   version:
                     type: string
-                    example: 1.4.0
+                    example: 12.0.2
 
   /api/v1/orchestration/agents:
     get:

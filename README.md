@@ -571,9 +571,9 @@ following calls four levels deep: if a function constructs a process, writes a f
 opens a socket or kills a process, it cannot be `Pure` whatever it is called. It found
 306 more.
 
-Coverage is reported, not asserted: **799 of the 1,318 names in the dispatch table carry an
+Coverage is reported, not asserted: **905 of the 1,318 names in the dispatch table carry an
 explicit effect** (`tests/effect_coverage.rs` prints the current figure). Three independent
-checks say nothing dangerous hides in the remaining 519 — zero act
+checks say nothing dangerous hides in the remaining 413 — zero act
 while classified `Pure`, zero read local state while classified `Pure`, and zero could
 reach an effect even when every ambiguous helper name is resolved to its worst
 definition. Each check has a canary proving it can still see, because a lint that has
