@@ -512,12 +512,34 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "mcp_servers" => {
             Some(Effect::Network)
         }
+        // Declaring the fallback ai_* builtins (2026-10-23) showed these
+        // falling through to Pure. `ai_detect` sweeps the same model ports as
+        // `ai_backends`; `ai_local_generate` posts to IronGate whenever no
+        // in-process backend is compiled in, which is the default build.
+        // `ai-backends` is the fallback spelling of `ai_backends`: its twin is
+        // served by BUILTIN_LOOKUP, so `alias_groups` never pairs them and it
+        // inherited nothing.
+        "ai_detect" | "ai_local_generate" | "ai-backends" => Some(Effect::Network),
+        // `ai_gpu_memory` and `ai_model_fits` run nvidia-smi to read the GPUs,
+        // as `hw_gpu` and `platform_gpu_memory` do; `ai_local_load` reads the
+        // model file it is given.
+        "ai_gpu_memory" | "ai_model_fits" | "ai_local_load" => Some(Effect::ReadLocal),
+        // Undo, redo and forgetting the journal write and delete files: undo
+        // and redo put recorded contents back or remove what a step created,
+        // and the journal itself lives on disk. They were Pure. WriteLocal, as
+        // `session_restore` is, so an agent still rewinds without an approval
+        // round-trip; `journal::undo` and `journal::redo` refuse a recorded
+        // path outside an enforced jail themselves, because these calls carry
+        // no path argument for the central jail check to see.
+        "undo" | "rewind" | "session_undo" | "session_redo" | "journal_clear" | "session_end" => {
+            Some(Effect::WriteLocal)
+        }
         // The vault builtins spawn the `iv` binary. `vault_models` and
         // `vault_conversions` only read, but they still hand arguments to a
         // process, which is what Exec is about — the ratchet reads
         // `Command::new` in `model_plane::vault_run` and would refuse anything
         // weaker. `vault_convert` additionally writes a converted model.
-        "vault_models" | "vault_conversions" => Some(Effect::Exec),
+        "vault_models" | "vault_conversions" | "ai_supported_conversions" => Some(Effect::Exec),
         "vault_convert" | "ai_convert_model" => Some(Effect::Exec),
 
         // ════════════════════════════════════════════════════════════
@@ -2179,6 +2201,25 @@ pub fn within_workspace(path: &str) -> bool {
         Err(_) => return false,
     };
     resolve_for_jail(path).starts_with(&root)
+}
+
+/// Why a journalled path may not be rewritten by `undo` or `redo` here, if it
+/// may not.
+///
+/// A journal entry's path passed the jail when it was recorded, but the journal
+/// persists across processes, keyed by working directory: a step recorded in
+/// human mode, where nothing is jailed, can be replayed by an agent-mode
+/// session in the same directory. Rewinding rewrites or deletes that file, so
+/// in a jailed context a path outside the workspace is left alone.
+pub fn rewind_refused(path: &str) -> Option<String> {
+    if path.is_empty() || !jail_enforced(current_mode()) || within_workspace(path) {
+        return None;
+    }
+    Some(
+        "outside the workspace jail, so left as it is; rewind it outside agent mode, \
+         or with AETHER_WORKSPACE covering it"
+            .to_string(),
+    )
 }
 
 /// Lexically resolve a path to an absolute, `..`/`.`-free form against the

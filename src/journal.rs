@@ -484,6 +484,17 @@ pub fn undo(n: usize) -> Vec<Outcome> {
     let mut s = state();
     let mut out = Vec::new();
     for _ in 0..n {
+        // Checked before the pop: a step left alone stays in the journal, and
+        // nothing older is undone past it, so the order is kept.
+        if let Some(why) = s
+            .journal
+            .last()
+            .and_then(|e| crate::safety::rewind_refused(&e.path))
+        {
+            let what = s.journal.last().map(|e| e.path.clone()).unwrap_or_default();
+            out.push(Outcome::Skipped { what, why });
+            break;
+        }
         let Some(entry) = s.journal.pop() else { break };
         forget_persisted(entry.seq);
         let what = if entry.path.is_empty() {
@@ -561,6 +572,15 @@ pub fn redo(n: usize) -> Vec<Outcome> {
     let mut s = state();
     let mut out = Vec::new();
     for _ in 0..n {
+        if let Some(why) = s
+            .redo
+            .last()
+            .and_then(|r| crate::safety::rewind_refused(&r.path))
+        {
+            let what = s.redo.last().map(|r| r.path.clone()).unwrap_or_default();
+            out.push(Outcome::Skipped { what, why });
+            break;
+        }
         let Some(r) = s.redo.pop() else { break };
         forget_redo_persisted(r.seq);
         let what = if r.path.is_empty() {
