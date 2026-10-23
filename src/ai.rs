@@ -195,38 +195,59 @@ pub struct GpuMemoryInfo {
     pub free_mb: u64,
 }
 
-/// Query GPU memory via nvidia-smi
+/// Query GPU memory via nvidia-smi, treating any failure as "no GPU data".
+///
+/// Callers that report to a user should use [`try_query_gpu_memory`]: this
+/// wrapper turns a missing or failing nvidia-smi into an empty list, which is
+/// indistinguishable from a machine with no GPU.
 pub fn query_gpu_memory() -> Vec<GpuMemoryInfo> {
-    let mut cmd = std::process::Command::new("nvidia-smi");
-    cmd.args([
-        "--query-gpu=index,name,memory.total,memory.used,memory.free",
-        "--format=csv,noheader,nounits",
-    ]);
-    // A GPU query that does not answer in 30s is treated as no GPU memory data.
-    let output = crate::safety::output_with_timeout(cmd, 30);
+    try_query_gpu_memory().unwrap_or_default()
+}
 
-    match output {
-        Ok(out) if out.status.success() => {
-            let text = String::from_utf8_lossy(&out.stdout);
-            text.lines()
-                .filter_map(|line| {
-                    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-                    if parts.len() >= 5 {
-                        Some(GpuMemoryInfo {
-                            gpu_index: parts[0].parse().unwrap_or(0),
-                            name: parts[1].to_string(),
-                            total_mb: parts[2].parse().unwrap_or(0),
-                            used_mb: parts[3].parse().unwrap_or(0),
-                            free_mb: parts[4].parse().unwrap_or(0),
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        }
-        _ => Vec::new(),
+/// Query GPU memory via nvidia-smi, reporting a failure as a coded error.
+///
+/// A missing nvidia-smi is `E_TOOL_MISSING`; a nonzero exit, a deadline, or an
+/// output line that is not the documented five fields is `E_TOOL_FAILED`. A
+/// line is never half-parsed into zeros.
+pub fn try_query_gpu_memory() -> Result<Vec<GpuMemoryInfo>> {
+    const QUERY: &str = "--query-gpu=index,name,memory.total,memory.used,memory.free";
+    let mut cmd = std::process::Command::new("nvidia-smi");
+    cmd.args([QUERY, "--format=csv,noheader,nounits"]);
+    // A GPU query that does not answer in 30s is stopped and reported.
+    let out = crate::safety::output_with_timeout(cmd, 30)
+        .map_err(|e| crate::safety::spawn_error("ai_gpu_memory", "nvidia-smi", &e))?;
+    if !out.status.success() {
+        return Err(crate::safety::tool_failed(
+            "ai_gpu_memory",
+            &format!("nvidia-smi {QUERY}"),
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
+        ));
     }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut gpus = Vec::new();
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        let num = |i: usize| parts.get(i).and_then(|p| p.parse::<u64>().ok());
+        match (parts.len(), num(0), num(2), num(3), num(4)) {
+            (5, Some(index), Some(total), Some(used), Some(free)) => gpus.push(GpuMemoryInfo {
+                gpu_index: index as usize,
+                name: parts[1].to_string(),
+                total_mb: total,
+                used_mb: used,
+                free_mb: free,
+            }),
+            _ => {
+                return Err(crate::safety::tool_failed(
+                    "ai_gpu_memory",
+                    &format!("nvidia-smi {QUERY}"),
+                    None,
+                    &format!("unexpected output line: {line}"),
+                ))
+            }
+        }
+    }
+    Ok(gpus)
 }
 
 /// Estimate VRAM required to load a model (in MB)
@@ -275,7 +296,35 @@ pub fn gpu_memory_summary(
     file_size_mb: Option<u64>,
     quantization: Option<&str>,
 ) -> serde_json::Value {
-    let gpus = query_gpu_memory();
+    gpu_summary_of(
+        query_gpu_memory(),
+        params_billions,
+        file_size_mb,
+        quantization,
+    )
+}
+
+/// [`gpu_memory_summary`] with a failed GPU query reported as an error rather
+/// than as zero GPUs.
+pub fn try_gpu_memory_summary(
+    params_billions: Option<f64>,
+    file_size_mb: Option<u64>,
+    quantization: Option<&str>,
+) -> Result<serde_json::Value> {
+    Ok(gpu_summary_of(
+        try_query_gpu_memory()?,
+        params_billions,
+        file_size_mb,
+        quantization,
+    ))
+}
+
+fn gpu_summary_of(
+    gpus: Vec<GpuMemoryInfo>,
+    params_billions: Option<f64>,
+    file_size_mb: Option<u64>,
+    quantization: Option<&str>,
+) -> serde_json::Value {
     let estimated_mb = estimate_model_vram_mb(params_billions, file_size_mb, quantization);
     let fits = gpus.iter().any(|g| g.free_mb >= estimated_mb);
 
@@ -1958,8 +2007,16 @@ fn detect_mcp_server(name: &str, endpoint: &str) -> Result<McpServerInfo> {
 
 /// Automatically select the best available backend
 pub fn auto_select_backend() -> Option<String> {
-    let backends = detect_available_backends();
+    try_auto_select_backend().ok().flatten()
+}
 
+/// [`auto_select_backend`] that reports a refused probe (budget, policy) as an
+/// error instead of as "no backend".
+pub fn try_auto_select_backend() -> Result<Option<String>> {
+    Ok(select_backend(try_detect_available_backends()?))
+}
+
+fn select_backend(backends: Vec<BackendInfo>) -> Option<String> {
     // Priority: local backends first (faster), then cloud
     for backend in backends {
         if !backend.available {

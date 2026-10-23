@@ -4212,38 +4212,41 @@ fn call_with_input_inner(
         // AI Cost Tracking
         "ai_usage" | "ai-usage" => bi_ai_usage(),
         "ai_cost" | "ai-cost" => bi_ai_cost(),
-        "ai_reset_usage" | "ai-reset-usage" => bi_ai_reset_usage(),
+        "ai_reset_usage" | "ai-reset-usage" => bi_ai_reset_usage(input),
 
         // GPU Memory Management
-        "ai_gpu_memory" | "ai-gpu-memory" => bi_ai_gpu_memory(),
-        "ai_model_fits" | "ai-model-fits" => bi_ai_model_fits(args),
+        "ai_gpu_memory" | "ai-gpu-memory" => bi_ai_gpu_memory(input),
+        "ai_model_fits" | "ai-model-fits" => bi_ai_model_fits(args, input),
 
         // Provider Routing & Registry
         "ai_providers" | "ai-providers" => bi_ai_providers(),
         "ai_routes" | "ai-routes" => bi_ai_routes(),
-        "ai_add_route" | "ai-add-route" => bi_ai_add_route(args),
-        "ai_set_default" | "ai-set-default" => bi_ai_set_default(args),
+        "ai_add_route" | "ai-add-route" => bi_ai_add_route(args, input),
+        "ai_set_default" | "ai-set-default" => bi_ai_set_default(args, input),
         "ai_registry_stats" | "ai-registry-stats" => bi_ai_registry_stats(),
-        "ai_set_load_balancing" | "ai-set-load-balancing" => bi_ai_set_load_balancing(args),
+        "ai_set_load_balancing" | "ai-set-load-balancing" => bi_ai_set_load_balancing(args, input),
         "ai_load_balancing" | "ai-load-balancing" => bi_ai_load_balancing(),
 
         // Model Format Conversion
-        "ai_convert_model" | "ai-convert-model" => bi_ai_convert_model(args),
-        "ai_supported_conversions" | "ai-supported-conversions" => bi_ai_supported_conversions(),
+        "ai_convert_model" | "ai-convert-model" => bi_ai_convert_model(args, input),
+        // Kept on one line: tests/fallback_dispatch.rs reads each arm's callee
+        // from its own line, and rustfmt would wrap this one into a block.
+        #[rustfmt::skip]
+        "ai_supported_conversions" | "ai-supported-conversions" => bi_ai_supported_conversions(input),
         "ai_detect_format" | "ai-detect-format" => bi_ai_detect_format(args),
 
         // The NERVOSYS stack: routing, inference, model store
-        "ai_gateway" | "ai-gateway" | "irongate" => bi_ai_gateway(),
-        "vault_models" | "vault-models" => bi_vault_models(),
-        "vault_conversions" | "vault-conversions" => bi_vault_conversions(),
-        "vault_convert" | "vault-convert" => bi_vault_convert(args),
+        "ai_gateway" | "ai-gateway" | "irongate" => bi_ai_gateway(input),
+        "vault_models" | "vault-models" => bi_vault_models(input),
+        "vault_conversions" | "vault-conversions" => bi_vault_conversions(input),
+        "vault_convert" | "vault-convert" => bi_vault_convert(args, input),
 
         // Local Inference
         "ai_local_backends" | "ai-local-backends" => bi_ai_local_backends(),
-        "ai_local_load" | "ai-local-load" => bi_ai_local_load(args),
-        "ai_local_generate" | "ai-local-generate" => bi_ai_local_generate(args),
-        "ai_local_embed" | "ai-local-embed" => bi_ai_local_embed(args),
-        "ai_local_unload" | "ai-local-unload" => bi_ai_local_unload(args),
+        "ai_local_load" | "ai-local-load" => bi_ai_local_load(args, input),
+        "ai_local_generate" | "ai-local-generate" => bi_ai_local_generate(args, input),
+        "ai_local_embed" | "ai-local-embed" => bi_ai_local_embed(args, input),
+        "ai_local_unload" | "ai-local-unload" => bi_ai_local_unload(args, input),
 
         // Runtime Type Introspection
         "str" | "to_string" => bi_str(args, input),
@@ -10018,6 +10021,152 @@ fn bi_none() -> Result<Value> {
     Ok(Value::Record(record))
 }
 
+/// The one string argument a builtin takes; anything else is refused by name.
+fn sole_str(builtin: &str, args: &[Value], expected: &str) -> Result<String> {
+    match args {
+        [Value::Str(s)] => Ok(s.clone()),
+        [other] => Err(crate::safety::bad_arg(builtin, expected, other.type_name())),
+        _ => Err(crate::safety::bad_arg(
+            builtin,
+            expected,
+            &format!("{} argument(s)", args.len()),
+        )),
+    }
+}
+
+/// The single config record a builtin takes. A table, a string or any other
+/// value is refused, because a config that is silently ignored is not a config.
+fn cfg_record<'a>(
+    builtin: &str,
+    args: &'a [Value],
+    expected: &str,
+) -> Result<&'a std::collections::BTreeMap<String, Value>> {
+    match args {
+        [Value::Record(r)] => Ok(r),
+        [other] => Err(crate::safety::bad_arg(builtin, expected, other.type_name())),
+        _ => Err(crate::safety::bad_arg(
+            builtin,
+            expected,
+            &format!("{} argument(s)", args.len()),
+        )),
+    }
+}
+
+/// Refuse a config key the builtin does not read. A misspelt option is an
+/// error; read as its default it would be a silently different call.
+fn cfg_known_keys(
+    builtin: &str,
+    rec: &std::collections::BTreeMap<String, Value>,
+    known: &[&str],
+) -> Result<()> {
+    if let Some(key) = rec.keys().find(|k| !known.contains(&k.as_str())) {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            &format!("only the keys {}", known.join(", ")),
+            &format!("unknown key '{key}'"),
+        ));
+    }
+    Ok(())
+}
+
+fn cfg_str(
+    builtin: &str,
+    rec: &std::collections::BTreeMap<String, Value>,
+    field: &str,
+) -> Result<Option<String>> {
+    match rec.get(field) {
+        None => Ok(None),
+        Some(Value::Str(s)) => Ok(Some(s.clone())),
+        Some(other) => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{field}: a string"),
+            other.type_name(),
+        )),
+    }
+}
+
+fn cfg_required_str(
+    builtin: &str,
+    rec: &std::collections::BTreeMap<String, Value>,
+    field: &str,
+) -> Result<String> {
+    cfg_str(builtin, rec, field)?
+        .ok_or_else(|| crate::safety::bad_arg(builtin, &format!("{field}: a string"), "missing"))
+}
+
+fn cfg_bool(
+    builtin: &str,
+    rec: &std::collections::BTreeMap<String, Value>,
+    field: &str,
+) -> Result<Option<bool>> {
+    match rec.get(field) {
+        None => Ok(None),
+        Some(Value::Bool(b)) => Ok(Some(*b)),
+        Some(other) => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{field}: a boolean"),
+            other.type_name(),
+        )),
+    }
+}
+
+/// An integer field in `lo..=hi`. A value outside the range is refused, not
+/// wrapped by an `as` cast.
+fn cfg_int(
+    builtin: &str,
+    rec: &std::collections::BTreeMap<String, Value>,
+    field: &str,
+    lo: i64,
+    hi: i64,
+) -> Result<Option<i64>> {
+    match rec.get(field) {
+        None => Ok(None),
+        Some(Value::Int(n)) if (lo..=hi).contains(n) => Ok(Some(*n)),
+        Some(Value::Int(n)) => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{field}: an integer in {lo}..={hi}"),
+            &n.to_string(),
+        )),
+        Some(other) => Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{field}: an integer"),
+            other.type_name(),
+        )),
+    }
+}
+
+/// A numeric field (Int or Float) in `lo..=hi`, finite. Int is widened, never
+/// dropped: the earlier code read only Float and silently ignored Int.
+fn cfg_float(
+    builtin: &str,
+    rec: &std::collections::BTreeMap<String, Value>,
+    field: &str,
+    lo: f64,
+    hi: f64,
+) -> Result<Option<f64>> {
+    let v = match rec.get(field) {
+        None => return Ok(None),
+        Some(Value::Float(f)) => *f,
+        Some(Value::Int(n)) => *n as f64,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                &format!("{field}: a number"),
+                other.type_name(),
+            ))
+        }
+    };
+    if v.is_finite() && v >= lo && v <= hi {
+        Ok(Some(v))
+    } else {
+        Err(crate::safety::bad_arg(
+            builtin,
+            &format!("{field}: a number in {lo}..={hi}"),
+            &v.to_string(),
+        ))
+    }
+}
+
 // ============ AI Backend Detection ============
 
 /// ai_backends() - Detect and list all available AI backends
@@ -10025,14 +10174,8 @@ fn bi_none() -> Result<Value> {
 ///
 /// Example:
 ///   ai_backends() | select(["name", "available", "models"])
-fn bi_ai_backends(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if !args.is_empty() {
-        return Err(crate::safety::bad_arg(
-            "ai_backends",
-            "no arguments",
-            &format!("{} argument(s)", args.len()),
-        ));
-    }
+fn bi_ai_backends(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("ai_backends", &args, &input)?;
     // A probe the budget or policy refuses is the answer, not an empty list.
     let backends = crate::ai::try_detect_available_backends()?;
 
@@ -10065,8 +10208,11 @@ fn bi_ai_backends(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Example:
 ///   let backend = ai_detect()
 ///   if backend != "" { ai(backend, "Hello!") }
-fn bi_ai_detect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    match crate::ai::auto_select_backend() {
+fn bi_ai_detect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("ai_detect", &args, &input)?;
+    // A probe the budget or policy refuses is an error. "No backend" is the
+    // empty string, and only that.
+    match crate::ai::try_auto_select_backend()? {
         Some(uri) => Ok(Value::Str(uri)),
         None => Ok(Value::Str(String::new())),
     }
@@ -10103,7 +10249,8 @@ fn bi_ai_cost() -> Result<Value> {
 ///
 /// Example:
 ///   ai_reset_usage()
-fn bi_ai_reset_usage() -> Result<Value> {
+fn bi_ai_reset_usage(input: Option<Value>) -> Result<Value> {
+    refuse_piped("ai_reset_usage", &input)?;
     let mut tracker = crate::ai::COST_TRACKER
         .lock()
         .map_err(|e| anyhow!("cost tracker lock: {}", e))?;
@@ -10117,8 +10264,9 @@ fn bi_ai_reset_usage() -> Result<Value> {
 /// Example:
 ///   ai_gpu_memory()
 ///   ai_gpu_memory() | get("gpus") | map(fn(g) => g.free_mb)
-fn bi_ai_gpu_memory() -> Result<Value> {
-    let summary = crate::ai::gpu_memory_summary(None, None, None);
+fn bi_ai_gpu_memory(input: Option<Value>) -> Result<Value> {
+    refuse_piped("ai_gpu_memory", &input)?;
+    let summary = crate::ai::try_gpu_memory_summary(None, None, None)?;
     Ok(Value::from_json(&summary))
 }
 
@@ -10129,38 +10277,45 @@ fn bi_ai_gpu_memory() -> Result<Value> {
 /// Example:
 ///   ai_model_fits({params_b: 7.0, quantization: "q4_k_m"})
 ///   ai_model_fits({file_size_mb: 4096})
-fn bi_ai_model_fits(args: Vec<Value>) -> Result<Value> {
-    let config = args.first().and_then(|v| {
-        if let Value::Record(r) = v {
-            Some(r)
-        } else {
-            None
+fn bi_ai_model_fits(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "ai_model_fits";
+    refuse_piped(B, &input)?;
+    let config = cfg_record(
+        B,
+        &args,
+        "a config record: {params_b | file_size_mb, quantization?}",
+    )?;
+    cfg_known_keys(B, config, &["params_b", "file_size_mb", "quantization"])?;
+
+    // The upper bound keeps the VRAM estimate far inside u64, so the estimate
+    // cannot overflow; the lower bound refuses a size that rounds to zero MB
+    // and so "fits" anything.
+    let params_b = cfg_float(B, config, "params_b", f64::MIN_POSITIVE, 1_000_000.0)?;
+    let file_size_mb = cfg_int(B, config, "file_size_mb", 1, i64::MAX)?;
+    let quantization = cfg_str(B, config, "quantization")?;
+    match (params_b.is_some(), file_size_mb.is_some()) {
+        (true, false) | (false, true) => {}
+        (false, false) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "params_b (billions, above 0) or file_size_mb (1 or more)",
+                "neither",
+            ))
         }
-    });
+        (true, true) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "one of params_b or file_size_mb",
+                "both",
+            ))
+        }
+    }
 
-    let params_b = config
-        .and_then(|c| c.get("params_b"))
-        .and_then(|v| match v {
-            Value::Float(f) => Some(*f),
-            Value::Int(i) => Some(*i as f64),
-            _ => None,
-        });
-
-    let file_size_mb = config
-        .and_then(|c| c.get("file_size_mb"))
-        .and_then(|v| match v {
-            Value::Int(i) => Some(*i as u64),
-            _ => None,
-        });
-
-    let quant_str = config
-        .and_then(|c| c.get("quantization"))
-        .and_then(|v| match v {
-            Value::Str(s) => Some(s.clone()),
-            _ => None,
-        });
-
-    let summary = crate::ai::gpu_memory_summary(params_b, file_size_mb, quant_str.as_deref());
+    let summary = crate::ai::try_gpu_memory_summary(
+        params_b,
+        file_size_mb.map(|n| n as u64),
+        quantization.as_deref(),
+    )?;
     Ok(Value::from_json(&summary))
 }
 
@@ -10305,99 +10460,62 @@ fn bi_ai_routes() -> Result<Value> {
 /// Example:
 ///   ai_add_route({name: "tools_to_openai", priority: 100, condition: "has_tools", target: "openai"})
 ///   ai_add_route({name: "large_to_groq", priority: 50, condition: "tokens_over:4000", target: "groq"})
-fn bi_ai_add_route(args: Vec<Value>) -> Result<Value> {
+fn bi_ai_add_route(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use crate::providers::registry::{RoutingCondition, RoutingRule, PROVIDER_REGISTRY};
     use crate::providers::ProviderType;
+    const B: &str = "ai_add_route";
 
-    let config = match args.first() {
-        Some(Value::Record(r)) => r,
-        _ => {
-            return Err(crate::safety::arg_err(
-                "ai_add_route: requires a config record with name, priority, condition, target",
-            ))
-        }
-    };
+    refuse_piped(B, &input)?;
+    let config = cfg_record(
+        B,
+        &args,
+        "a config record: {name, condition, priority?, target?, allow_fallback?}",
+    )?;
+    cfg_known_keys(
+        B,
+        config,
+        &["name", "priority", "condition", "target", "allow_fallback"],
+    )?;
 
-    let name = config
-        .get("name")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| crate::safety::arg_err("ai_add_route: missing 'name'"))?;
+    let name = cfg_required_str(B, config, "name")?;
+    let condition_str = cfg_required_str(B, config, "condition")?;
+    let priority = cfg_int(B, config, "priority", 0, u32::MAX as i64)?.map_or(50, |p| p as u32);
+    let target_str = cfg_str(B, config, "target")?;
+    let allow_fallback = cfg_bool(B, config, "allow_fallback")?.unwrap_or(true);
 
-    let priority = config
-        .get("priority")
-        .and_then(|v| {
-            if let Value::Int(i) = v {
-                Some(*i as u32)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(50);
-
-    let condition_str = config
-        .get("condition")
-        .and_then(|v| {
-            if let Value::Str(s) = v {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| crate::safety::arg_err("ai_add_route: missing 'condition'"))?;
-
-    let target_str = config.get("target").and_then(|v| {
-        if let Value::Str(s) = v {
-            Some(s.clone())
-        } else {
-            None
-        }
-    });
-
-    let allow_fallback = config
-        .get("allow_fallback")
-        .and_then(|v| {
-            if let Value::Bool(b) = v {
-                Some(*b)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(true);
-
-    // Parse condition
     let condition = if condition_str == "always" {
         RoutingCondition::Always
     } else if condition_str == "has_tools" {
         RoutingCondition::HasTools
     } else if condition_str == "has_vision" {
         RoutingCondition::HasVision
-    } else if condition_str.starts_with("model:") {
+    } else if let Some(pattern) = condition_str.strip_prefix("model:") {
         RoutingCondition::ModelPattern {
-            pattern: condition_str[6..].to_string(),
+            pattern: pattern.to_string(),
         }
-    } else if condition_str.starts_with("tokens_over:") {
-        let threshold = condition_str[12..]
-            .parse::<u32>()
-            .map_err(|_| anyhow!("ai_add_route: invalid token threshold"))?;
+    } else if let Some(n) = condition_str.strip_prefix("tokens_over:") {
+        let threshold = n.parse::<u32>().map_err(|_| {
+            crate::safety::bad_arg(
+                B,
+                "condition: tokens_over:<N> with N a whole number",
+                &condition_str,
+            )
+        })?;
         RoutingCondition::TokenCountOver { threshold }
     } else {
-        return Err(anyhow!(
-            "ai_add_route: unknown condition '{}'. Try: always, has_tools, has_vision, model:<pattern>, tokens_over:<N>",
-            condition_str
+        return Err(crate::safety::bad_arg(
+            B,
+            "condition: always, has_tools, has_vision, model:<pattern> or tokens_over:<N>",
+            &condition_str,
         ));
     };
 
-    // Parse target provider
-    let target_provider = target_str
-        .as_deref()
-        .map(ProviderType::from_scheme)
-        .transpose()?;
+    let target_provider = match target_str.as_deref() {
+        None => None,
+        Some(target) => Some(ProviderType::from_scheme(target).map_err(|_| {
+            crate::safety::bad_arg(B, "target: a provider name such as openai", target)
+        })?),
+    };
 
     let rule = RoutingRule {
         name: name.clone(),
@@ -10421,20 +10539,18 @@ fn bi_ai_add_route(args: Vec<Value>) -> Result<Value> {
 ///
 /// Example:
 ///   ai_set_default("openai")
-fn bi_ai_set_default(args: Vec<Value>) -> Result<Value> {
+fn bi_ai_set_default(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use crate::providers::registry::PROVIDER_REGISTRY;
     use crate::providers::ProviderType;
+    const B: &str = "ai_set_default";
 
-    let provider_str = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "ai_set_default: requires provider name string",
-            ))
-        }
-    };
+    refuse_piped(B, &input)?;
+    let provider_str = sole_str(B, &args, "a provider name string")?;
 
-    let provider_type = ProviderType::from_scheme(&provider_str)?;
+    // Refused before the registry is touched: an unknown name changes nothing.
+    let provider_type = ProviderType::from_scheme(&provider_str).map_err(|_| {
+        crate::safety::bad_arg(B, "a provider name such as openai or ollama", &provider_str)
+    })?;
 
     // Register if not already registered
     if PROVIDER_REGISTRY.get(&provider_type).is_none() {
@@ -10521,57 +10637,40 @@ fn bi_ai_registry_stats() -> Result<Value> {
 ///   ai_set_load_balancing("round_robin")
 ///   ai_set_load_balancing("least_latency")
 ///   ai_set_load_balancing({type: "weighted", weights: {openai: 3, anthropic: 1}})
-fn bi_ai_set_load_balancing(args: Vec<Value>) -> Result<Value> {
+fn bi_ai_set_load_balancing(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use crate::providers::registry::{LoadBalancingStrategy, PROVIDER_REGISTRY};
-    use crate::providers::ProviderType;
+    const B: &str = "ai_set_load_balancing";
 
-    let strategy = match args.first() {
-        Some(Value::Str(s)) => match s.as_str() {
+    refuse_piped(B, &input)?;
+    let strategy = match args.as_slice() {
+        [Value::Str(s)] => match s.as_str() {
             "none" => LoadBalancingStrategy::None,
             "round_robin" | "roundrobin" | "rr" => LoadBalancingStrategy::RoundRobin,
             "least_latency" | "latency" => LoadBalancingStrategy::LeastLatency,
             "least_requests" | "requests" => LoadBalancingStrategy::LeastRequests,
             "adaptive" | "auto" => LoadBalancingStrategy::Adaptive,
             other => {
-                return Err(anyhow!(
-                    "ai_set_load_balancing: unknown strategy '{}'. Try: none, round_robin, least_latency, least_requests, adaptive, or a weighted config record",
-                    other
+                return Err(crate::safety::bad_arg(
+                    B,
+                    "a strategy: none, round_robin, least_latency, least_requests, adaptive, or a weighted config record",
+                    other,
                 ))
             }
         },
-        Some(Value::Record(r)) => {
-            let lb_type = r
-                .get("type")
-                .and_then(|v| if let Value::Str(s) = v { Some(s.as_str()) } else { None })
-                .unwrap_or("weighted");
-            if lb_type == "weighted" {
-                let weights_rec = r
-                    .get("weights")
-                    .and_then(|v| if let Value::Record(wr) = v { Some(wr) } else { None })
-                    .ok_or_else(|| {
-                        crate::safety::arg_err("ai_set_load_balancing: weighted strategy requires a 'weights' record")
-                    })?;
-                let mut weights = std::collections::HashMap::new();
-                for (k, v) in weights_rec {
-                    let pt = ProviderType::from_scheme(k)?;
-                    let w = match v {
-                        Value::Int(i) => *i as u32,
-                        Value::Float(f) => *f as u32,
-                        _ => 1,
-                    };
-                    weights.insert(pt, w);
-                }
-                LoadBalancingStrategy::Weighted { weights }
-            } else {
-                return Err(anyhow!(
-                    "ai_set_load_balancing: record config only supports type 'weighted'"
-                ));
-            }
+        [Value::Record(r)] => weighted_strategy(B, r)?,
+        [other] => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "a strategy string or a weighted config record",
+                other.type_name(),
+            ))
         }
         _ => {
-            return Err(crate::safety::arg_err(
-            "ai_set_load_balancing: requires a strategy string or config record",
-        ))
+            return Err(crate::safety::bad_arg(
+                B,
+                "one strategy argument",
+                &format!("{} argument(s)", args.len()),
+            ))
         }
     };
 
@@ -10579,6 +10678,79 @@ fn bi_ai_set_load_balancing(args: Vec<Value>) -> Result<Value> {
     PROVIDER_REGISTRY.set_load_balancing(strategy);
 
     Ok(Value::Str(format!("Load balancing set to {}", label)))
+}
+
+/// The weighted strategy a config record names. Every key and weight is
+/// checked: a misspelt key, a non-integer weight or an empty table is refused,
+/// rather than read as weight 1 or as a strategy that does nothing.
+fn weighted_strategy(
+    builtin: &str,
+    r: &std::collections::BTreeMap<String, Value>,
+) -> Result<crate::providers::registry::LoadBalancingStrategy> {
+    use crate::providers::registry::LoadBalancingStrategy;
+    use crate::providers::ProviderType;
+
+    cfg_known_keys(builtin, r, &["type", "weights"])?;
+    let lb_type = cfg_str(builtin, r, "type")?.unwrap_or_else(|| "weighted".to_string());
+    if lb_type != "weighted" {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "type: \"weighted\"",
+            &lb_type,
+        ));
+    }
+    let weights_rec = match r.get("weights") {
+        Some(Value::Record(w)) => w,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "weights: a record of provider name to weight",
+                other.type_name(),
+            ))
+        }
+        None => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "weights: a record of provider name to weight",
+                "missing",
+            ))
+        }
+    };
+    if weights_rec.is_empty() {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "weights: at least one provider",
+            "an empty record",
+        ));
+    }
+
+    let mut weights = std::collections::HashMap::new();
+    for (key, value) in weights_rec {
+        let provider = ProviderType::from_scheme(key).map_err(|_| {
+            crate::safety::bad_arg(
+                builtin,
+                "weights: keys are provider names such as openai",
+                key,
+            )
+        })?;
+        let weight = match value {
+            Value::Int(i) if (0..=u32::MAX as i64).contains(i) => *i as u32,
+            Value::Float(f)
+                if f.is_finite() && f.fract() == 0.0 && *f >= 0.0 && *f <= u32::MAX as f64 =>
+            {
+                *f as u32
+            }
+            other => {
+                return Err(crate::safety::bad_arg(
+                    builtin,
+                    &format!("weight for {key}: a whole number from 0 to {}", u32::MAX),
+                    &other.to_string(),
+                ))
+            }
+        };
+        weights.insert(provider, weight);
+    }
+    Ok(LoadBalancingStrategy::Weighted { weights })
 }
 
 /// ai_load_balancing() - Get the current load balancing strategy
@@ -10608,33 +10780,30 @@ fn bi_ai_load_balancing() -> Result<Value> {
 ///
 /// Example:
 ///   ai_convert_model({name: "my-llm", to_format: "gguf", quantization: "q4_k_m"})
-fn bi_ai_convert_model(args: Vec<Value>) -> Result<Value> {
-    let config = match args.first() {
-        Some(Value::Record(r)) => r,
-        _ => {
-            return Err(crate::safety::bad_arg(
-                "ai_convert_model",
-                "a config record: {name, to_format, quantization?, output?, validate?}",
-                "no record",
-            ))
-        }
-    };
+fn bi_ai_convert_model(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "ai_convert_model";
+    refuse_piped(B, &input)?;
+    let config = cfg_record(
+        B,
+        &args,
+        "a config record: {name, to_format, quantization?, output?, validate?}",
+    )?;
 
     // The legacy path-based form cannot be honoured: IronVault converts models
     // it stores, and there is no correct way to guess which stored model a
     // loose path corresponds to. Say so precisely rather than half-working.
     if config.contains_key("source") || config.contains_key("target") {
-        return Err(anyhow!(
+        return Err(crate::safety::arg_err(
             "ai_convert_model: the source/target path form is no longer supported.\n\
              It was backed by an in-tree converter that copied the file and reported \
              success, so it never converted anything.\n\
              Conversion now goes through IronVault, which addresses models by vault name:\n  \
                iv add <path> --name <name>\n  \
-               ai_convert_model({{name: \"<name>\", to_format: \"gguf\"}})"
+               ai_convert_model({name: \"<name>\", to_format: \"gguf\"})",
         ));
     }
 
-    bi_vault_convert(args)
+    bi_vault_convert(args, None)
 }
 
 /// ai_supported_conversions() - List the format conversions available.
@@ -10644,8 +10813,8 @@ fn bi_ai_convert_model(args: Vec<Value>) -> Result<Value> {
 /// copies, so it described capability the shell did not have.
 ///
 /// Returns: the vault's supported conversion paths
-fn bi_ai_supported_conversions() -> Result<Value> {
-    bi_vault_conversions()
+fn bi_ai_supported_conversions(input: Option<Value>) -> Result<Value> {
+    bi_vault_conversions(input)
 }
 
 /// ai_detect_format(path) - Detect the format of a model file
@@ -10697,7 +10866,8 @@ fn bi_ai_detect_format(args: Vec<Value>) -> Result<Value> {
 /// Example:
 ///   ai_gateway()
 ///   ai_gateway().targets | where(fn(t) => t.circuit != "closed")
-fn bi_ai_gateway() -> Result<Value> {
+fn bi_ai_gateway(input: Option<Value>) -> Result<Value> {
+    refuse_piped("ai_gateway", &input)?;
     let mut rec = std::collections::BTreeMap::new();
     rec.insert(
         "url".to_string(),
@@ -10732,7 +10902,9 @@ fn bi_ai_gateway() -> Result<Value> {
     );
 
     // Per-target circuit state. Best-effort: /status is a richer endpoint than
-    // /health and a gateway can be serving with it unavailable.
+    // /health and a gateway can be serving with it unavailable. When it is
+    // unavailable the targets are unknown, and the reason is reported as
+    // targets_error rather than presented as an empty list.
     let targets = match crate::model_plane::gate_status() {
         Ok(status) => status
             .get("targets")
@@ -10745,7 +10917,10 @@ fn bi_ai_gateway() -> Result<Value> {
                     .collect::<Vec<Value>>()
             })
             .unwrap_or_default(),
-        Err(_) => vec![],
+        Err(e) => {
+            rec.insert("targets_error".to_string(), Value::Str(e.to_string()));
+            vec![]
+        }
     };
     rec.insert("targets".to_string(), Value::Array(targets));
 
@@ -10762,7 +10937,8 @@ fn bi_ai_gateway() -> Result<Value> {
 /// Example:
 ///   vault_models()
 ///   vault_models() | where(fn(m) => m.format == "gguf")
-fn bi_vault_models() -> Result<Value> {
+fn bi_vault_models(input: Option<Value>) -> Result<Value> {
+    refuse_piped("vault_models", &input)?;
     let json = crate::model_plane::vault_list()?;
     Ok(json_to_value(json))
 }
@@ -10770,7 +10946,8 @@ fn bi_vault_models() -> Result<Value> {
 /// vault_conversions() - List the format conversions IronVault supports.
 ///
 /// Returns: Array of supported conversion paths
-fn bi_vault_conversions() -> Result<Value> {
+fn bi_vault_conversions(input: Option<Value>) -> Result<Value> {
+    refuse_piped("vault_conversions", &input)?;
     let json = crate::model_plane::vault_conversions()?;
     Ok(json_to_value(json))
 }
@@ -10784,44 +10961,57 @@ fn bi_vault_conversions() -> Result<Value> {
 ///
 /// Example:
 ///   vault_convert({name: "my-llm", to_format: "gguf", quantization: "q4_k_m", validate: true})
-fn bi_vault_convert(args: Vec<Value>) -> Result<Value> {
-    let config = match args.first() {
-        Some(Value::Record(r)) => r,
-        _ => {
+fn bi_vault_convert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const B: &str = "vault_convert";
+    refuse_piped(B, &input)?;
+    let config = cfg_record(
+        B,
+        &args,
+        "a config record: {name, to_format, quantization?, output?, validate?}",
+    )?;
+    cfg_known_keys(
+        B,
+        config,
+        &[
+            "name",
+            "to_format",
+            "target_format",
+            "quantization",
+            "output",
+            "validate",
+        ],
+    )?;
+
+    let name = cfg_required_str(B, config, "name")?;
+    let to_format = match (
+        cfg_str(B, config, "to_format")?,
+        cfg_str(B, config, "target_format")?,
+    ) {
+        (Some(f), None) | (None, Some(f)) => f,
+        (None, None) => {
             return Err(crate::safety::bad_arg(
-                "vault_convert",
-                "a config record: {name, to_format, quantization?, output?, validate?}",
-                "no record",
+                B,
+                "to_format: a format such as \"gguf\" or \"safetensors\"",
+                "missing",
+            ))
+        }
+        (Some(_), Some(_)) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "one of to_format or target_format",
+                "both",
             ))
         }
     };
+    let quantization = cfg_str(B, config, "quantization")?;
+    let output = cfg_str(B, config, "output")?;
+    let validate = cfg_bool(B, config, "validate")?.unwrap_or(false);
 
-    let string_field = |k: &str| -> Option<String> {
-        match config.get(k) {
-            Some(Value::Str(s)) => Some(s.clone()),
-            _ => None,
-        }
-    };
-
-    let name = string_field("name").ok_or_else(|| {
-        crate::safety::bad_arg(
-            "vault_convert",
-            "a 'name' naming a model in the vault",
-            "missing",
-        )
-    })?;
-    let to_format = string_field("to_format")
-        .or_else(|| string_field("target_format"))
-        .ok_or_else(|| {
-            crate::safety::bad_arg(
-                "vault_convert",
-                "a 'to_format' such as \"gguf\" or \"safetensors\"",
-                "missing",
-            )
-        })?;
-    let quantization = string_field("quantization");
-    let output = string_field("output");
-    let validate = matches!(config.get("validate"), Some(Value::Bool(true)));
+    // These reach iv as argv, where a value beginning with '-' is an option.
+    let mut values = vec![name.clone(), to_format.clone()];
+    values.extend(quantization.iter().cloned());
+    values.extend(output.iter().cloned());
+    crate::safety::reject_option_like(B, &values)?;
 
     let stdout = crate::model_plane::vault_convert(
         &name,
@@ -10910,38 +11100,43 @@ fn bi_ai_local_backends() -> Result<Value> {
 ///
 /// Example:
 ///   ai_local_load("models/llama-3.2-1b-q4_k_m.gguf")
-fn bi_ai_local_load(args: Vec<Value>) -> Result<Value> {
+fn bi_ai_local_load(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use crate::local_inference;
-
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "ai_local_load: requires a model file path string",
-            ))
-        }
-    };
+    const B: &str = "ai_local_load";
+    refuse_piped(B, &input)?;
+    let path = sole_str(B, &args, "a model file path string")?;
 
     let backend = local_inference::backend_for_model(&path).ok_or_else(|| {
-        anyhow!(
-            "ai_local_load: no backend supports this model format. Available: {:?}. \
-             Rebuild with --features candle (for .gguf/.safetensors) or --features onnx (for .onnx)",
-            local_inference::backend_names()
+        crate::safety::unimplemented(
+            B,
+            &format!(
+                "no compiled-in backend supports this model format (available: {:?})",
+                local_inference::backend_names()
+            ),
+            "rebuild with --features candle (for .gguf/.safetensors) or --features onnx (for .onnx)",
         )
     })?;
 
-    let memory_mb = backend.estimate_memory_mb(&path).unwrap_or(0);
-    let handle = backend.load_model(&path)?;
-
     let mut rec = std::collections::BTreeMap::new();
+    // A memory estimate the backend cannot make is unknown, and the reason is
+    // reported with it. It is not zero MB.
+    match backend.estimate_memory_mb(&path) {
+        Ok(mb) => {
+            rec.insert("estimated_memory_mb".to_string(), Value::Int(mb as i64));
+        }
+        Err(e) => {
+            rec.insert("estimated_memory_mb".to_string(), Value::Null);
+            rec.insert("estimate_error".to_string(), Value::Str(e.to_string()));
+        }
+    }
+    let handle = backend.load_model(&path).map_err(|e| {
+        crate::safety::bad_arg(B, "a model file the backend can load", &e.to_string())
+    })?;
+
     rec.insert("handle".to_string(), Value::Str(handle));
     rec.insert(
         "backend".to_string(),
         Value::Str(backend.name().to_string()),
-    );
-    rec.insert(
-        "estimated_memory_mb".to_string(),
-        Value::Int(memory_mb as i64),
     );
     rec.insert("path".to_string(), Value::Str(path));
 
@@ -10954,8 +11149,10 @@ fn bi_ai_local_load(args: Vec<Value>) -> Result<Value> {
 /// Example:
 ///   ai_local_generate("candle:llama", "What is Rust?")
 ///   ai_local_generate("candle:llama", "Hello", {max_tokens: 100, temperature: 0.5})
-fn bi_ai_local_generate(args: Vec<Value>) -> Result<Value> {
+fn bi_ai_local_generate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use crate::local_inference::{self, GenerationParams};
+    const B: &str = "ai_local_generate";
+    refuse_piped(B, &input)?;
 
     let handle = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -10976,21 +11173,42 @@ fn bi_ai_local_generate(args: Vec<Value>) -> Result<Value> {
     };
 
     let mut params = GenerationParams::default();
-    if let Some(Value::Record(r)) = args.get(2) {
-        if let Some(Value::Int(n)) = r.get("max_tokens") {
-            params.max_tokens = *n as u32;
+    match args.get(2) {
+        None => {}
+        Some(Value::Record(r)) => {
+            cfg_known_keys(
+                B,
+                r,
+                &[
+                    "max_tokens",
+                    "temperature",
+                    "top_p",
+                    "repetition_penalty",
+                    "seed",
+                ],
+            )?;
+            if let Some(n) = cfg_int(B, r, "max_tokens", 1, u32::MAX as i64)? {
+                params.max_tokens = n as u32;
+            }
+            if let Some(t) = cfg_float(B, r, "temperature", 0.0, f64::MAX)? {
+                params.temperature = t;
+            }
+            if let Some(p) = cfg_float(B, r, "top_p", 0.0, 1.0)? {
+                params.top_p = p;
+            }
+            if let Some(p) = cfg_float(B, r, "repetition_penalty", f64::MIN_POSITIVE, f64::MAX)? {
+                params.repetition_penalty = p;
+            }
+            if let Some(s) = cfg_int(B, r, "seed", 0, i64::MAX)? {
+                params.seed = Some(s as u64);
+            }
         }
-        if let Some(Value::Float(f)) = r.get("temperature") {
-            params.temperature = *f;
-        }
-        if let Some(Value::Float(f)) = r.get("top_p") {
-            params.top_p = *f;
-        }
-        if let Some(Value::Float(f)) = r.get("repetition_penalty") {
-            params.repetition_penalty = *f;
-        }
-        if let Some(Value::Int(s)) = r.get("seed") {
-            params.seed = Some(*s as u64);
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "params: a record {max_tokens?, temperature?, top_p?, repetition_penalty?, seed?}",
+                other.type_name(),
+            ))
         }
     }
 
@@ -11061,13 +11279,7 @@ fn bi_ai_local_generate(args: Vec<Value>) -> Result<Value> {
         return Ok(Value::Record(rec));
     }
 
-    Err(anyhow!(
-        "ai_local_generate: no backend found for handle '{}'.\n\
-         Either load a model in-process with ai_local_load() (needs a build with \
-         --features candle), or start IronGate so local inference can route to \
-         IronWorks (default http://localhost:7700/v1, override with IRONGATE_URL).",
-        handle
-    ))
+    Err(crate::safety::not_found(B, "local model handle", &handle))
 }
 
 /// ai_local_embed(handle, inputs) - Generate embeddings using a loaded local model
@@ -11075,8 +11287,10 @@ fn bi_ai_local_generate(args: Vec<Value>) -> Result<Value> {
 ///
 /// Example:
 ///   ai_local_embed("candle:embed-model", ["Hello world", "Rust is great"])
-fn bi_ai_local_embed(args: Vec<Value>) -> Result<Value> {
+fn bi_ai_local_embed(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use crate::local_inference;
+    const B: &str = "ai_local_embed";
+    refuse_piped(B, &input)?;
 
     let handle = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -11087,14 +11301,27 @@ fn bi_ai_local_embed(args: Vec<Value>) -> Result<Value> {
         }
     };
 
+    // Every element must be a string. The earlier code rendered a number or a
+    // record with to_string and embedded that text, which is a different call.
     let inputs: Vec<String> = match args.get(1) {
+        Some(Value::Array(arr)) if arr.is_empty() => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "inputs: at least one string",
+                "an empty array",
+            ))
+        }
         Some(Value::Array(arr)) => arr
             .iter()
             .map(|v| match v {
-                Value::Str(s) => s.clone(),
-                other => other.to_string(),
+                Value::Str(s) => Ok(s.clone()),
+                other => Err(crate::safety::bad_arg(
+                    B,
+                    "inputs: an array of strings",
+                    other.type_name(),
+                )),
             })
-            .collect(),
+            .collect::<Result<Vec<String>>>()?,
         Some(Value::Str(s)) => vec![s.clone()],
         _ => {
             return Err(crate::safety::arg_err(
@@ -11127,10 +11354,7 @@ fn bi_ai_local_embed(args: Vec<Value>) -> Result<Value> {
         }
     }
 
-    Err(anyhow!(
-        "ai_local_embed: no backend found for handle '{}'",
-        handle
-    ))
+    Err(crate::safety::not_found(B, "local model handle", &handle))
 }
 
 /// ai_local_unload(handle) - Unload a previously loaded local model
@@ -11138,17 +11362,11 @@ fn bi_ai_local_embed(args: Vec<Value>) -> Result<Value> {
 ///
 /// Example:
 ///   ai_local_unload("candle:llama")
-fn bi_ai_local_unload(args: Vec<Value>) -> Result<Value> {
+fn bi_ai_local_unload(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use crate::local_inference;
-
-    let handle = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "ai_local_unload: requires handle string",
-            ))
-        }
-    };
+    const B: &str = "ai_local_unload";
+    refuse_piped(B, &input)?;
+    let handle = sole_str(B, &args, "a handle string")?;
 
     for backend in local_inference::available_backends() {
         if handle.starts_with(&format!("{}:", backend.name())) {
@@ -11157,10 +11375,7 @@ fn bi_ai_local_unload(args: Vec<Value>) -> Result<Value> {
         }
     }
 
-    Err(anyhow!(
-        "ai_local_unload: no backend found for handle '{}'",
-        handle
-    ))
+    Err(crate::safety::not_found(B, "local model handle", &handle))
 }
 
 // ========== Runtime Type Introspection ==========

@@ -252,33 +252,17 @@ pub fn vault_run_within(args: &[&str], secs: u64) -> Result<String> {
     let bin = vault_bin();
     let mut cmd = std::process::Command::new(&bin);
     cmd.args(args);
-    let out = crate::safety::output_with_timeout(cmd, secs).map_err(|e| {
-        if let Some(coded) = crate::safety::io_budget_error(&e) {
-            return coded;
-        }
-        if e.kind() == std::io::ErrorKind::TimedOut {
-            return anyhow!(
-                "`{bin} {}` did not finish within {secs}s and was stopped",
-                args.join(" ")
-            );
-        }
-        anyhow!(
-            "IronVault CLI '{bin}' could not be run: {e}. \
-             Install it with `cargo install ironvault`, or set IRONVAULT_BIN \
-             to its path."
-        )
-    })?;
+    let out = crate::safety::output_with_timeout(cmd, secs)
+        .map_err(|e| crate::safety::spawn_error("iv", &bin, &e))?;
 
     if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(anyhow!(
-            "`{bin} {}` failed: {}",
-            args.join(" "),
-            if stderr.trim().is_empty() {
-                "no error output".to_string()
-            } else {
-                stderr.trim().to_string()
-            }
+        // A nonzero exit is a coded tool failure carrying the vault's stderr,
+        // so the passphrase and not-installed cases stay distinguishable.
+        return Err(crate::safety::tool_failed(
+            "iv",
+            &format!("{bin} {}", args.join(" ")),
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
         ));
     }
 

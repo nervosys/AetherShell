@@ -1188,13 +1188,167 @@ pub static SIGNATURES: &[Signature] = &[
         name: "ai_backends",
         category: Some("AI"),
         subject_required: false,
-        aliases: &[],
+        aliases: &["ai-backends"],
         subject: None,
         params: &[],
         returns: "Array",
         doc: "Probe the local and configured model endpoints (IronGate, Ollama, vLLM, llama.cpp, TGI, OpenAI, LM Studio) and list each reachable one as {name, provider, endpoint, available, models}. Only reachable backends are listed. This is a network operation: the call is gated as Network, and each endpoint probe that connects is charged to AETHER_MAX_NET as its own request before it opens a socket (OpenAI is checked for a key only and makes no request). A probe the budget or policy refuses stops the sweep with that coded refusal rather than an empty list. Takes no arguments.",
         examples: &[
             (r#"(try { ai_backends(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { "x" | ai_backends() } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_add_route", category: Some("AI"), subject_required: false, aliases: &["ai-add-route"],
+        subject: None, params: &[req("config", Ty::Record, "routing rule: {name, condition, priority?, target?, allow_fallback?}")], returns: "String",
+        doc: "Add a routing rule to the provider registry. The record takes name and condition (always, has_tools, has_vision, model:<pattern>, or tokens_over:<N>), with optional priority (an integer, default 50), target (a provider name; a rule with no target is listed and skipped by routing) and allow_fallback (a boolean, default true). Keys outside those, values of the wrong type and unknown conditions are refused before the registry changes. No provider is contacted.",
+        examples: &[
+            (r#"(try { ai_add_route("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai_add_route({name: "r", condition: "bogus"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_convert_model", category: Some("AI"), subject_required: false, aliases: &["ai-convert-model"],
+        subject: None, params: &[req("config", Ty::Record, "model conversion: {name, to_format, quantization?, output?, validate?}")], returns: "Record",
+        doc: "Convert a model stored in IronVault to another format, by delegating to vault_convert. The legacy source/target path form is refused, because IronVault addresses models by vault name: add a loose file to the vault first. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { ai_convert_model("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai_convert_model({source: "a.gguf", target: "b.safetensors"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_detect", category: Some("AI"), subject_required: false, aliases: &["ai-detect"],
+        subject: None, params: &[], returns: "String",
+        doc: "Probe the local and configured backends and return the first available model URI (for example ollama:llama3), or an empty string when none is reachable. A probe the budget or policy refuses is an error, not an empty answer. This is a network operation: each probe that connects is charged to AETHER_MAX_NET. Takes no arguments and no pipeline input.",
+        examples: &[
+            (r#"(try { ai_detect(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { "x" | ai_detect() } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_gateway", category: Some("AI"), subject_required: false, aliases: &["ai-gateway", "irongate"],
+        subject: None, params: &[], returns: "Record",
+        doc: "Report IronGate, the routing gateway: its url, default model, whether it is reachable, its providers and models, and per-target circuit state. An unreachable gateway is an answer, reported as reachable false with the reason in error. Takes no arguments and no pipeline input.",
+        examples: &[
+            (r#"(try { ai_gateway(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { "x" | ai_gateway() } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_gpu_memory", category: Some("AI"), subject_required: false, aliases: &["ai-gpu-memory"],
+        subject: None, params: &[], returns: "Record",
+        doc: "Report each NVIDIA GPU's total, used and free memory from nvidia-smi. A missing nvidia-smi is E_TOOL_MISSING and a failed or unreadable query is E_TOOL_FAILED; neither is reported as an empty GPU list. Takes no arguments and no pipeline input.",
+        examples: &[
+            (r#"(try { ai_gpu_memory(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { "x" | ai_gpu_memory() } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_local_embed", category: Some("AI"), subject_required: false, aliases: &["ai-local-embed"],
+        subject: None, params: &[req("handle", Ty::Str, "local model handle such as candle:embed-model"), req("inputs", Ty::Sequence, "one string, or an array of strings")], returns: "Record",
+        doc: "Embed one or more strings with a loaded local model, returning embeddings and total_tokens. Each input must be a string and an empty array is refused. Only handles served by a compiled-in backend are answered; a handle no backend serves is E_NOT_FOUND. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { ai_local_embed(1, "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai_local_embed("candle:x", [1]) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_local_generate", category: Some("AI"), subject_required: false, aliases: &["ai-local-generate"],
+        subject: None, params: &[req("handle", Ty::Str, "model handle, such as candle:llama or a model name for IronGate"), req("prompt", Ty::Str, "prompt text"), opt("params", Ty::Record, "optional {max_tokens?, temperature?, top_p?, repetition_penalty?, seed?}")], returns: "Record",
+        doc: "Generate text with a loaded local model, or through IronGate when no in-process backend serves the handle. params may set max_tokens (1 or more), temperature (0 or more), top_p (0 to 1), repetition_penalty (above 0) and seed (0 or more); other keys and wrong types are refused. The reply names the backend that answered. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { ai_local_generate(1, "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai_local_generate("candle:x", "hi", {max_tokens: 0}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_local_load", category: Some("AI"), subject_required: false, aliases: &["ai-local-load"],
+        subject: None, params: &[req("path", Ty::Str, "model file path; its extension selects a compiled-in backend")], returns: "Record",
+        doc: "Load a model file into a compiled-in inference backend, returning its handle, backend name and estimated memory in MB. When the backend cannot estimate the memory, estimated_memory_mb is null and estimate_error says why. A format no compiled-in backend supports is E_UNIMPLEMENTED. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { ai_local_load(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai_local_load() } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_local_unload", category: Some("AI"), subject_required: false, aliases: &["ai-local-unload"],
+        subject: None, params: &[req("handle", Ty::Str, "a handle returned by ai_local_load")], returns: "String",
+        doc: "Unload a model loaded with ai_local_load. A handle no backend serves is E_NOT_FOUND. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { ai_local_unload(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai_local_unload() } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_model_fits", category: Some("AI"), subject_required: false, aliases: &["ai-model-fits"],
+        subject: None, params: &[req("config", Ty::Record, "{params_b (billions, above 0) or file_size_mb (1 or more), quantization?}")], returns: "Record",
+        doc: "Estimate a model's GPU memory need and compare it with each NVIDIA GPU's free memory from nvidia-smi. Give exactly one of params_b or file_size_mb: a record with neither, with both, or with an unknown key is refused, because a fit with no size is not an answer. A missing nvidia-smi is E_TOOL_MISSING. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { ai_model_fits(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai_model_fits({}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_reset_usage", category: Some("AI"), subject_required: false, aliases: &["ai-reset-usage"],
+        subject: None, params: &[], returns: "String",
+        doc: "Reset the session's AI usage and cost counters. Takes no arguments and no pipeline input.",
+        examples: &[
+            (r#"(try { ai_reset_usage(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { "x" | ai_reset_usage() } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_set_default", category: Some("AI"), subject_required: false, aliases: &["ai-set-default"],
+        subject: None, params: &[req("provider", Ty::Str, "provider name such as openai, anthropic or ollama")], returns: "String",
+        doc: "Make a provider the registry's default, registering it from the environment first if needed. An unknown provider name is E_BAD_ARG and changes nothing. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { ai_set_default(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai_set_default("no-such-provider") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_set_load_balancing", category: Some("AI"), subject_required: false, aliases: &["ai-set-load-balancing"],
+        subject: None, params: &[req("strategy", Ty::Any, "a strategy name, or {type: \"weighted\", weights: {provider: weight}}")], returns: "String",
+        doc: "Set the provider load-balancing strategy: none, round_robin, least_latency, least_requests or adaptive, or a weighted record whose weights are non-negative integers keyed by provider name. Unknown strategies, record keys, providers and weights are refused, and nothing changes. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { ai_set_load_balancing("bogus") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai_set_load_balancing({type: "weighted"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "ai_supported_conversions", category: Some("AI"), subject_required: false, aliases: &["ai-supported-conversions"],
+        subject: None, params: &[], returns: "Array | String",
+        doc: "List the model format conversions IronVault supports, as the vault reports them. Takes no arguments and no pipeline input.",
+        examples: &[
+            (r#"(try { ai_supported_conversions(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { "x" | ai_supported_conversions() } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "vault_conversions", category: None, subject_required: false, aliases: &["vault-conversions"],
+        subject: None, params: &[], returns: "Array | String",
+        doc: "List the format conversions IronVault supports (iv list-conversions). Takes no arguments and no pipeline input.",
+        examples: &[
+            (r#"(try { vault_conversions(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { "x" | vault_conversions() } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "vault_convert", category: None, subject_required: false, aliases: &["vault-convert"],
+        subject: None, params: &[req("config", Ty::Record, "{name, to_format, quantization?, output?, validate?}")], returns: "Record",
+        doc: "Convert a model stored in IronVault with iv convert. name and to_format are required; quantization and output are strings and validate is a boolean. Unknown keys, wrong types and values beginning with '-' are refused before iv runs. A failed iv run is E_TOOL_FAILED carrying its stderr. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { vault_convert("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { vault_convert({name: "m"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "vault_models", category: None, subject_required: false, aliases: &["vault-models"],
+        subject: None, params: &[], returns: "Array",
+        doc: "List the models IronVault stores (iv list --format json). The encrypted inventory needs IRONVAULT_PASSPHRASE, and the vault reports its own failure. Takes no arguments and no pipeline input.",
+        examples: &[
+            (r#"(try { vault_models(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { "x" | vault_models() } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
