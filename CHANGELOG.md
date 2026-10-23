@@ -71,6 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `E_CRYPTO_FAILED` (exit 70) and `E_FIPS_DISALLOWED` (exit 77) replace errors
   that named a code only in their prose. An external tool stopped at its
   deadline is `E_BUDGET_EXCEEDED`, no longer reported as a failure to start.
+- **Agent mode does not read the clipboard.** `clipboard_get`,
+  `clipboard_get_image` and `clipboard_history` are `E_POLICY_DENY`, with
+  nothing read, unless `AETHER_SECRETS=allow` or `AETHER_POLICY=permissive`: a
+  copied password has no shape for redaction to catch. `clipboard_types` is
+  not gated.
 
 ### Added (platform backends)
 
@@ -85,6 +90,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On Linux with no display, `clipboard_get` and `clipboard_set` ran xclip
+  anyway and failed as `E_TOOL_FAILED`. They are now `E_NO_UI` before any tool
+  runs, or `E_UNIMPLEMENTED` under Wayland with no X display.
 - `glob` matched `*.rs` against any name containing `.rs` (`main.rsx`,
   `x.rs.bak`), ignored `**`, returned directory order, and answered `[]` for a
   directory that does not exist. It is now anchored, recursive on `**`, sorted,

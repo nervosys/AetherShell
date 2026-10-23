@@ -14,7 +14,7 @@ have their own milestones; this checklist governs the current release.
 | Signature migration | All 1,318 dispatch names declared (2026-10-20, BUILTIN_LOOKUP at run time) | Desktop paths of gui_* and clipboard_* unverified; final-tree validation |
 | Latest targeted validation | Linux system-administration backends: 19 system-changing tests passed as root in the disposable distro; Windows and Linux each passed 16 suites, Clippy and (Windows) the Rust 1.88 check; prior 286-test filesystem-watch checkpoint retained | Validate the complete final tree |
 | Latest Windows workspace checkpoint | 2,653 passed across 186 suites; four ignored | Rerun after all remaining changes |
-| Process runners, stdin deadlocks and pipeline input | Fixed in commits 2a0d298 to 4d7756d (bounded runs kill the process tree; three stdin deadlocks fixed; pipeline stages get only their own input). Each commit's tests and the suites it touches passed on Windows and Linux, Clippy clean on both; write_evidence fails on wget_download pending a decision | Validate on the final tree; open runner items in section 3 |
+| Process runners, stdin deadlocks and pipeline input | Fixed in commits 2a0d298 to 4d7756d (bounded runs kill the process tree; three stdin deadlocks fixed; pipeline stages get only their own input). Each commit's tests and the suites it touches passed on Windows and Linux, Clippy clean on both | Validate on the final tree; open runner items in section 3 |
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
 | Package versions | Root and LSP remain 12.0.2 | Update the release metadata together |
@@ -131,7 +131,7 @@ and malformed-call regressions pass without broad skip lists masking failures.
 - [ ] Verify bounded reads, allocations, edit batches, output sizes and time limits for the remaining contracts.
 - [x] Give every remaining subprocess runner a deadline, a process-tree kill and an output cap. Done: container_cli, run_tool, pkg_admin exec, the taskkill calls and manifest probes (b85e803); every `.output()` in builtins.rs (8c4738c, 188374b, b7822db), held by a ratchet in tests/probe_deadline_contracts.rs. web_curl runs through run_tree with a 45 s kill limit behind curl's own 30 s --max-time. Left unbounded on purpose: the seven gui dialog builtins and read_terminal_password, which wait for a person.
 - [x] Replace the lossy UTF-8 conversion of legacy CBC decrypt plaintext (`from_utf8_lossy`) with a coded refusal. Being fixed by another agent; the coordinator updates this item. Done in b85e803: non-UTF-8 plaintext is a coded E_DECRYPT_FAILED refusal.
-- [ ] Decide the wget_download classification: tests/write_evidence.rs fails because wget_download is Network-labelled and writes its download through guard_local_write. Choose between an ALLOWED entry and reclassifying it WriteLocal.
+- [x] Decide the wget_download classification. It stays Network (transactions must refuse it: traffic cannot be rolled back). It is self-guarded and calls guard_network on the URL and guard_local_write on the output path before curl runs. Its one write marker was deleting the partial download after a failure; that now goes through remove_partial, the helper the other tool runners use for a path checked absent before the run, so tests/write_evidence.rs passes with its allowlist still at four.
 - [ ] Verify atomic publication, owned temporary-file cleanup, preflight refusal without mutation, and transaction rollback for supported filesystem changes.
 - [ ] Recheck agent policy enforcement, effect provenance, aliases, audit protection and network restrictions after the catalogue is fully migrated.
 
@@ -221,6 +221,13 @@ inputs are supported-platform/hardware access, an authorized model credential
 for E7, credentials for selected publication channels, and final release approval.
 There is no completion-date commitment until these dependencies and the remaining
 migration effort are resolved.
+
+### Scope decisions, 2026-10-22
+
+- **wget_download** stays Network; its partial-file cleanup goes through remove_partial (see section 3).
+- **Clipboard reads in agent mode** are E_POLICY_DENY, nothing read, unless AETHER_SECRETS=allow or AETHER_POLICY=permissive: clipboard_get, clipboard_get_image and clipboard_history. A clipboard often holds a password, which shape redaction cannot recognise. clipboard_types reads no contents and is not gated. Tested in tests/clipboard_agent_gate.rs.
+- **A corrupt bzip2, xz or zstd file** answers `false` from archive_test, as a corrupt zip, tar or gz does; it is not E_TOOL_FAILED. The builtin asks whether the archive is intact, and `false` is that answer; tool failures and refusals stay coded errors. No change was needed.
+- **No new crates for 13.0.0.** sxd-xpath would add four unmaintained packages and parses XML only, while web pages are HTML, so web_xpath stays E_UNIMPLEMENTED. arboard and xcap would only add Windows clipboard-image and window-capture backends, which cannot be verified on the available Windows host without touching a real desktop. cbc and an X.509 parser are not needed: legacy decryption and certificate inspection run through openssl on every OS.
 
 ## Source-function implementation audit candidates
 

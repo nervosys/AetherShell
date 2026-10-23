@@ -36520,8 +36520,9 @@ fn bi_web_json_path(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_web_xpath(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // Refused before anything runs. This is a stub: querying XPath needs an XML
-    // dependency, and that decision has not been made.
+    // Refused before anything runs. XPath needs an XML parser, and none is
+    // added for 13.0.0: the candidates are unmaintained and parse XML only,
+    // while the pages web builtins fetch are HTML.
     web_no_input("web_xpath", &input)?;
     Err(crate::safety::unimplemented(
         "web_xpath",
@@ -36557,6 +36558,25 @@ fn strip_html_tags(html: &str) -> String {
 #[cfg(target_os = "linux")]
 fn display_env_set(var: &str) -> bool {
     std::env::var_os(var).is_some_and(|v| !v.is_empty())
+}
+
+/// The text clipboard builtins run xclip or xsel, which need an X display.
+/// With none it is E_NO_UI; under Wayland with no XWayland display they
+/// cannot reach the clipboard at all. Checked before any tool runs: xclip
+/// with no display failed as E_TOOL_FAILED.
+#[cfg(target_os = "linux")]
+fn linux_x11_clipboard_display(name: &str) -> Result<()> {
+    if display_env_set("DISPLAY") {
+        return Ok(());
+    }
+    if display_env_set("WAYLAND_DISPLAY") {
+        return Err(crate::safety::unimplemented(
+            name,
+            "the text clipboard is reached through X11 (xclip or xsel), and this Wayland session has no X display; NOTHING WAS DONE",
+            "run with XWayland so DISPLAY is set",
+        ));
+    }
+    Err(crate::safety::no_ui(name))
 }
 
 /// One clipboard tool run for the Linux clipboard builtins. `Ok(None)` when the
@@ -36625,6 +36645,7 @@ fn clipboard_formats_of(listing: &[u8]) -> Value {
 fn bi_clipboard_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const NAME: &str = "clipboard_get";
     no_args_or_input(NAME, &args, &input)?;
+    crate::safety::clipboard_read_gate(NAME)?;
     #[cfg(target_os = "windows")]
     {
         let output = gui_powershell(NAME, "Get-Clipboard")?;
@@ -36657,6 +36678,7 @@ fn bi_clipboard_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
+        linux_x11_clipboard_display(NAME)?;
         // xclip reports an empty clipboard as "target not available": that is
         // the empty answer, not a failure.
         let read = |tool: &str, args: &[&str]| -> Result<Option<Vec<u8>>> {
@@ -36764,6 +36786,7 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
+        linux_x11_clipboard_display(NAME)?;
         // xclip first, xsel when xclip is not installed. A tool that is
         // installed and fails is an error, whichever it is.
         let (tool, mut child) = match std::process::Command::new("xclip")
@@ -39626,6 +39649,7 @@ fn linux_clipboard_offers(name: &str) -> Result<Vec<String>> {
 fn bi_clipboard_get_image(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const NAME: &str = "clipboard_get_image";
     no_args_or_input(NAME, &args, &input)?;
+    crate::safety::clipboard_read_gate(NAME)?;
     #[cfg(target_os = "linux")]
     {
         let offers = linux_clipboard_offers(NAME)?;
@@ -39822,6 +39846,7 @@ fn linux_clipboard_set_image(name: &str, mime: &str, bytes: Vec<u8>) -> Result<(
 fn bi_clipboard_history(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const NAME: &str = "clipboard_history";
     no_args_or_input(NAME, &args, &input)?;
+    crate::safety::clipboard_read_gate(NAME)?;
     #[cfg(target_os = "windows")]
     {
         let mut cmd = std::process::Command::new("powershell");
@@ -59280,7 +59305,7 @@ fn bi_wget_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     )
     .and_then(|run| finished("wget_download", run))
     {
-        let _ = std::fs::remove_file(&output);
+        remove_partial(&output);
         return Err(e);
     }
     let size = std::fs::metadata(&output)

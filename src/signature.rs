@@ -1465,7 +1465,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "web_xpath", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("html", Ty::Str, "XML or HTML text"), req("expression", Ty::Str, "XPath expression")], returns: "Any",
-        doc: "Evaluate an XPath expression against markup. NOT IMPLEMENTED: every call is refused with E_UNIMPLEMENTED before anything runs, pending a decision on an XML dependency. Use web_scrape for simple extraction.",
+        doc: "Evaluate an XPath expression against markup. NOT IMPLEMENTED: every call is refused with E_UNIMPLEMENTED before anything runs: 13.0.0 adds no XML parser. Use web_scrape for simple extraction.",
         examples: &[(r#"(try { web_xpath("<p>x</p>", "//p") } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
     },
     Signature {
@@ -13500,7 +13500,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "clipboard_get", category: None, subject_required: false, aliases: &["clipboard"], subject: None,
         params: &[],
         returns: "String",
-        doc: "The clipboard's text. Empty when it holds no text. Text over 8 MiB is E_BUDGET_EXCEEDED rather than cut short. The clipboard can hold passwords and other secrets, and this returns them to the caller. A failing tool is E_TOOL_FAILED; a missing one on Linux is E_TOOL_MISSING. Pipeline input and any argument are refused with E_BAD_ARG.",
+        doc: "The clipboard's text. Empty when it holds no text. Text over 8 MiB is E_BUDGET_EXCEEDED rather than cut short. The clipboard can hold passwords and other secrets, and this returns them to the caller. In agent mode it is E_POLICY_DENY, with nothing read, unless AETHER_SECRETS=allow or AETHER_POLICY=permissive is set. A failing tool is E_TOOL_FAILED; a missing one on Linux is E_TOOL_MISSING. Pipeline input and any argument are refused with E_BAD_ARG.",
         examples: &[(r#"(try { clipboard_get(1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { clipboard(1) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
@@ -13528,7 +13528,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "clipboard_get_image", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[],
         returns: "Record",
-        doc: "Read the image on the clipboard as {mime, bytes, base64}. Linux only: X11 through xclip, Wayland through wl-paste; PNG is preferred, then JPEG, GIF, BMP and WEBP. No image on the clipboard (including an empty clipboard) is E_NOT_FOUND, never Null. Over 32 MiB is E_BUDGET_EXCEEDED. No DISPLAY and no WAYLAND_DISPLAY is E_NO_UI; xclip or wl-paste absent is E_TOOL_MISSING (xsel cannot carry images). Windows and macOS refuse with E_UNIMPLEMENTED. Pipeline input and any argument are refused with E_BAD_ARG first.",
+        doc: "Read the image on the clipboard as {mime, bytes, base64}. Linux only: X11 through xclip, Wayland through wl-paste; PNG is preferred, then JPEG, GIF, BMP and WEBP. No image on the clipboard (including an empty clipboard) is E_NOT_FOUND, never Null. Over 32 MiB is E_BUDGET_EXCEEDED. No DISPLAY and no WAYLAND_DISPLAY is E_NO_UI; xclip or wl-paste absent is E_TOOL_MISSING (xsel cannot carry images). Windows and macOS refuse with E_UNIMPLEMENTED. In agent mode it is E_POLICY_DENY, with nothing read, unless AETHER_SECRETS=allow or AETHER_POLICY=permissive is set. Pipeline input and any argument are refused with E_BAD_ARG first.",
         examples: &[(r#"(try { clipboard_get_image(1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { 1 | clipboard_get_image() } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
@@ -13542,7 +13542,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "clipboard_history", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[],
         returns: "Array",
-        doc: "The text entries in the Windows clipboard history, newest first, up to ten. An empty Array when the history is empty or switched off. A failing query is E_TOOL_FAILED. Implemented on Windows only: elsewhere it is E_UNIMPLEMENTED. The history can hold secrets, and this returns them to the caller. Pipeline input and any argument are refused with E_BAD_ARG.",
+        doc: "The text entries in the Windows clipboard history, newest first, up to ten. An empty Array when the history is empty or switched off. A failing query is E_TOOL_FAILED. Implemented on Windows only: elsewhere it is E_UNIMPLEMENTED. The history can hold secrets, and this returns them to the caller. In agent mode it is E_POLICY_DENY, with nothing read, unless AETHER_SECRETS=allow or AETHER_POLICY=permissive is set. Pipeline input and any argument are refused with E_BAD_ARG.",
         examples: &[(r#"(try { clipboard_history(1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { 1 | clipboard_history() } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {

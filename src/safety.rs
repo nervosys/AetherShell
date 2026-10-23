@@ -4660,6 +4660,23 @@ pub fn env_secret_gated(name: &str) -> bool {
         && is_secret_name(name)
 }
 
+/// Refuse to read the clipboard's contents in agent mode unless the operator
+/// permits clear secret reads (`AETHER_SECRETS=allow`) or the policy is
+/// permissive. A clipboard often holds a password copied from a password
+/// manager, and a bare password has no shape for redaction to recognise.
+/// Listing the clipboard's types reads no contents and is not gated.
+pub fn clipboard_read_gate(builtin: &str) -> anyhow::Result<()> {
+    if current_mode() == Mode::Agent && !policy_permissive() && !secrets_permitted() {
+        return Err(policy_deny(
+            builtin,
+            "agent mode does not read the clipboard, which often holds a password \
+             that redaction cannot recognise; NOTHING WAS READ",
+            "set AETHER_SECRETS=allow to permit it, or pass the text as an argument",
+        ));
+    }
+    Ok(())
+}
+
 /// Redact known secret shapes from a string. Returns the scrubbed string and
 /// whether anything changed. Deterministic; each pass only ever *replaces* a
 /// secret with [`REDACTION_MARKER`], never inflates non-secret text.
