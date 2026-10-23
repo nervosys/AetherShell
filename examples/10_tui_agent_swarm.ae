@@ -21,7 +21,7 @@ if env("AETHER_AI") == null { exit(0) }
 // so none of it ran.
 let content_team = swarm({
   goal: "Create a comprehensive guide on functional programming",
-  tools: ["read_file", "write_file", "web_search"],
+  tools: ["ls", "cat", "grep"],
   max_steps: 15
 })
 
@@ -38,9 +38,9 @@ print(content_team)
 
 // Sequential alternative: one agent per step, each with its own goal.
 // (`agents_run_sync` was called here and has never existed.)
-let step1 = agent({goal: "Gather requirements", tools: ["read_file"], max_steps: 5})
-let step2 = agent({goal: "Design the solution", tools: ["read_file"], max_steps: 5})
-let step3 = agent({goal: "Review the design", tools: ["read_file"], max_steps: 3})
+let step1 = agent({goal: "Gather requirements", tools: ["cat"], max_steps: 5})
+let step2 = agent({goal: "Design the solution", tools: ["cat"], max_steps: 5})
+let step3 = agent({goal: "Review the design", tools: ["cat"], max_steps: 3})
 
 print(step1)
 print(step2)
