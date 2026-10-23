@@ -14,8 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multilib duplicates of the same version are kept once), and on macOS it reads
   `brew list --versions` (one row per installed formula version; casks are not
   listed). Both run as an argv with no shell, under the same deadline and output
-  cap as the apt and pacman readers. Parser unit tests cover the formats; neither
-  has yet been run against a real RPM or Homebrew host.
+  cap as the apt and pacman readers. Parser unit tests cover the formats. RPM
+  4.20.1 answered the exact rpm query in the shape the parser reads, with and
+  without an epoch. Neither reader has run end to end on a dnf/yum host, and brew
+  has not run at all.
 - **Further evaluator latency and throughput improvements**: module field
   access borrows its record, collection lambdas reuse parameter slots, and
   `reduce` moves its inputs and selects lambda arity before execution. Four
