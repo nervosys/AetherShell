@@ -71,11 +71,12 @@ Create an AI agent instance.
 ```python
 agent = rt.create_agent(
     name="reviewer",
-    model="openai:gpt-4o",
     tools=["cat", "grep", "git"],
     max_steps=15,
 )
 ```
+
+`model` must stay at the default `"openai:gpt-4o-mini"`. The agent builtin has no model option, so `run` raises `ValueError` for any other model. `max_steps` must be 1 to 1000.
 
 #### `rt.create_swarm(agents, policy, max_iterations) -> Swarm`
 
@@ -133,11 +134,13 @@ agent = Agent(
 
 #### `await agent.run(goal: str) -> AgentResult`
 
-Execute the agent with a goal string.
+Execute the agent with a goal string. The SDK sends the `agent` builtin the record form `agent({goal, tools, max_steps})`, with the goal escaped as an AetherShell string literal. `run` raises `ValueError`, before anything runs, for a non-default model, a `max_steps` outside 1 to 1000, or a goal containing `${`.
 
 ```python
 result = await agent.run("Find all Python files with TODO comments")
 ```
+
+The builtin returns its final answer as a String and reports no trace or step count. When `run` gets only that string, `result` holds it, `success` is `True`, `trace` is empty and `steps_taken` is 0.
 
 Returns:
 ```python
@@ -149,7 +152,7 @@ class AgentResult:
     steps_taken: int
 ```
 
-Model URI format: `provider:model_name`
+The model URI is recorded on the agent but the `agent` and `swarm` builtins take no model option, so `run` accepts only the default `openai:gpt-4o-mini` and raises `ValueError` for any other value. Model URI format: `provider:model_name`
 - `openai:gpt-4o`, `openai:gpt-4o-mini`
 - `ollama:llama3`, `ollama:codellama`
 - `anthropic:claude-3-sonnet`
@@ -349,7 +352,6 @@ async def main():
     rt = AetherRuntime()
     agent = rt.create_agent(
         name="analyst",
-        model="openai:gpt-4o",
         tools=["ls", "cat", "grep", "wc"],
     )
     result = await agent.run("Count lines of code in src/")

@@ -46,7 +46,6 @@ print(result)  # [2, 4, 6]
 # Create and run an agent
 agent = runtime.create_agent(
     name="researcher",
-    model="openai:gpt-4o",
     tools=["http_get", "search"]
 )
 
@@ -184,7 +183,7 @@ config = DeploymentConfig(
 # Generate deployment files
 agent_code = '''
 def create_agent(runtime):
-    return Agent(name="analyst", model="openai:gpt-4o", runtime=runtime)
+    return Agent(name="analyst", runtime=runtime)
 '''
 
 files = deploy_agent(config, agent_code, output_dir="./deploy")
@@ -248,9 +247,10 @@ result = await runtime.run_swarm(
 ### Agent
 
 ```python
-agent = Agent(name="agent1", model="openai:gpt-4o")
+agent = Agent(name="agent1")  # model must stay at the default openai:gpt-4o-mini
 
-# Run agent
+# Run agent (sent as agent({goal, tools, max_steps}); result.result is the
+# final answer, and trace and steps_taken are empty)
 result = await agent.run(goal: str) -> AgentResult
 
 # Get trace

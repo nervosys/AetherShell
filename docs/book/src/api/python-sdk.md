@@ -42,13 +42,12 @@ result = runtime.eval_file('script.ae')
 
 ```python
 agent = runtime.create_agent(
-    goal="Find large files in src/",
+    name="finder",
     tools=["ls", "cat", "grep"],
     max_steps=10,
-    model="openai:gpt-4o-mini"
 )
 result = await agent.run("Find all files over 10KB")
-print(result.output)
+print(result.result)  # the final answer; trace and steps_taken are empty
 ```
 
 ### Creating Swarms

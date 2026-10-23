@@ -116,22 +116,30 @@ class Agent:
         self.trace: List[Dict[str, Any]] = []
     
     async def run(self, goal: str) -> AgentResult:
-        """Execute the agent with a goal"""
+        """Execute the agent with a goal.
+
+        Raises ValueError, before anything runs, for a model other than the
+        default or a max_steps outside 1..=1000 (see `_build_agent_code`).
+        """
+        # Build the call first, so an unsupported option is refused without
+        # locating or starting the ae binary.
+        code = _build_agent_code(goal, self.model, self.tools, self.max_steps)
+
         if self._runtime is None:
             self._runtime = AetherRuntime()
-        
-        # Build AetherShell agent command
-        tools_str = ", ".join(f'"{t}"' for t in self.tools)
-        code = f'''agent("{self.model}", "{goal}", [{tools_str}], {self.max_steps})'''
-        
+
         result = self._runtime.eval(code)
-        
-        return AgentResult(
-            success=result.get("success", False),
-            result=result.get("result"),
-            trace=result.get("trace", []),
-            steps_taken=result.get("steps", 0),
-        )
+
+        if isinstance(result, dict):
+            return AgentResult(
+                success=result.get("success", False),
+                result=result.get("result"),
+                trace=result.get("trace", []),
+                steps_taken=result.get("steps", 0),
+            )
+        # The builtin returns its final answer as a String and reports no
+        # trace or step count. A returned value means the run did not fail.
+        return AgentResult(success=True, result=result, trace=[], steps_taken=0)
     
     def __repr__(self) -> str:
         return f"Agent(name={self.name!r}, model={self.model!r}, tools={self.tools})"
@@ -212,6 +220,36 @@ def _aethershell_string(value: str) -> str:
         .replace("\t", "\\t")
     )
     return f'"{escaped}"'
+
+
+def _check_steps(value: int, owner: str) -> int:
+    """Return value if it is a legal step count for the builtin, else raise ValueError."""
+    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= _SWARM_MAX_STEPS:
+        raise ValueError(
+            f"{owner} must be an int in 1..={_SWARM_MAX_STEPS} "
+            f"(the builtin's max_steps), got {value!r}"
+        )
+    return value
+
+
+def _build_agent_code(goal: str, model: str, tools: List[str], max_steps: int) -> str:
+    """Build the AetherShell call that runs one agent.
+
+    Produces the record form of the builtin, `agent({goal, tools, max_steps})`.
+    Raises ValueError for a model other than the default, since the builtin has
+    no model option, and for a max_steps outside 1..=1000.
+    """
+    if model != _DEFAULT_AGENT_MODEL:
+        raise ValueError(
+            f"Agent model {model!r} is not supported: the agent builtin has no model "
+            f"option; leave the model at {_DEFAULT_AGENT_MODEL!r}"
+        )
+    steps = _check_steps(max_steps, "max_steps")
+    tools_str = ", ".join(_aethershell_string(t) for t in tools)
+    return (
+        f"agent({{goal: {_aethershell_string(goal)}, tools: [{tools_str}], "
+        f"max_steps: {steps}}})"
+    )
 
 
 def _build_swarm_code(
