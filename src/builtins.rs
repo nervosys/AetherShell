@@ -33633,23 +33633,119 @@ $bitmap.Dispose()
     }
 }
 
+/// `gui_screenshot_window(title, path?)`: capture the window whose title is
+/// exactly `title` as a PNG at `path` (default `window_<seconds>.png`) and
+/// answer the path. The path is checked like any other write. Linux X11 only:
+/// xwininfo finds the window, ImageMagick's `import` captures it to stdout,
+/// and this shell writes the file itself, so `import` never interprets the
+/// path (it would run a name that begins with `|` as a command).
 fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const NAME: &str = "gui_screenshot_window";
     refuse_piped_input(NAME, &input)?;
-    gui_text(
+    let title = gui_text(
         NAME,
         "window title",
         gui_required(NAME, &args, 0, "a window title")?,
         GUI_FIELD_MAX_BYTES,
         false,
     )?;
-    // This promised the window with a given title. Capturing by title is not
-    // implemented on any OS, so nothing is captured and nothing is claimed.
-    Err(crate::safety::unimplemented(
-        NAME,
-        "capturing a window by title is not implemented; NOTHING WAS CAPTURED",
-        "gui_screenshot(path) captures the whole screen",
-    ))
+    if args.len() > 2 {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "at most two arguments: the window title and the PNG path",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    let path = match args.get(1) {
+        None => {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            format!("window_{ts}.png")
+        }
+        Some(v) => gui_text(NAME, "screenshot path", v, GUI_FIELD_MAX_BYTES, false)?,
+    };
+    #[cfg(target_os = "linux")]
+    {
+        if !display_env_set("DISPLAY") {
+            if display_env_set("WAYLAND_DISPLAY") {
+                return Err(crate::safety::unimplemented(
+                    NAME,
+                    "capturing one window is implemented for X11 only; under Wayland NOTHING WAS CAPTURED",
+                    "gui_screenshot(path) captures the whole screen",
+                ));
+            }
+            return Err(crate::safety::no_ui(NAME));
+        }
+        let path = guard_local_write(NAME, &path)?;
+        let mut find = std::process::Command::new("xwininfo");
+        find.args(["-name", &title]);
+        let found = bounded_cmd_output(NAME, "xwininfo", find, PROBE_DEADLINE_SECS)?;
+        let stdout = String::from_utf8_lossy(&found.stdout);
+        let stderr = String::from_utf8_lossy(&found.stderr);
+        if !found.status.success() {
+            if stderr.contains("No window with name") {
+                return Err(crate::safety::not_found(NAME, "window titled", &title));
+            }
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "xwininfo",
+                found.status.code(),
+                &gui_stderr_tail(&found),
+            ));
+        }
+        // "xwininfo: Window id: 0x20001d "title"": the id is the hex word
+        // after "Window id:".
+        let id = stdout
+            .lines()
+            .find_map(|l| l.split_once("Window id:").map(|(_, rest)| rest.trim()))
+            .and_then(|rest| rest.split_whitespace().next())
+            .filter(|id| {
+                id.strip_prefix("0x").is_some_and(|hex| {
+                    !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit())
+                })
+            })
+            .map(str::to_string)
+            .ok_or_else(|| {
+                crate::safety::tool_failed(
+                    NAME,
+                    "xwininfo",
+                    Some(0),
+                    "its output named no window id",
+                )
+            })?;
+        let mut capture = std::process::Command::new("import");
+        capture.args(["-window", &id, "png:-"]);
+        let shot = bounded_cmd_output(NAME, "import", capture, TOOL_DEADLINE_SECS)?;
+        if !shot.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "import",
+                shot.status.code(),
+                &gui_stderr_tail(&shot),
+            ));
+        }
+        if image_mime_of(&shot.stdout) != Some("image/png") {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "import",
+                Some(0),
+                "its output was not a PNG image",
+            ));
+        }
+        fs::write(&path, &shot.stdout).map_err(|e| crate::safety::fs_error(NAME, &path, &e))?;
+        Ok(Value::Str(path))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (title, path);
+        Err(crate::safety::unimplemented(
+            NAME,
+            "capturing a window by title is implemented on Linux (X11) only; NOTHING WAS CAPTURED",
+            "gui_screenshot(path) captures the whole screen",
+        ))
+    }
 }
 
 #[allow(unused_variables)]

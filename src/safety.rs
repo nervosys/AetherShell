@@ -4282,6 +4282,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "gpg_encrypt",
     "gui_ocr",
     "gui_screenshot",
+    "gui_screenshot_window",
     "gzip_compress",
     "gzip_decompress",
     "http_get",

@@ -284,7 +284,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_pkg_autoremove — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_pkg_history
 - [ ] bi_gui_screenshot
-- [ ] bi_gui_screenshot_window
+- [ ] bi_gui_screenshot_window — Linux X11 implemented (xwininfo + ImageMagick import); Windows/macOS open
 - [x] bi_gui_find_image
 - [x] bi_web_websocket — one bounded exchange through tungstenite (already built for axum): ws and wss, 8 MiB, 1000 messages, 120 s
 - [ ] bi_web_xpath

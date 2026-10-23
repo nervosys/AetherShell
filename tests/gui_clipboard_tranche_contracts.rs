@@ -158,7 +158,8 @@ fn wrong_typed_and_surplus_arguments_are_refused_before_any_tool_runs() {
         ("gui_screenshot", vec![s("")]),
         ("screenshot", vec![Value::Int(1)]),
         ("gui_screenshot_window", vec![Value::Int(1)]),
-        ("gui_screenshot_window", vec![s("a"), s("b")]),
+        ("gui_screenshot_window", vec![s("a"), Value::Int(2)]),
+        ("gui_screenshot_window", vec![s("a"), s("b.png"), s("c")]),
         ("gui_mouse_move", vec![s("a"), Value::Int(1)]),
         (
             "gui_mouse_move",
@@ -307,9 +308,10 @@ fn a_clipboard_set_with_neither_text_nor_a_string_is_refused() {
 }
 
 #[test]
-fn an_unimplemented_capture_still_checks_its_argument_first() {
-    // gui_screenshot_window and the clipboard image calls are unimplemented on
-    // every OS. Their argument is checked first, so a bad call says so.
+fn a_capture_checks_its_argument_before_anything_else() {
+    // gui_screenshot_window and the clipboard image calls are implemented on
+    // Linux only. Their argument is checked first on every OS, so a bad call
+    // says so.
     let msg = refusal("gui_screenshot_window", vec![Value::Int(1)], None);
     assert!(msg.contains("E_BAD_ARG"), "{msg}");
     let msg = refusal("clipboard_set_image", vec![Value::Int(1)], None);

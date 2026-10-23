@@ -13351,10 +13351,10 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "gui_screenshot_window", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("title", Ty::Str, "the window's exact title")],
+        params: &[req("title", Ty::Str, "the window's exact title"), opt("path", Ty::Str, "where the PNG is written; default window_<seconds>.png")],
         returns: "String",
-        doc: "Capture one window by its title. Not implemented on any OS: the call is refused with E_UNIMPLEMENTED after its arguments are checked, and nothing is captured. Use gui_screenshot for the whole screen.",
-        examples: &[(r#"(try { gui_screenshot_window(1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { gui_screenshot_window("a", "b") } catch e { e.error.code })"#, "E_BAD_ARG")],
+        doc: "Capture the window whose title is exactly `title` as a PNG and answer the path it was written to. The path is checked like any other write. Linux X11 only: xwininfo finds the window and ImageMagick's import captures it; this shell writes the file. No window with that title is E_NOT_FOUND; xwininfo or import absent is E_TOOL_MISSING; no DISPLAY is E_NO_UI, and Wayland is E_UNIMPLEMENTED. Windows and macOS refuse with E_UNIMPLEMENTED after the arguments are checked. Use gui_screenshot for the whole screen.",
+        examples: &[(r#"(try { gui_screenshot_window(1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { gui_screenshot_window("a", 2) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { gui_screenshot_window("a", "b.png", "c") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
         name: "gui_mouse_move", category: None, subject_required: false, aliases: &[], subject: None,
