@@ -28,7 +28,6 @@ use crate::{
         check_file_size_limit, check_rate_limit, validate_ai_prompt, validate_hostname_or_ip,
         validate_http_url, validate_read_path, validate_sh_allowed,
     },
-    shell_features::{Parameter, ParameterSet, ParameterType, PipelineInputType},
     value::{Lambda, Value},
 };
 use std::time::Duration;
@@ -8704,292 +8703,177 @@ fn value_to_string(value: &Value) -> String {
 // =============== PowerShell-style Parameter Binding ===============
 
 /// PowerShell-style parameter binding result
-#[derive(Debug)]
-pub struct BoundParameters {
-    pub named: BTreeMap<String, Value>,
-    pub positional: Vec<Value>,
-    pub pipeline_input: Option<Value>,
-}
-
-/// Bind parameters according to PowerShell conventions
-fn bind_parameters(
-    parameter_set: &ParameterSet,
-    args: Vec<Value>,
-    input: Option<Value>,
-) -> Result<BoundParameters> {
-    let mut bound = BoundParameters {
-        named: BTreeMap::new(),
-        positional: Vec::new(),
-        pipeline_input: input,
-    };
-
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
-
-        // Check if this is a named parameter (starts with -)
-        if let Value::Str(s) = arg {
-            if s.starts_with('-') {
-                let param_name = s.trim_start_matches('-');
-
-                // Find matching parameter definition
-                if let Some(param) = parameter_set
-                    .parameters
-                    .iter()
-                    .find(|p| p.name == param_name || p.aliases.contains(&param_name.to_string()))
-                {
-                    match param.parameter_type {
-                        ParameterType::Switch => {
-                            // Switch parameters don't take values
-                            bound.named.insert(param.name.clone(), Value::Bool(true));
-                            i += 1;
-                        }
-                        _ => {
-                            // Other parameters take the next argument as value
-                            if i + 1 < args.len() {
-                                let value =
-                                    validate_parameter_type(&args[i + 1], &param.parameter_type)?;
-                                bound.named.insert(param.name.clone(), value);
-                                i += 2;
-                            } else {
-                                return Err(crate::safety::arg_err(format!(
-                                    "Parameter '{}' requires a value",
-                                    param.name
-                                )));
-                            }
-                        }
-                    }
-                } else {
-                    return Err(anyhow!("Unknown parameter: {}", param_name));
-                }
-            } else {
-                // Positional parameter
-                bound.positional.push(arg.clone());
-                i += 1;
-            }
-        } else {
-            // Positional parameter
-            bound.positional.push(arg.clone());
-            i += 1;
-        }
-    }
-
-    // Validate required parameters
-    for param in &parameter_set.parameters {
-        if param.required && !bound.named.contains_key(&param.name) {
-            // Check if it's satisfied by positional parameter
-            if let Some(pos) = param.position {
-                if (pos as usize) >= bound.positional.len() {
-                    return Err(anyhow!("Required parameter '{}' not provided", param.name));
-                }
-            } else {
-                return Err(anyhow!("Required parameter '{}' not provided", param.name));
-            }
-        }
-    }
-
-    Ok(bound)
-}
-
-/// Validate that a value matches the expected parameter type
-fn validate_parameter_type(value: &Value, param_type: &ParameterType) -> Result<Value> {
-    match (value, param_type) {
-        (Value::Str(_), ParameterType::String) => Ok(value.clone()),
-        (Value::Int(_), ParameterType::Int) => Ok(value.clone()),
-        (Value::Float(_), ParameterType::Float) => Ok(value.clone()),
-        (Value::Bool(_), ParameterType::Bool) => Ok(value.clone()),
-        (Value::Array(_), ParameterType::Array) => Ok(value.clone()),
-        (Value::Record(_), ParameterType::Record) => Ok(value.clone()),
-
-        // Type coercion
-        (Value::Str(s), ParameterType::Int) => s
-            .parse::<i64>()
-            .map(Value::Int)
-            .map_err(|_| anyhow!("Cannot convert '{}' to integer", s)),
-        (Value::Str(s), ParameterType::Float) => s
-            .parse::<f64>()
-            .map(Value::Float)
-            .map_err(|_| anyhow!("Cannot convert '{}' to float", s)),
-        (Value::Str(s), ParameterType::Bool) => match s.to_lowercase().as_str() {
-            "true" | "yes" | "1" => Ok(Value::Bool(true)),
-            "false" | "no" | "0" => Ok(Value::Bool(false)),
-            _ => Err(anyhow!("Cannot convert '{}' to boolean", s)),
-        },
-        (Value::Int(i), ParameterType::Float) => Ok(Value::Float(*i as f64)),
-
-        _ => Err(anyhow!(
-            "Parameter type mismatch: expected {:?}, got {:?}",
-            param_type,
-            value
-        )),
-    }
-}
-
 // =============== PowerShell-style Cmdlets ===============
 
-/// Get-Files: PowerShell-style file listing with rich metadata and proper parameter binding
+/// Get-Files: PowerShell-style file listing.
+///
+/// Grammar: at most one path, given positionally or as -Path / -p; -Recurse /
+/// -r; and -Filter / -f with a substring of the name. The path comes from the
+/// pipe or from the arguments, never both. Anything outside that grammar is
+/// refused before the filesystem is read.
 fn bi_get_files(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // Define parameter set
-    let parameter_set = ParameterSet {
-        name: "Get-Files".to_string(),
-        parameters: vec![
-            Parameter {
-                name: "Path".to_string(),
-                aliases: vec!["p".to_string()],
-                parameter_type: ParameterType::String,
-                required: false,
-                position: Some(0),
-                help_text: "The path to list files from".to_string(),
-            },
-            Parameter {
-                name: "Recurse".to_string(),
-                aliases: vec!["r".to_string()],
-                parameter_type: ParameterType::Switch,
-                required: false,
-                position: None,
-                help_text: "Recursively list files in subdirectories".to_string(),
-            },
-            Parameter {
-                name: "Filter".to_string(),
-                aliases: vec!["f".to_string()],
-                parameter_type: ParameterType::String,
-                required: false,
-                position: None,
-                help_text: "Filter files by pattern".to_string(),
-            },
-        ],
-        pipeline_input: Some(PipelineInputType::ByValue(ParameterType::String)),
-    };
-
-    // Bind parameters
-    let bound = bind_parameters(&parameter_set, args, input)?;
-
-    // Extract parameters
-    let path = if let Some(pipeline_path) = &bound.pipeline_input {
-        match pipeline_path {
-            Value::Str(s) => s.clone(),
+    const NAME: &str = "Get-Files";
+    let mut path_arg: Option<String> = None;
+    let mut recurse = false;
+    let mut filter: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        let Value::Str(token) = &args[i] else {
+            return Err(crate::safety::arg_err(format!(
+                "{NAME}: arguments must be strings, got {}",
+                args[i].type_name()
+            )));
+        };
+        match token.as_str() {
+            "-Recurse" | "-r" => {
+                recurse = true;
+                i += 1;
+            }
+            "-Path" | "-p" | "-Filter" | "-f" => {
+                let Some(Value::Str(value)) = args.get(i + 1) else {
+                    return Err(crate::safety::arg_err(format!(
+                        "{NAME}: {token} needs a string value"
+                    )));
+                };
+                let slot = if matches!(token.as_str(), "-Path" | "-p") {
+                    &mut path_arg
+                } else {
+                    &mut filter
+                };
+                if slot.is_some() {
+                    return Err(crate::safety::arg_err(format!(
+                        "{NAME}: {token} is given more than once"
+                    )));
+                }
+                *slot = Some(value.clone());
+                i += 2;
+            }
+            other if other.starts_with('-') => {
+                return Err(crate::safety::arg_err(format!(
+                    "{NAME}: unknown parameter {other}"
+                )));
+            }
             _ => {
-                return Err(crate::safety::arg_err(
-                    "Get-Files: pipeline input must be a path string",
-                ))
+                if path_arg.is_some() {
+                    return Err(crate::safety::arg_err(format!(
+                        "{NAME}: the path is given more than once"
+                    )));
+                }
+                path_arg = Some(token.clone());
+                i += 1;
             }
         }
-    } else if let Some(path_arg) = bound.named.get("Path") {
-        match path_arg {
-            Value::Str(s) => s.clone(),
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "Get-Files: Path parameter must be a string",
-                ))
-            }
-        }
-    } else if !bound.positional.is_empty() {
-        match &bound.positional[0] {
-            Value::Str(s) => s.clone(),
-            _ => return Err(crate::safety::arg_err("Get-Files: path must be a string")),
-        }
-    } else {
-        ".".to_string()
-    };
+    }
 
-    let recurse = bound.named.get("Recurse").is_some();
-    let filter = bound.named.get("Filter").and_then(|v| {
-        if let Value::Str(s) = v {
-            Some(s.clone())
-        } else {
-            None
+    let path = match (input, path_arg) {
+        (None, None) => ".".to_string(),
+        (None, Some(path)) => path,
+        (Some(Value::Str(piped)), None) => piped,
+        (Some(other), None) => {
+            return Err(crate::safety::arg_err(format!(
+                "{NAME}: pipeline input must be a path string, got {}",
+                other.type_name()
+            )))
         }
-    });
+        (Some(_), Some(_)) => {
+            return Err(crate::safety::arg_err(format!(
+                "{NAME}: the path is both piped and given as an argument; give it once"
+            )))
+        }
+    };
 
     let mut files = Vec::new();
-
     if recurse {
-        // Recursive directory traversal
-        for entry in WalkDir::new(&path).into_iter().filter_map(|e| e.ok()) {
-            if let Ok(metadata) = entry.metadata() {
-                let path_str = entry.path().to_string_lossy().to_string();
-                let name = entry.file_name().to_string_lossy().to_string();
-
-                // Apply filter if specified
-                if let Some(ref pattern) = filter {
-                    if !name.contains(pattern) {
-                        continue;
-                    }
-                }
-
-                let mut file_obj = BTreeMap::new();
-                file_obj.insert("Name".to_string(), Value::Str(name));
-                file_obj.insert("FullName".to_string(), Value::Str(path_str));
-                file_obj.insert("IsDirectory".to_string(), Value::Bool(metadata.is_dir()));
-                file_obj.insert("Length".to_string(), Value::Int(metadata.len() as i64));
-
-                if let Ok(modified) = metadata.modified() {
-                    if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                        file_obj.insert(
-                            "LastWriteTime".to_string(),
-                            Value::Int(duration.as_secs() as i64),
-                        );
-                    }
-                }
-
-                files.push(Value::Record(file_obj));
+        for entry in WalkDir::new(&path).min_depth(1) {
+            let entry = entry.map_err(|e| walk_failure(&path, e))?;
+            let metadata = entry.metadata().map_err(|e| walk_failure(&path, e))?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if filter.as_ref().is_some_and(|p| !name.contains(p.as_str())) {
+                continue;
             }
+            let full = entry.path().to_string_lossy().to_string();
+            files.push(file_record(name, full, &metadata));
         }
     } else {
-        // Non-recursive directory listing
-        for entry in fs::read_dir(&path)? {
-            let entry = entry?;
-            let metadata = entry.metadata()?;
-            let path_str = entry.path().to_string_lossy().to_string();
+        let listing =
+            fs::read_dir(&path).map_err(|e| crate::safety::fs_error("get_files", &path, &e))?;
+        for entry in listing {
+            let entry = entry.map_err(|e| crate::safety::fs_error("get_files", &path, &e))?;
+            let metadata = entry
+                .metadata()
+                .map_err(|e| crate::safety::fs_error("get_files", entry.path(), &e))?;
             let name = entry.file_name().to_string_lossy().to_string();
-
-            // Apply filter if specified
-            if let Some(ref pattern) = filter {
-                if !name.contains(pattern) {
-                    continue;
-                }
+            if filter.as_ref().is_some_and(|p| !name.contains(p.as_str())) {
+                continue;
             }
-
-            let mut file_obj = BTreeMap::new();
-            file_obj.insert("Name".to_string(), Value::Str(name));
-            file_obj.insert("FullName".to_string(), Value::Str(path_str));
-            file_obj.insert("IsDirectory".to_string(), Value::Bool(metadata.is_dir()));
-            file_obj.insert("Length".to_string(), Value::Int(metadata.len() as i64));
-
-            if let Ok(modified) = metadata.modified() {
-                if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                    file_obj.insert(
-                        "LastWriteTime".to_string(),
-                        Value::Int(duration.as_secs() as i64),
-                    );
-                }
-            }
-
-            files.push(Value::Record(file_obj));
+            let full = entry.path().to_string_lossy().to_string();
+            files.push(file_record(name, full, &metadata));
         }
     }
 
     Ok(Value::Array(files))
 }
 
-/// Get-Content: PowerShell-style file content reading
+fn file_record(name: String, full_name: String, metadata: &fs::Metadata) -> Value {
+    let mut file_obj = BTreeMap::new();
+    file_obj.insert("Name".to_string(), Value::Str(name));
+    file_obj.insert("FullName".to_string(), Value::Str(full_name));
+    file_obj.insert("IsDirectory".to_string(), Value::Bool(metadata.is_dir()));
+    file_obj.insert("Length".to_string(), Value::Int(metadata.len() as i64));
+    if let Ok(modified) = metadata.modified() {
+        if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+            file_obj.insert(
+                "LastWriteTime".to_string(),
+                Value::Int(duration.as_secs() as i64),
+            );
+        }
+    }
+    Value::Record(file_obj)
+}
+
+/// A walk that cannot read an entry is a failure, not a shorter listing.
+fn walk_failure(path: &str, e: walkdir::Error) -> anyhow::Error {
+    match e.io_error() {
+        Some(io) => crate::safety::fs_error("get_files", path, io),
+        None => crate::safety::bad_state(
+            "Get-Files",
+            &format!("{path}: {e}"),
+            "a tree without symbolic-link loops",
+        ),
+    }
+}
+
+/// Get-Content: PowerShell-style file content reading, one element per line.
+///
+/// The path comes from the pipe or from a single argument, never both.
 fn bi_get_content(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    let path = if let Some(input) = input {
-        match input {
-            Value::Str(s) => s,
-            _ => {
-                return Err(crate::safety::arg_err(
-                    "Get-Content: input must be a path string",
-                ))
-            }
+    const NAME: &str = "Get-Content";
+    if args.len() > 1 {
+        return Err(crate::safety::arg_err(format!(
+            "{NAME}: takes one path, got {} arguments",
+            args.len()
+        )));
+    }
+    let path = match (input, args.into_iter().next()) {
+        (None, None) => return Err(crate::safety::arg_err(format!("{NAME}: no path provided"))),
+        (None, Some(Value::Str(path))) | (Some(Value::Str(path)), None) => path,
+        (None, Some(other)) => {
+            return Err(crate::safety::arg_err(format!(
+                "{NAME}: path must be a string, got {}",
+                other.type_name()
+            )))
         }
-    } else if !args.is_empty() {
-        match &args[0] {
-            Value::Str(s) => s.clone(),
-            _ => return Err(crate::safety::arg_err("Get-Content: path must be a string")),
+        (Some(other), None) => {
+            return Err(crate::safety::arg_err(format!(
+                "{NAME}: pipeline input must be a path string, got {}",
+                other.type_name()
+            )))
         }
-    } else {
-        return Err(anyhow!("Get-Content: no path provided"));
+        (Some(_), Some(_)) => {
+            return Err(crate::safety::arg_err(format!(
+                "{NAME}: the path is both piped and given as an argument; give it once"
+            )))
+        }
     };
 
     let content =
@@ -9004,72 +8888,92 @@ fn bi_get_content(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(lines))
 }
 
-/// Select-Object: PowerShell-style property selection
+/// Select-Object: PowerShell-style property selection.
+///
+/// Each argument names a property to keep on every piped record. A piped item
+/// that is not a record is refused, not passed through unchanged.
 fn bi_select_object(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "Select-Object";
     let input =
         input.ok_or_else(|| crate::safety::arg_err("Select-Object: requires pipeline input"))?;
 
     if args.is_empty() {
         return Ok(input);
     }
+    if let Some(bad) = args.iter().find(|a| !matches!(a, Value::Str(_))) {
+        return Err(crate::safety::arg_err(format!(
+            "{NAME}: property names must be strings, got {}",
+            bad.type_name()
+        )));
+    }
 
     match input {
         Value::Array(arr) => {
-            let mut results = Vec::new();
-            for item in arr {
-                results.push(select_properties(&item, &args)?);
+            let mut results = Vec::with_capacity(arr.len());
+            for item in &arr {
+                results.push(select_properties(item, &args)?);
             }
             Ok(Value::Array(results))
         }
-        _ => Ok(select_properties(&input, &args)?),
+        other => select_properties(&other, &args),
     }
 }
 
 fn select_properties(value: &Value, properties: &[Value]) -> Result<Value> {
-    match value {
-        Value::Record(record) => {
-            let mut selected = BTreeMap::new();
-            for prop in properties {
-                if let Value::Str(prop_name) = prop {
-                    if let Some(val) = record.get(prop_name) {
-                        selected.insert(prop_name.clone(), val.clone());
-                    }
-                }
+    let Value::Record(record) = value else {
+        return Err(crate::safety::bad_arg(
+            "Select-Object",
+            "a record to select properties from",
+            value.type_name(),
+        ));
+    };
+    let mut selected = BTreeMap::new();
+    for prop in properties {
+        if let Value::Str(prop_name) = prop {
+            if let Some(val) = record.get(prop_name) {
+                selected.insert(prop_name.clone(), val.clone());
             }
-            Ok(Value::Record(selected))
         }
-        _ => Ok(value.clone()),
     }
+    Ok(Value::Record(selected))
 }
 
-/// Where-Object: PowerShell-style filtering with enhanced syntax
+/// Where-Object: PowerShell-style filtering.
+///
+/// Two forms: `where-object(fn(element) => Bool)`, or
+/// `where-object(property, operator, value)`. Both need a piped array.
 fn bi_where_object(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
     let input =
         input.ok_or_else(|| crate::safety::arg_err("Where-Object: requires pipeline input"))?;
 
-    if args.is_empty() {
-        return Err(crate::safety::arg_err(
+    match args.first() {
+        None => Err(crate::safety::arg_err(
             "Where-Object: requires filter condition",
-        ));
-    }
-
-    // Support both lambda and property-based filtering
-    match &args[0] {
-        Value::Lambda(_lambda) => {
-            // Use existing where logic
-            bi_where(args, Some(input), env)
-        }
-        Value::Str(property) => {
-            // PowerShell-style property filtering: where Status -eq "Running"
-            if args.len() >= 3 {
-                filter_by_property(&input, property, &args[1], &args[2])
-            } else {
-                Err(crate::safety::arg_err(
-                    "Where-Object: property filtering requires property, operator, and value",
-                ))
+        )),
+        // Lambda filtering: the existing where logic.
+        Some(Value::Lambda(_)) => {
+            if args.len() != 1 {
+                return Err(crate::safety::arg_err(format!(
+                    "Where-Object: a lambda filter takes one argument, got {}",
+                    args.len()
+                )));
             }
+            bi_where(args.clone(), Some(input), env)
         }
-        _ => Err(anyhow!("Where-Object: invalid filter condition")),
+        // PowerShell-style property filtering: where Status -eq "Running"
+        Some(Value::Str(property)) => {
+            if args.len() != 3 {
+                return Err(crate::safety::arg_err(format!(
+                    "Where-Object: property filtering takes a property, an operator and a value, got {} arguments",
+                    args.len()
+                )));
+            }
+            filter_by_property(&input, property, &args[1], &args[2])
+        }
+        Some(other) => Err(crate::safety::arg_err(format!(
+            "Where-Object: the filter must be a lambda or a property name, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -9081,56 +8985,80 @@ fn filter_by_property(
 ) -> Result<Value> {
     let op_str = match operator {
         Value::Str(s) => s.as_str(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "Where-Object: operator must be a string",
-            ))
+        other => {
+            return Err(crate::safety::arg_err(format!(
+                "Where-Object: operator must be a string, got {}",
+                other.type_name()
+            )))
         }
     };
 
-    match input {
-        Value::Array(arr) => {
-            let mut results = Vec::new();
-            for item in arr {
-                if let Value::Record(record) = item {
-                    if let Some(value) = record.get(property) {
-                        let matches = match op_str {
-                            "-eq" | "==" => value == target,
-                            "-ne" | "!=" => value != target,
-                            "-gt" | ">" => {
-                                compare_values(value, target, std::cmp::Ordering::Greater)
-                            }
-                            "-lt" | "<" => compare_values(value, target, std::cmp::Ordering::Less),
-                            "-ge" | ">=" => {
-                                compare_values(value, target, std::cmp::Ordering::Greater)
-                                    || value == target
-                            }
-                            "-le" | "<=" => {
-                                compare_values(value, target, std::cmp::Ordering::Less)
-                                    || value == target
-                            }
-                            "-like" => match (value, target) {
-                                (Value::Str(v), Value::Str(t)) => v.contains(t),
-                                _ => false,
-                            },
-                            _ => {
-                                return Err(anyhow!(
-                                    "Where-Object: unsupported operator '{}'",
-                                    op_str
-                                ));
-                            }
-                        };
-
-                        if matches {
-                            results.push(item.clone());
-                        }
-                    }
-                }
+    // Checked before any element is read: a bad operator is refused even when
+    // the array is empty or no element carries the property.
+    match op_str {
+        "-eq" | "==" | "-ne" | "!=" => {}
+        "-like" => {
+            if !matches!(target, Value::Str(_)) {
+                return Err(crate::safety::arg_err(format!(
+                    "Where-Object: -like needs a string value, got {}",
+                    target.type_name()
+                )));
             }
-            Ok(Value::Array(results))
         }
-        _ => Ok(input.clone()),
+        "-gt" | ">" | "-lt" | "<" | "-ge" | ">=" | "-le" | "<=" => {
+            if !matches!(target, Value::Int(_) | Value::Float(_) | Value::Str(_)) {
+                return Err(crate::safety::arg_err(format!(
+                    "Where-Object: {op_str} needs a number or a string value, got {}",
+                    target.type_name()
+                )));
+            }
+        }
+        other => {
+            return Err(crate::safety::bad_arg(
+                "Where-Object",
+                "an operator: -eq -ne -gt -lt -ge -le -like",
+                other,
+            ))
+        }
     }
+
+    let Value::Array(items) = input else {
+        return Err(crate::safety::bad_arg(
+            "Where-Object",
+            "an array as the piped subject",
+            input.type_name(),
+        ));
+    };
+
+    let mut results = Vec::new();
+    for item in items {
+        let Value::Record(record) = item else {
+            continue;
+        };
+        let Some(value) = record.get(property) else {
+            continue;
+        };
+        let matches = match op_str {
+            "-eq" | "==" => value == target,
+            "-ne" | "!=" => value != target,
+            "-gt" | ">" => compare_values(value, target, std::cmp::Ordering::Greater),
+            "-lt" | "<" => compare_values(value, target, std::cmp::Ordering::Less),
+            "-ge" | ">=" => {
+                compare_values(value, target, std::cmp::Ordering::Greater) || value == target
+            }
+            "-le" | "<=" => {
+                compare_values(value, target, std::cmp::Ordering::Less) || value == target
+            }
+            // "-like" is the only operator left, and its target is a string.
+            _ => {
+                matches!((value, target), (Value::Str(v), Value::Str(t)) if v.contains(t.as_str()))
+            }
+        };
+        if matches {
+            results.push(item.clone());
+        }
+    }
+    Ok(Value::Array(results))
 }
 
 fn compare_values(a: &Value, b: &Value, expected: std::cmp::Ordering) -> bool {
@@ -9150,28 +9078,59 @@ fn bi_foreach_object(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> R
     bi_map(args, input, env)
 }
 
-/// Sort-Object: PowerShell-style sorting with property support
+/// Sort-Object: PowerShell-style sorting, by value or by one property.
 fn bi_sort_object(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "Sort-Object";
     let input =
         input.ok_or_else(|| crate::safety::arg_err("Sort-Object: requires pipeline input"))?;
 
-    match input {
-        Value::Array(mut arr) => {
-            if args.is_empty() {
-                // Sort by value
-                arr.sort_by(compare_values_for_sort);
-            } else if let Value::Str(property) = &args[0] {
-                // Sort by property
-                arr.sort_by(|a, b| {
-                    let a_val = get_property_value(a, property);
-                    let b_val = get_property_value(b, property);
-                    compare_values_for_sort(&a_val, &b_val)
-                });
-            }
-            Ok(Value::Array(arr))
-        }
-        _ => Ok(input),
+    if args.len() > 1 {
+        return Err(crate::safety::arg_err(format!(
+            "{NAME}: sorts by one property, got {} arguments",
+            args.len()
+        )));
     }
+    let property = match args.first() {
+        None => None,
+        Some(Value::Str(property)) => Some(property.as_str()),
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{NAME}: property name must be a string, got {}",
+                other.type_name()
+            )))
+        }
+    };
+
+    let mut arr = match input {
+        Value::Array(arr) => arr,
+        other => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "an array as the piped subject",
+                other.type_name(),
+            ))
+        }
+    };
+
+    match property {
+        None => arr.sort_by(compare_values_for_sort),
+        Some(property) => {
+            if let Some(other) = arr.iter().find(|v| !matches!(v, Value::Record(_))) {
+                return Err(crate::safety::bad_arg(
+                    NAME,
+                    "records when sorting by a property",
+                    other.type_name(),
+                ));
+            }
+            arr.sort_by(|a, b| {
+                compare_values_for_sort(
+                    &get_property_value(a, property),
+                    &get_property_value(b, property),
+                )
+            });
+        }
+    }
+    Ok(Value::Array(arr))
 }
 
 fn get_property_value(value: &Value, property: &str) -> Value {
@@ -9245,53 +9204,67 @@ fn bi_group_object(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// Measure-Object: PowerShell-style measurement and statistics
+/// Measure-Object: PowerShell-style count and, for one property, its statistics.
+///
+/// A piped array is measured element by element; any other piped value counts
+/// as a single element. Statistics come from the numeric values of the property.
 fn bi_measure_object(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "Measure-Object";
     let input =
         input.ok_or_else(|| crate::safety::arg_err("Measure-Object: requires pipeline input"))?;
 
-    match input {
-        Value::Array(arr) => {
-            let mut result = BTreeMap::new();
-            result.insert("Count".to_string(), Value::Int(arr.len() as i64));
-
-            // If property specified, calculate statistics
-            if !args.is_empty() {
-                if let Value::Str(property) = &args[0] {
-                    let values: Vec<f64> = arr
-                        .iter()
-                        .filter_map(|item| {
-                            let prop_val = get_property_value(item, property);
-                            match prop_val {
-                                Value::Int(i) => Some(i as f64),
-                                Value::Float(f) => Some(f),
-                                _ => None,
-                            }
-                        })
-                        .collect();
-
-                    if !values.is_empty() {
-                        let sum: f64 = values.iter().sum();
-                        let avg = sum / values.len() as f64;
-                        let min = values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-                        let max = values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-
-                        result.insert("Sum".to_string(), Value::Float(sum));
-                        result.insert("Average".to_string(), Value::Float(avg));
-                        result.insert("Minimum".to_string(), Value::Float(min));
-                        result.insert("Maximum".to_string(), Value::Float(max));
-                    }
-                }
-            }
-
-            Ok(Value::Record(result))
+    if args.len() > 1 {
+        return Err(crate::safety::arg_err(format!(
+            "{NAME}: takes one property name, got {} arguments",
+            args.len()
+        )));
+    }
+    let property = match args.first() {
+        None => None,
+        Some(Value::Str(property)) => Some(property.as_str()),
+        Some(other) => {
+            return Err(crate::safety::arg_err(format!(
+                "{NAME}: property name must be a string, got {}",
+                other.type_name()
+            )))
         }
-        _ => {
-            let mut result = BTreeMap::new();
-            result.insert("Count".to_string(), Value::Int(1));
-            Ok(Value::Record(result))
+    };
+
+    let items = match input {
+        Value::Array(arr) => arr,
+        other => vec![other],
+    };
+
+    let mut result = BTreeMap::new();
+    result.insert("Count".to_string(), Value::Int(items.len() as i64));
+
+    if let Some(property) = property {
+        let values: Vec<f64> = items
+            .iter()
+            .filter_map(|item| match item {
+                Value::Record(record) => match record.get(property) {
+                    Some(Value::Int(i)) => Some(*i as f64),
+                    Some(Value::Float(f)) => Some(*f),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+
+        if !values.is_empty() {
+            let sum: f64 = values.iter().sum();
+            let avg = sum / values.len() as f64;
+            let min = values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+            let max = values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+
+            result.insert("Sum".to_string(), Value::Float(sum));
+            result.insert("Average".to_string(), Value::Float(avg));
+            result.insert("Minimum".to_string(), Value::Float(min));
+            result.insert("Maximum".to_string(), Value::Float(max));
         }
     }
+
+    Ok(Value::Record(result))
 }
 
 // =============== Nushell-style Data Commands ===============
