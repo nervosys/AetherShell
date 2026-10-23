@@ -66,4 +66,6 @@ foreach ($case in $cases) {
         }
     } finally { Pop-Location }
 }
+# A failing case throws above and leaves its fixture and output.log for reading.
+Remove-Item -LiteralPath $testRoot -Recurse -Force
 Write-Output "$index release preflight checks passed; no real Git commands executed."
