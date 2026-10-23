@@ -1,8 +1,9 @@
 //! Bounded readers and pure parsers behind `pkg_list` and `pkg_history`.
 //!
-//! `pkg_list` runs `dpkg-query` (apt systems) or `pacman -Q` with an argv and
-//! no shell, or on Windows reads the Add/Remove Programs registry keys through
-//! PowerShell, under a 60 s deadline and a 64 MiB output cap. `pkg_history`
+//! `pkg_list` runs `dpkg-query` (apt systems), `pacman -Q`, `rpm -qa` (dnf and
+//! yum systems) or `brew list --versions` with an argv and no shell, or on
+//! Windows reads the Add/Remove Programs registry keys through PowerShell,
+//! under a 60 s deadline and a 64 MiB output cap. `pkg_history`
 //! reads the uncompressed `/var/log/apt/history.log`, at most its last 64 MiB.
 //! The parsers are pure functions over text, so their edge cases are unit
 //! tested on every platform; the readers only run on Linux.
@@ -112,6 +113,77 @@ pub(crate) fn parse_pacman_rows(text: &str) -> Result<Vec<Package>, ParseError> 
         rows.push((name.to_string(), version.to_string()));
     }
     rows.sort();
+    Ok(rows)
+}
+
+/// Parse the `name<TAB>version` lines of the rpm query [`list_rpm`] runs. The
+/// version carries the epoch as `epoch:version-release` when the package has
+/// one. Each line must hold exactly one tab, with a name and a version on
+/// either side. Sorted by name, then version; exact duplicates (the same
+/// package for two architectures) are kept once.
+pub(crate) fn parse_rpm_rows(text: &str) -> Result<Vec<Package>, ParseError> {
+    let mut rows: Vec<Package> = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.len() > MAX_LINE_BYTES {
+            return Err(ParseError::TooLarge("a line longer than 1 MiB"));
+        }
+        if line.is_empty() {
+            continue;
+        }
+        let bad = ParseError::BadLine { line: index + 1 };
+        let mut fields = line.split('\t');
+        let (Some(name), Some(version), None) = (fields.next(), fields.next(), fields.next())
+        else {
+            return Err(bad);
+        };
+        if name.is_empty() || version.is_empty() {
+            return Err(bad);
+        }
+        if rows.len() >= MAX_ROWS {
+            return Err(ParseError::TooLarge("more than 200000 installed packages"));
+        }
+        rows.push((name.to_string(), version.to_string()));
+    }
+    rows.sort();
+    rows.dedup();
+    Ok(rows)
+}
+
+/// Parse `brew list --versions`: `name version [version ...]` per line, one
+/// row per (name, version) pair. Fields are separated by single spaces; a
+/// name with no version, or an empty field, is refused.
+pub(crate) fn parse_brew_rows(text: &str) -> Result<Vec<Package>, ParseError> {
+    let mut rows: Vec<Package> = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.len() > MAX_LINE_BYTES {
+            return Err(ParseError::TooLarge("a line longer than 1 MiB"));
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
+        let bad = ParseError::BadLine { line: index + 1 };
+        let mut fields = line.split(' ');
+        let name = fields.next().unwrap_or("");
+        if name.is_empty() {
+            return Err(bad);
+        }
+        let mut versions = 0usize;
+        for version in fields {
+            if version.is_empty() {
+                return Err(bad);
+            }
+            versions += 1;
+            if rows.len() >= MAX_ROWS {
+                return Err(ParseError::TooLarge("more than 200000 installed packages"));
+            }
+            rows.push((name.to_string(), version.to_string()));
+        }
+        if versions == 0 {
+            return Err(bad);
+        }
+    }
+    rows.sort();
+    rows.dedup();
     Ok(rows)
 }
 
@@ -330,6 +402,44 @@ pub(crate) fn list_pacman(builtin: &str) -> Result<Vec<Package>> {
     )?;
     check_run(builtin, "pacman", &run, MAX_OUTPUT_BYTES)?;
     parse_pacman_rows(&run.stdout).map_err(|e| parse_failure(builtin, "pacman", e))
+}
+
+/// Installed packages from `rpm`, which `dnf` and `yum` both read. The query
+/// is one argv element, with no shell: `%{NAME}`, a tab, the epoch when set,
+/// then `%{VERSION}-%{RELEASE}`.
+pub(crate) fn list_rpm(builtin: &str) -> Result<Vec<Package>> {
+    const QUERYFORMAT: &str = r"%{NAME}\t%|EPOCH?{%{EPOCH}:}:{}|%{VERSION}-%{RELEASE}\n";
+    let argv = [
+        "-qa".to_string(),
+        "--queryformat".to_string(),
+        QUERYFORMAT.to_string(),
+    ];
+    let run = linux_diagnostics::run_bounded_capped(
+        builtin,
+        "rpm",
+        "rpm",
+        &argv,
+        TOOL_LIMIT,
+        MAX_OUTPUT_BYTES,
+    )?;
+    check_run(builtin, "rpm", &run, MAX_OUTPUT_BYTES)?;
+    parse_rpm_rows(&run.stdout).map_err(|e| parse_failure(builtin, "rpm", e))
+}
+
+/// Formulae from `brew list --versions`, run as an argv with no shell. Casks
+/// are not listed.
+pub(crate) fn list_brew(builtin: &str) -> Result<Vec<Package>> {
+    let argv = ["list".to_string(), "--versions".to_string()];
+    let run = linux_diagnostics::run_bounded_capped(
+        builtin,
+        "brew",
+        "brew",
+        &argv,
+        TOOL_LIMIT,
+        MAX_OUTPUT_BYTES,
+    )?;
+    check_run(builtin, "brew", &run, MAX_OUTPUT_BYTES)?;
+    parse_brew_rows(&run.stdout).map_err(|e| parse_failure(builtin, "brew", e))
 }
 
 /// Parse the `name<TAB>version` lines [`ARP_SCRIPT`] prints. The version may
@@ -557,6 +667,134 @@ mod tests {
             parse_pacman_rows("bash\n"),
             Err(ParseError::BadLine { line: 1 })
         );
+    }
+
+    #[test]
+    fn rpm_rows_are_sorted_and_keep_the_release() {
+        let text = "zsh\t5.9-2.fc40\nbash\t5.2.26-1.fc40\n";
+        assert_eq!(
+            parse_rpm_rows(text),
+            Ok(vec![pkg("bash", "5.2.26-1.fc40"), pkg("zsh", "5.9-2.fc40")])
+        );
+    }
+
+    #[test]
+    fn rpm_keeps_the_epoch_when_the_package_has_one() {
+        // The queryformat prints `epoch:` only when EPOCH is set.
+        let text = "tzdata\t2025a-1.el9\nsudo\t1:1.9.5p2-10.el9\n";
+        assert_eq!(
+            parse_rpm_rows(text),
+            Ok(vec![
+                pkg("sudo", "1:1.9.5p2-10.el9"),
+                pkg("tzdata", "2025a-1.el9")
+            ])
+        );
+    }
+
+    #[test]
+    fn rpm_keeps_distinct_versions_and_drops_exact_duplicates() {
+        // Multilib: the same name at the same version for two architectures
+        // is one row; a second version of it is a second row.
+        let text = "glibc\t2.34-60.el9\nglibc\t2.34-60.el9\nglibc\t2.34-70.el9\n\n";
+        assert_eq!(
+            parse_rpm_rows(text),
+            Ok(vec![
+                pkg("glibc", "2.34-60.el9"),
+                pkg("glibc", "2.34-70.el9")
+            ])
+        );
+    }
+
+    #[test]
+    fn rpm_skips_blank_lines_and_refuses_a_malformed_one_with_its_number() {
+        assert_eq!(parse_rpm_rows("\n\n"), Ok(Vec::new()));
+        assert_eq!(
+            parse_rpm_rows("bash\t5.2-1\n\nbroken line\nzsh\t5.9-1\n"),
+            Err(ParseError::BadLine { line: 3 })
+        );
+    }
+
+    #[test]
+    fn rpm_refuses_a_line_without_exactly_one_tab_or_an_empty_field() {
+        assert_eq!(
+            parse_rpm_rows("bash 5.2-1\n"),
+            Err(ParseError::BadLine { line: 1 })
+        );
+        assert_eq!(
+            parse_rpm_rows("a\tb\tc\n"),
+            Err(ParseError::BadLine { line: 1 })
+        );
+        assert_eq!(
+            parse_rpm_rows("\t5.2-1\n"),
+            Err(ParseError::BadLine { line: 1 })
+        );
+        assert_eq!(
+            parse_rpm_rows("bash\t\n"),
+            Err(ParseError::BadLine { line: 1 })
+        );
+    }
+
+    #[test]
+    fn rpm_refuses_an_overlong_line() {
+        let long = format!("{}\t1.0-1\n", "a".repeat(MAX_LINE_BYTES));
+        assert!(matches!(
+            parse_rpm_rows(&long),
+            Err(ParseError::TooLarge(_))
+        ));
+    }
+
+    #[test]
+    fn brew_gives_one_row_per_version_of_a_formula() {
+        let text = "python@3.12 3.12.1 3.12.4\ncurl 8.7.1\nopenssl@3 3.3.1\n";
+        assert_eq!(
+            parse_brew_rows(text),
+            Ok(vec![
+                pkg("curl", "8.7.1"),
+                pkg("openssl@3", "3.3.1"),
+                pkg("python@3.12", "3.12.1"),
+                pkg("python@3.12", "3.12.4")
+            ])
+        );
+    }
+
+    #[test]
+    fn brew_skips_blank_lines_and_drops_exact_duplicates() {
+        let text = "\ngit 2.45.0\n\ngit 2.45.0\n";
+        assert_eq!(parse_brew_rows(text), Ok(vec![pkg("git", "2.45.0")]));
+        assert_eq!(parse_brew_rows(""), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn brew_refuses_a_name_with_no_version_with_its_line_number() {
+        assert_eq!(
+            parse_brew_rows("curl 8.7.1\nwget\n"),
+            Err(ParseError::BadLine { line: 2 })
+        );
+    }
+
+    #[test]
+    fn brew_refuses_an_empty_field_and_a_leading_space() {
+        assert_eq!(
+            parse_brew_rows("git  2.45.0\n"),
+            Err(ParseError::BadLine { line: 1 })
+        );
+        assert_eq!(
+            parse_brew_rows("git 2.45.0 \n"),
+            Err(ParseError::BadLine { line: 1 })
+        );
+        assert_eq!(
+            parse_brew_rows(" git 2.45.0\n"),
+            Err(ParseError::BadLine { line: 1 })
+        );
+    }
+
+    #[test]
+    fn brew_refuses_an_overlong_line() {
+        let long = format!("{} 1.0\n", "a".repeat(MAX_LINE_BYTES));
+        assert!(matches!(
+            parse_brew_rows(&long),
+            Err(ParseError::TooLarge(_))
+        ));
     }
 
     #[test]

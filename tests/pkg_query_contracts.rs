@@ -1,10 +1,11 @@
 //! Contracts for `pkg_list` and `pkg_history`: the installed-package listing
-//! (dpkg-query or pacman) and the apt history log.
+//! (dpkg-query, pacman, rpm or brew) and the apt history log.
 //!
 //! Ordinary tests run everywhere: argument and pipeline-input refusals come
 //! before any platform check, so they are E_BAD_ARG on every OS. On Windows
-//! pkg_list is checked against reg.exe; on macOS it, and off Linux
-//! pkg_history, is E_UNIMPLEMENTED with nothing read.
+//! pkg_list is checked against reg.exe; off Linux pkg_history is
+//! E_UNIMPLEMENTED with nothing read. The rpm and brew parsers are unit tested
+//! in src/pkg_query.rs; no RPM or Homebrew host has run them yet.
 //!
 //! The tests that read the real system are `#[ignore]`d and run only in the
 //! disposable distro, via scripts/disposable_linux_tests.sh. Each checks the
@@ -96,20 +97,6 @@ fn pkg_history_refuses_pipeline_input() {
 fn pkg_history_is_unimplemented_off_linux_and_reads_nothing() {
     expect_code("pkg_history", vec![], "E_UNIMPLEMENTED");
     expect_code("pkg_history", vec![Value::Int(5)], "E_UNIMPLEMENTED");
-}
-
-#[cfg(not(any(target_os = "linux", windows)))]
-#[test]
-fn pkg_list_is_unimplemented_for_the_host_package_manager() {
-    // On macOS the detected manager is brew, which this builtin does not
-    // list in 13.0.0.
-    match call("pkg_list", vec![]) {
-        Ok(v) => panic!("pkg_list answered {v:?} on a host it does not support"),
-        Err(e) => {
-            assert_eq!(code_of(&e), "E_UNIMPLEMENTED", "{e}");
-            assert!(e.to_string().contains("NOTHING WAS LISTED"), "{e}");
-        }
-    }
 }
 
 /// The DisplayName values `reg.exe` reports under the Uninstall keys

@@ -31580,6 +31580,8 @@ fn bi_pkg_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let packages = match detect_package_manager() {
         "apt" => pkg_query::list_dpkg("pkg_list")?,
         "pacman" => pkg_query::list_pacman("pkg_list")?,
+        "dnf" | "yum" => pkg_query::list_rpm("pkg_list")?,
+        "brew" => pkg_query::list_brew("pkg_list")?,
         #[cfg(windows)]
         "winget" => pkg_query::list_windows_arp("pkg_list")?,
         other => {
@@ -31588,7 +31590,7 @@ fn bi_pkg_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 &format!(
                     "pkg_list is not implemented for the {other} package manager in 13.0.0; NOTHING WAS LISTED"
                 ),
-                "list the packages with that manager directly (dnf list installed, brew list --versions)",
+                "list the packages with that manager directly",
             ))
         }
     };
