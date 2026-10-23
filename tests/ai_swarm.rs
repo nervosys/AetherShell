@@ -95,7 +95,8 @@ fn agent_builtin_argument_errors() {
 #[test]
 fn swarm_builtin_happy_path_with_config_tools() {
     // swarm(goal, config_json_with_tools, [max_steps], [dry_run])
-    let cfg = r#"{ "agents": ["a","b"], "tools": ["ls","print"], "models": ["llama3"] }"#;
+    // The config carries only keys the swarm reads; any other key is refused.
+    let cfg = r#"{ "tools": ["ls","print"] }"#;
     let result = run_builtin(
         "swarm",
         vec![

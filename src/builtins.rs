@@ -4264,14 +4264,14 @@ fn call_with_input_inner(
         // BUILTIN_LOOKUP because that table is index-coupled to BUILTIN_DISPATCH;
         // reachability is identical and the handle summary carries its own usage
         // hint, so discovery does not depend on the ontology listing.
-        "handle" => bi_handle(args),
+        "handle" => refuse_pipeline_input(name, &input).and_then(|()| bi_handle(args)),
         "handles" => bi_handles(),
         "handle_drop" => bi_handle_drop(args),
 
         // Reversible sessions (see crate::journal).
-        "undo" | "rewind" => bi_undo(args),
+        "undo" | "rewind" => refuse_pipeline_input(name, &input).and_then(|()| bi_undo(args)),
         "journal" => bi_journal(),
-        "journal_clear" => bi_journal_clear(),
+        "journal_clear" => refuse_pipeline_input(name, &input).and_then(|()| bi_journal_clear()),
 
         _ => Err(crate::safety::unknown_builtin(name, did_you_mean(name))),
     }
@@ -7811,251 +7811,278 @@ fn bi_semantic_cache_clear(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 
 // --------------- AI / Agents wrappers (optional) ---------------
 
-fn bi_agent(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    // SECURITY: Rate limit agent calls (CVSS 7.8)
-    check_rate_limit("bi_agent", 10, Duration::from_secs(60))
-        .context("Agent rate limit exceeded")?;
+/// The most steps one agent or swarm run may take. Each step can be a model
+/// call, so an unbounded `max_steps` is an unbounded bill.
+const MAX_AGENT_STEPS: i64 = 1000;
 
-    // Accept either: agent "<goal>" [tools...] [max_steps] [dry_run]
-    // or a record config: {goal:"...", tools:["..."], max_steps:3, dry_run:true, model_uri:"..."}
-    if let Some(Value::Record(cfg)) = input {
-        return agent_from_record(cfg, env);
+/// The keys an agent or swarm config record may carry. Any other key is
+/// refused: the body used to ignore it, so a caller who set `model_uri` got a
+/// run on whatever model the environment picked, with no error.
+const AGENT_CONFIG_KEYS: &[&str] = &["goal", "tools", "max_steps", "dry_run"];
+
+/// One agent or swarm call, with every argument checked before anything runs.
+struct AgentCall {
+    goal: String,
+    tools: Vec<String>,
+    max_steps: usize,
+    dry_run: bool,
+}
+
+/// Read the arguments of `agent(...)` or `swarm(...)` in each of their forms:
+///
+/// - a config record, as the argument or as the piped input;
+/// - `goal, [tools...], [max_steps], [dry_run]`, with the tools as Strings or
+///   as one Array of them;
+/// - `goal, json`, where `json` is a JSON object whose keys are the config.
+///
+/// Every argument is either used or refused. A surplus argument, or one of the
+/// wrong type, used to be dropped and the run went ahead without it. Nothing
+/// here calls a model, so a refusal costs no rate-limit budget and no tokens.
+fn parse_agent_call(
+    builtin: &str,
+    args: &[Value],
+    input: Option<&Value>,
+    default_steps: usize,
+) -> Result<AgentCall> {
+    if let Some(piped) = input {
+        return match piped {
+            Value::Record(cfg) if args.is_empty() => {
+                agent_config(builtin, cfg.clone(), default_steps)
+            }
+            Value::Record(_) => Err(crate::safety::arg_err(format!(
+                "{builtin}: a piped config takes no other arguments"
+            ))),
+            other => Err(crate::safety::arg_err(format!(
+                "{builtin}: piped input must be a config record, got {}",
+                other.type_name()
+            ))),
+        };
     }
-    if let Some(Value::Record(cfg)) = args.first() {
-        return agent_from_record(cfg.clone(), env);
-    }
-    // positional
-    let goal_str = match args.first() {
+    let goal_raw = match args.first() {
+        Some(Value::Record(cfg)) => {
+            if args.len() > 1 {
+                return Err(surplus_arg(builtin, &args[1]));
+            }
+            return agent_config(builtin, cfg.clone(), default_steps);
+        }
         Some(Value::Str(s)) => s.clone(),
         Some(other) => {
-            return Err(crate::safety::arg_err(format!(
-                "agent: expected String goal, got {:?}",
-                other
-            )))
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "a goal String, or a config Record",
+                other.type_name(),
+            ))
         }
-        None => return Err(crate::safety::bad_arg("agent", "a goal string", "nothing")),
+        None => return Err(crate::safety::bad_arg(builtin, "a goal String", "nothing")),
     };
 
-    // SECURITY: Validate AI prompt for injection (CVSS 7.8)
-    let goal = validate_ai_prompt(&goal_str).context("agent: goal validation failed")?;
-    let mut tools: Vec<String> = Vec::new();
-    let mut max_steps: usize = 8;
-    let mut dry_run = false;
-
-    // tools: collect following strings until number/bool appears
-    let mut i = 1usize;
-    // If second positional arg is a JSON config string, try to parse it
+    // A JSON object as the second argument is a whole config; the goal is the
+    // first argument.
     if let Some(Value::Str(s)) = args.get(1) {
-        let t = s.trim();
-        if t.starts_with('{') {
-            // try parse JSON into a Record Value and delegate, merge goal
-            if let Ok(jv) = serde_json::from_str::<serde_json::Value>(t) {
-                let mut cfg_val = crate::value::Value::from_json(&jv);
-                if let Value::Record(ref mut cfg) = cfg_val {
-                    // if we have a goal string in args[0], ensure the record has goal
-                    if let Some(Value::Str(goal_s)) = args.first() {
-                        cfg.insert("goal".into(), Value::Str(goal_s.clone()));
-                        return agent_from_record(cfg.clone(), env);
-                    } else {
-                        return Err(anyhow!(
-                            "agent config must include goal when provided as JSON"
-                        ));
-                    }
-                } else {
-                    return Err(crate::safety::arg_err("agent config must be a record"));
+        let text = s.trim();
+        if text.starts_with('{') {
+            let json: serde_json::Value = serde_json::from_str(text).map_err(|e| {
+                crate::safety::arg_err(format!("{builtin}: config JSON does not parse: {e}"))
+            })?;
+            let mut cfg = match Value::from_json(&json) {
+                Value::Record(cfg) => cfg,
+                _ => {
+                    return Err(crate::safety::arg_err(format!(
+                        "{builtin}: config JSON must be an object"
+                    )))
                 }
-            } else {
-                return Err(anyhow!("agent config JSON parse error"));
+            };
+            cfg.insert("goal".into(), Value::Str(goal_raw));
+            // Positional max_steps and dry_run may follow, as the form
+            // `goal, json, [max_steps], [dry_run]` documents; they override the config.
+            let mut j = 2usize;
+            if let Some(Value::Int(n)) = args.get(j) {
+                cfg.insert("max_steps".into(), Value::Int(*n));
+                j += 1;
             }
+            if let Some(Value::Bool(b)) = args.get(j) {
+                cfg.insert("dry_run".into(), Value::Bool(*b));
+                j += 1;
+            }
+            if let Some(extra) = args.get(j) {
+                return Err(surplus_arg(builtin, extra));
+            }
+            return agent_config(builtin, cfg, default_steps);
         }
     }
 
-    while let Some(Value::Str(s)) = args.get(i) {
-        tools.push(s.clone());
+    let goal =
+        validate_ai_prompt(&goal_raw).context(format!("{builtin}: goal validation failed"))?;
+    let mut i = 1usize;
+    let mut tools: Vec<String> = Vec::new();
+    while let Some(Value::Str(name)) = args.get(i) {
+        tools.push(name.clone());
         i += 1;
     }
-    // Also accept a single positional array as tools: agent(goal, ["ls","print"], ...)
     if tools.is_empty() {
-        if let Some(Value::Array(vs)) = args.get(1) {
-            for v in vs {
-                if let Value::Str(s) = v {
-                    tools.push(s.clone());
-                } else {
-                    return Err(anyhow!("agent: tools array must contain strings"));
-                }
-            }
-            i = 2;
-        }
-    }
-    if let Some(v) = args.get(i) {
-        if let Value::Int(n) = v {
-            max_steps = (*n).max(0) as usize;
+        if let Some(Value::Array(items)) = args.get(i) {
+            tools = agent_strings(builtin, items, "tools array must contain strings")?;
             i += 1;
         }
     }
-    if let Some(v) = args.get(i) {
-        if let Value::Bool(b) = v {
-            dry_run = *b;
-        }
+    let mut max_steps = default_steps;
+    if let Some(Value::Int(n)) = args.get(i) {
+        max_steps = steps_arg(builtin, *n)?;
+        i += 1;
     }
-    let tool_refs: Vec<&str> = tools.iter().map(|s| s.as_str()).collect();
-    let out = crate::ai::agents::run_sync(&goal, &tool_refs, max_steps, dry_run, env)?;
-    Ok(Value::Str(out))
+    let mut dry_run = false;
+    if let Some(Value::Bool(b)) = args.get(i) {
+        dry_run = *b;
+        i += 1;
+    }
+    if let Some(extra) = args.get(i) {
+        return Err(surplus_arg(builtin, extra));
+    }
+    check_tools(builtin, &tools)?;
+    Ok(AgentCall {
+        goal,
+        tools,
+        max_steps,
+        dry_run,
+    })
 }
 
-fn agent_from_record(cfg: BTreeMap<String, Value>, env: &mut Env) -> Result<Value> {
-    let goal = match cfg.get("goal") {
+/// Read a config record: `goal` is required; `tools`, `max_steps` and `dry_run`
+/// are optional and each is type-checked rather than defaulted when wrong.
+fn agent_config(
+    builtin: &str,
+    cfg: BTreeMap<String, Value>,
+    default_steps: usize,
+) -> Result<AgentCall> {
+    if let Some(key) = cfg
+        .keys()
+        .find(|k| !AGENT_CONFIG_KEYS.contains(&k.as_str()))
+    {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin} config has no key '{key}'; its keys are goal, tools, max_steps, dry_run"
+        )));
+    }
+    let goal_raw = match cfg.get("goal") {
         Some(Value::Str(s)) => s.clone(),
         _ => {
-            return Err(crate::safety::arg_err(
-                "agent config requires {goal: String}",
+            return Err(crate::safety::arg_err(format!(
+                "{builtin} config requires {{goal: String}}"
+            )))
+        }
+    };
+    let goal =
+        validate_ai_prompt(&goal_raw).context(format!("{builtin}: goal validation failed"))?;
+    let tools = match cfg.get("tools") {
+        None => Vec::new(),
+        Some(Value::Array(items)) => {
+            agent_strings(builtin, items, "config tools must be an array of strings")?
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "tools: Array of String",
+                other.type_name(),
             ))
         }
     };
-    let tools: Vec<String> = match cfg.get("tools") {
-        Some(Value::Array(vs)) => {
-            // Validate all tools are strings
-            let mut out = Vec::new();
-            for v in vs {
-                if let Value::Str(s) = v {
-                    out.push(s.clone());
-                } else {
-                    return Err(crate::safety::arg_err(
-                        "agent config tools must be array of strings",
-                    ));
-                }
-            }
-            out
-        }
-        _ => vec![],
-    };
     let max_steps = match cfg.get("max_steps") {
-        Some(Value::Int(n)) if *n >= 0 => *n as usize,
-        _ => 8usize,
+        None => default_steps,
+        Some(Value::Int(n)) => steps_arg(builtin, *n)?,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "max_steps: Int",
+                other.type_name(),
+            ))
+        }
     };
-    let dry_run = matches!(cfg.get("dry_run"), Some(Value::Bool(true)));
+    let dry_run = match cfg.get("dry_run") {
+        None => false,
+        Some(Value::Bool(b)) => *b,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                "dry_run: Bool",
+                other.type_name(),
+            ))
+        }
+    };
+    check_tools(builtin, &tools)?;
+    Ok(AgentCall {
+        goal,
+        tools,
+        max_steps,
+        dry_run,
+    })
+}
 
-    let tool_refs: Vec<&str> = tools.iter().map(|s| s.as_str()).collect();
-    let out = crate::ai::agents::run_sync(&goal, &tool_refs, max_steps, dry_run, env)?;
+fn agent_strings(builtin: &str, items: &[Value], message: &str) -> Result<Vec<String>> {
+    items
+        .iter()
+        .map(|v| match v {
+            Value::Str(s) => Ok(s.clone()),
+            _ => Err(crate::safety::arg_err(format!("{builtin}: {message}"))),
+        })
+        .collect()
+}
+
+fn steps_arg(builtin: &str, n: i64) -> Result<usize> {
+    if (1..=MAX_AGENT_STEPS).contains(&n) {
+        Ok(n as usize)
+    } else {
+        Err(crate::safety::bad_arg(
+            builtin,
+            &format!("max_steps: Int in 1..={MAX_AGENT_STEPS}"),
+            &n.to_string(),
+        ))
+    }
+}
+
+/// Refuse a tool name no builtin answers to. The agent would otherwise learn
+/// this only when the model asked for that tool, after the model had run.
+fn check_tools(builtin: &str, tools: &[String]) -> Result<()> {
+    for tool in tools {
+        if !crate::builtins::is_dispatched(tool) {
+            return Err(crate::safety::not_found(builtin, "tool", tool));
+        }
+    }
+    Ok(())
+}
+
+fn surplus_arg(builtin: &str, extra: &Value) -> anyhow::Error {
+    crate::safety::arg_err(format!(
+        "{builtin}: unexpected {} argument; the form is goal, [tools...], [max_steps], [dry_run]",
+        extra.type_name()
+    ))
+}
+
+/// Refuse a piped value for a builtin that takes none, so it is never dropped
+/// without a word.
+fn refuse_pipeline_input(builtin: &str, input: &Option<Value>) -> Result<()> {
+    if input.is_some() {
+        return Err(crate::safety::arg_err(format!(
+            "{builtin} takes no pipeline input"
+        )));
+    }
+    Ok(())
+}
+
+fn bi_agent(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    let call = parse_agent_call("agent", &args, input.as_ref(), 8)?;
+    // SECURITY: Rate limit agent calls (CVSS 7.8). This runs after the
+    // arguments are read, so a refused call does not spend the budget.
+    check_rate_limit("bi_agent", 10, Duration::from_secs(60))
+        .context("Agent rate limit exceeded")?;
+    let tools: Vec<&str> = call.tools.iter().map(String::as_str).collect();
+    let out = crate::ai::agents::run_sync(&call.goal, &tools, call.max_steps, call.dry_run, env)?;
     Ok(Value::Str(out))
 }
 
 fn bi_swarm(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
-    // Accept {goal, tools, max_steps, dry_run} or just a goal + tools...
-    if let Some(Value::Record(cfg)) = input {
-        return swarm_from_record(cfg, env);
-    }
-    if let Some(Value::Record(cfg)) = args.first() {
-        return swarm_from_record(cfg.clone(), env);
-    }
-
-    // positional like agent()
-    let goal = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        Some(other) => {
-            return Err(crate::safety::arg_err(format!(
-                "swarm: expected String goal, got {:?}",
-                other
-            )))
-        }
-        None => return Err(crate::safety::bad_arg("swarm", "a goal string", "nothing")),
-    };
-    let mut tools: Vec<String> = Vec::new();
-    let mut max_steps: usize = 12;
-    let mut dry_run = false;
-
-    let mut i = 1usize;
-    // If second positional arg is a JSON config string, try parse and delegate
-    if let Some(Value::Str(s)) = args.get(1) {
-        let t = s.trim();
-        if t.starts_with('{') {
-            if let Ok(jv) = serde_json::from_str::<serde_json::Value>(t) {
-                let mut cfg_val = crate::value::Value::from_json(&jv);
-                if let Value::Record(ref mut cfg) = cfg_val {
-                    if let Some(Value::Str(goal_s)) = args.first() {
-                        cfg.insert("goal".into(), Value::Str(goal_s.clone()));
-                        return swarm_from_record(cfg.clone(), env);
-                    } else {
-                        return Err(anyhow!(
-                            "swarm config must include goal when provided as JSON"
-                        ));
-                    }
-                } else {
-                    return Err(crate::safety::arg_err("swarm config must be a record"));
-                }
-            } else {
-                return Err(anyhow!("swarm config JSON parse error"));
-            }
-        }
-    }
-    while let Some(Value::Str(s)) = args.get(i) {
-        tools.push(s.clone());
-        i += 1;
-    }
-    // Also accept tools as a single array positional argument
-    if tools.is_empty() {
-        if let Some(Value::Array(vs)) = args.get(1) {
-            for v in vs {
-                if let Value::Str(s) = v {
-                    tools.push(s.clone());
-                } else {
-                    return Err(anyhow!("swarm: tools array must contain strings"));
-                }
-            }
-            i = 2;
-        }
-    }
-    if let Some(v) = args.get(i) {
-        if let Value::Int(n) = v {
-            max_steps = (*n).max(0) as usize;
-            i += 1;
-        }
-    }
-    if let Some(v) = args.get(i) {
-        if let Value::Bool(b) = v {
-            dry_run = *b;
-        }
-    }
-
-    let tool_refs: Vec<&str> = tools.iter().map(|s| s.as_str()).collect();
-    // For compatibility we call agents::run_sync (single agent) from the swarm shim in ai.rs
-    let out = crate::ai::agents::swarm::run_sync(&goal, &tool_refs, max_steps, dry_run, env)?;
-    Ok(Value::Str(out))
-}
-
-fn swarm_from_record(cfg: BTreeMap<String, Value>, env: &mut Env) -> Result<Value> {
-    let goal = match cfg.get("goal") {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
-            return Err(crate::safety::arg_err(
-                "swarm config requires {goal: String}",
-            ))
-        }
-    };
-    let tools: Vec<String> = match cfg.get("tools") {
-        Some(Value::Array(vs)) => {
-            let mut out = Vec::new();
-            for v in vs {
-                if let Value::Str(s) = v {
-                    out.push(s.clone());
-                } else {
-                    return Err(crate::safety::arg_err(
-                        "swarm config tools must be array of strings",
-                    ));
-                }
-            }
-            out
-        }
-        _ => vec![],
-    };
-    let max_steps = match cfg.get("max_steps") {
-        Some(Value::Int(n)) if *n >= 0 => *n as usize,
-        _ => 12usize,
-    };
-    let dry_run = matches!(cfg.get("dry_run"), Some(Value::Bool(true)));
-
-    let tool_refs: Vec<&str> = tools.iter().map(|s| s.as_str()).collect();
-    let out = crate::ai::agents::swarm::run_sync(&goal, &tool_refs, max_steps, dry_run, env)?;
+    let call = parse_agent_call("swarm", &args, input.as_ref(), 12)?;
+    let tools: Vec<&str> = call.tools.iter().map(String::as_str).collect();
+    let out =
+        crate::ai::agents::swarm::run_sync(&call.goal, &tools, call.max_steps, call.dry_run, env)?;
     Ok(Value::Str(out))
 }
 

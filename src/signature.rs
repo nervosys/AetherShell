@@ -5256,6 +5256,20 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[("typeof(finetune_list())", "Array")],
     },
     Signature {
+        name: "handle",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("id", Ty::Str, "a live handle id, as listed by handles()")],
+        returns: "Any",
+        doc: "The full value behind a result handle, exactly as computed. A missing or unknown id is refused, and the refusal names the live handles.",
+        examples: &[
+            (r#"(try { handle("no-such-handle") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { handle(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "handles",
         category: None,
         subject_required: false,
@@ -13053,6 +13067,75 @@ pub static SIGNATURES: &[Signature] = &[
         doc: "The recorded steps of this session and how many can be reversed.",
         examples: &[
             (r#"typeof(journal())"#, r#"Record"#),
+        ],
+    },
+    // Fallback journal, undo and agent builtins. Each refusal below is made by
+    // the declaration before the body runs; the examples never reach a model
+    // or touch the journal, because a refusal stops the call first.
+    Signature {
+        name: "journal_clear",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "Forget every recorded step of this session, so none of them can be undone. Touches no files; takes no arguments.",
+        examples: &[
+            (r#"(try { journal_clear("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
+        name: "undo",
+        category: None,
+        subject_required: false,
+        aliases: &["rewind"],
+        subject: None,
+        params: &[opt_range("steps", Ty::Int, 0, i64::MAX, "how many of the most recent recorded steps to put back, default 1")],
+        returns: "Record",
+        doc: "Put back what the last steps overwrote, reporting each step and whether all of them were restored. Steps that cannot be reversed are listed, not hidden.",
+        examples: &[
+            (r#"(try { undo("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { undo(-1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"typeof(undo(0))"#, "Record"),
+        ],
+    },
+    Signature {
+        name: "agent",
+        category: Some("AI"),
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("goal", Ty::Any, "a goal String, or a config Record {goal, tools?, max_steps?, dry_run?}"),
+            opt_rest("rest", Ty::Any, "tool names as Strings, or one Array of them; then max_steps Int in 1..=1000 and dry_run Bool; or, after a goal, a JSON object String as the whole config"),
+        ],
+        returns: "String",
+        doc: "Run a model-driven agent over the named builtin tools and return its final answer. A dry run plans without acting. A malformed argument, an unknown key or an unknown tool is refused before any model is called.",
+        examples: &[
+            (r#"(try { agent(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { agent() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { agent("x", "print", 3, true, "extra") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { agent("x", ["no_such_tool_xyz"]) } catch e { e.error.code })"#, "E_NOT_FOUND"),
+        ],
+    },
+    Signature {
+        name: "swarm",
+        category: Some("AI"),
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            req("goal", Ty::Any, "a goal String, or a config Record {goal, tools?, max_steps?, dry_run?}"),
+            opt_rest("rest", Ty::Any, "tool names as Strings, or one Array of them; then max_steps Int in 1..=1000 and dry_run Bool; or, after a goal, a JSON object String as the whole config"),
+        ],
+        returns: "String",
+        doc: "Run a swarm of model-driven agents over the named builtin tools and return the combined answer. A dry run plans without acting. A malformed argument, an unknown key or an unknown tool is refused before any model is called.",
+        examples: &[
+            (r#"(try { swarm(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { swarm() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { swarm("x", "print", 3, true, "extra") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { swarm("x", ["no_such_tool_xyz"]) } catch e { e.error.code })"#, "E_NOT_FOUND"),
         ],
     },
     Signature {

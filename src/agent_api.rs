@@ -1371,45 +1371,6 @@ fn get_builtin_definitions() -> Vec<BuiltinDefinition> {
                 "required": ["prompt"]
             }),
         },
-        BuiltinDefinition {
-            name: "agent".to_string(),
-            description: "Create an autonomous AI agent with tool access".to_string(),
-            category: "AI".to_string(),
-            signature: "agent(goal: String, options?: Record) -> Value".to_string(),
-            parameters: vec![
-                ParameterDefinition {
-                    name: "goal".to_string(),
-                    param_type: "String".to_string(),
-                    description: "The goal for the agent to accomplish".to_string(),
-                    required: true,
-                    default: None,
-                },
-                ParameterDefinition {
-                    name: "options".to_string(),
-                    param_type: "Record".to_string(),
-                    description: "Options like tools, max_steps, dry_run".to_string(),
-                    required: false,
-                    default: None,
-                },
-            ],
-            return_type: "Value".to_string(),
-            examples: vec![ExampleDefinition {
-                description: "Create an agent to analyze files".to_string(),
-                code: "agent(\"Find large log files\", {tools: [\"ls\", \"cat\"]})".to_string(),
-                result: None,
-            }],
-            aliases: None,
-            json_schema: json!({
-                "type": "object",
-                "properties": {
-                    "goal": {"type": "string", "description": "Agent's goal"},
-                    "tools": {"type": "array", "items": {"type": "string"}},
-                    "max_steps": {"type": "integer", "default": 10},
-                    "dry_run": {"type": "boolean", "default": false}
-                },
-                "required": ["goal"]
-            }),
-        },
         // Aggregation
         BuiltinDefinition {
             name: "sum".to_string(),
