@@ -252,8 +252,31 @@ pub fn vault_run_within(args: &[&str], secs: u64) -> Result<String> {
     let bin = vault_bin();
     let mut cmd = std::process::Command::new(&bin);
     cmd.args(args);
-    let out = crate::safety::output_with_timeout(cmd, secs)
-        .map_err(|e| crate::safety::spawn_error("iv", &bin, &e))?;
+    let out = crate::safety::output_with_timeout(cmd, secs).map_err(|e| {
+        if let Some(coded) = crate::safety::io_budget_error(&e) {
+            return coded;
+        }
+        // Coded, and still naming the command, the deadline and the remedy:
+        // a missing `iv` is not guessable from a bare "not found".
+        match e.kind() {
+            std::io::ErrorKind::TimedOut => crate::safety::budget_exceeded(
+                "iv",
+                format!(
+                    "`{bin} {}` did not finish within {secs}s and was stopped",
+                    args.join(" ")
+                ),
+                "a stopped tool can leave work half done; check the state before retrying",
+            ),
+            std::io::ErrorKind::NotFound => crate::safety::tool_missing(
+                "iv",
+                &bin,
+                &format!(
+                    "{e}; install it with `cargo install ironvault`, or set IRONVAULT_BIN to its path"
+                ),
+            ),
+            _ => crate::safety::spawn_error("iv", &bin, &e),
+        }
+    })?;
 
     if !out.status.success() {
         // A nonzero exit is a coded tool failure carrying the vault's stderr,

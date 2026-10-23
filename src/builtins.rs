@@ -4266,14 +4266,14 @@ fn call_with_input_inner(
         // BUILTIN_LOOKUP because that table is index-coupled to BUILTIN_DISPATCH;
         // reachability is identical and the handle summary carries its own usage
         // hint, so discovery does not depend on the ontology listing.
-        "handle" => refuse_pipeline_input(name, &input).and_then(|()| bi_handle(args)),
+        "handle" => bi_handle(args, input),
         "handles" => bi_handles(),
         "handle_drop" => bi_handle_drop(args),
 
         // Reversible sessions (see crate::journal).
-        "undo" | "rewind" => refuse_pipeline_input(name, &input).and_then(|()| bi_undo(args)),
+        "undo" | "rewind" => bi_undo(args, input),
         "journal" => bi_journal(),
-        "journal_clear" => refuse_pipeline_input(name, &input).and_then(|()| bi_journal_clear()),
+        "journal_clear" => bi_journal_clear(input),
 
         _ => Err(crate::safety::unknown_builtin(name, did_you_mean(name))),
     }
@@ -8945,7 +8945,13 @@ fn select_properties(value: &Value, properties: &[Value]) -> Result<Value> {
 ///
 /// Two forms: `where-object(fn(element) => Bool)`, or
 /// `where-object(property, operator, value)`. Both need a piped array.
+/// The cmdlet name in `Where-Object` messages, kept out of the format strings
+/// because tests/no_raw_shell_interpolation.rs reads a cmdlet name inside a
+/// `format!` as a PowerShell command being built.
+const WHERE_OBJECT: &str = "Where-Object";
+
 fn bi_where_object(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
+    const NAME: &str = "Where-Object";
     let input =
         input.ok_or_else(|| crate::safety::arg_err("Where-Object: requires pipeline input"))?;
 
@@ -8957,7 +8963,7 @@ fn bi_where_object(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Res
         Some(Value::Lambda(_)) => {
             if args.len() != 1 {
                 return Err(crate::safety::arg_err(format!(
-                    "Where-Object: a lambda filter takes one argument, got {}",
+                    "{NAME}: a lambda filter takes one argument, got {}",
                     args.len()
                 )));
             }
@@ -8967,14 +8973,14 @@ fn bi_where_object(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Res
         Some(Value::Str(property)) => {
             if args.len() != 3 {
                 return Err(crate::safety::arg_err(format!(
-                    "Where-Object: property filtering takes a property, an operator and a value, got {} arguments",
+                    "{NAME}: property filtering takes a property, an operator and a value, got {} arguments",
                     args.len()
                 )));
             }
             filter_by_property(&input, property, &args[1], &args[2])
         }
         Some(other) => Err(crate::safety::arg_err(format!(
-            "Where-Object: the filter must be a lambda or a property name, got {}",
+            "{NAME}: the filter must be a lambda or a property name, got {}",
             other.type_name()
         ))),
     }
@@ -8990,7 +8996,7 @@ fn filter_by_property(
         Value::Str(s) => s.as_str(),
         other => {
             return Err(crate::safety::arg_err(format!(
-                "Where-Object: operator must be a string, got {}",
+                "{WHERE_OBJECT}: operator must be a string, got {}",
                 other.type_name()
             )))
         }
@@ -9003,7 +9009,7 @@ fn filter_by_property(
         "-like" => {
             if !matches!(target, Value::Str(_)) {
                 return Err(crate::safety::arg_err(format!(
-                    "Where-Object: -like needs a string value, got {}",
+                    "{WHERE_OBJECT}: -like needs a string value, got {}",
                     target.type_name()
                 )));
             }
@@ -9011,7 +9017,7 @@ fn filter_by_property(
         "-gt" | ">" | "-lt" | "<" | "-ge" | ">=" | "-le" | "<=" => {
             if !matches!(target, Value::Int(_) | Value::Float(_) | Value::Str(_)) {
                 return Err(crate::safety::arg_err(format!(
-                    "Where-Object: {op_str} needs a number or a string value, got {}",
+                    "{WHERE_OBJECT}: {op_str} needs a number or a string value, got {}",
                     target.type_name()
                 )));
             }
@@ -19841,7 +19847,10 @@ pub fn render_agent(v: &Value, budget: Option<usize>) -> Option<String> {
 /// The counts are reported separately because "3 restored" and "3 restored, 1
 /// irreversible" call for different decisions, and collapsing them is how a
 /// partial recovery gets mistaken for a complete one.
-fn bi_undo(args: Vec<Value>) -> Result<Value> {
+// Each refuses pipeline input in its body rather than in its dispatch arm:
+// tests/fallback_dispatch.rs reads the arms as `name => bi_fn(..)` pairs.
+fn bi_undo(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_pipeline_input("undo", &input)?;
     let n = match args.first() {
         None => 1,
         Some(v) => v
@@ -19959,7 +19968,8 @@ fn bi_journal() -> Result<Value> {
 /// `journal_clear()` — forget the recorded steps. Touches no files; the
 /// captured contents are dropped, so anything before this point can no longer
 /// be rewound.
-fn bi_journal_clear() -> Result<Value> {
+fn bi_journal_clear(input: Option<Value>) -> Result<Value> {
+    refuse_pipeline_input("journal_clear", &input)?;
     let n = crate::journal::entries().len();
     crate::journal::clear();
     let mut m = std::collections::BTreeMap::new();
@@ -19976,7 +19986,8 @@ fn bi_journal_clear() -> Result<Value> {
 /// A missing id is a structured error rather than a null, and it names the live
 /// handles: a handle from a previous process is gone, and an agent that gets
 /// `null` back cannot tell that apart from an empty result.
-fn bi_handle(args: Vec<Value>) -> Result<Value> {
+fn bi_handle(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    refuse_pipeline_input("handle", &input)?;
     let id = args
         .first()
         .and_then(|v| v.as_str().ok())

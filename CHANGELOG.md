@@ -90,6 +90,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Security: in agent mode, `undo`, `rewind`, `session_undo` and `session_redo`
+  could rewrite or delete a file outside the workspace. The journal persists
+  per working directory, so a step recorded in human mode was replayed by a
+  later agent-mode session, and undo has no path argument for the central jail
+  to check. A recorded path outside an enforced jail is now left alone and
+  reported, and the step stays in the journal for a human-mode rewind.
+- Effect classifications that fell through to `Pure`:
+  - `undo`, `rewind`, `session_undo`, `session_redo`, `journal_clear` and
+    `session_end` are `WriteLocal`.
+  - `ai_detect`, `ai_local_generate` and the `ai-backends` spelling are
+    `Network`.
+  - `ai_gpu_memory`, `ai_model_fits` and `ai_local_load` are `ReadLocal`.
+  - `ai_supported_conversions` is `Exec`, as `vault_conversions` is.
+- The fallback builtins outside the dispatch table had no Signatures, so
+  surplus or mistyped arguments reached their bodies, which often ignored them.
+  `journal_clear("a")` cleared the whole journal. Declared now:
+  - the ai_*/vault_* family;
+  - `journal_clear`, `undo`/`rewind`, `handle`, `agent` and `swarm`;
+  - `foreach-object`, `select-object` and `measure-object`.
+  The bodies were fixed along the way: wrapping casts, silently defaulted
+  options, uncoded errors, and nvidia-smi absence read as zero GPUs.
+  - `agent` and `swarm` now refuse unknown config keys, and tool names that
+    are not builtins.
+  - The four hyphenated cmdlet names with no parseable alias (`sort-object`,
+    `where-object`, `get-content`, `get-files`) remain undeclared. The
+    language cannot call them; their bodies now validate their arguments.
+- The Python SDK's `Swarm.run` and `Agent.run` generated calls the builtins
+  never accepted, and did not escape the goal. They now generate the record
+  form, and raise `ValueError` for options the builtins cannot honour.
 - The ontology listed `ask` as an alias of `ai`, but nothing dispatched it:
   an agent that called `ask(...)` got `E_UNKNOWN_BUILTIN`. The alias is
   removed, and a test now checks every advertised name and alias against the
