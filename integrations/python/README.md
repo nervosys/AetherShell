@@ -234,13 +234,15 @@ agent = runtime.create_agent(
     max_steps: int = 10
 ) -> Agent
 
-# Run swarm
+# Run swarm (sent to the swarm builtin as {goal, tools, max_steps};
+# tools is the union of the agents' tools; policy must be "round_robin",
+# and agents must use the default model and max_steps, else ValueError)
 result = await runtime.run_swarm(
     agents: List[Agent],
     goal: str,
     policy: str = "round_robin",
     max_iterations: int = 10
-) -> SwarmResult
+) -> SwarmResult   # result.result is the builtin's combined answer
 ```
 
 ### Agent

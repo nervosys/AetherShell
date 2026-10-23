@@ -153,29 +153,117 @@ class Swarm:
         self._runtime = runtime
     
     async def run(self, goal: str) -> SwarmResult:
-        """Execute the swarm with a goal"""
+        """Execute the swarm with a goal.
+
+        Raises ValueError, before anything runs, for any option the `swarm`
+        builtin cannot honour (see `_build_swarm_code`).
+        """
+        # Build the call first, so an unsupported option is refused without
+        # locating or starting the ae binary.
+        code = _build_swarm_code(self.agents, goal, self.policy, self.max_iterations)
+
         if self._runtime is None:
             self._runtime = AetherRuntime()
-        
-        # Build swarm configuration
-        agents_config = []
-        for agent in self.agents:
-            tools_str = ", ".join(f'"{t}"' for t in agent.tools)
-            agents_config.append(
-                f'{{name: "{agent.name}", model: "{agent.model}", tools: [{tools_str}]}}'
-            )
-        
-        agents_str = ", ".join(agents_config)
-        code = f'''swarm([{agents_str}], "{goal}", {{policy: "{self.policy}", max_iters: {self.max_iterations}}})'''
-        
+
         result = self._runtime.eval(code)
-        
-        return SwarmResult(
-            success=result.get("success", False),
-            result=result.get("result"),
-            blackboard=result.get("blackboard", {}),
-            iterations=result.get("iterations", 0),
+
+        if isinstance(result, dict):
+            return SwarmResult(
+                success=result.get("success", False),
+                result=result.get("result"),
+                blackboard=result.get("blackboard", {}),
+                iterations=result.get("iterations", 0),
+            )
+        # The builtin returns the combined answer as a String and reports no
+        # blackboard or iteration count. A returned value means the run did
+        # not fail, so success is True and the other fields are empty.
+        return SwarmResult(success=True, result=result, blackboard={}, iterations=0)
+
+
+# Defaults that the SDK's Agent and Swarm classes start from. The `swarm`
+# builtin has no model, policy or per-agent step option, so a non-default value
+# for any of them is refused rather than silently dropped.
+_DEFAULT_AGENT_MODEL = "openai:gpt-4o-mini"
+_DEFAULT_AGENT_MAX_STEPS = 10
+_DEFAULT_SWARM_POLICY = "round_robin"
+# The builtin's upper bound on max_steps (MAX_AGENT_STEPS in src/builtins.rs).
+_SWARM_MAX_STEPS = 1000
+
+
+def _aethershell_string(value: str) -> str:
+    """Render a Python str as an AetherShell double-quoted string literal.
+
+    The lexer unescapes backslash, double quote, n, r and t, so those are
+    escaped here. A "${" is refused instead: the lexer has no escape for it,
+    and the evaluator interpolates ${...} in any string literal.
+    """
+    if not isinstance(value, str):
+        raise TypeError(f"expected a str for an AetherShell string, got {type(value).__name__}")
+    if "${" in value:
+        raise ValueError(
+            "text containing '${' cannot be passed to AetherShell: string literals "
+            "interpolate ${...}, and the language has no escape for it"
         )
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return f'"{escaped}"'
+
+
+def _build_swarm_code(
+    agents: List[Agent],
+    goal: str,
+    policy: str,
+    max_iterations: int,
+) -> str:
+    """Build the AetherShell call that runs a swarm.
+
+    Produces the record form of the builtin, `swarm({goal, tools, max_steps})`.
+    `tools` is the union of the agents' tools, in first-seen order. Raises
+    ValueError for an option the builtin cannot honour: a policy other than
+    round_robin, a per-agent model or max_steps other than the SDK defaults,
+    or a max_iterations outside 1..=1000.
+    """
+    if policy != _DEFAULT_SWARM_POLICY:
+        raise ValueError(
+            f"Swarm policy {policy!r} is not supported: the swarm builtin has no "
+            f"policy option and always runs {_DEFAULT_SWARM_POLICY!r}"
+        )
+    if (
+        not isinstance(max_iterations, int)
+        or isinstance(max_iterations, bool)
+        or not 1 <= max_iterations <= _SWARM_MAX_STEPS
+    ):
+        raise ValueError(
+            f"max_iterations must be an int in 1..={_SWARM_MAX_STEPS} "
+            f"(the swarm builtin's max_steps), got {max_iterations!r}"
+        )
+
+    tools: List[str] = []
+    for agent in agents:
+        if agent.model != _DEFAULT_AGENT_MODEL:
+            raise ValueError(
+                f"Agent {agent.name!r} sets model {agent.model!r}, but the swarm builtin "
+                "has no per-agent model option; leave the model at its default"
+            )
+        if agent.max_steps != _DEFAULT_AGENT_MAX_STEPS:
+            raise ValueError(
+                f"Agent {agent.name!r} sets max_steps={agent.max_steps!r}, but the swarm "
+                "builtin has no per-agent step limit; use max_iterations on the swarm"
+            )
+        for tool in agent.tools:
+            if tool not in tools:
+                tools.append(tool)
+
+    tools_str = ", ".join(_aethershell_string(t) for t in tools)
+    return (
+        f"swarm({{goal: {_aethershell_string(goal)}, tools: [{tools_str}], "
+        f"max_steps: {max_iterations}}})"
+    )
 
 
 class AetherRuntime:

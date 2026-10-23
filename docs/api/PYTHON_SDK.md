@@ -79,7 +79,7 @@ agent = rt.create_agent(
 
 #### `rt.create_swarm(agents, policy, max_iterations) -> Swarm`
 
-Create a multi-agent swarm.
+Create a multi-agent swarm. The options are checked when the swarm runs, not here (see the limits under `Swarm` below).
 
 ```python
 swarm = rt.create_swarm(
@@ -92,6 +92,12 @@ swarm = rt.create_swarm(
 #### `rt.run_swarm(agents, goal, policy, max_iterations) -> SwarmResult`
 
 Convenience async method to create and run a swarm in one call.
+
+The SDK sends the `swarm` builtin the record form `swarm({goal, tools, max_steps})`:
+
+- `max_iterations` becomes `max_steps` (1 to 1000).
+- `tools` is the union of the agents' `tools`, deduplicated, in first-seen order. The swarm itself has no tool list.
+- The goal is escaped as an AetherShell string literal. A goal containing `${` raises `ValueError`, because the language interpolates `${...}` in string literals and has no escape for it.
 
 #### `rt.subscribe_a2ui(callback) -> Callable[[], None]`
 
@@ -155,17 +161,26 @@ Model URI format: `provider:model_name`
 
 ### `Swarm`
 
-Multi-agent swarm with coordination policies.
+Multi-agent swarm, run by the `swarm` builtin.
 
 ```python
 from aethershell import Swarm
 
 swarm = Swarm(
     agents=[planner, coder, tester],
-    policy="round_robin",  # or "router"
+    policy="round_robin",
     max_iterations=10,
 )
 ```
+
+The builtin takes no model, policy or per-agent step limit, so `run` raises `ValueError` before anything runs when:
+
+- `policy` is anything other than `"round_robin"` (the builtin has no policy option, so `"router"` is refused).
+- An agent sets `model` to anything other than the default `"openai:gpt-4o-mini"`. The builtin has no per-agent model option.
+- An agent sets `max_steps` to anything other than 10. Use `max_iterations` on the swarm.
+- `max_iterations` is outside 1 to 1000.
+
+Agent `name` is a label only and is not sent to the builtin.
 
 #### `await swarm.run(goal: str) -> SwarmResult`
 
@@ -178,10 +193,12 @@ Returns:
 @dataclass
 class SwarmResult:
     success: bool
-    result: Any
-    blackboard: Dict[str, Any]  # Shared state between agents
-    iterations: int
+    result: Any                 # The builtin's combined answer (a String)
+    blackboard: Dict[str, Any]  # Empty: the builtin does not report one
+    iterations: int             # 0: the builtin does not report one
 ```
+
+`success` is `True` when the call returns. A failed call raises `RuntimeError` from the runtime instead.
 
 ---
 
@@ -349,16 +366,18 @@ from aethershell import AetherRuntime
 
 async def main():
     rt = AetherRuntime()
-    planner = rt.create_agent("planner", "openai:gpt-4o", ["ls", "cat"])
-    coder = rt.create_agent("coder", "openai:gpt-4o", ["cat", "write"])
-    reviewer = rt.create_agent("reviewer", "openai:gpt-4o", ["cat", "grep"])
+    # Leave each agent on the default model: the swarm builtin has no per-agent model option.
+    planner = rt.create_agent("planner", tools=["ls", "cat"])
+    coder = rt.create_agent("coder", tools=["cat", "write"])
+    reviewer = rt.create_agent("reviewer", tools=["cat", "grep"])
 
     result = await rt.run_swarm(
         agents=[planner, coder, reviewer],
         goal="Refactor the utils module for better error handling",
         policy="round_robin",
+        max_iterations=10,
     )
-    print(f"Iterations: {result.iterations}, Success: {result.success}")
+    print(f"Success: {result.success}, Answer: {result.result}")
 
 asyncio.run(main())
 ```

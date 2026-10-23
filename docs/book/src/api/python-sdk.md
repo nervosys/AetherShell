@@ -54,14 +54,14 @@ print(result.output)
 ### Creating Swarms
 
 ```python
-swarm = runtime.create_swarm(
-    goal="Analyze project quality",
-    tools=["ls", "cat", "grep", "wc"],
-    max_steps=20
-)
+planner = runtime.create_agent("planner", tools=["ls", "cat"])
+reviewer = runtime.create_agent("reviewer", tools=["cat", "grep", "wc"])
+swarm = runtime.create_swarm([planner, reviewer], max_iterations=20)
 result = await swarm.run("Review src/ for code quality issues")
-print(result.output)
+print(result.result)  # the combined answer
 ```
+
+The swarm sends the `swarm` builtin `{goal, tools, max_steps}`. `tools` is the union of the agents' tools and `max_iterations` is `max_steps`. The builtin has no model, policy or per-agent step option, so `run` raises `ValueError` for a `policy` other than `"round_robin"`, an agent model other than the default `openai:gpt-4o-mini`, or an agent `max_steps` other than 10. See the [Python SDK reference](../../../api/PYTHON_SDK.md#swarm).
 
 ### A2UI Events
 
