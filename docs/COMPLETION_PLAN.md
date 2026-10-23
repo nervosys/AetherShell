@@ -296,8 +296,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_crypto_key_generate — native Ed25519; RSA/EC through `openssl` on every OS, E_TOOL_MISSING without it (35aefa5)
 - [x] bi_crypto_password_verify
 - [x] bi_crypto_cert_info — `openssl x509` on every OS, E_TOOL_MISSING without it (35aefa5)
-- [ ] bi_clipboard_get_image
-- [ ] bi_clipboard_set_image
+- [ ] bi_clipboard_get_image — Linux implemented (X11 xclip, Wayland wl-clipboard); Windows/macOS open
+- [ ] bi_clipboard_set_image — Linux implemented (X11 xclip, Wayland wl-clipboard); Windows/macOS open
 - [x] bi_input_read_char
 - [x] bi_input_spinner
 - [x] bi_input_progress

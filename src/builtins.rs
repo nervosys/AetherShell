@@ -39423,32 +39423,296 @@ fn bi_db_csv_to_json(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // Missing Clipboard & Input implementations
 // ============================================================================
 
-fn bi_clipboard_get_image(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    no_args_or_input("clipboard_get_image", &args, &input)?;
-    // Did no work and returned a value. An agent could not tell this apart
-    // from a result, so it is an error.
-    Err(crate::safety::unimplemented(
-        "clipboard_get_image",
-        "reading an image from the clipboard is not implemented; NOTHING WAS DONE",
-        "use a platform clipboard tool",
+/// Most image data `clipboard_get_image` returns or `clipboard_set_image` copies.
+const CLIPBOARD_IMAGE_MAX: usize = 32 * 1024 * 1024;
+/// The image types the clipboard image builtins carry, in the order
+/// `clipboard_get_image` prefers them.
+#[cfg(target_os = "linux")]
+const CLIPBOARD_IMAGE_TYPES: [&str; 5] = [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/bmp",
+    "image/webp",
+];
+
+/// The MIME type of an image, from its first bytes, if it is one the
+/// clipboard image builtins carry.
+fn image_mime_of(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.starts_with(b"BM") && bytes.len() > 14 {
+        Some("image/bmp")
+    } else if bytes.len() > 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+/// The targets (X11) or MIME types (Wayland) the Linux clipboard offers, one
+/// per entry; empty when nothing owns the clipboard. With no display it is
+/// E_NO_UI. xsel cannot list targets or carry images, so only xclip serves
+/// X11 here.
+#[cfg(target_os = "linux")]
+fn linux_clipboard_offers(name: &str) -> Result<Vec<String>> {
+    if !display_env_set("DISPLAY") && !display_env_set("WAYLAND_DISPLAY") {
+        return Err(crate::safety::no_ui(name));
+    }
+    let lines = |out: &std::process::Output| {
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+    };
+    if display_env_set("WAYLAND_DISPLAY") {
+        let out = linux_clipboard_tool(name, "wl-paste", &["--list-types"])?.ok_or_else(|| {
+            crate::safety::tool_missing(
+                name,
+                "wl-paste",
+                "install wl-clipboard to use clipboard images",
+            )
+        })?;
+        if out.status.success() {
+            return Ok(lines(&out));
+        }
+        if out.status.code() == Some(1)
+            && String::from_utf8_lossy(&out.stderr).contains("Nothing is copied")
+        {
+            return Ok(Vec::new());
+        }
+        return Err(crate::safety::tool_failed(
+            name,
+            "wl-paste",
+            out.status.code(),
+            &gui_stderr_tail(&out),
+        ));
+    }
+    let out = linux_clipboard_tool(
+        name,
+        "xclip",
+        &["-selection", "clipboard", "-o", "-t", "TARGETS"],
+    )?
+    .ok_or_else(|| {
+        crate::safety::tool_missing(
+            name,
+            "xclip",
+            "install xclip to use clipboard images; xsel cannot carry them",
+        )
+    })?;
+    if out.status.success() {
+        return Ok(lines(&out));
+    }
+    if String::from_utf8_lossy(&out.stderr).contains("not available") {
+        return Ok(Vec::new());
+    }
+    Err(crate::safety::tool_failed(
+        name,
+        "xclip",
+        out.status.code(),
+        &gui_stderr_tail(&out),
     ))
 }
 
+fn bi_clipboard_get_image(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "clipboard_get_image";
+    no_args_or_input(NAME, &args, &input)?;
+    #[cfg(target_os = "linux")]
+    {
+        let offers = linux_clipboard_offers(NAME)?;
+        let Some(mime) = CLIPBOARD_IMAGE_TYPES
+            .iter()
+            .find(|t| offers.iter().any(|o| o.eq_ignore_ascii_case(t)))
+        else {
+            return Err(crate::safety::not_found(
+                NAME,
+                "image on the clipboard",
+                "the clipboard holds no PNG, JPEG, GIF, BMP or WEBP image",
+            ));
+        };
+        let (tool, read_args): (&str, Vec<&str>) = if display_env_set("WAYLAND_DISPLAY") {
+            ("wl-paste", vec!["--no-newline", "--type", mime])
+        } else {
+            ("xclip", vec!["-selection", "clipboard", "-o", "-t", mime])
+        };
+        let out = linux_clipboard_tool(NAME, tool, &read_args)?.ok_or_else(|| {
+            crate::safety::tool_missing(NAME, tool, "install it to read clipboard images")
+        })?;
+        if !out.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                tool,
+                out.status.code(),
+                &gui_stderr_tail(&out),
+            ));
+        }
+        if out.stdout.len() > CLIPBOARD_IMAGE_MAX {
+            return Err(crate::safety::budget_exceeded(
+                NAME,
+                format!(
+                    "the clipboard image is {} bytes, over the {CLIPBOARD_IMAGE_MAX}-byte limit",
+                    out.stdout.len()
+                ),
+                "copy a smaller image; this shell returns no truncated image",
+            ));
+        }
+        if out.stdout.is_empty() {
+            return Err(crate::safety::not_found(
+                NAME,
+                "image on the clipboard",
+                "the clipboard offered an image but gave no data; copy it again",
+            ));
+        }
+        use base64::Engine;
+        let mut rec = BTreeMap::new();
+        rec.insert("mime".to_string(), Value::Str(mime.to_string()));
+        rec.insert("bytes".to_string(), Value::Int(out.stdout.len() as i64));
+        rec.insert(
+            "base64".to_string(),
+            Value::Str(base64::engine::general_purpose::STANDARD.encode(&out.stdout)),
+        );
+        Ok(Value::Record(rec))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(crate::safety::unimplemented(
+            NAME,
+            "reading an image from the clipboard is implemented on Linux only; NOTHING WAS READ",
+            "use a platform clipboard tool",
+        ))
+    }
+}
+
+/// Copy an image file to the clipboard. The argument, the file and its type
+/// are checked before the display, so every refusal but E_NO_UI is the same
+/// on every OS.
 fn bi_clipboard_set_image(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const NAME: &str = "clipboard_set_image";
     refuse_piped_input(NAME, &input)?;
-    gui_text(
+    let path = gui_text(
         NAME,
         "image path",
         gui_required(NAME, &args, 0, "an image path")?,
         GUI_FIELD_MAX_BYTES,
         false,
     )?;
-    Err(crate::safety::unimplemented(
-        NAME,
-        "writing an image to the clipboard is not implemented; NOTHING WAS DONE",
-        "use a platform clipboard tool",
-    ))
+    if args.len() > 1 {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "one argument: the image path",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    if !std::path::Path::new(&path).exists() {
+        return Err(crate::safety::not_found(NAME, "image file", &path));
+    }
+    let validated = validate_read_path(&path)?;
+    let size = fs::metadata(&validated)
+        .map_err(|e| crate::safety::fs_error(NAME, &path, &e))?
+        .len();
+    if size > CLIPBOARD_IMAGE_MAX as u64 {
+        return Err(crate::safety::budget_exceeded(
+            NAME,
+            format!("{path} is {size} bytes, over the {CLIPBOARD_IMAGE_MAX}-byte limit"),
+            "copy a smaller image",
+        ));
+    }
+    let bytes = fs::read(&validated).map_err(|e| crate::safety::fs_error(NAME, &path, &e))?;
+    let Some(mime) = image_mime_of(&bytes) else {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "a PNG, JPEG, GIF, BMP or WEBP image",
+            &format!("{path}, which is none of those"),
+        ));
+    };
+    #[cfg(target_os = "linux")]
+    {
+        linux_clipboard_set_image(NAME, mime, bytes)?;
+        Ok(Value::Bool(true))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (mime, bytes);
+        Err(crate::safety::unimplemented(
+            NAME,
+            "writing an image to the clipboard is implemented on Linux only; NOTHING WAS COPIED",
+            "use a platform clipboard tool",
+        ))
+    }
+}
+
+/// Hand `bytes` to xclip or wl-copy as `mime`.
+///
+/// Not through bounded_cmd_output or run_tree, on purpose. Both tools fork a
+/// holder that owns the selection after the command returns, and run_tree puts
+/// its child in a new process group and kills that group when a pipe outlives
+/// the child: it would kill the holder and empty the clipboard again. So the
+/// tool keeps this shell's process group, gets null stdout and stderr (the
+/// holder keeps no pipe of ours), and only the direct child is waited on, with
+/// a deadline. Stdin is written from a thread so a tool that stops reading
+/// cannot block the wait.
+#[cfg(target_os = "linux")]
+fn linux_clipboard_set_image(name: &str, mime: &str, bytes: Vec<u8>) -> Result<()> {
+    use std::io::Write;
+    use std::process::Stdio;
+    if !display_env_set("DISPLAY") && !display_env_set("WAYLAND_DISPLAY") {
+        return Err(crate::safety::no_ui(name));
+    }
+    let (tool, tool_args): (&str, Vec<&str>) = if display_env_set("WAYLAND_DISPLAY") {
+        ("wl-copy", vec!["--type", mime])
+    } else {
+        ("xclip", vec!["-selection", "clipboard", "-t", mime, "-i"])
+    };
+    let mut child = std::process::Command::new(tool)
+        .args(&tool_args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| crate::safety::spawn_error(name, tool, &e))?;
+    if let Some(mut pipe) = child.stdin.take() {
+        std::thread::spawn(move || {
+            let _ = pipe.write_all(&bytes);
+        });
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(TOOL_DEADLINE_SECS);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => {
+                return Err(crate::safety::tool_failed(
+                    name,
+                    tool,
+                    status.code(),
+                    "it did not take the image",
+                ))
+            }
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20))
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::safety::budget_exceeded(
+                    name,
+                    format!(
+                        "`{tool}` did not finish within {TOOL_DEADLINE_SECS} s and was stopped"
+                    ),
+                    "check that the display is responsive, then retry",
+                ));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::safety::tool_failed(name, tool, None, &e.to_string()));
+            }
+        }
+    }
 }
 
 fn bi_clipboard_history(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
