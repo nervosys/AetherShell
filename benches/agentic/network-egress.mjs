@@ -75,11 +75,14 @@ const traced = (code, env = ENV, agent = true) => {
     // A connection is only actionable once we know WHO made it: `ae` itself,
     // or a program it started (a CLI asked for its version that phones home).
     // Map every pid to the last program it exec'd, falling back to its parent.
+    // strace 6 pads the pid column (`168   execve(...)`), so the pid is
+    // followed by any run of spaces; one space matched nothing there, and
+    // the control's connect() was attributed to `?`.
     const lines = log.split('\n');
     const exe = new Map();
     const parent = new Map();
     for (const l of lines) {
-        const ex = l.match(/^(\d+) execve\("([^"]+)", \[([^\]]*)\]/);
+        const ex = l.match(/^(\d+)\s+execve\("([^"]+)", \[([^\]]*)\]/);
         if (ex && !/= -1 /.test(l)) {
             // "python3" names nobody: gcloud, az and friends are launcher
             // scripts that exec an interpreter on a script. Name the script.
@@ -90,7 +93,7 @@ const traced = (code, env = ENV, agent = true) => {
             }
             exe.set(ex[1], prog);
         }
-        const cl = l.match(/^(\d+) (?:<\.\.\. )?(?:clone3?|v?fork)\b.*= (\d+)$/);
+        const cl = l.match(/^(\d+)\s+(?:<\.\.\. )?(?:clone3?|v?fork)\b.*= (\d+)$/);
         if (cl) parent.set(cl[2], cl[1]);
     }
     const who = (pid) => {

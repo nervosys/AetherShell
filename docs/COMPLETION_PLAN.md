@@ -148,10 +148,17 @@ into apparent success, bypass its effect gate, or make a documented mutation uns
 - [ ] Temporarily clear inherited LC_ALL for the known locale-sensitive Windows check, restore it afterward, and record the environment adjustment.
 - [ ] Run cargo clippy --workspace --all-targets -- -D warnings. 2026-10-23: clean on Windows and Linux; rerun on the release commit.
 - [ ] Build ae, aimodel and the LSP in supported release configurations.
-- [ ] Validate the Rust 1.88 MSRV and the supported feature combinations, including optional local inference and WASM where advertised. 2026-10-22: the library check without default features and the wasm32 library check had failed since 4ba43bc (import/export added an ungated module_loader); fixed by gating it on `native`, and both pass again, clippy clean. The `ae` and `aimodel` binaries and the tests need `native`, as before.
+- [ ] Validate the Rust 1.88 MSRV and the supported feature combinations, including optional local inference and WASM where advertised. 2026-10-22: the library check without default features and the wasm32 library check had failed since 4ba43bc (import/export added an ungated module_loader); fixed by gating it on `native`, and both pass again, clippy clean. The `ae` and `aimodel` binaries and the tests need `native`, as before. 2026-10-23 at f24cc7f, on Windows: `cargo +1.88 check --workspace --features native` (the CI MSRV job), `cargo +1.88 check --workspace --all-targets`, `cargo +1.88 check --lib --no-default-features` and the stable wasm32 library check all pass. Optional local inference and the other advertised feature sets are not yet checked.
 - [ ] Run Linux, macOS and Windows CI, including the declared supported architectures and packaging targets.
 - [ ] Validate hardware, GUI, clipboard, service and other environment-dependent contracts on suitable hosts or disposable environments; document unavailable coverage.
 - [ ] Run uncoded-failure, second-path, discarded-argument, silent-success and network-egress probes in isolated environments; verify their non-vacuity checks and final thresholds.
+  - 2026-10-23, the CI agentic-probes job reproduced in ae-disposable, as the unprivileged tester under an 8 GiB cap, with AE_PROBE_ASSERT=1:
+    - uncoded: 0 of 1,171.
+    - uncoded-paths: 0 of 1,171.
+    - discarded-args: 1 of 103 comparable (journal_clear), under the ratchet of 5.
+    - network-egress: 0 of 1,171 connected with AETHER_MAX_NET=0.
+  - network-egress first refused to report. Its non-vacuity control attributed curl's connect() to `?`, because strace 6 pads the pid column and the probe matched exactly one space. With that fixed, the control sees 1 connect() by curl.
+  - silent-success is not a gate (see ci.yml) and was not run.
 - [ ] Confirm CI gates execute the intended tests and fail on representative injected regressions.
 
 **Gate:** all required jobs pass on the exact release commit. A historical pass,
