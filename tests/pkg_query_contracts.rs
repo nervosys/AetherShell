@@ -2,8 +2,9 @@
 //! (dpkg-query or pacman) and the apt history log.
 //!
 //! Ordinary tests run everywhere: argument and pipeline-input refusals come
-//! before any platform check, so they are E_BAD_ARG on every OS, and off
-//! Linux the readers are E_UNIMPLEMENTED with nothing read.
+//! before any platform check, so they are E_BAD_ARG on every OS. On Windows
+//! pkg_list is checked against reg.exe; on macOS it, and off Linux
+//! pkg_history, is E_UNIMPLEMENTED with nothing read.
 //!
 //! The tests that read the real system are `#[ignore]`d and run only in the
 //! disposable distro, via scripts/disposable_linux_tests.sh. Each checks the
@@ -97,11 +98,11 @@ fn pkg_history_is_unimplemented_off_linux_and_reads_nothing() {
     expect_code("pkg_history", vec![Value::Int(5)], "E_UNIMPLEMENTED");
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 #[test]
 fn pkg_list_is_unimplemented_for_the_host_package_manager() {
-    // Off Linux the detected manager is winget or brew, neither of which is
-    // listed by this builtin in 13.0.0.
+    // On macOS the detected manager is brew, which this builtin does not
+    // list in 13.0.0.
     match call("pkg_list", vec![]) {
         Ok(v) => panic!("pkg_list answered {v:?} on a host it does not support"),
         Err(e) => {
@@ -109,6 +110,78 @@ fn pkg_list_is_unimplemented_for_the_host_package_manager() {
             assert!(e.to_string().contains("NOTHING WAS LISTED"), "{e}");
         }
     }
+}
+
+/// The DisplayName values `reg.exe` reports under the Uninstall keys
+/// `pkg_list` reads on Windows: an oracle with its own parser and none of
+/// PowerShell. A hive with no match exits 1, which is not a failure here.
+#[cfg(windows)]
+fn reg_display_names() -> std::collections::BTreeSet<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for key in [
+        r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        r"HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+    ] {
+        let out = std::process::Command::new("reg")
+            .args(["query", key, "/s", "/v", "DisplayName"])
+            .output()
+            .expect("reg.exe runs");
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let value = line
+                .trim_start()
+                .strip_prefix("DisplayName")
+                .and_then(|rest| rest.split_once("REG_SZ"))
+                .map(|(_, value)| value);
+            if let Some(value) = value {
+                names.insert(value.replace(['\t', '\r', '\n'], " ").trim().to_string());
+            }
+        }
+    }
+    names
+}
+
+/// Reads the registry, writes nothing: every listed program is one reg.exe
+/// also finds, and the rows are well formed and sorted.
+#[cfg(windows)]
+#[test]
+fn pkg_list_on_windows_lists_add_remove_programs_entries() {
+    let Value::Array(rows) = call("pkg_list", vec![]).expect("pkg_list answers on Windows") else {
+        panic!("pkg_list did not answer an Array");
+    };
+    assert!(!rows.is_empty(), "no program is installed on this host?");
+    let oracle = reg_display_names();
+    let mut seen = Vec::new();
+    for row in &rows {
+        let Value::Record(rec) = row else {
+            panic!("row {row:?} is not a Record");
+        };
+        let Some(Value::Str(name)) = rec.get("name") else {
+            panic!("row {row:?} has no name");
+        };
+        assert!(!name.is_empty(), "an empty name: {row:?}");
+        let version = match rec.get("version") {
+            Some(Value::Str(v)) => {
+                assert!(!v.is_empty(), "an empty version is Null: {row:?}");
+                v.clone()
+            }
+            Some(Value::Null) => String::new(),
+            other => panic!("version is {other:?} in {row:?}"),
+        };
+        // reg.exe prints in the console code page, so only ASCII names are
+        // compared byte for byte.
+        if name.is_ascii() {
+            assert!(
+                oracle.contains(name),
+                "{name} is not a DisplayName reg.exe reports"
+            );
+        }
+        seen.push((name.clone(), version));
+    }
+    let mut sorted = seen.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(seen, sorted, "rows are sorted and unique");
 }
 
 // ---------------------------------------------------------------------------

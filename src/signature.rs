@@ -9079,7 +9079,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "Installed packages as {name, version} Records, sorted by name. On apt systems it runs dpkg-query and on Arch it runs pacman -Q, each as an argv with no shell, under a 60 s limit and a 64 MiB output cap. Takes no arguments and no pipeline input. Other package managers (dnf, yum, brew, winget) are E_UNIMPLEMENTED and NOTHING WAS LISTED. A missing tool is E_TOOL_MISSING, a nonzero exit E_TOOL_FAILED, and a run over its limit or cap E_BUDGET_EXCEEDED.",
+        doc: "Installed packages as {name, version} Records, sorted by name. On apt systems it runs dpkg-query and on Arch it runs pacman -Q, each as an argv with no shell; on Windows it lists the Add/Remove Programs entries (64-bit and 32-bit machine keys and the current user's, without system components or updates), whose version is Null when a program records none. Each runs under a 60 s limit and a 64 MiB output cap. Takes no arguments and no pipeline input. Other package managers (dnf, yum, brew) are E_UNIMPLEMENTED and NOTHING WAS LISTED. A missing tool is E_TOOL_MISSING, a nonzero exit E_TOOL_FAILED, and a run over its limit or cap E_BUDGET_EXCEEDED.",
         examples: &[
             (r#"(try { pkg_list("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { pkg_list(1, 2) } catch e { e.error.code })"#, "E_BAD_ARG"),

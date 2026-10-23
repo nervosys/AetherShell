@@ -88,7 +88,7 @@ removing their guards.
 - [ ] Implement services, users/groups, permissions/ACLs, mounting and watching with tested platform backends. (Linux; Windows/macOS open)
 - [x] Implement bounded native TCP connect/listen/send/recv/close with strict contracts and actual loopback transfers; Linux/macOS native validation remains open.
 - [ ] Implement missing web/clipboard/UI/input operations.
-- [ ] Implement missing package-manager operations with checked tool adapters.
+- [ ] Implement missing package-manager operations with checked tool adapters. (pkg_list: apt, pacman and Windows Add/Remove Programs; dnf/yum and brew open)
 - [x] Implement source navigation, refactoring, search, tests, sessions and documentation operations.
 - [ ] Implement DQN training and remaining crypto operations/legacy verification where supported by the algorithm policy.
   - [x] Implement DQN batch SGD with detached targets and real weights/bias updates.

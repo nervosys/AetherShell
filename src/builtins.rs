@@ -31354,13 +31354,15 @@ fn bi_pkg_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let packages = match detect_package_manager() {
         "apt" => pkg_query::list_dpkg("pkg_list")?,
         "pacman" => pkg_query::list_pacman("pkg_list")?,
+        #[cfg(windows)]
+        "winget" => pkg_query::list_windows_arp("pkg_list")?,
         other => {
             return Err(crate::safety::unimplemented(
                 "pkg_list",
                 &format!(
                     "pkg_list is not implemented for the {other} package manager in 13.0.0; NOTHING WAS LISTED"
                 ),
-                "list the packages with that manager directly (dnf list installed, brew list --versions, winget list)",
+                "list the packages with that manager directly (dnf list installed, brew list --versions)",
             ))
         }
     };
@@ -31370,7 +31372,13 @@ fn bi_pkg_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             .map(|(name, version)| {
                 let mut rec = std::collections::BTreeMap::new();
                 rec.insert("name".to_string(), Value::Str(name));
-                rec.insert("version".to_string(), Value::Str(version));
+                // Only a Windows program can record no version.
+                let version = if version.is_empty() {
+                    Value::Null
+                } else {
+                    Value::Str(version)
+                };
+                rec.insert("version".to_string(), version);
                 Value::Record(rec)
             })
             .collect(),

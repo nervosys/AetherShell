@@ -1,7 +1,8 @@
 //! Bounded readers and pure parsers behind `pkg_list` and `pkg_history`.
 //!
 //! `pkg_list` runs `dpkg-query` (apt systems) or `pacman -Q` with an argv and
-//! no shell, under a 60 s deadline and a 64 MiB output cap. `pkg_history`
+//! no shell, or on Windows reads the Add/Remove Programs registry keys through
+//! PowerShell, under a 60 s deadline and a 64 MiB output cap. `pkg_history`
 //! reads the uncompressed `/var/log/apt/history.log`, at most its last 64 MiB.
 //! The parsers are pure functions over text, so their edge cases are unit
 //! tested on every platform; the readers only run on Linux.
@@ -331,6 +332,81 @@ pub(crate) fn list_pacman(builtin: &str) -> Result<Vec<Package>> {
     parse_pacman_rows(&run.stdout).map_err(|e| parse_failure(builtin, "pacman", e))
 }
 
+/// Parse the `name<TAB>version` lines [`ARP_SCRIPT`] prints. The version may
+/// be empty: a program need not record one. Sorted by name, then version,
+/// with exact duplicates (the same program in two hives) kept once.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn parse_arp_rows(text: &str) -> Result<Vec<Package>, ParseError> {
+    let mut rows: Vec<Package> = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.len() > MAX_LINE_BYTES {
+            return Err(ParseError::TooLarge("a line longer than 1 MiB"));
+        }
+        if line.is_empty() {
+            continue;
+        }
+        let bad = ParseError::BadLine { line: index + 1 };
+        let Some((name, version)) = line.split_once('\t') else {
+            return Err(bad);
+        };
+        if name.is_empty() || version.contains('\t') {
+            return Err(bad);
+        }
+        if rows.len() >= MAX_ROWS {
+            return Err(ParseError::TooLarge("more than 200000 installed packages"));
+        }
+        rows.push((name.to_string(), version.to_string()));
+    }
+    rows.sort();
+    rows.dedup();
+    Ok(rows)
+}
+
+/// Prints one `name<TAB>version` line per program in Add/Remove Programs:
+/// the 64-bit and 32-bit machine Uninstall keys and the current user's. As
+/// in the Control Panel list, entries without a DisplayName, system
+/// components and updates (those with a ParentKeyName) are left out. Tabs
+/// and line breaks inside a value become spaces, so each entry is one line.
+#[cfg(windows)]
+const ARP_SCRIPT: &str = r#"$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);
+$keys = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*';
+foreach ($k in $keys) {
+  if (-not (Test-Path ($k.TrimEnd('*')))) { continue }
+  Get-ItemProperty -Path $k -ErrorAction SilentlyContinue |
+    Where-Object { $_.DisplayName -and $_.SystemComponent -ne 1 -and -not $_.ParentKeyName } |
+    ForEach-Object {
+      $n = ([string]$_.DisplayName -replace '[\t\r\n]', ' ').Trim();
+      $v = ([string]$_.DisplayVersion -replace '[\t\r\n]', ' ').Trim();
+      if ($n) { "$n`t$v" }
+    }
+}"#;
+
+/// Installed programs from the Windows Add/Remove Programs registry keys,
+/// read by PowerShell with no profile under the same deadline and cap.
+#[cfg(windows)]
+pub(crate) fn list_windows_arp(builtin: &str) -> Result<Vec<Package>> {
+    let argv = [
+        "-NoLogo".to_string(),
+        "-NoProfile".to_string(),
+        "-NonInteractive".to_string(),
+        "-Command".to_string(),
+        ARP_SCRIPT.to_string(),
+    ];
+    let run = linux_diagnostics::run_bounded_capped(
+        builtin,
+        "powershell",
+        "powershell",
+        &argv,
+        TOOL_LIMIT,
+        MAX_OUTPUT_BYTES,
+    )?;
+    check_run(builtin, "powershell", &run, MAX_OUTPUT_BYTES)?;
+    parse_arp_rows(&run.stdout)
+        .map_err(|e| parse_failure(builtin, "the Uninstall registry keys", e))
+}
+
 /// The last `MAX_OUTPUT_BYTES` of the apt history log, as text. A read that
 /// began mid-file drops its partial first block. The file is read directly;
 /// nothing is run.
@@ -366,6 +442,35 @@ mod tests {
         format!(
             "Start-Date: {start}\nCommandline: {command}\nInstall: curl:amd64 (7.88.1-10, automatic), libcurl4:amd64 (7.88.1-10, automatic)\nEnd-Date: {start}\n\n"
         )
+    }
+
+    #[test]
+    fn arp_rows_are_sorted_deduplicated_and_may_lack_a_version() {
+        let text = "Zoom\t5.17.1\r\nGit\t2.44.0\r\nGit\t2.44.0\r\n\r\nSome Tool\t\r\n";
+        assert_eq!(
+            parse_arp_rows(text),
+            Ok(vec![
+                pkg("Git", "2.44.0"),
+                pkg("Some Tool", ""),
+                pkg("Zoom", "5.17.1")
+            ])
+        );
+    }
+
+    #[test]
+    fn arp_refuses_a_line_without_a_tab_an_empty_name_or_a_third_field() {
+        assert_eq!(
+            parse_arp_rows("Git\t2.44\nno tab here\n"),
+            Err(ParseError::BadLine { line: 2 })
+        );
+        assert_eq!(
+            parse_arp_rows("\t1.0\n"),
+            Err(ParseError::BadLine { line: 1 })
+        );
+        assert_eq!(
+            parse_arp_rows("a\tb\tc\n"),
+            Err(ParseError::BadLine { line: 1 })
+        );
     }
 
     #[test]
