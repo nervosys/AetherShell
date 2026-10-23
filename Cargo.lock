@@ -113,6 +113,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tui-input",
+ "tungstenite",
  "url",
  "urlencoding",
  "utoipa",
@@ -5374,9 +5375,12 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.8.7",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror 1.0.69",
  "utf-8",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]

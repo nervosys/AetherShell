@@ -1429,9 +1429,14 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "web_websocket", category: None, subject_required: false, aliases: &[],
-        subject: None, params: &[req("url", Ty::Str, "ws or wss URL")], returns: "Any",
-        doc: "Open a WebSocket. NOT IMPLEMENTED: every call is refused with E_UNIMPLEMENTED before anything is opened, pending a decision on a WebSocket client dependency. Use an external WebSocket client.",
-        examples: &[(r#"(try { web_websocket("wss://example.invalid/socket") } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+        subject: None, params: &[req("url", Ty::Str, "ws or wss URL"), opt("send", Ty::Any, "a String or Array of Strings sent as text frames after connecting; null sends nothing"), opt("opts", Ty::Record, "max_messages (Int 1..=1000, default 100), timeout_secs (Int 1..=120, default 10)")], returns: "Record",
+        doc: "One bounded WebSocket exchange: connect to a ws or wss URL, send each `send` string as a text frame, collect messages until the server closes, max_messages arrive or timeout_secs pass, then close. Returns {messages, closed_by_server, timed_out}; a text frame is a String, a binary frame {binary: base64}. timeout_secs covers the whole exchange; running out while collecting is timed_out true, not an error, but a connect or handshake that runs out is E_BUDGET_EXCEEDED. More than 8 MiB received is E_BUDGET_EXCEEDED. A connection or handshake that fails is E_TOOL_FAILED. A URL that is not ws or wss, a bad send value, an unknown option, an out-of-range option or a surplus argument is E_BAD_ARG before anything is opened. wss verifies the server against the webpki root certificates.",
+        examples: &[
+            (r#"(try { web_websocket("http://example.invalid/socket") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { web_websocket("ws://example.invalid/socket", 5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { web_websocket("ws://example.invalid/socket", null, {max_messages: 0}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { web_websocket("ws://example.invalid/socket", ["a"], {colour: 1}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
     },
     Signature {
         name: "web_graphql", category: None, subject_required: false, aliases: &[],

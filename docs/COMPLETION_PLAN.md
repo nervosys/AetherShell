@@ -286,7 +286,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [ ] bi_gui_screenshot
 - [ ] bi_gui_screenshot_window
 - [x] bi_gui_find_image
-- [ ] bi_web_websocket
+- [x] bi_web_websocket — one bounded exchange through tungstenite (already built for axum): ws and wss, 8 MiB, 1000 messages, 120 s
 - [ ] bi_web_xpath
 - [ ] bi_clipboard_types — Linux implemented (X11 via xclip/xsel, Wayland via wl-paste); macOS open.
 - [x] bi_input_timeout

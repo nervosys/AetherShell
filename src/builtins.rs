@@ -35857,14 +35857,318 @@ fn bi_web_rest_api(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
-fn bi_web_websocket(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // Refused before anything is opened. This is a stub: the builtin needs a
-    // WebSocket client dependency, and that decision has not been made.
+/// Most messages one `web_websocket` exchange may set as `max_messages`.
+const WS_MAX_MESSAGES: i64 = 1000;
+/// Messages collected when `max_messages` is not given.
+const WS_DEFAULT_MESSAGES: usize = 100;
+/// Longest `timeout_secs` one exchange may ask for, and its default.
+const WS_MAX_TIMEOUT_SECS: i64 = 120;
+const WS_DEFAULT_TIMEOUT_SECS: u64 = 10;
+/// Most payload, over all received messages, one exchange keeps.
+const WS_PAYLOAD_MAX: usize = 8 * 1024 * 1024;
+const WS_URL_EXPECTED: &str = "an absolute ws or wss URL such as wss://example.com/socket";
+
+/// What one `web_websocket` call was asked to do, validated before anything
+/// is opened.
+struct WsPlan {
+    url: String,
+    send: Vec<String>,
+    max_messages: usize,
+    timeout: std::time::Duration,
+}
+
+fn ws_plan(args: &[Value]) -> Result<WsPlan> {
+    const NAME: &str = "web_websocket";
+    if args.len() > 3 {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "at most three arguments: url, send, opts",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    let text = web_text_arg(NAME, args, 0, WS_URL_EXPECTED)?;
+    if text.chars().any(|c| c.is_control()) {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            WS_URL_EXPECTED,
+            "text with a control character",
+        ));
+    }
+    let parsed = url::Url::parse(text)
+        .map_err(|e| crate::safety::bad_arg(NAME, WS_URL_EXPECTED, &format!("{text:?} ({e})")))?;
+    if !matches!(parsed.scheme(), "ws" | "wss") || parsed.host_str().is_none() {
+        return Err(crate::safety::bad_arg(NAME, WS_URL_EXPECTED, text));
+    }
+    let send = match args.get(1) {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Str(s)) => vec![s.clone()],
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => Ok(s.clone()),
+                other => Err(crate::safety::bad_arg(
+                    NAME,
+                    "send: a String or an Array of Strings",
+                    &format!("an Array holding {}", other.type_name()),
+                )),
+            })
+            .collect::<Result<Vec<_>>>()?,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "send: a String, an Array of Strings, or null",
+                other.type_name(),
+            ))
+        }
+    };
+    let mut max_messages = WS_DEFAULT_MESSAGES;
+    let mut timeout_secs = WS_DEFAULT_TIMEOUT_SECS;
+    match args.get(2) {
+        None | Some(Value::Null) => {}
+        Some(Value::Record(map)) => {
+            for (key, value) in map {
+                match (key.as_str(), value) {
+                    ("max_messages", Value::Int(n)) if (1..=WS_MAX_MESSAGES).contains(n) => {
+                        max_messages = *n as usize
+                    }
+                    ("timeout_secs", Value::Int(n)) if (1..=WS_MAX_TIMEOUT_SECS).contains(n) => {
+                        timeout_secs = *n as u64
+                    }
+                    ("max_messages", v) | ("timeout_secs", v) => {
+                        return Err(crate::safety::bad_arg(
+                            NAME,
+                            &format!(
+                                "{key}: max_messages is an Int in 1..={WS_MAX_MESSAGES}, \
+                                 timeout_secs an Int in 1..={WS_MAX_TIMEOUT_SECS}"
+                            ),
+                            v.type_name(),
+                        ))
+                    }
+                    _ => {
+                        return Err(crate::safety::bad_arg(
+                            NAME,
+                            "opts keys max_messages and timeout_secs",
+                            &format!("unknown option {key:?}"),
+                        ))
+                    }
+                }
+            }
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "opts: a Record or null",
+                other.type_name(),
+            ))
+        }
+    }
+    Ok(WsPlan {
+        url: parsed.to_string(),
+        send,
+        max_messages,
+        timeout: std::time::Duration::from_secs(timeout_secs),
+    })
+}
+
+/// `web_websocket(url, send?, opts?)`: one bounded exchange. A shell call
+/// cannot hold a socket open between calls, so this connects, sends `send` as
+/// text frames, collects messages until the server closes, `max_messages`
+/// arrive or `timeout_secs` pass, then closes. The deadline covers the whole
+/// exchange, connect and handshake included, through socket timeouts set to
+/// the time that remains; reaching it while collecting is an answer
+/// (`timed_out`), not an error.
+#[cfg(feature = "native")]
+fn bi_web_websocket(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    use tungstenite::Message;
+    const NAME: &str = "web_websocket";
+    web_no_input(NAME, &input)?;
+    let plan = ws_plan(&args)?;
+    let started = std::time::Instant::now();
+    let remaining = || plan.timeout.saturating_sub(started.elapsed());
+    let failed = |what: &str, e: &dyn std::fmt::Display| {
+        web_failure(
+            NAME,
+            format!("{what} {}: {e}", plan.url),
+            "check the URL and that the server accepts WebSocket connections",
+        )
+    };
+    let too_slow = |what: &str| {
+        crate::safety::budget_exceeded(
+            NAME,
+            format!("{what} {} within {:?}", plan.url, plan.timeout),
+            "the server is slow or unreachable; retry later or raise timeout_secs",
+        )
+    };
+
+    let parsed = url::Url::parse(&plan.url).map_err(|e| failed("could not parse", &e))?;
+    let host = parsed.host_str().unwrap_or_default().to_string();
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let addrs: Vec<std::net::SocketAddr> = std::net::ToSocketAddrs::to_socket_addrs(&(
+        host.trim_start_matches('[').trim_end_matches(']'),
+        port,
+    ))
+    .map_err(|e| failed("could not resolve", &e))?
+    .collect();
+    let mut last_err: Option<std::io::Error> = None;
+    let mut tcp = None;
+    for addr in addrs {
+        let left = remaining();
+        if left.is_zero() {
+            break;
+        }
+        match std::net::TcpStream::connect_timeout(&addr, left) {
+            Ok(s) => {
+                tcp = Some(s);
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    let Some(tcp) = tcp else {
+        if remaining().is_zero() {
+            return Err(too_slow("could not connect to"));
+        }
+        let e = last_err.map_or_else(|| "no address".to_string(), |e| e.to_string());
+        return Err(failed("could not connect to", &e));
+    };
+    // The deadline is set on the socket itself, before the handshake and then
+    // through the WebSocket's own stream. A `try_clone` would not do: on
+    // Windows a duplicated handle's timeouts do not bound reads on the
+    // original, so a silent server held the call for its own timeout.
+    let set_deadline = |tcp: &std::net::TcpStream, left: std::time::Duration| -> Result<()> {
+        let left = left.max(std::time::Duration::from_millis(1));
+        tcp.set_read_timeout(Some(left))
+            .and_then(|()| tcp.set_write_timeout(Some(left)))
+            .map_err(|e| failed("could not set a deadline on", &e))
+    };
+    set_deadline(&tcp, remaining())?;
+
+    let mut config = tungstenite::protocol::WebSocketConfig::default();
+    config.max_message_size = Some(WS_PAYLOAD_MAX);
+    config.max_frame_size = Some(WS_PAYLOAD_MAX);
+    let is_timeout = |e: &tungstenite::Error| {
+        matches!(e, tungstenite::Error::Io(io)
+            if matches!(io.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
+    };
+    let (mut socket, _response) =
+        tungstenite::client_tls_with_config(plan.url.as_str(), tcp, Some(config), None).map_err(
+            |e| match e {
+                tungstenite::HandshakeError::Failure(e) if is_timeout(&e) => {
+                    too_slow("could not finish the handshake with")
+                }
+                tungstenite::HandshakeError::Failure(e) => failed("the handshake failed with", &e),
+                tungstenite::HandshakeError::Interrupted(_) => {
+                    too_slow("could not finish the handshake with")
+                }
+            },
+        )?;
+
+    type WsSocket =
+        tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
+    let deadline_socket = |socket: &WsSocket, left: std::time::Duration| -> Result<()> {
+        match socket.get_ref() {
+            tungstenite::stream::MaybeTlsStream::Plain(tcp) => set_deadline(tcp, left),
+            tungstenite::stream::MaybeTlsStream::Rustls(tls) => set_deadline(&tls.sock, left),
+            _ => Err(failed(
+                "could not set a deadline on",
+                &"an unexpected stream type",
+            )),
+        }
+    };
+    for text in &plan.send {
+        deadline_socket(&socket, remaining())?;
+        socket
+            .send(Message::text(text.clone()))
+            .map_err(|e| failed("could not send to", &e))?;
+    }
+
+    let mut messages = Vec::new();
+    let mut received = 0usize;
+    let mut closed_by_server = false;
+    let mut timed_out = false;
+    while messages.len() < plan.max_messages {
+        let left = remaining();
+        if left.is_zero() {
+            timed_out = true;
+            break;
+        }
+        deadline_socket(&socket, left)?;
+        let message = match socket.read() {
+            Ok(m) => m,
+            Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
+                closed_by_server = true;
+                break;
+            }
+            Err(tungstenite::Error::Capacity(e)) => {
+                return Err(crate::safety::budget_exceeded(
+                    NAME,
+                    format!("a message from {} is larger than allowed: {e}", plan.url),
+                    "this shell keeps at most 8 MiB per exchange; ask the server for less",
+                ))
+            }
+            Err(e) if is_timeout(&e) => {
+                timed_out = true;
+                break;
+            }
+            Err(e) => return Err(failed("could not read from", &e)),
+        };
+        let size = match &message {
+            Message::Text(t) => t.len(),
+            Message::Binary(b) => b.len(),
+            _ => 0,
+        };
+        received = received.saturating_add(size);
+        if received > WS_PAYLOAD_MAX {
+            return Err(crate::safety::budget_exceeded(
+                NAME,
+                format!("{} sent more than {WS_PAYLOAD_MAX} bytes", plan.url),
+                "this shell keeps at most 8 MiB per exchange and returns no truncated answer; lower max_messages",
+            ));
+        }
+        match message {
+            Message::Text(t) => messages.push(Value::Str(t.to_string())),
+            Message::Binary(b) => {
+                use base64::Engine;
+                let mut rec = BTreeMap::new();
+                rec.insert(
+                    "binary".to_string(),
+                    Value::Str(base64::engine::general_purpose::STANDARD.encode(&b)),
+                );
+                messages.push(Value::Record(rec));
+            }
+            Message::Close(_) => {
+                closed_by_server = true;
+                break;
+            }
+            Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
+        }
+    }
+    if !closed_by_server {
+        // A polite close, bounded by a short deadline of its own: the answer
+        // is already collected, so a failure here changes nothing.
+        let _ = deadline_socket(&socket, std::time::Duration::from_millis(500));
+        let _ = socket.close(None);
+        let _ = socket.flush();
+    }
+
+    let mut out = BTreeMap::new();
+    out.insert("messages".to_string(), Value::Array(messages));
+    out.insert(
+        "closed_by_server".to_string(),
+        Value::Bool(closed_by_server),
+    );
+    out.insert("timed_out".to_string(), Value::Bool(timed_out));
+    Ok(Value::Record(out))
+}
+
+#[cfg(not(feature = "native"))]
+fn bi_web_websocket(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     web_no_input("web_websocket", &input)?;
+    ws_plan(&args)?;
     Err(crate::safety::unimplemented(
         "web_websocket",
-        "opening a WebSocket is not implemented; NOTHING WAS DONE",
-        "use an external WebSocket client",
+        "WebSocket support needs the `native` feature; NOTHING WAS OPENED",
+        "build with the default `native` feature",
     ))
 }
 

@@ -252,15 +252,13 @@ fn class_and_id_selectors_are_refused_rather_than_read_as_tags() {
     }
 }
 
+// web_websocket is implemented; its contracts, against a loopback server, are
+// in tests/web_websocket_contracts.rs.
 #[test]
-fn websocket_and_xpath_are_coded_refusals_that_open_nothing() {
-    let r = call("web_websocket", vec![text("wss://example.invalid/socket")]);
-    assert_eq!(code_of(&r), "E_UNIMPLEMENTED", "web_websocket: {r:?}");
+fn xpath_is_a_coded_refusal_that_opens_nothing() {
     let r = call("web_xpath", vec![text("<p>x</p>"), text("//p")]);
     assert_eq!(code_of(&r), "E_UNIMPLEMENTED", "web_xpath: {r:?}");
     // Arity is checked before the stub is reached.
-    let r = call("web_websocket", vec![]);
-    assert_eq!(code_of(&r), "E_BAD_ARG");
     let r = call("web_xpath", vec![text("<p>x</p>")]);
     assert_eq!(code_of(&r), "E_BAD_ARG");
 }

@@ -84,6 +84,7 @@ native = [
     "dep:keyring",
     "dep:tokio",
     "dep:axum",
+    "dep:tungstenite",
     "dep:tower",
     "dep:tower-http",
     "dep:utoipa",
@@ -206,6 +207,9 @@ viuer = { version = "0.7", optional = true }
 keyring = { version = "2.3", optional = true }
 tokio = { version = "1.0", features = ["full"], optional = true }
 axum = { version = "0.7", features = ["ws"], optional = true }
+# web_websocket. Already built for axum's ws feature; the TLS feature uses the
+# rustls and webpki-roots that reqwest already builds.
+tungstenite = { version = "0.24", optional = true, default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = [
     "cors",
