@@ -263,15 +263,25 @@ fn the_spec_documents_every_endpoint_that_does_exist() {
 /// A formula is a published contract like the others in this file: it tells
 /// someone else how to obtain this software. So it gets the same treatment —
 /// checked against the crate version rather than trusted.
+///
+/// One release of lag is allowed, and no more: the formula's sha256 is the
+/// digest of the tag's source archive, which does not exist until the tag is
+/// pushed, so the release commit itself still names the previous release and
+/// the formula catches up in the commit after the tag.
 #[test]
 fn the_homebrew_formula_names_the_current_release() {
     let formula = read("Formula/aethershell.rb");
     let version = env!("CARGO_PKG_VERSION");
 
-    let expected_tag = format!("/v{version}.tar.gz");
+    let previous = previous_release(&read("CHANGELOG.md"), version);
+    let allowed: Vec<String> = std::iter::once(version.to_string())
+        .chain(previous)
+        .collect();
     assert!(
-        formula.contains(&expected_tag),
-        "the formula's url does not point at v{version}; it will build whatever \
+        allowed
+            .iter()
+            .any(|v| formula.contains(&format!("/v{v}.tar.gz"))),
+        "the formula's url points at none of {allowed:?}; it will build whatever \
          tag it does name, which is how it ended up four releases behind"
     );
 
@@ -290,6 +300,28 @@ fn the_homebrew_formula_names_the_current_release() {
         hex.len() >= 64,
         "the formula's sha256 is not a 64-character digest: {digest}"
     );
+}
+
+/// The release the CHANGELOG lists after `version`'s own heading: the one
+/// before it. `None` if `version` has no heading or is the oldest.
+fn previous_release(changelog: &str, version: &str) -> Option<String> {
+    let releases: Vec<&str> = changelog
+        .lines()
+        .filter_map(|l| l.strip_prefix("## ["))
+        .filter_map(|l| l.split(']').next())
+        .filter(|v| *v != "Unreleased")
+        .collect();
+    let at = releases.iter().position(|v| *v == version)?;
+    releases.get(at + 1).map(|v| v.to_string())
+}
+
+#[test]
+fn previous_release_is_the_heading_after_the_current_one() {
+    let log = "## [Unreleased]\n\n## [13.0.0] - UNRELEASED\n\n## [12.0.2] - 2026-09-03\n\n## [12.0.1] - 2026-09-02\n";
+    assert_eq!(previous_release(log, "13.0.0").as_deref(), Some("12.0.2"));
+    assert_eq!(previous_release(log, "12.0.2").as_deref(), Some("12.0.1"));
+    assert_eq!(previous_release(log, "12.0.1"), None);
+    assert_eq!(previous_release(log, "9.9.9"), None);
 }
 
 /// The formula must state the licence the crate actually carries. It said
