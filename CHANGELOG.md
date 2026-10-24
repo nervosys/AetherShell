@@ -65,9 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The first `ae agent schema` or Agent API schema request detects the CLI tools
   on PATH on eight threads instead of one. On a Windows host with 108 PATH
-  entries, building the tool registry fell from 15.9 to 5.7-7.8 s in a debug
-  build; the cost there is the PATH lookups, about 160 ms each, not the
-  `--version` probes. Detection results and their order are unchanged.
+  entries, `ae agent schema` in a release build fell from 17.5 to 3.9-4.4 s.
+  The cost there is the PATH lookups, about 160 ms each, not the `--version`
+  probes. Detection results and their order are unchanged.
 
 ### Changed
 
