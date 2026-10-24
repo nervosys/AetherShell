@@ -34288,7 +34288,7 @@ fn bi_pkg_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             return Err(crate::safety::unimplemented(
                 "pkg_list",
                 &format!(
-                    "pkg_list is not implemented for the {other} package manager in 13.0.0; NOTHING WAS LISTED"
+                    "pkg_list is not implemented for the {other} package manager in 14.0.0; NOTHING WAS LISTED"
                 ),
                 "list the packages with that manager directly",
             ))
@@ -40026,7 +40026,7 @@ fn bi_web_json_path(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_web_xpath(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // Refused before anything runs. XPath needs an XML parser, and none is
-    // added for 13.0.0: the candidates are unmaintained and parse XML only,
+    // added for 14.0.0: the candidates are unmaintained and parse XML only,
     // while the pages web builtins fetch are HTML.
     web_no_input("web_xpath", &input)?;
     Err(crate::safety::unimplemented(
