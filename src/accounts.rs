@@ -1003,7 +1003,7 @@ pub(super) fn spawn(
 ) -> Result<Output> {
     Err(crate::safety::unimplemented(
         builtin,
-        "account and group administration is implemented on Linux and Windows in 13.0.0; NOTHING WAS CHANGED",
+        "account and group administration is implemented on Linux and Windows in 14.0.0; NOTHING WAS CHANGED",
         "run it on Linux or Windows, or use this platform's own account tool",
     ))
 }
