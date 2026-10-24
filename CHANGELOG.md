@@ -63,11 +63,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   variables, elements moved rather than copied through `map`/`where`, and
   indexed signature and effect lookups. `benches/agentic/results/perf-2026-09-29.md`.
 
-- The first `ae agent schema` or Agent API schema request detects the CLI tools
-  on PATH on eight threads instead of one. On a Windows host with 108 PATH
-  entries, `ae agent schema` in a release build fell from 17.5 to 3.9-4.4 s.
-  The cost there is the PATH lookups, about 160 ms each, not the `--version`
-  probes. Detection results and their order are unchanged.
+- The first `ae agent schema` or Agent API schema request lists each PATH
+  directory once and resolves the CLI tools from that listing, the way the
+  `which` crate would, then runs the `--version` probes on eight threads. On a
+  Windows host with 108 PATH entries, resolving the 95 tools fell from about
+  15 s to 0.2 s, and `ae agent schema` in a release build from 17.5 to
+  3.4-3.8 s; the rest is the probes themselves. Detection results and their
+  order are unchanged.
 
 ### Changed
 
