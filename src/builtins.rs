@@ -34289,7 +34289,7 @@ fn bi_pkg_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             return Err(crate::safety::unimplemented(
                 "pkg_list",
                 &format!(
-                    "pkg_list is not implemented for the {other} package manager in 13.0.0; NOTHING WAS LISTED"
+                    "pkg_list is not implemented for the {other} package manager in 14.0.0; NOTHING WAS LISTED"
                 ),
                 "list the packages with that manager directly",
             ))

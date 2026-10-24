@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.0.0] - UNRELEASED
+
+Released as 14.0.0; no 13.0.0 was published.
+
 ### Added
 
 - **`web_xpath`**: queries HTML or simple XML with a subset of XPath 1.0, implemented in-tree with no new crate (`src/web_xpath.rs`): elements come back as their outer HTML, attributes and text as decoded values. Unsupported expressions such as `count()` or `following-sibling::` are refused with E_BAD_ARG; it was E_UNIMPLEMENTED before.
@@ -3840,7 +3844,8 @@ N/A - Initial release
 
 See [ROADMAP.md](ROADMAP.md) for upcoming features.
 
-[Unreleased]: https://github.com/nervosys/AetherShell/compare/v8.0.0...HEAD
+[Unreleased]: https://github.com/nervosys/AetherShell/compare/v14.0.0...HEAD
+[14.0.0]: https://github.com/nervosys/AetherShell/compare/v12.0.2...v14.0.0
 [8.0.0]: https://github.com/nervosys/AetherShell/compare/v7.4.0...v8.0.0
 [5.0.0]: https://github.com/nervosys/AetherShell/compare/v4.1.0...v5.0.0
 [1.2.0]: https://github.com/nervosys/AetherShell/compare/v0.3.1...v1.2.0
