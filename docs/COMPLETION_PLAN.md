@@ -147,7 +147,16 @@ into apparent success, bypass its effect gate, or make a documented mutation uns
   - Rerun at b547789, after the fallback declaration tranches: 264 binaries on each.
     - Windows: 3,647 passed, 1 failed, 5 ignored. The failure was session_journal_contracts asserting that session_undo, session_redo and session_end are Pure, which 2d4da16 changed on purpose (fixed in cf51f69; 11/11 after).
     - Linux: 3,648 passed, 1 failed, 49 ignored. The failure was pipeline_scaling's wide-record check (69.6x against a 13.6x baseline), and it failed 4 of 5 reruns straight after. An hour later the same binary passed 3/3, and so did a fresh build of cf51f69, with the host under heavy unrelated load in the failing window. A load flake, not a regression: the calibration divides out CPU load, but its `sum` baseline does not allocate, so memory-bandwidth contention hits only the subject. Left as is; rerun it if it fails again.
-  - Not yet done on the release commit itself, nor on macOS.
+  - Release branch, 2026-10-23: the 13.0.0 bump at bc90948, run from the worktree .claude/worktrees/release-13. 264 binaries on each platform.
+    - Windows: 3,649 passed, 1 failed, 5 ignored.
+    - Linux: 3,657 passed, 3 failed, 49 ignored.
+    - The failure both shared: the_homebrew_formula_names_the_current_release demanded that the formula name the crate's own version, which no release commit can do before its tag exists. Fixed in 5c4d04e by allowing one release of lag. It passes on master and on the rebased release branch on both platforms, and fails with the formula at v11.0.2.
+    - The other two Linux failures were caused by running from the worktree:
+      - The worktree's `.git` file holds a Windows path, so Linux git found no repository and declared_signatures' git_branches example failed.
+      - CARGO_TARGET_TMPDIR in the new target directory was not writable by the test user, so structured_codes_contracts could not write its fixture.
+      - Run from the main checkout with that directory opened, both pass: 30/30 and 8/8.
+    - Runner fault: on Windows, clipboard_agent_gate (2 tests, passed) ran outside its memory job after AssignProcessToJobObject failed with access denied. The runner now kills a binary it cannot cap and retries it once.
+  - Not yet done on macOS.
 - [ ] Temporarily clear inherited LC_ALL for the known locale-sensitive Windows check, restore it afterward, and record the environment adjustment. 2026-10-23: no adjustment was needed. LC_ALL and LANG were unset in the environment of the Windows full run at b547789 (Git Bash, and the pwsh it started), and that run had no locale-related failure. docs/release/13.0.0.md:1998 calls it "the known collation-test environment dependency". The code that reads the locale today is `collate` in src/posix.rs:1814: the POSIX runner sorts by byte unless LC_ALL, LC_COLLATE or LANG names a non-C locale, and then it follows glibc's en_US ordering. If a release-commit run inherits LC_ALL, clear it for the run and say so here.
 - [ ] Run cargo clippy --workspace --all-targets -- -D warnings. 2026-10-23: clean on Windows and Linux; rerun on the release commit.
 - [ ] Build ae, aimodel and the LSP in supported release configurations.
