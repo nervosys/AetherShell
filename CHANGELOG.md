@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.0.0] - UNRELEASED
+
+Released as 14.0.0; no 13.0.0 was published.
+
 ### Added
 
 - **`sudo_exec` on Windows**: runs argv directly, with no shell, only when the AetherShell process is already elevated; an unelevated process is refused with E_POLICY_DENY, since Windows elevates only through a UAC prompt, which AetherShell never shows.
@@ -3829,7 +3833,8 @@ N/A - Initial release
 
 See [ROADMAP.md](ROADMAP.md) for upcoming features.
 
-[Unreleased]: https://github.com/nervosys/AetherShell/compare/v8.0.0...HEAD
+[Unreleased]: https://github.com/nervosys/AetherShell/compare/v14.0.0...HEAD
+[14.0.0]: https://github.com/nervosys/AetherShell/compare/v12.0.2...v14.0.0
 [8.0.0]: https://github.com/nervosys/AetherShell/compare/v7.4.0...v8.0.0
 [5.0.0]: https://github.com/nervosys/AetherShell/compare/v4.1.0...v5.0.0
 [1.2.0]: https://github.com/nervosys/AetherShell/compare/v0.3.1...v1.2.0
