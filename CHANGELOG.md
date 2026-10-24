@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.0.0] - UNRELEASED
+
+Released as 14.0.0; no 13.0.0 was published.
+
 ### Added
 
 - **RSA and ECDSA signatures**: `crypto_sign` now signs with ECDSA P-256 and P-384 (ASN.1 DER signatures) and RSA PKCS#1 v1.5 with SHA-256, as well as Ed25519, from a PKCS#8 `PRIVATE KEY`, a PKCS#1 `RSA PRIVATE KEY` or a SEC1 `EC PRIVATE KEY` PEM, so the RSA and EC keys `crypto_generate_key` makes can be used; the record's `algorithm` names which. `crypto_verify_signature` takes the raw public key `crypto_sign` returns or a `BEGIN PUBLIC KEY` PEM. Both run in-process through ring, with a strict bounds-checked DER reader and no new crate. ring signs only with 2048 to 4096-bit RSA keys, so a larger key from `crypto_generate_key("rsa", 8192)` is refused by `crypto_sign` with E_BAD_ARG (verification accepts up to 8192 bits). `tests/crypto_sign_interop.rs` checks that `openssl dgst -sha256 -verify` accepts the signatures, and unit tests check that openssl's signatures verify here.
@@ -3844,7 +3848,8 @@ N/A - Initial release
 
 See [ROADMAP.md](ROADMAP.md) for upcoming features.
 
-[Unreleased]: https://github.com/nervosys/AetherShell/compare/v8.0.0...HEAD
+[Unreleased]: https://github.com/nervosys/AetherShell/compare/v14.0.0...HEAD
+[14.0.0]: https://github.com/nervosys/AetherShell/compare/v12.0.2...v14.0.0
 [8.0.0]: https://github.com/nervosys/AetherShell/compare/v7.4.0...v8.0.0
 [5.0.0]: https://github.com/nervosys/AetherShell/compare/v4.1.0...v5.0.0
 [1.2.0]: https://github.com/nervosys/AetherShell/compare/v0.3.1...v1.2.0
