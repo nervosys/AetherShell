@@ -8,7 +8,7 @@
 - **Tagline**: One language, every platform, deterministic typed output
 - **Binary**: `ish` (`ae`, the pre-14.0.0 name, is installed as an alias)
 - **Language**: Rust
-- **Version**: 12.0.2 (13.0.0 in preparation)
+- **Version**: 14.0.0
 - **Repository**: https://github.com/nervosys/AetherShell
 - **License**: AGPL-3.0-or-later
 - **File Extension**: `.ish`
