@@ -1,6 +1,6 @@
 # AetherShell completion plan
 
-Updated 2026-10-02. Target: **13.0.0**, selected for the stricter builtin contracts.
+Updated 2026-10-02. Target: **14.0.0**, selected for the stricter builtin contracts.
 
 Completion means a validated, installable release with a declared contract for
 every dispatchable builtin, working implementations for placeholder operations, reproducible
@@ -18,9 +18,9 @@ have their own milestones; this checklist governs the current release.
 | Evaluator optimization | Implemented and measured; module throughput 3.65x, reduce 2.27x in the recorded Windows comparison | Final-tree performance and platform checks |
 | Release preflight | Three Python tests; eight simulated checks on each of PowerShell 5.1 and 7 | Validate final metadata, credentials and actual publication |
 | Package versions | Root and LSP remain 12.0.2 | Update the release metadata together |
-| Publication | No 13.0.0 tag or publication performed in this preparation | Approved publication and independent verification |
+| Publication | No 14.0.0 tag or publication performed in this preparation | Approved publication and independent verification |
 
-Evidence: [release preparation](release/13.0.0.md),
+Evidence: [release preparation](release/14.0.0.md),
 [performance report](../benches/agentic/results/perf-2026-09-29-followup.md), and
 `cargo run --example signature_inventory`. Performance figures are workload-
 and host-specific; they exclude process startup and transport overhead.
@@ -55,7 +55,7 @@ accepted limitation. No placeholder is described as successful work.
 Owners below are responsibility roles, not assignments to named people. All open
 items remain release blockers unless explicitly listed as deferred.
 
-| Area | 13.0.0 disposition | Evidence and remaining work | Owner |
+| Area | 14.0.0 disposition | Evidence and remaining work | Owner |
 | --- | --- | --- | --- |
 | Evaluator optimization | Implemented; retain | Recorded comparison linked above; final-tree measurements pending | Performance maintainer |
 | Strict builtin signatures | Implemented; platform validation open | All 1,318 dispatch names declared (BUILTIN_LOOKUP at run time, 2026-10-20). gui_* and clipboard_* are tested by refusal only; their desktop paths are unverified on every OS | Runtime maintainer |
@@ -66,8 +66,8 @@ items remain release blockers unless explicitly listed as deferred.
 | Other placeholder operations | Audit pending; blocker | Enumerate through remaining source-reviewed catalogue migration; do not infer support from registration | Runtime maintainer |
 | Platform/features/packaging | Validation pending; blocker | Complete stages 4 and 6 on final commit, including MSRV and supported feature builds | Platform and release maintainers |
 | Provider-backed E7 evidence | Validation pending; blocker | Requires configured test provider; record model, prompt and corpus versions | Evaluation maintainer |
-| 13.0.0 publication | Pending final readiness and explicit publication authorization | Stage 7; no tag or publication performed | Release maintainer |
-| Future product expansion | Deferred beyond 13.0.0 | Historical roadmap ideas do not turn unsupported implementations into working features | Feature maintainers |
+| 14.0.0 publication | Pending final readiness and explicit publication authorization | Stage 7; no tag or publication performed | Release maintainer |
+| Future product expansion | Deferred beyond 14.0.0 | Historical roadmap ideas do not turn unsupported implementations into working features | Feature maintainers |
 
 The 2026-10-02 user instruction supersedes the earlier choice to release these
 operations as refusal-only placeholders. Real DQN weight updates and working
@@ -159,7 +159,7 @@ into apparent success, bypass its effect gate, or make a documented mutation uns
       - Run from the main checkout with that directory opened, both pass: 30/30 and 8/8.
     - Runner fault: on Windows, clipboard_agent_gate (2 tests, passed) ran outside its memory job after AssignProcessToJobObject failed with access denied. The runner now kills a binary it cannot cap and retries it once.
   - Not yet done on macOS.
-- [ ] Temporarily clear inherited LC_ALL for the known locale-sensitive Windows check, restore it afterward, and record the environment adjustment. 2026-10-23: no adjustment was needed. LC_ALL and LANG were unset in the environment of the Windows full run at b547789 (Git Bash, and the pwsh it started), and that run had no locale-related failure. docs/release/13.0.0.md:1998 calls it "the known collation-test environment dependency". The code that reads the locale is `locale_collates` and `collate` in src/posix.rs: the POSIX runner sorts by byte unless LC_ALL, LC_COLLATE or LANG names a non-C locale that, on Linux, glibc can load (f1ad2c2), and then it follows glibc's en_US ordering. Its unit test now checks the ordering directly (`collate_in`), so it no longer sets LC_COLLATE or depends on the host's locales. If a release-commit run inherits LC_ALL, clear it for the run and say so here.
+- [ ] Temporarily clear inherited LC_ALL for the known locale-sensitive Windows check, restore it afterward, and record the environment adjustment. 2026-10-23: no adjustment was needed. LC_ALL and LANG were unset in the environment of the Windows full run at b547789 (Git Bash, and the pwsh it started), and that run had no locale-related failure. docs/release/14.0.0.md:1998 calls it "the known collation-test environment dependency". The code that reads the locale is `locale_collates` and `collate` in src/posix.rs: the POSIX runner sorts by byte unless LC_ALL, LC_COLLATE or LANG names a non-C locale that, on Linux, glibc can load (f1ad2c2), and then it follows glibc's en_US ordering. Its unit test now checks the ordering directly (`collate_in`), so it no longer sets LC_COLLATE or depends on the host's locales. If a release-commit run inherits LC_ALL, clear it for the run and say so here.
 - [ ] Run cargo clippy --workspace --all-targets -- -D warnings. 2026-10-23: clean on Windows and Linux; rerun on the release commit.
 - [ ] Build ae, aimodel and the LSP in supported release configurations. 2026-10-23, Windows, release profile with `--locked` on the release commit: all three built (16 min). `ae --version` and `aimodel --version` print 13.0.0; a typed pipeline, a record and the surplus-argument refusal (`journal_clear("a")`, E_BAD_ARG, exit 64) behave as documented. The Agent API answered `/health` (version 13.0.0), refused unauthenticated calls, and with `AETHER_API_TOKEN` ran `/api/v1/execute` and `/api/v1/eval`. Found: the first schema request takes 17-24 s (`ae agent schema` 17.5 s; 12.0.1 takes 21.8 s, so not a regression) because `CLIToolRegistry::new()` detects about 95 CLI tools one after another. Timed in a debug test binary, the cost is the PATH lookups (about 160 ms each across 108 PATH entries and 14 PATHEXT extensions), not the `--version` probes (26 installed tools, 10.5 s summed). 27063b4 and 4afed95 detect on eight threads, preserving results and order (checked by injecting a mis-assigned slot): the registry fell from 15.9 s to 5.7-7.8 s, and `ae agent schema` in the rebuilt Windows release binary from 17.5 s to 3.9-4.4 s (three runs). The ontology tests pass 7/7 on Windows and Linux. 1f2788a and 9e79e91 then list each PATH directory once and resolve from the listing as `which` 6.0.3 does (an empty PATH entry is the current directory; extension-less candidates and unreadable directories fall back to `which`): resolving all 95 tools took 207 ms instead of ~15 s with no tool resolving differently, and `ae agent schema` 3.4-3.8 s. The ontology tests pass 8/8 on Windows and Linux; clippy is clean on both. On the rebased release branch (11bead4), the two test binaries that build the schema also pass on both, each under a memory cap: agent_api 48/48 and documented_builtin_count 3/3. Full Windows rerun on the release branch at 3d7c209 (after both changes), every binary under the 4 GiB Job object: 264 binaries, 3,652 passed, 1 failed, 5 ignored. The failure, evolution_contracts' zero-generation case, was a pre-existing intermittent bug: a random genome value read back from the population's JSON one bit off, because serde_json's default float parser is not correctly rounded. 7bd49cd enables `float_roundtrip` with a test on that value (fails without, passes with); evolution_contracts passes 12/12. The Linux full suite has not been rerun since these changes. Linux (ae-disposable), release profile with `--locked`: all three built in 8 min with no warnings; `ae` and `aimodel` print 13.0.0, the pipeline and the E_BAD_ARG refusal (exit 64) match Windows, and `ae agent schema` takes 2.6 s.
 - [ ] Validate the Rust 1.88 MSRV and the supported feature combinations, including optional local inference and WASM where advertised. 2026-10-22: the library check without default features and the wasm32 library check had failed since 4ba43bc (import/export added an ungated module_loader); fixed by gating it on `native`, and both pass again, clippy clean. The `ae` and `aimodel` binaries and the tests need `native`, as before. 2026-10-23 at f24cc7f, on Windows: `cargo +1.88 check --workspace --features native` (the CI MSRV job), `cargo +1.88 check --workspace --all-targets`, `cargo +1.88 check --lib --no-default-features` and the stable wasm32 library check all pass. Optional local inference and the other advertised feature sets are not yet checked. 2026-10-27, `cargo check --workspace --all-targets` in ae-disposable with each advertised set: `native,real-tokens` and `native,vendored-tls` pass with no warnings. `native,candle` and `native,onnx` did not compile, and had not since at least the lock's move to ort rc.11 (one type error in candle; ten in onnx, which used the rc.9 API and an undeclared ndarray). Both now compile and are clippy-clean (see the local-inference commit after 9e8b915; ort is pinned exactly). The onnx backend's generate had answered "[generated 1 token(s)]" from one forward pass over Unicode code points, and its embed had used code points as token ids with a zero-vector fallback; embed now uses the model's tokenizer and real pooling, and generate is E_UNIMPLEMENTED. The first run against real models was stopped by Claude Code for low host memory; the maintainer said to proceed, and it ran with the build at 2 jobs under an 8 GiB cap. A read-only review first found that every ai_local_* call built new backends, so a loaded model was gone by the next call, and that candle decoded each token one position late; both are fixed, with id 2 an end token only when the tokenizer names none and max_tokens over 4096 refused, not clamped. Then, with a release build in ae-disposable: all-MiniLM-L6-v2 (ONNX) embeds in 384 dimensions with cosine 0.70 between two cat sentences and 0.09 against a stock-market one (a sanity check, not a comparison with sentence-transformers' own output); SmolLM2-135M-Instruct Q8_0 (GGUF) continues "The capital of France is" with " Paris. Paris is the largest city in France and the second"; ONNX generate is E_UNIMPLEMENTED and max_tokens 5000 E_BAD_ARG. From the review, then fixed: an architecture other than llama, mistral, phi2 or phi3 is E_UNIMPLEMENTED instead of loading as Llama; the Mistral config needs its size keys in the file (it had filled each missing one with Mistral 7B's), so a Mistral GGUF without `mistral.vocab_size` is refused; safetensors files and GGUF embeddings are E_UNIMPLEMENTED (embed had averaged input-embedding rows); the tokenizer is read only from the model's own directory; ai_local_load keeps a backend's code (it reported everything as E_BAD_ARG); the dead filename heuristics are gone. Rechecked on the same two models with a release build, both features clippy-clean. 2026-10-28: chat templates, through minijinja (with minijinja-contrib's pycompat for the Python string methods HF templates call) behind `candle`: `ai_local_generate` takes an Array of {role, content} messages and renders the GGUF's `tokenizer.chat_template`, or the one in the `tokenizer_config.json` beside it, with bos/eos tokens and raise_exception; the rendered text is encoded without a second BOS, and generation also stops on the model's own EOS. Release build in ae-disposable on SmolLM2-135M-Instruct Q8_0: a system and a user message give "The capital of France is Paris." in 7 tokens (prompt 28), stopping at <|im_end|>; a bad role and an empty Array are E_BAD_ARG; the 6 new unit tests pass; clippy `--lib --bins --tests --features native,candle -D warnings` clean. CI now has an `inference-features` job (.github/workflows/ci.yml) that runs clippy and the `local_inference` tests for candle and for onnx; it has not run yet, so it stays open until it passes on the release commit with the MSRV checks.
@@ -213,8 +213,8 @@ no speedup is inferred from a refactor alone.
   - Every other version answer comes from CARGO_PKG_VERSION: the CLI, aimodel, /health, MCP serverInfo and ae_version in WASM.
   - ROADMAP.md:3, :77, :385 and :387 describe the published release; change them at publication.
   - The Python SDK (1.5.1), the VS Code extension (1.6.1), the browser extension (0.2.0) and web/ (1.2.0) version independently. The VS Code lockfile said 1.6.0 against package.json's 1.6.1; fixed.
-- [ ] Finalize CHANGELOG.md and release/13.0.0.md with breaking-call examples, migration guidance, supported platforms and accepted limitations. 2026-10-23: drafted at the top of docs/release/13.0.0.md from a cited fact sheet of the journal and CHANGELOG. Review it before release, and add the CHANGELOG `[13.0.0]` heading in the release commit.
-- [ ] Reconcile README, AGENTS.md, llms.txt, llms-full.txt, ROADMAP.md and generated discovery metadata with the final inventory and feature register. 2026-10-23: counts measured from `ae agent schema` and tests/documented_builtin_count.rs (1,171 builtins, 1,437 names the dispatcher accepts, 108 modules; the schema also listed `ask` as an alias of `ai`, which was never callable, so it is removed and every advertised name is now checked against the dispatcher), effect_coverage (905 of 1,318 dispatch names classified), crates.io and GitHub releases (12.0.2); stale versions (1.5.0, 1.4.0, 1.2.0, 0.3.1), MSRV 1.75, module counts 106/38 and test counts corrected. The 13.0.0 version strings wait for the release commit.
+- [ ] Finalize CHANGELOG.md and release/14.0.0.md with breaking-call examples, migration guidance, supported platforms and accepted limitations. 2026-10-23: drafted at the top of docs/release/14.0.0.md from a cited fact sheet of the journal and CHANGELOG. Review it before release, and add the CHANGELOG `[14.0.0]` heading in the release commit.
+- [ ] Reconcile README, AGENTS.md, llms.txt, llms-full.txt, ROADMAP.md and generated discovery metadata with the final inventory and feature register. 2026-10-23: counts measured from `ae agent schema` and tests/documented_builtin_count.rs (1,171 builtins, 1,437 names the dispatcher accepts, 108 modules; the schema also listed `ask` as an alias of `ai`, which was never callable, so it is removed and every advertised name is now checked against the dispatcher), effect_coverage (905 of 1,318 dispatch names classified), crates.io and GitHub releases (12.0.2); stale versions (1.5.0, 1.4.0, 1.2.0, 0.3.1), MSRV 1.75, module counts 106/38 and test counts corrected. The 14.0.0 version strings wait for the release commit.
 - [ ] Update installation, upgrade and troubleshooting instructions; verify every advertised channel's actual package name and expected version. 2026-10-27, registry check (read-only GETs): crates.io `aethershell` and `aethershell-lsp` are at 12.0.2 with repository nervosys/AetherShell, older versions yanked; PyPI `aethershell` is 1.5.0 against 1.5.1 in integrations/python; Open VSX has admercs.aethershell 1.6.1 (nervosys.aethershell is a 404), and the book told users to install nervosys.aethershell, now fixed; GitHub Releases' latest is v12.0.2 with Windows, macOS and Linux assets; npm has no `aethershell`, and winget, choco and Docker appear only in planning docs. Not checked: the VS Code Marketplace listing, the PyPI extras and the Homebrew sha256.
   - Channels checked against the registries, 2026-10-23:
     - Match: crates.io aethershell and aethershell-lsp at 12.0.2. The GitHub release v12.0.2 has nine assets named as release.yml builds them. The VS Code Marketplace and Open VSX both have admercs.aethershell 1.6.1. The formula's sha256 matches the v12.0.2 tag archive.
@@ -222,9 +222,9 @@ no speedup is inferred from a refactor alone.
     - **Stale:** PyPI has only aethershell 1.5.0, a manual upload; the repository's SDK is 1.5.1. The SDK README now says so.
     - Not channels: no npm package, Docker image, winget or scoop manifest exists, and none is advertised. release.yml:395 runs `npm publish` all the same.
 - [ ] Run scripts/test_release_version.py and scripts/test-release-preflight.ps1 under PowerShell 5.1 and 7. 2026-10-23, with git removed from PATH so only the shim could answer: the preflight passes 8/8 under Windows PowerShell 5.1.26100 and PowerShell 7.6.8, and test_release_version.py passes 3/3 under Python 3.12. It needs 3.11+ for tomllib: the host's default python, 3.10, fails to import it, and CI pins 3.12 (ubuntu-latest's python3 is 3.12). The preflight now deletes its temp directory when it passes; earlier runs left 16 under temp/. Rerun on the release commit.
-- [ ] Inspect package file lists, license/source inclusion, artifact names and platform coverage; build and smoke-test the packages intended for publication. 2026-10-23, on the release commit beee1f2: `cargo package --list` gives 569 files for aethershell (src, tests and fixtures, examples, benches, lib/*.ae, LICENSE, README, AGENTS.md, llms*.txt, .well-known; no keys or tokens) and 14 for aethershell-lsp (src, LICENSE, README). `cargo publish --dry-run -p aethershell -p aethershell-lsp` (cargo 1.99.1) packaged both, 2.4 MiB and 60.6 KiB compressed, and built each from its packaged form, the LSP against the locally packaged 13.0.0 root, so root-then-LSP publication should resolve. Nothing was uploaded. The binary archives are built by release.yml and are checked after the tag.
+- [ ] Inspect package file lists, license/source inclusion, artifact names and platform coverage; build and smoke-test the packages intended for publication. 2026-10-23, on the release commit beee1f2: `cargo package --list` gives 569 files for aethershell (src, tests and fixtures, examples, benches, lib/*.ae, LICENSE, README, AGENTS.md, llms*.txt, .well-known; no keys or tokens) and 14 for aethershell-lsp (src, LICENSE, README). `cargo publish --dry-run -p aethershell -p aethershell-lsp` (cargo 1.99.1) packaged both, 2.4 MiB and 60.6 KiB compressed, and built each from its packaged form, the LSP against the locally packaged 14.0.0 root, so root-then-LSP publication should resolve. Nothing was uploaded. The binary archives are built by release.yml and are checked after the tag.
 - [ ] Check credentials only for channels included in this release, including crates.io and any chosen SDK or extension registries; never record secrets in the plan or logs. 2026-10-28, presence only, on this host: a crates.io token (credentials file and CARGO_REGISTRY_TOKEN), VSCE_PAT and OVSX_PAT are set; gh is logged in with repo and workflow scopes. No PyPI credential exists (no .pypirc, TWINE_* or token), and the repository has no Actions secrets or variables, so PYPI_TRUSTED_PUBLISHING is unset and every registry job in release.yml will be skipped: crates.io, VS Code/Open VSX and PyPI are published by hand. PyPI waits on a token from the maintainer.
-- [ ] Prepare a concrete release commit, release notes, artifact checklist and recovery procedure for approval. 2026-10-23: the release procedure, expected assets and recovery steps are in docs/release/13.0.0.md, after the release notes. The version-bump commit is prepared on the local branch release/13.0.0.
+- [ ] Prepare a concrete release commit, release notes, artifact checklist and recovery procedure for approval. 2026-10-23: the release procedure, expected assets and recovery steps are in docs/release/14.0.0.md, after the release notes. The version-bump commit is prepared on the local branch release/14.0.0.
 
 **Gate:** metadata agrees, preflight passes, and the release candidate is reviewable
 without tagging or publishing it first.
@@ -240,7 +240,7 @@ without tagging or publishing it first.
 - [ ] Smoke-test ae --version, representative typed pipelines, the Agent API, SDK/LSP integration, upgrades and uninstall instructions.
 - [ ] Verify published checksums, documentation links, notes and artifact completeness; resolve discrepancies before declaring the release finished.
 
-**Gate:** users can install the published 13.0.0 artifacts and reproduce the
+**Gate:** users can install the published 14.0.0 artifacts and reproduce the
 documented behavior. Workflow initiation alone is insufficient evidence.
 
 ## Working checklist for each migration tranche
@@ -275,7 +275,7 @@ migration effort are resolved.
 - **wget_download** stays Network; its partial-file cleanup goes through remove_partial (see section 3).
 - **Clipboard reads in agent mode** are E_POLICY_DENY, nothing read, unless AETHER_SECRETS=allow or AETHER_POLICY=permissive: clipboard_get, clipboard_get_image and clipboard_history. A clipboard often holds a password, which shape redaction cannot recognise. clipboard_types reads no contents and is not gated. Tested in tests/clipboard_agent_gate.rs.
 - **A corrupt bzip2, xz or zstd file** answers `false` from archive_test, as a corrupt zip, tar or gz does; it is not E_TOOL_FAILED. The builtin asks whether the archive is intact, and `false` is that answer; tool failures and refusals stay coded errors. No change was needed.
-- **No new crates for 13.0.0.** sxd-xpath would add four unmaintained packages and parses XML only, while web pages are HTML, so web_xpath stays E_UNIMPLEMENTED. arboard and xcap would only add Windows clipboard-image and window-capture backends, which cannot be verified on the available Windows host without touching a real desktop. cbc and an X.509 parser are not needed: legacy decryption and certificate inspection run through openssl on every OS.
+- **No new crates for 14.0.0.** sxd-xpath would add four unmaintained packages and parses XML only, while web pages are HTML, so web_xpath stays E_UNIMPLEMENTED. arboard and xcap would only add Windows clipboard-image and window-capture backends, which cannot be verified on the available Windows host without touching a real desktop. cbc and an X.509 parser are not needed: legacy decryption and certificate inspection run through openssl on every OS.
 
 ## Source-function implementation audit candidates
 
@@ -410,7 +410,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 
 ## Historical plan and evidence — reference only
 
-The current checklists above govern 13.0.0. The material below preserves earlier
+The current checklists above govern 14.0.0. The material below preserves earlier
 investigations and checkpoints. Its historical totals and unchecked tasks require
 re-triage before action; they are not additional current release requirements.
 
@@ -425,7 +425,7 @@ permission-mode and structured-edit tranches. Release preflight passed three
 Python tests and eight simulated checks under each of PowerShell 7 and 5.1.
 Final-tree and cross-platform release validation remain outstanding.
 Current preparation and release blockers are tracked in
-[`release/13.0.0.md`](release/13.0.0.md). Older figures below are historical baselines.
+[`release/14.0.0.md`](release/14.0.0.md). Older figures below are historical baselines.
 
 The work that began as a benchmark response to *Is Bash All You Need?* and
 *Testing if bash is all you need* is finished when:
@@ -583,8 +583,8 @@ manifest discovery reads literal npm/Deno/Python/Cargo declarations and never
 executes them. Five new contract tests and the final 84-test text/file suite passed, including
 keyword field indexing and a scheduling-aware socket deadline witness. Across
 nine suites, 731 unique tests passed. Final lint, Rust 1.88, WASM, formatting
-and diff checks passed. Inventory confirms 598/1171 implementations and 723/1437 callable names. See docs/release/13.0.0.md and temp/ae-perf/source-project-*.log.
-The full unsupported-builtin goal and 13.0.0 release gates remain open.
+and diff checks passed. Inventory confirms 598/1171 implementations and 723/1437 callable names. See docs/release/14.0.0.md and temp/ae-perf/source-project-*.log.
+The full unsupported-builtin goal and 14.0.0 release gates remain open.
 
 ### Code-search/API implementation checkpoint, 2026-10-02
 
@@ -595,8 +595,8 @@ language, algorithm, corpus bounds and lack of implicit source/model execution.
 69 tests passed across six relevant suites, including five new regression
 tests. All-target lint, Rust 1.88 and WASM compatibility passed. Formatting/diff checks passed; inventory confirms 602/1171 implementations
 and 727/1437 callable names. See
- docs/release/13.0.0.md and temp/ae-perf/code-search-*.log. The remaining
-unsupported-builtin implementations and 13.0.0 release gates remain open.
+ docs/release/14.0.0.md and temp/ae-perf/code-search-*.log. The remaining
+unsupported-builtin implementations and 14.0.0 release gates remain open.
 
 ### Testing implementation checkpoint, 2026-10-02
 
@@ -607,7 +607,7 @@ Six new regressions passed, including actual compiled generated tests that
 both pass correct oracles and fail an incorrect oracle, plus language-level
 examples. The final batch passed 62 tests across six relevant suites. All-target
 Clippy, Rust 1.88 and WASM checks passed. Signature inventory confirms
-604/1171 implementations and 729/1437 callable names. Formatting/diff checks and final example-test lint passed. See docs/release/13.0.0.md and temp/ae-perf/testing-*.log.
+604/1171 implementations and 729/1437 callable names. Formatting/diff checks and final example-test lint passed. See docs/release/14.0.0.md and temp/ae-perf/testing-*.log.
 
 
 ## Native Ed25519 implementation checkpoint, 2026-10-02
@@ -627,7 +627,7 @@ malformed and inconsistent keys, executable examples, argument/size bounds and
 FIPS refusals. Native library, Rust 1.88 workspace, WASM web library and all-target
 Clippy passed. Ring 0.17.14 was already locked through TLS; the root dependency
 edge is now explicit and native-only. Signature coverage is unchanged because
-all three signatures already existed. See docs/release/13.0.0.md and
+all three signatures already existed. See docs/release/14.0.0.md and
 temp/ae-perf/signatures-*.log. No version bump or publication was performed.
 
 Final batch validation also passed 48 signature-discovery/effect tests (140

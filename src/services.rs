@@ -167,7 +167,7 @@ fn refuse_in_transaction(builtin: &str) -> Result<()> {
 fn not_linux(builtin: &str) -> anyhow::Error {
     crate::safety::unimplemented(
         builtin,
-        "systemd services and sudo are implemented on Linux only in 13.0.0; NOTHING WAS CHANGED",
+        "systemd services and sudo are implemented on Linux only in 14.0.0; NOTHING WAS CHANGED",
         "use the platform's own service manager or `sudo` directly",
     )
 }

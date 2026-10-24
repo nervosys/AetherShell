@@ -528,7 +528,7 @@ fn require_apt(builtin: &str) -> Result<()> {
     Err(safety::unimplemented(
         builtin,
         &format!(
-            "the {pm} package manager is not supported; only apt is implemented in 13.0.0; NOTHING WAS CHANGED"
+            "the {pm} package manager is not supported; only apt is implemented in 14.0.0; NOTHING WAS CHANGED"
         ),
         "use the package manager directly",
     ))
@@ -538,7 +538,7 @@ fn require_apt(builtin: &str) -> Result<()> {
 fn require_apt(builtin: &str) -> Result<()> {
     Err(safety::unimplemented(
         builtin,
-        "package administration is implemented on Debian-family Linux (apt) only in 13.0.0; NOTHING WAS CHANGED",
+        "package administration is implemented on Debian-family Linux (apt) only in 14.0.0; NOTHING WAS CHANGED",
         "use the platform's package manager directly",
     ))
 }
