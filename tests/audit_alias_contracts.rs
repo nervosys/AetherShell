@@ -11,7 +11,7 @@
 //! path (a two-path builtin guards both). A change to existing bytes, an
 //! allowed alias, or a changed mode fails the case.
 //!
-//! Most of these wrote through the alias before 13.0.0: the guard's audit
+//! Most of these wrote through the alias before 14.0.0: the guard's audit
 //! check compared the path as written, so a link whose name was not the log's
 //! passed, and the builtin then followed it. `safety::is_audit_artifact` now
 //! also compares the resolved path and, on Unix, the file's identity. The
@@ -99,23 +99,23 @@ fn edit_record(fields: Vec<(&str, Value)>) -> Value {
 /// Each entry is a label. The builtin is the label's first word, so a label
 /// such as "file_move source" names `file_move` with the alias as its source.
 const CASES: &[&str] = &[
-    // Wrote through before 13.0.0: write_file_atomically resolves the link and renames a
+    // Wrote through before 14.0.0: write_file_atomically resolves the link and renames a
     // temporary file over the audit log; the guard only checked the alias string.
     "file_write",
-    // Wrote through before 13.0.0: opens the alias with append and writes; the guard checks
+    // Wrote through before 14.0.0: opens the alias with append and writes; the guard checks
     // the alias string, which is inside the workspace.
     "file_append",
-    // Wrote through before 13.0.0: delegates to file_patch, which writes via write_file_atomically.
+    // Wrote through before 14.0.0: delegates to file_patch, which writes via write_file_atomically.
     "file_replace",
-    // Wrote through before 13.0.0: write_file_atomically on the resolved link.
+    // Wrote through before 14.0.0: write_file_atomically on the resolved link.
     "file_patch",
-    // Wrote through before 13.0.0: write_file_atomically on the resolved link.
+    // Wrote through before 14.0.0: write_file_atomically on the resolved link.
     "file_insert",
-    // Wrote through before 13.0.0: write_file_atomically on the resolved link.
+    // Wrote through before 14.0.0: write_file_atomically on the resolved link.
     "file_edit",
-    // Wrote through before 13.0.0: save_json goes through write_file_atomically.
+    // Wrote through before 14.0.0: save_json goes through write_file_atomically.
     "save_json",
-    // Wrote through before 13.0.0 (metadata): opens the alias and sets its mtime, which is the log's mtime.
+    // Wrote through before 14.0.0 (metadata): opens the alias and sets its mtime, which is the log's mtime.
     "touch",
     // Removes the link itself, not the log. Still expected to be refused.
     "rm",
@@ -125,7 +125,7 @@ const CASES: &[&str] = &[
     "file_move destination",
     // Destination is the alias; the copy is not verified to be guarded on the resolved path.
     "file_copy destination",
-    // Wrote through before 13.0.0 (mode): set_permissions follows the link; only guard_local_write checks the alias string.
+    // Wrote through before 14.0.0 (mode): set_permissions follows the link; only guard_local_write checks the alias string.
     "fs_chmod",
     // Canonicalises the path first, so the audit-artifact check fires.
     "fs_chown",
@@ -133,13 +133,13 @@ const CASES: &[&str] = &[
     "file_backup",
     // The alias exists, so the archive target is not new.
     "zip_create",
-    // Suspected write-through before 13.0.0: zip -u would rewrite the log as the archive.
+    // Suspected write-through before 14.0.0: zip -u would rewrite the log as the archive.
     "zip_add",
     // The alias exists, so the archive target is not new.
     "tar_create",
-    // Wrote through before 13.0.0: sed in file mode calls write_file_atomically on the file.
+    // Wrote through before 14.0.0: sed in file mode calls write_file_atomically on the file.
     "sed",
-    // Wrote through before 13.0.0: file_delete_lines calls write_file_atomically on the file.
+    // Wrote through before 14.0.0: file_delete_lines calls write_file_atomically on the file.
     "file_delete_lines",
     // Hard-links the log under a new name; the source must not be a symlink.
     "fs_link source",
