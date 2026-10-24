@@ -1,6 +1,6 @@
 # IronShell v0.1.0 - Release Notes
 
-Historical notes for v0.1.0. See [`13.0.0.md`](13.0.0.md) for the next release's
+Historical notes for v0.1.0. See [`14.0.0.md`](14.0.0.md) for the next release's
 draft notes and readiness checklist.
 
 **Release Date**: October 23, 2025  
