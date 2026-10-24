@@ -600,3 +600,19 @@ fn coevolve_callbacks_and_generation_options_have_strict_contracts() {
         "E_BUDGET_EXCEEDED",
     );
 }
+
+#[test]
+fn a_genome_float_survives_the_json_round_trip_the_population_state_uses() {
+    // Populations keep their individuals as JSON text. serde_json's default
+    // float parser is not always correctly rounded: it read this genome value,
+    // drawn by a run of the test above, back one bit off, so a zero-generation
+    // `evolve` returned a population that no longer equalled its input.
+    let x = 0.22714707115665078_f64;
+    let text = serde_json::to_string(&x).unwrap();
+    assert_eq!(
+        serde_json::from_str::<f64>(&text).unwrap().to_bits(),
+        x.to_bits()
+    );
+    let parsed = call("from_json", vec![Value::Str(text)], &mut Env::new()).unwrap();
+    assert_eq!(parsed, Value::Float(x));
+}

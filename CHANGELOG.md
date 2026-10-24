@@ -107,6 +107,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **JSON floats read back exactly**: serde_json's default float parser is not
+  always correctly rounded, so `from_json` and the other JSON readers could
+  return a float one bit off what was written (0.22714707115665078 came back
+  as 0.2271470711566508). Populations, which keep their individuals as JSON,
+  drifted the same way, and a zero-generation `evolve` could return a
+  population unequal to its input. serde_json's `float_roundtrip` feature is
+  now enabled.
+
 - **Homebrew install instructions**: the README and website said
   `brew install nervosys/tap/aethershell`, but no `nervosys/homebrew-tap`
   repository exists, so that command could not work. The formula lives in this
