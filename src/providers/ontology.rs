@@ -2439,10 +2439,12 @@ impl CLIToolRegistry {
     /// Create the registry and detect installed tools
     pub fn new() -> Self {
         let definitions = Self::tool_definitions();
+        let detected = Self::detect_concurrently(&definitions);
         let mut tools = Vec::with_capacity(definitions.len());
 
-        for (tool, category, module, builtins, description) in definitions {
-            let (installed, version, binary_path) = Self::detect_tool(&tool);
+        for ((tool, category, module, builtins, description), (installed, version, binary_path)) in
+            definitions.into_iter().zip(detected)
+        {
             tools.push(CLIToolMapping {
                 tool,
                 category: category.to_string(),
@@ -2518,6 +2520,55 @@ impl CLIToolRegistry {
             "categories": self.categories(),
             "tools": tool_schemas,
         })
+    }
+
+    /// Run `detect_tool` for every definition on a small worker pool, returning
+    /// results in definition order. Each installed tool costs a `--version`
+    /// probe that can take up to `VERSION_PROBE_SECS`, so probes run concurrently
+    /// instead of one after another.
+    fn detect_concurrently(
+        definitions: &[(
+            String,
+            &'static str,
+            &'static str,
+            Vec<&'static str>,
+            &'static str,
+        )],
+    ) -> Vec<(bool, Option<String>, Option<String>)> {
+        const WORKERS: usize = 8;
+        let count = definitions.len();
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let mut slots: Vec<Option<(bool, Option<String>, Option<String>)>> =
+            (0..count).map(|_| None).collect();
+
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..WORKERS.min(count))
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut found = Vec::new();
+                        loop {
+                            let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if index >= count {
+                                break;
+                            }
+                            found.push((index, Self::detect_tool(&definitions[index].0)));
+                        }
+                        found
+                    })
+                })
+                .collect();
+
+            for handle in handles {
+                for (index, detection) in handle.join().expect("tool probe thread panicked") {
+                    slots[index] = Some(detection);
+                }
+            }
+        });
+
+        slots
+            .into_iter()
+            .map(|slot| slot.expect("every tool definition is probed"))
+            .collect()
     }
 
     /// Detect if a tool is installed, get its version and path
@@ -3269,6 +3320,20 @@ lazy_static::lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cli_registry_keeps_definition_order() {
+        let expected: Vec<String> = CLIToolRegistry::tool_definitions()
+            .into_iter()
+            .map(|definition| definition.0)
+            .collect();
+        let actual: Vec<String> = CLIToolRegistry::new()
+            .tools
+            .into_iter()
+            .map(|mapping| mapping.tool)
+            .collect();
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn test_ontology_registration() {
