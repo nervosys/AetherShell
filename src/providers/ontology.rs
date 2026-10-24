@@ -16,6 +16,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
+use std::env;
+use std::ffi::{OsStr, OsString};
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 
 /// Deadline for a `--version` probe. A probe that does not answer in time is
 /// the same as a failed one: the tool's version is unknown.
@@ -2430,6 +2434,175 @@ pub struct CLIToolMapping {
     pub description: String,
 }
 
+/// The PATH directories, listed once, so that each tool resolves without
+/// probing the filesystem again. Mirrors `which` 6.0.3 (`resolve`).
+struct PathIndex {
+    dirs: Vec<PathBuf>,
+    /// Per directory: entry name (lowercased on Windows) to its name on disk.
+    /// Windows keeps only files and symlinks, the entries `which` accepts.
+    entries: Vec<HashMap<String, OsString>>,
+    /// Windows PATHEXT extensions as written, e.g. ".EXE".
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pathext: Vec<String>,
+    /// False when a directory could not be listed exactly; `which` then decides.
+    complete: bool,
+}
+
+/// Outcome of a Windows lookup in the index.
+#[cfg(windows)]
+enum IndexLookup {
+    Found(PathBuf),
+    Missing,
+    /// A bare name without extension exists, which `which` accepts only if it
+    /// is a binary (GetBinaryType). Only `which` can decide that.
+    Unsure,
+}
+
+/// Name key for matching: Windows file names are case-insensitive.
+fn entry_key(name: &OsStr) -> String {
+    let name = name.to_string_lossy();
+    if cfg!(windows) {
+        name.to_ascii_lowercase()
+    } else {
+        name.into_owned()
+    }
+}
+
+/// The lookup `detect_tool` has always done with the `which` crate.
+fn which_crate(tool: &str) -> Option<PathBuf> {
+    if cfg!(windows) {
+        which::which(tool)
+            .or_else(|_| which::which(format!("{}.exe", tool)))
+            .ok()
+    } else {
+        which::which(tool).ok()
+    }
+}
+
+impl PathIndex {
+    fn from_env() -> Self {
+        let dirs = env::var_os("PATH")
+            .map(|paths| env::split_paths(&paths).collect())
+            .unwrap_or_default();
+        let pathext = env::var("PATHEXT")
+            .unwrap_or_default()
+            .split(';')
+            .filter(|ext| ext.starts_with('.'))
+            .map(str::to_owned)
+            .collect();
+        Self::new(dirs, pathext)
+    }
+
+    fn new(dirs: Vec<PathBuf>, pathext: Vec<String>) -> Self {
+        let mut complete = true;
+        let entries = dirs
+            .iter()
+            .map(|dir| {
+                let mut names = HashMap::new();
+                if dir.as_os_str().is_empty()
+                    || dir.components().next() == Some(Component::Normal(OsStr::new("~")))
+                {
+                    complete = false;
+                    return names;
+                }
+                match fs::read_dir(dir) {
+                    Ok(listing) => {
+                        for entry in listing {
+                            let Ok(entry) = entry else {
+                                complete = false;
+                                continue;
+                            };
+                            if cfg!(windows) {
+                                match entry.file_type() {
+                                    Ok(kind) if !(kind.is_file() || kind.is_symlink()) => continue,
+                                    Ok(_) => {}
+                                    Err(_) => {
+                                        complete = false;
+                                        continue;
+                                    }
+                                }
+                            }
+                            let name = entry.file_name();
+                            names.entry(entry_key(&name)).or_insert(name);
+                        }
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => complete = false,
+                }
+                names
+            })
+            .collect();
+        Self {
+            dirs,
+            entries,
+            pathext,
+            complete,
+        }
+    }
+
+    /// The path `which` returns for `tool` (on Windows, with the `.exe` retry).
+    /// Only directories that list the name get a probe, in PATH order.
+    fn resolve(&self, tool: &str) -> Option<PathBuf> {
+        if !self.complete {
+            return which_crate(tool);
+        }
+        #[cfg(windows)]
+        {
+            let exe = format!("{}.exe", tool);
+            for name in [tool, exe.as_str()] {
+                match self.lookup(name) {
+                    IndexLookup::Found(path) => return Some(path),
+                    IndexLookup::Unsure => return which_crate(tool),
+                    IndexLookup::Missing => {}
+                }
+            }
+            None
+        }
+        #[cfg(not(windows))]
+        {
+            self.dirs
+                .iter()
+                .zip(&self.entries)
+                .find_map(|(dir, names)| {
+                    if names.contains_key(tool) {
+                        which::which_in(tool, Some(dir.as_os_str()), Path::new(".")).ok()
+                    } else {
+                        None
+                    }
+                })
+        }
+    }
+
+    /// Windows candidates for `name`, in `which`'s order: the bare name (unless
+    /// it already has a PATHEXT extension), then each PATHEXT extension as written.
+    #[cfg(windows)]
+    fn lookup(&self, name: &str) -> IndexLookup {
+        let has_pathext = Path::new(name)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                self.pathext
+                    .iter()
+                    .any(|pathext| ext.eq_ignore_ascii_case(&pathext[1..]))
+            });
+        let mut candidates = vec![name.to_string()];
+        if !has_pathext {
+            candidates.extend(self.pathext.iter().map(|ext| format!("{}{}", name, ext)));
+        }
+        for (dir, names) in self.dirs.iter().zip(&self.entries) {
+            for candidate in &candidates {
+                if let Some(on_disk) = names.get(&entry_key(OsStr::new(candidate))) {
+                    if Path::new(candidate).extension().is_none() {
+                        return IndexLookup::Unsure;
+                    }
+                    return IndexLookup::Found(dir.join(on_disk));
+                }
+            }
+        }
+        IndexLookup::Missing
+    }
+}
+
 /// Registry of all CLI tool wrappers with installation detection
 pub struct CLIToolRegistry {
     tools: Vec<CLIToolMapping>,
@@ -2439,7 +2612,8 @@ impl CLIToolRegistry {
     /// Create the registry and detect installed tools
     pub fn new() -> Self {
         let definitions = Self::tool_definitions();
-        let detected = Self::detect_concurrently(&definitions);
+        let paths = PathIndex::from_env();
+        let detected = Self::detect_concurrently(&definitions, &paths);
         let mut tools = Vec::with_capacity(definitions.len());
 
         for ((tool, category, module, builtins, description), (installed, version, binary_path)) in
@@ -2534,6 +2708,7 @@ impl CLIToolRegistry {
             Vec<&'static str>,
             &'static str,
         )],
+        paths: &PathIndex,
     ) -> Vec<(bool, Option<String>, Option<String>)> {
         const WORKERS: usize = 8;
         let count = definitions.len();
@@ -2551,7 +2726,7 @@ impl CLIToolRegistry {
                             if index >= count {
                                 break;
                             }
-                            found.push((index, Self::detect_tool(&definitions[index].0)));
+                            found.push((index, Self::detect_tool(&definitions[index].0, paths)));
                         }
                         found
                     })
@@ -2572,18 +2747,8 @@ impl CLIToolRegistry {
     }
 
     /// Detect if a tool is installed, get its version and path
-    fn detect_tool(tool_name: &str) -> (bool, Option<String>, Option<String>) {
-        // Use `which` crate or PATH lookup
-        let binary = if cfg!(target_os = "windows") {
-            // Try with .exe suffix on Windows
-            which::which(tool_name)
-                .or_else(|_| which::which(format!("{}.exe", tool_name)))
-                .ok()
-        } else {
-            which::which(tool_name).ok()
-        };
-
-        if let Some(path) = binary {
+    fn detect_tool(tool_name: &str, paths: &PathIndex) -> (bool, Option<String>, Option<String>) {
+        if let Some(path) = paths.resolve(tool_name) {
             let path_str = path.to_string_lossy().to_string();
 
             // Try to get version
@@ -3347,6 +3512,66 @@ mod tests {
         assert!(
             expected.iter().any(|t| t.1) && expected.iter().any(|t| !t.1),
             "the check needs both installed and missing tools to tell them apart"
+        );
+    }
+
+    #[test]
+    fn test_path_index_resolves_like_which() {
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let root = env::temp_dir().join(format!("ae-path-index-{}", std::process::id()));
+        let _cleanup = Cleanup(root.clone());
+        let (first, second) = (root.join("first"), root.join("second"));
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        let make_exe = |dir: &Path, name: &str| {
+            let path = dir.join(name);
+            fs::write(&path, b"").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            path
+        };
+        let suffix = if cfg!(windows) { ".exe" } else { "" };
+        let tool = format!("aeprobe_tool{}", suffix);
+        make_exe(&first, &tool);
+        make_exe(&second, &tool);
+        // A file without the execute bit is not a command, as with `which`.
+        #[cfg(unix)]
+        {
+            fs::write(second.join("aeprobe_noexec"), b"").unwrap();
+        }
+        // PATHEXT match with different case: the on-disk name is returned.
+        #[cfg(windows)]
+        {
+            fs::write(second.join("Aeprobe_Case.cmd"), b"").unwrap();
+        }
+        let pathext: Vec<String> = if cfg!(windows) {
+            vec![".COM".into(), ".EXE".into(), ".CMD".into()]
+        } else {
+            Vec::new()
+        };
+        let index = PathIndex::new(
+            vec![first.clone(), second.clone(), root.join("missing")],
+            pathext,
+        );
+
+        // PATH order: the first directory holding the name wins.
+        assert_eq!(index.resolve("aeprobe_tool"), Some(first.join(&tool)));
+        assert_eq!(index.resolve("aeprobe_missing"), None);
+        #[cfg(unix)]
+        assert_eq!(index.resolve("aeprobe_noexec"), None);
+        #[cfg(windows)]
+        assert_eq!(
+            index.resolve("aeprobe_case"),
+            Some(second.join("Aeprobe_Case.cmd"))
         );
     }
 
