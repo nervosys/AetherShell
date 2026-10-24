@@ -1,5 +1,5 @@
 # AetherShell Release Script
-# Usage: .\scripts\release.ps1 -Version "13.0.0" [-DryRun]
+# Usage: .\scripts\release.ps1 -Version "14.0.0" [-DryRun]
 
 param(
     [Parameter(Mandatory = $true)]
