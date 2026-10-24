@@ -2499,13 +2499,21 @@ impl PathIndex {
             .iter()
             .map(|dir| {
                 let mut names = HashMap::new();
-                if dir.as_os_str().is_empty()
+                // `which` joins an empty entry with the name, a path relative to
+                // the current directory; on Windows `dir.join(name)` gives the
+                // same path, so list the current directory for it.
+                let listed = if dir.as_os_str().is_empty() && cfg!(windows) {
+                    Path::new(".")
+                } else {
+                    dir.as_path()
+                };
+                if listed.as_os_str().is_empty()
                     || dir.components().next() == Some(Component::Normal(OsStr::new("~")))
                 {
                     complete = false;
                     return names;
                 }
-                match fs::read_dir(dir) {
+                match fs::read_dir(listed) {
                     Ok(listing) => {
                         for entry in listing {
                             let Ok(entry) = entry else {
@@ -3573,6 +3581,20 @@ mod tests {
             index.resolve("aeprobe_case"),
             Some(second.join("Aeprobe_Case.cmd"))
         );
+        // An empty PATH entry (a stray `;;`) is the current directory to
+        // `which`; on Windows the index lists it rather than giving up.
+        #[cfg(windows)]
+        {
+            let with_empty = PathIndex::new(
+                vec![PathBuf::new(), second.clone()],
+                vec![".EXE".into(), ".CMD".into()],
+            );
+            assert!(with_empty.complete);
+            assert_eq!(
+                with_empty.resolve("aeprobe_case"),
+                Some(second.join("Aeprobe_Case.cmd"))
+            );
+        }
     }
 
     #[test]
