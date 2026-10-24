@@ -99,6 +99,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Homebrew install instructions**: the README and website said
+  `brew install nervosys/tap/aethershell`, but no `nervosys/homebrew-tap`
+  repository exists, so that command could not work. The formula lives in this
+  repository, and the instructions now tap it by URL: `brew tap nervosys/aethershell https://github.com/nervosys/AetherShell`, then
+  `brew install nervosys/aethershell/aethershell`.
 - Security: in agent mode, `undo`, `rewind`, `session_undo` and `session_redo`
   could rewrite or delete a file outside the workspace. The journal persists
   per working directory, so a step recorded in human mode was replayed by a

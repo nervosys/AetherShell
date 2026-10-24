@@ -1,6 +1,8 @@
 # Homebrew Formula for AetherShell
-# To install: brew tap nervosys/tap && brew install aethershell
-# Or: brew install nervosys/tap/aethershell
+# This formula lives in the AetherShell repository itself, not a homebrew-tap
+# repository, so tap it by URL:
+#   brew tap nervosys/aethershell https://github.com/nervosys/AetherShell
+#   brew install nervosys/aethershell/aethershell
 
 class Aethershell < Formula
   desc "AI-powered typed shell with functional pipelines and multi-agent support"

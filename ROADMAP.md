@@ -385,7 +385,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - **crates.io:** [aethershell v12.0.2](https://crates.io/crates/aethershell) + [aethershell-lsp v12.0.2](https://crates.io/crates/aethershell-lsp)
 - **VS Code:** [admercs.aethershell](https://marketplace.visualstudio.com/items?itemName=admercs.aethershell)
 - **GitHub:** [nervosys/AetherShell](https://github.com/nervosys/AetherShell) — v12.0.2 release with binaries
-- **Homebrew:** `brew install nervosys/tap/aethershell`
+- **Homebrew:** `brew tap nervosys/aethershell https://github.com/nervosys/AetherShell`, then `brew install nervosys/aethershell/aethershell`
 - **npm:** `npm install @nervosys/aethershell`
 
 ---

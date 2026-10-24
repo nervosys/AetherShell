@@ -72,7 +72,9 @@ cargo install aethershell          # from crates.io
 
 ```bash
 # Homebrew
-brew install nervosys/tap/aethershell
+# (the formula lives in this repository, so tap it by URL)
+brew tap nervosys/aethershell https://github.com/nervosys/AetherShell
+brew install nervosys/aethershell/aethershell
 
 # From source
 git clone https://github.com/nervosys/AetherShell && cd AetherShell
