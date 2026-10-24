@@ -515,7 +515,7 @@ fn record(fields: Vec<(&str, Value)>) -> Value {
 fn off_linux(builtin: &str) -> anyhow::Error {
     safety::unimplemented(
         builtin,
-        "is implemented on Linux only in 13.0.0 on this platform; NOTHING WAS CHANGED",
+        "is implemented on Linux only in 14.0.0 on this platform; NOTHING WAS CHANGED",
         "run it on Linux, or use this platform's own tool",
     )
 }
