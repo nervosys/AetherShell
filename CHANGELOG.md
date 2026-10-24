@@ -63,6 +63,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   variables, elements moved rather than copied through `map`/`where`, and
   indexed signature and effect lookups. `benches/agentic/results/perf-2026-09-29.md`.
 
+- The first `ae agent schema` or Agent API schema request detects the CLI tools
+  on PATH on eight threads instead of one. On a Windows host with 108 PATH
+  entries, building the tool registry fell from 15.9 to 5.7-7.8 s in a debug
+  build; the cost there is the PATH lookups, about 160 ms each, not the
+  `--version` probes. Detection results and their order are unchanged.
+
 ### Changed
 
 - **Agent-mode network egress needs approval** unless `AETHER_NET_ALLOW` names
