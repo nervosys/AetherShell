@@ -94,7 +94,7 @@ fn encrypt_and_decrypt_do_not_return_prose_in_place_of_ciphertext() {
             // Since 10.0.0 there is a third, and it is now the one this call
             // actually produces: the input here is plaintext, so it is not an
             // authenticated `AE1.` envelope, and `crypto_decrypt` refuses it as
-            // E_DECRYPT_FAILED (13.0.0 merged E_DECRYPT_UNAUTHENTICATED into it)
+            // E_DECRYPT_FAILED (14.0.0 merged E_DECRYPT_UNAUTHENTICATED into it)
             // rather than falling back to the
             // unauthenticated CBC path — that fallback would be a downgrade
             // (AS-2026-04). `crypto_encrypt` no longer fails at all here; it is
