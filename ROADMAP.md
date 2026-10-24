@@ -1,7 +1,7 @@
 # IronShell Roadmap
 
 > Current release status, 2026-10-19: workspace packages remain **12.0.2**;
-> **13.0.0 is in preparation and has not been published by this work**.
+> **14.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
 > owners, evidence and release gates. Every one of the 1,319
 > names in the dispatch table has a declared signature.
@@ -47,7 +47,7 @@ alone do not close this implementation scope.
 The February snapshot below is preserved as history. Its “Complete” labels,
 versions, counts and distribution claims are historical assertions, not current
 release validation or independently verified registry status. Use the completion
-plan for outstanding 13.0.0 work and the release checklist before publication.
+plan for outstanding 14.0.0 work and the release checklist before publication.
 
 
 > **Last Updated:** February 20, 2026
