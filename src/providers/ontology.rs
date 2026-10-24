@@ -3323,16 +3323,31 @@ mod tests {
 
     #[test]
     fn test_cli_registry_keeps_definition_order() {
-        let expected: Vec<String> = CLIToolRegistry::tool_definitions()
+        // Each tool must carry its own detection, not another worker's: its
+        // installed flag and path must match a direct PATH lookup of that name.
+        let lookup = |tool: &str| {
+            which::which(tool)
+                .or_else(|_| which::which(format!("{}.exe", tool)))
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        };
+        let expected: Vec<(String, bool, Option<String>)> = CLIToolRegistry::tool_definitions()
             .into_iter()
-            .map(|definition| definition.0)
+            .map(|definition| {
+                let path = lookup(&definition.0);
+                (definition.0, path.is_some(), path)
+            })
             .collect();
-        let actual: Vec<String> = CLIToolRegistry::new()
+        let actual: Vec<(String, bool, Option<String>)> = CLIToolRegistry::new()
             .tools
             .into_iter()
-            .map(|mapping| mapping.tool)
+            .map(|mapping| (mapping.tool, mapping.installed, mapping.binary_path))
             .collect();
         assert_eq!(actual, expected);
+        assert!(
+            expected.iter().any(|t| t.1) && expected.iter().any(|t| !t.1),
+            "the check needs both installed and missing tools to tell them apart"
+        );
     }
 
     #[test]
