@@ -203,7 +203,7 @@ no speedup is inferred from a refactor alone.
 - [ ] Run scripts/test_release_version.py and scripts/test-release-preflight.ps1 under PowerShell 5.1 and 7. 2026-10-23, with git removed from PATH so only the shim could answer: the preflight passes 8/8 under Windows PowerShell 5.1.26100 and PowerShell 7.6.8, and test_release_version.py passes 3/3 under Python 3.12. It needs 3.11+ for tomllib: the host's default python, 3.10, fails to import it, and CI pins 3.12 (ubuntu-latest's python3 is 3.12). The preflight now deletes its temp directory when it passes; earlier runs left 16 under temp/. Rerun on the release commit.
 - [ ] Inspect package file lists, license/source inclusion, artifact names and platform coverage; build and smoke-test the packages intended for publication.
 - [ ] Check credentials only for channels included in this release, including crates.io and any chosen SDK or extension registries; never record secrets in the plan or logs.
-- [ ] Prepare a concrete release commit, release notes, artifact checklist and recovery procedure for approval.
+- [ ] Prepare a concrete release commit, release notes, artifact checklist and recovery procedure for approval. 2026-10-23: the release procedure, expected assets and recovery steps are in docs/release/13.0.0.md, after the release notes. The version-bump commit is prepared on the local branch release/13.0.0.
 
 **Gate:** metadata agrees, preflight passes, and the release candidate is reviewable
 without tagging or publishing it first.
