@@ -26537,12 +26537,32 @@ fn net_has(rec: &Value, key: &str) -> bool {
     matches!(rec, Value::Record(r) if r.contains_key(key))
 }
 
+/// A string field the tool must report. A missing key or a non-string value
+/// is refused: an identity field read as "" would make the record lie.
 #[cfg(any(windows, target_os = "linux", test))]
-fn net_str_field(obj: &serde_json::Map<String, serde_json::Value>, key: &str) -> String {
+fn net_req_str(
+    name: &str,
+    tool: &str,
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<String> {
     obj.get(key)
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
+        .map(str::to_string)
+        .ok_or_else(|| net_unparsed(name, tool))
+}
+
+/// A string field that may legitimately be absent or empty. When the tool
+/// leaves it out, the field is left out of the record too; it is not "".
+#[cfg(any(windows, target_os = "linux", test))]
+fn net_opt_field(
+    out_key: &'static str,
+    obj: &serde_json::Map<String, serde_json::Value>,
+    json_key: &str,
+) -> Option<(&'static str, Value)> {
+    obj.get(json_key)
+        .and_then(|v| v.as_str())
+        .map(|s| (out_key, Value::Str(s.to_string())))
 }
 
 fn net_record(pairs: Vec<(&str, Value)>) -> Value {
@@ -26574,18 +26594,28 @@ fn net_interface_rows(name: &str) -> Result<Vec<Value>> {
         let Some(o) = item.as_object() else {
             return Err(net_unparsed(name, "powershell"));
         };
-        rows.push(net_record(vec![
-            ("name", Value::Str(net_str_field(o, "Name"))),
-            (
-                "description",
-                Value::Str(net_str_field(o, "InterfaceDescription")),
-            ),
-            ("mac", Value::Str(net_str_field(o, "MacAddress"))),
-            ("status", Value::Str(net_str_field(o, "Status"))),
-            ("speed", Value::Str(net_str_field(o, "LinkSpeed"))),
-        ]));
+        rows.push(net_interface_record(name, o)?);
     }
     Ok(rows)
+}
+
+/// One adapter record from `Get-NetAdapter`. The name is required. The
+/// description, MAC, status and speed are left out when the adapter does not
+/// report them: a virtual adapter has an empty MacAddress.
+#[cfg(any(windows, test))]
+fn net_interface_record(
+    name: &str,
+    o: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Value> {
+    let mut pairs = vec![(
+        "name",
+        Value::Str(net_req_str(name, "powershell", o, "Name")?),
+    )];
+    pairs.extend(net_opt_field("description", o, "InterfaceDescription"));
+    pairs.extend(net_opt_field("mac", o, "MacAddress"));
+    pairs.extend(net_opt_field("status", o, "Status"));
+    pairs.extend(net_opt_field("speed", o, "LinkSpeed"));
+    Ok(net_record(pairs))
 }
 
 #[cfg(target_os = "linux")]
@@ -26613,11 +26643,10 @@ fn net_interface_rows(name: &str) -> Result<Vec<Value>> {
                     .collect()
             })
             .unwrap_or_default();
-        let mut pairs = vec![
-            ("name", Value::Str(net_str_field(o, "ifname"))),
-            ("mac", Value::Str(net_str_field(o, "address"))),
-            ("status", Value::Str(net_str_field(o, "operstate"))),
-        ];
+        let mut pairs = vec![("name", Value::Str(net_req_str(name, "ip", o, "ifname")?))];
+        // `address` is absent on some tunnel links; the field is then left out.
+        pairs.extend(net_opt_field("mac", o, "address"));
+        pairs.extend(net_opt_field("status", o, "operstate"));
         // A link that reports no mtu gets no `mtu` field. It used to read as
         // an mtu of 0, which no interface has.
         if let Some(mtu) = o.get("mtu").and_then(|v| v.as_i64()) {
@@ -26685,8 +26714,14 @@ fn net_address(name: &str) -> Result<Value> {
             return Err(net_unparsed(name, "powershell"));
         };
         rows.push(net_record(vec![
-            ("ip", Value::Str(net_str_field(o, "IPAddress"))),
-            ("interface", Value::Str(net_str_field(o, "InterfaceAlias"))),
+            (
+                "ip",
+                Value::Str(net_req_str(name, "powershell", o, "IPAddress")?),
+            ),
+            (
+                "interface",
+                Value::Str(net_req_str(name, "powershell", o, "InterfaceAlias")?),
+            ),
         ]));
     }
     if rows.is_empty() {
@@ -27063,7 +27098,7 @@ fn net_socket_record(protocol: &str, state: &str, local: String, peer: String) -
 
 /// The state names of the TCP table, as `Get-NetTCPConnection` reports them by
 /// number. Every platform reports states in upper case, as `ss` and `netstat` do.
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn windows_state_name(code: i64) -> String {
     let name = match code {
         1 => "CLOSED",
@@ -27112,19 +27147,26 @@ fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
         let Some(o) = item.as_object() else {
             return Err(net_unparsed(name, "powershell"));
         };
+        // A missing, non-integer or non-string state is refused. A numeric code
+        // outside the named range is a real state with no name: UNKNOWN.
         let state = match o.get("State") {
-            Some(serde_json::Value::Number(n)) => windows_state_name(n.as_i64().unwrap_or(0)),
-            Some(serde_json::Value::String(s)) => s.to_ascii_uppercase().replace('-', "_"),
-            _ => "UNKNOWN".to_string(),
+            Some(serde_json::Value::Number(n)) => {
+                let code = n.as_i64().ok_or_else(|| net_unparsed(name, "powershell"))?;
+                windows_state_name(code)
+            }
+            Some(serde_json::Value::String(s)) if !s.trim().is_empty() => {
+                s.to_ascii_uppercase().replace('-', "_")
+            }
+            _ => return Err(net_unparsed(name, "powershell")),
         };
         let local = format!(
             "{}:{}",
-            net_str_field(o, "LocalAddress"),
+            net_req_str(name, "powershell", o, "LocalAddress")?,
             net_socket_port(name, o, "LocalPort")?
         );
         let peer = format!(
             "{}:{}",
-            net_str_field(o, "RemoteAddress"),
+            net_req_str(name, "powershell", o, "RemoteAddress")?,
             net_socket_port(name, o, "RemotePort")?
         );
         rows.push(net_socket_record("tcp", &state, local, peer));
@@ -27458,7 +27500,10 @@ fn net_counter_record(name: &str, o: &serde_json::Map<String, serde_json::Value>
             .ok_or_else(|| net_unparsed(name, "powershell"))
     };
     Ok(net_record(vec![
-        ("interface", Value::Str(net_str_field(o, "Name"))),
+        (
+            "interface",
+            Value::Str(net_req_str(name, "powershell", o, "Name")?),
+        ),
         ("rx_bytes", Value::Int(count("ReceivedBytes")?)),
         ("tx_bytes", Value::Int(count("SentBytes")?)),
         ("rx_packets", Value::Int(count("ReceivedUnicastPackets")?)),
@@ -67054,5 +67099,62 @@ mod quiet_probe_tests {
         assert_eq!(battery_capacity_from(path, " 0 ").ok(), Some(0));
         assert!(battery_capacity_from(path, "").is_err());
         assert!(battery_capacity_from(path, "unknown\n").is_err());
+    }
+}
+
+#[cfg(test)]
+mod quiet_netfield_tests {
+    use super::*;
+
+    fn obj(v: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        match v {
+            serde_json::Value::Object(m) => m,
+            other => panic!("not a JSON object: {other}"),
+        }
+    }
+
+    #[test]
+    fn required_field_is_refused_when_missing_or_not_a_string() {
+        let o = obj(serde_json::json!({"Name": "Ethernet", "Count": 3}));
+        assert_eq!(
+            net_req_str("net_interfaces", "powershell", &o, "Name").unwrap(),
+            "Ethernet"
+        );
+        assert!(net_req_str("net_interfaces", "powershell", &o, "IPAddress").is_err());
+        assert!(net_req_str("net_interfaces", "powershell", &o, "Count").is_err());
+    }
+
+    #[test]
+    fn optional_field_is_left_out_not_read_as_empty() {
+        // A virtual adapter: no MacAddress key at all.
+        let o = obj(serde_json::json!({
+            "Name": "vEthernet (Default Switch)",
+            "InterfaceDescription": "Hyper-V Virtual Ethernet Adapter",
+            "Status": "Up",
+            "LinkSpeed": "10 Gbps"
+        }));
+        let Value::Record(r) = net_interface_record("net_interfaces", &o).unwrap() else {
+            panic!("not a record");
+        };
+        assert!(!r.contains_key("mac"));
+        assert!(
+            matches!(r.get("name"), Some(Value::Str(s)) if s.as_str() == "vEthernet (Default Switch)")
+        );
+        assert!(matches!(r.get("status"), Some(Value::Str(s)) if s.as_str() == "Up"));
+        assert!(r.contains_key("description"));
+        assert!(r.contains_key("speed"));
+    }
+
+    #[test]
+    fn identity_field_missing_refuses_the_whole_record() {
+        let o = obj(serde_json::json!({"InterfaceDescription": "x"}));
+        assert!(net_interface_record("net_interfaces", &o).is_err());
+    }
+
+    #[test]
+    fn windows_state_names_and_unnamed_codes() {
+        assert_eq!(windows_state_name(5), "ESTABLISHED");
+        assert_eq!(windows_state_name(2), "LISTEN");
+        assert_eq!(windows_state_name(99), "UNKNOWN");
     }
 }
