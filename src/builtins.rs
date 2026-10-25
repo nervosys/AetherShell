@@ -44669,82 +44669,170 @@ fn bi_project_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
+/// Read a manifest that may be absent. `None` means the file does not exist.
+/// Other read errors are coded errors, not an empty answer.
+fn project_manifest_optional(builtin: &str, path: &str) -> Result<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(crate::safety::fs_error(builtin, path, &e)),
+    }
+}
+
+/// Read a Cargo.toml that must exist. A missing file is a coded not_found.
+fn project_cargo_text(builtin: &str) -> Result<String> {
+    match project_manifest_optional(builtin, "Cargo.toml")? {
+        Some(text) => Ok(text),
+        None => Err(crate::safety::not_found(
+            builtin,
+            "Cargo.toml",
+            "Cargo.toml",
+        )),
+    }
+}
+
+/// The `name = "..."` value in Cargo.toml text. Old code returned "unknown"
+/// when the value was absent or malformed.
+fn cargo_name_from_text(builtin: &str, text: &str) -> Result<String> {
+    for line in text.lines() {
+        if line.starts_with("name = ") {
+            if let Some(name) = line.split('"').nth(1) {
+                return Ok(name.to_string());
+            }
+        }
+    }
+    Err(crate::safety::bad_state(
+        builtin,
+        "Cargo.toml has no name = line",
+        "project_type",
+    ))
+}
+
+/// The `version = "..."` value in Cargo.toml text. Old code returned "0.0.0"
+/// when the value was absent or malformed.
+fn cargo_version_from_text(builtin: &str, text: &str) -> Result<String> {
+    for line in text.lines() {
+        if line.starts_with("version = ") {
+            if let Some(version) = line.split('"').nth(1) {
+                return Ok(version.to_string());
+            }
+        }
+    }
+    Err(crate::safety::bad_state(
+        builtin,
+        "Cargo.toml has no version = line",
+        "project_type",
+    ))
+}
+
+/// The top-level `"name": "..."` value in package.json text.
+fn package_json_name(content: &str) -> Option<String> {
+    let start = content.find("\"name\":")?;
+    let rest = &content[start + 7..];
+    rest.split('"').nth(1).map(|name| name.to_string())
+}
+
+/// The keys listed under one Cargo.toml table header (for example
+/// `[dependencies]`). A table with no entries gives an empty list, which is a
+/// real answer; a missing Cargo.toml is handled by the caller.
+fn cargo_section_keys(text: &str, header: &str) -> Vec<Value> {
+    let mut keys = Vec::new();
+    let mut in_section = false;
+    for line in text.lines() {
+        if line.starts_with(header) {
+            in_section = true;
+            continue;
+        }
+        if line.starts_with("[") {
+            in_section = false;
+        }
+        if in_section && line.contains("=") {
+            keys.push(Value::Str(
+                line.split('=').next().unwrap_or("").trim().to_string(),
+            ));
+        }
+    }
+    keys
+}
+
 fn bi_project_name(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
-        for line in content.lines() {
-            if line.starts_with("name = ") {
-                return Ok(Value::Str(
-                    line.split('"').nth(1).unwrap_or("unknown").to_string(),
-                ));
-            }
+    const B: &str = "project_name";
+    let cargo = project_manifest_optional(B, "Cargo.toml")?;
+    if let Some(text) = &cargo {
+        if let Ok(name) = cargo_name_from_text(B, text) {
+            return Ok(Value::Str(name));
         }
     }
-    if let Ok(content) = std::fs::read_to_string("package.json") {
-        if let Some(start) = content.find("\"name\":") {
-            let rest = &content[start + 7..];
-            if let Some(name) = rest.split('"').nth(1) {
-                return Ok(Value::Str(name.to_string()));
-            }
-        }
+    let pkg = project_manifest_optional(B, "package.json")?;
+    if let Some(name) = pkg.as_deref().and_then(package_json_name) {
+        return Ok(Value::Str(name));
     }
-    Ok(Value::Str("unknown".to_string()))
+    if cargo.is_none() && pkg.is_none() {
+        return Err(crate::safety::not_found(B, "Cargo.toml", "Cargo.toml"));
+    }
+    Err(crate::safety::bad_state(
+        B,
+        "no name in Cargo.toml or package.json",
+        "project_type",
+    ))
 }
 
 fn bi_project_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
-        for line in content.lines() {
-            if line.starts_with("version = ") {
-                return Ok(Value::Str(
-                    line.split('"').nth(1).unwrap_or("0.0.0").to_string(),
-                ));
-            }
-        }
-    }
-    Ok(Value::Str("0.0.0".to_string()))
+    const B: &str = "project_version";
+    let text = project_cargo_text(B)?;
+    Ok(Value::Str(cargo_version_from_text(B, &text)?))
 }
 
 fn bi_project_dependencies(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut deps = Vec::new();
-    if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
-        let mut in_deps = false;
-        for line in content.lines() {
-            if line.starts_with("[dependencies]") {
-                in_deps = true;
-                continue;
-            }
-            if line.starts_with("[") {
-                in_deps = false;
-            }
-            if in_deps && line.contains("=") {
-                deps.push(Value::Str(
-                    line.split('=').next().unwrap_or("").trim().to_string(),
-                ));
-            }
-        }
-    }
-    Ok(Value::Array(deps))
+    let text = project_cargo_text("project_dependencies")?;
+    Ok(Value::Array(cargo_section_keys(&text, "[dependencies]")))
 }
 
 fn bi_project_dev_dependencies(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut deps = Vec::new();
-    if let Ok(content) = std::fs::read_to_string("Cargo.toml") {
-        let mut in_deps = false;
-        for line in content.lines() {
-            if line.starts_with("[dev-dependencies]") {
-                in_deps = true;
-                continue;
-            }
-            if line.starts_with("[") {
-                in_deps = false;
-            }
-            if in_deps && line.contains("=") {
-                deps.push(Value::Str(
-                    line.split('=').next().unwrap_or("").trim().to_string(),
-                ));
-            }
-        }
+    let text = project_cargo_text("project_dev_dependencies")?;
+    Ok(Value::Array(cargo_section_keys(
+        &text,
+        "[dev-dependencies]",
+    )))
+}
+
+#[cfg(test)]
+mod quiet_misc_tests {
+    use super::*;
+
+    #[test]
+    fn cargo_version_is_read_from_package_section() {
+        let text = "[package]\nname = \"ae\"\nversion = \"1.2.3\"\n";
+        assert_eq!(
+            cargo_version_from_text("project_version", text).unwrap(),
+            "1.2.3"
+        );
     }
-    Ok(Value::Array(deps))
+
+    #[test]
+    fn cargo_version_missing_is_an_error_not_0_0_0() {
+        let text = "[package]\nname = \"ae\"\n";
+        assert!(cargo_version_from_text("project_version", text).is_err());
+    }
+
+    #[test]
+    fn cargo_name_is_read_from_package_section() {
+        let text = "[package]\nname = \"ae\"\nversion = \"1.2.3\"\n";
+        assert_eq!(cargo_name_from_text("project_name", text).unwrap(), "ae");
+    }
+
+    #[test]
+    fn cargo_name_missing_is_an_error_not_unknown() {
+        let text = "[package]\nversion = \"1.2.3\"\n";
+        assert!(cargo_name_from_text("project_name", text).is_err());
+    }
+
+    #[test]
+    fn cargo_section_keys_empty_table_is_a_real_empty_list() {
+        let text = "[package]\nname = \"ae\"\n\n[dependencies]\n\n[dev-dependencies]\nx = \"1\"\n";
+        assert!(cargo_section_keys(text, "[dependencies]").is_empty());
+        assert_eq!(cargo_section_keys(text, "[dev-dependencies]").len(), 1);
+    }
 }
 
 #[path = "project_manifest.rs"]
@@ -56748,16 +56836,25 @@ fn monitor_sample_system() -> System {
     sys
 }
 
-/// Percent of the summed disk space in use across all mounts.
-fn monitor_disk_used_percent() -> f64 {
+/// Percent of the summed disk space in use across all mounts. With no disks,
+/// or zero total space, the old code returned 0.0% used, so a disk alert could
+/// never fire. That is now a coded error.
+fn monitor_disk_used_percent() -> Result<f64> {
     let disks = Disks::new_with_refreshed_list();
+    let count = disks.iter().count();
     let total: u64 = disks.iter().map(|d| d.total_space()).sum();
     let avail: u64 = disks.iter().map(|d| d.available_space()).sum();
-    if total > 0 {
-        total.saturating_sub(avail) as f64 / total as f64 * 100.0
-    } else {
-        0.0
+    if count == 0 || total == 0 {
+        return Err(crate::safety::bad_state(
+            "monitor_alert_list",
+            &format!(
+                "disk usage unavailable ({} disks, {} bytes total)",
+                count, total
+            ),
+            "platform_disk_usage",
+        ));
     }
+    Ok(total.saturating_sub(avail) as f64 / total as f64 * 100.0)
 }
 
 fn monitor_memory_used_percent(sys: &System) -> f64 {
@@ -58319,7 +58416,7 @@ pub fn bi_alert_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         return Ok(Value::Array(Vec::new()));
     }
     let sys = monitor_sample_system();
-    let disk_pct = monitor_disk_used_percent();
+    let disk_pct = monitor_disk_used_percent()?;
     let mut out = Vec::with_capacity(store.rules.len());
     for rule in &store.rules {
         let metric = monitor_rule_str(B, rule, "metric")?;
