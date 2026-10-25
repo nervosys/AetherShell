@@ -26537,7 +26537,7 @@ fn net_has(rec: &Value, key: &str) -> bool {
     matches!(rec, Value::Record(r) if r.contains_key(key))
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", test))]
 fn net_str_field(obj: &serde_json::Map<String, serde_json::Value>, key: &str) -> String {
     obj.get(key)
         .and_then(|v| v.as_str())
@@ -26613,16 +26613,18 @@ fn net_interface_rows(name: &str) -> Result<Vec<Value>> {
                     .collect()
             })
             .unwrap_or_default();
-        rows.push(net_record(vec![
+        let mut pairs = vec![
             ("name", Value::Str(net_str_field(o, "ifname"))),
             ("mac", Value::Str(net_str_field(o, "address"))),
             ("status", Value::Str(net_str_field(o, "operstate"))),
-            (
-                "mtu",
-                Value::Int(o.get("mtu").and_then(|v| v.as_i64()).unwrap_or(0)),
-            ),
-            ("addresses", Value::Array(addresses)),
-        ]));
+        ];
+        // A link that reports no mtu gets no `mtu` field. It used to read as
+        // an mtu of 0, which no interface has.
+        if let Some(mtu) = o.get("mtu").and_then(|v| v.as_i64()) {
+            pairs.push(("mtu", Value::Int(mtu)));
+        }
+        pairs.push(("addresses", Value::Array(addresses)));
+        rows.push(net_record(pairs));
     }
     Ok(rows)
 }
@@ -27081,6 +27083,20 @@ fn windows_state_name(code: i64) -> String {
     name.to_string()
 }
 
+/// A port from `Get-NetTCPConnection`. Missing, non-integer or 0 is refused:
+/// the old `unwrap_or(0)` listed the socket as port 0, which no socket has.
+#[cfg(any(windows, test))]
+fn net_socket_port(
+    name: &str,
+    o: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<i64> {
+    o.get(key)
+        .and_then(|v| v.as_i64())
+        .filter(|p| (1..=65535).contains(p))
+        .ok_or_else(|| net_unparsed(name, "powershell"))
+}
+
 #[cfg(windows)]
 fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
     let script = "Get-NetTCPConnection | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State | ConvertTo-Json";
@@ -27101,12 +27117,15 @@ fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
             Some(serde_json::Value::String(s)) => s.to_ascii_uppercase().replace('-', "_"),
             _ => "UNKNOWN".to_string(),
         };
-        let port = |key: &str| o.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
-        let local = format!("{}:{}", net_str_field(o, "LocalAddress"), port("LocalPort"));
+        let local = format!(
+            "{}:{}",
+            net_str_field(o, "LocalAddress"),
+            net_socket_port(name, o, "LocalPort")?
+        );
         let peer = format!(
             "{}:{}",
             net_str_field(o, "RemoteAddress"),
-            port("RemotePort")
+            net_socket_port(name, o, "RemotePort")?
         );
         rows.push(net_socket_record("tcp", &state, local, peer));
     }
@@ -27428,6 +27447,25 @@ fn net_counter_rows(name: &str) -> Result<Vec<Value>> {
     Ok(rows)
 }
 
+/// One adapter row from `Get-NetAdapterStatistics`. Every counter is required:
+/// a missing or non-integer one is refused. It used to be read as 0, so an
+/// adapter without counters reported zero traffic.
+#[cfg(any(windows, test))]
+fn net_counter_record(name: &str, o: &serde_json::Map<String, serde_json::Value>) -> Result<Value> {
+    let count = |key: &str| {
+        o.get(key)
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| net_unparsed(name, "powershell"))
+    };
+    Ok(net_record(vec![
+        ("interface", Value::Str(net_str_field(o, "Name"))),
+        ("rx_bytes", Value::Int(count("ReceivedBytes")?)),
+        ("tx_bytes", Value::Int(count("SentBytes")?)),
+        ("rx_packets", Value::Int(count("ReceivedUnicastPackets")?)),
+        ("tx_packets", Value::Int(count("SentUnicastPackets")?)),
+    ]))
+}
+
 #[cfg(windows)]
 fn net_counter_rows(name: &str) -> Result<Vec<Value>> {
     let script = "Get-NetAdapterStatistics | Select-Object Name,ReceivedBytes,SentBytes,ReceivedUnicastPackets,SentUnicastPackets | ConvertTo-Json";
@@ -27443,14 +27481,7 @@ fn net_counter_rows(name: &str) -> Result<Vec<Value>> {
         let Some(o) = item.as_object() else {
             return Err(net_unparsed(name, "powershell"));
         };
-        let count = |key: &str| o.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
-        rows.push(net_record(vec![
-            ("interface", Value::Str(net_str_field(o, "Name"))),
-            ("rx_bytes", Value::Int(count("ReceivedBytes"))),
-            ("tx_bytes", Value::Int(count("SentBytes"))),
-            ("rx_packets", Value::Int(count("ReceivedUnicastPackets"))),
-            ("tx_packets", Value::Int(count("SentUnicastPackets"))),
-        ]));
+        rows.push(net_counter_record(name, o)?);
     }
     Ok(rows)
 }
@@ -27837,6 +27868,20 @@ fn probe_stdout(builtin: &str, tool: &str, output: std::process::Output) -> Resu
 fn probe_text(builtin: &str, tool: &str, cmd: std::process::Command) -> Result<String> {
     let output = bounded_cmd_output(builtin, tool, cmd, PROBE_DEADLINE_SECS)?;
     probe_stdout(builtin, tool, output)
+}
+
+/// A probe for a tool that may not be installed at all. Absent is `Ok(None)`;
+/// installed but failing, or unable to start for any other reason, is an error.
+fn probe_text_if_installed(
+    builtin: &str,
+    tool: &str,
+    cmd: std::process::Command,
+) -> Result<Option<String>> {
+    match bounded_cmd_output(builtin, tool, cmd, PROBE_DEADLINE_SECS) {
+        Ok(output) => probe_stdout(builtin, tool, output).map(Some),
+        Err(e) if is_tool_missing(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// The dotted version in `cmd /C ver` output: `Microsoft Windows [Version
@@ -28977,32 +29022,31 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let mut cmd = std::process::Command::new("launchctl");
         cmd.arg("list");
-        let output = bounded_cmd_output("svc_list", "launchctl", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            // Format: PID\tStatus\tLabel
-            let services: Vec<Value> = text
-                .lines()
-                .skip(1)
-                .filter_map(|line| {
-                    let parts: Vec<&str> = line.split('\t').collect();
-                    if parts.len() >= 3 {
-                        let mut rec = std::collections::BTreeMap::new();
-                        rec.insert("name".to_string(), Value::Str(parts[2].to_string()));
-                        let status = if parts[0] == "-" {
-                            "stopped"
-                        } else {
-                            "running"
-                        };
-                        rec.insert("status".to_string(), Value::Str(status.to_string()));
-                        Some(Value::Record(rec))
+        // A failing launchctl used to answer an empty service list, which reads
+        // as "no services". It is an error now.
+        let text = probe_text("svc_list", "launchctl", cmd)?;
+        // Format: PID\tStatus\tLabel
+        let services: Vec<Value> = text
+            .lines()
+            .skip(1)
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() >= 3 {
+                    let mut rec = std::collections::BTreeMap::new();
+                    rec.insert("name".to_string(), Value::Str(parts[2].to_string()));
+                    let status = if parts[0] == "-" {
+                        "stopped"
                     } else {
-                        None
-                    }
-                })
-                .collect();
-            return Ok(Value::Array(services));
-        }
+                        "running"
+                    };
+                    rec.insert("status".to_string(), Value::Str(status.to_string()));
+                    Some(Value::Record(rec))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        return Ok(Value::Array(services));
     }
     Ok(Value::Array(vec![]))
 }
@@ -32294,7 +32338,20 @@ fn bi_pkg_clean(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_pkg_sources(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
-        if let Ok(sources) = std::fs::read_to_string("/etc/apt/sources.list") {
+        // No sources.list is a system without apt ([] below). One that exists
+        // but cannot be read used to be the same empty list; it is an error.
+        let sources = match std::fs::read_to_string("/etc/apt/sources.list") {
+            Ok(text) => Some(text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(crate::safety::fs_error(
+                    "pkg_sources",
+                    "/etc/apt/sources.list",
+                    &e,
+                ))
+            }
+        };
+        if let Some(sources) = sources {
             let entries: Vec<Value> = sources
                 .lines()
                 .filter(|l| {
@@ -33003,32 +33060,45 @@ fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let mut cmd = std::process::Command::new("system_profiler");
         cmd.args(["SPDisplaysDataType", "-json"]);
+        // A failing system_profiler, or output that is not the expected JSON,
+        // used to answer Null ("no GPU"). Both are errors now.
         let output = bounded_cmd_output("hw_gpu", "system_profiler", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if let Some(displays) = json.get("SPDisplaysDataType").and_then(|v| v.as_array()) {
-                    let gpus: Vec<Value> = displays
-                        .iter()
-                        .filter_map(|d| {
-                            let o = d.as_object()?;
-                            let mut rec = std::collections::BTreeMap::new();
-                            if let Some(v) = o.get("sppci_model") {
-                                rec.insert("name".to_string(), json_to_value(v.clone()));
-                            }
-                            if let Some(v) = o.get("spdisplays_vram") {
-                                rec.insert("vram".to_string(), json_to_value(v.clone()));
-                            }
-                            if let Some(v) = o.get("sppci_vendor") {
-                                rec.insert("vendor".to_string(), json_to_value(v.clone()));
-                            }
-                            Some(Value::Record(rec))
-                        })
-                        .collect();
-                    return Ok(Value::Array(gpus));
+        let status = output.status.code();
+        let json_str = probe_stdout("hw_gpu", "system_profiler", output)?;
+        let json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
+            crate::safety::tool_failed(
+                "hw_gpu",
+                "system_profiler SPDisplaysDataType -json",
+                status,
+                &format!("its output was not JSON: {e}"),
+            )
+        })?;
+        let Some(displays) = json.get("SPDisplaysDataType").and_then(|v| v.as_array()) else {
+            return Err(crate::safety::tool_failed(
+                "hw_gpu",
+                "system_profiler SPDisplaysDataType -json",
+                status,
+                "its output had no SPDisplaysDataType list",
+            ));
+        };
+        let gpus: Vec<Value> = displays
+            .iter()
+            .filter_map(|d| {
+                let o = d.as_object()?;
+                let mut rec = std::collections::BTreeMap::new();
+                if let Some(v) = o.get("sppci_model") {
+                    rec.insert("name".to_string(), json_to_value(v.clone()));
                 }
-            }
-        }
+                if let Some(v) = o.get("spdisplays_vram") {
+                    rec.insert("vram".to_string(), json_to_value(v.clone()));
+                }
+                if let Some(v) = o.get("sppci_vendor") {
+                    rec.insert("vendor".to_string(), json_to_value(v.clone()));
+                }
+                Some(Value::Record(rec))
+            })
+            .collect();
+        return Ok(Value::Array(gpus));
     }
     Ok(Value::Null)
 }
@@ -33327,6 +33397,19 @@ fn bi_hw_audio(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
+/// The charge percentage in a sysfs `capacity` file. Anything that is not an
+/// integer is refused as an unreadable file, never read as 0%.
+#[cfg(any(target_os = "linux", test))]
+fn battery_capacity_from(path: &str, text: &str) -> Result<i64> {
+    text.trim().parse::<i64>().map_err(|_| {
+        let cause = std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("`{}` is not a percentage", text.trim()),
+        );
+        crate::safety::fs_error("hw_battery", path, &cause)
+    })
+}
+
 fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns consistent Record {capacity: Int (%), status: String}
     #[cfg(target_os = "windows")]
@@ -33365,11 +33448,17 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let capacity_path = "/sys/class/power_supply/BAT0/capacity";
         let status_path = "/sys/class/power_supply/BAT0/status";
         let mut rec = std::collections::BTreeMap::new();
-        if let Ok(capacity) = std::fs::read_to_string(capacity_path) {
-            rec.insert(
-                "capacity".to_string(),
-                Value::Int(capacity.trim().parse().unwrap_or(0)),
-            );
+        // No BAT0 is a host without that battery. A capacity that is not a
+        // number used to be read as 0%, which is a real and alarming answer.
+        match std::fs::read_to_string(capacity_path) {
+            Ok(text) => {
+                rec.insert(
+                    "capacity".to_string(),
+                    Value::Int(battery_capacity_from(capacity_path, &text)?),
+                );
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(crate::safety::fs_error("hw_battery", capacity_path, &e)),
         }
         if let Ok(status) = std::fs::read_to_string(status_path) {
             rec.insert(
@@ -47908,10 +47997,24 @@ mod probe_status_tests {
 }
 
 fn bi_platform_tool_version(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let tool = args
-        .first()
-        .and_then(|v| v.as_str().ok())
-        .unwrap_or("unknown");
+    // A missing or non-string argument used to query a tool literally named
+    // "unknown". It is refused, as the sibling platform_* builtins refuse theirs.
+    let tool = match args.first() {
+        Some(v) => v.as_str().map_err(|_| {
+            crate::safety::bad_arg(
+                "platform_tool_version",
+                "a tool name: String",
+                v.type_name(),
+            )
+        })?,
+        None => {
+            return Err(crate::safety::bad_arg(
+                "platform_tool_version",
+                "a tool name: String",
+                "nothing",
+            ))
+        }
+    };
     match get_tool_version(tool) {
         Some(ver) => Ok(Value::Str(ver)),
         None => Ok(Value::Null),
@@ -49718,37 +49821,36 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             if let Ok(home) =
                 std::env::var("ANDROID_HOME").or_else(|_| std::env::var("ANDROID_SDK_ROOT"))
             {
-                // Try to read build-tools version
+                // Try to read build-tools version. A missing directory is an
+                // SDK that is not installed (Null below); an unreadable one is
+                // an error, not an empty list.
                 let bt_path = std::path::Path::new(&home).join("build-tools");
-                if bt_path.exists() {
-                    if let Ok(entries) = std::fs::read_dir(bt_path) {
+                match std::fs::read_dir(&bt_path) {
+                    Ok(entries) => {
                         let versions: Vec<String> = entries
                             .filter_map(|e| e.ok())
                             .filter_map(|e| e.file_name().into_string().ok())
                             .collect();
                         return Ok(Value::Array(versions.into_iter().map(Value::Str).collect()));
                     }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        return Err(crate::safety::fs_error(
+                            "platform_sdk_version",
+                            &bt_path,
+                            &e,
+                        ))
+                    }
                 }
             }
         }
         "ios" | "macos" | "xcode" => {
+            // A failing xcrun used to answer "" (or Null when it failed to
+            // start). Absent xcrun is still "not installed".
             let mut cmd = std::process::Command::new("xcrun");
             cmd.args(["--show-sdk-version"]);
-            if let Ok(out) =
-                bounded_cmd_output("platform_sdk_version", "xcrun", cmd, PROBE_DEADLINE_SECS)
-            {
-                // A failing xcrun answered "".
-                if !out.status.success() {
-                    return Err(crate::safety::tool_failed(
-                        "platform_sdk_version",
-                        "xcrun",
-                        out.status.code(),
-                        &String::from_utf8_lossy(&out.stderr),
-                    ));
-                }
-                return Ok(Value::Str(
-                    String::from_utf8_lossy(&out.stdout).trim().to_string(),
-                ));
+            if let Some(version) = probe_text_if_installed("platform_sdk_version", "xcrun", cmd)? {
+                return Ok(Value::Str(version));
             }
         }
         "windows" => {
@@ -49757,23 +49859,11 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             }
         }
         "dotnet" => {
+            // A probe error used to fall through to Null ("not installed").
             let mut cmd = std::process::Command::new("dotnet");
             cmd.args(["--list-sdks"]);
-            if let Ok(out) =
-                bounded_cmd_output("platform_sdk_version", "dotnet", cmd, PROBE_DEADLINE_SECS)
-            {
-                if !out.status.success() {
-                    return Err(crate::safety::tool_failed(
-                        "platform_sdk_version",
-                        "dotnet",
-                        out.status.code(),
-                        &String::from_utf8_lossy(&out.stderr),
-                    ));
-                }
-                let sdks: Vec<Value> = String::from_utf8_lossy(&out.stdout)
-                    .lines()
-                    .map(|l| Value::Str(l.to_string()))
-                    .collect();
+            if let Some(text) = probe_text_if_installed("platform_sdk_version", "dotnet", cmd)? {
+                let sdks: Vec<Value> = text.lines().map(|l| Value::Str(l.to_string())).collect();
                 return Ok(Value::Array(sdks));
             }
         }
@@ -50072,10 +50162,12 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     let mut info = std::collections::BTreeMap::new();
 
     // CUDA Toolkit version
+    // nvcc's output was recorded without checking its exit status, so a failing
+    // nvcc filled in the toolkit line from whatever it printed. A tool that is
+    // not installed is still just absent.
     let mut cmd = std::process::Command::new("nvcc");
     cmd.arg("--version");
-    if let Ok(out) = bounded_cmd_output("platform_cuda_version", "nvcc", cmd, PROBE_DEADLINE_SECS) {
-        let output = String::from_utf8_lossy(&out.stdout);
+    if let Some(output) = probe_text_if_installed("platform_cuda_version", "nvcc", cmd)? {
         for line in output.lines() {
             if line.contains("release") {
                 info.insert(
@@ -50092,28 +50184,16 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     {
         let mut cmd = std::process::Command::new("nvidia-smi");
         cmd.args(["--query-gpu=driver_version", "--format=csv,noheader"]);
-        if let Ok(out) = bounded_cmd_output(
-            "platform_cuda_version",
-            "nvidia-smi",
-            cmd,
-            PROBE_DEADLINE_SECS,
-        ) {
-            if out.status.success() {
-                let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                info.insert("nvidia_driver".to_string(), Value::Str(ver));
-            }
+        // A failing nvidia-smi used to be skipped; it is an error now.
+        if let Some(ver) = probe_text_if_installed("platform_cuda_version", "nvidia-smi", cmd)? {
+            info.insert("nvidia_driver".to_string(), Value::Str(ver));
         }
     }
     #[cfg(target_os = "windows")]
     {
         let cmd = std::process::Command::new("nvidia-smi");
-        if let Ok(out) = bounded_cmd_output(
-            "platform_cuda_version",
-            "nvidia-smi",
-            cmd,
-            PROBE_DEADLINE_SECS,
-        ) {
-            let output = String::from_utf8_lossy(&out.stdout);
+        // A failing nvidia-smi used to be skipped; it is an error now.
+        if let Some(output) = probe_text_if_installed("platform_cuda_version", "nvidia-smi", cmd)? {
             for line in output.lines() {
                 if line.contains("Driver Version") {
                     info.insert(
@@ -50132,11 +50212,10 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     }
 
     // Check for ROCm/HIP as alternative
+    // hipcc's output was recorded without an exit-status check, as nvcc's was.
     let mut cmd = std::process::Command::new("hipcc");
     cmd.arg("--version");
-    if let Ok(out) = bounded_cmd_output("platform_cuda_version", "hipcc", cmd, PROBE_DEADLINE_SECS)
-    {
-        let ver = String::from_utf8_lossy(&out.stdout);
+    if let Some(ver) = probe_text_if_installed("platform_cuda_version", "hipcc", cmd)? {
         if let Some(line) = ver.lines().next() {
             info.insert("hip".to_string(), Value::Str(line.to_string()));
         }
@@ -53881,9 +53960,21 @@ fn require_str(args: &[Value], idx: usize, name: &str) -> Result<String> {
     }
 }
 
+/// Whether a detection probe's tool ran and exited 0. A tool that is not
+/// installed is `false`. A probe that could not run (a spawn failure, or no
+/// answer before the deadline) is an error: it used to fall through to "none",
+/// which is a claim that no hypervisor exists.
+fn hypervisor_probe_ok(tool: &str, cmd: std::process::Command) -> Result<bool> {
+    match bounded_cmd_output("detect_hypervisor", tool, cmd, PROBE_DEADLINE_SECS) {
+        Ok(o) => Ok(o.status.success()),
+        Err(e) if is_tool_missing(&e) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 /// Detect available hypervisor on the current platform.
 /// Returns one of: "hyperv", "virsh", "vboxmanage", "none"
-fn detect_hypervisor() -> &'static str {
+fn detect_hypervisor() -> Result<&'static str> {
     #[cfg(target_os = "windows")]
     {
         // On Windows, prefer Hyper-V
@@ -53893,32 +53984,23 @@ fn detect_hypervisor() -> &'static str {
             "-Command",
             "Get-Command Get-VM -ErrorAction SilentlyContinue",
         ]);
-        if bounded_cmd_output("detect_hypervisor", "powershell", cmd, PROBE_DEADLINE_SECS)
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
-            return "hyperv";
+        if hypervisor_probe_ok("powershell", cmd)? {
+            return Ok("hyperv");
         }
     }
     // Try virsh (Linux / macOS with libvirt)
     let mut cmd = std::process::Command::new("virsh");
     cmd.arg("version");
-    if bounded_cmd_output("detect_hypervisor", "virsh", cmd, PROBE_DEADLINE_SECS)
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-    {
-        return "virsh";
+    if hypervisor_probe_ok("virsh", cmd)? {
+        return Ok("virsh");
     }
     // Try VBoxManage
     let mut cmd = std::process::Command::new("VBoxManage");
     cmd.arg("--version");
-    if bounded_cmd_output("detect_hypervisor", "VBoxManage", cmd, PROBE_DEADLINE_SECS)
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-    {
-        return "vboxmanage";
+    if hypervisor_probe_ok("VBoxManage", cmd)? {
+        return Ok("vboxmanage");
     }
-    "none"
+    Ok("none")
 }
 
 // ============================================================================
@@ -63002,6 +63084,52 @@ fn bi_tmux_new(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// tmux list-sessions — List active tmux sessions.
+/// Whether tmux's failure text means there is no server, and so no sessions.
+/// "no server running" is the answer. "error connecting to <socket> (No such
+/// file or directory)" is the same state when the socket file is absent. Any
+/// other connect error, such as a permission denial on the socket, is not.
+fn tmux_no_server(stderr: &str) -> bool {
+    stderr.contains("no server running")
+        || (stderr.contains("error connecting to") && stderr.contains("No such file or directory"))
+}
+
+/// One `name:windows:attached` line of `tmux list-sessions -F`. A line that
+/// does not have that shape is refused, not read with a zero window count.
+fn tmux_session_record(line: &str) -> Result<Value> {
+    let parts: Vec<&str> = line.splitn(3, ':').collect();
+    let (Some(name), Some(windows), Some(attached)) = (parts.first(), parts.get(1), parts.get(2))
+    else {
+        return Err(tmux_unparsed());
+    };
+    let windows: i64 = windows.parse().map_err(|_| tmux_unparsed())?;
+    let attached = match *attached {
+        "0" => false,
+        "1" => true,
+        _ => return Err(tmux_unparsed()),
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("name".to_string(), Value::Str(name.to_string()));
+    rec.insert("windows".to_string(), Value::Int(windows));
+    rec.insert("attached".to_string(), Value::Bool(attached));
+    Ok(Value::Record(rec))
+}
+
+fn tmux_unparsed() -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::ToolFailed,
+        message:
+            "tmux_list: the output of `tmux list-sessions` is not in a form this builtin reads"
+                .to_string(),
+        builtin: "tmux_list".to_string(),
+        hint: "`tmux` ran, but its session list does not match the format this builtin asks for"
+            .to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "`tmux list-sessions` output this builtin reads".to_string(),
+        got: "unreadable output".to_string(),
+    })
+}
+
 fn bi_tmux_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut cmd = std::process::Command::new("tmux");
     cmd.args([
@@ -63016,33 +63144,19 @@ fn bi_tmux_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let sessions: Vec<Value> = stdout
                 .lines()
                 .filter(|l| !l.is_empty())
-                .map(|line| {
-                    let parts: Vec<&str> = line.splitn(3, ':').collect();
-                    let mut rec = BTreeMap::new();
-                    rec.insert(
-                        "name".to_string(),
-                        Value::Str(parts.first().unwrap_or(&"").to_string()),
-                    );
-                    rec.insert(
-                        "windows".to_string(),
-                        Value::Int(parts.get(1).unwrap_or(&"0").parse().unwrap_or(0)),
-                    );
-                    rec.insert(
-                        "attached".to_string(),
-                        Value::Bool(parts.get(2).unwrap_or(&"0") == &"1"),
-                    );
-                    Value::Record(rec)
-                })
-                .collect();
+                .map(tmux_session_record)
+                .collect::<Result<_>>()?;
             Ok(Value::Array(sessions))
         }
         // tmux's stderr used to come back as the successful result: with no
         // server running, `tmux_list()` answered the String "error connecting
         // to /tmp/tmux-1001/default (No such file or directory)" at exit 0.
-        // No server means no sessions; anything else is a failure.
+        // No server means no sessions; anything else is a failure. Any
+        // "error connecting to" used to be read as no server, which also hid a
+        // permission error on the socket.
         Ok(o) => {
             let err = String::from_utf8_lossy(&o.stderr);
-            if err.contains("no server running") || err.contains("error connecting to") {
+            if tmux_no_server(&err) {
                 return Ok(Value::Array(vec![]));
             }
             Err(crate::safety::tool_failed(
@@ -66836,5 +66950,109 @@ mod quiet_misc2_tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("AE_BAD"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod quiet_probe_tests {
+    use super::*;
+
+    fn obj(json: &str) -> serde_json::Map<String, serde_json::Value> {
+        serde_json::from_str::<serde_json::Value>(json)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone()
+    }
+
+    fn int_field(v: &Value, key: &str) -> Option<i64> {
+        match v {
+            Value::Record(r) => match r.get(key) {
+                Some(Value::Int(n)) => Some(*n),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn tmux_no_server_is_only_the_absent_server() {
+        assert!(tmux_no_server(
+            "no server running on /tmp/tmux-1000/default\n"
+        ));
+        assert!(tmux_no_server(
+            "error connecting to /tmp/tmux-1001/default (No such file or directory)"
+        ));
+        // A socket the caller may not open is a failure, not an empty list.
+        assert!(!tmux_no_server(
+            "error connecting to /tmp/tmux-1000/default (Permission denied)"
+        ));
+        assert!(!tmux_no_server("unknown option -- Z"));
+    }
+
+    #[test]
+    fn tmux_session_lines_parse_strictly() {
+        let Ok(Value::Record(r)) = tmux_session_record("main:3:1") else {
+            panic!("a well-formed session line must parse");
+        };
+        assert!(matches!(r.get("name"), Some(Value::Str(s)) if s == "main"));
+        assert!(matches!(r.get("windows"), Some(Value::Int(3))));
+        assert!(matches!(r.get("attached"), Some(Value::Bool(true))));
+        assert!(tmux_session_record("main:0:0").is_ok());
+        assert!(tmux_session_record("main:x:1").is_err());
+        assert!(tmux_session_record("main:3").is_err());
+        assert!(tmux_session_record("main:3:yes").is_err());
+    }
+
+    #[test]
+    fn windows_counters_require_every_field() {
+        let row = net_counter_record(
+            "net_counters",
+            &obj(r#"{"Name":"Ethernet","ReceivedBytes":10,"SentBytes":20,"ReceivedUnicastPackets":3,"SentUnicastPackets":4}"#),
+        )
+        .unwrap();
+        assert_eq!(int_field(&row, "rx_bytes"), Some(10));
+        assert_eq!(int_field(&row, "tx_bytes"), Some(20));
+        assert_eq!(int_field(&row, "rx_packets"), Some(3));
+        assert_eq!(int_field(&row, "tx_packets"), Some(4));
+        // A missing counter is refused, not reported as 0 bytes.
+        assert!(net_counter_record(
+            "net_counters",
+            &obj(r#"{"Name":"Ethernet","ReceivedBytes":10,"ReceivedUnicastPackets":3,"SentUnicastPackets":4}"#),
+        )
+        .is_err());
+        // A counter that is not an integer is refused too.
+        assert!(net_counter_record(
+            "net_counters",
+            &obj(r#"{"Name":"Ethernet","ReceivedBytes":"10","SentBytes":20,"ReceivedUnicastPackets":3,"SentUnicastPackets":4}"#),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn socket_ports_are_real_ports() {
+        let o = obj(r#"{"LocalPort":8080,"RemotePort":0,"Other":"x"}"#);
+        assert_eq!(
+            net_socket_port("net_sockets", &o, "LocalPort").ok(),
+            Some(8080)
+        );
+        // Port 0 is never a listening or connected port: refused, not listed.
+        assert!(net_socket_port("net_sockets", &o, "RemotePort").is_err());
+        assert!(net_socket_port("net_sockets", &o, "Missing").is_err());
+        assert!(
+            net_socket_port("net_sockets", &obj(r#"{"LocalPort":"80"}"#), "LocalPort").is_err()
+        );
+        assert!(
+            net_socket_port("net_sockets", &obj(r#"{"LocalPort":70000}"#), "LocalPort").is_err()
+        );
+    }
+
+    #[test]
+    fn battery_capacity_is_a_percentage_or_refused() {
+        let path = "/sys/class/power_supply/BAT0/capacity";
+        assert_eq!(battery_capacity_from(path, "87\n").ok(), Some(87));
+        assert_eq!(battery_capacity_from(path, " 0 ").ok(), Some(0));
+        assert!(battery_capacity_from(path, "").is_err());
+        assert!(battery_capacity_from(path, "unknown\n").is_err());
     }
 }
