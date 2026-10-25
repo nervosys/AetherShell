@@ -13490,8 +13490,8 @@ fn bi_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 
     let key = expect_string("env", &args[0])?;
-    match std::env::var(key) {
-        Ok(val) => Ok(gate_env_secret(key, val)),
+    match env_read("env", key, std::env::var(key))? {
+        Some(val) => Ok(gate_env_secret(key, val)),
         // `env(name, default)` returns `default` when the variable is unset.
         //
         // The second argument used to be accepted and discarded, so an unset
@@ -13499,7 +13499,7 @@ fn bi_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // ignoring `n`. It matters most in bash compatibility mode, where
         // `echo $NOPE` must print an empty line as bash does, not the word
         // "null".
-        Err(_) => Ok(args.get(1).cloned().unwrap_or(Value::Null)),
+        None => Ok(args.get(1).cloned().unwrap_or(Value::Null)),
     }
 }
 
@@ -30714,17 +30714,17 @@ fn tar_entries(builtin: &str, path: &str, gz: bool) -> Result<Vec<Value>> {
     {
         let entry = entry.map_err(|e| archive_corrupt(builtin, path, e))?;
         let h = entry.header();
+        // A header or name that cannot be read used to become an entry with an
+        // empty path and size 0. The archive is refused instead.
+        let entry_path = entry
+            .path()
+            .map_err(|e| archive_corrupt(builtin, path, e))?
+            .to_string_lossy()
+            .to_string();
+        let size = h.size().map_err(|e| archive_corrupt(builtin, path, e))?;
         let mut r = BTreeMap::new();
-        r.insert(
-            "path".to_string(),
-            Value::Str(
-                entry
-                    .path()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default(),
-            ),
-        );
-        r.insert("size".to_string(), Value::Int(h.size().unwrap_or(0) as i64));
+        r.insert("path".to_string(), Value::Str(entry_path));
+        r.insert("size".to_string(), Value::Int(size as i64));
         let kind = match h.entry_type() {
             tar::EntryType::Directory => "dir",
             tar::EntryType::Symlink | tar::EntryType::Link => "link",
@@ -45001,17 +45001,32 @@ fn bi_project_type(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_project_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut cmd = std::process::Command::new("git");
     cmd.args(["rev-parse", "--show-toplevel"]);
+    // The doc promises no fallback, so a directory that is not a repository
+    // (or no git at all) is not reported as the root. It used to answer the
+    // current directory for every failure, which named a subdirectory as the
+    // project root.
     let output = bounded_cmd_output("project_root", "git", cmd, TOOL_DEADLINE_SECS);
-    if let Ok(o) = output {
-        if o.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&o.stdout).trim().to_string(),
-            ));
-        }
+    let cwd = std::env::current_dir()?.to_string_lossy().to_string();
+    match output {
+        Ok(o) if o.status.success() => Ok(Value::Str(
+            String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        )),
+        Ok(o) if String::from_utf8_lossy(&o.stderr).contains("not a git repository") => Err(
+            crate::safety::not_found("project_root", "project root", &cwd),
+        ),
+        Ok(o) => Err(crate::safety::tool_failed(
+            "project_root",
+            "git rev-parse --show-toplevel",
+            o.status.code(),
+            &String::from_utf8_lossy(&o.stderr),
+        )),
+        Err(e) if is_tool_missing(&e) => Err(crate::safety::not_found(
+            "project_root",
+            "project root",
+            &cwd,
+        )),
+        Err(e) => Err(e),
     }
-    Ok(Value::Str(
-        std::env::current_dir()?.to_string_lossy().to_string(),
-    ))
 }
 
 /// Read a manifest that may be absent. `None` means the file does not exist.
@@ -46960,9 +46975,34 @@ fn bi_env_ruby(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_shell(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    Ok(Value::Str(std::env::var("SHELL").unwrap_or_else(|_| {
-        std::env::var("COMSPEC").unwrap_or_default()
-    })))
+    // Neither variable set was "", which names no shell. It is not an answer.
+    match std::env::var("SHELL").or_else(|_| std::env::var("COMSPEC")) {
+        Ok(shell) => Ok(Value::Str(shell)),
+        Err(_) => Err(crate::safety::not_found(
+            "env_shell",
+            "shell",
+            "SHELL or COMSPEC",
+        )),
+    }
+}
+
+/// Read one environment variable for a builtin. `Ok(None)` is an unset
+/// variable. A variable that is set but not valid UTF-8 is refused: it used
+/// to read as unset, which is a different fact from absence.
+fn env_read(
+    builtin: &str,
+    name: &str,
+    read: Result<String, std::env::VarError>,
+) -> Result<Option<String>> {
+    match read {
+        Ok(v) => Ok(Some(v)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(crate::safety::bad_state(
+            builtin,
+            &format!("environment variable `{name}` is set, but its value is not valid UTF-8"),
+            "env_set",
+        )),
+    }
 }
 
 fn bi_env_path(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -46983,9 +47023,9 @@ fn bi_env_var(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("variable name required"))?;
     // Unset was "", where env() and sys.env() answer null.
-    Ok(match std::env::var(&name) {
-        Ok(v) => gate_env_secret(&name, v),
-        Err(_) => Value::Null,
+    Ok(match env_read("env_var", &name, std::env::var(&name))? {
+        Some(v) => gate_env_secret(&name, v),
+        None => Value::Null,
     })
 }
 
@@ -56503,6 +56543,16 @@ fn bi_ssh_copy_id(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
+/// The value of an ssh config `Port` line: a decimal number from 1 to 65535.
+/// Anything else is `None`.
+fn ssh_port_value(val: &str) -> Option<i64> {
+    val.trim()
+        .parse::<u16>()
+        .ok()
+        .filter(|p| *p != 0)
+        .map(i64::from)
+}
+
 // 984: bi_ssh_config - Read and parse SSH config file
 fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let config_path = match args.first() {
@@ -56545,7 +56595,19 @@ fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     entry.insert("User".to_string(), Value::Str(val));
                 }
                 "port" => {
-                    let port = val.parse::<i64>().unwrap_or(22);
+                    // A malformed Port used to become 22, a connection to a
+                    // port the host may not serve. It is refused instead.
+                    let port = ssh_port_value(&val).ok_or_else(|| {
+                        let host = match entry.get("Host") {
+                            Some(Value::Str(h)) => h.as_str(),
+                            _ => "?",
+                        };
+                        crate::safety::bad_arg(
+                            "ssh_config",
+                            "a Port number from 1 to 65535",
+                            &format!("Port `{val}` for host `{host}`"),
+                        )
+                    })?;
                     entry.insert("Port".to_string(), Value::Int(port));
                 }
                 "identityfile" => {
@@ -57802,10 +57864,9 @@ fn bi_glances_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .collect();
     let load = System::load_average();
     let mut rec = BTreeMap::new();
-    rec.insert(
-        "hostname".to_string(),
-        Value::Str(System::host_name().unwrap_or_default()),
-    );
+    // A missing host name was "", which read as a name. platform_snapshot
+    // gets it from sys_hostname, which refuses when it cannot be read.
+    rec.insert("hostname".to_string(), bi_sys_hostname(Vec::new(), None)?);
     rec.insert(
         "uptime_seconds".to_string(),
         Value::Int(System::uptime() as i64),
@@ -58439,10 +58500,8 @@ fn bi_uptime_extended(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     rec.insert("load_1".to_string(), Value::Float(load.one));
     rec.insert("load_5".to_string(), Value::Float(load.five));
     rec.insert("load_15".to_string(), Value::Float(load.fifteen));
-    rec.insert(
-        "hostname".to_string(),
-        Value::Str(System::host_name().unwrap_or_default()),
-    );
+    // A missing host name was "" (see bi_glances_info).
+    rec.insert("hostname".to_string(), bi_sys_hostname(Vec::new(), None)?);
     Ok(Value::Record(rec))
 }
 
@@ -59188,11 +59247,21 @@ pub fn bi_watch_disk(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // ===================== Cloud Platform Builtins =====================
 
-/// Get the current OS username (cross-platform).
-fn get_current_username() -> String {
-    std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "unknown".to_string())
+/// The current OS username (cross-platform). Neither variable set used to be
+/// "unknown", which passed as a real user: workspace membership and package
+/// authorship would record that name. It is refused instead.
+///
+/// Asked through `whoami`, which reads the user database by effective uid on
+/// Unix: $USER is unset under cron, systemd units and many containers.
+fn get_current_username(builtin: &str) -> Result<String> {
+    match bi_whoami(Vec::new(), None)? {
+        Value::Str(name) => Ok(name),
+        other => Err(crate::safety::bad_state(
+            builtin,
+            &format!("whoami answered {}", other.type_name()),
+            "whoami",
+        )),
+    }
 }
 
 /// 844 – cloud_deploy(name, [options]): not implemented. No cloud provider
@@ -59499,7 +59568,7 @@ fn bi_workspace_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let owner = get_current_username();
+    let owner = get_current_username("workspace_create")?;
     let created_at = chrono::Local::now().to_rfc3339();
     let mut workspaces = WORKSPACES
         .write()
@@ -59542,7 +59611,7 @@ fn bi_workspace_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
 fn bi_workspace_join(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     refuse_piped_subject("workspace_join", &input)?;
     let ws_id = collab_text_arg("workspace_join", "workspace_id", args.first(), 64)?;
-    let user = get_current_username();
+    let user = get_current_username("workspace_join")?;
     let mut workspaces = WORKSPACES
         .write()
         .map_err(|e| anyhow!("lock error: {}", e))?;
@@ -59585,7 +59654,7 @@ fn bi_workspace_join(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_workspace_leave(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     refuse_piped_subject("workspace_leave", &input)?;
     let ws_id = collab_text_arg("workspace_leave", "workspace_id", args.first(), 64)?;
-    let user = get_current_username();
+    let user = get_current_username("workspace_leave")?;
     let mut workspaces = WORKSPACES
         .write()
         .map_err(|e| anyhow!("lock error: {}", e))?;
@@ -59646,7 +59715,7 @@ fn bi_workspace_share_agent(args: Vec<Value>, input: Option<Value>) -> Result<Va
     refuse_piped_subject("workspace_share_agent", &input)?;
     let ws_id = collab_text_arg("workspace_share_agent", "workspace_id", args.first(), 64)?;
     let agent = collab_text_arg("workspace_share_agent", "agent", args.get(1), 128)?;
-    let user = get_current_username();
+    let user = get_current_username("workspace_share_agent")?;
     let mut workspaces = WORKSPACES
         .write()
         .map_err(|e| anyhow!("lock error: {}", e))?;
@@ -59773,7 +59842,7 @@ fn bi_workspace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     let workspaces = WORKSPACES
         .read()
         .map_err(|e| anyhow!("lock error: {}", e))?;
-    let user = get_current_username();
+    let user = get_current_username("workspace_list")?;
     let entries: Vec<Value> = workspaces
         .values()
         .filter(|ws| ws.members.iter().any(|m| m.user == user))
@@ -59973,6 +60042,9 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 
     // Egress is decided at dispatch: `Network` is centrally enforced, so the
     // upload is metered and gated before this body runs.
+    // Resolved before the upload, so a missing user cannot leave a published
+    // package without an author.
+    let user = get_current_username("marketplace_publish")?;
     let target = match &path {
         Some(tarball) => {
             let manifest = crate::packages::PackageManifest {
@@ -59980,7 +60052,7 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
                     name: name.clone(),
                     version: version.clone(),
                     description: description.clone(),
-                    authors: vec![get_current_username()],
+                    authors: vec![user.clone()],
                     license: None,
                     repository: None,
                     main: "main.ae".to_string(),
@@ -59999,7 +60071,7 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     let package = MarketplacePackage {
         name: name.clone(),
         version: version.clone(),
-        author: get_current_username(),
+        author: user,
         description: description.clone(),
         category: category.clone(),
         downloads: 0,
@@ -60221,8 +60293,15 @@ fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         .download_package(&name, &ver)
         .map_err(|e| registry_failure("marketplace_install", &e))?;
 
-    // Update the local catalogue
-    if let Ok(mut packages) = MARKETPLACE_PACKAGES.write() {
+    // Update the local catalogue. A poisoned lock used to skip this and still
+    // report "installed"; the download is on disk, so the error names it.
+    {
+        let mut packages = MARKETPLACE_PACKAGES.write().map_err(|_| {
+            anyhow!(
+                "marketplace_install: `{}` was downloaded, but the package catalogue lock is poisoned, so it was not recorded",
+                install_path.display()
+            )
+        })?;
         let existing = packages
             .entry(name.clone())
             .or_insert_with(|| MarketplacePackage {
@@ -62165,9 +62244,14 @@ fn tail_text(text: &str, max: usize) -> String {
 /// way; `output_truncated` says when the stdout kept was only its tail.
 fn run_fields(run: ToolRun, out_key: &str, err_key: &str) -> BTreeMap<String, Value> {
     let mut rec = BTreeMap::new();
+    // No code means the process was killed by a signal (the deadline is
+    // refused before this). It was `0`, which read as a clean exit.
     rec.insert(
         "exit_code".to_string(),
-        Value::Int(run.code.unwrap_or(0) as i64),
+        match run.code {
+            Some(code) => Value::Int(code as i64),
+            None => Value::Null,
+        },
     );
     rec.insert("success".to_string(), Value::Bool(run.success));
     if run.stdout_truncated {
@@ -66692,5 +66776,62 @@ mod quiet_fs_tests {
         let got = read_text_lossy("project_readme", &dir);
         std::fs::remove_dir_all(&dir).ok();
         assert!(got.is_err(), "{got:?}");
+    }
+}
+
+#[cfg(test)]
+mod quiet_misc2_tests {
+    use super::*;
+
+    fn tool_run(code: Option<i32>) -> ToolRun {
+        ToolRun {
+            command: "tool".to_string(),
+            keep: Keep::Tail(0),
+            success: code == Some(0),
+            code,
+            stdout: String::new(),
+            stdout_truncated: false,
+            stderr: String::new(),
+            stderr_truncated: false,
+        }
+    }
+
+    #[test]
+    fn exit_code_is_null_without_a_code() {
+        let killed = run_fields(tool_run(None), "stdout", "stderr");
+        assert_eq!(killed.get("exit_code"), Some(&Value::Null));
+        let exited = run_fields(tool_run(Some(3)), "stdout", "stderr");
+        assert_eq!(exited.get("exit_code"), Some(&Value::Int(3)));
+    }
+
+    #[test]
+    fn ssh_port_accepts_only_1_to_65535() {
+        assert_eq!(ssh_port_value("2222"), Some(2222));
+        assert_eq!(ssh_port_value("65535"), Some(65535));
+        assert_eq!(ssh_port_value("0"), None);
+        assert_eq!(ssh_port_value("65536"), None);
+        assert_eq!(ssh_port_value("ssh"), None);
+        assert_eq!(ssh_port_value(""), None);
+    }
+
+    #[test]
+    fn env_read_classifies_unset_and_non_utf8() {
+        assert_eq!(
+            env_read("env", "X", Ok("v".to_string())).unwrap(),
+            Some("v".to_string())
+        );
+        assert_eq!(
+            env_read("env", "X", Err(std::env::VarError::NotPresent)).unwrap(),
+            None
+        );
+        let err = env_read(
+            "env_var",
+            "AE_BAD",
+            Err(std::env::VarError::NotUnicode(std::ffi::OsString::from(
+                "x",
+            ))),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("AE_BAD"), "{err}");
     }
 }
