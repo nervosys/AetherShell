@@ -24392,27 +24392,32 @@ fn bi_proc_wait(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
+/// Asked in-process, as every other proc reader asks. `kill -0` exits 1 with
+/// EPERM for a live process this user may not signal, so on Unix it called
+/// init and every other user's process gone; on Windows a PowerShell that
+/// failed to start read as "no such process".
 fn bi_proc_exists(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let pid = pid_arg("proc_exists", args.first())?;
+    Ok(Value::Bool(proc_live(pid)))
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            &crate::ps_script!("Get-Process -Id {} -ErrorAction SilentlyContinue", pid),
-        ]);
-        let output = bounded_cmd_output("proc_exists", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        Ok(Value::Bool(
-            output.status.success() && !output.stdout.is_empty(),
-        ))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut cmd = std::process::Command::new("kill");
-        cmd.args(["-0", &pid.to_string()]);
-        let output = bounded_cmd_output("proc_exists", "kill", cmd, PROBE_DEADLINE_SECS)?;
-        return Ok(Value::Bool(output.status.success()));
+#[cfg(test)]
+mod proc_exists_tests {
+    use super::*;
+
+    /// Pid 1 (init) and pid 4 (System) belong to the OS, not to the tester,
+    /// which is the case `kill -0` answered false for.
+    #[test]
+    fn a_live_process_of_another_user_exists_and_a_free_pid_does_not() {
+        let own = Value::Int(i64::from(std::process::id()));
+        let os = Value::Int(if cfg!(windows) { 4 } else { 1 });
+        for (pid, want) in [(own, true), (os, true), (Value::Int(999_999_999), false)] {
+            let got = bi_proc_exists(vec![pid.clone()], None).unwrap();
+            assert!(
+                matches!(got, Value::Bool(b) if b == want),
+                "{pid:?} -> {got:?}"
+            );
+        }
     }
 }
 

@@ -29,8 +29,15 @@
 //! builtins, `cron_list`, `sudo_check`, `at_list` and `crypto_key_generate`
 //! all check theirs one call away. `platform_snapshot` and
 //! `platform_system_libs`, the last two, then had their status read.
+//!
+//! The second ceiling stood at 64 long after the sites it counted were fixed;
+//! read again on 2026-10-25 it found two. `proc_exists` answered `kill -0`,
+//! whose EPERM made every other user's process "gone", and now asks in
+//! process. `crypto_cert_verify` is left: openssl's non-zero exit for a
+//! certificate that does not verify is the answer, and a missing or
+//! unreadable file is refused before it runs.
 
-const BOOL_SUCCESS_MAX: usize = 64;
+const BOOL_SUCCESS_MAX: usize = 1;
 
 fn source() -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/builtins.rs");
