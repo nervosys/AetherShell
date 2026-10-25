@@ -6237,7 +6237,7 @@ pub static SIGNATURES: &[Signature] = &[
         params: &[],
         returns: "Record",
         doc: "System library versions, such as the C library.",
-        examples: &[("typeof(platform_system_libs())", "Record")],
+        examples: &[("platform_system_libs()", "a Record of the C library and toolchain versions this host has, such as {glibc, libstdc++} on Linux")],
     },
     Signature {
         name: "platform_tool_versions",

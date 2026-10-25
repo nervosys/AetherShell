@@ -330,6 +330,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("platform_db_export", "the user's platform store"),
     // platform_*: readers of this machine's hardware, tools and environment.
     ("platform_snapshot", "this host's OS, installed tool versions, environment variables and clock"),
+    ("platform_system_libs", "the host's C library and toolchain versions, which a failed probe refuses rather than leaving out"),
     ("platform_fingerprint", "this host's platform snapshot, so its tools and environment"),
     ("platform_memory", "the host's memory, which changes from call to call"),
     ("platform_hardware_summary", "this host's CPU, memory, disks, GPUs and network interfaces"),

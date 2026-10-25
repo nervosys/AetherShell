@@ -46875,6 +46875,22 @@ fn probe_tool_versions(tools: &[&str]) -> Vec<(String, String)> {
     })
 }
 
+/// The build number in `cmd /C ver` output: the third component of its
+/// version. `None` when the line is not the English `Microsoft Windows [Version
+/// ...]` form.
+fn windows_ver_build(ver: &str) -> Option<String> {
+    ver_version(ver).and_then(|v| v.split('.').nth(2).map(str::to_string))
+}
+
+/// PRETTY_NAME from /etc/os-release text, without its quotes.
+#[cfg(any(not(target_os = "windows"), test))]
+fn os_release_pretty_name(content: &str) -> Option<String> {
+    content
+        .lines()
+        .find_map(|line| line.strip_prefix("PRETTY_NAME="))
+        .map(|name| name.trim_matches('"').to_string())
+}
+
 /// Complete system snapshot with all versioning info
 fn bi_platform_snapshot(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     platform_refuse_input("platform_snapshot", &input)?;
@@ -46905,70 +46921,41 @@ fn bi_platform_snapshot(_args: Vec<Value>, input: Option<Value>) -> Result<Value
         Value::Str(std::env::consts::FAMILY.to_string()),
     );
 
-    // Hostname
-    let hostname_cmd = std::process::Command::new(if cfg!(windows) {
-        "hostname"
-    } else {
-        "hostname"
-    });
-    if let Ok(hostname) = bounded_cmd_output(
-        "platform_snapshot",
-        "hostname",
-        hostname_cmd,
-        PROBE_DEADLINE_SECS,
-    ) {
-        let h = String::from_utf8_lossy(&hostname.stdout).trim().to_string();
-        snapshot.insert("hostname".to_string(), Value::Str(h));
-    }
+    // The identity probes. A failed one refuses the whole snapshot: these
+    // fields feed the fingerprint, so a missing or empty one would change it
+    // silently. The old code left the field out, or wrote "" for a failed
+    // `hostname` or `uname`. The hostname is read in-process, as
+    // `sys_hostname` reads it, since minimal containers have no `hostname`.
+    let hostname = bi_sys_hostname(Vec::new(), None)?;
+    snapshot.insert("hostname".to_string(), hostname);
 
-    // OS version
     #[cfg(target_os = "windows")]
     {
         let mut cmd = std::process::Command::new("cmd");
         cmd.args(["/c", "ver"]);
-        if let Ok(out) = bounded_cmd_output("platform_snapshot", "cmd", cmd, PROBE_DEADLINE_SECS) {
-            let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            snapshot.insert("os_version".to_string(), Value::Str(ver));
-        }
-        let mut cmd = std::process::Command::new("wmic");
-        cmd.args(["os", "get", "BuildNumber"]);
-        if let Ok(out) = bounded_cmd_output("platform_snapshot", "wmic", cmd, PROBE_DEADLINE_SECS) {
-            let build = String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .nth(1)
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            snapshot.insert("build".to_string(), Value::Str(build));
-        }
+        let ver = probe_text("platform_snapshot", "cmd", cmd)?;
+        // The build is the third component of the version: the number that
+        // `wmic os get BuildNumber` printed, and wmic is absent on Windows 11.
+        let build = windows_ver_build(&ver).ok_or_else(|| ver_unreadable("platform_snapshot"))?;
+        snapshot.insert("os_version".to_string(), Value::Str(ver));
+        snapshot.insert("build".to_string(), Value::Str(build));
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         let mut cmd = std::process::Command::new("uname");
         cmd.arg("-r");
-        if let Ok(out) = bounded_cmd_output("platform_snapshot", "uname", cmd, PROBE_DEADLINE_SECS)
-        {
-            let kernel = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            snapshot.insert("kernel".to_string(), Value::Str(kernel));
-        }
+        let kernel = probe_text("platform_snapshot", "uname", cmd)?;
+        snapshot.insert("kernel".to_string(), Value::Str(kernel));
         let mut cmd = std::process::Command::new("uname");
         cmd.arg("-v");
-        if let Ok(out) = bounded_cmd_output("platform_snapshot", "uname", cmd, PROBE_DEADLINE_SECS)
-        {
-            let build = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            snapshot.insert("build".to_string(), Value::Str(build));
-        }
-        // Try to get distro info
-        if std::path::Path::new("/etc/os-release").exists() {
-            if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
-                for line in content.lines() {
-                    if line.starts_with("PRETTY_NAME=") {
-                        let name = line.trim_start_matches("PRETTY_NAME=").trim_matches('"');
-                        snapshot.insert("os_version".to_string(), Value::Str(name.to_string()));
-                        break;
-                    }
-                }
+        let build = probe_text("platform_snapshot", "uname", cmd)?;
+        snapshot.insert("build".to_string(), Value::Str(build));
+        // Optional by design: not every Unix ships /etc/os-release (macOS does
+        // not). Then the record omits os_version rather than guessing one.
+        if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
+            if let Some(name) = os_release_pretty_name(&content) {
+                snapshot.insert("os_version".to_string(), Value::Str(name));
             }
         }
     }
@@ -47129,9 +47116,7 @@ fn bi_platform_build(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         let mut cmd = std::process::Command::new("cmd");
         cmd.args(["/c", "ver"]);
         let text = probe_text("platform_build", "cmd", cmd)?;
-        ver_version(&text)
-            .and_then(|v| v.split('.').nth(2).map(str::to_string))
-            .ok_or_else(|| ver_unreadable("platform_build"))?
+        windows_ver_build(&text).ok_or_else(|| ver_unreadable("platform_build"))?
     } else if cfg!(target_os = "macos") {
         let mut cmd = std::process::Command::new("sw_vers");
         cmd.arg("-buildVersion");
@@ -48734,62 +48719,179 @@ fn bi_platform_lib_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
     Ok(Value::Null)
 }
 
+/// Where a Linux libstdc++ is installed, read in this order. A host with none
+/// of them has no libstdc++ to report.
+#[cfg(target_os = "linux")]
+const LIBSTDCXX_CANDIDATES: [&str; 4] = [
+    "/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+    "/usr/lib/aarch64-linux-gnu/libstdc++.so.6",
+    "/usr/lib64/libstdc++.so.6",
+    "/usr/lib/libstdc++.so.6",
+];
+
+/// The glibc line from `ldd --version`. Musl's ldd exits non-zero and names
+/// musl: that is the answer "no glibc", `Ok(None)`. Any other non-zero exit, or
+/// a clean exit with no line, is `Err` with the text to refuse with. A failed
+/// listing must not read as an absent library.
+#[cfg(any(target_os = "linux", test))]
+fn glibc_from_ldd(success: bool, stdout: &str, stderr: &str) -> Result<Option<String>, String> {
+    if success {
+        return stdout
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .map(|l| Some(l.to_string()))
+            .ok_or_else(|| "ldd printed no version line".to_string());
+    }
+    if format!("{stdout}{stderr}")
+        .to_ascii_lowercase()
+        .contains("musl")
+    {
+        return Ok(None);
+    }
+    Err(stderr.trim().to_string())
+}
+
+/// The last `GLIBCXX_` tag in `strings` output. A failed `strings` is `Err`,
+/// whatever it printed; a successful one with no tags is `Ok(None)`.
+#[cfg(any(target_os = "linux", test))]
+fn libstdcxx_from_strings(
+    success: bool,
+    stdout: &str,
+    stderr: &str,
+) -> Result<Option<String>, String> {
+    if !success {
+        return Err(stderr.trim().to_string());
+    }
+    Ok(stdout
+        .lines()
+        .rfind(|l| l.starts_with("GLIBCXX_"))
+        .map(str::to_string))
+}
+
+/// The first line of `xcodebuild -version`. A non-zero exit is `None`: on a
+/// Mac with only the Command Line Tools that is the answer "no Xcode".
+#[cfg(any(target_os = "macos", test))]
+fn xcode_from_xcodebuild(success: bool, stdout: &str) -> Option<String> {
+    if !success {
+        return None;
+    }
+    stdout
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_string)
+}
+
+/// The compiler banner line from `cl` stderr. `cl` with no arguments prints
+/// it and exits non-zero, so the banner, not the status, is what is read.
+#[cfg(any(target_os = "windows", test))]
+fn msvc_from_cl(stderr: &str) -> Option<String> {
+    stderr
+        .lines()
+        .map(str::trim)
+        .find(|l| l.contains("Version"))
+        .map(str::to_string)
+}
+
+/// Whether a failed probe is a program that is not installed (E_TOOL_MISSING).
+#[cfg(target_os = "windows")]
+fn is_tool_missing(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<crate::safety::SafetyError>()
+        .is_some_and(|se| se.code == crate::safety::ErrorCode::ToolMissing)
+}
+
+/// The toolchain facts this host has. A probe that fails is refused, never read
+/// as absent. A fact that is optional by design (Xcode, MSVC, the Windows SDK
+/// variables) is omitted when its tool says the thing is not there.
 fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut info = std::collections::BTreeMap::new();
 
     #[cfg(target_os = "linux")]
     {
-        // Get glibc version
         let mut cmd = std::process::Command::new("ldd");
         cmd.arg("--version");
-        if let Ok(out) = bounded_cmd_output("platform_system_libs", "ldd", cmd, PROBE_DEADLINE_SECS)
-        {
-            let ver = String::from_utf8_lossy(&out.stdout);
-            if let Some(line) = ver.lines().next() {
-                info.insert("glibc".to_string(), Value::Str(line.to_string()));
+        let out = bounded_cmd_output("platform_system_libs", "ldd", cmd, PROBE_DEADLINE_SECS)?;
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        match glibc_from_ldd(out.status.success(), &stdout, &stderr) {
+            Ok(Some(line)) => {
+                info.insert("glibc".to_string(), Value::Str(line));
+            }
+            Ok(None) => {}
+            Err(stderr) => {
+                return Err(crate::safety::tool_failed(
+                    "platform_system_libs",
+                    "ldd",
+                    out.status.code(),
+                    &stderr,
+                ));
             }
         }
-        // Get libstdc++ version
-        let mut cmd = std::process::Command::new("strings");
-        cmd.args(["/usr/lib/x86_64-linux-gnu/libstdc++.so.6"]);
-        if let Ok(out) =
-            bounded_cmd_output("platform_system_libs", "strings", cmd, PROBE_DEADLINE_SECS)
+
+        // The first candidate that answers wins. A candidate whose `strings`
+        // failed hands over to the next, and the last failure is refused only
+        // when no candidate answers.
+        let mut found: Option<String> = None;
+        let mut failure: Option<anyhow::Error> = None;
+        for path in LIBSTDCXX_CANDIDATES
+            .iter()
+            .filter(|p| std::path::Path::new(p).exists())
         {
-            let output = String::from_utf8_lossy(&out.stdout);
-            let glibcxx: Vec<&str> = output
-                .lines()
-                .filter(|l| l.starts_with("GLIBCXX_"))
-                .collect();
-            if let Some(last) = glibcxx.last() {
-                info.insert("libstdc++".to_string(), Value::Str(last.to_string()));
+            let mut cmd = std::process::Command::new("strings");
+            cmd.arg(path);
+            match bounded_cmd_output("platform_system_libs", "strings", cmd, PROBE_DEADLINE_SECS) {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    match libstdcxx_from_strings(out.status.success(), &stdout, &stderr) {
+                        Ok(Some(v)) => {
+                            found = Some(v);
+                            break;
+                        }
+                        Ok(None) => {}
+                        Err(stderr) => {
+                            failure = Some(crate::safety::tool_failed(
+                                "platform_system_libs",
+                                "strings",
+                                out.status.code(),
+                                &stderr,
+                            ));
+                        }
+                    }
+                }
+                Err(e) => failure = Some(e),
             }
+        }
+        match (found, failure) {
+            (Some(v), _) => {
+                info.insert("libstdc++".to_string(), Value::Str(v));
+            }
+            (None, Some(e)) => return Err(e),
+            (None, None) => {}
         }
     }
 
     #[cfg(target_os = "macos")]
     {
-        // Get macOS SDK version
         let mut cmd = std::process::Command::new("xcrun");
         cmd.args(["--show-sdk-version"]);
-        if let Ok(out) =
-            bounded_cmd_output("platform_system_libs", "xcrun", cmd, PROBE_DEADLINE_SECS)
-        {
-            let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            info.insert("macos_sdk".to_string(), Value::Str(ver));
-        }
-        // Get Xcode version
+        let out = bounded_cmd_output("platform_system_libs", "xcrun", cmd, PROBE_DEADLINE_SECS)?;
+        let sdk = probe_stdout("platform_system_libs", "xcrun", out)?;
+        info.insert("macos_sdk".to_string(), Value::Str(sdk));
+
         let mut cmd = std::process::Command::new("xcodebuild");
         cmd.arg("-version");
-        if let Ok(out) = bounded_cmd_output(
+        let out = bounded_cmd_output(
             "platform_system_libs",
             "xcodebuild",
             cmd,
             PROBE_DEADLINE_SECS,
-        ) {
-            let ver = String::from_utf8_lossy(&out.stdout);
-            if let Some(line) = ver.lines().next() {
-                info.insert("xcode".to_string(), Value::Str(line.to_string()));
-            }
+        )?;
+        if let Some(line) =
+            xcode_from_xcodebuild(out.status.success(), &String::from_utf8_lossy(&out.stdout))
+        {
+            info.insert("xcode".to_string(), Value::Str(line));
         }
     }
 
@@ -48806,18 +48908,145 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
         if let Ok(vs_path) = std::env::var("VSINSTALLDIR") {
             info.insert("vs_path".to_string(), Value::Str(vs_path));
         }
-        // Get MSVC version
+        // `cl` is on PATH only in a Developer prompt, so a missing `cl` is the
+        // answer "no MSVC". Any other failure to run it is refused.
         let cmd = std::process::Command::new("cl");
-        if let Ok(out) = bounded_cmd_output("platform_system_libs", "cl", cmd, PROBE_DEADLINE_SECS)
-        {
-            let ver = String::from_utf8_lossy(&out.stderr);
-            if let Some(line) = ver.lines().next() {
-                info.insert("msvc".to_string(), Value::Str(line.to_string()));
-            }
+        match bounded_cmd_output("platform_system_libs", "cl", cmd, PROBE_DEADLINE_SECS) {
+            Ok(out) => match msvc_from_cl(&String::from_utf8_lossy(&out.stderr)) {
+                Some(line) => {
+                    info.insert("msvc".to_string(), Value::Str(line));
+                }
+                None => {
+                    return Err(crate::safety::bad_state(
+                        "platform_system_libs",
+                        "unexpected `cl` output",
+                        "a `Microsoft (R) C/C++ Optimizing Compiler Version` banner",
+                    ));
+                }
+            },
+            Err(e) if is_tool_missing(&e) => {}
+            Err(e) => return Err(e),
         }
     }
 
     Ok(Value::Record(info))
+}
+
+#[cfg(test)]
+mod platform_probe_status_tests {
+    use super::*;
+
+    #[test]
+    fn windows_ver_build_is_the_third_component() {
+        assert_eq!(
+            windows_ver_build("Microsoft Windows [Version 10.0.26200.9711]").as_deref(),
+            Some("26200")
+        );
+    }
+
+    #[test]
+    fn windows_ver_build_refuses_a_localised_ver_line() {
+        // A localised `ver` says "Versão", so there is no build to report. The
+        // snapshot refuses instead of writing "" as the build.
+        assert_eq!(
+            windows_ver_build("Microsoft Windows [Versão 10.0.26200.9711]"),
+            None
+        );
+    }
+
+    #[test]
+    fn os_release_pretty_name_is_unquoted_and_absent_when_missing() {
+        let text = "NAME=\"Debian GNU/Linux\"\nPRETTY_NAME=\"Debian GNU/Linux 12 (bookworm)\"\n";
+        assert_eq!(
+            os_release_pretty_name(text).as_deref(),
+            Some("Debian GNU/Linux 12 (bookworm)")
+        );
+        assert_eq!(os_release_pretty_name("NAME=\"x\"\n"), None);
+    }
+
+    #[test]
+    fn glibc_from_ldd_reads_the_first_line_on_success() {
+        assert_eq!(
+            glibc_from_ldd(true, "ldd (GNU libc) 2.39\nCopyright\n", ""),
+            Ok(Some("ldd (GNU libc) 2.39".to_string()))
+        );
+    }
+
+    #[test]
+    fn glibc_from_ldd_clean_exit_without_a_line_is_refused() {
+        assert!(glibc_from_ldd(true, "\n", "").is_err());
+    }
+
+    #[test]
+    fn glibc_from_ldd_musl_is_no_glibc_not_a_failure() {
+        assert_eq!(
+            glibc_from_ldd(false, "", "musl libc (x86_64)\nVersion 1.2.4"),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn glibc_from_ldd_failed_listing_is_refused_not_read_as_absent() {
+        // The old code left glibc out of the record on a non-zero ldd, which
+        // read as "no glibc". It is a refusal now.
+        assert_eq!(
+            glibc_from_ldd(false, "", "ldd: boom"),
+            Err("ldd: boom".to_string())
+        );
+    }
+
+    #[test]
+    fn libstdcxx_from_strings_takes_the_last_glibcxx_tag() {
+        assert_eq!(
+            libstdcxx_from_strings(true, "junk\nGLIBCXX_3.4.29\nGLIBCXX_3.4.32\n", ""),
+            Ok(Some("GLIBCXX_3.4.32".to_string()))
+        );
+    }
+
+    #[test]
+    fn libstdcxx_from_failed_strings_is_refused_even_when_it_printed_tags() {
+        // The old code parsed the stdout of a failed `strings` as the answer.
+        assert!(libstdcxx_from_strings(false, "GLIBCXX_3.4.29\n", "strings: boom").is_err());
+    }
+
+    #[test]
+    fn libstdcxx_without_glibcxx_tags_is_no_answer() {
+        assert_eq!(libstdcxx_from_strings(true, "nothing here\n", ""), Ok(None));
+    }
+
+    #[test]
+    fn xcode_is_absent_when_xcodebuild_fails_on_a_clt_only_host() {
+        assert_eq!(
+            xcode_from_xcodebuild(
+                false,
+                "xcode-select: error: tool 'xcodebuild' requires Xcode"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn xcode_takes_the_first_line_of_version_output() {
+        assert_eq!(
+            xcode_from_xcodebuild(true, "Xcode 15.4\nBuild version 15F31d\n").as_deref(),
+            Some("Xcode 15.4")
+        );
+    }
+
+    #[test]
+    fn msvc_reads_the_banner_line_from_stderr() {
+        let stderr = "Microsoft (R) C/C++ Optimizing Compiler Version 19.39.33523 for x64\r\nCopyright (C) Microsoft Corporation.\r\n\r\nusage: cl [ option... ]\r\n";
+        assert_eq!(
+            msvc_from_cl(stderr).as_deref(),
+            Some("Microsoft (R) C/C++ Optimizing Compiler Version 19.39.33523 for x64")
+        );
+    }
+
+    #[test]
+    fn msvc_without_a_banner_is_none() {
+        assert_eq!(msvc_from_cl(""), None);
+        assert_eq!(msvc_from_cl("error: something else"), None);
+    }
 }
 
 fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

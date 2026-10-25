@@ -8,9 +8,10 @@
 //!
 //! Neither is always wrong. `lsof` and `grep` exit 1 for "no match"; test
 //! runners and linters exit non-zero to report what they found; a `_check`
-//! builtin may legitimately answer false. So this does not demand zero: it
-//! pins the counts, which may only fall, and each fix is a reading of one
-//! body. Lower the ceilings whenever a fix lowers the count.
+//! builtin may legitimately answer false. So the second count is pinned, and
+//! may only fall, each fix a reading of one body; lower its ceiling whenever a
+//! fix lowers it. The first reached zero on 2026-10-24, so it is now a rule: a
+//! tool whose non-zero exit is an answer reads the status and says so.
 //!
 //! `bounded_cmd_output` is `.output()` with a deadline and leaves the exit
 //! status to its caller just as `.output()` did, so it counts as a spawn here.
@@ -26,9 +27,9 @@
 //! `status_checkers`) is checked too. Counting those as unchecked had held
 //! the ceiling at 26 when only two bodies dropped the status: the twenty gui
 //! builtins, `cron_list`, `sudo_check`, `at_list` and `crypto_key_generate`
-//! all check theirs one call away.
+//! all check theirs one call away. `platform_snapshot` and
+//! `platform_system_libs`, the last two, then had their status read.
 
-const UNCHECKED_MAX: usize = 2;
 const BOOL_SUCCESS_MAX: usize = 64;
 
 fn source() -> String {
@@ -108,21 +109,15 @@ fn bool_success(src: &str) -> usize {
 }
 
 #[test]
-fn builtins_that_ignore_the_exit_status_only_decrease() {
+fn no_builtin_ignores_the_exit_status() {
     let found = unchecked(&source());
     assert!(
-        found.len() <= UNCHECKED_MAX,
-        "{} builtins run a command and never read its exit status (ceiling {UNCHECKED_MAX}). \
-         Check the status in the new one:\n  {}",
+        found.is_empty(),
+        "{} builtins run a command and never read its exit status. \
+         Check the status in each:\n  {}",
         found.len(),
         found.join("\n  ")
     );
-    if found.len() < UNCHECKED_MAX {
-        eprintln!(
-            "exit-status ratchet: {} < {UNCHECKED_MAX}; lower UNCHECKED_MAX",
-            found.len()
-        );
-    }
 }
 
 #[test]
