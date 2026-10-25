@@ -45012,7 +45012,10 @@ fn cargo_version_from_text(builtin: &str, text: &str) -> Result<String> {
 
 /// A top-level string field of package.json text, such as `"name"`.
 fn package_json_field(content: &str, field: &str) -> Option<String> {
-    match serde_json::from_str::<serde_json::Value>(content).ok()?.get(field)? {
+    match serde_json::from_str::<serde_json::Value>(content)
+        .ok()?
+        .get(field)?
+    {
         serde_json::Value::String(v) => Some(v.clone()),
         _ => None,
     }
@@ -45076,7 +45079,11 @@ fn bi_project_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             .ok_or_else(|| {
                 crate::safety::bad_state(B, "package.json has no \"version\"", "project_type")
             }),
-        None => Err(crate::safety::not_found(B, "Cargo.toml or package.json", ".")),
+        None => Err(crate::safety::not_found(
+            B,
+            "Cargo.toml or package.json",
+            ".",
+        )),
     }
 }
 
