@@ -158,6 +158,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the first path it could not read. An entry removed during the walk is
   still skipped. `project_loc` counts non-UTF-8 sources instead of counting
   them as 0 lines.
+- **A missing path is told from one that could not be checked**: `fs_stat`,
+  `fs_lstat`, `fs_realpath`, `file_exists`, `project_readme`,
+  `project_license`, `project_gitignore` and `docs_changelog` answered null or
+  false for any error, so a denied stat read as "no such path". Only a path
+  that does not exist keeps that answer. That includes one under a regular
+  file, which `test -e` also reads as absent. Anything else is `E_FS`.
+  README-style readers return non-UTF-8 text lossily instead of null.
+  `project_structure`, `project_languages`, `project_test_files` and
+  `docs_search` refuse an unreadable directory instead of leaving it out.
+- **More quiet fallbacks refused**:
+  - `project_root` answered the current directory when git failed. It now
+    refuses, with `E_NOT_FOUND` outside a repository.
+  - `env` and `env_var` read a set but non-UTF-8 variable as unset, and
+    `env_shell` answered `""` with no shell variable.
+  - `ssh_config` turned a malformed `Port` into 22.
+  - `tar_entries` listed an unreadable header as an empty path of size 0.
+  - Tool runs reported `exit_code` 0 for a process killed by a signal; it is
+    now null.
+  - The workspace and marketplace builtins recorded the user "unknown" when
+    `$USER` was unset. They now ask `whoami`.
+- **Failed net, tmux, GPU and SDK probes refuse**:
+  - Windows adapter counters and socket ports read a missing value as 0.
+  - `tmux_list` read a socket permission error as no sessions.
+  - `platform_cuda_version` and `platform_sdk_version` recorded `nvcc`,
+    `hipcc`, `nvidia-smi`, `dotnet` and `xcrun` output without checking its
+    exit status. A tool that is not installed still reads as absent.
+  - `hw_gpu` on macOS, `hw_battery` on Linux, `svc_list` on macOS and
+    `pkg_sources` answered null, 0% or `[]` for a failed probe.
 - **`apply` reports a failed rollback**: when its rollback failed it still
   said `rolled_back: true`. It now says false, with the rollback's error, and
   a failed commit is reported as a failure.
