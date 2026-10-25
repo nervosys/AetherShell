@@ -31661,19 +31661,51 @@ fn pkg_unsupported(builtin: &str, pm: &str) -> anyhow::Error {
     )
 }
 
-/// The query ran; did it succeed? The exit status was not read, so a package
-/// that is not installed answered as one with no files, no dependencies, or
-/// an owner record whose package was "".
-fn pkg_succeeded(builtin: &str, program: &str, output: &std::process::Output) -> Result<()> {
-    if output.status.success() {
-        return Ok(());
+/// Whether a nonzero exit from a package query is that tool's documented
+/// "nothing matched" answer rather than a failure. Each rule is one tool's own
+/// convention: `dpkg -S` and `dpkg-query -L` exit 1 when no package owns the
+/// path or the package is not installed; `pacman -Ss` exits 1 with no output
+/// when nothing matches; the pacman queries exit 1 with "was not found" or "No
+/// package owns" on stderr; `apt-cache show|depends|rdepends` report "No
+/// packages found". The text rules are English only: a localised message is
+/// not recognised, so it is E_TOOL_FAILED, which still carries the stderr.
+fn pkg_no_match(builtin: &str, pm: &str, status: Option<i32>, stderr: &str) -> bool {
+    match pm {
+        "apt" => {
+            (matches!(builtin, "pkg_owner" | "pkg_files") && status == Some(1))
+                || stderr.contains("No packages found")
+        }
+        "pacman" => {
+            status == Some(1)
+                && ((builtin == "pkg_search" && stderr.trim().is_empty())
+                    || stderr.contains("was not found")
+                    || stderr.contains("No package owns"))
+        }
+        "dnf" | "yum" => {
+            stderr.contains("No matching Packages") || stderr.contains("No matches found")
+        }
+        "brew" => stderr.contains("No available formula") || stderr.contains("No available cask"),
+        _ => false,
     }
-    Err(crate::safety::tool_failed(
-        builtin,
-        program,
-        output.status.code(),
-        &String::from_utf8_lossy(&output.stderr),
-    ))
+}
+
+/// The error for a package query that exited nonzero. The documented no-match
+/// is E_NOT_FOUND naming what was asked for; any other exit is E_TOOL_FAILED
+/// with the exit code and the tool's stderr.
+fn pkg_query_failure(
+    builtin: &str,
+    kind: &str,
+    name: &str,
+    pm: &str,
+    program: &str,
+    status: Option<i32>,
+    stderr: &str,
+) -> anyhow::Error {
+    if pkg_no_match(builtin, pm, status, stderr) {
+        crate::safety::not_found(builtin, kind, name)
+    } else {
+        crate::safety::tool_failed(builtin, program, status, stderr)
+    }
 }
 
 fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -31726,7 +31758,18 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "winget" => "winget",
         other => other,
     };
-    pkg_succeeded("pkg_search", program, &output)?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // A query that matched nothing is an empty list, not a failure.
+        if !pkg_no_match("pkg_search", pm, output.status.code(), &stderr) {
+            return Err(crate::safety::tool_failed(
+                "pkg_search",
+                program,
+                output.status.code(),
+                &stderr,
+            ));
+        }
+    }
 
     let text = String::from_utf8_lossy(&output.stdout);
     let results: Vec<Value> = match pm {
@@ -31824,7 +31867,17 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "winget" => "winget",
         other => other,
     };
-    pkg_succeeded("pkg_info", program, &output)?;
+    if !output.status.success() {
+        return Err(pkg_query_failure(
+            "pkg_info",
+            "package",
+            &package,
+            pm,
+            program,
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
 
     // Parse key-value "Field: Value" lines into a Record (works for apt, dnf, pacman, brew, winget)
     let text = String::from_utf8_lossy(&output.stdout);
@@ -31946,7 +31999,17 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "pacman" => "pacman",
         other => other,
     };
-    pkg_succeeded("pkg_files", program, &output)?;
+    if !output.status.success() {
+        return Err(pkg_query_failure(
+            "pkg_files",
+            "package",
+            &package,
+            pm,
+            program,
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
 
     let text = String::from_utf8_lossy(&output.stdout);
     let files: Vec<Value> = text
@@ -31997,7 +32060,17 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "pacman" => "pacman",
         other => other,
     };
-    pkg_succeeded("pkg_owner", program, &output)?;
+    if !output.status.success() {
+        return Err(pkg_query_failure(
+            "pkg_owner",
+            "file",
+            &file,
+            pm,
+            program,
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
 
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let mut rec = std::collections::BTreeMap::new();
@@ -32174,7 +32247,17 @@ fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "pacman" => "pacman",
         other => other,
     };
-    pkg_succeeded("pkg_deps", program, &output)?;
+    if !output.status.success() {
+        return Err(pkg_query_failure(
+            "pkg_deps",
+            "package",
+            &package,
+            pm,
+            program,
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
 
     // This returned the tool's text verbatim, a different format per
     // package manager, which is what typed output exists to replace.
@@ -32213,7 +32296,17 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "pacman" => "pacman",
         other => other,
     };
-    pkg_succeeded("pkg_rdeps", program, &output)?;
+    if !output.status.success() {
+        return Err(pkg_query_failure(
+            "pkg_rdeps",
+            "package",
+            &package,
+            pm,
+            program,
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
 
     // This returned the tool's text verbatim, a different format per
     // package manager, which is what typed output exists to replace.
@@ -32222,6 +32315,156 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         &package,
         &String::from_utf8_lossy(&output.stdout),
     ))
+}
+
+#[cfg(test)]
+mod pkg_exit_status_tests {
+    use super::*;
+
+    #[test]
+    fn dpkg_exit_one_is_no_match_for_owner_and_files() {
+        assert!(pkg_no_match(
+            "pkg_owner",
+            "apt",
+            Some(1),
+            "dpkg-query: no path found matching pattern /nope"
+        ));
+        assert!(pkg_no_match(
+            "pkg_files",
+            "apt",
+            Some(1),
+            "dpkg-query: package 'nope' is not installed"
+        ));
+        // A dpkg fatal error (exit 2), or a killed process, is a failure.
+        assert!(!pkg_no_match(
+            "pkg_owner",
+            "apt",
+            Some(2),
+            "dpkg-query: error: bad database"
+        ));
+        assert!(!pkg_no_match("pkg_owner", "apt", None, ""));
+        // Exit 1 is not a no-match for the apt-cache queries.
+        assert!(!pkg_no_match(
+            "pkg_deps",
+            "apt",
+            Some(1),
+            "E: Unable to locate package x"
+        ));
+    }
+
+    #[test]
+    fn apt_cache_no_packages_found_is_no_match() {
+        assert!(pkg_no_match(
+            "pkg_info",
+            "apt",
+            Some(100),
+            "E: No packages found"
+        ));
+        assert!(pkg_no_match(
+            "pkg_rdeps",
+            "apt",
+            Some(100),
+            "E: No packages found"
+        ));
+        assert!(!pkg_no_match(
+            "pkg_info",
+            "apt",
+            Some(100),
+            "E: Could not open lock file"
+        ));
+    }
+
+    #[test]
+    fn pacman_search_with_no_match_is_empty_not_a_failure() {
+        assert!(pkg_no_match("pkg_search", "pacman", Some(1), ""));
+        assert!(!pkg_no_match(
+            "pkg_search",
+            "pacman",
+            Some(1),
+            "error: failed to open database"
+        ));
+        assert!(!pkg_no_match("pkg_search", "pacman", Some(2), ""));
+    }
+
+    #[test]
+    fn pacman_queries_report_unknown_packages_and_unowned_files() {
+        assert!(pkg_no_match(
+            "pkg_info",
+            "pacman",
+            Some(1),
+            "error: package 'nope' was not found"
+        ));
+        assert!(pkg_no_match(
+            "pkg_deps",
+            "pacman",
+            Some(1),
+            "error: package 'nope' was not found"
+        ));
+        assert!(pkg_no_match(
+            "pkg_owner",
+            "pacman",
+            Some(1),
+            "error: No package owns /nope"
+        ));
+        // A lock or database error is a failure, not an answer.
+        assert!(!pkg_no_match(
+            "pkg_info",
+            "pacman",
+            Some(1),
+            "error: failed to lock database"
+        ));
+    }
+
+    #[test]
+    fn other_managers_no_match_messages() {
+        assert!(pkg_no_match(
+            "pkg_info",
+            "brew",
+            Some(1),
+            "Error: No available formula with the name \"x\"."
+        ));
+        assert!(pkg_no_match(
+            "pkg_info",
+            "dnf",
+            Some(1),
+            "Error: No matching Packages to list"
+        ));
+        assert!(!pkg_no_match(
+            "pkg_info",
+            "winget",
+            Some(1),
+            "No package found matching input criteria."
+        ));
+    }
+
+    #[test]
+    fn a_no_match_is_e_not_found_and_a_failure_is_e_tool_failed() {
+        let e = pkg_query_failure(
+            "pkg_info",
+            "package",
+            "nope",
+            "pacman",
+            "pacman",
+            Some(1),
+            "error: package 'nope' was not found",
+        )
+        .to_string();
+        assert!(e.contains("E_NOT_FOUND") && e.contains("nope"), "{e}");
+        assert!(!e.contains("E_TOOL_FAILED"), "{e}");
+
+        let e = pkg_query_failure(
+            "pkg_owner",
+            "file",
+            "/x",
+            "apt",
+            "dpkg",
+            Some(2),
+            "dpkg-query: error: bad database",
+        )
+        .to_string();
+        assert!(e.contains("E_TOOL_FAILED"), "{e}");
+        assert!(e.contains("exited 2") && e.contains("bad database"), "{e}");
+    }
 }
 
 /// pkg_changelog(package): apt-get changelog for a package, as text. Only apt is

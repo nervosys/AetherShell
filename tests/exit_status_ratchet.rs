@@ -22,7 +22,7 @@
 //! and refuses a non-zero exit (through `probe_stdout`). A builtin that calls
 //! it has no `bounded_cmd_output(` in its own body, so it is not counted here.
 
-const UNCHECKED_MAX: usize = 32;
+const UNCHECKED_MAX: usize = 26;
 const BOOL_SUCCESS_MAX: usize = 64;
 
 fn source() -> String {
