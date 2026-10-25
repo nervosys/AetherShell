@@ -117,6 +117,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   On Windows, kernel, build and machine id no longer use `wmic`, which current
   Windows 11 installs no longer include, so on such a host these builtins had
   answered `"unknown"`. GNU screen's "No Sockets found" stays an empty list.
+  `platform_snapshot` and `platform_system_libs` do the same: a failed
+  `uname`, `ver`, `ldd`, `strings` or `xcrun` is refused, not left out of the
+  record. musl's `ldd`, a missing Xcode and a missing `cl` still mean "not
+  installed". `platform_snapshot` reads the hostname in-process, and
+  `platform_system_libs` looks for libstdc++ in the aarch64, lib64 and plain
+  lib directories as well as the x86_64 Debian one.
 - **A package that matches nothing is not a failed tool**: `pkg_info`,
   `pkg_files`, `pkg_owner`, `pkg_deps` and `pkg_rdeps` return `E_NOT_FOUND`
   for each package manager's own "nothing matched" exit (dpkg's exit 1,
