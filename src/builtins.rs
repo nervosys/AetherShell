@@ -46858,15 +46858,19 @@ fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
     }))
 }
 
-/// The kernel release. On Windows that is the `ver` line's version, which is
-/// also what `wmic os get Version` printed. `wmic` is not on this host (Windows
-/// 11, build 26200), so it could not be the source there.
+/// The kernel release. On Windows that is the first three components of the
+/// `ver` line's version, which is what `wmic os get Version` printed. `wmic` is
+/// deprecated and absent from current Windows 11 installs, so it cannot be the
+/// source.
 fn bi_platform_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if cfg!(target_os = "windows") {
         let mut cmd = std::process::Command::new("cmd");
         cmd.args(["/c", "ver"]);
         let text = probe_text("platform_kernel", "cmd", cmd)?;
+        // The first three components, as `wmic os get Version` printed them;
+        // the fourth is the update revision, not part of the kernel version.
         return ver_version(&text)
+            .map(|v| v.split('.').take(3).collect::<Vec<_>>().join("."))
             .map(Value::Str)
             .ok_or_else(|| ver_unreadable("platform_kernel"));
     }
@@ -46916,7 +46920,7 @@ fn bi_platform_hostname(args: Vec<Value>, input: Option<Value>) -> Result<Value>
 /// The machine's identifier. A source that cannot answer is refused: an empty
 /// or missing identifier used to come back as "unknown", a value that looks
 /// like one. Windows reads the system UUID through PowerShell, as
-/// `bi_sys_uptime` does, because `wmic` is not on this host.
+/// `bi_sys_uptime` does, because `wmic` is absent from current Windows 11 installs.
 fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if cfg!(target_os = "linux") {
         let id = std::fs::read_to_string("/etc/machine-id")
@@ -46937,6 +46941,7 @@ fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
     if cfg!(target_os = "windows") {
         let mut cmd = std::process::Command::new("powershell");
         cmd.args([
+            "-NoProfile",
             "-Command",
             "(Get-CimInstance Win32_ComputerSystemProduct).UUID",
         ]);
