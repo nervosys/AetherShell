@@ -20564,20 +20564,45 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let mut r = BTreeMap::new();
     if let Some(err) = failure {
-        let restored = crate::tx::rollback().unwrap_or(0);
+        // Old code reported rolled_back: true even when the rollback itself
+        // failed (unwrap_or(0)). Report the rollback error instead.
+        let (rolled_back, restored, rollback_error) = match crate::tx::rollback() {
+            Ok(n) => (true, n, None),
+            Err(e) => (false, 0, Some(e.to_string())),
+        };
         let _ = crate::safety::audit(
             "apply",
             crate::safety::Effect::Destructive,
             "failed",
             &token,
-            serde_json::json!({ "error": err, "rolled_back": restored }),
+            serde_json::json!({
+                "error": err,
+                "rolled_back": restored,
+                "rollback_error": rollback_error,
+            }),
         );
         r.insert("status".to_string(), Value::Str("failed".to_string()));
         r.insert("error".to_string(), Value::Str(err));
-        r.insert("rolled_back".to_string(), Value::Bool(true));
+        r.insert("rolled_back".to_string(), Value::Bool(rolled_back));
         r.insert("restored".to_string(), Value::Int(restored as i64));
+        if let Some(rb) = rollback_error {
+            r.insert("rollback_error".to_string(), Value::Str(rb));
+        }
+    } else if let Err(e) = crate::tx::commit() {
+        // Old code ignored a failed commit (let _ =) and reported "applied".
+        let err = format!("commit: {}", e);
+        let _ = crate::safety::audit(
+            "apply",
+            crate::safety::Effect::Destructive,
+            "failed",
+            &token,
+            serde_json::json!({ "error": err, "rolled_back": 0 }),
+        );
+        r.insert("status".to_string(), Value::Str("failed".to_string()));
+        r.insert("error".to_string(), Value::Str(err));
+        r.insert("rolled_back".to_string(), Value::Bool(false));
+        r.insert("restored".to_string(), Value::Int(0));
     } else {
-        let _ = crate::tx::commit();
         let _ = crate::safety::audit(
             "apply",
             crate::safety::Effect::Destructive,
