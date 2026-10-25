@@ -66680,7 +66680,10 @@ mod quiet_fs_tests {
         std::fs::write(&file, b"x").unwrap();
         let r = bi_fs_stat(path_arg(&file.join("x")), None);
         std::fs::remove_dir_all(&dir).ok();
-        assert!(matches!(r, Ok(Value::Null)), "plain/x does not exist: {r:?}");
+        assert!(
+            matches!(r, Ok(Value::Null)),
+            "plain/x does not exist: {r:?}"
+        );
     }
 
     /// A directory the caller may not search: its children cannot be
