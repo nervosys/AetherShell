@@ -26670,7 +26670,8 @@ fn net_interface_rows(name: &str) -> Result<Vec<Value>> {
             let mut rec = NetRecord::new();
             let iface = line.split(':').next().unwrap_or("").to_string();
             rec.insert("name".to_string(), Value::Str(iface));
-            rec.insert("mac".to_string(), Value::Str(String::new()));
+            // An interface with no `ether` line (lo0, utun) gets no mac field,
+            // as on Windows and Linux; it used to read as "".
             let status = if line.contains("UP") { "Up" } else { "Down" };
             rec.insert("status".to_string(), Value::Str(status.to_string()));
             rows.push(rec);
@@ -29003,6 +29004,71 @@ fn bi_sys_timezone(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // 310-329: Service & Daemon Management
 // ============================================================================
 
+/// Parse the `Get-Service | ConvertTo-Json` output into service records.
+///
+/// Empty output from a successful probe is a host with no services, so it is
+/// `[]`. Anything else that does not parse, is neither an array nor an object,
+/// or holds an item without a `Name` is refused. Dropping such an item would
+/// hand back a shorter list that reads as "no such service".
+#[cfg(any(windows, test))]
+fn win_service_records(builtin: &str, stdout: &str) -> Result<Vec<Value>> {
+    let text = stdout.trim();
+    if text.is_empty() {
+        return Ok(vec![]);
+    }
+    let json: serde_json::Value =
+        serde_json::from_str(text).map_err(|_| net_unparsed(builtin, "powershell"))?;
+    let items = match json {
+        serde_json::Value::Array(arr) => arr,
+        obj @ serde_json::Value::Object(_) => vec![obj],
+        _ => return Err(net_unparsed(builtin, "powershell")),
+    };
+    items
+        .into_iter()
+        .map(|item| {
+            let o = match item {
+                serde_json::Value::Object(o) => o,
+                _ => return Err(net_unparsed(builtin, "powershell")),
+            };
+            let name = o
+                .get("Name")
+                .cloned()
+                .ok_or_else(|| net_unparsed(builtin, "powershell"))?;
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("name".to_string(), json_to_value(name));
+            if let Some(v) = o.get("DisplayName") {
+                rec.insert("display_name".to_string(), json_to_value(v.clone()));
+            }
+            let status_str = match o.get("Status").and_then(|v| v.as_i64()) {
+                Some(1) => "stopped",
+                Some(4) => "running",
+                Some(2) => "start_pending",
+                Some(3) => "stop_pending",
+                _ => "unknown",
+            };
+            rec.insert("status".to_string(), Value::Str(status_str.to_string()));
+            Ok(Value::Record(rec))
+        })
+        .collect()
+}
+
+/// Check `systemctl list-units --output=json` output and pass it through in
+/// the shape it already had. Anything that is not a JSON array of objects,
+/// including empty output, is refused rather than read as "no services".
+#[cfg(any(target_os = "linux", test))]
+fn systemd_units(builtin: &str, stdout: &str) -> Result<Value> {
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.trim()).map_err(|_| net_unparsed(builtin, "systemctl"))?;
+    let ok = matches!(
+        &json,
+        serde_json::Value::Array(items) if items.iter().all(|i| i.is_object())
+    );
+    if !ok {
+        return Err(net_unparsed(builtin, "systemctl"));
+    }
+    Ok(json_to_value(json))
+}
+
 fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
@@ -29012,39 +29078,16 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "Get-Service | Select-Object Name,DisplayName,Status | ConvertTo-Json",
         ]);
         let output = bounded_cmd_output("svc_list", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let services: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("Name") {
-                            rec.insert("name".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("DisplayName") {
-                            rec.insert("display_name".to_string(), json_to_value(v.clone()));
-                        }
-                        let status_str = match o.get("Status").and_then(|v| v.as_i64()) {
-                            Some(1) => "stopped",
-                            Some(4) => "running",
-                            Some(2) => "start_pending",
-                            Some(3) => "stop_pending",
-                            _ => "unknown",
-                        };
-                        rec.insert("status".to_string(), Value::Str(status_str.to_string()));
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                return Ok(Value::Array(services));
-            }
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "svc_list",
+                "Get-Service",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
         }
+        let text = String::from_utf8_lossy(&output.stdout);
+        return win_service_records("svc_list", &text).map(Value::Array);
     }
     #[cfg(target_os = "linux")]
     {
@@ -29056,12 +29099,18 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "--output=json",
         ]);
         let output = bounded_cmd_output("svc_list", "systemctl", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                return Ok(json_to_value(json));
-            }
+        // Old systemd (before --output=json) exits non-zero here; that is a
+        // tool failure, not an empty list.
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "svc_list",
+                "systemctl list-units",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            ));
         }
+        let text = String::from_utf8_lossy(&output.stdout);
+        return systemd_units("svc_list", &text);
     }
     #[cfg(target_os = "macos")]
     {
@@ -29093,7 +29142,14 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .collect();
         return Ok(Value::Array(services));
     }
-    Ok(Value::Array(vec![]))
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    {
+        Err(crate::safety::unimplemented(
+            "svc_list",
+            "listing services is not implemented on this platform",
+            "there is no service-manager probe for this platform",
+        ))
+    }
 }
 
 fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -67156,5 +67212,93 @@ mod quiet_netfield_tests {
         assert_eq!(windows_state_name(5), "ESTABLISHED");
         assert_eq!(windows_state_name(2), "LISTEN");
         assert_eq!(windows_state_name(99), "UNKNOWN");
+    }
+}
+
+#[cfg(test)]
+mod quiet_svc_tests {
+    use super::*;
+
+    fn str_field(v: &Value, key: &str) -> Option<String> {
+        match v {
+            Value::Record(r) => match r.get(key) {
+                Some(Value::Str(s)) => Some(s.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn windows_array_of_two_services_becomes_two_records() {
+        let json = r#"[{"Name":"Spooler","DisplayName":"Print Spooler","Status":4},{"Name":"BITS","DisplayName":"Background Intelligent Transfer Service","Status":1}]"#;
+        let recs = win_service_records("svc_list", json).unwrap();
+        assert_eq!(recs.len(), 2);
+        assert_eq!(str_field(&recs[0], "name").as_deref(), Some("Spooler"));
+        assert_eq!(str_field(&recs[0], "status").as_deref(), Some("running"));
+        assert_eq!(str_field(&recs[1], "name").as_deref(), Some("BITS"));
+        assert_eq!(str_field(&recs[1], "status").as_deref(), Some("stopped"));
+    }
+
+    #[test]
+    fn windows_single_object_becomes_one_record() {
+        let json = r#"{"Name":"sshd","DisplayName":"OpenSSH","Status":2}"#;
+        let recs = win_service_records("svc_list", json).unwrap();
+        assert_eq!(recs.len(), 1);
+        assert_eq!(str_field(&recs[0], "name").as_deref(), Some("sshd"));
+        assert_eq!(
+            str_field(&recs[0], "status").as_deref(),
+            Some("start_pending")
+        );
+    }
+
+    #[test]
+    fn windows_empty_stdout_is_no_services() {
+        assert!(win_service_records("svc_list", "").unwrap().is_empty());
+        assert!(win_service_records("svc_list", " \r\n\t ")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn windows_garbage_is_refused() {
+        assert!(win_service_records("svc_list", "Get-Service: access denied").is_err());
+        assert!(win_service_records("svc_list", "42").is_err());
+        assert!(win_service_records("svc_list", "\"text\"").is_err());
+    }
+
+    #[test]
+    fn windows_item_missing_name_is_refused() {
+        let json = r#"[{"Name":"ok","Status":4},{"DisplayName":"no name","Status":4}]"#;
+        assert!(win_service_records("svc_list", json).is_err());
+    }
+
+    #[test]
+    fn windows_item_that_is_not_an_object_is_refused() {
+        let json = r#"[{"Name":"ok"},"stray"]"#;
+        assert!(win_service_records("svc_list", json).is_err());
+    }
+
+    #[test]
+    fn systemd_array_of_objects_passes_through_as_array() {
+        let json = r#"[{"unit":"cron.service","load":"loaded","active":"active","sub":"running","description":"Regular jobs"}]"#;
+        match systemd_units("svc_list", json).unwrap() {
+            Value::Array(items) => {
+                assert_eq!(items.len(), 1);
+                assert_eq!(
+                    str_field(&items[0], "unit").as_deref(),
+                    Some("cron.service")
+                );
+            }
+            other => panic!("expected an array, got {}", other.type_name()),
+        }
+    }
+
+    #[test]
+    fn systemd_empty_or_garbage_or_non_array_is_refused() {
+        assert!(systemd_units("svc_list", "").is_err());
+        assert!(systemd_units("svc_list", "Failed to connect to bus").is_err());
+        assert!(systemd_units("svc_list", r#"{"unit":"x.service"}"#).is_err());
+        assert!(systemd_units("svc_list", r#"[1, 2]"#).is_err());
     }
 }

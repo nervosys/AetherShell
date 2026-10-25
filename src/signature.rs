@@ -4744,7 +4744,7 @@ pub static SIGNATURES: &[Signature] = &[
         params: &[],
         returns: "Array",
         doc: "Return one Record per network interface with name, plus mac and status where the tool reports them, description and speed on Windows, and mtu and addresses on Linux. A field the tool does not report is absent from the Record, not empty. Read from Get-NetAdapter, ip -j addr show or ifconfig. Machine-dependent. Tool failure and unreadable output are coded, never an empty array. At most 4096 records. Reject arguments and pipeline input.",
-        examples: &[("net_interfaces()", "[{name: lo, mac: , status: UNKNOWN}]")],
+        examples: &[("net_interfaces()", "[{name: lo, mac: 00:00:00:00:00:00, status: UNKNOWN}]")],
     },
     Signature {
         name: "net_ip", category: None, subject_required: false, aliases: &[], subject: None,
