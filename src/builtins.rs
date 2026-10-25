@@ -47872,6 +47872,18 @@ fn bi_platform_has_tool(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     Ok(Value::Bool(on_path(tool)))
 }
 
+/// Whether this Windows process is elevated, by `net session`. That succeeds
+/// only for an administrator; an ordinary user gets a non-zero exit (access
+/// denied), which is the "not admin" answer. A failure to run `net` at all is
+/// an error. Before this, it read as "not admin" too.
+#[cfg(target_os = "windows")]
+fn windows_is_admin(builtin: &str) -> Result<bool> {
+    let mut cmd = std::process::Command::new("net");
+    cmd.args(["session"]);
+    let output = bounded_cmd_output(builtin, "net", cmd, PROBE_DEADLINE_SECS)?;
+    Ok(output.status.success())
+}
+
 fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut caps = std::collections::BTreeMap::new();
 
@@ -47879,11 +47891,7 @@ fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<
     #[cfg(target_os = "windows")]
     {
         // Check if running as admin
-        let mut cmd = std::process::Command::new("net");
-        cmd.args(["session"]);
-        let is_admin = bounded_cmd_output("platform_capabilities", "net", cmd, PROBE_DEADLINE_SECS)
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+        let is_admin = windows_is_admin("platform_capabilities")?;
         caps.insert("has_admin".to_string(), Value::Bool(is_admin));
         caps.insert("has_sudo".to_string(), Value::Bool(false));
     }
@@ -47912,8 +47920,8 @@ fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<
         caps.insert("has_gui".to_string(), Value::Bool(has_display));
     }
 
-    // Network - try to connect to localhost
-    caps.insert("has_network".to_string(), Value::Bool(true)); // Basic assumption
+    // Network: a routable interface address. This was a hard-coded true.
+    caps.insert("has_network".to_string(), Value::Bool(host_has_network()));
 
     // Container runtimes
     caps.insert("has_docker".to_string(), Value::Bool(on_path("docker")));
@@ -47971,12 +47979,7 @@ fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<
 fn bi_platform_has_admin(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("net");
-        cmd.args(["session"]);
-        let is_admin = bounded_cmd_output("platform_has_admin", "net", cmd, PROBE_DEADLINE_SECS)
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        Ok(Value::Bool(is_admin))
+        Ok(Value::Bool(windows_is_admin("platform_has_admin")?))
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -48009,11 +48012,77 @@ fn bi_platform_has_gui(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
     }
 }
 
+/// Whether any address in `addrs` is one a peer could reach: not loopback and
+/// not an IPv6 link-local (fe80::/10) address, which every IPv6 interface has
+/// even when it has no route.
+fn any_routable(addrs: &[std::net::IpAddr]) -> bool {
+    addrs.iter().any(|addr| {
+        !addr.is_loopback()
+            && !matches!(addr, std::net::IpAddr::V6(v6) if (v6.segments()[0] & 0xffc0) == 0xfe80)
+    })
+}
+
+/// Whether this host has a network interface with a routable address. The old
+/// check bound 127.0.0.1:0, which succeeds offline, so it said yes everywhere.
+fn host_has_network() -> bool {
+    let networks = sysinfo::Networks::new_with_refreshed_list();
+    let mut addrs = Vec::new();
+    for (_, data) in &networks {
+        for net in data.ip_networks() {
+            addrs.push(net.addr);
+        }
+    }
+    any_routable(&addrs)
+}
+
 fn bi_platform_has_network(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Simple check - try to resolve localhost
-    Ok(Value::Bool(
-        std::net::TcpListener::bind("127.0.0.1:0").is_ok(),
-    ))
+    Ok(Value::Bool(host_has_network()))
+}
+
+#[cfg(test)]
+mod quiet_platform_tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    fn ip(text: &str) -> IpAddr {
+        text.parse().unwrap()
+    }
+
+    #[test]
+    fn loopback_only_is_not_routable() {
+        assert!(!any_routable(&[ip("127.0.0.1"), ip("::1")]));
+    }
+
+    #[test]
+    fn no_addresses_is_not_routable() {
+        assert!(!any_routable(&[]));
+    }
+
+    #[test]
+    fn ipv6_link_local_is_not_routable() {
+        assert!(!any_routable(&[
+            ip("127.0.0.1"),
+            ip("::1"),
+            ip("fe80::1"),
+            ip("febf::2"),
+        ]));
+    }
+
+    #[test]
+    fn lan_address_is_routable() {
+        assert!(any_routable(&[ip("127.0.0.1"), ip("192.168.1.5")]));
+    }
+
+    #[test]
+    fn global_ipv6_is_routable() {
+        assert!(any_routable(&[ip("::1"), ip("2001:db8::1")]));
+    }
+
+    #[test]
+    fn site_local_ipv6_is_routable() {
+        // fec0::/10 is not link-local (fe80::/10), so it counts.
+        assert!(any_routable(&[ip("fec0::1")]));
+    }
 }
 
 fn bi_platform_has_container(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -48445,8 +48514,15 @@ fn bi_platform_db_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
     let content = std::fs::read_to_string(&db_path)
         .map_err(|e| crate::safety::fs_error("platform_db_list", &db_path, &e))?;
+    // A corrupt file was listed as empty before. It is now named as bad state.
     let db: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&content).unwrap_or_default();
+        serde_json::from_str(&content).map_err(|e| {
+            crate::safety::bad_state(
+                "platform_db_list",
+                &format!("{} is not a JSON object: {e}", db_path.display()),
+                "a valid platform DB file; repair or remove it",
+            )
+        })?;
 
     let keys: Vec<Value> = db.keys().map(|k| Value::Str(k.clone())).collect();
     Ok(Value::Array(keys))
@@ -49015,7 +49091,7 @@ fn msvc_from_cl(stderr: &str) -> Option<String> {
 }
 
 /// Whether a failed probe is a program that is not installed (E_TOOL_MISSING).
-#[cfg(target_os = "windows")]
+/// Not gated to Windows: the GPU probes use it on every host.
 fn is_tool_missing(err: &anyhow::Error) -> bool {
     err.downcast_ref::<crate::safety::SafetyError>()
         .is_some_and(|se| se.code == crate::safety::ErrorCode::ToolMissing)
@@ -49720,28 +49796,30 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // Get CPU info from PowerShell (more reliable than WMIC which may not be available)
         let mut cmd = std::process::Command::new("powershell");
         cmd.args(["-Command", "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json"]);
-        if let Ok(out) = bounded_cmd_output("platform_cpu", "powershell", cmd, PROBE_DEADLINE_SECS)
+        // A failed PowerShell used to leave a record with only `arch`. It is an
+        // error now, and so is output that is not JSON.
+        let json_str = probe_text("platform_cpu", "powershell", cmd)?;
+        let json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
+            crate::safety::bad_state(
+                "platform_cpu",
+                &format!("Get-CimInstance output is not JSON: {e}"),
+                "a readable Win32_Processor query",
+            )
+        })?;
+        if let Some(name) = json.get("Name").and_then(|v| v.as_str()) {
+            info.insert("name".to_string(), Value::Str(name.to_string()));
+        }
+        if let Some(cores) = json.get("NumberOfCores").and_then(|v| v.as_i64()) {
+            info.insert("cores".to_string(), Value::Int(cores));
+        }
+        if let Some(lp) = json
+            .get("NumberOfLogicalProcessors")
+            .and_then(|v| v.as_i64())
         {
-            if out.status.success() {
-                let json_str = String::from_utf8_lossy(&out.stdout);
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    if let Some(name) = json.get("Name").and_then(|v| v.as_str()) {
-                        info.insert("name".to_string(), Value::Str(name.to_string()));
-                    }
-                    if let Some(cores) = json.get("NumberOfCores").and_then(|v| v.as_i64()) {
-                        info.insert("cores".to_string(), Value::Int(cores));
-                    }
-                    if let Some(lp) = json
-                        .get("NumberOfLogicalProcessors")
-                        .and_then(|v| v.as_i64())
-                    {
-                        info.insert("logical_processors".to_string(), Value::Int(lp));
-                    }
-                    if let Some(mhz) = json.get("MaxClockSpeed").and_then(|v| v.as_i64()) {
-                        info.insert("max_clock_mhz".to_string(), Value::Int(mhz));
-                    }
-                }
-            }
+            info.insert("logical_processors".to_string(), Value::Int(lp));
+        }
+        if let Some(mhz) = json.get("MaxClockSpeed").and_then(|v| v.as_i64()) {
+            info.insert("max_clock_mhz".to_string(), Value::Int(mhz));
         }
         // Also get architecture
         if let Ok(arch) = std::env::var("PROCESSOR_ARCHITECTURE") {
@@ -49788,28 +49866,34 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "macos")]
     {
+        // A failed sysctl used to put its empty stdout in as `name` (""), or
+        // drop the count silently. Each probe is an error now if it fails.
         let mut cmd = std::process::Command::new("sysctl");
         cmd.args(["-n", "machdep.cpu.brand_string"]);
-        if let Ok(out) = bounded_cmd_output("platform_cpu", "sysctl", cmd, PROBE_DEADLINE_SECS) {
-            info.insert(
-                "name".to_string(),
-                Value::Str(String::from_utf8_lossy(&out.stdout).trim().to_string()),
-            );
-        }
+        let name = probe_text("platform_cpu", "sysctl", cmd)?;
+        info.insert("name".to_string(), Value::Str(name));
         let mut cmd = std::process::Command::new("sysctl");
         cmd.args(["-n", "hw.physicalcpu"]);
-        if let Ok(out) = bounded_cmd_output("platform_cpu", "sysctl", cmd, PROBE_DEADLINE_SECS) {
-            if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
-                info.insert("cores".to_string(), Value::Int(n));
-            }
-        }
+        let cores = probe_text("platform_cpu", "sysctl", cmd)?;
+        let cores = cores.parse::<i64>().map_err(|e| {
+            crate::safety::bad_state(
+                "platform_cpu",
+                &format!("hw.physicalcpu is not a number: {e}"),
+                "a sysctl that reports the physical CPU count",
+            )
+        })?;
+        info.insert("cores".to_string(), Value::Int(cores));
         let mut cmd = std::process::Command::new("sysctl");
         cmd.args(["-n", "hw.logicalcpu"]);
-        if let Ok(out) = bounded_cmd_output("platform_cpu", "sysctl", cmd, PROBE_DEADLINE_SECS) {
-            if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
-                info.insert("logical_processors".to_string(), Value::Int(n));
-            }
-        }
+        let logical = probe_text("platform_cpu", "sysctl", cmd)?;
+        let logical = logical.parse::<i64>().map_err(|e| {
+            crate::safety::bad_state(
+                "platform_cpu",
+                &format!("hw.logicalcpu is not a number: {e}"),
+                "a sysctl that reports the logical CPU count",
+            )
+        })?;
+        info.insert("logical_processors".to_string(), Value::Int(logical));
         info.insert(
             "arch".to_string(),
             Value::Str(std::env::consts::ARCH.to_string()),
@@ -49820,11 +49904,15 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_platform_cpu_count(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Use std::thread::available_parallelism for logical CPUs
-    if let Ok(count) = std::thread::available_parallelism() {
-        Ok(Value::Int(count.get() as i64))
-    } else {
-        Ok(Value::Int(1))
+    // Use std::thread::available_parallelism for logical CPUs. A failure used to
+    // answer 1, which is a real count; it is an error now.
+    match std::thread::available_parallelism() {
+        Ok(count) => Ok(Value::Int(count.get() as i64)),
+        Err(e) => Err(crate::safety::bad_state(
+            "platform_cpu_count",
+            &format!("the CPU count could not be read: {e}"),
+            "a host that reports its available parallelism",
+        )),
     }
 }
 
@@ -50110,48 +50198,47 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         // Use PowerShell instead of WMIC
         let mut cmd = std::process::Command::new("powershell");
         cmd.args(["-Command", "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,Size,FreeSpace,FileSystem,VolumeName | ConvertTo-Json"]);
-        if let Ok(out) =
-            bounded_cmd_output("platform_disks", "powershell", cmd, PROBE_DEADLINE_SECS)
-        {
-            if out.status.success() {
-                let json_str = String::from_utf8_lossy(&out.stdout);
-                // Handle both single object and array
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    let items = if json.is_array() {
-                        json.as_array().unwrap().clone()
-                    } else {
-                        vec![json]
-                    };
-                    for item in items {
-                        let mut disk = std::collections::BTreeMap::new();
-                        if let Some(id) = item.get("DeviceID").and_then(|v| v.as_str()) {
-                            disk.insert("mount".to_string(), Value::Str(id.to_string()));
-                        }
-                        if let Some(size) = item.get("Size").and_then(|v| v.as_i64()) {
-                            disk.insert("size_bytes".to_string(), Value::Int(size));
-                            disk.insert(
-                                "size_gb".to_string(),
-                                Value::Float(size as f64 / 1024.0 / 1024.0 / 1024.0),
-                            );
-                        }
-                        if let Some(free) = item.get("FreeSpace").and_then(|v| v.as_i64()) {
-                            disk.insert("free_bytes".to_string(), Value::Int(free));
-                            disk.insert(
-                                "free_gb".to_string(),
-                                Value::Float(free as f64 / 1024.0 / 1024.0 / 1024.0),
-                            );
-                        }
-                        if let Some(fs) = item.get("FileSystem").and_then(|v| v.as_str()) {
-                            disk.insert("filesystem".to_string(), Value::Str(fs.to_string()));
-                        }
-                        if let Some(label) = item.get("VolumeName").and_then(|v| v.as_str()) {
-                            disk.insert("label".to_string(), Value::Str(label.to_string()));
-                        }
-                        if !disk.is_empty() {
-                            disks.push(Value::Record(disk));
-                        }
-                    }
-                }
+        let json_str = probe_text("platform_disks", "powershell", cmd)?;
+        // Output that is not JSON was an empty disk list before. It is an error.
+        let json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
+            crate::safety::bad_state(
+                "platform_disks",
+                &format!("Get-CimInstance disk output is not JSON: {e}"),
+                "a readable Win32_LogicalDisk query",
+            )
+        })?;
+        // Handle both single object and array
+        let items = match json {
+            serde_json::Value::Array(items) => items,
+            other => vec![other],
+        };
+        for item in items {
+            let mut disk = std::collections::BTreeMap::new();
+            if let Some(id) = item.get("DeviceID").and_then(|v| v.as_str()) {
+                disk.insert("mount".to_string(), Value::Str(id.to_string()));
+            }
+            if let Some(size) = item.get("Size").and_then(|v| v.as_i64()) {
+                disk.insert("size_bytes".to_string(), Value::Int(size));
+                disk.insert(
+                    "size_gb".to_string(),
+                    Value::Float(size as f64 / 1024.0 / 1024.0 / 1024.0),
+                );
+            }
+            if let Some(free) = item.get("FreeSpace").and_then(|v| v.as_i64()) {
+                disk.insert("free_bytes".to_string(), Value::Int(free));
+                disk.insert(
+                    "free_gb".to_string(),
+                    Value::Float(free as f64 / 1024.0 / 1024.0 / 1024.0),
+                );
+            }
+            if let Some(fs) = item.get("FileSystem").and_then(|v| v.as_str()) {
+                disk.insert("filesystem".to_string(), Value::Str(fs.to_string()));
+            }
+            if let Some(label) = item.get("VolumeName").and_then(|v| v.as_str()) {
+                disk.insert("label".to_string(), Value::Str(label.to_string()));
+            }
+            if !disk.is_empty() {
+                disks.push(Value::Record(disk));
             }
         }
     }
@@ -50160,34 +50247,33 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     {
         let mut cmd = std::process::Command::new("df");
         cmd.args(["-B1", "--output=source,target,fstype,size,avail"]);
-        if let Ok(out) = bounded_cmd_output("platform_disks", "df", cmd, PROBE_DEADLINE_SECS) {
-            let output = String::from_utf8_lossy(&out.stdout);
-            for line in output.lines().skip(1) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 5
-                    && !parts[0].starts_with("tmpfs")
-                    && !parts[0].starts_with("devtmpfs")
-                {
-                    let mut disk = std::collections::BTreeMap::new();
-                    disk.insert("device".to_string(), Value::Str(parts[0].to_string()));
-                    disk.insert("mount".to_string(), Value::Str(parts[1].to_string()));
-                    disk.insert("filesystem".to_string(), Value::Str(parts[2].to_string()));
-                    if let Ok(n) = parts[3].parse::<i64>() {
-                        disk.insert("size_bytes".to_string(), Value::Int(n));
-                        disk.insert(
-                            "size_gb".to_string(),
-                            Value::Float(n as f64 / 1024.0 / 1024.0 / 1024.0),
-                        );
-                    }
-                    if let Ok(n) = parts[4].parse::<i64>() {
-                        disk.insert("free_bytes".to_string(), Value::Int(n));
-                        disk.insert(
-                            "free_gb".to_string(),
-                            Value::Float(n as f64 / 1024.0 / 1024.0 / 1024.0),
-                        );
-                    }
-                    disks.push(Value::Record(disk));
+        // A failed df used to list no disks. Its exit status is checked now.
+        let output = probe_text("platform_disks", "df", cmd)?;
+        for line in output.lines().skip(1) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 5
+                && !parts[0].starts_with("tmpfs")
+                && !parts[0].starts_with("devtmpfs")
+            {
+                let mut disk = std::collections::BTreeMap::new();
+                disk.insert("device".to_string(), Value::Str(parts[0].to_string()));
+                disk.insert("mount".to_string(), Value::Str(parts[1].to_string()));
+                disk.insert("filesystem".to_string(), Value::Str(parts[2].to_string()));
+                if let Ok(n) = parts[3].parse::<i64>() {
+                    disk.insert("size_bytes".to_string(), Value::Int(n));
+                    disk.insert(
+                        "size_gb".to_string(),
+                        Value::Float(n as f64 / 1024.0 / 1024.0 / 1024.0),
+                    );
                 }
+                if let Ok(n) = parts[4].parse::<i64>() {
+                    disk.insert("free_bytes".to_string(), Value::Int(n));
+                    disk.insert(
+                        "free_gb".to_string(),
+                        Value::Float(n as f64 / 1024.0 / 1024.0 / 1024.0),
+                    );
+                }
+                disks.push(Value::Record(disk));
             }
         }
     }
@@ -50196,32 +50282,31 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     {
         let mut cmd = std::process::Command::new("df");
         cmd.args(["-b"]);
-        if let Ok(out) = bounded_cmd_output("platform_disks", "df", cmd, PROBE_DEADLINE_SECS) {
-            let output = String::from_utf8_lossy(&out.stdout);
-            for line in output.lines().skip(1) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 9 && parts[0].starts_with("/dev/") {
-                    let mut disk = std::collections::BTreeMap::new();
-                    disk.insert("device".to_string(), Value::Str(parts[0].to_string()));
-                    disk.insert("mount".to_string(), Value::Str(parts[8].to_string()));
-                    if let Ok(n) = parts[1].parse::<i64>() {
-                        let bytes = n * 512;
-                        disk.insert("size_bytes".to_string(), Value::Int(bytes));
-                        disk.insert(
-                            "size_gb".to_string(),
-                            Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0),
-                        );
-                    }
-                    if let Ok(n) = parts[3].parse::<i64>() {
-                        let bytes = n * 512;
-                        disk.insert("free_bytes".to_string(), Value::Int(bytes));
-                        disk.insert(
-                            "free_gb".to_string(),
-                            Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0),
-                        );
-                    }
-                    disks.push(Value::Record(disk));
+        // A failed df used to list no disks. Its exit status is checked now.
+        let output = probe_text("platform_disks", "df", cmd)?;
+        for line in output.lines().skip(1) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 9 && parts[0].starts_with("/dev/") {
+                let mut disk = std::collections::BTreeMap::new();
+                disk.insert("device".to_string(), Value::Str(parts[0].to_string()));
+                disk.insert("mount".to_string(), Value::Str(parts[8].to_string()));
+                if let Ok(n) = parts[1].parse::<i64>() {
+                    let bytes = n * 512;
+                    disk.insert("size_bytes".to_string(), Value::Int(bytes));
+                    disk.insert(
+                        "size_gb".to_string(),
+                        Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0),
+                    );
                 }
+                if let Ok(n) = parts[3].parse::<i64>() {
+                    let bytes = n * 512;
+                    disk.insert("free_bytes".to_string(), Value::Int(bytes));
+                    disk.insert(
+                        "free_gb".to_string(),
+                        Value::Float(bytes as f64 / 1024.0 / 1024.0 / 1024.0),
+                    );
+                }
+                disks.push(Value::Record(disk));
             }
         }
     }
@@ -50283,38 +50368,51 @@ fn bi_platform_disk_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Val
 fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut gpus = Vec::new();
 
-    // NVIDIA GPUs via nvidia-smi
+    // NVIDIA GPUs via nvidia-smi. Not installed means no NVIDIA GPUs. Installed
+    // but failing is an error: it used to read as none. A row with too few
+    // columns is also an error. A single field that is not a number (nvidia-smi
+    // prints [N/A] for some) stays absent, as before.
     let mut cmd = std::process::Command::new("nvidia-smi");
     cmd.args(["--query-gpu=index,name,memory.total,memory.free,driver_version,temperature.gpu,utilization.gpu", "--format=csv,noheader,nounits"]);
-    if let Ok(out) = bounded_cmd_output("platform_gpus", "nvidia-smi", cmd, PROBE_DEADLINE_SECS) {
-        if out.status.success() {
-            let output = String::from_utf8_lossy(&out.stdout);
+    match bounded_cmd_output("platform_gpus", "nvidia-smi", cmd, PROBE_DEADLINE_SECS) {
+        Ok(out) => {
+            let output = probe_stdout("platform_gpus", "nvidia-smi", out)?;
             for line in output.lines() {
                 let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-                if parts.len() >= 7 {
-                    let mut gpu = std::collections::BTreeMap::new();
-                    gpu.insert("vendor".to_string(), Value::Str("NVIDIA".to_string()));
-                    if let Ok(idx) = parts[0].parse::<i64>() {
-                        gpu.insert("index".to_string(), Value::Int(idx));
-                    }
-                    gpu.insert("name".to_string(), Value::Str(parts[1].to_string()));
-                    if let Ok(mem) = parts[2].parse::<i64>() {
-                        gpu.insert("memory_mb".to_string(), Value::Int(mem));
-                    }
-                    if let Ok(free) = parts[3].parse::<i64>() {
-                        gpu.insert("memory_free_mb".to_string(), Value::Int(free));
-                    }
-                    gpu.insert("driver".to_string(), Value::Str(parts[4].to_string()));
-                    if let Ok(temp) = parts[5].parse::<i64>() {
-                        gpu.insert("temperature_c".to_string(), Value::Int(temp));
-                    }
-                    if let Ok(util) = parts[6].parse::<i64>() {
-                        gpu.insert("utilization_percent".to_string(), Value::Int(util));
-                    }
-                    gpus.push(Value::Record(gpu));
+                if parts.len() < 7 {
+                    return Err(crate::safety::bad_state(
+                        "platform_gpus",
+                        &format!(
+                            "nvidia-smi row has {} columns, expected 7: {line}",
+                            parts.len()
+                        ),
+                        "the csv query nvidia-smi was asked for",
+                    ));
                 }
+                let mut gpu = std::collections::BTreeMap::new();
+                gpu.insert("vendor".to_string(), Value::Str("NVIDIA".to_string()));
+                if let Ok(idx) = parts[0].parse::<i64>() {
+                    gpu.insert("index".to_string(), Value::Int(idx));
+                }
+                gpu.insert("name".to_string(), Value::Str(parts[1].to_string()));
+                if let Ok(mem) = parts[2].parse::<i64>() {
+                    gpu.insert("memory_mb".to_string(), Value::Int(mem));
+                }
+                if let Ok(free) = parts[3].parse::<i64>() {
+                    gpu.insert("memory_free_mb".to_string(), Value::Int(free));
+                }
+                gpu.insert("driver".to_string(), Value::Str(parts[4].to_string()));
+                if let Ok(temp) = parts[5].parse::<i64>() {
+                    gpu.insert("temperature_c".to_string(), Value::Int(temp));
+                }
+                if let Ok(util) = parts[6].parse::<i64>() {
+                    gpu.insert("utilization_percent".to_string(), Value::Int(util));
+                }
+                gpus.push(Value::Record(gpu));
             }
         }
+        Err(e) if is_tool_missing(&e) => {}
+        Err(e) => return Err(e),
     }
 
     // AMD GPUs via rocm-smi (Linux)
@@ -50399,36 +50497,41 @@ fn bi_platform_gpu_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
         "--query-gpu=memory.total,memory.used,memory.free",
         "--format=csv,noheader,nounits",
     ]);
-    if let Ok(out) = bounded_cmd_output(
+    // Not installed is no figures (Null). Installed but failing, or output that
+    // does not hold three numbers, is an error. Both used to read as Null.
+    let out = match bounded_cmd_output(
         "platform_gpu_memory",
         "nvidia-smi",
         cmd,
         PROBE_DEADLINE_SECS,
     ) {
-        if out.status.success() {
-            let output = String::from_utf8_lossy(&out.stdout);
-            if let Some(line) = output.lines().next() {
-                let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-                if parts.len() >= 3 {
-                    if let Ok(total) = parts[0].parse::<i64>() {
-                        info.insert("total_mb".to_string(), Value::Int(total));
-                    }
-                    if let Ok(used) = parts[1].parse::<i64>() {
-                        info.insert("used_mb".to_string(), Value::Int(used));
-                    }
-                    if let Ok(free) = parts[2].parse::<i64>() {
-                        info.insert("free_mb".to_string(), Value::Int(free));
-                    }
-                }
-            }
-        }
+        Ok(out) => out,
+        Err(e) if is_tool_missing(&e) => return Ok(Value::Null),
+        Err(e) => return Err(e),
+    };
+    let output = probe_stdout("platform_gpu_memory", "nvidia-smi", out)?;
+    let line = output.lines().next().unwrap_or("");
+    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+    if parts.len() < 3 {
+        return Err(crate::safety::bad_state(
+            "platform_gpu_memory",
+            &format!("nvidia-smi memory row is not total,used,free: {line:?}"),
+            "the csv query nvidia-smi was asked for",
+        ));
     }
-
-    if info.is_empty() {
-        Ok(Value::Null)
-    } else {
-        Ok(Value::Record(info))
-    }
+    let number = |i: usize| -> Result<Value> {
+        parts[i].parse::<i64>().map(Value::Int).map_err(|e| {
+            crate::safety::bad_state(
+                "platform_gpu_memory",
+                &format!("nvidia-smi memory field {i} is not a number: {e}"),
+                "the csv query nvidia-smi was asked for",
+            )
+        })
+    };
+    info.insert("total_mb".to_string(), number(0)?);
+    info.insert("used_mb".to_string(), number(1)?);
+    info.insert("free_mb".to_string(), number(2)?);
+    Ok(Value::Record(info))
 }
 
 fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
