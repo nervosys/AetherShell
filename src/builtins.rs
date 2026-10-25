@@ -8373,10 +8373,26 @@ fn bi_find(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let mut results = Vec::new();
 
-    for entry in WalkDir::new(&validated_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    // A walk error used to be dropped, so an unreadable directory vanished
+    // from the listing and the rest was returned as the whole answer.
+    for entry in WalkDir::new(&validated_path) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                return Err(match e.io_error() {
+                    Some(io) => crate::safety::fs_error(
+                        "find",
+                        e.path().unwrap_or(validated_path.as_path()),
+                        io,
+                    ),
+                    None => crate::safety::bad_state(
+                        "find",
+                        &e.to_string(),
+                        "a tree without symbolic-link loops",
+                    ),
+                });
+            }
+        };
         let path_str = entry.path().to_string_lossy().to_string();
 
         if let Some(ref pattern) = pattern {
@@ -25888,6 +25904,18 @@ fn bi_open(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
+/// Whether `path` is a directory. `is_dir()` answers false when it cannot
+/// stat the entry, so a directory it could not read looked like a file and
+/// was skipped. A dangling symlink, or an entry removed since it was listed,
+/// is `false`; any other failure to stat it is an error.
+fn entry_is_dir(builtin: &str, path: &std::path::Path) -> Result<bool> {
+    match std::fs::metadata(path) {
+        Ok(meta) => Ok(meta.is_dir()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(crate::safety::fs_error(builtin, path, &e)),
+    }
+}
+
 fn bi_fs_walk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -25901,28 +25929,35 @@ fn bi_fs_walk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .unwrap_or(100);
 
+    // A directory that cannot be listed is an error, not an empty subtree.
+    // The walk used to skip it, and an unreadable root returned []: a
+    // shorter listing that looked complete.
     fn walk_recursive(
         dir: &std::path::Path,
         depth: usize,
         max_depth: usize,
         results: &mut Vec<Value>,
-    ) {
+    ) -> Result<()> {
         if depth > max_depth {
-            return;
+            return Ok(());
         }
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                results.push(Value::Str(path.to_string_lossy().to_string()));
-                if path.is_dir() {
-                    walk_recursive(&path, depth + 1, max_depth, results);
-                }
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| crate::safety::fs_error("fs_walk", dir, &e))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| crate::safety::fs_error("fs_walk", dir, &e))?;
+            let path = entry.path();
+            results.push(Value::Str(path.to_string_lossy().to_string()));
+            // Only a directory the walk would descend into needs its type
+            // checked; one at the depth limit is listed and not opened.
+            if depth < max_depth && entry_is_dir("fs_walk", &path)? {
+                walk_recursive(&path, depth + 1, max_depth, results)?;
             }
         }
+        Ok(())
     }
 
     let mut results = Vec::new();
-    walk_recursive(std::path::Path::new(&dir), 0, max_depth, &mut results);
+    walk_recursive(std::path::Path::new(&dir), 0, max_depth, &mut results)?;
     Ok(Value::Array(results))
 }
 
@@ -25939,35 +25974,41 @@ fn bi_fs_tree(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .unwrap_or(3);
 
+    // An unreadable directory used to render as a leaf, and an entry that
+    // could not be read was left out of its parent's listing. Both are
+    // errors now: the tree would be a shorter one presented as the whole.
     fn tree_recursive(
         dir: &std::path::Path,
         prefix: &str,
         depth: usize,
         max_depth: usize,
         lines: &mut Vec<String>,
-    ) {
+    ) -> Result<()> {
         if depth > max_depth {
-            return;
+            return Ok(());
         }
-        if let Ok(mut entries) = std::fs::read_dir(dir) {
-            let entries: Vec<_> = entries.by_ref().filter_map(|e| e.ok()).collect();
-            let count = entries.len();
-            for (i, entry) in entries.into_iter().enumerate() {
-                let is_last = i == count - 1;
-                let connector = if is_last { "└── " } else { "├── " };
-                let name = entry.file_name().to_string_lossy().to_string();
-                lines.push(format!("{}{}{}", prefix, connector, name));
+        let entries: Vec<_> = std::fs::read_dir(dir)
+            .map_err(|e| crate::safety::fs_error("fs_tree", dir, &e))?
+            .collect::<std::io::Result<Vec<_>>>()
+            .map_err(|e| crate::safety::fs_error("fs_tree", dir, &e))?;
+        let count = entries.len();
+        for (i, entry) in entries.into_iter().enumerate() {
+            let is_last = i == count - 1;
+            let connector = if is_last { "└── " } else { "├── " };
+            let name = entry.file_name().to_string_lossy().to_string();
+            lines.push(format!("{}{}{}", prefix, connector, name));
 
-                if entry.path().is_dir() {
-                    let new_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
-                    tree_recursive(&entry.path(), &new_prefix, depth + 1, max_depth, lines);
-                }
+            let path = entry.path();
+            if depth < max_depth && entry_is_dir("fs_tree", &path)? {
+                let new_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
+                tree_recursive(&path, &new_prefix, depth + 1, max_depth, lines)?;
             }
         }
+        Ok(())
     }
 
     let mut lines = vec![dir.clone()];
-    tree_recursive(std::path::Path::new(&dir), "", 0, max_depth, &mut lines);
+    tree_recursive(std::path::Path::new(&dir), "", 0, max_depth, &mut lines)?;
     Ok(Value::Str(lines.join("\n")))
 }
 
@@ -25977,25 +26018,35 @@ fn bi_fs_du(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => ".".to_string(),
     };
 
-    fn dir_size(path: &std::path::Path) -> u64 {
-        let mut size = 0;
-        if path.is_file() {
-            return path.metadata().map(|m| m.len()).unwrap_or(0);
+    // A total that leaves out an entry it could not stat or list is wrong, so
+    // those are errors. The old code counted such an entry as 0 bytes, and an
+    // unreadable or missing root as an empty directory.
+    fn dir_size(path: &std::path::Path) -> Result<u64> {
+        let meta =
+            std::fs::metadata(path).map_err(|e| crate::safety::fs_error("fs_du", path, &e))?;
+        if meta.is_file() {
+            return Ok(meta.len());
         }
-        if let Ok(entries) = std::fs::read_dir(path) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let entry_path = entry.path();
-                if entry_path.is_file() {
-                    size += entry_path.metadata().map(|m| m.len()).unwrap_or(0);
-                } else if entry_path.is_dir() {
-                    size += dir_size(&entry_path);
-                }
+        let mut size = 0;
+        let entries =
+            std::fs::read_dir(path).map_err(|e| crate::safety::fs_error("fs_du", path, &e))?;
+        for entry in entries {
+            let entry_path = entry
+                .map_err(|e| crate::safety::fs_error("fs_du", path, &e))?
+                .path();
+            match std::fs::metadata(&entry_path) {
+                Ok(m) if m.is_file() => size += m.len(),
+                Ok(m) if m.is_dir() => size += dir_size(&entry_path)?,
+                Ok(_) => {}
+                // A dangling symlink, or an entry removed since it was listed.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(crate::safety::fs_error("fs_du", &entry_path, &e)),
             }
         }
-        size
+        Ok(size)
     }
 
-    let size = dir_size(std::path::Path::new(&path));
+    let size = dir_size(std::path::Path::new(&path))?;
     let mut rec = std::collections::BTreeMap::new();
     rec.insert("path".to_string(), Value::Str(path));
     rec.insert("bytes".to_string(), Value::Int(size as i64));
@@ -45006,6 +45057,12 @@ fn bi_project_languages(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 /// a fact rather than a failure. Counting in Rust removes both the glob and
 /// the subprocess.
 fn bi_project_loc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    Ok(Value::Int(project_loc_in(std::path::Path::new("."))?))
+}
+
+/// The count behind `project_loc`, over `root`. Split out so that the tests
+/// can point it at a temporary tree; the builtin itself always counts `.`.
+fn project_loc_in(root: &std::path::Path) -> Result<i64> {
     const SOURCE_EXT: &[&str] = &[
         "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "h", "cc", "cpp", "hpp", "cs",
         "rb", "sh", "ae", "lua", "kt", "swift", "php", "scala",
@@ -45024,46 +45081,63 @@ fn bi_project_loc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "__pycache__",
     ];
 
-    fn count(dir: &std::path::Path, total: &mut i64, budget: &mut u32) {
+    /// Lines as `str::lines` counts them: one per newline, plus a final line
+    /// that has no newline after it.
+    fn count_lines(bytes: &[u8]) -> i64 {
+        let newlines = bytes.iter().filter(|b| **b == b'\n').count();
+        let unterminated = !bytes.is_empty() && bytes.last() != Some(&b'\n');
+        (newlines + usize::from(unterminated)) as i64
+    }
+
+    fn count(dir: &std::path::Path, total: &mut i64, budget: &mut u32) -> Result<()> {
         // A budget rather than unbounded recursion: this is called from an
         // agent loop, and a symlinked or pathological tree must not cost the
         // whole turn. Exhausting it is reported as E_BUDGET_EXCEEDED, never as
         // a number -- a partial count returned as an Int is indistinguishable
         // from a small project, which is the defect this replaced.
         if *budget == 0 {
-            return;
+            return Ok(());
         }
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
+        // An unreadable directory used to be skipped, so its sources were
+        // missing from the total and the total was returned as the count.
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| crate::safety::fs_error("project_loc", dir, &e))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| crate::safety::fs_error("project_loc", dir, &e))?;
             *budget = budget.saturating_sub(1);
             if *budget == 0 {
-                return;
+                return Ok(());
             }
             let path = entry.path();
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if path.is_dir() {
+            if entry_is_dir("project_loc", &path)? {
                 if !SKIP.contains(&name.as_ref()) && !name.starts_with('.') {
-                    count(&path, total, budget);
+                    count(&path, total, budget)?;
                 }
             } else if path
                 .extension()
                 .and_then(|e| e.to_str())
                 .is_some_and(|e| SOURCE_EXT.contains(&e))
             {
-                if let Ok(text) = std::fs::read_to_string(&path) {
-                    *total += text.lines().count() as i64;
-                }
+                // Bytes, not `read_to_string`: that refused any non-UTF-8 file
+                // (Latin-1 source, say), and the file counted as 0 lines.
+                let bytes = match std::fs::read(&path) {
+                    Ok(bytes) => bytes,
+                    // Removed since it was listed, or a dangling symlink.
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(e) => return Err(crate::safety::fs_error("project_loc", &path, &e)),
+                };
+                *total += count_lines(&bytes);
             }
         }
+        Ok(())
     }
 
     let mut total = 0i64;
     const BUDGET: u32 = 200_000;
     let mut budget = BUDGET;
-    count(std::path::Path::new("."), &mut total, &mut budget);
+    count(root, &mut total, &mut budget)?;
     if budget == 0 {
         return Err(crate::safety::budget_exceeded(
             "project_loc",
@@ -45071,36 +45145,45 @@ fn bi_project_loc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "run it against a subdirectory, or exclude generated trees",
         ));
     }
-    Ok(Value::Int(total))
+    Ok(total)
 }
 
 fn bi_project_size(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut total: u64 = 0;
-    fn walk(dir: &std::path::Path, total: &mut u64, depth: usize) {
+    // An unreadable directory or entry used to be skipped, and a failed stat
+    // counted as 0 bytes: the size was the sum of what happened to be readable.
+    fn walk(dir: &std::path::Path, total: &mut u64, depth: usize) -> Result<()> {
         if depth > 5 {
-            return;
+            return Ok(());
         }
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                if name.starts_with(".") || name == "target" || name == "node_modules" {
-                    continue;
-                }
-                if path.is_file() {
-                    if let Ok(meta) = path.metadata() {
-                        *total += meta.len();
-                    }
-                } else if path.is_dir() {
-                    walk(&path, total, depth + 1);
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| crate::safety::fs_error("project_size", dir, &e))?;
+        for entry in entries {
+            let path = entry
+                .map_err(|e| crate::safety::fs_error("project_size", dir, &e))?
+                .path();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if name.starts_with(".") || name == "target" || name == "node_modules" {
+                continue;
+            }
+            if entry_is_dir("project_size", &path)? {
+                walk(&path, total, depth + 1)?;
+            } else {
+                match std::fs::metadata(&path) {
+                    Ok(meta) if meta.is_file() => *total += meta.len(),
+                    Ok(_) => {}
+                    // Removed since it was listed, or a dangling symlink.
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(crate::safety::fs_error("project_size", &path, &e)),
                 }
             }
         }
+        Ok(())
     }
-    walk(std::path::Path::new("."), &mut total, 0);
+    walk(std::path::Path::new("."), &mut total, 0)?;
     Ok(Value::Int(total as i64))
 }
 // ---------------------------------------------------------------------------
@@ -45159,10 +45242,14 @@ fn search_walk(builtin: &str, visit: &mut dyn FnMut(&SearchEntry) -> Result<()>)
     let mut budget = BUDGET;
     let mut stack = vec![(std::path::PathBuf::from("."), String::from("."))];
     while let Some((dir, shown_dir)) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        let mut entries: Vec<_> = rd.flatten().collect();
+        // A directory that cannot be listed used to be skipped with `continue`,
+        // and an entry that could not be read was dropped by `flatten`. The
+        // search then reported the matches it had found as if they were all.
+        let rd = std::fs::read_dir(&dir).map_err(|e| crate::safety::fs_error(builtin, &dir, &e))?;
+        let mut entries = Vec::new();
+        for entry in rd {
+            entries.push(entry.map_err(|e| crate::safety::fs_error(builtin, &dir, &e))?);
+        }
         entries.sort_by_key(|e| e.file_name());
         let mut subdirs = Vec::new();
         for entry in entries {
@@ -45183,8 +45270,11 @@ fn search_walk(builtin: &str, visit: &mut dyn FnMut(&SearchEntry) -> Result<()>)
                 ));
             }
             budget -= 1;
-            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
-                continue;
+            let meta = match std::fs::symlink_metadata(entry.path()) {
+                Ok(meta) => meta,
+                // Removed since it was listed: nothing left to report.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(crate::safety::fs_error(builtin, entry.path(), &e)),
             };
             if meta.file_type().is_symlink() {
                 continue;
@@ -65970,6 +66060,66 @@ mod declaration_narrowness {
              ({checked} combinations probed, {refused} refused)",
             too_narrow.len(),
             too_narrow
+        );
+    }
+}
+
+#[cfg(test)]
+mod quiet_walk_tests {
+    use super::*;
+
+    /// A fresh directory under the system temp dir. The process id keeps two
+    /// test runs from sharing one.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ae-quiet-walk-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn project_loc_counts_a_non_utf8_source_file() {
+        let dir = scratch("loc");
+        std::fs::write(dir.join("main.rs"), b"fn main() {}\n").unwrap();
+        // Latin-1 e-acute is not UTF-8. Three lines, the last unterminated.
+        std::fs::write(dir.join("latin.rs"), b"// caf\xe9\nx\n\xe9").unwrap();
+        let total = project_loc_in(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(total.unwrap(), 4);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn walks_refuse_a_directory_they_cannot_read() {
+        use std::os::unix::fs::PermissionsExt;
+        // Root reads a mode-000 directory anyway, so there is nothing to refuse.
+        let running_as_root = unsafe { libc::geteuid() } == 0;
+        if running_as_root {
+            return;
+        }
+        let dir = scratch("unreadable");
+        let locked = dir.join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::write(locked.join("hidden.txt"), b"x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let root = Value::Str(dir.to_string_lossy().to_string());
+        let du = bi_fs_du(vec![root.clone()], None);
+        let walk = bi_fs_walk(vec![root.clone()], None);
+        let tree = bi_fs_tree(vec![root], None);
+        // Restore before removing: a mode-000 directory cannot be emptied.
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(
+            du.is_err(),
+            "fs_du returned a size for a tree it could not read"
+        );
+        assert!(
+            walk.is_err(),
+            "fs_walk returned a listing for a tree it could not read"
+        );
+        assert!(
+            tree.is_err(),
+            "fs_tree rendered an unreadable directory as a leaf"
         );
     }
 }
