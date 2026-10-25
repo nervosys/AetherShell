@@ -27994,7 +27994,7 @@ fn win_cpu_record(text: &str) -> Result<Value> {
     let mut rec = std::collections::BTreeMap::new();
     if let Some(v) = field("Name") {
         let name = v.as_str().ok_or_else(|| bad("Name is not text"))?;
-        rec.insert("name".to_string(), Value::Str(name.to_string()));
+        rec.insert("name".to_string(), Value::Str(name.trim().to_string()));
     }
     if let Some(v) = field("NumberOfCores") {
         let cores = v
@@ -28509,8 +28509,10 @@ mod quiet_sys_tests {
 
     #[test]
     fn win_cpu_record_reads_fields() {
-        let v =
-            win_cpu_record(r#"{"Name":"Intel","NumberOfCores":8,"MaxClockSpeed":3600}"#).unwrap();
+        let v = win_cpu_record(r#"{"Name":"Intel   ","NumberOfCores":8,"MaxClockSpeed":3600}"#)
+            .unwrap();
+        // WMI pads the processor name with spaces.
+        assert!(matches!(field(&v, "name"), Some(Value::Str(n)) if n == "Intel"));
         assert!(matches!(field(&v, "cores"), Some(Value::Int(8))));
         assert!(matches!(field(&v, "mhz"), Some(Value::Float(f)) if (*f - 3600.0).abs() < 1e-9));
     }
@@ -50048,7 +50050,7 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             )
         })?;
         if let Some(name) = json.get("Name").and_then(|v| v.as_str()) {
-            info.insert("name".to_string(), Value::Str(name.to_string()));
+            info.insert("name".to_string(), Value::Str(name.trim().to_string()));
         }
         if let Some(cores) = json.get("NumberOfCores").and_then(|v| v.as_i64()) {
             info.insert("cores".to_string(), Value::Int(cores));

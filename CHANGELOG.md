@@ -131,6 +131,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   empty list. Any other non-zero exit is still `E_TOOL_FAILED`. The message
   rules are English only, so a localised message is reported as a failed tool,
   with its stderr.
+- **`proc_exists` sees other users' processes**: on Unix it ran `kill -0`,
+  whose "operation not permitted" made init and every process of another
+  user read as gone. It now asks the process table in process.
+- **Probes that failed no longer answer 0, false or nothing**:
+  - `platform_has_network` bound a loopback socket, which succeeds offline,
+    and `platform_capabilities` hard-coded `has_network: true`. Both now ask
+    whether an interface has a routable address.
+  - `sys_uptime` answered 0 seconds, `sys_load_avg` 0.0, `sys_cpu_info` 0
+    cores and 0 MHz, and `sys_groups` no groups when their source could not
+    be read or parsed. A malformed uid or gid in `sys_users` and `sys_groups`
+    read as 0, root. Each is now a coded error. A field the platform does not
+    report, such as the model name on ARM, is left out instead.
+  - `platform_cpu`, `platform_disks`, `platform_gpus` and
+    `platform_gpu_memory` refuse a probe that ran and failed. A GPU tool that
+    is not installed still answers no GPUs. `platform_has_admin` refuses when
+    `net session` cannot be run, rather than answering "not admin".
+  - `platform_db_list` refuses a corrupt store rather than listing it empty.
+  - `project_version` answered "0.0.0" and `project_name` "unknown" with no
+    manifest. They now read Cargo.toml or package.json, or refuse.
+    `project_dependencies` refuses a missing Cargo.toml.
+- **A walk that could not read part of its tree refuses**: `find`, `fs_walk`,
+  `fs_tree`, `fs_du`, `project_loc`, `project_size` and the `search_*`
+  builtins skipped an unreadable directory and returned the rest as the whole
+  answer. A missing root was an empty listing, or 0 bytes. Each now refuses
+  with the first path it could not read. An entry removed during the walk is
+  still skipped. `project_loc` counts non-UTF-8 sources instead of counting
+  them as 0 lines.
+- **`apply` reports a failed rollback**: when its rollback failed it still
+  said `rolled_back: true`. It now says false, with the rollback's error, and
+  a failed commit is reported as a failure.
+- **`alert_list` can fire disk alerts**: with no measurable disks, disk use
+  read as 0%, so a disk rule never triggered. That is now an error, raised
+  only when a disk rule exists.
 - **JSON floats read back exactly**: serde_json's default float parser is not
   always correctly rounded, so `from_json` and the other JSON readers could
   return a float one bit off what was written (0.22714707115665078 came back
