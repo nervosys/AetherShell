@@ -107,6 +107,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Failed platform and screen probes are refused**: `sys_kernel`,
+  `platform_kernel`, `platform_os_version`, `platform_build`,
+  `platform_machine_id` and `screen_list` did not read their tool's exit
+  status, so a failed `uname`, `ver`, `sw_vers`, `ioreg` or `screen` answered
+  with an empty string, `"unknown"` or `[]`. They now refuse with
+  `E_TOOL_FAILED`, the exit code and stderr. `platform_os_version` still falls
+  through its sources in order and refuses only when every one has failed.
+  On Windows, kernel, build and machine id no longer use `wmic`, which current
+  Windows 11 installs no longer include, so on such a host these builtins had
+  answered `"unknown"`. GNU screen's "No Sockets found" stays an empty list.
+- **A package that matches nothing is not a failed tool**: `pkg_info`,
+  `pkg_files`, `pkg_owner`, `pkg_deps` and `pkg_rdeps` return `E_NOT_FOUND`
+  for each package manager's own "nothing matched" exit (dpkg's exit 1,
+  apt-cache's "No packages found", pacman's "was not found" and "No package
+  owns", and the dnf and brew messages), and `pkg_search` answers it with an
+  empty list. Any other non-zero exit is still `E_TOOL_FAILED`. The message
+  rules are English only, so a localised message is reported as a failed tool,
+  with its stderr.
 - **JSON floats read back exactly**: serde_json's default float parser is not
   always correctly rounded, so `from_json` and the other JSON readers could
   return a float one bit off what was written (0.22714707115665078 came back
