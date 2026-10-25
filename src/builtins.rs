@@ -25337,57 +25337,61 @@ fn bi_fs_stat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
-    if let Ok(meta) = std::fs::metadata(&path) {
-        let mut rec = std::collections::BTreeMap::new();
-        rec.insert("size".to_string(), Value::Int(meta.len() as i64));
-        rec.insert("is_file".to_string(), Value::Bool(meta.is_file()));
-        rec.insert("is_dir".to_string(), Value::Bool(meta.is_dir()));
-        rec.insert(
-            "is_symlink".to_string(),
-            Value::Bool(meta.file_type().is_symlink()),
-        );
-        rec.insert(
-            "readonly".to_string(),
-            Value::Bool(meta.permissions().readonly()),
-        );
+    // A missing path is the documented Null. The old code returned Null for
+    // any metadata error, so a permission or I/O failure read as absence.
+    let meta = match std::fs::metadata(&path) {
+        Ok(meta) => meta,
+        Err(e) if path_is_absent(&e) => return Ok(Value::Null),
+        Err(e) => return Err(crate::safety::fs_error("fs_stat", &path, &e)),
+    };
+    let mut rec = std::collections::BTreeMap::new();
+    rec.insert("size".to_string(), Value::Int(meta.len() as i64));
+    rec.insert("is_file".to_string(), Value::Bool(meta.is_file()));
+    rec.insert("is_dir".to_string(), Value::Bool(meta.is_dir()));
+    rec.insert(
+        "is_symlink".to_string(),
+        Value::Bool(meta.file_type().is_symlink()),
+    );
+    rec.insert(
+        "readonly".to_string(),
+        Value::Bool(meta.permissions().readonly()),
+    );
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            rec.insert("mode".to_string(), Value::Int(meta.mode() as i64));
-            rec.insert("uid".to_string(), Value::Int(meta.uid() as i64));
-            rec.insert("gid".to_string(), Value::Int(meta.gid() as i64));
-            rec.insert("inode".to_string(), Value::Int(meta.ino() as i64));
-            rec.insert("nlink".to_string(), Value::Int(meta.nlink() as i64));
-            rec.insert("blocks".to_string(), Value::Int(meta.blocks() as i64));
-            rec.insert("blksize".to_string(), Value::Int(meta.blksize() as i64));
-        }
-
-        if let Ok(modified) = meta.modified() {
-            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                rec.insert(
-                    "modified".to_string(),
-                    Value::Int(duration.as_secs() as i64),
-                );
-            }
-        }
-        if let Ok(accessed) = meta.accessed() {
-            if let Ok(duration) = accessed.duration_since(std::time::UNIX_EPOCH) {
-                rec.insert(
-                    "accessed".to_string(),
-                    Value::Int(duration.as_secs() as i64),
-                );
-            }
-        }
-        if let Ok(created) = meta.created() {
-            if let Ok(duration) = created.duration_since(std::time::UNIX_EPOCH) {
-                rec.insert("created".to_string(), Value::Int(duration.as_secs() as i64));
-            }
-        }
-
-        return Ok(Value::Record(rec));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        rec.insert("mode".to_string(), Value::Int(meta.mode() as i64));
+        rec.insert("uid".to_string(), Value::Int(meta.uid() as i64));
+        rec.insert("gid".to_string(), Value::Int(meta.gid() as i64));
+        rec.insert("inode".to_string(), Value::Int(meta.ino() as i64));
+        rec.insert("nlink".to_string(), Value::Int(meta.nlink() as i64));
+        rec.insert("blocks".to_string(), Value::Int(meta.blocks() as i64));
+        rec.insert("blksize".to_string(), Value::Int(meta.blksize() as i64));
     }
-    Ok(Value::Null)
+
+    if let Ok(modified) = meta.modified() {
+        if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+            rec.insert(
+                "modified".to_string(),
+                Value::Int(duration.as_secs() as i64),
+            );
+        }
+    }
+    if let Ok(accessed) = meta.accessed() {
+        if let Ok(duration) = accessed.duration_since(std::time::UNIX_EPOCH) {
+            rec.insert(
+                "accessed".to_string(),
+                Value::Int(duration.as_secs() as i64),
+            );
+        }
+    }
+    if let Ok(created) = meta.created() {
+        if let Ok(duration) = created.duration_since(std::time::UNIX_EPOCH) {
+            rec.insert("created".to_string(), Value::Int(duration.as_secs() as i64));
+        }
+    }
+
+    Ok(Value::Record(rec))
 }
 
 fn bi_fs_lstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -25402,18 +25406,21 @@ fn bi_fs_lstat(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
-    if let Ok(meta) = std::fs::symlink_metadata(&path) {
-        let mut rec = std::collections::BTreeMap::new();
-        rec.insert("size".to_string(), Value::Int(meta.len() as i64));
-        rec.insert("is_file".to_string(), Value::Bool(meta.is_file()));
-        rec.insert("is_dir".to_string(), Value::Bool(meta.is_dir()));
-        rec.insert(
-            "is_symlink".to_string(),
-            Value::Bool(meta.file_type().is_symlink()),
-        );
-        return Ok(Value::Record(rec));
-    }
-    Ok(Value::Null)
+    // Same rule as fs_stat: only a missing path is Null.
+    let meta = match std::fs::symlink_metadata(&path) {
+        Ok(meta) => meta,
+        Err(e) if path_is_absent(&e) => return Ok(Value::Null),
+        Err(e) => return Err(crate::safety::fs_error("fs_lstat", &path, &e)),
+    };
+    let mut rec = std::collections::BTreeMap::new();
+    rec.insert("size".to_string(), Value::Int(meta.len() as i64));
+    rec.insert("is_file".to_string(), Value::Bool(meta.is_file()));
+    rec.insert("is_dir".to_string(), Value::Bool(meta.is_dir()));
+    rec.insert(
+        "is_symlink".to_string(),
+        Value::Bool(meta.file_type().is_symlink()),
+    );
+    Ok(Value::Record(rec))
 }
 
 fn bi_fs_chmod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -25702,10 +25709,12 @@ fn bi_fs_realpath(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
-    if let Ok(real) = std::fs::canonicalize(&path) {
-        return Ok(Value::Str(real.to_string_lossy().to_string()));
+    // Only a missing path is Null; the old code made every failure Null.
+    match std::fs::canonicalize(&path) {
+        Ok(real) => Ok(Value::Str(real.to_string_lossy().to_string())),
+        Err(e) if path_is_absent(&e) => Ok(Value::Null),
+        Err(e) => Err(crate::safety::fs_error("fs_realpath", &path, &e)),
     }
-    Ok(Value::Null)
 }
 
 fn bi_fs_tempfile(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -25914,6 +25923,47 @@ fn entry_is_dir(builtin: &str, path: &std::path::Path) -> Result<bool> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(crate::safety::fs_error(builtin, path, &e)),
     }
+}
+
+/// Whether a failed stat means the path does not exist. A component that is a
+/// regular file (`plain/x`) is ENOTDIR, which `test -e` also reads as absent.
+fn path_is_absent(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+    )
+}
+
+/// Whether `path` is a regular file. Same rule as `entry_is_dir`: only a
+/// missing entry answers `false`; any other failure to stat it is an error.
+fn entry_is_file(builtin: &str, path: &std::path::Path) -> Result<bool> {
+    match std::fs::metadata(path) {
+        Ok(meta) => Ok(meta.is_file()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(crate::safety::fs_error(builtin, path, &e)),
+    }
+}
+
+/// Reads a project text file. `Ok(None)` only when the file does not exist;
+/// any other failure is an error. Non-UTF-8 bytes are replaced rather than
+/// treated as absence, so a Latin-1 README still returns its text.
+fn read_text_lossy(builtin: &str, path: &std::path::Path) -> Result<Option<String>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
+        Err(e) if path_is_absent(&e) => Ok(None),
+        Err(e) => Err(crate::safety::fs_error(builtin, path, &e)),
+    }
+}
+
+/// The first of `names` that exists in the working directory, as text, or
+/// Null when none of them exists.
+fn first_project_text(builtin: &str, names: &[&str]) -> Result<Value> {
+    for name in names {
+        if let Some(text) = read_text_lossy(builtin, std::path::Path::new(name))? {
+            return Ok(Value::Str(text));
+        }
+    }
+    Ok(Value::Null)
 }
 
 fn bi_fs_walk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -43382,9 +43432,17 @@ fn bi_file_exists(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         _ => return Err(crate::safety::arg_err("file_exists requires a path")),
     };
 
-    let exists = std::path::Path::new(&path).exists();
-    let is_file = std::path::Path::new(&path).is_file();
-    let is_dir = std::path::Path::new(&path).is_dir();
+    // Path::exists/is_file/is_dir answer false for any stat error, so a path
+    // that could not be checked read as absent. Only NotFound is absent now.
+    let p = std::path::Path::new(&path);
+    let meta = match std::fs::metadata(p) {
+        Ok(meta) => Some(meta),
+        Err(e) if path_is_absent(&e) => None,
+        Err(e) => return Err(crate::safety::fs_error("file_exists", p, &e)),
+    };
+    let exists = meta.is_some();
+    let is_file = meta.as_ref().is_some_and(|m| m.is_file());
+    let is_dir = meta.as_ref().is_some_and(|m| m.is_dir());
 
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(path));
@@ -45149,28 +45207,36 @@ fn bi_project_scripts(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 fn bi_project_structure(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut files = Vec::new();
-    fn walk(dir: &std::path::Path, files: &mut Vec<Value>, depth: usize) {
+    // An unreadable directory used to be skipped, so its entries silently
+    // vanished from a listing that looked complete. It is an error now.
+    fn walk(dir: &std::path::Path, files: &mut Vec<Value>, depth: usize) -> Result<()> {
         if depth > 3 {
-            return;
+            return Ok(());
         }
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                if name.starts_with(".") || name == "target" || name == "node_modules" {
-                    continue;
-                }
-                files.push(Value::Str(path.to_string_lossy().to_string()));
-                if path.is_dir() {
-                    walk(&path, files, depth + 1);
-                }
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            // Removed since its parent listed it: nothing left to report.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(crate::safety::fs_error("project_structure", dir, &e)),
+        };
+        for entry in entries {
+            let entry = entry.map_err(|e| crate::safety::fs_error("project_structure", dir, &e))?;
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if name.starts_with(".") || name == "target" || name == "node_modules" {
+                continue;
+            }
+            files.push(Value::Str(path.to_string_lossy().to_string()));
+            if entry_is_dir("project_structure", &path)? {
+                walk(&path, files, depth + 1)?;
             }
         }
+        Ok(())
     }
-    walk(std::path::Path::new("."), &mut files, 0);
+    walk(std::path::Path::new("."), &mut files, 0)?;
     Ok(Value::Array(files))
 }
 
@@ -45193,11 +45259,15 @@ fn bi_project_entry_points(_args: Vec<Value>, _input: Option<Value>) -> Result<V
 
 fn bi_project_test_files(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut tests = Vec::new();
-    if std::path::Path::new("tests").is_dir() {
-        if let Ok(entries) = std::fs::read_dir("tests") {
-            for entry in entries.flatten() {
-                tests.push(Value::Str(entry.path().to_string_lossy().to_string()));
-            }
+    // A tests/ directory that cannot be listed used to read as no tests.
+    let dir = std::path::Path::new("tests");
+    if entry_is_dir("project_test_files", dir)? {
+        let entries = std::fs::read_dir(dir)
+            .map_err(|e| crate::safety::fs_error("project_test_files", dir, &e))?;
+        for entry in entries {
+            let entry =
+                entry.map_err(|e| crate::safety::fs_error("project_test_files", dir, &e))?;
+            tests.push(Value::Str(entry.path().to_string_lossy().to_string()));
         }
     }
     Ok(Value::Array(tests))
@@ -45220,29 +45290,21 @@ fn bi_project_config_files(_args: Vec<Value>, _input: Option<Value>) -> Result<V
     Ok(Value::Array(found))
 }
 
+// Each reader used to turn any read error (permission, not UTF-8, I/O) into
+// Null, the same answer as "no such file". Only a missing file is Null now.
 fn bi_project_readme(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    for name in ["README.md", "README.txt", "README", "readme.md"] {
-        if let Ok(content) = std::fs::read_to_string(name) {
-            return Ok(Value::Str(content));
-        }
-    }
-    Ok(Value::Null)
+    first_project_text(
+        "project_readme",
+        &["README.md", "README.txt", "README", "readme.md"],
+    )
 }
 
 fn bi_project_license(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    for name in ["LICENSE", "LICENSE.md", "LICENSE.txt"] {
-        if let Ok(content) = std::fs::read_to_string(name) {
-            return Ok(Value::Str(content));
-        }
-    }
-    Ok(Value::Null)
+    first_project_text("project_license", &["LICENSE", "LICENSE.md", "LICENSE.txt"])
 }
 
 fn bi_project_gitignore(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if let Ok(content) = std::fs::read_to_string(".gitignore") {
-        return Ok(Value::Str(content));
-    }
-    Ok(Value::Null)
+    first_project_text("project_gitignore", &[".gitignore"])
 }
 
 fn bi_project_languages(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -45265,29 +45327,41 @@ fn bi_project_languages(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             langs.insert(lang.to_string());
         }
     }
-    fn walk(dir: &std::path::Path, langs: &mut std::collections::HashSet<String>, depth: usize) {
+    // An unreadable directory used to be skipped, so its languages silently
+    // dropped out of the answer. It is an error now.
+    fn walk(
+        dir: &std::path::Path,
+        langs: &mut std::collections::HashSet<String>,
+        depth: usize,
+    ) -> Result<()> {
         if depth > 3 {
-            return;
+            return Ok(());
         }
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                if name.starts_with(".") || name == "target" || name == "node_modules" {
-                    continue;
-                }
-                if path.is_file() {
-                    check_ext(&path, langs);
-                } else if path.is_dir() {
-                    walk(&path, langs, depth + 1);
-                }
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            // Removed since its parent listed it: nothing left to report.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(crate::safety::fs_error("project_languages", dir, &e)),
+        };
+        for entry in entries {
+            let entry = entry.map_err(|e| crate::safety::fs_error("project_languages", dir, &e))?;
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if name.starts_with(".") || name == "target" || name == "node_modules" {
+                continue;
+            }
+            if entry_is_dir("project_languages", &path)? {
+                walk(&path, langs, depth + 1)?;
+            } else if entry_is_file("project_languages", &path)? {
+                check_ext(&path, langs);
             }
         }
+        Ok(())
     }
-    walk(std::path::Path::new("."), &mut langs, 0);
+    walk(std::path::Path::new("."), &mut langs, 0)?;
     Ok(Value::Array(langs.into_iter().map(Value::Str).collect()))
 }
 
@@ -46503,7 +46577,7 @@ fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("query required"))?;
     let root = std::path::Path::new("target/doc");
-    if !root.is_dir() {
+    if !entry_is_dir("docs_search", root)? {
         return Err(crate::safety::not_found(
             "docs_search",
             "documentation directory",
@@ -46513,20 +46587,30 @@ fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     const LIMIT: usize = 20;
     let mut matches = Vec::new();
     let mut stack = vec![root.to_path_buf()];
+    // An unreadable directory or entry used to be skipped, so the match list
+    // looked complete when it was not. Those are errors now. A file that is
+    // not UTF-8 is searched as lossy text, not skipped.
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        let mut entries: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        let mut entries = Vec::new();
+        for entry in
+            std::fs::read_dir(&dir).map_err(|e| crate::safety::fs_error("docs_search", &dir, &e))?
+        {
+            let entry = entry.map_err(|e| crate::safety::fs_error("docs_search", &dir, &e))?;
+            entries.push(entry.path());
+        }
         entries.sort();
         for p in entries {
-            if p.is_dir() {
+            if entry_is_dir("docs_search", &p)? {
                 stack.push(p);
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&p) else {
-                continue;
+            let bytes = match std::fs::read(&p) {
+                Ok(bytes) => bytes,
+                // A dangling link has no text to search.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(crate::safety::fs_error("docs_search", &p, &e)),
             };
+            let text = String::from_utf8_lossy(&bytes);
             for (i, line) in text.lines().enumerate() {
                 if line.contains(&query) {
                     matches.push(Value::Str(format!(
@@ -46554,12 +46638,10 @@ fn bi_docs_readme(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_docs_changelog(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    for name in ["CHANGELOG.md", "CHANGELOG", "CHANGES.md", "HISTORY.md"] {
-        if let Ok(content) = std::fs::read_to_string(name) {
-            return Ok(Value::Str(content));
-        }
-    }
-    Ok(Value::Null)
+    first_project_text(
+        "docs_changelog",
+        &["CHANGELOG.md", "CHANGELOG", "CHANGES.md", "HISTORY.md"],
+    )
 }
 
 fn bi_docs_examples(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -66467,5 +66549,148 @@ mod quiet_walk_tests {
             tree.is_err(),
             "fs_tree rendered an unreadable directory as a leaf"
         );
+    }
+}
+
+#[cfg(test)]
+mod quiet_fs_tests {
+    use super::*;
+
+    /// A scratch directory unique to this process and test. Never changes cwd.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ae-quietfs-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn path_arg(p: &std::path::Path) -> Vec<Value> {
+        vec![Value::Str(p.to_string_lossy().into_owned())]
+    }
+
+    #[test]
+    fn fs_stat_missing_path_is_null() {
+        let dir = scratch("stat_missing");
+        let r = bi_fs_stat(path_arg(&dir.join("nope")), None);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(matches!(r, Ok(Value::Null)));
+    }
+
+    #[test]
+    fn fs_stat_existing_file_is_a_record() {
+        let dir = scratch("stat_existing");
+        let file = dir.join("plain.txt");
+        std::fs::write(&file, b"abc").unwrap();
+        let r = bi_fs_stat(path_arg(&file), None);
+        std::fs::remove_dir_all(&dir).ok();
+        match r {
+            Ok(Value::Record(rec)) => assert!(matches!(rec.get("size"), Some(Value::Int(3)))),
+            _ => panic!("expected a record for an existing file"),
+        }
+    }
+
+    #[test]
+    fn fs_stat_below_a_file_is_null() {
+        let dir = scratch("stat_below_file");
+        let file = dir.join("plain");
+        std::fs::write(&file, b"x").unwrap();
+        let r = bi_fs_stat(path_arg(&file.join("x")), None);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(matches!(r, Ok(Value::Null)), "plain/x does not exist: {r:?}");
+    }
+
+    /// A directory the caller may not search: its children cannot be
+    /// checked, which is not the same as their being absent.
+    #[cfg(unix)]
+    #[test]
+    fn a_stat_the_os_denies_is_an_error_not_absence() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        let dir = scratch("stat_denied");
+        let locked = dir.join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::write(locked.join("f"), b"x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let child = locked.join("f");
+        let stat = bi_fs_stat(path_arg(&child), None);
+        let exists = bi_file_exists(path_arg(&child), None);
+        let text = read_text_lossy("project_readme", &child);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(stat.is_err(), "fs_stat: {stat:?}");
+        assert!(exists.is_err(), "file_exists: {exists:?}");
+        assert!(text.is_err(), "read_text_lossy: {text:?}");
+    }
+
+    #[test]
+    fn fs_lstat_missing_path_is_null() {
+        let dir = scratch("lstat_missing");
+        let r = bi_fs_lstat(path_arg(&dir.join("nope")), None);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(matches!(r, Ok(Value::Null)));
+    }
+
+    #[test]
+    fn fs_realpath_missing_path_is_null() {
+        let dir = scratch("realpath_missing");
+        let r = bi_fs_realpath(path_arg(&dir.join("nope")), None);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(matches!(r, Ok(Value::Null)));
+    }
+
+    #[test]
+    fn file_exists_missing_is_false() {
+        let dir = scratch("exists_missing");
+        let r = bi_file_exists(path_arg(&dir.join("nope")), None);
+        std::fs::remove_dir_all(&dir).ok();
+        match r {
+            Ok(Value::Record(rec)) => {
+                assert!(matches!(rec.get("exists"), Some(Value::Bool(false))));
+                assert!(matches!(rec.get("is_file"), Some(Value::Bool(false))));
+                assert!(matches!(rec.get("is_dir"), Some(Value::Bool(false))));
+            }
+            _ => panic!("expected a record"),
+        }
+    }
+
+    #[test]
+    fn file_exists_below_a_file_is_false() {
+        let dir = scratch("exists_below_file");
+        let file = dir.join("plain");
+        std::fs::write(&file, b"x").unwrap();
+        let r = bi_file_exists(path_arg(&file.join("x")), None);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(
+            matches!(&r, Ok(Value::Record(rec)) if matches!(rec.get("exists"), Some(Value::Bool(false)))),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn read_text_lossy_keeps_latin1_text() {
+        let dir = scratch("lossy_latin1");
+        let file = dir.join("README.md");
+        std::fs::write(&file, [b'c', b'a', b'f', 0xE9, b'\n']).unwrap();
+        let got = read_text_lossy("project_readme", &file);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(got.unwrap().as_deref(), Some("caf\u{FFFD}\n"));
+    }
+
+    #[test]
+    fn read_text_lossy_missing_file_is_none() {
+        let dir = scratch("lossy_missing");
+        let got = read_text_lossy("project_readme", &dir.join("README.md"));
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(matches!(got, Ok(None)));
+    }
+
+    #[test]
+    fn read_text_lossy_of_a_directory_is_an_error() {
+        let dir = scratch("lossy_dir");
+        let got = read_text_lossy("project_readme", &dir);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(got.is_err(), "{got:?}");
     }
 }

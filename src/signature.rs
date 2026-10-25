@@ -3561,7 +3561,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "String",
-        doc: "The contents of the .gitignore file, verbatim.",
+        doc: "The contents of the .gitignore file, verbatim (non-UTF-8 bytes replaced), or null if there is none.",
         examples: &[("typeof(project_gitignore())", "String")],
     },
     Signature {
@@ -3583,7 +3583,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "String",
-        doc: "The contents of the LICENSE file, verbatim.",
+        doc: "The contents of the LICENSE file, verbatim (non-UTF-8 bytes replaced), or null if there is none.",
         examples: &[("typeof(project_license())", "String")],
     },
     Signature {
@@ -3616,7 +3616,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "String",
-        doc: "The contents of the README, verbatim.",
+        doc: "The contents of the README, verbatim (non-UTF-8 bytes replaced), or null if there is none.",
         examples: &[("typeof(project_readme())", "String")],
     },
     Signature {
@@ -8571,7 +8571,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Str),
         params: &[],
         returns: "Record",
-        doc: "Whether a path exists, and whether it is a file or a directory.",
+        doc: "Whether a path exists, and whether it is a file or a directory. A path that cannot be checked is an error, not absent.",
         examples: &[
             (r#"file_exists("Cargo.toml").exists"#, r#"true"#),
             (r#"(file_exists("Cargo.toml")).is_file"#, r#"true"#),
@@ -8598,7 +8598,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("path", Ty::Str, "a file path")],
         returns: "Record",
-        doc: "Size and kind of a path, without following a symlink.",
+        doc: "Size and kind of a path, without following a symlink. Null if the path does not exist; any other failure is an error.",
         examples: &[
             (r#"typeof(fs_lstat("Cargo.toml"))"#, r#"Record"#),
         ],
@@ -8611,7 +8611,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("path", Ty::Str, "a file path")],
         returns: "String",
-        doc: "The canonical absolute path, with symlinks resolved.",
+        doc: "The canonical absolute path, with symlinks resolved. Null if the path does not exist; any other failure is an error.",
         examples: &[
             (r#"ends_with(fs_realpath("Cargo.toml"), "Cargo.toml")"#, r#"true"#),
         ],
@@ -8639,7 +8639,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("path", Ty::Str, "a file path")],
         returns: "Record",
-        doc: "File metadata: size, times, and on Unix mode, inode and ownership.",
+        doc: "File metadata: size, times, and on Unix mode, inode and ownership. Null if the path does not exist; any other failure is an error.",
         examples: &[
             (r#"typeof(fs_stat("Cargo.toml"))"#, r#"Record"#),
         ],
@@ -10121,7 +10121,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("query", Ty::Str, "text to find")],
         returns: "Array",
-        doc: "Up to 20 lines of target/doc containing a query, as file:line: text. No target/doc is E_NOT_FOUND.",
+        doc: "Up to 20 lines of target/doc containing a query, as file:line: text. No target/doc is E_NOT_FOUND; an unreadable directory or file is an error, not skipped.",
         examples: &[
             (r#"docs_search("Value")"#, r#"["target/doc/aethershell/value/enum.Value.html:1: ...", ...]"#),
         ],
@@ -12060,7 +12060,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "String | Null",
-        doc: "The CHANGELOG in the working directory, or null.",
+        doc: "The CHANGELOG in the working directory (non-UTF-8 bytes replaced), or null if there is none.",
         examples: &[
             (r#"docs_changelog()"#, r#"# Changelog ..."#),
         ],
