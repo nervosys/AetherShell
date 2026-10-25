@@ -44725,11 +44725,12 @@ fn cargo_version_from_text(builtin: &str, text: &str) -> Result<String> {
     ))
 }
 
-/// The top-level `"name": "..."` value in package.json text.
-fn package_json_name(content: &str) -> Option<String> {
-    let start = content.find("\"name\":")?;
-    let rest = &content[start + 7..];
-    rest.split('"').nth(1).map(|name| name.to_string())
+/// A top-level string field of package.json text, such as `"name"`.
+fn package_json_field(content: &str, field: &str) -> Option<String> {
+    match serde_json::from_str::<serde_json::Value>(content).ok()?.get(field)? {
+        serde_json::Value::String(v) => Some(v.clone()),
+        _ => None,
+    }
 }
 
 /// The keys listed under one Cargo.toml table header (for example
@@ -44764,7 +44765,7 @@ fn bi_project_name(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     }
     let pkg = project_manifest_optional(B, "package.json")?;
-    if let Some(name) = pkg.as_deref().and_then(package_json_name) {
+    if let Some(name) = pkg.as_deref().and_then(|t| package_json_field(t, "name")) {
         return Ok(Value::Str(name));
     }
     if cargo.is_none() && pkg.is_none() {
@@ -44779,8 +44780,19 @@ fn bi_project_name(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_project_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     const B: &str = "project_version";
-    let text = project_cargo_text(B)?;
-    Ok(Value::Str(cargo_version_from_text(B, &text)?))
+    // A Node project has no Cargo.toml; read its package.json as
+    // project_name does, rather than answer "0.0.0" or refuse it.
+    if let Some(text) = project_manifest_optional(B, "Cargo.toml")? {
+        return Ok(Value::Str(cargo_version_from_text(B, &text)?));
+    }
+    match project_manifest_optional(B, "package.json")? {
+        Some(text) => package_json_field(&text, "version")
+            .map(Value::Str)
+            .ok_or_else(|| {
+                crate::safety::bad_state(B, "package.json has no \"version\"", "project_type")
+            }),
+        None => Err(crate::safety::not_found(B, "Cargo.toml or package.json", ".")),
+    }
 }
 
 fn bi_project_dependencies(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -56867,11 +56879,11 @@ fn monitor_memory_used_percent(sys: &System) -> f64 {
 }
 
 /// The live reading for an alert metric; None for a metric it does not know.
-fn monitor_metric_value(metric: &str, sys: &System, disk_pct: f64) -> Option<f64> {
+fn monitor_metric_value(metric: &str, sys: &System, disk_pct: Option<f64>) -> Option<f64> {
     match metric {
         "cpu" => Some(sys.global_cpu_usage() as f64),
         "memory" => Some(monitor_memory_used_percent(sys)),
-        "disk" => Some(disk_pct),
+        "disk" => disk_pct,
         _ => None,
     }
 }
@@ -58416,7 +58428,17 @@ pub fn bi_alert_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         return Ok(Value::Array(Vec::new()));
     }
     let sys = monitor_sample_system();
-    let disk_pct = monitor_disk_used_percent()?;
+    // Read the disks only when a rule needs them, so a host whose disks
+    // cannot be measured still evaluates its cpu and memory rules.
+    let wants_disk = store
+        .rules
+        .iter()
+        .any(|r| r.get("metric").and_then(|m| m.as_str()) == Some("disk"));
+    let disk_pct = if wants_disk {
+        Some(monitor_disk_used_percent()?)
+    } else {
+        None
+    };
     let mut out = Vec::with_capacity(store.rules.len());
     for rule in &store.rules {
         let metric = monitor_rule_str(B, rule, "metric")?;
