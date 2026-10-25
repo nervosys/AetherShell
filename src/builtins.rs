@@ -27827,7 +27827,25 @@ fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 }
 
+/// Whole seconds from an uptime figure such as `12345.67`.
+///
+/// Anything else (empty, text, NaN, negative) is refused. The old code read
+/// it as 0 seconds, "up 0 seconds" on a host that had been up for days.
+#[cfg(any(target_os = "windows", target_os = "linux", test))]
+fn uptime_seconds(builtin: &str, text: &str) -> Result<i64> {
+    match text.trim().parse::<f64>() {
+        Ok(secs) if secs.is_finite() && secs >= 0.0 => Ok(secs as i64),
+        _ => Err(crate::safety::bad_state(
+            builtin,
+            &format!("uptime reported `{}`", text.trim()),
+            "a number of seconds since boot",
+        )),
+    }
+}
+
 fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Failure is an error. Every probe failing used to answer `Int(0)`,
+    // "up 0 seconds", which a caller could not tell from a fresh boot.
     #[cfg(target_os = "windows")]
     {
         let mut cmd = std::process::Command::new("powershell");
@@ -27836,22 +27854,16 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalSeconds",
         ]);
         let output = bounded_cmd_output("sys_uptime", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let secs: f64 = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0.0);
-            return Ok(Value::Int(secs as i64));
-        }
+        let text = probe_stdout("sys_uptime", "powershell Win32_OperatingSystem", output)?;
+        return uptime_seconds("sys_uptime", &text).map(Value::Int);
     }
     #[cfg(target_os = "linux")]
     {
-        if let Ok(uptime) = std::fs::read_to_string("/proc/uptime") {
-            if let Some(secs_str) = uptime.split_whitespace().next() {
-                let secs: f64 = secs_str.parse().unwrap_or(0.0);
-                return Ok(Value::Int(secs as i64));
-            }
-        }
+        const PATH: &str = "/proc/uptime";
+        let uptime = std::fs::read_to_string(PATH)
+            .map_err(|e| crate::safety::fs_error("sys_uptime", PATH, &e))?;
+        let secs_str = uptime.split_whitespace().next().unwrap_or("");
+        return uptime_seconds("sys_uptime", secs_str).map(Value::Int);
     }
     #[cfg(target_os = "macos")]
     {
@@ -27859,28 +27871,36 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let mut cmd = std::process::Command::new("sysctl");
         cmd.args(["-n", "kern.boottime"]);
         let output = bounded_cmd_output("sys_uptime", "sysctl", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            // Parse "{ sec = 1234567890, usec = 0 }" or "sec = 1234567890"
-            if let Some(sec_pos) = text.find("sec = ") {
-                let rest = &text[sec_pos + 6..];
-                if let Some(end) = rest
-                    .find(',')
-                    .or_else(|| rest.find(' '))
-                    .or_else(|| rest.find('}'))
-                {
-                    if let Ok(boot_sec) = rest[..end].trim().parse::<i64>() {
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs() as i64;
-                        return Ok(Value::Int(now - boot_sec));
-                    }
-                }
-            }
-        }
+        let text = probe_stdout("sys_uptime", "sysctl -n kern.boottime", output)?;
+        // Parse "{ sec = 1234567890, usec = 0 }" or "sec = 1234567890"
+        let bad = || {
+            crate::safety::bad_state(
+                "sys_uptime",
+                &format!("kern.boottime reported `{}`", text.trim()),
+                "a `sec = N` boot time",
+            )
+        };
+        let sec_pos = text.find("sec = ").ok_or_else(|| bad())?;
+        let rest = &text[sec_pos + 6..];
+        let end = rest
+            .find(',')
+            .or_else(|| rest.find(' '))
+            .or_else(|| rest.find('}'))
+            .ok_or_else(|| bad())?;
+        let boot_sec = rest[..end].trim().parse::<i64>().map_err(|_| bad())?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        return Ok(Value::Int(now - boot_sec));
     }
-    Ok(Value::Int(0))
+    // Any other OS has no uptime source wired up here.
+    #[allow(unreachable_code)]
+    Err(crate::safety::unimplemented(
+        "sys_uptime",
+        "uptime on this OS",
+        "read the boot time with `sys_boot_time` where it is available",
+    ))
 }
 
 fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -27948,81 +27968,109 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
+/// The CPU record from `Win32_Processor | ConvertTo-Json` text.
+///
+/// A field PowerShell left null is left out of the record. The old code read
+/// a missing core count as 0 cores and a missing clock as 0 MHz. A field that
+/// is present but of the wrong type is refused.
+#[cfg(any(target_os = "windows", test))]
+fn win_cpu_record(text: &str) -> Result<Value> {
+    let bad = |what: &str| {
+        crate::safety::bad_state(
+            "sys_cpu_info",
+            what,
+            "a Win32_Processor record from ConvertTo-Json",
+        )
+    };
+    let json: serde_json::Value = serde_json::from_str(text)
+        .map_err(|_| bad("Win32_Processor printed text that is not JSON"))?;
+    let obj = match &json {
+        serde_json::Value::Object(o) => Some(o),
+        serde_json::Value::Array(arr) => arr.first().and_then(|v| v.as_object()),
+        _ => None,
+    };
+    let obj = obj.ok_or_else(|| bad("Win32_Processor printed no processor"))?;
+    let field = |key: &str| obj.get(key).filter(|v| !v.is_null());
+    let mut rec = std::collections::BTreeMap::new();
+    if let Some(v) = field("Name") {
+        let name = v.as_str().ok_or_else(|| bad("Name is not text"))?;
+        rec.insert("name".to_string(), Value::Str(name.to_string()));
+    }
+    if let Some(v) = field("NumberOfCores") {
+        let cores = v
+            .as_i64()
+            .ok_or_else(|| bad("NumberOfCores is not a whole number"))?;
+        rec.insert("cores".to_string(), Value::Int(cores));
+    }
+    if let Some(v) = field("MaxClockSpeed") {
+        let mhz = v
+            .as_f64()
+            .ok_or_else(|| bad("MaxClockSpeed is not a number"))?;
+        rec.insert("mhz".to_string(), Value::Float(mhz));
+    }
+    Ok(Value::Record(rec))
+}
+
+/// The CPU record from `/proc/cpuinfo` text.
+///
+/// A field the kernel does not print on this machine (ARM has no "model
+/// name"; many VMs have no "cpu cores") is left out of the record. The old
+/// code wrote 0 cores and 0 MHz in its place. A field that is printed but is
+/// not a number is refused.
+#[cfg(any(target_os = "linux", test))]
+fn parse_cpuinfo(text: &str) -> Result<Value> {
+    let mut rec = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        if line.starts_with("model name") {
+            if let Some(name) = line.split(':').nth(1) {
+                rec.insert("name".to_string(), Value::Str(name.trim().to_string()));
+            }
+        } else if line.starts_with("cpu cores") {
+            if let Some(cores) = line.split(':').nth(1) {
+                let n = cores.trim().parse::<i64>().map_err(|_| {
+                    crate::safety::bad_state(
+                        "sys_cpu_info",
+                        &format!("cpu cores is `{}`", cores.trim()),
+                        "a whole number of cores in /proc/cpuinfo",
+                    )
+                })?;
+                rec.insert("cores".to_string(), Value::Int(n));
+            }
+        } else if line.starts_with("cpu MHz") {
+            if let Some(mhz) = line.split(':').nth(1) {
+                let f = mhz.trim().parse::<f64>().map_err(|_| {
+                    crate::safety::bad_state(
+                        "sys_cpu_info",
+                        &format!("cpu MHz is `{}`", mhz.trim()),
+                        "a clock speed in /proc/cpuinfo",
+                    )
+                })?;
+                rec.insert("mhz".to_string(), Value::Float(f));
+            }
+        }
+    }
+    Ok(Value::Record(rec))
+}
+
 fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns consistent Record {name: String, cores: Int, mhz: Float} on all platforms
     #[cfg(target_os = "windows")]
     {
         let mut cmd = std::process::Command::new("powershell");
-        cmd
-            .args(["-Command", "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json"]);
+        cmd.args([
+            "-Command",
+            "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json",
+        ]);
         let output = bounded_cmd_output("sys_cpu_info", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let obj = match &json {
-                    serde_json::Value::Object(o) => Some(o),
-                    serde_json::Value::Array(arr) => arr.first().and_then(|v| v.as_object()),
-                    _ => None,
-                };
-                if let Some(obj) = obj {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert(
-                        "name".to_string(),
-                        Value::Str(
-                            obj.get("Name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                        ),
-                    );
-                    rec.insert(
-                        "cores".to_string(),
-                        Value::Int(
-                            obj.get("NumberOfCores")
-                                .and_then(|v| v.as_i64())
-                                .unwrap_or(0),
-                        ),
-                    );
-                    rec.insert(
-                        "mhz".to_string(),
-                        Value::Float(
-                            obj.get("MaxClockSpeed")
-                                .and_then(|v| v.as_f64())
-                                .unwrap_or(0.0),
-                        ),
-                    );
-                    return Ok(Value::Record(rec));
-                }
-            }
-        }
+        let text = probe_stdout("sys_cpu_info", "powershell Win32_Processor", output)?;
+        return win_cpu_record(&text);
     }
     #[cfg(target_os = "linux")]
     {
-        if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
-            let mut rec = std::collections::BTreeMap::new();
-            for line in cpuinfo.lines() {
-                if line.starts_with("model name") {
-                    if let Some(name) = line.split(':').nth(1) {
-                        rec.insert("name".to_string(), Value::Str(name.trim().to_string()));
-                    }
-                } else if line.starts_with("cpu cores") {
-                    if let Some(cores) = line.split(':').nth(1) {
-                        rec.insert(
-                            "cores".to_string(),
-                            Value::Int(cores.trim().parse().unwrap_or(0)),
-                        );
-                    }
-                } else if line.starts_with("cpu MHz") {
-                    if let Some(mhz) = line.split(':').nth(1) {
-                        rec.insert(
-                            "mhz".to_string(),
-                            Value::Float(mhz.trim().parse().unwrap_or(0.0)),
-                        );
-                    }
-                }
-            }
-            return Ok(Value::Record(rec));
-        }
+        const PATH: &str = "/proc/cpuinfo";
+        let cpuinfo = std::fs::read_to_string(PATH)
+            .map_err(|e| crate::safety::fs_error("sys_cpu_info", PATH, &e))?;
+        return parse_cpuinfo(&cpuinfo);
     }
     #[cfg(target_os = "macos")]
     {
@@ -28046,27 +28094,34 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             bounded_cmd_output("sys_cpu_info", "sysctl", physical, PROBE_DEADLINE_SECS)
         {
             if output.status.success() {
-                rec.insert(
-                    "cores".to_string(),
-                    Value::Int(
-                        String::from_utf8_lossy(&output.stdout)
-                            .trim()
-                            .parse()
-                            .unwrap_or(0),
-                    ),
-                );
+                // A count that does not parse was 0 cores before.
+                let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let cores = text.parse::<i64>().map_err(|_| {
+                    crate::safety::bad_state(
+                        "sys_cpu_info",
+                        &format!("hw.physicalcpu reported `{text}`"),
+                        "a whole number of physical cores",
+                    )
+                })?;
+                rec.insert("cores".to_string(), Value::Int(cores));
             }
         }
-        // CPU frequency (MHz)
+        // CPU frequency (MHz). `hw.cpufrequency` is missing on Apple Silicon,
+        // so a failed query leaves `mhz` out; a reading that is not a number
+        // is refused instead of read as 0 MHz.
         let mut freq = std::process::Command::new("sysctl");
         freq.args(["-n", "hw.cpufrequency"]);
         if let Ok(output) = bounded_cmd_output("sys_cpu_info", "sysctl", freq, PROBE_DEADLINE_SECS)
         {
             if output.status.success() {
-                let hz: f64 = String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .parse()
-                    .unwrap_or(0.0);
+                let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let hz = text.parse::<f64>().map_err(|_| {
+                    crate::safety::bad_state(
+                        "sys_cpu_info",
+                        &format!("hw.cpufrequency reported `{text}`"),
+                        "a clock frequency in hertz",
+                    )
+                })?;
                 rec.insert("mhz".to_string(), Value::Float(hz / 1_000_000.0));
             }
         }
@@ -28261,63 +28316,55 @@ fn bi_sys_disk_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     bi_fs_df(vec![], None)
 }
 
+/// The `{1min, 5min, 15min}` record from the first three fields of a load
+/// average reading. A short reading, or a field that is not a number, is
+/// refused: the old code wrote 0.0 for it, a machine with no load.
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
+fn load_average_record(builtin: &str, parts: &[&str]) -> Result<Value> {
+    if parts.len() < 3 {
+        return Err(crate::safety::bad_state(
+            builtin,
+            &format!("load average had {} fields", parts.len()),
+            "three load averages (1, 5 and 15 minutes)",
+        ));
+    }
+    let mut rec = std::collections::BTreeMap::new();
+    for (key, text) in ["1min", "5min", "15min"].iter().zip(parts.iter()) {
+        let load = text.trim().parse::<f64>().map_err(|_| {
+            crate::safety::bad_state(
+                builtin,
+                &format!("load average `{text}` is not a number"),
+                "a decimal load average",
+            )
+        })?;
+        rec.insert(key.to_string(), Value::Float(load));
+    }
+    Ok(Value::Record(rec))
+}
+
 fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns consistent Record {1min: Float, 5min: Float, 15min: Float} on all platforms
     #[cfg(target_os = "linux")]
     {
-        if let Ok(loadavg) = std::fs::read_to_string("/proc/loadavg") {
-            let parts: Vec<&str> = loadavg.split_whitespace().collect();
-            if parts.len() >= 3 {
-                let mut rec = std::collections::BTreeMap::new();
-                rec.insert(
-                    "1min".to_string(),
-                    Value::Float(parts[0].parse().unwrap_or(0.0)),
-                );
-                rec.insert(
-                    "5min".to_string(),
-                    Value::Float(parts[1].parse().unwrap_or(0.0)),
-                );
-                rec.insert(
-                    "15min".to_string(),
-                    Value::Float(parts[2].parse().unwrap_or(0.0)),
-                );
-                return Ok(Value::Record(rec));
-            }
-        }
+        const PATH: &str = "/proc/loadavg";
+        let loadavg = std::fs::read_to_string(PATH)
+            .map_err(|e| crate::safety::fs_error("sys_load_avg", PATH, &e))?;
+        let parts: Vec<&str> = loadavg.split_whitespace().collect();
+        return load_average_record("sys_load_avg", &parts);
     }
     #[cfg(target_os = "macos")]
     {
         // macOS: sysctl vm.loadavg returns "{ 1.23 4.56 7.89 }"
         let mut loadavg = std::process::Command::new("sysctl");
         loadavg.args(["-n", "vm.loadavg"]);
-        if let Ok(output) =
-            bounded_cmd_output("sys_load_avg", "sysctl", loadavg, PROBE_DEADLINE_SECS)
-        {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                let parts: Vec<&str> = text
-                    .trim()
-                    .trim_matches(|c| c == '{' || c == '}')
-                    .split_whitespace()
-                    .collect();
-                if parts.len() >= 3 {
-                    let mut rec = std::collections::BTreeMap::new();
-                    rec.insert(
-                        "1min".to_string(),
-                        Value::Float(parts[0].parse().unwrap_or(0.0)),
-                    );
-                    rec.insert(
-                        "5min".to_string(),
-                        Value::Float(parts[1].parse().unwrap_or(0.0)),
-                    );
-                    rec.insert(
-                        "15min".to_string(),
-                        Value::Float(parts[2].parse().unwrap_or(0.0)),
-                    );
-                    return Ok(Value::Record(rec));
-                }
-            }
-        }
+        let output = bounded_cmd_output("sys_load_avg", "sysctl", loadavg, PROBE_DEADLINE_SECS)?;
+        let text = probe_stdout("sys_load_avg", "sysctl -n vm.loadavg", output)?;
+        let parts: Vec<&str> = text
+            .trim()
+            .trim_matches(|c| c == '{' || c == '}')
+            .split_whitespace()
+            .collect();
+        return load_average_record("sys_load_avg", &parts);
     }
     #[cfg(target_os = "windows")]
     {
@@ -28328,20 +28375,209 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "(Get-CimInstance Win32_Processor).LoadPercentage",
         ]);
         let output = bounded_cmd_output("sys_load_avg", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let load: f64 = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0.0);
-            let load_norm = load / 100.0; // Normalize to load average scale
+        let text = probe_stdout("sys_load_avg", "powershell Win32_Processor", output)?;
+        // One line per processor: average them. A line that is not a number
+        // is refused, not read as an idle CPU.
+        let mut loads = Vec::new();
+        for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            let pct = line.parse::<f64>().map_err(|_| {
+                crate::safety::bad_state(
+                    "sys_load_avg",
+                    &format!("LoadPercentage reported `{line}`"),
+                    "a percentage per processor",
+                )
+            })?;
+            loads.push(pct);
+        }
+        if loads.is_empty() {
+            return Err(crate::safety::bad_state(
+                "sys_load_avg",
+                "Win32_Processor reported no LoadPercentage",
+                "a processor that reports LoadPercentage",
+            ));
+        }
+        let load_norm = loads.iter().sum::<f64>() / loads.len() as f64 / 100.0; // Normalize to load average scale
+        let mut rec = std::collections::BTreeMap::new();
+        rec.insert("1min".to_string(), Value::Float(load_norm));
+        rec.insert("5min".to_string(), Value::Float(load_norm));
+        rec.insert("15min".to_string(), Value::Float(load_norm));
+        return Ok(Value::Record(rec));
+    }
+    // Any other OS has no load-average source wired up here.
+    #[allow(unreachable_code)]
+    Err(crate::safety::unimplemented(
+        "sys_load_avg",
+        "load average on this OS",
+        "this OS exposes no load average to read",
+    ))
+}
+
+/// A numeric uid or gid field from `/etc/passwd` or `/etc/group`. A field
+/// that is not a number is refused: the old `unwrap_or(0)` read it as root.
+#[cfg(any(not(target_os = "windows"), test))]
+fn account_id(builtin: &str, text: &str) -> Result<i64> {
+    text.trim().parse::<i64>().map_err(|_| {
+        crate::safety::bad_state(
+            builtin,
+            &format!("account id `{text}` is not a number"),
+            "numeric uid and gid fields in the account file",
+        )
+    })
+}
+
+/// The account records from `/etc/passwd` text. Comment and short lines are
+/// skipped, as before.
+#[cfg(any(not(target_os = "windows"), test))]
+fn parse_passwd(text: &str) -> Result<Vec<Value>> {
+    text.lines()
+        .filter(|l| !l.starts_with('#') && l.split(':').count() >= 7)
+        .map(|l| -> Result<Value> {
+            let parts: Vec<&str> = l.split(':').collect();
             let mut rec = std::collections::BTreeMap::new();
-            rec.insert("1min".to_string(), Value::Float(load_norm));
-            rec.insert("5min".to_string(), Value::Float(load_norm));
-            rec.insert("15min".to_string(), Value::Float(load_norm));
-            return Ok(Value::Record(rec));
+            rec.insert("name".to_string(), Value::Str(parts[0].to_string()));
+            rec.insert(
+                "uid".to_string(),
+                Value::Int(account_id("sys_users", parts[2])?),
+            );
+            rec.insert(
+                "gid".to_string(),
+                Value::Int(account_id("sys_users", parts[3])?),
+            );
+            rec.insert("home".to_string(), Value::Str(parts[5].to_string()));
+            rec.insert("shell".to_string(), Value::Str(parts[6].to_string()));
+            Ok(Value::Record(rec))
+        })
+        .collect()
+}
+
+/// The group records from `/etc/group` text. Comment and short lines are
+/// skipped, as before.
+#[cfg(any(not(target_os = "windows"), test))]
+fn parse_group(text: &str) -> Result<Vec<Value>> {
+    text.lines()
+        .filter(|l| !l.starts_with('#') && l.split(':').count() >= 4)
+        .map(|l| -> Result<Value> {
+            let parts: Vec<&str> = l.split(':').collect();
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("name".to_string(), Value::Str(parts[0].to_string()));
+            rec.insert(
+                "gid".to_string(),
+                Value::Int(account_id("sys_groups", parts[2])?),
+            );
+            rec.insert("members".to_string(), Value::Str(parts[3].to_string()));
+            Ok(Value::Record(rec))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod quiet_sys_tests {
+    use super::*;
+
+    fn field<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
+        match v {
+            Value::Record(r) => r.get(key),
+            _ => None,
         }
     }
-    Ok(Value::Null)
+
+    #[test]
+    fn uptime_reads_whole_seconds() {
+        assert_eq!(uptime_seconds("sys_uptime", "12345.67\n").unwrap(), 12345);
+    }
+
+    #[test]
+    fn uptime_refuses_bad_figures() {
+        assert!(uptime_seconds("sys_uptime", "").is_err());
+        assert!(uptime_seconds("sys_uptime", "soon").is_err());
+        assert!(uptime_seconds("sys_uptime", "NaN").is_err());
+        assert!(uptime_seconds("sys_uptime", "-4").is_err());
+    }
+
+    #[test]
+    fn load_average_reads_three_fields() {
+        let v = load_average_record("sys_load_avg", &["0.10", "0.20", "0.30", "1/200"]).unwrap();
+        assert!(matches!(field(&v, "5min"), Some(Value::Float(f)) if (*f - 0.2).abs() < 1e-9));
+        assert!(matches!(field(&v, "15min"), Some(Value::Float(f)) if (*f - 0.3).abs() < 1e-9));
+    }
+
+    #[test]
+    fn load_average_refuses_short_or_bad_readings() {
+        assert!(load_average_record("sys_load_avg", &["0.1", "0.2"]).is_err());
+        assert!(load_average_record("sys_load_avg", &["0.1", "busy", "0.3"]).is_err());
+    }
+
+    #[test]
+    fn win_cpu_record_reads_fields() {
+        let v =
+            win_cpu_record(r#"{"Name":"Intel","NumberOfCores":8,"MaxClockSpeed":3600}"#).unwrap();
+        assert!(matches!(field(&v, "cores"), Some(Value::Int(8))));
+        assert!(matches!(field(&v, "mhz"), Some(Value::Float(f)) if (*f - 3600.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn win_cpu_record_leaves_null_fields_out() {
+        let v = win_cpu_record(r#"[{"Name":"X","NumberOfCores":4,"MaxClockSpeed":null}]"#).unwrap();
+        assert!(matches!(field(&v, "cores"), Some(Value::Int(4))));
+        assert!(field(&v, "mhz").is_none());
+    }
+
+    #[test]
+    fn win_cpu_record_refuses_malformed_output() {
+        assert!(win_cpu_record("not json").is_err());
+        assert!(win_cpu_record("[]").is_err());
+        assert!(win_cpu_record("42").is_err());
+        assert!(win_cpu_record(r#"{"NumberOfCores":"eight"}"#).is_err());
+    }
+
+    #[test]
+    fn cpuinfo_leaves_absent_fields_out() {
+        // ARM /proc/cpuinfo: no model name, no cpu cores, no cpu MHz.
+        let v = parse_cpuinfo("processor\t: 0\nBogoMIPS\t: 50.00\n").unwrap();
+        assert!(field(&v, "name").is_none());
+        assert!(field(&v, "cores").is_none());
+        assert!(field(&v, "mhz").is_none());
+    }
+
+    #[test]
+    fn cpuinfo_reads_x86_fields() {
+        let v = parse_cpuinfo("model name\t: Intel Xeon\ncpu cores\t: 4\ncpu MHz\t\t: 2394.2\n")
+            .unwrap();
+        assert!(matches!(field(&v, "cores"), Some(Value::Int(4))));
+        assert!(matches!(field(&v, "mhz"), Some(Value::Float(f)) if (*f - 2394.2).abs() < 1e-6));
+    }
+
+    #[test]
+    fn cpuinfo_refuses_non_numeric_fields() {
+        assert!(parse_cpuinfo("cpu cores\t: many\n").is_err());
+        assert!(parse_cpuinfo("cpu MHz\t: fast\n").is_err());
+    }
+
+    #[test]
+    fn passwd_reads_records_and_skips_comments() {
+        let users = parse_passwd("# comment\nroot:x:0:0:root:/root:/bin/bash\nshort:x\n").unwrap();
+        assert_eq!(users.len(), 1);
+        assert!(matches!(field(&users[0], "uid"), Some(Value::Int(0))));
+        assert!(matches!(field(&users[0], "gid"), Some(Value::Int(0))));
+    }
+
+    #[test]
+    fn passwd_refuses_non_numeric_ids() {
+        assert!(parse_passwd("bad:x:abc:0:::/bin/sh\n").is_err());
+        assert!(parse_passwd("bad:x:1000:,:::/bin/sh\n").is_err());
+    }
+
+    #[test]
+    fn group_reads_records() {
+        let groups = parse_group("root:x:0:\nusers:x:100:alice,bob\n").unwrap();
+        assert_eq!(groups.len(), 2);
+        assert!(matches!(field(&groups[1], "gid"), Some(Value::Int(100))));
+    }
+
+    #[test]
+    fn group_refuses_non_numeric_gid() {
+        assert!(parse_group("odd:x:zz:\n").is_err());
+    }
 }
 
 fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -28353,59 +28589,54 @@ fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "Get-LocalUser | Select-Object Name,Enabled,LastLogon | ConvertTo-Json",
         ]);
         let output = bounded_cmd_output("sys_users", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let users: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("Name") {
-                            rec.insert("name".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("Enabled") {
-                            rec.insert("enabled".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("LastLogon") {
-                            rec.insert("last_logon".to_string(), json_to_value(v.clone()));
-                        }
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                return Ok(Value::Array(users));
+        let json_str = probe_stdout("sys_users", "powershell Get-LocalUser", output)?;
+        // Output that is not a list of accounts was [] before: "no users".
+        let json: serde_json::Value = serde_json::from_str(&json_str).map_err(|_| {
+            crate::safety::bad_state(
+                "sys_users",
+                "Get-LocalUser printed text that is not JSON",
+                "the ConvertTo-Json list of local accounts",
+            )
+        })?;
+        let items = match &json {
+            serde_json::Value::Array(arr) => arr.clone(),
+            obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+            _ => {
+                return Err(crate::safety::bad_state(
+                    "sys_users",
+                    "Get-LocalUser printed neither a list nor an account",
+                    "the ConvertTo-Json list of local accounts",
+                ))
             }
-        }
+        };
+        let users: Vec<Value> = items
+            .iter()
+            .filter_map(|obj| {
+                let o = obj.as_object()?;
+                let mut rec = std::collections::BTreeMap::new();
+                if let Some(v) = o.get("Name") {
+                    rec.insert("name".to_string(), json_to_value(v.clone()));
+                }
+                if let Some(v) = o.get("Enabled") {
+                    rec.insert("enabled".to_string(), json_to_value(v.clone()));
+                }
+                if let Some(v) = o.get("LastLogon") {
+                    rec.insert("last_logon".to_string(), json_to_value(v.clone()));
+                }
+                Some(Value::Record(rec))
+            })
+            .collect();
+        return Ok(Value::Array(users));
     }
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(passwd) = std::fs::read_to_string("/etc/passwd") {
-            // Blank and malformed lines became empty records.
-            let users: Vec<Value> = passwd
-                .lines()
-                .filter(|l| !l.starts_with('#') && l.split(':').count() >= 7)
-                .map(|l| {
-                    let parts: Vec<&str> = l.split(':').collect();
-                    let mut rec = std::collections::BTreeMap::new();
-                    if parts.len() >= 7 {
-                        rec.insert("name".to_string(), Value::Str(parts[0].to_string()));
-                        rec.insert("uid".to_string(), Value::Int(parts[2].parse().unwrap_or(0)));
-                        rec.insert("gid".to_string(), Value::Int(parts[3].parse().unwrap_or(0)));
-                        rec.insert("home".to_string(), Value::Str(parts[5].to_string()));
-                        rec.insert("shell".to_string(), Value::Str(parts[6].to_string()));
-                    }
-                    Value::Record(rec)
-                })
-                .collect();
-            return Ok(Value::Array(users));
-        }
+        const PATH: &str = "/etc/passwd";
+        let passwd = std::fs::read_to_string(PATH)
+            .map_err(|e| crate::safety::fs_error("sys_users", PATH, &e))?;
+        return Ok(Value::Array(parse_passwd(&passwd)?));
     }
-    // A failure to read the account list answered [], "no users".
+    // Unreachable: each platform arm above returns.
+    #[allow(unreachable_code)]
     Err(crate::safety::tool_failed(
         "sys_users",
         "the account database",
@@ -28423,53 +28654,56 @@ fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "Get-LocalGroup | Select-Object Name,Description | ConvertTo-Json",
         ]);
         let output = bounded_cmd_output("sys_groups", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let groups: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("Name") {
-                            rec.insert("name".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("Description") {
-                            rec.insert("description".to_string(), json_to_value(v.clone()));
-                        }
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                return Ok(Value::Array(groups));
+        let json_str = probe_stdout("sys_groups", "powershell Get-LocalGroup", output)?;
+        let json: serde_json::Value = serde_json::from_str(&json_str).map_err(|_| {
+            crate::safety::bad_state(
+                "sys_groups",
+                "Get-LocalGroup printed text that is not JSON",
+                "the ConvertTo-Json list of local groups",
+            )
+        })?;
+        let items = match &json {
+            serde_json::Value::Array(arr) => arr.clone(),
+            obj @ serde_json::Value::Object(_) => vec![obj.clone()],
+            _ => {
+                return Err(crate::safety::bad_state(
+                    "sys_groups",
+                    "Get-LocalGroup printed neither a list nor a group",
+                    "the ConvertTo-Json list of local groups",
+                ))
             }
-        }
+        };
+        let groups: Vec<Value> = items
+            .iter()
+            .filter_map(|obj| {
+                let o = obj.as_object()?;
+                let mut rec = std::collections::BTreeMap::new();
+                if let Some(v) = o.get("Name") {
+                    rec.insert("name".to_string(), json_to_value(v.clone()));
+                }
+                if let Some(v) = o.get("Description") {
+                    rec.insert("description".to_string(), json_to_value(v.clone()));
+                }
+                Some(Value::Record(rec))
+            })
+            .collect();
+        return Ok(Value::Array(groups));
     }
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(group) = std::fs::read_to_string("/etc/group") {
-            let groups: Vec<Value> = group
-                .lines()
-                .filter(|l| !l.starts_with('#'))
-                .map(|l| {
-                    let parts: Vec<&str> = l.split(':').collect();
-                    let mut rec = std::collections::BTreeMap::new();
-                    if parts.len() >= 4 {
-                        rec.insert("name".to_string(), Value::Str(parts[0].to_string()));
-                        rec.insert("gid".to_string(), Value::Int(parts[2].parse().unwrap_or(0)));
-                        rec.insert("members".to_string(), Value::Str(parts[3].to_string()));
-                    }
-                    Value::Record(rec)
-                })
-                .collect();
-            return Ok(Value::Array(groups));
-        }
+        const PATH: &str = "/etc/group";
+        let group = std::fs::read_to_string(PATH)
+            .map_err(|e| crate::safety::fs_error("sys_groups", PATH, &e))?;
+        return Ok(Value::Array(parse_group(&group)?));
     }
-    Ok(Value::Array(vec![]))
+    // Unreachable: each platform arm above returns.
+    #[allow(unreachable_code)]
+    Err(crate::safety::tool_failed(
+        "sys_groups",
+        "the group database",
+        None,
+        "it could not be read",
+    ))
 }
 
 /// `whoami()` -- the name of the user this shell runs as.
