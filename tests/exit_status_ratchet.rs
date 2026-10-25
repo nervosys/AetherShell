@@ -21,8 +21,14 @@
 //! `probe_text` is the checked form of a probe: it runs `bounded_cmd_output`
 //! and refuses a non-zero exit (through `probe_stdout`). A builtin that calls
 //! it has no `bounded_cmd_output(` in its own body, so it is not counted here.
+//!
+//! A body that hands its `Output` to a helper which reads the status (see
+//! `status_checkers`) is checked too. Counting those as unchecked had held
+//! the ceiling at 26 when only two bodies dropped the status: the twenty gui
+//! builtins, `cron_list`, `sudo_check`, `at_list` and `crypto_key_generate`
+//! all check theirs one call away.
 
-const UNCHECKED_MAX: usize = 26;
+const UNCHECKED_MAX: usize = 2;
 const BOOL_SUCCESS_MAX: usize = 64;
 
 fn source() -> String {
@@ -52,15 +58,40 @@ fn functions(src: &str) -> Vec<(String, String)> {
     out
 }
 
+fn signature(body: &str) -> &str {
+    body.split('{').next().unwrap_or("")
+}
+
+/// Functions that take a finished `Output` and read its status: handing the
+/// output to one of these is checking it. `parse_at_queue`,
+/// `crypto_key_output`, `parse_cron_listing` and the gui answer helpers are
+/// such helpers, and their callers were counted as unchecked because the
+/// check was one call away.
+fn status_checkers(fns: &[(String, String)]) -> Vec<String> {
+    fns.iter()
+        .filter(|(_, b)| signature(b).contains("std::process::Output") && b.contains(".status"))
+        .map(|(n, _)| n.clone())
+        .collect()
+}
+
+fn spawns(body: &str) -> bool {
+    body.contains("Command::new(")
+        && (body.contains(".output()") || body.contains("bounded_cmd_output("))
+}
+
 fn unchecked(src: &str) -> Vec<String> {
-    functions(src)
-        .into_iter()
+    let fns = functions(src);
+    let checkers = status_checkers(&fns);
+    fns.into_iter()
         .filter(|(_, b)| {
-            b.contains("Command::new(")
-                && (b.contains(".output()") || b.contains("bounded_cmd_output("))
+            spawns(b)
                 && !b.contains(".status")
                 && !b.contains("output_with_timeout")
                 && !b.contains("git_succeeded(")
+                // A runner that returns the `Output` (`gui_powershell`) leaves
+                // the status to its caller, as `bounded_cmd_output` does.
+                && !signature(b).contains("-> Result<std::process::Output>")
+                && !checkers.iter().any(|c| b.contains(&format!("{c}(")))
         })
         .map(|(n, _)| n)
         .collect()
@@ -117,11 +148,34 @@ fn the_scanner_sees_an_unchecked_body() {
                   fn bi_z() -> Result<Value> {\n    \
                   let cmd = std::process::Command::new(\"uname\");\n    \
                   let output = bounded_cmd_output(\"z\", \"uname\", cmd, 30)?;\n    \
-                  Ok(Value::Str(String::from_utf8_lossy(&output.stdout).into()))\n}\n";
-    assert_eq!(unchecked(sample), ["bi_x", "bi_z"]);
+                  Ok(Value::Str(String::from_utf8_lossy(&output.stdout).into()))\n}\n\
+                  fn read_listing(output: std::process::Output) -> Result<Value> {\n    \
+                  if !output.status.success() { return Err(failed()); }\n    Ok(Value::Null)\n}\n\
+                  fn bi_w() -> Result<Value> {\n    \
+                  let cmd = std::process::Command::new(\"atq\");\n    \
+                  let output = bounded_cmd_output(\"w\", \"atq\", cmd, 30)?;\n    \
+                  read_listing(output)\n}\n\
+                  fn read_text(text: &str) -> bool {\n    text.contains(\".status\")\n}\n\
+                  fn bi_v() -> Result<Value> {\n    \
+                  let output = std::process::Command::new(\"atq\").output()?;\n    \
+                  read_text(&String::from_utf8_lossy(&output.stdout));\n    Ok(Value::Null)\n}\n";
+    // bi_w hands its output to a helper that reads the status; bi_v calls a
+    // helper too, but one that never sees an `Output`, so it stays counted.
+    assert_eq!(unchecked(sample), ["bi_x", "bi_z", "bi_v"]);
     assert_eq!(bool_success("Ok(Value::Bool(output.status.success()))"), 1);
+    // The count is near zero now, so the guard against a blind scanner is on
+    // what it reads, not on what it flags: it must still see the spawning
+    // bodies and the helpers that check for them.
+    let fns = functions(&source());
     assert!(
-        unchecked(&source()).len() > 10,
-        "the scan found almost nothing"
+        fns.iter().filter(|(_, b)| spawns(b)).count() > 50,
+        "the scan found almost no builtin that runs a command"
     );
+    let checkers = status_checkers(&fns);
+    for helper in ["parse_at_queue", "crypto_key_output", "parse_cron_listing"] {
+        assert!(
+            checkers.iter().any(|c| c == helper),
+            "{helper} reads the status of the Output it is given"
+        );
+    }
 }
