@@ -17,8 +17,12 @@
 //! When the probes moved onto it the ceiling was 49 and this scanner, which
 //! still looked only for `.output()`, found 5 and its non-vacuity check
 //! failed; counting both forms, it finds 38.
+//!
+//! `probe_text` is the checked form of a probe: it runs `bounded_cmd_output`
+//! and refuses a non-zero exit (through `probe_stdout`). A builtin that calls
+//! it has no `bounded_cmd_output(` in its own body, so it is not counted here.
 
-const UNCHECKED_MAX: usize = 38;
+const UNCHECKED_MAX: usize = 32;
 const BOOL_SUCCESS_MAX: usize = 64;
 
 fn source() -> String {

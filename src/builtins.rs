@@ -27685,6 +27685,47 @@ fn bi_sys_arch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(std::env::consts::ARCH.to_string()))
 }
 
+/// The trimmed stdout of a probe whose exit status is part of its answer.
+///
+/// A non-zero exit is refused with its code and stderr. Before this, a failed
+/// `uname` or `cmd /C ver` returned whatever reached stdout, usually nothing,
+/// as the platform's answer.
+fn probe_stdout(builtin: &str, tool: &str, output: std::process::Output) -> Result<String> {
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            builtin,
+            tool,
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Run one probe under the probe deadline and return its checked stdout.
+fn probe_text(builtin: &str, tool: &str, cmd: std::process::Command) -> Result<String> {
+    let output = bounded_cmd_output(builtin, tool, cmd, PROBE_DEADLINE_SECS)?;
+    probe_stdout(builtin, tool, output)
+}
+
+/// The dotted version in `cmd /C ver` output: `Microsoft Windows [Version
+/// 10.0.26200.9711]` gives `10.0.26200.9711`. `None` when the line is not
+/// there, which is also how a localised `ver` would look.
+fn ver_version(text: &str) -> Option<String> {
+    let version = text.split("Version ").nth(1)?.split(']').next()?.trim();
+    let dotted_digits =
+        !version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.');
+    dotted_digits.then(|| version.to_string())
+}
+
+fn ver_unreadable(builtin: &str) -> anyhow::Error {
+    crate::safety::bad_state(
+        builtin,
+        "unexpected `ver` output",
+        "a `Microsoft Windows [Version x.y.z]` line",
+    )
+}
+
 fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
@@ -27695,19 +27736,13 @@ fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // executable, and the example failed on the first try.
         let mut bounded_cmd = std::process::Command::new("cmd");
         bounded_cmd.args(["/C", "ver"]);
-        let output = bounded_cmd_output("sys_kernel", "cmd", bounded_cmd, PROBE_DEADLINE_SECS)?;
-        Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).trim().to_string(),
-        ))
+        Ok(Value::Str(probe_text("sys_kernel", "cmd", bounded_cmd)?))
     }
     #[cfg(not(target_os = "windows"))]
     {
         let mut cmd = std::process::Command::new("uname");
         cmd.args(["-r"]);
-        let output = bounded_cmd_output("sys_kernel", "uname", cmd, PROBE_DEADLINE_SECS)?;
-        return Ok(Value::Str(
-            String::from_utf8_lossy(&output.stdout).trim().to_string(),
-        ));
+        return Ok(Value::Str(probe_text("sys_kernel", "uname", cmd)?));
     }
 }
 
@@ -46773,122 +46808,99 @@ fn md5_simple(s: &str) -> u64 {
     hash
 }
 
+/// Each platform's sources are tried in order, and a source that fails hands
+/// over to the next. Only when every source has failed is the last failure
+/// refused. The old code fell through to a literal "unknown", which read as an
+/// answer.
 fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
-    {
+    let mut failure: Option<anyhow::Error> = None;
+    if cfg!(target_os = "windows") {
         let mut cmd = std::process::Command::new("cmd");
         cmd.args(["/c", "ver"]);
-        if let Ok(out) = bounded_cmd_output("platform_os_version", "cmd", cmd, PROBE_DEADLINE_SECS)
-        {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&out.stdout).trim().to_string(),
-            ));
+        match probe_text("platform_os_version", "cmd", cmd) {
+            Ok(text) => return Ok(Value::Str(text)),
+            Err(e) => failure = Some(e),
         }
     }
-    #[cfg(target_os = "macos")]
-    {
+    if cfg!(target_os = "macos") {
         let mut cmd = std::process::Command::new("sw_vers");
         cmd.arg("-productVersion");
-        if let Ok(out) =
-            bounded_cmd_output("platform_os_version", "sw_vers", cmd, PROBE_DEADLINE_SECS)
-        {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&out.stdout).trim().to_string(),
-            ));
+        match probe_text("platform_os_version", "sw_vers", cmd) {
+            Ok(text) => return Ok(Value::Str(text)),
+            Err(e) => failure = Some(e),
         }
     }
-    #[cfg(target_os = "linux")]
-    {
-        if std::path::Path::new("/etc/os-release").exists() {
-            if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
-                for line in content.lines() {
-                    if line.starts_with("VERSION=") {
-                        return Ok(Value::Str(
-                            line.trim_start_matches("VERSION=")
-                                .trim_matches('"')
-                                .to_string(),
-                        ));
-                    }
+    if cfg!(target_os = "linux") {
+        if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
+            for line in content.lines() {
+                if line.starts_with("VERSION=") {
+                    return Ok(Value::Str(
+                        line.trim_start_matches("VERSION=")
+                            .trim_matches('"')
+                            .to_string(),
+                    ));
                 }
             }
         }
         let mut cmd = std::process::Command::new("uname");
         cmd.arg("-r");
-        if let Ok(out) =
-            bounded_cmd_output("platform_os_version", "uname", cmd, PROBE_DEADLINE_SECS)
-        {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&out.stdout).trim().to_string(),
-            ));
+        match probe_text("platform_os_version", "uname", cmd) {
+            Ok(text) => return Ok(Value::Str(text)),
+            Err(e) => failure = Some(e),
         }
     }
-    Ok(Value::Str("unknown".to_string()))
+    Err(failure.unwrap_or_else(|| {
+        crate::safety::unimplemented(
+            "platform_os_version",
+            "no OS version source on this platform",
+            "read the OS version from the platform's own tools",
+        )
+    }))
 }
 
+/// The kernel release. On Windows that is the `ver` line's version, which is
+/// also what `wmic os get Version` printed. `wmic` is not on this host (Windows
+/// 11, build 26200), so it could not be the source there.
 fn bi_platform_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = std::process::Command::new("wmic");
-        cmd.args(["os", "get", "Version"]);
-        if let Ok(out) = bounded_cmd_output("platform_kernel", "wmic", cmd, PROBE_DEADLINE_SECS) {
-            let ver = String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .nth(1)
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            return Ok(Value::Str(ver));
-        }
+    if cfg!(target_os = "windows") {
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/c", "ver"]);
+        let text = probe_text("platform_kernel", "cmd", cmd)?;
+        return ver_version(&text)
+            .map(Value::Str)
+            .ok_or_else(|| ver_unreadable("platform_kernel"));
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut cmd = std::process::Command::new("uname");
-        cmd.arg("-r");
-        if let Ok(out) = bounded_cmd_output("platform_kernel", "uname", cmd, PROBE_DEADLINE_SECS) {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&out.stdout).trim().to_string(),
-            ));
-        }
-    }
-    Ok(Value::Str("unknown".to_string()))
+    let mut cmd = std::process::Command::new("uname");
+    cmd.arg("-r");
+    Ok(Value::Str(probe_text("platform_kernel", "uname", cmd)?))
 }
 
+/// The OS build. On Windows it is the third component of the `ver` version, the
+/// same number `wmic os get BuildNumber` gave.
 fn bi_platform_build(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = std::process::Command::new("wmic");
-        cmd.args(["os", "get", "BuildNumber"]);
-        if let Ok(out) = bounded_cmd_output("platform_build", "wmic", cmd, PROBE_DEADLINE_SECS) {
-            let build = String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .nth(1)
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            return Ok(Value::Str(build));
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
+    let build = if cfg!(target_os = "windows") {
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/c", "ver"]);
+        let text = probe_text("platform_build", "cmd", cmd)?;
+        ver_version(&text)
+            .and_then(|v| v.split('.').nth(2).map(str::to_string))
+            .ok_or_else(|| ver_unreadable("platform_build"))?
+    } else if cfg!(target_os = "macos") {
         let mut cmd = std::process::Command::new("sw_vers");
         cmd.arg("-buildVersion");
-        if let Ok(out) = bounded_cmd_output("platform_build", "sw_vers", cmd, PROBE_DEADLINE_SECS) {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&out.stdout).trim().to_string(),
-            ));
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
+        probe_text("platform_build", "sw_vers", cmd)?
+    } else if cfg!(target_os = "linux") {
         let mut cmd = std::process::Command::new("uname");
         cmd.arg("-v");
-        if let Ok(out) = bounded_cmd_output("platform_build", "uname", cmd, PROBE_DEADLINE_SECS) {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&out.stdout).trim().to_string(),
-            ));
-        }
-    }
-    Ok(Value::Str("unknown".to_string()))
+        probe_text("platform_build", "uname", cmd)?
+    } else {
+        return Err(crate::safety::unimplemented(
+            "platform_build",
+            "no build source on this platform",
+            "read the OS build from the platform's own tools",
+        ));
+    };
+    Ok(Value::Str(build))
 }
 
 fn bi_platform_arch(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -46901,46 +46913,180 @@ fn bi_platform_hostname(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     bi_sys_hostname(args, input)
 }
 
+/// The machine's identifier. A source that cannot answer is refused: an empty
+/// or missing identifier used to come back as "unknown", a value that looks
+/// like one. Windows reads the system UUID through PowerShell, as
+/// `bi_sys_uptime` does, because `wmic` is not on this host.
 fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(id) = std::fs::read_to_string("/etc/machine-id") {
-            return Ok(Value::Str(id.trim().to_string()));
-        }
+    if cfg!(target_os = "linux") {
+        let id = std::fs::read_to_string("/etc/machine-id")
+            .map_err(|e| crate::safety::fs_error("platform_machine_id", "/etc/machine-id", &e))?;
+        return non_empty_machine_id(id.trim().to_string());
     }
-    #[cfg(target_os = "macos")]
-    {
+    if cfg!(target_os = "macos") {
         let mut cmd = std::process::Command::new("ioreg");
         cmd.args(["-rd1", "-c", "IOPlatformExpertDevice"]);
-        if let Ok(out) =
-            bounded_cmd_output("platform_machine_id", "ioreg", cmd, PROBE_DEADLINE_SECS)
-        {
-            let output = String::from_utf8_lossy(&out.stdout);
-            for line in output.lines() {
-                if line.contains("IOPlatformUUID") {
-                    if let Some(uuid) = line.split('"').nth(3) {
-                        return Ok(Value::Str(uuid.to_string()));
-                    }
-                }
-            }
+        let text = probe_text("platform_machine_id", "ioreg", cmd)?;
+        let uuid = text
+            .lines()
+            .find(|line| line.contains("IOPlatformUUID"))
+            .and_then(|line| line.split('"').nth(3))
+            .unwrap_or("");
+        return non_empty_machine_id(uuid.to_string());
+    }
+    if cfg!(target_os = "windows") {
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "(Get-CimInstance Win32_ComputerSystemProduct).UUID",
+        ]);
+        let uuid = probe_text("platform_machine_id", "powershell", cmd)?;
+        return non_empty_machine_id(uuid);
+    }
+    Err(crate::safety::unimplemented(
+        "platform_machine_id",
+        "no machine identifier source on this platform",
+        "read the machine identifier from the platform's own tools",
+    ))
+}
+
+fn non_empty_machine_id(id: String) -> Result<Value> {
+    if id.is_empty() {
+        return Err(crate::safety::bad_state(
+            "platform_machine_id",
+            "the platform reported no machine identifier",
+            "a host with a machine identifier (/etc/machine-id, IOPlatformUUID or the system UUID)",
+        ));
+    }
+    Ok(Value::Str(id))
+}
+
+#[cfg(all(test, any(unix, windows)))]
+mod probe_status_tests {
+    use super::*;
+
+    /// An `Output` with exit `code`, built the way the at_queue tests build one.
+    fn output(code: i32, stdout: &str, stderr: &str) -> std::process::Output {
+        #[cfg(unix)]
+        let status = {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code << 8)
+        };
+        #[cfg(windows)]
+        let status = {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code as u32)
+        };
+        std::process::Output {
+            status,
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
         }
     }
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = std::process::Command::new("wmic");
-        cmd.args(["csproduct", "get", "UUID"]);
-        if let Ok(out) = bounded_cmd_output("platform_machine_id", "wmic", cmd, PROBE_DEADLINE_SECS)
-        {
-            let uuid = String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .nth(1)
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            return Ok(Value::Str(uuid));
+
+    #[test]
+    fn a_failed_probe_is_refused_with_its_code_even_when_it_printed_something() {
+        let err = probe_stdout("sys_kernel", "uname", output(3, "5.15.0\n", "uname: boom"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("E_TOOL_FAILED"), "{err}");
+        assert!(err.contains("exited 3"), "{err}");
+        assert!(err.contains("uname: boom"), "{err}");
+    }
+
+    #[test]
+    fn a_failed_probe_with_empty_stdout_is_not_an_empty_answer() {
+        let err = probe_stdout("platform_kernel", "uname", output(1, "", ""))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("E_TOOL_FAILED"), "{err}");
+    }
+
+    #[test]
+    fn a_successful_probe_returns_its_trimmed_stdout() {
+        let text = probe_stdout(
+            "sys_kernel",
+            "uname",
+            output(0, "  6.8.0-45-generic \n", ""),
+        )
+        .unwrap();
+        assert_eq!(text, "6.8.0-45-generic");
+    }
+
+    #[test]
+    fn ver_version_reads_the_version_and_refuses_other_text() {
+        assert_eq!(
+            ver_version("\r\nMicrosoft Windows [Version 10.0.26200.9711]\r\n").as_deref(),
+            Some("10.0.26200.9711")
+        );
+        for text in [
+            "",
+            "Microsoft Windows [Version ]",
+            "Microsoft Windows",
+            "Version 10.0 beta",
+        ] {
+            assert_eq!(ver_version(text), None, "{text:?}");
         }
     }
-    Ok(Value::Str("unknown".to_string()))
+
+    #[test]
+    fn a_session_listing_is_its_sessions() {
+        let Ok(Value::Array(rows)) = screen_sessions(
+            true,
+            Some(0),
+            "There is a screen on:\n\t4242.work\t(04/01/2026 10:00:00 AM)\t(Detached)\n1 Socket in /run/screen/S-u.\n",
+            "",
+        ) else {
+            panic!("expected an array of sessions")
+        };
+        assert_eq!(rows.len(), 1);
+        let Value::Record(row) = &rows[0] else {
+            panic!("expected a record")
+        };
+        assert_eq!(row.get("id"), Some(&Value::Str("4242.work".into())));
+    }
+
+    #[test]
+    fn no_sockets_is_an_empty_list_whichever_stream_says_it() {
+        for (stdout, stderr) in [
+            ("No Sockets found in /run/screen/S-u.\n", ""),
+            ("", "No Sockets found in /run/screen/S-u.\n"),
+        ] {
+            let Ok(Value::Array(rows)) = screen_sessions(false, Some(1), stdout, stderr) else {
+                panic!("'no sockets' should be an empty array")
+            };
+            assert!(rows.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_listing_of_only_dead_sessions_is_still_the_answer() {
+        let Ok(Value::Array(rows)) = screen_sessions(
+            false,
+            Some(10),
+            "\t77.old\t(04/01/2026 09:00:00 AM)\t(Dead ???)\n",
+            "",
+        ) else {
+            panic!("dead sessions are an answer, not a failure")
+        };
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn a_failed_listing_with_no_sessions_is_refused_not_reported_as_none() {
+        let err = match screen_sessions(
+            false,
+            Some(1),
+            "",
+            "screen: cannot open /run/screen/S-u: Permission denied",
+        ) {
+            Err(e) => e.to_string(),
+            Ok(v) => panic!("a failed listing returned {v:?}"),
+        };
+        assert!(err.contains("E_TOOL_FAILED"), "{err}");
+        assert!(err.contains("exited 1"), "{err}");
+        assert!(err.contains("Permission denied"), "{err}");
+    }
 }
 
 fn bi_platform_tool_version(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -61758,34 +61904,51 @@ fn bi_screen_new(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// screen list — List screen sessions.
-fn bi_screen_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_screen_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut cmd = std::process::Command::new("screen");
     cmd.args(["-ls"]);
-    let output = bounded_cmd_output("screen_list", "screen", cmd, PROBE_DEADLINE_SECS);
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let sessions: Vec<Value> = stdout
-                .lines()
-                .filter(|l| l.contains('('))
-                .map(|line| {
-                    let trimmed = line.trim();
-                    let mut rec = BTreeMap::new();
-                    rec.insert("line".to_string(), Value::Str(trimmed.to_string()));
-                    if let Some(name_part) = trimmed.split_whitespace().next() {
-                        rec.insert("id".to_string(), Value::Str(name_part.to_string()));
-                    }
-                    Value::Record(rec)
-                })
-                .collect();
-            Ok(Value::Array(sessions))
-        }
-        Err(e) => Err(crate::safety::tool_missing(
-            "screen",
-            "screen",
-            &e.to_string(),
-        )),
+    let output = bounded_cmd_output("screen_list", "screen", cmd, PROBE_DEADLINE_SECS)?;
+    screen_sessions(
+        output.status.success(),
+        output.status.code(),
+        &String::from_utf8_lossy(&output.stdout),
+        &String::from_utf8_lossy(&output.stderr),
+    )
+}
+
+/// What `screen -ls` answers, from its exit status and both streams.
+///
+/// GNU screen exits non-zero for two things that are answers, not failures:
+/// no sessions at all ("No Sockets found in <dir>."), and a listing whose
+/// sessions are all dead. Both are answered from what it printed: the session
+/// lines, or none. Any other non-zero exit is a failure, such as a socket
+/// directory it cannot read. That used to come back as an empty list, which
+/// reads as "no sessions". I have not confirmed the exact exit codes on a
+/// host, so the code keys on the output rather than on a number.
+fn screen_sessions(success: bool, code: Option<i32>, stdout: &str, stderr: &str) -> Result<Value> {
+    let sessions: Vec<Value> = stdout
+        .lines()
+        .filter(|l| l.contains('('))
+        .map(|line| {
+            let trimmed = line.trim();
+            let mut rec = BTreeMap::new();
+            rec.insert("line".to_string(), Value::Str(trimmed.to_string()));
+            if let Some(name_part) = trimmed.split_whitespace().next() {
+                rec.insert("id".to_string(), Value::Str(name_part.to_string()));
+            }
+            Value::Record(rec)
+        })
+        .collect();
+    let says_none = stdout.contains("No Sockets found") || stderr.contains("No Sockets found");
+    if success || !sessions.is_empty() || says_none {
+        return Ok(Value::Array(sessions));
     }
+    Err(crate::safety::tool_failed(
+        "screen_list",
+        "screen",
+        code,
+        stderr,
+    ))
 }
 
 /// screen — Attach this terminal to a screen session until the user detaches.
