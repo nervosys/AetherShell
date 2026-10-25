@@ -186,6 +186,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     exit status. A tool that is not installed still reads as absent.
   - `hw_gpu` on macOS, `hw_battery` on Linux, `svc_list` on macOS and
     `pkg_sources` answered null, 0% or `[]` for a failed probe.
+- **`svc_list` and the network records refuse a failed probe**:
+  - On Windows and Linux, a failed `Get-Service` or `systemctl` run, or output
+    that does not parse, answered `[]`, which reads as no services. A Windows
+    service without a name was dropped from the list.
+  - Network records read a missing name, address or interface as `""`; they
+    are now refused. A MAC, status, speed or description the tool does not
+    report is left out of the record rather than set to `""`, on macOS too.
+  - A Windows socket with a missing or non-numeric state read as `UNKNOWN`.
 - **`apply` reports a failed rollback**: when its rollback failed it still
   said `rolled_back: true`. It now says false, with the rollback's error, and
   a failed commit is reported as a failure.
