@@ -10995,7 +10995,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("archive", Ty::Str, "a tar archive"), opt("dest", Ty::Str, "directory to extract into; default the current one")],
         returns: "Bool",
-        doc: "Extract a tar archive. Entries that would land outside the destination (absolute names, `..` components, and symlinks or hard links with such targets) are refused with E_POLICY_DENY before anything is written. A failure is E_TOOL_FAILED with the reason.",
+        doc: "Extract a tar archive. Entries that would land outside the destination (absolute names, `..` components, and symlinks or hard links with such targets) are refused with E_POLICY_DENY before anything is written. A bzip2, xz or zstd archive has its member names checked through tar -tf; its link targets are left to tar's own protection. A failure is E_TOOL_FAILED with the reason.",
         examples: &[
             (r#"tar_extract("tests/fixtures/archives/sample.tar.gz", fs_tempdir("ae_tar"))"#, r#"true"#),
             (r#"tar_extract("no-such.tar")"#, r#"error: E_TOOL_FAILED"#),

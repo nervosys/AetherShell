@@ -30897,10 +30897,33 @@ fn zip_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Opti
     Ok(out)
 }
 
+/// The member names of a compressed tar archive, as `tar -tf` lists them.
+fn tar_tool_entry_names(builtin: &str, archive: &str) -> Result<Vec<(String, Option<String>)>> {
+    let mut cmd = std::process::Command::new("tar");
+    cmd.arg("-tf").arg(archive);
+    let out = bounded_cmd_output(builtin, "tar", cmd, TOOL_DEADLINE_SECS)?;
+    if !out.status.success() {
+        return Err(crate::safety::tool_failed(
+            builtin,
+            "tar -tf",
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
+        ));
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut names = Vec::new();
+    for line in text.lines().filter(|l| !l.is_empty()) {
+        if names.len() >= WALK_MAX_ENTRIES {
+            return Err(walk_over(builtin, WALK_MAX_ENTRIES));
+        }
+        names.push((line.to_string(), None));
+    }
+    Ok(names)
+}
+
 /// List every entry of a tar archive, with the target of each symlink and hard
 /// link. A plain or gzip-compressed tar is read in-process. A bzip2, xz or zstd
-/// stream is refused, since no decoder is linked for it and its entries cannot
-/// be checked before extraction.
+/// stream has only its member names checked, as `tar -tf` lists them.
 fn tar_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Option<String>)>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file =
@@ -30919,11 +30942,11 @@ fn tar_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Opti
             || magic == [0x28, 0xb5])
     // zstd
     {
-        return Err(crate::safety::bad_arg(
-            builtin,
-            "a plain or gzip-compressed tar archive, whose entries can be checked before extraction",
-            "a bzip2, xz or zstd compressed archive",
-        ));
+        // No decoder for these is linked in, so the names come from the tar
+        // that will extract them. Link targets are not listed this way; the
+        // tool's own protection (GNU tar and bsdtar strip leading `/`, refuse
+        // `..` members, and delay symlinks) covers those.
+        return tar_tool_entry_names(builtin, archive);
     } else {
         Box::new(file)
     };
@@ -68245,6 +68268,35 @@ mod archive_prescan_tests {
         assert!(!check(&[("a", Some("../../etc"))]));
         assert!(!check(&[("a", Some("/etc"))]));
         assert!(check(&[("a/b.txt", None)]));
+    }
+
+    #[test]
+    fn an_xz_tar_is_listed_through_the_tar_tool() {
+        let dir =
+            std::env::temp_dir().join(format!("ae_prescan_xz_{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src").join("a.txt"), "a").unwrap();
+        let archive = dir.join("t.tar.xz");
+        let made = std::process::Command::new("tar")
+            .arg("-cJf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(dir.join("src"))
+            .arg("a.txt")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !made {
+            let _ = std::fs::remove_dir_all(&dir);
+            eprintln!("skipped: this tar cannot write xz");
+            return;
+        }
+        let names = tar_archive_entries("tar_extract", archive.to_str().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+        let names = names.unwrap();
+        assert!(names
+            .iter()
+            .any(|(n, t)| n.trim_end_matches('/') == "a.txt" && t.is_none()));
     }
 
     #[test]
