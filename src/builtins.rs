@@ -33633,40 +33633,89 @@ fn bi_hw_disk(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     bi_fs_df(vec![], None)
 }
 
+/// The GPU probe: one PowerShell pipeline. Win32_VideoController.AdapterRAM
+/// is a uint32, so it cannot say more than 4 GiB. The driver's 64-bit size is
+/// in the display class registry key: each adapter's DriverDesc equals its
+/// Name, and HardwareInformation.qwMemorySize holds the size. The output is a
+/// JSON array (or one object) of Name, AdapterRAM, DriverVersion and
+/// QwMemorySize, which is null when no driver key matches.
+#[cfg(target_os = "windows")]
+const WIN_GPU_PROBE_SCRIPT: &str = r#"$ErrorActionPreference='SilentlyContinue'; $cls='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'; $drv=@(Get-ChildItem -LiteralPath $cls | ForEach-Object { Get-ItemProperty -Path $_.PSPath } | Where-Object { $_.DriverDesc } | ForEach-Object { [pscustomobject]@{ Desc=[string]$_.DriverDesc; Qw=$_.'HardwareInformation.qwMemorySize' } }); $rows=@(Get-CimInstance Win32_VideoController | ForEach-Object { $n=$_.Name; $m=@($drv | Where-Object { $_.Desc -eq $n })[0]; $q=$null; if ($m) { $q=$m.Qw }; if ($q -is [byte[]]) { if ($q.Length -ge 8) { $q=[BitConverter]::ToInt64($q,0) } else { $q=$null } }; [pscustomobject]@{ Name=$n; AdapterRAM=$_.AdapterRAM; DriverVersion=$_.DriverVersion; QwMemorySize=$q } }); ConvertTo-Json -InputObject $rows"#;
+
+/// One display adapter from the probe. `vram_bytes` is the driver's 64-bit
+/// size when it is positive, else the 32-bit AdapterRAM.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq)]
+struct WinGpu {
+    name: Option<String>,
+    vram_bytes: Option<i64>,
+    driver: Option<String>,
+}
+
+/// Parses the probe's JSON (an array, or one object) into adapters. Pure, so
+/// it is compiled and tested on every platform.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn win_gpus_from_probe(json: &serde_json::Value) -> Vec<WinGpu> {
+    let items: Vec<&serde_json::Value> = match json {
+        serde_json::Value::Array(arr) => arr.iter().collect(),
+        obj @ serde_json::Value::Object(_) => vec![obj],
+        _ => vec![],
+    };
+    items
+        .into_iter()
+        .filter_map(|item| {
+            let o = item.as_object()?;
+            let text = |key: &str| o.get(key).and_then(|v| v.as_str()).map(str::to_string);
+            let driver_size = o
+                .get("QwMemorySize")
+                .and_then(|v| v.as_i64())
+                .filter(|n| *n > 0);
+            let adapter_ram = o.get("AdapterRAM").and_then(|v| v.as_i64());
+            Some(WinGpu {
+                name: text("Name"),
+                vram_bytes: driver_size.or(adapter_ram),
+                driver: text("DriverVersion"),
+            })
+        })
+        .collect()
+}
+
+/// The hw_gpu record for one adapter: {name, vram, driver}.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn win_gpu_record(g: &WinGpu) -> Value {
+    let mut rec = BTreeMap::new();
+    if let Some(name) = &g.name {
+        rec.insert("name".to_string(), Value::Str(name.clone()));
+    }
+    if let Some(bytes) = g.vram_bytes {
+        rec.insert("vram".to_string(), Value::Int(bytes));
+    }
+    if let Some(driver) = &g.driver {
+        rec.insert("driver".to_string(), Value::Str(driver.clone()));
+    }
+    Value::Record(rec)
+}
+
+/// Runs the GPU probe. `None` when PowerShell fails or prints no JSON.
+#[cfg(target_os = "windows")]
+fn win_gpu_probe(builtin: &str) -> Result<Option<Vec<WinGpu>>> {
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-Command", WIN_GPU_PROBE_SCRIPT]);
+    let output = bounded_cmd_output(builtin, "powershell", cmd, PROBE_DEADLINE_SECS)?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(serde_json::from_str::<serde_json::Value>(text.trim())
+        .ok()
+        .map(|json| win_gpus_from_probe(&json)))
+}
+
 fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd
-            .args(["-Command", "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion | ConvertTo-Json"]);
-        let output = bounded_cmd_output("hw_gpu", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let items = match &json {
-                    serde_json::Value::Array(arr) => arr.clone(),
-                    obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-                    _ => vec![],
-                };
-                let gpus: Vec<Value> = items
-                    .iter()
-                    .filter_map(|obj| {
-                        let o = obj.as_object()?;
-                        let mut rec = std::collections::BTreeMap::new();
-                        if let Some(v) = o.get("Name") {
-                            rec.insert("name".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("AdapterRAM") {
-                            rec.insert("vram".to_string(), json_to_value(v.clone()));
-                        }
-                        if let Some(v) = o.get("DriverVersion") {
-                            rec.insert("driver".to_string(), json_to_value(v.clone()));
-                        }
-                        Some(Value::Record(rec))
-                    })
-                    .collect();
-                return Ok(Value::Array(gpus));
-            }
+        if let Some(gpus) = win_gpu_probe("hw_gpu")? {
+            return Ok(Value::Array(gpus.iter().map(win_gpu_record).collect()));
         }
     }
     #[cfg(target_os = "linux")]
@@ -34050,35 +34099,66 @@ fn battery_capacity_from(path: &str, text: &str) -> Result<i64> {
     })
 }
 
+/// Maps Win32_Battery.BatteryStatus (Microsoft's documented codes) to the
+/// status string hw_battery reports on Windows. 2 is "ac": on AC power and not
+/// charging, which is what a UPS reports. The Linux branch reads sysfs and
+/// reports "not charging" for the same state.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn windows_battery_status(code: i64) -> &'static str {
+    match code {
+        1 => "discharging",
+        2 => "ac",
+        3 => "full",
+        4 => "low",
+        5 => "critical",
+        6..=9 => "charging",
+        11 => "partially_charged",
+        _ => "unknown",
+    }
+}
+
+/// The hw_battery record from the Win32_Battery probe JSON (an object, or the
+/// first element of an array). `name` is Win32_Battery's Name when present, so
+/// a UPS can be told from a laptop battery.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn windows_battery_from_probe(json: &serde_json::Value) -> Option<Value> {
+    let obj = match json {
+        serde_json::Value::Object(o) => o,
+        serde_json::Value::Array(arr) => arr.first()?.as_object()?,
+        _ => return None,
+    };
+    let mut rec = BTreeMap::new();
+    if let Some(v) = obj.get("EstimatedChargeRemaining").and_then(|v| v.as_i64()) {
+        rec.insert("capacity".to_string(), Value::Int(v));
+    }
+    let status = obj
+        .get("BatteryStatus")
+        .and_then(|v| v.as_i64())
+        .map_or("unknown", windows_battery_status);
+    rec.insert("status".to_string(), Value::Str(status.to_string()));
+    if let Some(name) = obj
+        .get("Name")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+    {
+        rec.insert("name".to_string(), Value::Str(name.to_string()));
+    }
+    Some(Value::Record(rec))
+}
+
 fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returns consistent Record {capacity: Int (%), status: String}
+    // Returns Record {capacity: Int (%), status: String, name: String (Windows)}
     #[cfg(target_os = "windows")]
     {
         let mut cmd = std::process::Command::new("powershell");
         cmd
-            .args(["-Command", "Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json"]);
+            .args(["-Command", "Get-CimInstance Win32_Battery | Select-Object Name,EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json"]);
         let output = bounded_cmd_output("hw_battery", "powershell", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let obj = match &json {
-                    serde_json::Value::Object(o) => Some(o),
-                    serde_json::Value::Array(arr) => arr.first().and_then(|v| v.as_object()),
-                    _ => None,
-                };
-                if let Some(obj) = obj {
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let Some(v) = obj.get("EstimatedChargeRemaining").and_then(|v| v.as_i64()) {
-                        rec.insert("capacity".to_string(), Value::Int(v));
-                    }
-                    let status = match obj.get("BatteryStatus").and_then(|v| v.as_i64()) {
-                        Some(1) => "discharging",
-                        Some(2) => "charging",
-                        Some(3) => "full",
-                        _ => "unknown",
-                    };
-                    rec.insert("status".to_string(), Value::Str(status.to_string()));
-                    return Ok(Value::Record(rec));
+                if let Some(rec) = windows_battery_from_probe(&json) {
+                    return Ok(rec);
                 }
             }
         }
@@ -51648,51 +51728,24 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     }
 
-    // Fallback: Windows DirectX
+    // Fallback: Windows. wmic is absent on current Windows 11, so this uses the
+    // same CIM plus registry probe as hw_gpu. The 64-bit driver size is reported.
     #[cfg(target_os = "windows")]
     if gpus.is_empty() {
-        let mut cmd = std::process::Command::new("wmic");
-        cmd.args([
-            "path",
-            "win32_VideoController",
-            "get",
-            "Name,AdapterRAM,DriverVersion",
-            "/format:list",
-        ]);
-        if let Ok(out) = bounded_cmd_output("platform_gpus", "wmic", cmd, PROBE_DEADLINE_SECS) {
-            let output = String::from_utf8_lossy(&out.stdout);
-            let mut current = std::collections::BTreeMap::new();
-            for line in output.lines() {
-                if line.is_empty() && !current.is_empty() {
-                    gpus.push(Value::Record(current.clone()));
-                    current.clear();
-                } else if let Some((key, val)) = line.split_once('=') {
-                    let key = key.trim().to_lowercase();
-                    let val = val.trim();
-                    if !val.is_empty() {
-                        match key.as_str() {
-                            "name" => {
-                                current.insert("name".to_string(), Value::Str(val.to_string()));
-                            }
-                            "adapterram" => {
-                                if let Ok(n) = val.parse::<i64>() {
-                                    current.insert("memory_bytes".to_string(), Value::Int(n));
-                                    current.insert(
-                                        "memory_mb".to_string(),
-                                        Value::Int(n / 1024 / 1024),
-                                    );
-                                }
-                            }
-                            "driverversion" => {
-                                current.insert("driver".to_string(), Value::Str(val.to_string()));
-                            }
-                            _ => {}
-                        }
-                    }
+        if let Ok(Some(adapters)) = win_gpu_probe("platform_gpus") {
+            for g in adapters {
+                let mut rec = std::collections::BTreeMap::new();
+                if let Some(name) = g.name {
+                    rec.insert("name".to_string(), Value::Str(name));
                 }
-            }
-            if !current.is_empty() {
-                gpus.push(Value::Record(current));
+                if let Some(bytes) = g.vram_bytes {
+                    rec.insert("memory_bytes".to_string(), Value::Int(bytes));
+                    rec.insert("memory_mb".to_string(), Value::Int(bytes / 1024 / 1024));
+                }
+                if let Some(driver) = g.driver {
+                    rec.insert("driver".to_string(), Value::Str(driver));
+                }
+                gpus.push(Value::Record(rec));
             }
         }
     }
@@ -68875,5 +68928,166 @@ mod sleep_deadline_tests {
     fn without_a_deadline_sleep_returns_null() {
         let v = bi_sleep(vec![Value::Float(0.01)], None).expect("no deadline");
         assert!(matches!(v, Value::Null));
+    }
+}
+
+#[cfg(test)]
+mod win_hwprobe_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn record(v: Option<Value>) -> BTreeMap<String, Value> {
+        match v {
+            Some(Value::Record(m)) => m,
+            _ => panic!("expected a record"),
+        }
+    }
+
+    fn str_of(m: &BTreeMap<String, Value>, key: &str) -> Option<String> {
+        match m.get(key) {
+            Some(Value::Str(s)) => Some(s.clone()),
+            _ => None,
+        }
+    }
+
+    fn int_of(m: &BTreeMap<String, Value>, key: &str) -> Option<i64> {
+        match m.get(key) {
+            Some(Value::Int(n)) => Some(*n),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn gpu_probe_uses_the_driver_size_for_identical_cards_and_amd() {
+        let probe = json!([
+            {"Name": "NVIDIA GeForce RTX 3090 Ti", "AdapterRAM": 4293918720_i64, "DriverVersion": "32.0.15.7270", "QwMemorySize": 25757220864_i64},
+            {"Name": "NVIDIA GeForce RTX 3090 Ti", "AdapterRAM": 4293918720_i64, "DriverVersion": "32.0.15.7270", "QwMemorySize": 25757220864_i64},
+            {"Name": "AMD Radeon(TM) Graphics", "AdapterRAM": 2147483648_i64, "DriverVersion": "31.0.21923.1000", "QwMemorySize": 2147483648_i64}
+        ]);
+        let gpus = win_gpus_from_probe(&probe);
+        assert_eq!(gpus.len(), 3);
+        assert_eq!(gpus[0].vram_bytes, Some(25_757_220_864));
+        assert_eq!(gpus[1].vram_bytes, Some(25_757_220_864));
+        assert_eq!(gpus[1].name.as_deref(), Some("NVIDIA GeForce RTX 3090 Ti"));
+        assert_eq!(gpus[1].driver.as_deref(), Some("32.0.15.7270"));
+        assert_eq!(gpus[2].vram_bytes, Some(2_147_483_648));
+        assert_eq!(gpus[2].name.as_deref(), Some("AMD Radeon(TM) Graphics"));
+        assert_eq!(gpus[2].driver.as_deref(), Some("31.0.21923.1000"));
+    }
+
+    #[test]
+    fn gpu_probe_falls_back_to_adapter_ram_without_a_positive_driver_size() {
+        let probe = json!([
+            {"Name": "Null size", "AdapterRAM": 1073741824_i64, "DriverVersion": "1.0", "QwMemorySize": null},
+            {"Name": "Zero size", "AdapterRAM": 536870912_i64, "DriverVersion": "2.0", "QwMemorySize": 0},
+            {"Name": "No key", "AdapterRAM": 268435456_i64, "DriverVersion": "3.0"}
+        ]);
+        let gpus = win_gpus_from_probe(&probe);
+        assert_eq!(gpus.len(), 3);
+        assert_eq!(gpus[0].vram_bytes, Some(1_073_741_824));
+        assert_eq!(gpus[1].vram_bytes, Some(536_870_912));
+        assert_eq!(gpus[2].vram_bytes, Some(268_435_456));
+    }
+
+    #[test]
+    fn gpu_probe_accepts_a_single_object() {
+        let probe = json!({"Name": "NVIDIA GeForce RTX 3090 Ti", "AdapterRAM": 4293918720_i64, "DriverVersion": "32.0.15.7270", "QwMemorySize": 25757220864_i64});
+        let gpus = win_gpus_from_probe(&probe);
+        assert_eq!(gpus.len(), 1);
+        assert_eq!(gpus[0].vram_bytes, Some(25_757_220_864));
+    }
+
+    #[test]
+    fn gpu_probe_skips_non_objects_and_empty_output() {
+        assert!(win_gpus_from_probe(&json!([])).is_empty());
+        assert!(win_gpus_from_probe(&json!(null)).is_empty());
+        assert!(win_gpus_from_probe(&json!("text")).is_empty());
+        let gpus = win_gpus_from_probe(&json!([1, "x", {"Name": "Kept"}]));
+        assert_eq!(gpus.len(), 1);
+        assert_eq!(gpus[0].name.as_deref(), Some("Kept"));
+        assert_eq!(gpus[0].vram_bytes, None);
+        assert_eq!(gpus[0].driver, None);
+    }
+
+    #[test]
+    fn gpu_record_has_the_name_vram_and_driver_shape() {
+        let g = WinGpu {
+            name: Some("NVIDIA GeForce RTX 3090 Ti".to_string()),
+            vram_bytes: Some(25_757_220_864),
+            driver: Some("32.0.15.7270".to_string()),
+        };
+        let m = record(Some(win_gpu_record(&g)));
+        assert_eq!(m.len(), 3);
+        assert_eq!(str_of(&m, "name").as_deref(), Some("NVIDIA GeForce RTX 3090 Ti"));
+        assert_eq!(int_of(&m, "vram"), Some(25_757_220_864));
+        assert_eq!(str_of(&m, "driver").as_deref(), Some("32.0.15.7270"));
+    }
+
+    #[test]
+    fn battery_status_codes_map_per_the_documented_table() {
+        let expected: [(i64, &str); 15] = [
+            (0, "unknown"),
+            (1, "discharging"),
+            (2, "ac"),
+            (3, "full"),
+            (4, "low"),
+            (5, "critical"),
+            (6, "charging"),
+            (7, "charging"),
+            (8, "charging"),
+            (9, "charging"),
+            (10, "unknown"),
+            (11, "partially_charged"),
+            (12, "unknown"),
+            (-1, "unknown"),
+            (99, "unknown"),
+        ];
+        for (code, want) in expected {
+            assert_eq!(windows_battery_status(code), want, "code {code}");
+        }
+    }
+
+    #[test]
+    fn battery_object_reports_a_ups_on_ac_with_its_name() {
+        let probe = json!({"Name": "Back-UPS ES 600M1 FW:932.2 USB FW:L2", "EstimatedChargeRemaining": 100, "BatteryStatus": 2});
+        let m = record(windows_battery_from_probe(&probe));
+        assert_eq!(int_of(&m, "capacity"), Some(100));
+        assert_eq!(str_of(&m, "status").as_deref(), Some("ac"));
+        assert_eq!(
+            str_of(&m, "name").as_deref(),
+            Some("Back-UPS ES 600M1 FW:932.2 USB FW:L2")
+        );
+    }
+
+    #[test]
+    fn battery_name_is_omitted_when_null_or_blank() {
+        let null_name = json!({"Name": null, "EstimatedChargeRemaining": 50, "BatteryStatus": 1});
+        let blank_name = json!({"Name": "  ", "EstimatedChargeRemaining": 50, "BatteryStatus": 1});
+        for probe in [null_name, blank_name] {
+            let m = record(windows_battery_from_probe(&probe));
+            assert!(!m.contains_key("name"));
+            assert_eq!(str_of(&m, "status").as_deref(), Some("discharging"));
+        }
+    }
+
+    #[test]
+    fn battery_missing_fields_and_array_form() {
+        let no_status = json!({"EstimatedChargeRemaining": 40});
+        let m = record(windows_battery_from_probe(&no_status));
+        assert_eq!(str_of(&m, "status").as_deref(), Some("unknown"));
+        assert_eq!(int_of(&m, "capacity"), Some(40));
+
+        let no_capacity = json!({"BatteryStatus": 3});
+        let m = record(windows_battery_from_probe(&no_capacity));
+        assert!(!m.contains_key("capacity"));
+        assert_eq!(str_of(&m, "status").as_deref(), Some("full"));
+
+        let array = json!([{"Name": "Battery", "EstimatedChargeRemaining": 87, "BatteryStatus": 6}]);
+        let m = record(windows_battery_from_probe(&array));
+        assert_eq!(str_of(&m, "status").as_deref(), Some("charging"));
+        assert_eq!(str_of(&m, "name").as_deref(), Some("Battery"));
+
+        assert!(windows_battery_from_probe(&json!([])).is_none());
+        assert!(windows_battery_from_probe(&json!(null)).is_none());
     }
 }

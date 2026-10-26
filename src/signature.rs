@@ -5994,7 +5994,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "GPUs from nvidia-smi with memory, driver and utilisation; empty without an NVIDIA GPU.",
+        doc: "GPUs from nvidia-smi with memory, driver and utilisation; empty without an NVIDIA GPU. Without nvidia-smi, Windows reports {name, memory_bytes, memory_mb, driver} from Win32_VideoController with the driver's 64-bit memory size from the registry; Linux falls back to rocm-smi raw output.",
         examples: &[("typeof(platform_gpus())", "Array")],
     },
     Signature {
@@ -13356,9 +13356,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record | Null",
-        doc: "Battery charge and status, or null when there is no battery.",
+        doc: "Battery charge and status, or null when there is no battery. Record {capacity: Int (percent), status: String, name: String (Windows only: Win32_Battery Name, so a UPS shows its own name)}. Windows status: discharging, ac (on AC power and not charging), charging, full, low, critical, partially_charged, unknown. Linux (BAT0 sysfs, lowercased) reports the raw value: charging, discharging, full, not charging, unknown.",
         examples: &[
-            (r#"hw_battery()"#, r#"{charge_percent: 87, status: discharging}"#),
+            (r#"hw_battery()"#, r#"{capacity: 87, status: discharging}"#),
         ],
     },
     Signature {
@@ -13369,9 +13369,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array | Null",
-        doc: "GPUs as {name, memory, driver}, or null when none is found.",
+        doc: "GPUs as {name, vram, driver}, or null when none is found. vram is bytes. On Windows it is the driver's 64-bit memory size from the display class registry key when present, else Win32_VideoController AdapterRAM, a 32-bit field that cannot show more than 4 GiB. Linux reports name only.",
         examples: &[
-            (r#"hw_gpu()"#, r#"[{driver: "32.0.15", memory: 8589934592, name: "NVIDIA ..."}]"#),
+            (r#"hw_gpu()"#, r#"[{driver: "32.0.15", name: "NVIDIA ...", vram: 8589934592}]"#),
         ],
     },
     Signature {
