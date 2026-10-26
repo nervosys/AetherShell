@@ -8311,6 +8311,31 @@ fn read_text_capped(builtin: &str, path: impl AsRef<std::path::Path>) -> Result<
 }
 
 fn read_text_capped_at(builtin: &str, path: &std::path::Path, max: u64) -> Result<String> {
+    let bytes = read_bytes_capped_at(builtin, path, max)?;
+    // The error `read_to_string` gave for bytes that are not UTF-8, unchanged.
+    String::from_utf8(bytes).map_err(|_| {
+        crate::safety::fs_error(
+            builtin,
+            path,
+            &std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "stream did not contain valid UTF-8",
+            ),
+        )
+    })
+}
+
+/// Read a whole binary file a caller named, up to the resource limit, as
+/// `read_text_capped` does for text. Path validation stays with the caller.
+fn read_bytes_capped(builtin: &str, path: impl AsRef<std::path::Path>) -> Result<Vec<u8>> {
+    read_bytes_capped_at(
+        builtin,
+        path.as_ref(),
+        crate::security::max_file_size_bytes()?,
+    )
+}
+
+fn read_bytes_capped_at(builtin: &str, path: &std::path::Path, max: u64) -> Result<Vec<u8>> {
     use std::io::Read;
     let over = || {
         crate::safety::budget_exceeded(
@@ -8327,14 +8352,21 @@ fn read_text_capped_at(builtin: &str, path: &std::path::Path, max: u64) -> Resul
     if file.metadata().is_ok_and(|m| m.len() > max) {
         return Err(over());
     }
-    let mut content = String::new();
+    let mut bytes = Vec::new();
     file.take(max.saturating_add(1))
-        .read_to_string(&mut content)
+        .read_to_end(&mut bytes)
         .map_err(|e| crate::safety::fs_error(builtin, path, &e))?;
-    if content.len() as u64 > max {
+    if bytes.len() as u64 > max {
         return Err(over());
     }
-    Ok(content)
+    Ok(bytes)
+}
+
+/// Whether a capped read failed because the path does not exist. The capped
+/// readers report I/O errors as `SafetyError`s, so the `io::ErrorKind` is gone.
+fn capped_read_not_found(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<crate::safety::SafetyError>()
+        .is_some_and(|s| s.code == crate::safety::ErrorCode::NotFound)
 }
 
 fn line_read(builtin: &str, path: &str) -> Result<String> {
@@ -9833,13 +9865,10 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
                     .context(format!("ai: invalid image path: {}", path))?;
 
                 // Read and base64 encode the image
-                let data = fs::read(&validated_path).context(format!(
+                let data = read_bytes_capped("ai", &validated_path).context(format!(
                     "ai: failed to read image: {}",
                     validated_path.display()
                 ))?;
-
-                // SECURITY: Check file size
-                check_file_size_limit(data.len() as u64).context("ai: image file too large")?;
 
                 use base64::{engine::general_purpose::STANDARD, Engine as _};
                 let encoded = STANDARD.encode(&data);
@@ -9862,13 +9891,10 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
                 let validated_path = validate_read_path(&path)
                     .context(format!("ai: invalid audio path: {}", path))?;
 
-                let data = fs::read(&validated_path).context(format!(
+                let data = read_bytes_capped("ai", &validated_path).context(format!(
                     "ai: failed to read audio: {}",
                     validated_path.display()
                 ))?;
-
-                // SECURITY: Check file size
-                check_file_size_limit(data.len() as u64).context("ai: audio file too large")?;
 
                 use base64::{engine::general_purpose::STANDARD, Engine as _};
                 let encoded = STANDARD.encode(&data);
@@ -9891,13 +9917,10 @@ fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value
                 let validated_path = validate_read_path(&path)
                     .context(format!("ai: invalid video path: {}", path))?;
 
-                let data = fs::read(&validated_path).context(format!(
+                let data = read_bytes_capped("ai", &validated_path).context(format!(
                     "ai: failed to read video: {}",
                     validated_path.display()
                 ))?;
-
-                // SECURITY: Check file size
-                check_file_size_limit(data.len() as u64).context("ai: video file too large")?;
 
                 use base64::{engine::general_purpose::STANDARD, Engine as _};
                 let encoded = STANDARD.encode(&data);
@@ -26062,13 +26085,22 @@ fn entry_is_file(builtin: &str, path: &std::path::Path) -> Result<bool> {
 }
 
 /// Reads a project text file. `Ok(None)` only when the file does not exist;
-/// any other failure is an error. Non-UTF-8 bytes are replaced rather than
-/// treated as absence, so a Latin-1 README still returns its text.
+/// any other failure is an error, and so is a file over the read limit.
+/// Non-UTF-8 bytes are replaced rather than treated as absence, so a Latin-1
+/// README still returns its text.
 fn read_text_lossy(builtin: &str, path: &std::path::Path) -> Result<Option<String>> {
-    match std::fs::read(path) {
+    // The capped reader codes its errors, so the io kind is gone by the time
+    // it fails; a path under a regular file (NotADirectory) is absent, as
+    // `path_is_absent` says, and is told apart here first.
+    if let Err(e) = std::fs::metadata(path) {
+        if path_is_absent(&e) {
+            return Ok(None);
+        }
+    }
+    match read_bytes_capped(builtin, path) {
         Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
-        Err(e) if path_is_absent(&e) => Ok(None),
-        Err(e) => Err(crate::safety::fs_error(builtin, path, &e)),
+        Err(e) if capped_read_not_found(&e) => Ok(None),
+        Err(e) => Err(e),
     }
 }
 
@@ -38976,11 +39008,7 @@ fn bi_crypto_hash_file(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     };
     let algo = algo_param("crypto_hash_file", args.get(1..).unwrap_or(&[]), "sha256")?;
     let validated = crate::security::validate_read_path(&path)?;
-    let meta = std::fs::metadata(&validated)
-        .map_err(|e| crate::safety::fs_error("crypto_hash_file", &validated, &e))?;
-    crate::security::check_file_size_limit(meta.len())?;
-    let bytes = std::fs::read(&validated)
-        .map_err(|e| crate::safety::fs_error("crypto_hash_file", &validated, &e))?;
+    let bytes = read_bytes_capped("crypto_hash_file", &validated)?;
     Ok(Value::Str(digest_hex("crypto_hash_file", &algo, &bytes)?))
 }
 
@@ -40951,7 +40979,7 @@ fn bi_clipboard_set_image(args: Vec<Value>, input: Option<Value>) -> Result<Valu
             "copy a smaller image",
         ));
     }
-    let bytes = fs::read(&validated).map_err(|e| crate::safety::fs_error(NAME, &path, &e))?;
+    let bytes = read_bytes_capped(NAME, &validated)?;
     let Some(mime) = image_mime_of(&bytes) else {
         return Err(crate::safety::bad_arg(
             NAME,
@@ -45765,11 +45793,11 @@ fn project_loc_in(root: &std::path::Path) -> Result<i64> {
             {
                 // Bytes, not `read_to_string`: that refused any non-UTF-8 file
                 // (Latin-1 source, say), and the file counted as 0 lines.
-                let bytes = match std::fs::read(&path) {
+                let bytes = match read_bytes_capped("project_loc", &path) {
                     Ok(bytes) => bytes,
                     // Removed since it was listed, or a dangling symlink.
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                    Err(e) => return Err(crate::safety::fs_error("project_loc", &path, &e)),
+                    Err(e) if capped_read_not_found(&e) => continue,
+                    Err(e) => return Err(e),
                 };
                 *total += count_lines(&bytes);
             }
@@ -64291,11 +64319,7 @@ fn bi_strings_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         }
     };
     let validated = validate_read_path(&path)?;
-    let meta = std::fs::metadata(&validated)
-        .map_err(|e| crate::safety::fs_error("strings", &validated, &e))?;
-    check_file_size_limit(meta.len())?;
-    let data = std::fs::read(&validated)
-        .map_err(|e| crate::safety::fs_error("strings", &validated, &e))?;
+    let data = read_bytes_capped("strings", &validated)?;
     let mut result = Vec::new();
     let mut current = String::new();
     for &byte in &data {
@@ -67648,5 +67672,75 @@ mod range_cap_tests {
             .unwrap(),
             vec![-9_223_372_036_854_775_803]
         );
+    }
+}
+
+#[cfg(test)]
+mod capped_bytes_tests {
+    use super::*;
+
+    fn scratch(name: &str, body: &[u8]) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("ae-cb-{}-{name}", std::process::id()));
+        std::fs::write(&path, body).expect("write temp file");
+        path
+    }
+
+    fn budget_code(e: &anyhow::Error) -> Option<crate::safety::ErrorCode> {
+        e.downcast_ref::<crate::safety::SafetyError>()
+            .map(|s| s.code)
+    }
+
+    #[test]
+    fn read_bytes_capped_at_under_at_and_over_the_limit() {
+        let under = scratch("under", &[7u8; 15]);
+        let at = scratch("at", &[7u8; 16]);
+        let over = scratch("over", &[7u8; 17]);
+
+        assert_eq!(
+            read_bytes_capped_at("t", &under, 16).unwrap(),
+            vec![7u8; 15]
+        );
+        assert_eq!(read_bytes_capped_at("t", &at, 16).unwrap(), vec![7u8; 16]);
+        let e = read_bytes_capped_at("t", &over, 16).unwrap_err();
+        assert_eq!(
+            budget_code(&e),
+            Some(crate::safety::ErrorCode::BudgetExceeded)
+        );
+
+        for p in [under, at, over] {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+
+    #[test]
+    fn read_bytes_capped_at_missing_file_is_not_found() {
+        let missing =
+            std::env::temp_dir().join(format!("ae-cb-{}-no-such-file", std::process::id()));
+        let e = read_bytes_capped_at("t", &missing, 16).unwrap_err();
+        assert!(capped_read_not_found(&e), "{e:#}");
+        assert_eq!(budget_code(&e), Some(crate::safety::ErrorCode::NotFound));
+    }
+
+    #[test]
+    fn read_text_capped_at_rejects_invalid_utf8() {
+        let bad = scratch("bad-utf8", &[b'a', 0xff, 0xfe, b'b']);
+        let good = scratch("good-utf8", "héllo".as_bytes());
+
+        assert!(read_text_capped_at("t", &bad, 1024).is_err());
+        assert_eq!(read_text_capped_at("t", &good, 1024).unwrap(), "héllo");
+
+        for p in [bad, good] {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+
+    #[test]
+    fn read_text_lossy_under_a_regular_file_is_absent() {
+        let f = std::env::temp_dir().join(format!("ae-cb-{}-plainfile", std::process::id()));
+        std::fs::write(&f, "x").unwrap();
+        let under = f.join("README.md");
+        let got = read_text_lossy("t", &under);
+        let _ = std::fs::remove_file(&f);
+        assert!(matches!(got, Ok(None)), "{got:?}");
     }
 }
