@@ -122,6 +122,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and inode, so a hard link is caught too. All 23 file writers are pinned in
   `tests/audit_alias_contracts.rs` (Unix). On Windows a symlink needs
   privilege, and hard-link identity is not compared there yet.
+- **Waits end when they should**: `sleep` no longer outlasts the evaluation
+  deadline; it sleeps what is left and answers `E_BUDGET_EXCEEDED`.
+  `net_scan` bounds each connect, so no thread outlives the call. The result
+  handle store holds at most 4,096 handles and refuses the next with
+  `E_BUDGET_EXCEEDED` instead of growing; an over-budget result at the cap is
+  not sent, and the refusal says so. `workflow_cancel` now stops a running
+  workflow at the next step or wait slice and leaves it `Cancelled` (it was
+  overwritten with `Completed`); `workflow_pause` takes effect at step
+  boundaries; a `Delay` or timeout over one hour is refused before any step
+  runs, and `WaitForEvent` without a timeout gives up after one hour.
+- **The Agent API releases what a connection held**: WebSocket subscriptions
+  stop on unsubscribe and on disconnect (they ran until a later broadcast
+  failed), a lagging subscriber skips missed messages instead of ending, and
+  channels with no subscriber are removed. Streaming and WebSocket evaluation
+  run off the async workers under the evaluation deadline, and the server
+  handles at most 64 requests at once.
 - **The RBAC config and the audit key file cannot be written by a guarded
   builtin** (security): `ae` loads `AETHER_RBAC_CONFIG` (else
   `<workspace>/.ae/rbac.toml`) at startup, and the SDK starts one process
