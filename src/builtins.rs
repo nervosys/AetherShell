@@ -6486,7 +6486,7 @@ fn bi_platform_module(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_features() -> Result<Value> {
     let features = FEATURE_FLAGS
         .read()
-        .map_err(|e| anyhow!("features: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("features", "the feature table"))?;
     let feature_list: Vec<Value> = features.iter().map(|f| Value::Str(f.clone())).collect();
     Ok(Value::Array(feature_list))
 }
@@ -6530,7 +6530,7 @@ fn bi_feature_enabled(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let features = FEATURE_FLAGS
         .read()
-        .map_err(|e| anyhow!("feature_enabled: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("feature_enabled", "the feature table"))?;
     Ok(Value::Bool(features.contains(&name)))
 }
 
@@ -6572,7 +6572,7 @@ fn bi_feature_enable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut features = FEATURE_FLAGS
         .write()
-        .map_err(|e| anyhow!("feature_enable: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("feature_enable", "the feature table"))?;
     features.insert(name);
     Ok(Value::Bool(true))
 }
@@ -6615,7 +6615,7 @@ fn bi_feature_disable(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut features = FEATURE_FLAGS
         .write()
-        .map_err(|e| anyhow!("feature_disable: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("feature_disable", "the feature table"))?;
     let removed = features.remove(&name);
     Ok(Value::Bool(removed))
 }
@@ -6690,7 +6690,7 @@ fn bi_feature_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     let mut features = FEATURE_FLAGS
         .write()
-        .map_err(|e| anyhow!("feature_set: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("feature_set", "the feature table"))?;
     if enabled {
         features.insert(name);
     } else {
@@ -6734,7 +6734,7 @@ fn bi_cluster_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     {
         let mut clusters = CLUSTERS
             .write()
-            .map_err(|e| anyhow!("cluster_create: lock error: {}", e))?;
+            .map_err(|_| crate::safety::lock_poisoned("cluster_create", "the cluster registry"))?;
         if clusters.contains_key(&name) {
             return Err(crate::safety::bad_arg(
                 "cluster_create",
@@ -6847,7 +6847,7 @@ fn bi_cluster_add_node(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
 
     let mut nodes = CLUSTER_NODES
         .write()
-        .map_err(|e| anyhow!("cluster_add_node: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("cluster_add_node", "the cluster node table"))?;
     nodes.insert(id.clone(), node);
 
     let mut record = BTreeMap::new();
@@ -6872,9 +6872,9 @@ fn bi_cluster_remove_node(args: Vec<Value>, input: Option<Value>) -> Result<Valu
         .transpose()?
         .ok_or_else(|| crate::safety::arg_err("cluster_remove_node: requires node id"))?;
 
-    let mut nodes = CLUSTER_NODES
-        .write()
-        .map_err(|e| anyhow!("cluster_remove_node: lock error: {}", e))?;
+    let mut nodes = CLUSTER_NODES.write().map_err(|_| {
+        crate::safety::lock_poisoned("cluster_remove_node", "the cluster node table")
+    })?;
 
     let removed = nodes.remove(&id).is_some();
     Ok(Value::Bool(removed))
@@ -6885,14 +6885,14 @@ fn bi_cluster_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let nodes = CLUSTER_NODES
         .read()
-        .map_err(|e| anyhow!("cluster_status: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("cluster_status", "the cluster node table"))?;
 
     let jobs = DISTRIBUTED_JOBS
         .read()
-        .map_err(|e| anyhow!("cluster_status: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("cluster_status", "the distributed job table"))?;
     let clusters = CLUSTERS
         .read()
-        .map_err(|e| anyhow!("cluster_status: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("cluster_status", "the cluster registry"))?;
 
     let online_count = nodes
         .values()
@@ -6948,7 +6948,7 @@ fn bi_cluster_nodes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let nodes = CLUSTER_NODES
         .read()
-        .map_err(|e| anyhow!("cluster_nodes: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("cluster_nodes", "the cluster node table"))?;
 
     let node_list: Vec<Value> = nodes
         .values()
@@ -7012,7 +7012,7 @@ fn bi_job_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let jobs = DISTRIBUTED_JOBS
         .read()
-        .map_err(|e| anyhow!("job_status: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("job_status", "the distributed job table"))?;
 
     let job = jobs
         .get(&job_id)
@@ -7044,7 +7044,7 @@ fn bi_job_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut jobs = DISTRIBUTED_JOBS
         .write()
-        .map_err(|e| anyhow!("job_cancel: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("job_cancel", "the distributed job table"))?;
 
     let job = jobs
         .get_mut(&job_id)
@@ -7075,7 +7075,7 @@ fn bi_job_results(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let results = JOB_RESULTS
         .read()
-        .map_err(|e| anyhow!("job_results: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("job_results", "the job result store"))?;
 
     if let Some(result_values) = results.get(&job_id) {
         Ok(Value::Array(result_values.clone()))
@@ -7089,7 +7089,7 @@ fn bi_job_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let jobs = DISTRIBUTED_JOBS
         .read()
-        .map_err(|e| anyhow!("job_list: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("job_list", "the distributed job table"))?;
 
     let job_list: Vec<Value> = jobs
         .values()
@@ -7179,7 +7179,7 @@ fn bi_remote_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     let known = CLUSTER_NODES
         .read()
-        .map_err(|e| anyhow!("remote_exec: lock error: {}", e))?
+        .map_err(|_| crate::safety::lock_poisoned("remote_exec", "the cluster node table"))?
         .contains_key(&node_id);
     if !known {
         return Err(crate::safety::not_found(B, "node", &node_id));
@@ -7365,7 +7365,7 @@ fn bi_rag_index(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut index = RAG_INDEX
         .write()
-        .map_err(|e| anyhow!("rag_index: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("rag_index", "the RAG index"))?;
     if index.chunks.len() >= MAX_DOCS {
         return Err(crate::safety::budget_exceeded(
             "rag_index",
@@ -7454,7 +7454,7 @@ fn bi_rag_search(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let index = RAG_INDEX
         .read()
-        .map_err(|e| anyhow!("rag_search: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("rag_search", "the RAG index"))?;
 
     let results = index.search(&query, top_k);
 
@@ -7479,7 +7479,7 @@ fn bi_rag_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let index = RAG_INDEX
         .read()
-        .map_err(|e| anyhow!("rag_query: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("rag_query", "the RAG index"))?;
 
     let results = index.search(&query, top_k);
 
@@ -7512,7 +7512,7 @@ fn bi_rag_clear(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let mut index = RAG_INDEX
         .write()
-        .map_err(|e| anyhow!("rag_clear: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("rag_clear", "the RAG index"))?;
 
     let count = index.chunks.len();
     index.clear();
@@ -7575,7 +7575,7 @@ fn bi_kg_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut kg = KNOWLEDGE_GRAPH
         .write()
-        .map_err(|e| anyhow!("kg_add: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("kg_add", "the knowledge graph"))?;
     if kg.entities.len() >= MAX_ENTITIES {
         return Err(crate::safety::budget_exceeded(
             "kg_add",
@@ -7640,7 +7640,7 @@ fn bi_kg_relate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut kg = KNOWLEDGE_GRAPH
         .write()
-        .map_err(|e| anyhow!("kg_relate: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("kg_relate", "the knowledge graph"))?;
 
     let relation_id = kg.add_relation(&source_id, &target_id, &relation_type, properties)?;
 
@@ -7663,7 +7663,7 @@ fn bi_kg_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let kg = KNOWLEDGE_GRAPH
         .read()
-        .map_err(|e| anyhow!("kg_query: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("kg_query", "the knowledge graph"))?;
 
     let results = kg.query(&pattern);
     Ok(Value::Array(results))
@@ -7674,7 +7674,7 @@ fn bi_kg_entities(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let kg = KNOWLEDGE_GRAPH
         .read()
-        .map_err(|e| anyhow!("kg_entities: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("kg_entities", "the knowledge graph"))?;
 
     let entities: Vec<Value> = kg
         .entities
@@ -7696,7 +7696,7 @@ fn bi_kg_relations(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let _ = args;
     let kg = KNOWLEDGE_GRAPH
         .read()
-        .map_err(|e| anyhow!("kg_relations: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("kg_relations", "the knowledge graph"))?;
 
     let relations: Vec<Value> = kg
         .relations
@@ -7769,7 +7769,7 @@ fn bi_semantic_cache(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut cache = SEMANTIC_CACHE
         .write()
-        .map_err(|e| anyhow!("semantic_cache: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("semantic_cache", "the semantic cache"))?;
 
     cache.put(&query, &response);
 
@@ -7792,7 +7792,7 @@ fn bi_semantic_cache_get(args: Vec<Value>, input: Option<Value>) -> Result<Value
 
     let mut cache = SEMANTIC_CACHE
         .write()
-        .map_err(|e| anyhow!("semantic_cache_get: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("semantic_cache_get", "the semantic cache"))?;
 
     if let Some(response) = cache.get(&query) {
         let mut record = BTreeMap::new();
@@ -7811,7 +7811,7 @@ fn bi_semantic_cache_clear(args: Vec<Value>, _input: Option<Value>) -> Result<Va
     let _ = args;
     let mut cache = SEMANTIC_CACHE
         .write()
-        .map_err(|e| anyhow!("semantic_cache_clear: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("semantic_cache_clear", "the semantic cache"))?;
 
     let (count, _) = cache.stats();
     cache.clear();
@@ -10372,7 +10372,7 @@ fn bi_ai_detect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_ai_usage() -> Result<Value> {
     let tracker = crate::ai::COST_TRACKER
         .lock()
-        .map_err(|e| anyhow!("cost tracker lock: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("ai_usage", "the cost tracker"))?;
     let summary = tracker.summary();
     Ok(Value::from_json(&summary))
 }
@@ -10385,7 +10385,7 @@ fn bi_ai_usage() -> Result<Value> {
 fn bi_ai_cost() -> Result<Value> {
     let tracker = crate::ai::COST_TRACKER
         .lock()
-        .map_err(|e| anyhow!("cost tracker lock: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("ai_cost", "the cost tracker"))?;
     Ok(Value::Float(tracker.total_cost_usd))
 }
 
@@ -10398,7 +10398,7 @@ fn bi_ai_reset_usage(input: Option<Value>) -> Result<Value> {
     refuse_piped("ai_reset_usage", &input)?;
     let mut tracker = crate::ai::COST_TRACKER
         .lock()
-        .map_err(|e| anyhow!("cost tracker lock: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("ai_reset_usage", "the cost tracker"))?;
     tracker.reset();
     Ok(Value::Str("Usage tracking reset".to_string()))
 }
@@ -21118,7 +21118,7 @@ fn bi_sess_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     );
     let mut store = SESSIONS
         .lock()
-        .map_err(|_| anyhow!("session store poisoned"))?;
+        .map_err(|_| crate::safety::lock_poisoned("sess_open", "the session store"))?;
     if store.len() >= SESSION_MAX {
         return Err(crate::safety::budget_exceeded(
             "sess_open",
@@ -21175,7 +21175,7 @@ fn bi_sess_eval(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let mut session = {
         let mut store = SESSIONS
             .lock()
-            .map_err(|_| anyhow!("session store poisoned"))?;
+            .map_err(|_| crate::safety::lock_poisoned("sess_eval", "the session store"))?;
         match store.remove(&id) {
             Some(s) => s,
             None => return Err(crate::safety::not_found("sess_eval", "session", &id)),
@@ -21195,7 +21195,7 @@ fn bi_sess_eval(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     session.tokens_out += est_token_count(&out_str) as u64;
     SESSIONS
         .lock()
-        .map_err(|_| anyhow!("session store poisoned"))?
+        .map_err(|_| crate::safety::lock_poisoned("sess_eval", "the session store"))?
         .insert(id, session);
     result
 }
@@ -21216,7 +21216,7 @@ fn bi_sess_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     let store = SESSIONS
         .lock()
-        .map_err(|_| anyhow!("session store poisoned"))?;
+        .map_err(|_| crate::safety::lock_poisoned("sess_usage", "the session store"))?;
     match store.get(&id) {
         Some(s) => {
             let mut r = BTreeMap::new();
@@ -21247,7 +21247,7 @@ fn bi_sess_close(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     let existed = SESSIONS
         .lock()
-        .map_err(|_| anyhow!("session store poisoned"))?
+        .map_err(|_| crate::safety::lock_poisoned("sess_close", "the session store"))?
         .remove(&id)
         .is_some();
     let mut r = BTreeMap::new();
@@ -23407,7 +23407,7 @@ fn bi_finetune_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let jobs = FINETUNE_JOBS
         .read()
-        .map_err(|e| anyhow!("finetune_status: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("finetune_status", "the fine-tune job table"))?;
     let job = jobs
         .get(&job_id)
         .ok_or_else(|| crate::safety::not_found("finetune_status", "job", &job_id))?;
@@ -23455,7 +23455,7 @@ fn bi_finetune_cancel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut jobs = FINETUNE_JOBS
         .write()
-        .map_err(|e| anyhow!("finetune_cancel: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("finetune_cancel", "the fine-tune job table"))?;
 
     if let Some(job) = jobs.get_mut(&job_id) {
         match job.status {
@@ -44489,7 +44489,7 @@ fn bi_a2a_send(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     let registry = A2A_REGISTRY
         .read()
-        .map_err(|e| anyhow!("a2a_send: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("a2a_send", "the A2A agent registry"))?;
     if !registry.contains_key(&target) {
         return Err(crate::safety::not_found("a2a_send", "agent", &target));
     }
@@ -44497,7 +44497,7 @@ fn bi_a2a_send(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let mut messages = A2A_MESSAGES
         .write()
-        .map_err(|e| anyhow!("a2a_send: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("a2a_send", "the A2A message queue"))?;
     let queue = messages.entry(target.clone()).or_default();
     if queue.len() >= A2A_QUEUE_MAX {
         return Err(crate::safety::budget_exceeded(
@@ -44551,7 +44551,7 @@ fn bi_a2a_broadcast(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     let registry = A2A_REGISTRY
         .read()
-        .map_err(|e| anyhow!("a2a_broadcast: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("a2a_broadcast", "the A2A agent registry"))?;
     let agents: Vec<String> = registry.keys().cloned().collect();
     drop(registry);
     if agents.len() > A2A_BROADCAST_RECIPIENTS_MAX {
@@ -44566,7 +44566,7 @@ fn bi_a2a_broadcast(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     let mut messages = A2A_MESSAGES
         .write()
-        .map_err(|e| anyhow!("a2a_broadcast: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("a2a_broadcast", "the A2A message queue"))?;
     // Check every recipient's queue before pushing to any of them.
     for agent in &agents {
         if messages.get(agent).map_or(0, Vec::len) >= A2A_QUEUE_MAX {
@@ -44640,7 +44640,7 @@ fn bi_a2a_register(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     let mut registry = A2A_REGISTRY
         .write()
-        .map_err(|e| anyhow!("a2a_register: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("a2a_register", "the A2A agent registry"))?;
     // Re-registering a name replaces its info and does not grow the registry.
     if !registry.contains_key(&name) && registry.len() >= A2A_AGENTS_MAX {
         return Err(crate::safety::budget_exceeded(
@@ -44887,7 +44887,7 @@ fn bi_nanda_propose(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let id = format!("prop_{}", nanda_uuid());
     let mut proposals = NANDA_PROPOSALS
         .write()
-        .map_err(|e| anyhow!("nanda_propose: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("nanda_propose", "the NANDA proposal table"))?;
     if proposals.len() >= NANDA_MAX_PROPOSALS {
         let oldest_decided = proposals
             .iter()
@@ -44939,7 +44939,7 @@ fn bi_nanda_vote(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     let mut proposals = NANDA_PROPOSALS
         .write()
-        .map_err(|e| anyhow!("nanda_vote: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("nanda_vote", "the NANDA proposal table"))?;
     let p = proposals
         .get_mut(&proposal_id)
         .ok_or_else(|| crate::safety::not_found("nanda_vote", "proposal", &proposal_id))?;
@@ -44981,7 +44981,7 @@ fn bi_nanda_commit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let proposal_id = collab_text_arg("nanda_commit", "proposal_id", args.first(), 128)?;
     let mut proposals = NANDA_PROPOSALS
         .write()
-        .map_err(|e| anyhow!("nanda_commit: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("nanda_commit", "the NANDA proposal table"))?;
     let p = proposals
         .get_mut(&proposal_id)
         .ok_or_else(|| crate::safety::not_found("nanda_commit", "proposal", &proposal_id))?;
@@ -45037,7 +45037,7 @@ fn bi_nanda_abort(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let proposal_id = collab_text_arg("nanda_abort", "proposal_id", args.first(), 128)?;
     let mut proposals = NANDA_PROPOSALS
         .write()
-        .map_err(|e| anyhow!("nanda_abort: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("nanda_abort", "the NANDA proposal table"))?;
     let p = proposals
         .get_mut(&proposal_id)
         .ok_or_else(|| crate::safety::not_found("nanda_abort", "proposal", &proposal_id))?;
@@ -45064,7 +45064,7 @@ fn bi_nanda_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     refuse_piped_subject("nanda_status", &input)?;
     let proposals = NANDA_PROPOSALS
         .read()
-        .map_err(|e| anyhow!("nanda_status: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("nanda_status", "the NANDA proposal table"))?;
     match args.first() {
         None => Ok(Value::Array(
             proposals
@@ -45093,7 +45093,7 @@ fn bi_nanda_consensus(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let proposal_id = collab_text_arg("nanda_consensus", "proposal_id", args.first(), 128)?;
     let proposals = NANDA_PROPOSALS
         .read()
-        .map_err(|e| anyhow!("nanda_consensus: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("nanda_consensus", "the NANDA proposal table"))?;
     let p = proposals
         .get(&proposal_id)
         .ok_or_else(|| crate::safety::not_found("nanda_consensus", "proposal", &proposal_id))?;
@@ -45125,7 +45125,7 @@ fn bi_nanda_quorum(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let proposal_id = collab_text_arg("nanda_quorum", "proposal_id", args.first(), 128)?;
     let proposals = NANDA_PROPOSALS
         .read()
-        .map_err(|e| anyhow!("nanda_quorum: lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("nanda_quorum", "the NANDA proposal table"))?;
     let p = proposals
         .get(&proposal_id)
         .ok_or_else(|| crate::safety::not_found("nanda_quorum", "proposal", &proposal_id))?;
@@ -60338,7 +60338,7 @@ fn bi_cloud_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
         let mut guard = CLOUD_CONFIG
             .write()
-            .map_err(|e| anyhow!("lock error: {}", e))?;
+            .map_err(|_| crate::safety::lock_poisoned("cloud_config", "the cloud configuration"))?;
         *guard = Some(config);
 
         let mut rec = BTreeMap::new();
@@ -60354,7 +60354,7 @@ fn bi_cloud_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // Get config
         let guard = CLOUD_CONFIG
             .read()
-            .map_err(|e| anyhow!("lock error: {}", e))?;
+            .map_err(|_| crate::safety::lock_poisoned("cloud_config", "the cloud configuration"))?;
         if let Some(ref config) = *guard {
             let mut rec = BTreeMap::new();
             rec.insert("provider".to_string(), Value::Str(config.provider.clone()));
@@ -60427,7 +60427,7 @@ fn bi_repl_disconnect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let id = collab_text_arg("repl_disconnect", "session_id", args.first(), 128)?;
     let mut sessions = REPL_SESSIONS
         .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("repl_disconnect", "the REPL session table"))?;
     let session = sessions
         .remove(&id)
         .ok_or_else(|| crate::safety::not_found("repl_disconnect", "repl session", &id))?;
@@ -60508,7 +60508,7 @@ fn bi_workspace_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     let created_at = chrono::Local::now().to_rfc3339();
     let mut workspaces = WORKSPACES
         .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("workspace_create", "the workspace registry"))?;
     if workspaces.len() >= WORKSPACE_MAX {
         return Err(crate::safety::budget_exceeded(
             "workspace_create",
@@ -60550,7 +60550,7 @@ fn bi_workspace_join(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let user = get_current_username("workspace_join")?;
     let mut workspaces = WORKSPACES
         .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("workspace_join", "the workspace registry"))?;
     let ws = workspaces
         .get_mut(&ws_id)
         .ok_or_else(|| crate::safety::not_found("workspace_join", "workspace", &ws_id))?;
@@ -60593,7 +60593,7 @@ fn bi_workspace_leave(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let user = get_current_username("workspace_leave")?;
     let mut workspaces = WORKSPACES
         .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("workspace_leave", "the workspace registry"))?;
     let ws = workspaces
         .get_mut(&ws_id)
         .ok_or_else(|| crate::safety::not_found("workspace_leave", "workspace", &ws_id))?;
@@ -60627,7 +60627,7 @@ fn bi_workspace_members(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     let ws_id = collab_text_arg("workspace_members", "workspace_id", args.first(), 64)?;
     let workspaces = WORKSPACES
         .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("workspace_members", "the workspace registry"))?;
     let ws = workspaces
         .get(&ws_id)
         .ok_or_else(|| crate::safety::not_found("workspace_members", "workspace", &ws_id))?;
@@ -60652,9 +60652,9 @@ fn bi_workspace_share_agent(args: Vec<Value>, input: Option<Value>) -> Result<Va
     let ws_id = collab_text_arg("workspace_share_agent", "workspace_id", args.first(), 64)?;
     let agent = collab_text_arg("workspace_share_agent", "agent", args.get(1), 128)?;
     let user = get_current_username("workspace_share_agent")?;
-    let mut workspaces = WORKSPACES
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut workspaces = WORKSPACES.write().map_err(|_| {
+        crate::safety::lock_poisoned("workspace_share_agent", "the workspace registry")
+    })?;
     let ws = workspaces
         .get_mut(&ws_id)
         .ok_or_else(|| crate::safety::not_found("workspace_share_agent", "workspace", &ws_id))?;
@@ -60667,7 +60667,9 @@ fn bi_workspace_share_agent(args: Vec<Value>, input: Option<Value>) -> Result<Va
     }
     let registered = A2A_REGISTRY
         .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?
+        .map_err(|_| {
+            crate::safety::lock_poisoned("workspace_share_agent", "the A2A agent registry")
+        })?
         .contains_key(&agent);
     if !registered {
         return Err(crate::safety::not_found(
@@ -60711,7 +60713,7 @@ fn bi_workspace_agents(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     let ws_id = collab_text_arg("workspace_agents", "workspace_id", args.first(), 64)?;
     let workspaces = WORKSPACES
         .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("workspace_agents", "the workspace registry"))?;
     let ws = workspaces
         .get(&ws_id)
         .ok_or_else(|| crate::safety::not_found("workspace_agents", "workspace", &ws_id))?;
@@ -60729,7 +60731,7 @@ fn bi_workspace_sync(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let ws_id = collab_text_arg("workspace_sync", "workspace_id", args.first(), 64)?;
     let workspaces = WORKSPACES
         .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("workspace_sync", "the workspace registry"))?;
     if !workspaces.contains_key(&ws_id) {
         return Err(crate::safety::not_found(
             "workspace_sync",
@@ -60749,7 +60751,7 @@ fn bi_workspace_sync(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_repl_sessions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let sessions = REPL_SESSIONS
         .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("repl_sessions", "the REPL session table"))?;
     let entries: Vec<Value> = sessions
         .values()
         .map(|s| {
@@ -60777,7 +60779,7 @@ fn bi_repl_sessions(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_workspace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let workspaces = WORKSPACES
         .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("workspace_list", "the workspace registry"))?;
     let user = get_current_username("workspace_list")?;
     let entries: Vec<Value> = workspaces
         .values()
@@ -61019,7 +61021,9 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     };
     MARKETPLACE_PACKAGES
         .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?
+        .map_err(|_| {
+            crate::safety::lock_poisoned("marketplace_publish", "the marketplace package cache")
+        })?
         .insert(name.clone(), package);
 
     let mut rec = BTreeMap::new();
@@ -61128,9 +61132,9 @@ fn bi_marketplace_search(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     };
 
     // Fall back to local cache
-    let packages = MARKETPLACE_PACKAGES
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let packages = MARKETPLACE_PACKAGES.read().map_err(|_| {
+        crate::safety::lock_poisoned("marketplace_search", "the marketplace package cache")
+    })?;
     let results: Vec<Value> = packages
         .values()
         .filter(|pkg| {
@@ -61288,9 +61292,9 @@ fn bi_marketplace_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<V
             "a package name string",
         )?,
     )?;
-    let mut packages = MARKETPLACE_PACKAGES
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut packages = MARKETPLACE_PACKAGES.write().map_err(|_| {
+        crate::safety::lock_poisoned("marketplace_uninstall", "the marketplace package cache")
+    })?;
     let Some(pkg) = packages.get_mut(&name) else {
         return Err(crate::safety::not_found(
             "marketplace_uninstall",
@@ -61333,9 +61337,9 @@ fn bi_marketplace_uninstall(args: Vec<Value>, _input: Option<Value>) -> Result<V
 /// List installed marketplace packages.
 /// Usage: marketplace.list()
 fn bi_marketplace_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let packages = MARKETPLACE_PACKAGES
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let packages = MARKETPLACE_PACKAGES.read().map_err(|_| {
+        crate::safety::lock_poisoned("marketplace_list", "the marketplace package cache")
+    })?;
     let installed: Vec<Value> = packages
         .values()
         .filter(|pkg| pkg.installed)
@@ -61369,9 +61373,9 @@ fn bi_marketplace_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Err(e) => Some(e),
     };
 
-    let packages = MARKETPLACE_PACKAGES
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let packages = MARKETPLACE_PACKAGES.read().map_err(|_| {
+        crate::safety::lock_poisoned("marketplace_info", "the marketplace package cache")
+    })?;
     if let Some(pkg) = packages.get(&name) {
         return Ok(marketplace_package_to_value(pkg));
     }
@@ -61408,9 +61412,9 @@ fn bi_marketplace_rate(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             &format!("{score}"),
         ));
     }
-    let mut packages = MARKETPLACE_PACKAGES
-        .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let mut packages = MARKETPLACE_PACKAGES.write().map_err(|_| {
+        crate::safety::lock_poisoned("marketplace_rate", "the marketplace package cache")
+    })?;
     let Some(pkg) = packages.get_mut(&name) else {
         return Err(crate::safety::not_found(
             "marketplace_rate",
@@ -61450,9 +61454,9 @@ fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     // What to check, decided from the local catalogue before any request, so a
     // name that is absent or not installed costs no network round trip.
     let targets: Vec<(String, String)> = {
-        let packages = MARKETPLACE_PACKAGES
-            .read()
-            .map_err(|e| anyhow!("lock error: {}", e))?;
+        let packages = MARKETPLACE_PACKAGES.read().map_err(|_| {
+            crate::safety::lock_poisoned("marketplace_update", "the marketplace package cache")
+        })?;
         match &single {
             Some(name) => match packages.get(name) {
                 None => {
@@ -61531,7 +61535,7 @@ fn bi_marketplace_update(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 fn bi_telemetry_enable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut enabled = TELEMETRY_ENABLED
         .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("telemetry_enable", "the telemetry switch"))?;
     *enabled = true;
 
     // Record the opt-in event
@@ -61565,7 +61569,7 @@ fn bi_telemetry_enable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value
 fn bi_telemetry_disable(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut enabled = TELEMETRY_ENABLED
         .write()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("telemetry_disable", "the telemetry switch"))?;
     *enabled = false;
 
     let mut rec = BTreeMap::new();
@@ -61582,10 +61586,10 @@ fn bi_telemetry_disable(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
 fn bi_telemetry_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let enabled = TELEMETRY_ENABLED
         .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
-    let events = TELEMETRY_EVENTS
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+        .map_err(|_| crate::safety::lock_poisoned("telemetry_status", "the telemetry switch"))?;
+    let events = TELEMETRY_EVENTS.read().map_err(|_| {
+        crate::safety::lock_poisoned("telemetry_status", "the telemetry event buffer")
+    })?;
 
     let mut rec = BTreeMap::new();
     rec.insert("enabled".to_string(), Value::Bool(*enabled));
@@ -61628,9 +61632,9 @@ fn bi_telemetry_report(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         }
     });
 
-    let events = TELEMETRY_EVENTS
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let events = TELEMETRY_EVENTS.read().map_err(|_| {
+        crate::safety::lock_poisoned("telemetry_report", "the telemetry event buffer")
+    })?;
 
     // Group by category
     let mut by_category: BTreeMap<String, i64> = BTreeMap::new();
@@ -61687,9 +61691,9 @@ fn bi_telemetry_events(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         Some(Value::Int(n)) => *n as usize,
         _ => 100,
     };
-    let events = TELEMETRY_EVENTS
-        .read()
-        .map_err(|e| anyhow!("lock error: {}", e))?;
+    let events = TELEMETRY_EVENTS.read().map_err(|_| {
+        crate::safety::lock_poisoned("telemetry_events", "the telemetry event buffer")
+    })?;
     let entries: Vec<Value> = events
         .iter()
         .rev()
@@ -61727,9 +61731,9 @@ fn bi_telemetry_reset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     }
     // Clears the in-process event buffer only. Nothing on disk is read or
     // removed, so the status says exactly that.
-    let mut events = TELEMETRY_EVENTS
-        .write()
-        .map_err(|e| anyhow!("telemetry_reset: lock error: {}", e))?;
+    let mut events = TELEMETRY_EVENTS.write().map_err(|_| {
+        crate::safety::lock_poisoned("telemetry_reset", "the telemetry event buffer")
+    })?;
     let count = events.len();
     events.clear();
 

@@ -4,8 +4,8 @@
 //! API as `E_UNKNOWN`: the caller learns that something failed, and nothing
 //! about whose fault it was or what to change. A caller-input error is coded
 //! with `crate::safety::arg_err` (or `bad_arg`, `budget_exceeded`). What stays
-//! uncoded is deliberate: lock and poisoning faults,
-//! protocol and tool-output faults, environment faults such
+//! uncoded is deliberate: protocol and tool-output faults, environment
+//! faults such
 //! as "no container runtime", and the `reserved builtin slot` placeholders,
 //! which are excluded from the count below. The three placeholders written
 //! over several lines do not contain that phrase on their `anyhow!(` line, so
@@ -17,11 +17,13 @@
 //!
 //! It was 109 before the caller-input conversions, 89 after them, and 87 after
 //! the coded-errors pass (the container runtime, provider default, save_json
-//! and ls sites), then 86 once apply passed tx::begin's coded error through. The ceiling may only fall: lower `UNCODED_MAX` whenever a
-//! site is coded, and do not raise it to admit a new uncoded error; code the
-//! error instead.
+//! and ls sites), then 86 once apply passed tx::begin's coded error through,
+//! then 8 once the lock-poisoning sites moved to
+//! `crate::safety::lock_poisoned` (E_BAD_STATE). The ceiling may only fall:
+//! lower `UNCODED_MAX` whenever a site is coded, and do not raise it to admit
+//! a new uncoded error; code the error instead.
 
-const UNCODED_MAX: usize = 86;
+const UNCODED_MAX: usize = 8;
 
 fn count_uncoded(src: &str) -> usize {
     src.lines()

@@ -1633,6 +1633,30 @@ pub fn bad_state(builtin: &str, state: &str, needs: &str) -> anyhow::Error {
     })
 }
 
+/// Build the error for a lock that an earlier call left poisoned (`E_BAD_STATE`).
+///
+/// A poisoned lock means an earlier call in this process panicked while it
+/// held the lock, so the state behind it may be half-written. No other builtin
+/// clears that, so the fix is a restart, not a different call. That is why
+/// this does not reuse [`bad_state`]: its hint ("call X first") would send a
+/// caller to a builtin that cannot clear the poison.
+pub fn lock_poisoned(builtin: &str, what: &str) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::BadState,
+        message: format!(
+            "{builtin}: {what} is unusable: an earlier call panicked while holding its lock"
+        ),
+        builtin: builtin.to_string(),
+        hint:
+            "restart the shell; this process's copy of that state cannot be trusted after the panic"
+                .to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "a lock no earlier call left poisoned".to_string(),
+        got: "a poisoned lock".to_string(),
+    })
+}
+
 /// Build a structured "no such thing" error (`E_NOT_FOUND`).
 ///
 /// `kind` is what was being looked up ("job", "key"), `name` the identifier
@@ -5949,5 +5973,38 @@ mod tests {
         assert!(!same_existing_file(&a, &missing));
         assert!(!same_existing_file(&missing, &missing));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn lock_poisoned_is_bad_state_and_names_the_builtin() {
+        let err = lock_poisoned("feature_set", "the feature table");
+        let se = err.downcast_ref::<SafetyError>().expect("a SafetyError");
+        assert_eq!(se.code, ErrorCode::BadState);
+        assert!(se.message.contains("feature_set"), "{}", se.message);
+        assert_eq!(se.builtin, "feature_set");
+    }
+
+    fn lock_feature_table(m: &std::sync::Mutex<u32>) -> anyhow::Result<u32> {
+        let g = m
+            .lock()
+            .map_err(|_| lock_poisoned("feature_set", "the feature table"))?;
+        Ok(*g)
+    }
+
+    #[test]
+    fn a_poisoned_mutex_maps_to_bad_state() {
+        let m = std::sync::Arc::new(std::sync::Mutex::new(7u32));
+        let held = std::sync::Arc::clone(&m);
+        let joined = std::thread::spawn(move || {
+            let _guard = held.lock().unwrap();
+            panic!("poison the lock for the test");
+        })
+        .join();
+        assert!(joined.is_err(), "the thread must have panicked");
+
+        let err = lock_feature_table(&m).expect_err("a poisoned mutex must not lock");
+        let se = err.downcast_ref::<SafetyError>().expect("a SafetyError");
+        assert_eq!(se.code, ErrorCode::BadState);
+        assert!(se.message.contains("feature_set"), "{}", se.message);
     }
 }
