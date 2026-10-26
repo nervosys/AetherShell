@@ -2834,7 +2834,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("start_or_count", Ty::Int, "count when alone, start when an end follows"), opt("end", Ty::Int, "exclusive upper bound")],
         returns: "Array",
-        doc: "A range of integers: range(n) is 0..n, range(a, b) is a..b.",
+        doc: "A range of integers: range(n) is 0..n, range(a, b) is a..b. At most 10,000,000 elements; a longer range is refused with BudgetExceeded before anything is built.",
         examples: &[("range(3) | len", "3"), ("range(1, 4) | first", "1")],
     },
     Signature {

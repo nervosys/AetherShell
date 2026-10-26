@@ -4485,11 +4485,11 @@ fn call_lambda(lam: &Lambda, args: &[Value], env: &mut Env) -> Result<Value> {
 
     let params = &lam.params;
     if params.len() != args.len() {
-        return Err(anyhow!(
+        return Err(crate::safety::arg_err(format!(
             "lambda expected {} args, got {}",
             params.len(),
             args.len()
-        ));
+        )));
     }
 
     // Save and clear pipe input to prevent it from leaking into lambda
@@ -4524,11 +4524,11 @@ pub(crate) fn call_lambda_owned(
 ) -> Result<(Value, Vec<Value>)> {
     let _depth = crate::safety::enter_call()?;
     if lam.params.len() != args.len() {
-        return Err(anyhow!(
+        return Err(crate::safety::arg_err(format!(
             "lambda expected {} args, got {}",
             lam.params.len(),
             args.len()
-        ));
+        )));
     }
     let saved_pipe = env.take_input();
     let (result, back) = bind_eval_unbind(lam, args, env, give_back);
@@ -4547,7 +4547,10 @@ pub(crate) fn call_lambda_one(
 ) -> Result<(Value, Option<Value>)> {
     let _depth = crate::safety::enter_call()?;
     let [p] = lam.params.as_slice() else {
-        return Err(anyhow!("lambda expected {} args, got 1", lam.params.len()));
+        return Err(crate::safety::arg_err(format!(
+            "lambda expected {} args, got 1",
+            lam.params.len()
+        )));
     };
     let saved_pipe = env.take_input();
     let prev = env.replace_param(p, arg);
@@ -5004,7 +5007,12 @@ fn bi_where(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
             match keep_val {
                 Value::Bool(true) => out.push(v),
                 Value::Bool(false) => {}
-                other => return Err(anyhow!("where predicate must return Bool, got {:?}", other)),
+                other => {
+                    return Err(crate::safety::arg_err(format!(
+                        "where predicate must return Bool, got {:?}",
+                        other
+                    )))
+                }
             }
         }
         Ok(Value::Array(out))
@@ -5159,10 +5167,10 @@ fn bi_sum(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                         float_sum += f;
                     }
                     _ => {
-                        return Err(anyhow!(
+                        return Err(crate::safety::arg_err(format!(
                             "sum: array must contain only numbers, got {:?}",
                             item
-                        ))
+                        )))
                     }
                 }
             }
@@ -5251,10 +5259,10 @@ fn bi_avg(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     Value::Int(n) => sum += *n as f64,
                     Value::Float(f) => sum += *f,
                     _ => {
-                        return Err(anyhow!(
+                        return Err(crate::safety::arg_err(format!(
                             "avg: array must contain only numbers, got {:?}",
                             item
-                        ))
+                        )))
                     }
                 }
             }
@@ -5445,8 +5453,8 @@ fn bi_config(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Get a specific config value by path (e.g., "colors.theme" or "ai.default_model")
 fn bi_config_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!(
-            "config_get: requires a path argument (e.g., \"colors.theme\")"
+        return Err(crate::safety::arg_err(
+            "config_get: requires a path argument (e.g., \"colors.theme\")",
         ));
     }
 
@@ -5879,10 +5887,10 @@ fn bi_len(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Value::Record(ref m) => m.len(),
         Value::Str(ref s) => s.len(),
         _ => {
-            return Err(anyhow!(
+            return Err(crate::safety::arg_err(format!(
                 "len: requires Array, Record, or String, got {:?}",
                 val
-            ));
+            )));
         }
     };
 
@@ -8131,7 +8139,7 @@ fn bi_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let metadata = fs::metadata(&path).with_context(|| "ls: failed to read file metadata")?;
         let name = path
             .file_name()
-            .ok_or_else(|| anyhow!("ls: invalid filename"))?
+            .ok_or_else(|| crate::safety::arg_err("ls: invalid filename"))?
             .to_string_lossy()
             .to_string();
 
@@ -8177,7 +8185,7 @@ fn bi_cat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 
     if args.is_empty() {
-        return Err(anyhow!("cat: no file specified"));
+        return Err(crate::safety::arg_err("cat: no file specified"));
     }
 
     let path_str = match &args[0] {
@@ -8231,7 +8239,7 @@ fn cat_one(path_str: &str) -> Result<String> {
 
 fn bi_read_text(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
-        return Err(anyhow!("read_text: no file specified"));
+        return Err(crate::safety::arg_err("read_text: no file specified"));
     }
 
     let path_str = match &args[0] {
@@ -9306,7 +9314,9 @@ fn bi_group_object(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
             Ok(Value::Array(result))
         }
-        _ => Err(anyhow!("Group-Object: input must be an array")),
+        _ => Err(crate::safety::arg_err(
+            "Group-Object: input must be an array",
+        )),
     }
 }
 
@@ -9600,7 +9610,9 @@ fn bi_to_csv(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
             Ok(Value::Str(csv_output))
         }
-        _ => Err(anyhow!("to-csv: input must be an array of records")),
+        _ => Err(crate::safety::arg_err(
+            "to-csv: input must be an array of records",
+        )),
     }
 }
 
@@ -9638,7 +9650,7 @@ fn bi_from_yaml(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             None => return Err(crate::safety::arg_err("from-yaml: requires YAML input")),
         },
     };
-    crate::yaml::parse(&yaml_str).map_err(|e| anyhow!("from-yaml: {e}"))
+    crate::yaml::parse(&yaml_str).map_err(|e| crate::safety::arg_err(format!("from-yaml: {e}")))
 }
 
 /// to-yaml: Convert structured data to YAML.
@@ -10102,10 +10114,10 @@ fn bi_ai_fix(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<V
 /// Returns: Record with _tag="Some" and _value=<arg>
 fn bi_some(args: Vec<Value>) -> Result<Value> {
     if args.len() != 1 {
-        return Err(anyhow!(
+        return Err(crate::safety::arg_err(format!(
             "Some expects exactly 1 argument, got {}",
             args.len()
-        ));
+        )));
     }
 
     let mut record = BTreeMap::new();
@@ -13055,6 +13067,11 @@ fn bi_slice(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
+/// Most elements `range` will build. A longer range is refused before any
+/// element is allocated, as a coded `BudgetExceeded` error, so
+/// `range(0, 1000000000000)` cannot exhaust memory.
+const RANGE_MAX: i128 = 10_000_000;
+
 /// range(start, end?, step?) - Generate array of integers
 /// Args:
 ///   - start: Int - Start value (or end if only one arg)
@@ -13093,22 +13110,35 @@ fn bi_range(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
 
     if step == 0 {
-        return Err(anyhow!("range step cannot be zero"));
+        return Err(crate::safety::arg_err("range step cannot be zero"));
     }
 
-    let mut result = Vec::new();
-    let mut current = start;
-
-    if step > 0 {
-        while current < end {
-            result.push(Value::Int(current));
-            current += step;
+    // Count first, in i128, so no step or offset can overflow i64. The count
+    // is refused before anything is allocated.
+    let (s, e, st) = (start as i128, end as i128, step as i128);
+    let count: i128 = if st > 0 {
+        if s < e {
+            (e - s + st - 1) / st
+        } else {
+            0
         }
+    } else if s > e {
+        (s - e - st - 1) / -st
     } else {
-        while current > end {
-            result.push(Value::Int(current));
-            current += step;
-        }
+        0
+    };
+    if count > RANGE_MAX {
+        return Err(crate::safety::budget_exceeded(
+            "range",
+            format!("{count} elements exceed the {RANGE_MAX} element limit"),
+            "iterate in chunks, or use a smaller range",
+        ));
+    }
+
+    let mut result = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        // Each element lies between start and end, so it fits in i64.
+        result.push(Value::Int((s + i * st) as i64));
     }
 
     Ok(Value::Array(result))
@@ -15599,7 +15629,10 @@ fn value_to_f64(v: &Value) -> Result<f64> {
     match v {
         Value::Float(f) => Ok(*f),
         Value::Int(i) => Ok(*i as f64),
-        _ => Err(anyhow!("Expected numeric value, got {:?}", v)),
+        _ => Err(crate::safety::arg_err(format!(
+            "Expected numeric value, got {:?}",
+            v
+        ))),
     }
 }
 
@@ -20314,10 +20347,10 @@ fn parse_plan_ops(ops: &Value) -> Result<Vec<(String, String, Option<String>, Op
         let m = match e {
             Value::Record(m) => m,
             _ => {
-                return Err(anyhow!(
+                return Err(crate::safety::arg_err(format!(
                     "plan: op #{} must be a record {{op, path, content?}}",
                     i
-                ))
+                )))
             }
         };
         let op = match m.get("op") {
@@ -20362,11 +20395,10 @@ fn parse_plan_ops(ops: &Value) -> Result<Vec<(String, String, Option<String>, Op
             }
             "write" | "append" | "rm" | "mkdir" | "copy" | "move" => {}
             other => {
-                return Err(anyhow!(
+                return Err(crate::safety::arg_err(format!(
                     "plan: op #{} unsupported op '{}' (expected write|append|rm|mkdir|copy|move)",
-                    i,
-                    other
-                ))
+                    i, other
+                )))
             }
         }
         out.push((op, path, content, dest));
@@ -46048,7 +46080,9 @@ fn search_find(builtin: &str, predicates: &[&str]) -> Result<Vec<String>> {
             (other, _) => {
                 // Only reachable by a change to this file, never by a caller:
                 // every predicate list is a literal above.
-                return Err(anyhow!("{builtin}: unsupported search predicate {other}"));
+                return Err(crate::safety::arg_err(format!(
+                    "{builtin}: unsupported search predicate {other}"
+                )));
             }
         }
     }
@@ -56833,18 +56867,9 @@ fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             format!("{}/.ssh/config", home)
         }
     };
-    let content = read_text_capped("ssh_config", &config_path).map_err(|e| {
-        // Every read failure stays "not found", as before. Only an over-limit
-        // file keeps its own answer.
-        let over_limit = e
-            .downcast_ref::<crate::safety::SafetyError>()
-            .is_some_and(|s| matches!(s.code, crate::safety::ErrorCode::BudgetExceeded));
-        if over_limit {
-            e
-        } else {
-            crate::safety::not_found("ssh_config", "ssh config file", &config_path)
-        }
-    })?;
+    // A missing file is E_NOT_FOUND from the read; a denied or oversized one
+    // keeps its own code. Every failure used to read as "not found".
+    let content = read_text_capped("ssh_config", &config_path)?;
     let mut hosts: Vec<Value> = Vec::new();
     let mut current: Option<BTreeMap<String, Value>> = None;
     for line in content.lines() {
@@ -67547,5 +67572,81 @@ mod walk_cap_tests {
         let result = walk_entries_capped(&dir, 100, 5);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(result.unwrap().len(), 5);
+    }
+}
+
+#[cfg(test)]
+mod range_cap_tests {
+    use super::*;
+    use crate::safety::ErrorCode;
+
+    fn ints(args: Vec<Value>) -> Result<Vec<i64>> {
+        match bi_range(args, None)? {
+            Value::Array(items) => Ok(items
+                .into_iter()
+                .map(|v| match v {
+                    Value::Int(n) => n,
+                    other => panic!("expected Int, got {:?}", other),
+                })
+                .collect()),
+            other => panic!("expected Array, got {:?}", other),
+        }
+    }
+
+    fn code_of(err: anyhow::Error) -> ErrorCode {
+        err.downcast_ref::<crate::safety::SafetyError>()
+            .map(|s| s.code)
+            .expect("a SafetyError")
+    }
+
+    #[test]
+    fn plain_ranges_are_unchanged() {
+        assert_eq!(ints(vec![Value::Int(5)]).unwrap(), vec![0, 1, 2, 3, 4]);
+        assert_eq!(
+            ints(vec![Value::Int(0), Value::Int(10), Value::Int(3)]).unwrap(),
+            vec![0, 3, 6, 9]
+        );
+        assert_eq!(
+            ints(vec![Value::Int(5), Value::Int(0), Value::Int(-2)]).unwrap(),
+            vec![5, 3, 1]
+        );
+    }
+
+    #[test]
+    fn oversized_range_is_refused_before_allocation() {
+        match bi_range(vec![Value::Int(0), Value::Int(20_000_000)], None) {
+            Ok(_) => panic!("a 20,000,000 element range must be refused"),
+            Err(e) => assert_eq!(code_of(e), ErrorCode::BudgetExceeded),
+        }
+    }
+
+    #[test]
+    fn zero_step_is_a_bad_argument() {
+        match bi_range(vec![Value::Int(0), Value::Int(1), Value::Int(0)], None) {
+            Ok(_) => panic!("a zero step must be refused"),
+            Err(e) => assert_eq!(code_of(e), ErrorCode::BadArg),
+        }
+    }
+
+    #[test]
+    fn range_near_the_i64_limits_does_not_overflow() {
+        assert_eq!(
+            ints(vec![
+                Value::Int(9_223_372_036_854_775_800),
+                Value::Int(9_223_372_036_854_775_807),
+                Value::Int(100),
+            ])
+            .unwrap(),
+            vec![9_223_372_036_854_775_800]
+        );
+        assert_eq!(
+            ints(vec![
+                Value::Int(-9_223_372_036_854_775_803),
+                Value::Int(-9_223_372_036_854_775_808),
+                Value::Int(-100),
+            ])
+            .unwrap(),
+            vec![-9_223_372_036_854_775_803]
+        );
     }
 }
