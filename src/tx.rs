@@ -45,13 +45,62 @@ struct Undo {
 }
 
 /// Permissions (and on Unix uid/gid) of the path as resolved through symlinks,
-/// matching what `fs_chmod`/`fs_chown` change.
+/// matching what `fs_chmod`/`fs_chown` change, plus its modified and accessed
+/// times, which `touch` changes. Either time is `None` where the platform or
+/// filesystem does not report it; such a time is left alone on restore.
 struct MetaSnap {
     permissions: std::fs::Permissions,
     #[cfg(unix)]
     uid: u32,
     #[cfg(unix)]
     gid: u32,
+    modified: Option<std::time::SystemTime>,
+    accessed: Option<std::time::SystemTime>,
+}
+
+/// Set a path's modified and accessed times (a `None` leaves that time as it
+/// is). Setting times needs a handle with write access, which a read-only file
+/// refuses (on Windows always; on Unix for a non-owner). In that case the file
+/// is made writable for this call only: `restore_one` restores the recorded
+/// mode after it, so the temporary bits never outlive the rollback. That is
+/// why the `set_readonly(false)` lint (which flags world-writable files) is
+/// allowed here.
+#[allow(clippy::permissions_set_readonly_false)]
+fn set_times_of(
+    path: &Path,
+    accessed: Option<std::time::SystemTime>,
+    modified: Option<std::time::SystemTime>,
+) -> std::io::Result<()> {
+    let mut times = std::fs::FileTimes::new();
+    if let Some(t) = accessed {
+        times = times.set_accessed(t);
+    }
+    if let Some(t) = modified {
+        times = times.set_modified(t);
+    }
+    let open = || std::fs::File::options().write(true).open(path);
+    let file = match open() {
+        Ok(f) => f,
+        Err(e) => {
+            let mut perms = std::fs::metadata(path)?.permissions();
+            if !perms.readonly() {
+                return Err(e);
+            }
+            // Only the owner's write bit, for as long as the times take; the
+            // recorded mode goes back on right after. `set_readonly(false)`
+            // on Unix would make the file writable by everyone meanwhile.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                perms.set_mode(perms.mode() | 0o200);
+            }
+            #[cfg(not(unix))]
+            perms.set_readonly(false);
+            std::fs::set_permissions(path, perms)?;
+            open()?
+        }
+    };
+    file.set_times(times)
 }
 
 /// Recursively copy a directory tree `src` → `dst` (files and subdirectories;
@@ -148,12 +197,27 @@ struct TxState {
 fn restore_one(u: &Undo) -> std::result::Result<bool, String> {
     let at = u.original.display();
     if let Some(m) = &u.meta {
-        // Owner first: chown can clear setuid/setgid bits, so the mode goes last.
+        // Order: owner, then times, then the mode, last. chown can clear
+        // setuid/setgid bits, so the mode follows it. Times need a writable
+        // file, and the recorded mode may be read-only (the file was read-only
+        // before the transaction, or fs_chmod made it so inside it): applying
+        // that mode first would make the times write fail on Windows. Times
+        // come first, and `set_times_of` copes with a file that is read-only
+        // right now. The mode is applied even when the times fail, so a failed
+        // time restore never leaves the wrong mode behind; the failure is still
+        // reported.
         #[cfg(unix)]
         std::os::unix::fs::chown(&u.original, Some(m.uid), Some(m.gid))
             .map_err(|e| format!("`{at}` owner: {e}"))?;
+        let times = if m.modified.is_some() || m.accessed.is_some() {
+            set_times_of(&u.original, m.accessed, m.modified)
+                .map_err(|e| format!("`{at}` times: {e}"))
+        } else {
+            Ok(())
+        };
         std::fs::set_permissions(&u.original, m.permissions.clone())
             .map_err(|e| format!("`{at}` permissions: {e}"))?;
+        times?;
         return Ok(true);
     }
     if u.existed {
@@ -345,8 +409,8 @@ pub fn snapshot(path: &str) {
     });
 }
 
-/// Record the permissions (and, on Unix, uid/gid) of `path` in the innermost
-/// frame, without backing up content. Symlinks are followed, matching `fs_chmod`
+/// Record the permissions, the modified and accessed times (and, on Unix,
+/// uid/gid) of `path` in the innermost frame, without backing up content. Symlinks are followed, matching `fs_chmod`
 /// and `fs_chown`. No-op when inactive, when the frame already captured this
 /// path's metadata, or when the path cannot be inspected (the change will then
 /// fail on its own).
@@ -388,6 +452,8 @@ pub fn snapshot_metadata(path: &str) {
             uid,
             #[cfg(unix)]
             gid,
+            modified: md.modified().ok(),
+            accessed: md.accessed().ok(),
         }),
     });
 }
