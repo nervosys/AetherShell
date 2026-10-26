@@ -221,6 +221,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Backups now copy the content regardless, and a change that cannot be put
   back is `E_IO` naming the path, with the journal kept for recovery.
   `try_repair` reports `restore_error` and is then not retryable.
+- **A rollback puts back timestamps, and `apply` checks before it acts**:
+  rolling back a `touch` restored the file but left its new modified time;
+  the backup now records modified and accessed times and restores them.
+  `apply` ran each op's workspace check just before that op, so a plan
+  refused at its third op had already written the first two; every op is now
+  checked before the transaction opens, a copy or move onto its own source
+  is refused, relative paths are resolved once, and `write` is atomic.
+  `session_export` and `platform_db_export` replace an existing file
+  atomically too.
+- **Archives cannot write outside their destination**: `zip_extract` and
+  `tar_extract` now list every entry first and refuse the whole archive with
+  `E_POLICY_DENY` if any name is absolute or climbs out with `..`, or any
+  symlink or hard link points outside. A bzip2, xz or zstd tar has its member
+  names checked through `tar -tf`; its link targets are left to tar's own
+  protection.
 - **Atomic writes keep the file's mode and survive a crash**: overwriting a
   file through `file_write`, `file_patch`, `file_edit`, `sed` and the rest
   replaced its permissions (an executable script lost its execute bit), did
