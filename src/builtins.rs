@@ -38310,15 +38310,17 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut child = std::process::Command::new("pbcopy")
+        let child = std::process::Command::new("pbcopy")
             .stdin(std::process::Stdio::piped())
             .spawn()
             .map_err(|e| crate::safety::spawn_error(NAME, "pbcopy", &e))?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            use std::io::Write;
-            stdin.write_all(text.as_bytes())?;
-        }
-        let status = child.wait()?;
+        let status = feed_stdin_and_wait(
+            NAME,
+            "pbcopy",
+            child,
+            text.as_bytes().to_vec(),
+            TOOL_DEADLINE_SECS,
+        )?;
         if !status.success() {
             return Err(crate::safety::tool_failed(
                 NAME,
@@ -38334,7 +38336,7 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         linux_x11_clipboard_display(NAME)?;
         // xclip first, xsel when xclip is not installed. A tool that is
         // installed and fails is an error, whichever it is.
-        let (tool, mut child) = match std::process::Command::new("xclip")
+        let (tool, child) = match std::process::Command::new("xclip")
             .args(["-selection", "clipboard"])
             .stdin(std::process::Stdio::piped())
             .spawn()
@@ -38350,11 +38352,13 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ),
             Err(e) => return Err(crate::safety::spawn_error(NAME, "xclip", &e)),
         };
-        if let Some(stdin) = child.stdin.as_mut() {
-            use std::io::Write;
-            stdin.write_all(text.as_bytes())?;
-        }
-        let status = child.wait()?;
+        let status = feed_stdin_and_wait(
+            NAME,
+            tool,
+            child,
+            text.as_bytes().to_vec(),
+            TOOL_DEADLINE_SECS,
+        )?;
         if !status.success() {
             return Err(crate::safety::tool_failed(
                 NAME,
@@ -41314,6 +41318,103 @@ fn bi_clipboard_set_image(args: Vec<Value>, input: Option<Value>) -> Result<Valu
     }
 }
 
+/// Hand `input` to a clipboard helper on its stdin and wait for it, with a
+/// deadline. `child` must have been spawned with a piped stdin. Its stdout and
+/// stderr are left however the caller set them and are never read here: a
+/// clipboard holder forked by xclip keeps the inherited handles open, so
+/// waiting on them would wait for the holder as well.
+///
+/// The write runs on its own thread and the pipe is closed when it finishes,
+/// so a helper that stops reading cannot block the caller. Past `deadline_secs`
+/// the child is killed and reaped, and the call is a coded budget error. A
+/// BrokenPipe means the helper exited before reading everything. That is not an
+/// error here: the exit status decides, and the caller judges it as before.
+/// Any other write failure is a coded tool error.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+fn feed_stdin_and_wait(
+    builtin: &str,
+    tool: &str,
+    mut child: std::process::Child,
+    input: Vec<u8>,
+    deadline_secs: u64,
+) -> Result<std::process::ExitStatus> {
+    use std::io::Write;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(crate::safety::tool_failed(
+            builtin,
+            tool,
+            None,
+            "its stdin was not piped",
+        ));
+    };
+    let (tx, rx) = mpsc::channel::<std::io::Result<()>>();
+    std::thread::spawn(move || {
+        let written = stdin.write_all(&input);
+        // Dropping the pipe here is what lets the helper see end of input.
+        drop(stdin);
+        let _ = tx.send(written);
+    });
+    let deadline = Instant::now() + Duration::from_secs(deadline_secs);
+    let mut write: Option<std::io::Result<()>> = None;
+    let status = loop {
+        if write.is_none() {
+            write = rx.try_recv().ok();
+        }
+        if let Some(Err(e)) = &write {
+            if e.kind() != std::io::ErrorKind::BrokenPipe {
+                let message = format!("writing its input failed: {e}");
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::safety::tool_failed(builtin, tool, None, &message));
+            }
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::safety::budget_exceeded(
+                    builtin,
+                    format!("`{tool}` did not finish within {deadline_secs} s and was stopped"),
+                    "the clipboard may be unchanged; check it, then retry",
+                ));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::safety::tool_failed(
+                    builtin,
+                    tool,
+                    None,
+                    &e.to_string(),
+                ));
+            }
+        }
+    };
+    if write.is_none() {
+        // The helper has exited; the write has at most a moment left to report.
+        write = rx.recv_timeout(Duration::from_millis(200)).ok();
+    }
+    match write {
+        Some(Err(e)) if e.kind() != std::io::ErrorKind::BrokenPipe => {
+            Err(crate::safety::tool_failed(
+                builtin,
+                tool,
+                None,
+                &format!("writing its input failed: {e}"),
+            ))
+        }
+        _ => Ok(status),
+    }
+}
+
 /// Hand `bytes` to xclip or wl-copy as `mime`.
 ///
 /// Not through bounded_cmd_output or run_tree, on purpose. Both tools fork a
@@ -41322,11 +41423,9 @@ fn bi_clipboard_set_image(args: Vec<Value>, input: Option<Value>) -> Result<Valu
 /// the child: it would kill the holder and empty the clipboard again. So the
 /// tool keeps this shell's process group, gets null stdout and stderr (the
 /// holder keeps no pipe of ours), and only the direct child is waited on, with
-/// a deadline. Stdin is written from a thread so a tool that stops reading
-/// cannot block the wait.
+/// a deadline, through feed_stdin_and_wait.
 #[cfg(target_os = "linux")]
 fn linux_clipboard_set_image(name: &str, mime: &str, bytes: Vec<u8>) -> Result<()> {
-    use std::io::Write;
     use std::process::Stdio;
     if !display_env_set("DISPLAY") && !display_env_set("WAYLAND_DISPLAY") {
         return Err(crate::safety::no_ui(name));
@@ -41343,44 +41442,16 @@ fn linux_clipboard_set_image(name: &str, mime: &str, bytes: Vec<u8>) -> Result<(
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| crate::safety::spawn_error(name, tool, &e))?;
-    if let Some(mut pipe) = child.stdin.take() {
-        std::thread::spawn(move || {
-            let _ = pipe.write_all(&bytes);
-        });
+    let status = feed_stdin_and_wait(name, tool, child, bytes, TOOL_DEADLINE_SECS)?;
+    if status.success() {
+        return Ok(());
     }
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(TOOL_DEADLINE_SECS);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(status)) => {
-                return Err(crate::safety::tool_failed(
-                    name,
-                    tool,
-                    status.code(),
-                    "it did not take the image",
-                ))
-            }
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(20))
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(crate::safety::budget_exceeded(
-                    name,
-                    format!(
-                        "`{tool}` did not finish within {TOOL_DEADLINE_SECS} s and was stopped"
-                    ),
-                    "check that the display is responsive, then retry",
-                ));
-            }
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(crate::safety::tool_failed(name, tool, None, &e.to_string()));
-            }
-        }
-    }
+    Err(crate::safety::tool_failed(
+        name,
+        tool,
+        status.code(),
+        "it did not take the image",
+    ))
 }
 
 fn bi_clipboard_history(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -68554,5 +68625,106 @@ mod coded_errors2_tests {
         let e = bi_ai_set_default(vec![Value::Str("no-such-provider-xyz".to_string())], None)
             .unwrap_err();
         assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::BadArg));
+    }
+}
+
+#[cfg(test)]
+mod clip_deadline_tests {
+    // Only harmless stand-in programs run here. No clipboard tool is ever
+    // started, and the real clipboard is never touched.
+    use super::*;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    fn piped(mut cmd: Command) -> std::process::Child {
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        cmd.spawn().expect("the stand-in program should start")
+    }
+
+    /// Reads all of its input and exits 0.
+    #[cfg(unix)]
+    fn reads_stdin_and_exits() -> Command {
+        let mut c = Command::new("sh");
+        c.args(["-c", "cat >/dev/null"]);
+        c
+    }
+    #[cfg(windows)]
+    fn reads_stdin_and_exits() -> Command {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "more"]);
+        c
+    }
+
+    /// Ignores its input and runs for about five seconds.
+    #[cfg(unix)]
+    fn ignores_stdin_and_sleeps() -> Command {
+        let mut c = Command::new("sh");
+        c.args(["-c", "sleep 5"]);
+        c
+    }
+    #[cfg(windows)]
+    fn ignores_stdin_and_sleeps() -> Command {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "ping -n 6 127.0.0.1"]);
+        c
+    }
+
+    /// Exits 0 at once, without reading its input.
+    #[cfg(unix)]
+    fn exits_without_reading() -> Command {
+        let mut c = Command::new("sh");
+        c.args(["-c", "exit 0"]);
+        c
+    }
+    #[cfg(windows)]
+    fn exits_without_reading() -> Command {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "exit 0"]);
+        c
+    }
+
+    fn safety_code(e: &anyhow::Error) -> Option<crate::safety::ErrorCode> {
+        e.downcast_ref::<crate::safety::SafetyError>()
+            .map(|se| se.code)
+    }
+
+    #[test]
+    fn a_helper_that_reads_its_input_and_exits_succeeds() {
+        let child = piped(reads_stdin_and_exits());
+        let status = feed_stdin_and_wait("t", "stand-in", child, vec![b'x'; 4096], 20)
+            .expect("a helper that reads its input should not be an error");
+        assert!(status.success());
+    }
+
+    #[test]
+    fn a_helper_that_ignores_its_input_is_stopped_at_the_deadline() {
+        let child = piped(ignores_stdin_and_sleeps());
+        let start = Instant::now();
+        let err = feed_stdin_and_wait("t", "stand-in", child, b"hello".to_vec(), 1)
+            .expect_err("a helper still running at the deadline must be stopped");
+        let took = start.elapsed();
+        assert!(took < Duration::from_secs(4), "took {took:?}");
+        assert_eq!(
+            safety_code(&err),
+            Some(crate::safety::ErrorCode::BudgetExceeded)
+        );
+    }
+
+    #[test]
+    fn a_large_input_to_a_helper_that_exits_at_once_returns() {
+        let child = piped(exits_without_reading());
+        let start = Instant::now();
+        let res = feed_stdin_and_wait("t", "stand-in", child, vec![0u8; 4 << 20], 20);
+        assert!(start.elapsed() < Duration::from_secs(15));
+        match res {
+            Ok(status) => assert!(status.success()),
+            Err(e) => assert_ne!(
+                safety_code(&e),
+                Some(crate::safety::ErrorCode::BudgetExceeded),
+                "a helper that exited at once must not be reported as a timeout"
+            ),
+        }
     }
 }
