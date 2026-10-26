@@ -1749,6 +1749,20 @@ pub fn spawn_error(builtin: &str, tool: &str, e: &std::io::Error) -> anyhow::Err
     if e.kind() == std::io::ErrorKind::NotFound {
         return tool_missing(builtin, tool, &e.to_string());
     }
+    // execvp answers EACCES, not ENOENT, for a name found nowhere when one
+    // PATH directory could not be searched; the tool is absent, not unrunnable.
+    #[cfg(unix)]
+    if e.kind() == std::io::ErrorKind::PermissionDenied
+        && !tool.contains('/')
+        && !std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .any(|dir| dir.join(tool).is_file())
+    {
+        return tool_missing(
+            builtin,
+            tool,
+            &format!("{e}, from a PATH directory that could not be searched"),
+        );
+    }
     anyhow::Error::new(SafetyError {
         code: ErrorCode::ToolFailed,
         message: format!("{builtin}: could not start `{tool}`: {e}"),

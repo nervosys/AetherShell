@@ -178,22 +178,39 @@ fn a_process_that_cannot_start_says_which_one_and_why() {
     );
 
     // Not every spawn failure is an absent tool, and "install it" would be
-    // advice that cannot work for the rest.
+    // advice that cannot work for the rest. On Unix the tool must really be on
+    // PATH: an EACCES for a name found nowhere is an absent tool (below).
+    let present = if cfg!(unix) { "sh" } else { "go" };
     let unusable = aethershell::safety::spawn_error(
         "env_go",
-        "go",
+        present,
         &Error::new(ErrorKind::PermissionDenied, "permission denied"),
     );
     let u = unusable.to_string();
     assert!(
         !u.contains("is not installed"),
-        "go IS installed; it could not be run: {u}"
+        "{present} IS installed; it could not be run: {u}"
     );
     assert!(u.contains("E_TOOL_FAILED"), "expected E_TOOL_FAILED: {u}");
 
     // Non-vacuity: the two branches must actually differ, or this asserts that
     // one message happens to contain two substrings.
     assert_ne!(s, u, "both spawn failures rendered identically");
+}
+
+/// execvp reports EACCES, not ENOENT, when the name is on no PATH directory
+/// but one of them could not be searched. That is an absent tool.
+#[cfg(unix)]
+#[test]
+fn a_permission_error_for_a_tool_on_no_path_directory_is_tool_missing() {
+    use std::io::{Error, ErrorKind};
+    let e = aethershell::safety::spawn_error(
+        "env_go",
+        "ae-no-such-tool-5c1e",
+        &Error::new(ErrorKind::PermissionDenied, "permission denied"),
+    );
+    let s = e.to_string();
+    assert!(s.contains("E_TOOL_MISSING"), "{s}");
 }
 
 /// A shell-out that never returns must be given up on.
