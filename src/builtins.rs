@@ -55593,11 +55593,14 @@ fn bi_touch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     } else {
         crate::tx::snapshot(&path);
     }
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| crate::safety::fs_error("touch", &path, &e))?;
+    // A directory is touched like a file is: its time changes. Opening it to
+    // append failed with "is a directory".
+    let file = if std::path::Path::new(&path).is_dir() {
+        crate::tx::open_for_times(std::path::Path::new(&path))
+    } else {
+        std::fs::OpenOptions::new().create(true).append(true).open(&path)
+    }
+    .map_err(|e| crate::safety::fs_error("touch", &path, &e))?;
     file.set_modified(std::time::SystemTime::now())
         .map_err(|e| crate::safety::fs_error("touch", &path, &e))?;
     Ok(Value::Str(path))

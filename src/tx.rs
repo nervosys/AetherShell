@@ -58,6 +58,27 @@ struct MetaSnap {
     accessed: Option<std::time::SystemTime>,
 }
 
+/// Open `path` only to set its times. A directory cannot be opened for
+/// writing, so it is opened read-only on Unix (futimens needs ownership, not
+/// a write handle) and with backup semantics and attribute access on Windows.
+pub(crate) fn open_for_times(path: &Path) -> std::io::Result<std::fs::File> {
+    if std::fs::metadata(path)?.is_dir() {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_WRITE_ATTRIBUTES: u32 = 0x100;
+            const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+            return std::fs::OpenOptions::new()
+                .access_mode(FILE_WRITE_ATTRIBUTES)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .open(path);
+        }
+        #[cfg(not(windows))]
+        return std::fs::File::open(path);
+    }
+    std::fs::File::options().write(true).open(path)
+}
+
 /// Set a path's modified and accessed times (a `None` leaves that time as it
 /// is). Setting times needs a handle with write access, which a read-only file
 /// refuses (on Windows always; on Unix for a non-owner). In that case the file
@@ -78,7 +99,7 @@ fn set_times_of(
     if let Some(t) = modified {
         times = times.set_modified(t);
     }
-    let open = || std::fs::File::options().write(true).open(path);
+    let open = || open_for_times(path);
     let file = match open() {
         Ok(f) => f,
         Err(e) => {

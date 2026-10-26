@@ -98,3 +98,47 @@ fn chmod_read_only_is_undone_with_its_time() {
     assert_eq!(mtime_secs(&p), OLD_SECS, "rollback restored the time");
     let _ = std::fs::remove_file(&p);
 }
+
+/// Opens a directory so its times can be set: read-only on Unix, with backup
+/// semantics and attribute access on Windows.
+fn open_dir_for_times(p: &std::path::Path) -> std::fs::File {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .access_mode(0x100)
+            .custom_flags(0x0200_0000)
+            .open(p)
+            .unwrap()
+    }
+    #[cfg(not(windows))]
+    std::fs::File::open(p).unwrap()
+}
+
+#[test]
+fn touch_of_a_directory_changes_its_time_and_rollback_restores_it() {
+    let _lock = TX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _cleanup = TxCleanup;
+    let d = workspace().join("touch_dir");
+    std::fs::create_dir_all(&d).unwrap();
+    let old = UNIX_EPOCH + Duration::from_secs(OLD_SECS);
+    open_dir_for_times(&d)
+        .set_times(std::fs::FileTimes::new().set_modified(old))
+        .unwrap();
+    assert_eq!(mtime_secs(&d), OLD_SECS);
+
+    aethershell::tx::begin().unwrap();
+    call("touch", vec![path_arg(&d)]).expect("touch of a directory");
+    assert_ne!(
+        mtime_secs(&d),
+        OLD_SECS,
+        "touch changed the directory's time"
+    );
+    aethershell::tx::rollback().unwrap();
+    assert_eq!(
+        mtime_secs(&d),
+        OLD_SECS,
+        "rollback restored the directory's time"
+    );
+    let _ = std::fs::remove_dir_all(&d);
+}
