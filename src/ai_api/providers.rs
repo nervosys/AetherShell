@@ -1,4 +1,5 @@
 use crate::ai_api::models::*;
+use crate::http_body::{body_json_capped, body_text_capped, AI_BODY_MAX};
 use crate::secure_config::SecureApiConfig;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -93,7 +94,7 @@ impl ModelProvider for OpenAIProvider {
             .send()
             .await?;
 
-        let models_response: serde_json::Value = response.json().await?;
+        let models_response: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
         let mut models = Vec::new();
 
         if let Some(data) = models_response.get("data").and_then(|d| d.as_array()) {
@@ -174,11 +175,11 @@ impl ModelProvider for OpenAIProvider {
             .await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("OpenAI API error: {}", error_text));
         }
 
-        let chat_response: ChatCompletionResponse = response.json().await?;
+        let chat_response: ChatCompletionResponse = body_json_capped(response, AI_BODY_MAX).await?;
         Ok(chat_response)
     }
 
@@ -203,11 +204,11 @@ impl ModelProvider for OpenAIProvider {
             .await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("OpenAI API error: {}", error_text));
         }
 
-        let embedding_response: EmbeddingResponse = response.json().await?;
+        let embedding_response: EmbeddingResponse = body_json_capped(response, AI_BODY_MAX).await?;
         Ok(embedding_response)
     }
 
@@ -725,11 +726,11 @@ impl ModelProvider for AnthropicProvider {
             .await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("Anthropic API error: {}", error_text));
         }
 
-        let anthropic_response: serde_json::Value = response.json().await?;
+        let anthropic_response: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
 
         // Convert Anthropic response to OpenAI format
         let content = anthropic_response
@@ -1169,7 +1170,7 @@ impl ModelProvider for LocalProvider {
                     .await?;
 
                 if resp.status().is_success() {
-                    let result: serde_json::Value = resp.json().await?;
+                    let result: serde_json::Value = body_json_capped(resp, AI_BODY_MAX).await?;
                     let content = result
                         .get("choices")
                         .and_then(|c| c.get(0))
@@ -1248,7 +1249,7 @@ impl ModelProvider for LocalProvider {
                     .await?;
 
                 if resp.status().is_success() {
-                    let result: serde_json::Value = resp.json().await?;
+                    let result: serde_json::Value = body_json_capped(resp, AI_BODY_MAX).await?;
                     let data = result
                         .get("data")
                         .and_then(|d| d.as_array())
@@ -1348,7 +1349,7 @@ impl ModelProvider for VLLMProvider {
             .send()
             .await?;
 
-        let models_response: serde_json::Value = response.json().await?;
+        let models_response: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
         let mut models = Vec::new();
 
         if let Some(data) = models_response.get("data").and_then(|d| d.as_array()) {
@@ -1424,11 +1425,11 @@ impl ModelProvider for VLLMProvider {
         let response = req.send().await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("vLLM API error: {}", error_text));
         }
 
-        let chat_response: ChatCompletionResponse = response.json().await?;
+        let chat_response: ChatCompletionResponse = body_json_capped(response, AI_BODY_MAX).await?;
         Ok(chat_response)
     }
 
@@ -1488,7 +1489,7 @@ impl ModelProvider for TensorRTLLMProvider {
             .send()
             .await?;
 
-        let models_response: serde_json::Value = response.json().await?;
+        let models_response: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
         let mut models = Vec::new();
 
         if let Some(data) = models_response.get("data").and_then(|d| d.as_array()) {
@@ -1558,11 +1559,11 @@ impl ModelProvider for TensorRTLLMProvider {
         let response = req.send().await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("TensorRT-LLM API error: {}", error_text));
         }
 
-        let chat_response: ChatCompletionResponse = response.json().await?;
+        let chat_response: ChatCompletionResponse = body_json_capped(response, AI_BODY_MAX).await?;
         Ok(chat_response)
     }
 
@@ -1622,7 +1623,7 @@ impl ModelProvider for SGLangProvider {
             .send()
             .await?;
 
-        let models_response: serde_json::Value = response.json().await?;
+        let models_response: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
         let mut models = Vec::new();
 
         if let Some(data) = models_response.get("data").and_then(|d| d.as_array()) {
@@ -1695,11 +1696,11 @@ impl ModelProvider for SGLangProvider {
         let response = req.send().await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("SGLang API error: {}", error_text));
         }
 
-        let chat_response: ChatCompletionResponse = response.json().await?;
+        let chat_response: ChatCompletionResponse = body_json_capped(response, AI_BODY_MAX).await?;
         Ok(chat_response)
     }
 
@@ -1761,7 +1762,7 @@ impl ModelProvider for LlamaCppProvider {
             .await?;
 
         if response.status().is_success() {
-            let health_info: serde_json::Value = response.json().await?;
+            let health_info: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
 
             let model_name = health_info
                 .get("model_name")
@@ -1849,11 +1850,11 @@ impl ModelProvider for LlamaCppProvider {
         let response = req.send().await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("llama.cpp API error: {}", error_text));
         }
 
-        let llama_response: serde_json::Value = response.json().await?;
+        let llama_response: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
 
         let content = llama_response
             .get("content")
@@ -1928,11 +1929,11 @@ impl ModelProvider for LlamaCppProvider {
         let response = req.send().await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("llama.cpp embedding error: {}", error_text));
         }
 
-        let llama_response: serde_json::Value = response.json().await?;
+        let llama_response: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
 
         let embedding = llama_response
             .get("embedding")
@@ -2004,7 +2005,7 @@ impl OllamaProvider {
             .await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!(
                 "Ollama pull failed for '{}': {}",
                 model,
@@ -2039,7 +2040,7 @@ impl ModelProvider for OllamaProvider {
             return Ok(vec![]);
         }
 
-        let body: serde_json::Value = response.json().await?;
+        let body: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
         let models = body
             .get("models")
             .and_then(|m| m.as_array())
@@ -2151,7 +2152,7 @@ impl ModelProvider for OllamaProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
 
             // Auto-pull if model not found
             if status.as_u16() == 404 || error_text.contains("not found") {
@@ -2169,7 +2170,7 @@ impl ModelProvider for OllamaProvider {
             ));
         }
 
-        let ollama_resp: serde_json::Value = response.json().await?;
+        let ollama_resp: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
 
         let content = ollama_resp
             .get("message")
@@ -2228,11 +2229,11 @@ impl ModelProvider for OllamaProvider {
             .await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("Ollama embedding error: {}", error_text));
         }
 
-        let ollama_resp: serde_json::Value = response.json().await?;
+        let ollama_resp: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
 
         let embedding = ollama_resp
             .get("embedding")
@@ -2310,7 +2311,7 @@ impl ModelProvider for LMStudioProvider {
             return Ok(vec![]);
         }
 
-        let body: serde_json::Value = response.json().await?;
+        let body: serde_json::Value = body_json_capped(response, AI_BODY_MAX).await?;
         let models = body
             .get("data")
             .and_then(|d| d.as_array())
@@ -2365,11 +2366,11 @@ impl ModelProvider for LMStudioProvider {
             .await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("LM Studio error: {}", error_text));
         }
 
-        let result: ChatCompletionResponse = response.json().await?;
+        let result: ChatCompletionResponse = body_json_capped(response, AI_BODY_MAX).await?;
         Ok(result)
     }
 
@@ -2382,11 +2383,11 @@ impl ModelProvider for LMStudioProvider {
             .await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
+            let error_text = body_text_capped(response, AI_BODY_MAX).await?;
             return Err(anyhow::anyhow!("LM Studio embedding error: {}", error_text));
         }
 
-        let result: EmbeddingResponse = response.json().await?;
+        let result: EmbeddingResponse = body_json_capped(response, AI_BODY_MAX).await?;
         Ok(result)
     }
 

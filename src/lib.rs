@@ -155,6 +155,9 @@ pub mod external_tools;
 /// Result handles — keep a large result server-side and send a reference.
 #[cfg(feature = "native")]
 pub mod handles;
+/// Size-capped reads of AI provider and plugin HTTP response bodies.
+#[cfg(feature = "native")]
+pub mod http_body;
 /// Reversible sessions — capture what a mutating call overwrites, so it can be
 /// rewound.
 #[cfg(feature = "native")]

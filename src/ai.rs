@@ -21,6 +21,7 @@
 //! - NANDA negotiation and task allocation framework
 //! - SECURITY: SecureApiConfig with memory sanitization for API keys
 
+use crate::http_body::BlockingBodyExt;
 use anyhow::{anyhow, Context, Result};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
@@ -587,7 +588,7 @@ impl MultiModalLlmBackend for OpenAiMultiModalBackend {
             .json(&body)
             .send()?
             .error_for_status()?
-            .json()?;
+            .json_capped()?;
 
         Ok(v["choices"][0]["message"]["content"]
             .as_str()
@@ -931,12 +932,12 @@ fn complete_via_compat(
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let text = resp.text().unwrap_or_default();
+        let text = resp.text_capped().unwrap_or_default();
         return Err(anyhow!("API error {} from {}: {}", status, base_url, text));
     }
 
     let json: serde_json::Value = resp
-        .json()
+        .json_capped()
         .map_err(|e| anyhow!("Failed to parse response from {}: {}", base_url, e))?;
 
     // Track usage/cost if the response includes usage info
@@ -1102,7 +1103,7 @@ pub mod openai {
             .json(&body)
             .send()?
             .error_for_status()?
-            .json()?;
+            .json_capped()?;
         Ok(v["choices"][0]["message"]["content"]
             .as_str()
             .unwrap_or("")
@@ -1127,7 +1128,7 @@ pub mod ollama {
             .json(&body)
             .send()?
             .error_for_status()?
-            .json()?;
+            .json_capped()?;
         Ok(v["response"].as_str().unwrap_or("").to_string())
     }
 }
@@ -1159,7 +1160,7 @@ pub mod openai_compat {
             .json(&body)
             .send()?
             .error_for_status()?
-            .json()?;
+            .json_capped()?;
         Ok(v["choices"][0]["message"]["content"]
             .as_str()
             .unwrap_or("")
@@ -1363,7 +1364,7 @@ impl LlmBackend for OpenAiBackend {
             .context("Failed to send request to OpenAI")?
             .error_for_status()
             .context("OpenAI API returned error status")?
-            .json()
+            .json_capped()
             .context("Failed to parse OpenAI response")?;
 
         // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
@@ -1400,7 +1401,7 @@ impl LlmBackend for OpenAiCompatBackend {
             .json(&body)
             .send()?
             .error_for_status()?
-            .json()?;
+            .json_capped()?;
         let content = v["choices"][0]["message"]["content"]
             .as_str()
             .ok_or_else(|| anyhow!("OpenAI-compatible API response missing content field"))?
@@ -1425,7 +1426,7 @@ impl LlmBackend for TgiBackend {
             .json(&body)
             .send()?
             .error_for_status()?
-            .json()?;
+            .json_capped()?;
         let s = v
             .get("generated_text")
             .and_then(|x| x.as_str())
@@ -1482,7 +1483,7 @@ impl LlmBackend for IronGateBackend {
             .map(String::from);
 
         let resp = resp.error_for_status()?;
-        let v: J = resp.json()?;
+        let v: J = resp.json_capped()?;
         let content = v["choices"][0]["message"]["content"]
             .as_str()
             .ok_or_else(|| {
@@ -1524,7 +1525,7 @@ impl LlmBackend for VLlmBackend {
             .json(&body)
             .send()?
             .error_for_status()?
-            .json()?;
+            .json_capped()?;
         let content = v["choices"][0]["message"]["content"]
             .as_str()
             .ok_or_else(|| anyhow!("vLLM response missing content field"))?
@@ -1553,7 +1554,7 @@ impl LlmBackend for LlamaCppBackend {
             .json(&body)
             .send()?
             .error_for_status()?
-            .json()?;
+            .json_capped()?;
         let content = v["choices"][0]["message"]["content"]
             .as_str()
             .ok_or_else(|| anyhow!("llama.cpp response missing content field"))?
@@ -1830,7 +1831,7 @@ fn detect_lmstudio() -> Result<BackendInfo> {
         .map_err(|_| anyhow!("LM Studio not reachable"))?;
 
     if resp.status().is_success() {
-        let body: serde_json::Value = resp.json().unwrap_or_default();
+        let body: serde_json::Value = resp.json_capped().unwrap_or_default();
         let models: Vec<String> = body
             .get("data")
             .and_then(|d| d.as_array())
@@ -1991,7 +1992,7 @@ fn detect_mcp_server(name: &str, endpoint: &str) -> Result<McpServerInfo> {
     match response {
         Ok(resp) if resp.status().is_success() => {
             // Try to parse the tools list
-            let tools: Vec<mcp::McpToolSchema> = resp.json().unwrap_or_default();
+            let tools: Vec<mcp::McpToolSchema> = resp.json_capped().unwrap_or_default();
             let tool_names = tools.iter().map(|t| t.name.clone()).collect();
 
             Ok(McpServerInfo {
@@ -2921,7 +2922,7 @@ pub mod mcp {
             match self.client.get(&url).send() {
                 Ok(response) => {
                     if response.status().is_success() {
-                        let tools: Vec<McpToolSchema> = response.json().unwrap_or_default();
+                        let tools: Vec<McpToolSchema> = response.json_capped().unwrap_or_default();
 
                         // Cache discovered tools
                         // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
@@ -2985,7 +2986,7 @@ pub mod mcp {
                 return Err(anyhow!("MCP tool execution failed: {}", response.status()));
             }
 
-            let result: J = response.json()?;
+            let result: J = response.json_capped()?;
             Ok(result.to_string())
         }
 

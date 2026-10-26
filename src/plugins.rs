@@ -12,6 +12,7 @@
 //!
 //! Plugins can be loaded dynamically at runtime or compiled statically.
 
+use crate::http_body::BlockingBodyExt;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1183,7 +1184,7 @@ impl PluginRegistry {
 
             if response.status().is_success() {
                 let plugins: Vec<MarketplacePlugin> = response
-                    .json()
+                    .json_capped()
                     .context("Failed to parse marketplace response")?;
                 results.extend(plugins);
             }
@@ -1216,7 +1217,7 @@ impl PluginRegistry {
 
                     // Save the plugin
                     let plugin_path = plugin_dir.join(format!("{}.plugin.toml", plugin_id));
-                    let content = resp.text()?;
+                    let content = resp.text_capped()?;
                     std::fs::write(&plugin_path, &content)?;
 
                     // Load it

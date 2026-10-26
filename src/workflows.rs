@@ -46,6 +46,7 @@
 //! names into the dispatcher is a separate decision about the shell's surface,
 //! and the documentation must not describe them as available until it is made.
 
+use crate::http_body::BlockingBodyExt;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -1013,7 +1014,7 @@ async fn http_step(method: String, url: String, body: Option<Value>) -> Result<V
                 Value::Str(v.to_str().unwrap_or("").to_string()),
             );
         }
-        let body_text = resp.text().unwrap_or_default();
+        let body_text = resp.text_capped().unwrap_or_default();
 
         Ok(Value::Record(BTreeMap::from([
             ("url".to_string(), Value::Str(url)),

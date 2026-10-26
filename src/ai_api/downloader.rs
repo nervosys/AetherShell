@@ -282,7 +282,8 @@ impl ModelDownloader {
             ));
         }
 
-        let model_info: HuggingFaceModelInfo = response.json().await?;
+        let model_info: HuggingFaceModelInfo =
+            crate::http_body::body_json_capped(response, crate::http_body::AI_BODY_MAX).await?;
         Ok(model_info)
     }
 
@@ -569,7 +570,8 @@ impl ModelDownloader {
             return Err(anyhow::anyhow!("Search failed: HTTP {}", response.status()));
         }
 
-        let models: Vec<HuggingFaceModelInfo> = response.json().await?;
+        let models: Vec<HuggingFaceModelInfo> =
+            crate::http_body::body_json_capped(response, crate::http_body::AI_BODY_MAX).await?;
 
         let results = models
             .into_iter()
