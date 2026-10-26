@@ -236,6 +236,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   symlink or hard link points outside. A bzip2, xz or zstd tar has its member
   names checked through `tar -tf`; its link targets are left to tar's own
   protection.
+- **No HTTP request waits forever**: an OpenAI-compatible completion, the
+  marketplace registry calls and the TUI's registry announcement had no
+  timeout. They connect within 10 s and finish within 120 s (completions,
+  downloads) or 30 s. `file_patch` refuses more than 10,000 patches in one
+  call, as `file_edit` does.
+- **More errors carry a code**: `ls` directory and metadata failures,
+  `save_json` (which now writes atomically) and an unknown provider in
+  `ai_set_default` no longer reach callers as `E_UNKNOWN`.
 - **Atomic writes keep the file's mode and survive a crash**: overwriting a
   file through `file_write`, `file_patch`, `file_edit`, `sed` and the rest
   replaced its permissions (an executable script lost its execute bit), did
