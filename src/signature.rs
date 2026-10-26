@@ -3433,7 +3433,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "The 1, 5 and 15 minute load averages.",
+        doc: "The 1, 5 and 15 minute load averages: from /proc/loadavg on Linux and sysctl vm.loadavg on macOS. Windows has no load average, so there all three are the current processor load (Win32_Processor LoadPercentage, averaged over processors) as a fraction from 0.0 to 1.0, not a run-queue average. Other systems are refused.",
         examples: &[("typeof(sys_load_avg())", "Record")],
     },
     Signature {
@@ -5980,7 +5980,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record | Null",
-        doc: "GPU memory totals from nvidia-smi; null without an NVIDIA GPU.",
+        doc: "GPU memory totals from nvidia-smi, summed across every NVIDIA GPU: total_mb, used_mb, free_mb, and devices (how many GPUs were summed); null without an NVIDIA GPU. A row nvidia-smi reports that is not three numbers is an error.",
         examples: &[(
             r#"platform_gpu_memory() == null || typeof(platform_gpu_memory()) == "Record""#,
             "true",
@@ -8802,7 +8802,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "Uptime in seconds and as text, with the load average.",
+        doc: "Uptime in seconds and as text, with the load average (load_1, load_5, load_15; null on Windows, which has no load average).",
         examples: &[
             (r#"typeof(monitor_uptime())"#, r#"Record"#),
         ],
@@ -11718,7 +11718,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "A one-shot system snapshot read through sysinfo, not the nmon program and not a full-screen UI: CPU count and use, load averages, memory and disk totals, and a timestamp. Takes about 200 ms to sample CPU. Takes no arguments; pipeline input is E_BAD_ARG.",
+        doc: "A one-shot system snapshot read through sysinfo, not the nmon program and not a full-screen UI: CPU count and use, load averages (load_1, load_5, load_15; null on Windows, which has no load average), memory and disk totals, and a timestamp. Takes about 200 ms to sample CPU. Takes no arguments; pipeline input is E_BAD_ARG.",
         examples: &[
             (r#"monitor_nmon()"#, r#"Record"#),
         ],
@@ -11731,7 +11731,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "A one-shot system summary read through sysinfo, not the glances program and not a full-screen UI: host, uptime, per-CPU use, memory and swap, disks, network counters and load averages. Takes about 200 ms to sample CPU. Takes no arguments; pipeline input is E_BAD_ARG.",
+        doc: "A one-shot system summary read through sysinfo, not the glances program and not a full-screen UI: host, uptime, per-CPU use, memory and swap, disks, network counters and load averages (load_1, load_5, load_15; null on Windows, which has no load average). Takes about 200 ms to sample CPU. Takes no arguments; pipeline input is E_BAD_ARG.",
         examples: &[
             (r#"monitor_glances()"#, r#"Record"#),
         ],
@@ -11770,7 +11770,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "Reads CPU, memory and disk use and returns {status: healthy, warning or critical, cpu_percent, memory_percent, disk_percent, load_1, load_5, load_15, process_count, alerts: [{type, severity, message, value, threshold}], timestamp}. No network is contacted. Takes about 200 ms to sample CPU. Takes no arguments; pipeline input is E_BAD_ARG.",
+        doc: "Reads CPU, memory and disk use and returns {status: healthy, warning or critical, cpu_percent, memory_percent, disk_percent, load_1, load_5, load_15, process_count, alerts: [{type, severity, message, value, threshold}], timestamp}. The load fields are null on Windows, which has no load average. No network is contacted. Takes about 200 ms to sample CPU. Takes no arguments; pipeline input is E_BAD_ARG.",
         examples: &[
             (r#"monitor_health_check()"#, r#"Record"#),
         ],

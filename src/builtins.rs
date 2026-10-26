@@ -28818,6 +28818,34 @@ fn load_average_record(builtin: &str, parts: &[&str]) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
+/// Sets `load_1`, `load_5` and `load_15` on a system record. Windows has no
+/// load average, so there they are Null. sysinfo's Windows figure is a smoothed
+/// CPU queue length that reads 0.0 until its first 5 second sample, which a
+/// one-shot call never reaches, so it is not used there.
+fn load_fields(rec: &mut BTreeMap<String, Value>) {
+    let sampled = if cfg!(windows) {
+        None
+    } else {
+        let load = System::load_average();
+        Some([load.one, load.five, load.fifteen])
+    };
+    for (key, value) in ["load_1", "load_5", "load_15"]
+        .into_iter()
+        .zip(load_field_values(sampled))
+    {
+        rec.insert(key.to_string(), value);
+    }
+}
+
+/// The pure half of `load_fields`: a sampled `[1, 5, 15]` load average becomes
+/// three Floats, and no sample (Windows) becomes three Nulls.
+fn load_field_values(sampled: Option<[f64; 3]>) -> [Value; 3] {
+    match sampled {
+        Some(loads) => loads.map(Value::Float),
+        None => [Value::Null, Value::Null, Value::Null],
+    }
+}
+
 fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns consistent Record {1min: Float, 5min: Float, 15min: Float} on all platforms
     #[cfg(target_os = "linux")]
@@ -28844,7 +28872,8 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "windows")]
     {
-        // Windows doesn't have load average; approximate with CPU usage as all three values
+        // Windows has no load average. All three fields carry the current processor
+        // load (LoadPercentage) as a fraction, which is not a run-queue average.
         let mut cmd = std::process::Command::new("powershell");
         cmd.args([
             "-Command",
@@ -28872,7 +28901,7 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "a processor that reports LoadPercentage",
             ));
         }
-        let load_norm = loads.iter().sum::<f64>() / loads.len() as f64 / 100.0; // Normalize to load average scale
+        let load_norm = loads.iter().sum::<f64>() / loads.len() as f64 / 100.0; // percent to a 0.0-1.0 fraction
         let mut rec = std::collections::BTreeMap::new();
         rec.insert("1min".to_string(), Value::Float(load_norm));
         rec.insert("5min".to_string(), Value::Float(load_norm));
@@ -51753,9 +51782,50 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(gpus))
 }
 
-fn bi_platform_gpu_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut info = std::collections::BTreeMap::new();
+/// Sums the rows nvidia-smi prints for `--query-gpu=memory.total,memory.used,memory.free
+/// --format=csv,noheader,nounits` (one row per GPU) into `{total_mb, used_mb, free_mb,
+/// devices}`. A row that is not three numbers is refused, not skipped: skipping it would
+/// total fewer GPUs than the host has. No rows is refused too.
+fn gpu_memory_record(output: &str) -> Result<Value> {
+    let mut totals = [0i64; 3];
+    let mut devices = 0i64;
+    for line in output.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+        if parts.len() != 3 {
+            return Err(crate::safety::bad_state(
+                "platform_gpu_memory",
+                &format!("nvidia-smi memory row is not total,used,free: {line:?}"),
+                "the csv query nvidia-smi was asked for",
+            ));
+        }
+        for (i, text) in parts.iter().enumerate() {
+            let value = text.parse::<i64>().map_err(|e| {
+                crate::safety::bad_state(
+                    "platform_gpu_memory",
+                    &format!("nvidia-smi memory field {i} is not a number: {e}"),
+                    "the csv query nvidia-smi was asked for",
+                )
+            })?;
+            totals[i] = totals[i].saturating_add(value);
+        }
+        devices += 1;
+    }
+    if devices == 0 {
+        return Err(crate::safety::bad_state(
+            "platform_gpu_memory",
+            "nvidia-smi printed no memory rows",
+            "the csv query nvidia-smi was asked for",
+        ));
+    }
+    let mut info = BTreeMap::new();
+    info.insert("total_mb".to_string(), Value::Int(totals[0]));
+    info.insert("used_mb".to_string(), Value::Int(totals[1]));
+    info.insert("free_mb".to_string(), Value::Int(totals[2]));
+    info.insert("devices".to_string(), Value::Int(devices));
+    Ok(Value::Record(info))
+}
 
+fn bi_platform_gpu_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut cmd = std::process::Command::new("nvidia-smi");
     cmd.args([
         "--query-gpu=memory.total,memory.used,memory.free",
@@ -51774,28 +51844,7 @@ fn bi_platform_gpu_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
         Err(e) => return Err(e),
     };
     let output = probe_stdout("platform_gpu_memory", "nvidia-smi", out)?;
-    let line = output.lines().next().unwrap_or("");
-    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-    if parts.len() < 3 {
-        return Err(crate::safety::bad_state(
-            "platform_gpu_memory",
-            &format!("nvidia-smi memory row is not total,used,free: {line:?}"),
-            "the csv query nvidia-smi was asked for",
-        ));
-    }
-    let number = |i: usize| -> Result<Value> {
-        parts[i].parse::<i64>().map(Value::Int).map_err(|e| {
-            crate::safety::bad_state(
-                "platform_gpu_memory",
-                &format!("nvidia-smi memory field {i} is not a number: {e}"),
-                "the csv query nvidia-smi was asked for",
-            )
-        })
-    };
-    info.insert("total_mb".to_string(), number(0)?);
-    info.insert("used_mb".to_string(), number(1)?);
-    info.insert("free_mb".to_string(), number(2)?);
-    Ok(Value::Record(info))
+    gpu_memory_record(&output)
 }
 
 fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -58646,7 +58695,6 @@ fn bi_iftop_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 pub fn bi_nmon_snapshot(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     monitor_direct_call("monitor_nmon", &args, &input, 0)?;
     let sys = monitor_sample_system();
-    let load = System::load_average();
     let total_mem = sys.total_memory();
     let used_mem = sys.used_memory();
     let disks = Disks::new_with_refreshed_list();
@@ -58658,9 +58706,7 @@ pub fn bi_nmon_snapshot(args: Vec<Value>, input: Option<Value>) -> Result<Value>
         "cpu_percent".to_string(),
         Value::Float(sys.global_cpu_usage() as f64),
     );
-    rec.insert("load_1".to_string(), Value::Float(load.one));
-    rec.insert("load_5".to_string(), Value::Float(load.five));
-    rec.insert("load_15".to_string(), Value::Float(load.fifteen));
+    load_fields(&mut rec);
     rec.insert("memory_total".to_string(), Value::Int(total_mem as i64));
     rec.insert("memory_used".to_string(), Value::Int(used_mem as i64));
     rec.insert(
@@ -58762,7 +58808,6 @@ fn bi_glances_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             Value::Record(m)
         })
         .collect();
-    let load = System::load_average();
     let mut rec = BTreeMap::new();
     // A missing host name was "", which read as a name. platform_snapshot
     // gets it from sys_hostname, which refuses when it cannot be read.
@@ -58787,9 +58832,7 @@ fn bi_glances_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     rec.insert("swap_used".to_string(), Value::Int(used_swap as i64));
     rec.insert("disks".to_string(), Value::Array(disk_entries));
     rec.insert("networks".to_string(), Value::Array(net_entries));
-    rec.insert("load_1".to_string(), Value::Float(load.one));
-    rec.insert("load_5".to_string(), Value::Float(load.five));
-    rec.insert("load_15".to_string(), Value::Float(load.fifteen));
+    load_fields(&mut rec);
     Ok(Value::Record(rec))
 }
 // chrono_timestamp helper - returns RFC3339 timestamp
@@ -59389,7 +59432,6 @@ fn bi_uptime_extended(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     let minutes = (secs % 3600) / 60;
     let seconds = secs % 60;
     let human = format!("{}d {}h {}m {}s", days, hours, minutes, seconds);
-    let load = System::load_average();
     let mut rec = BTreeMap::new();
     rec.insert("uptime_seconds".to_string(), Value::Int(secs as i64));
     rec.insert("uptime_human".to_string(), Value::Str(human));
@@ -59397,9 +59439,7 @@ fn bi_uptime_extended(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     rec.insert("hours".to_string(), Value::Int(hours as i64));
     rec.insert("minutes".to_string(), Value::Int(minutes as i64));
     rec.insert("seconds".to_string(), Value::Int(seconds as i64));
-    rec.insert("load_1".to_string(), Value::Float(load.one));
-    rec.insert("load_5".to_string(), Value::Float(load.five));
-    rec.insert("load_15".to_string(), Value::Float(load.fifteen));
+    load_fields(&mut rec);
     // A missing host name was "" (see bi_glances_info).
     rec.insert("hostname".to_string(), bi_sys_hostname(Vec::new(), None)?);
     Ok(Value::Record(rec))
@@ -59735,8 +59775,6 @@ pub fn bi_health_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         0.0
     };
 
-    let load = System::load_average();
-
     // Determine overall health status
     let status = if cpu > 95.0 || mem_pct > 95.0 || disk_pct > 95.0 {
         "critical"
@@ -59812,9 +59850,7 @@ pub fn bi_health_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     rec.insert("cpu_percent".to_string(), Value::Float(cpu));
     rec.insert("memory_percent".to_string(), Value::Float(mem_pct));
     rec.insert("disk_percent".to_string(), Value::Float(disk_pct));
-    rec.insert("load_1".to_string(), Value::Float(load.one));
-    rec.insert("load_5".to_string(), Value::Float(load.five));
-    rec.insert("load_15".to_string(), Value::Float(load.fifteen));
+    load_fields(&mut rec);
     rec.insert(
         "process_count".to_string(),
         Value::Int(sys.processes().len() as i64),
@@ -69093,5 +69129,76 @@ mod win_hwprobe_tests {
 
         assert!(windows_battery_from_probe(&json!([])).is_none());
         assert!(windows_battery_from_probe(&json!(null)).is_none());
+    }
+}
+
+#[cfg(test)]
+mod win_loadgpu_tests {
+    use super::*;
+
+    fn code_of(e: &anyhow::Error) -> Option<crate::safety::ErrorCode> {
+        e.downcast_ref::<crate::safety::SafetyError>()
+            .map(|s| s.code)
+    }
+
+    fn gpu_fields(output: &str) -> BTreeMap<String, Value> {
+        match gpu_memory_record(output).expect("valid nvidia-smi rows") {
+            Value::Record(rec) => rec,
+            other => panic!("expected a Record, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_fields_are_null_without_a_sample_and_floats_with_one() {
+        assert_eq!(
+            load_field_values(None),
+            [Value::Null, Value::Null, Value::Null]
+        );
+        assert_eq!(
+            load_field_values(Some([0.5, 0.25, 0.125])),
+            [Value::Float(0.5), Value::Float(0.25), Value::Float(0.125)]
+        );
+    }
+
+    #[test]
+    fn one_gpu_row_gives_its_figures_and_one_device() {
+        let rec = gpu_fields("24564, 4919, 19395\n");
+        assert_eq!(rec.get("total_mb"), Some(&Value::Int(24564)));
+        assert_eq!(rec.get("used_mb"), Some(&Value::Int(4919)));
+        assert_eq!(rec.get("free_mb"), Some(&Value::Int(19395)));
+        assert_eq!(rec.get("devices"), Some(&Value::Int(1)));
+    }
+
+    #[test]
+    fn two_gpu_rows_are_summed_across_every_gpu() {
+        // CRLF line endings, as nvidia-smi prints them on Windows.
+        let rec = gpu_fields("24564, 4919, 19395\r\n24564, 772, 23792\r\n");
+        assert_eq!(rec.get("total_mb"), Some(&Value::Int(49128)));
+        assert_eq!(rec.get("used_mb"), Some(&Value::Int(5691)));
+        assert_eq!(rec.get("free_mb"), Some(&Value::Int(43187)));
+        assert_eq!(rec.get("devices"), Some(&Value::Int(2)));
+    }
+
+    #[test]
+    fn a_malformed_row_is_refused_with_bad_state_not_skipped() {
+        let e = gpu_memory_record("24564, 4919, 19395\n24564, oops, 23792\n")
+            .expect_err("a non-numeric row must be refused");
+        assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::BadState));
+    }
+
+    #[test]
+    fn a_short_or_long_row_is_refused_with_bad_state() {
+        let short = gpu_memory_record("24564, 4919\n").expect_err("two fields");
+        assert_eq!(code_of(&short), Some(crate::safety::ErrorCode::BadState));
+        let long = gpu_memory_record("24564, 4919, 19395, 7\n").expect_err("four fields");
+        assert_eq!(code_of(&long), Some(crate::safety::ErrorCode::BadState));
+    }
+
+    #[test]
+    fn no_rows_is_refused_with_bad_state() {
+        for output in ["", "\n"] {
+            let e = gpu_memory_record(output).expect_err("no GPU rows");
+            assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::BadState));
+        }
     }
 }
