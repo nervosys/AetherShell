@@ -47274,8 +47274,7 @@ fn bi_session_export(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let output = bounded_cmd_output("session_export", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_export", &output, ".")?;
     crate::tx::snapshot(&file); // record pre-export state if a transaction is active
-    std::fs::write(&file, &output.stdout)
-        .map_err(|e| crate::safety::fs_error("session_export", &file, &e))?;
+    write_file_atomically("session_export", &file, &output.stdout)?;
     Ok(Value::Str(file))
 }
 
@@ -49699,8 +49698,7 @@ fn bi_platform_db_export(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
         // The destination was written with no workspace check at all.
         let path = guard_local_write("platform_db_export", path)?;
         crate::tx::snapshot(&path); // record pre-export state if a transaction is active
-        std::fs::write(&path, &content)
-            .map_err(|e| crate::safety::fs_error("platform_db_export", &path, &e))?;
+        write_file_atomically("platform_db_export", &path, content.as_bytes())?;
         Ok(Value::Str(path))
     } else {
         Ok(Value::Str(content))

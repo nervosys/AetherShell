@@ -1,6 +1,6 @@
-//! A rollback undoes file_patch, file_insert, file_move and save_json, and
-//! an archive extraction, which it could not undo, is refused inside a
-//! transaction. These run in their own process because a transaction is
+//! A rollback undoes file_patch, file_insert, file_move, save_json and
+//! platform_db_export, and an archive extraction, which it could not undo, is
+//! refused inside a transaction. These run in their own process because a transaction is
 //! process-wide state: in the library's unit tests, an open one would have
 //! journaled, and rolled back, the writes of tests running beside it.
 
@@ -141,6 +141,33 @@ fn save_json_is_undone_by_rollback() {
     assert_eq!(std::fs::read_to_string(&existing).unwrap(), "\"before\"");
     assert!(!created.exists(), "rollback must remove the created file");
     let _ = std::fs::remove_file(&existing);
+}
+
+#[test]
+fn platform_db_export_over_a_file_is_undone_by_rollback() {
+    let _lock = TX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _cleanup = TxCleanup;
+    // The store is read from HOME; point it at an empty one, never the user's.
+    let home = scratch_path("pdb-home");
+    std::fs::create_dir_all(&home).unwrap();
+    let saved_home = std::env::var_os("HOME");
+    std::env::set_var("HOME", &home);
+    let existing = scratch_path("pdb-existing.json");
+    std::fs::write(&existing, "before").unwrap();
+
+    aethershell::tx::begin().unwrap();
+    let written = call("platform_db_export", vec![path_arg(&existing)]);
+    let replaced = std::fs::read_to_string(&existing).unwrap();
+    aethershell::tx::rollback().unwrap();
+    match saved_home {
+        Some(h) => std::env::set_var("HOME", h),
+        None => std::env::remove_var("HOME"),
+    }
+    written.unwrap();
+    assert_eq!(replaced, "{}");
+    assert_eq!(std::fs::read_to_string(&existing).unwrap(), "before");
+    let _ = std::fs::remove_file(&existing);
+    let _ = std::fs::remove_dir_all(&home);
 }
 
 #[test]

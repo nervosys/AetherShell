@@ -4213,7 +4213,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt("file", Ty::Str, "where to write the patch; default session.patch")],
         returns: "String",
-        doc: "Write the working tree's diff (git diff) to file and return the path written. Writes a local file. Refuses pipeline input.",
+        doc: "Write the working tree's diff (git diff) to file and return the path written. An existing file is replaced atomically, as file_write replaces it, and a transaction rollback restores it. Refuses pipeline input.",
         examples: &[
             (r#"(try { session_export(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { "x" | session_export() } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -13409,7 +13409,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt("path", Ty::Str, "write the store to this file")],
         returns: "String",
-        doc: "The platform store as JSON text, or, given a path, write it there and return the path.",
+        doc: "The platform store as JSON text, or, given a path, write it there and return the path. An existing file is replaced atomically, as file_write replaces it, and a transaction rollback restores it.",
         examples: &[
             (r#"platform_db_export()"#, r#"{"default": {...}}"#),
             (r#"platform_db_export(fs_tempfile("ae_pdb"))"#, r#"/tmp/ae_pdb_..."#),
