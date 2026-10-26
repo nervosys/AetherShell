@@ -20744,7 +20744,7 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     if let Some(err) = apply_preflight_refusal(&resolved, enforce_jail) {
         return Ok(apply_refused_record(err, &token));
     }
-    crate::tx::begin().map_err(|e| anyhow!("apply: {}", e))?;
+    crate::tx::begin()?;
 
     let mut applied = 0i64;
     let mut failure: Option<String> = None;
@@ -21426,6 +21426,10 @@ fn bi_try_repair(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Resul
     let owned = !crate::tx::is_active();
     if owned {
         crate::tx::begin().map_err(|e| {
+            // A journal directory that could not be made keeps its own code.
+            if e.downcast_ref::<crate::safety::SafetyError>().is_some() {
+                return e;
+            }
             crate::safety::bad_state(
                 "try_repair",
                 &e.to_string(),

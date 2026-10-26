@@ -343,8 +343,10 @@ pub fn begin() -> Result<String> {
                 .join(".ae")
                 .join("tx")
                 .join(&id);
+            // Coded, so a read-only or full workspace reads as that, not as
+            // an unknown fault.
             std::fs::create_dir_all(&dir)
-                .map_err(|e| anyhow!("tx_begin: cannot create journal dir: {}", e))?;
+                .map_err(|e| crate::safety::fs_error("tx_begin", &dir, &e))?;
             *g = Some(TxState {
                 dir,
                 undos: Vec::new(),

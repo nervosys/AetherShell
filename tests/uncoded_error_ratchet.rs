@@ -17,11 +17,11 @@
 //!
 //! It was 109 before the caller-input conversions, 89 after them, and 87 after
 //! the coded-errors pass (the container runtime, provider default, save_json
-//! and ls sites). The ceiling may only fall: lower `UNCODED_MAX` whenever a
+//! and ls sites), then 86 once apply passed tx::begin's coded error through. The ceiling may only fall: lower `UNCODED_MAX` whenever a
 //! site is coded, and do not raise it to admit a new uncoded error; code the
 //! error instead.
 
-const UNCODED_MAX: usize = 87;
+const UNCODED_MAX: usize = 86;
 
 fn count_uncoded(src: &str) -> usize {
     src.lines()

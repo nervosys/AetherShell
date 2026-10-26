@@ -171,6 +171,24 @@ fn platform_db_export_over_a_file_is_undone_by_rollback() {
 }
 
 #[test]
+fn a_journal_directory_that_cannot_be_made_is_a_coded_error() {
+    let _lock = TX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _cleanup = TxCleanup;
+    // A workspace that is a file: the journal directory beneath it cannot exist.
+    let file = scratch_path("not-a-workspace");
+    std::fs::write(&file, "x").unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &file);
+    let result = aethershell::tx::begin();
+    workspace();
+    let _ = std::fs::remove_file(&file);
+    let err = result.expect_err("begin must fail under a file");
+    assert!(
+        err.downcast_ref::<aethershell::safety::SafetyError>().is_some(),
+        "the failure must carry a code: {err}"
+    );
+}
+
+#[test]
 fn zip_extract_is_refused_inside_a_transaction() {
     let _lock = TX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _cleanup = TxCleanup;
