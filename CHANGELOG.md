@@ -113,6 +113,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A link to the audit log no longer gets writes through** (security): the
+  guard's audit check compared the path as written, so a symlink in the
+  workspace whose target was the audit log passed it, and `file_write`,
+  `file_append`, `file_replace`, `file_patch`, `file_insert` and `save_json`
+  then changed the log's bytes, and `fs_chmod` its mode. The check now also
+  compares the path with symlinks resolved and, on Unix, the file's device
+  and inode, so a hard link is caught too. All 23 file writers are pinned in
+  `tests/audit_alias_contracts.rs` (Unix). On Windows a symlink needs
+  privilege, and hard-link identity is not compared there yet.
 - **Failed platform and screen probes are refused**: `sys_kernel`,
   `platform_kernel`, `platform_os_version`, `platform_build`,
   `platform_machine_id` and `screen_list` did not read their tool's exit

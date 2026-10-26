@@ -38,7 +38,7 @@ use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -2165,38 +2165,43 @@ pub fn workspace_root() -> PathBuf {
     }
 }
 
-/// Whether the jail is enforced. Enforced in agent mode, or whenever the
-/// workspace root is set explicitly (humans opting into reproducible jails).
 /// Whether `path` names the active audit log or the directory holding it.
 ///
 /// Compared lexically after normalising separators, because the target may not
 /// exist yet — a truncating write to a path that is about to *become* the log is
 /// the same attack as editing the one that is there.
+///
+/// Compared again after resolving symlinks, and on Unix by file identity too.
+/// The lexical test alone let an alias through: a symlink in the workspace
+/// whose target is the log passed the jail (the link is inside it) and passed
+/// this test (the link's name is not the log's), and `file.write`,
+/// `file.append`, `fs.chmod` and others then followed the link and changed the
+/// log. A hard link is the same alias with no link to resolve, so it is
+/// matched by device and inode.
 pub fn is_audit_artifact(path: &str) -> bool {
-    let norm = |s: &str| {
-        s.replace('\\', "/")
-            .trim_end_matches('/')
-            .to_ascii_lowercase()
-    };
-    let p = norm(path);
-    if p.is_empty() {
+    let p = path.replace('\\', "/");
+    if p.trim_end_matches('/').is_empty() {
         return false;
     }
+    let candidates = audit_forms(Path::new(path));
+    let hit = |target: &Path| {
+        let forms = audit_forms(target);
+        candidates.iter().any(|c| forms.contains(c)) || same_existing_file(Path::new(path), target)
+    };
     // The append-only sink is evidence too. It is normally outside the
     // workspace — that is the point of it — but nothing forces that, and a
     // sink placed inside the jail would otherwise be an ordinary writable
     // file that any `file.write` could clobber.
     if let Some(sink) = std::env::var_os("AETHER_AUDIT_SINK") {
-        let sink = norm(&sink.to_string_lossy());
-        if !sink.is_empty() && p == sink {
+        let sink = PathBuf::from(sink);
+        if !sink.as_os_str().is_empty() && hit(&sink) {
             return true;
         }
     }
 
     match audit_path() {
         Some(log) => {
-            let l = norm(&log.to_string_lossy());
-            if p == l {
+            if hit(&log) {
                 return true;
             }
             // The containing directory too, so `rm -r .ae` is caught — but
@@ -2208,8 +2213,11 @@ pub fn is_audit_artifact(path: &str) -> bool {
             // control.
             match log.parent() {
                 Some(dir) if dir.file_name().is_some_and(|n| n == ".ae") => {
-                    let d = norm(&dir.to_string_lossy());
-                    !d.is_empty() && (p == d || p.starts_with(&format!("{d}/")))
+                    let dirs = audit_forms(dir);
+                    candidates.iter().any(|c| {
+                        dirs.iter()
+                            .any(|d| !d.is_empty() && (c == d || c.starts_with(&format!("{d}/"))))
+                    })
                 }
                 _ => false,
             }
@@ -2218,6 +2226,66 @@ pub fn is_audit_artifact(path: &str) -> bool {
     }
 }
 
+/// The spellings of `path` that [`is_audit_artifact`] compares: the lexical
+/// form, and the form with symlinks resolved (through the nearest existing
+/// ancestor, so a path that does not exist yet still resolves its directory).
+/// Lowercased with `/` separators, since Windows paths compare that way.
+fn audit_forms(path: &Path) -> Vec<String> {
+    let norm = |s: &str| {
+        s.replace('\\', "/")
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
+    };
+    let mut forms = vec![norm(&path.to_string_lossy())];
+    if let Some(real) = resolve_existing_prefix(path) {
+        let real = norm(&real.to_string_lossy());
+        if !forms.contains(&real) {
+            forms.push(real);
+        }
+    }
+    forms
+}
+
+/// `path` with symlinks resolved: canonicalised outright when it exists, else
+/// its nearest existing ancestor canonicalised and the missing tail re-joined.
+fn resolve_existing_prefix(path: &Path) -> Option<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
+    let mut tail = Vec::new();
+    let mut cursor = absolute.as_path();
+    loop {
+        if let Ok(real) = std::fs::canonicalize(cursor) {
+            let mut out = real;
+            for part in tail.iter().rev() {
+                out.push(part);
+            }
+            return Some(out);
+        }
+        tail.push(cursor.file_name()?.to_os_string());
+        cursor = cursor.parent()?;
+    }
+}
+
+/// Whether two existing paths are the same file, hard links included.
+#[cfg(unix)]
+fn same_existing_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn same_existing_file(_a: &Path, _b: &Path) -> bool {
+    false
+}
+
+/// Whether the jail is enforced. Enforced in agent mode, or whenever the
+/// workspace root is set explicitly (humans opting into reproducible jails).
 fn jail_enforced(mode: Mode) -> bool {
     mode == Mode::Agent || std::env::var("AETHER_WORKSPACE").is_ok()
 }
