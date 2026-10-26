@@ -210,7 +210,7 @@ axum = { version = "0.7", features = ["ws"], optional = true }
 # web_websocket. Already built for axum's ws feature; the TLS feature uses the
 # rustls and webpki-roots that reqwest already builds.
 tungstenite = { version = "0.24", optional = true, default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
-tower = { version = "0.4", optional = true }
+tower = { version = "0.4", optional = true, features = ["limit"] }
 tower-http = { version = "0.5", features = [
     "cors",
     "trace",

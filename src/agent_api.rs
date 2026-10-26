@@ -3520,8 +3520,17 @@ pub mod server {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::{broadcast, mpsc, RwLock};
+    use tokio::task::JoinHandle;
+    use tower::limit::GlobalConcurrencyLimitLayer;
     use tower_http::cors::{Any, CorsLayer};
     use tower_http::timeout::TimeoutLayer;
+
+    /// Requests handled at once across the whole server. Each in-flight
+    /// handler holds one permit until it returns its response, so a flood of
+    /// slow evaluations queues here instead of filling the blocking pool.
+    /// Streaming and WebSocket responses release their permit as soon as the
+    /// response head is produced, so long-lived connections do not hold slots.
+    const MAX_CONCURRENT_REQUESTS: usize = 64;
 
     // ========================================================================
     // WebSocket Types
@@ -3724,8 +3733,26 @@ pub mod server {
         pub async fn broadcast_to_channel(&self, channel: &str, payload: JsonValue) {
             let channels = self.channels.read().await;
             if let Some(tx) = channels.get(channel) {
-                let _ = tx.send(payload);
+                // `send` fails only when no receiver is left, so the entry is
+                // dead weight: release the read lock and prune it.
+                if tx.send(payload).is_err() {
+                    drop(channels);
+                    self.prune_idle_channels().await;
+                }
             }
+        }
+
+        /// Remove every channel that has no live subscriber.
+        ///
+        /// Safe against a concurrent subscribe: `subscribe_to_channel` also
+        /// takes the write lock, so a channel is either pruned before a new
+        /// subscriber arrives (which then creates a fresh sender) or it has
+        /// that subscriber by the time it is checked.
+        pub async fn prune_idle_channels(&self) {
+            self.channels
+                .write()
+                .await
+                .retain(|_, tx| tx.receiver_count() > 0);
         }
 
         pub async fn subscribe_to_channel(&self, channel: &str) -> broadcast::Receiver<JsonValue> {
@@ -4108,6 +4135,13 @@ pub mod server {
         }
         let mut app = app.merge(long_lived);
 
+        // One semaphore shared by every route (`Router::layer` wraps each route
+        // separately, so a per-route limit would not be global). Added after the
+        // merge so it covers the streaming and WebSocket routes too; it sits
+        // inside the auth layer below, so unauthenticated requests never wait
+        // for a permit.
+        app = app.layer(GlobalConcurrencyLimitLayer::new(MAX_CONCURRENT_REQUESTS));
+
         // Security headers. These servers return JSON, never a page, so the
         // policy is simply "this is not a document": no sniffing, no framing,
         // no subresources, no referrer. `no-store` because responses routinely
@@ -4318,12 +4352,7 @@ pub mod server {
         request: AgentRequest,
         deadline: Option<std::time::Duration>,
     ) -> (StatusCode, Json<AgentResponse>) {
-        match tokio::task::spawn_blocking(move || {
-            let _guard = deadline.map(crate::safety::enter_deadline);
-            process_request(&request)
-        })
-        .await
-        {
+        match evaluate_off_thread(request, deadline).await {
             Ok(response) => {
                 if response.success {
                     (StatusCode::OK, Json(response))
@@ -4331,18 +4360,40 @@ pub mod server {
                     (StatusCode::BAD_REQUEST, Json(response))
                 }
             }
-            // The closure panicked. Report it rather than propagating, so one
-            // bad request cannot take down the listener.
-            Err(e) => (
+            Err(error) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AgentResponse {
-                    success: false,
-                    result: None,
-                    error: Some(format!("request handler failed: {e}")),
-                    result_type: None,
-                    metadata: None,
-                }),
+                Json(handler_failure(error)),
             ),
+        }
+    }
+
+    /// Evaluate a request on the blocking pool under the evaluation deadline.
+    ///
+    /// Used by every path that runs `process_request` on behalf of a client,
+    /// so none of them pins an async worker for the length of an evaluation.
+    /// `Err` means the evaluation panicked; the message is the reason.
+    async fn evaluate_off_thread(
+        request: AgentRequest,
+        deadline: Option<std::time::Duration>,
+    ) -> Result<AgentResponse, String> {
+        tokio::task::spawn_blocking(move || {
+            let _guard = deadline.map(crate::safety::enter_deadline);
+            process_request(&request)
+        })
+        .await
+        .map_err(|e| e.to_string())
+    }
+
+    /// The response for a handler that failed before producing one. Reported
+    /// as data rather than propagated, so one bad request cannot take down the
+    /// listener or the connection.
+    fn handler_failure(error: String) -> AgentResponse {
+        AgentResponse {
+            success: false,
+            result: None,
+            error: Some(format!("request handler failed: {error}")),
+            result_type: None,
+            metadata: None,
         }
     }
 
@@ -4386,9 +4437,14 @@ pub mod server {
 
     /// Stream execution of a generic request
     async fn handle_stream_execute(Json(request): Json<AgentRequest>) -> impl IntoResponse {
+        let deadline = eval_deadline();
         create_sse_response(async move {
-            let response = process_request(&request);
-            stream_events_from_response(response, 50)
+            match evaluate_off_thread(request, deadline).await {
+                Ok(response) => stream_events_from_response(response, 50),
+                Err(error) => vec![StreamEvent::error(&format!(
+                    "request handler failed: {error}"
+                ))],
+            }
         })
     }
 
@@ -4503,6 +4559,40 @@ pub mod server {
         })
     }
 
+    /// The SSE events for a streamed evaluation of `code`: `start`, then the
+    /// result in `chunk` events of 50 items, then `complete`; or `error`.
+    /// `deadline` bounds the evaluation, as it does for the other handlers.
+    pub fn stream_eval_events(
+        code: &str,
+        deadline: Option<std::time::Duration>,
+    ) -> Vec<StreamEvent> {
+        let mut events = vec![StreamEvent::start("Evaluating code...")];
+        let _guard = deadline.map(crate::safety::enter_deadline);
+
+        // Stream-evaluate: results are produced incrementally (element-by-element
+        // for a streamable `source | map/where/…` pipeline) rather than the whole
+        // value being materialized first, then chunked for the wire.
+        let mut env = crate::modules::env_with_modules();
+        let mut items: Vec<JsonValue> = Vec::new();
+        let result = {
+            let mut emit = |v: crate::value::Value| items.push(v.to_json());
+            crate::eval::eval_stream(code, &mut env, &mut emit)
+        };
+        match result {
+            Ok(n) => {
+                for (seq, chunk) in items.chunks(50).enumerate() {
+                    events.push(StreamEvent::chunk(seq, chunk, n));
+                }
+                events.push(StreamEvent::complete(
+                    json!({ "streamed_items": n }),
+                    Some("stream"),
+                ));
+            }
+            Err(e) => events.push(StreamEvent::error(&format!("{}", e))),
+        }
+        events
+    }
+
     /// Stream code evaluation
     async fn handle_stream_eval(Json(body): Json<JsonValue>) -> impl IntoResponse {
         let code = body
@@ -4510,32 +4600,14 @@ pub mod server {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        let deadline = eval_deadline();
 
         create_sse_response(async move {
-            let mut events = vec![StreamEvent::start("Evaluating code...")];
-
-            // Stream-evaluate: results are produced incrementally (element-by-element
-            // for a streamable `source | map/where/…` pipeline) rather than the whole
-            // value being materialized first, then chunked for the wire.
-            let mut env = crate::modules::env_with_modules();
-            let mut items: Vec<JsonValue> = Vec::new();
-            let result = {
-                let mut emit = |v: crate::value::Value| items.push(v.to_json());
-                crate::eval::eval_stream(&code, &mut env, &mut emit)
-            };
-            match result {
-                Ok(n) => {
-                    for (seq, chunk) in items.chunks(50).enumerate() {
-                        events.push(StreamEvent::chunk(seq, chunk, n));
-                    }
-                    events.push(StreamEvent::complete(
-                        json!({ "streamed_items": n }),
-                        Some("stream"),
-                    ));
-                }
-                Err(e) => events.push(StreamEvent::error(&format!("{}", e))),
+            // Evaluation is synchronous: keep it off the async workers, as run_blocking does.
+            match tokio::task::spawn_blocking(move || stream_eval_events(&code, deadline)).await {
+                Ok(events) => events,
+                Err(e) => vec![StreamEvent::error(&format!("request handler failed: {e}"))],
             }
-            events
         })
     }
 
@@ -4700,6 +4772,94 @@ pub mod server {
     // WebSocket Handler
     // ========================================================================
 
+    /// Copy one channel's messages into a connection's outbound queue.
+    ///
+    /// A lagging receiver (the publisher outran its buffer) skips the messages
+    /// it missed and keeps going; only a closed channel or a closed connection
+    /// ends the forwarder.
+    async fn forward_channel(
+        mut rx: broadcast::Receiver<JsonValue>,
+        out: mpsc::Sender<WsServerMessage>,
+        channel: String,
+    ) {
+        loop {
+            match rx.recv().await {
+                Ok(payload) => {
+                    let msg = WsServerMessage::Channel {
+                        channel: channel.clone(),
+                        payload,
+                    };
+                    if out.send(msg).await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    }
+
+    /// The forwarding tasks for one WebSocket connection's channel
+    /// subscriptions, keyed by channel name.
+    ///
+    /// A spawned task keeps running after its handle is dropped, so each one
+    /// is aborted explicitly: on Unsubscribe, when the same channel is
+    /// subscribed again, and when the connection closes. Dropping the set
+    /// aborts whatever is left, as a backstop.
+    #[derive(Default)]
+    struct SubscriptionTasks {
+        tasks: HashMap<String, JoinHandle<()>>,
+    }
+
+    impl SubscriptionTasks {
+        fn insert(&mut self, channel: String, task: JoinHandle<()>) {
+            if let Some(previous) = self.tasks.insert(channel, task) {
+                previous.abort();
+            }
+        }
+
+        /// Stop the subscription to `channel`. Returns whether one existed.
+        async fn remove(&mut self, channel: &str) -> bool {
+            match self.tasks.remove(channel) {
+                Some(task) => {
+                    stop_task(task).await;
+                    true
+                }
+                None => false,
+            }
+        }
+
+        /// Stop every subscription. Used when the connection closes.
+        async fn stop_all(&mut self) {
+            let tasks: Vec<JoinHandle<()>> = self.tasks.drain().map(|(_, t)| t).collect();
+            for task in tasks {
+                stop_task(task).await;
+            }
+        }
+
+        #[cfg(test)]
+        fn len(&self) -> usize {
+            self.tasks.len()
+        }
+    }
+
+    impl Drop for SubscriptionTasks {
+        fn drop(&mut self) {
+            for (_, task) in self.tasks.drain() {
+                task.abort();
+            }
+        }
+    }
+
+    /// Abort a task and wait for it to finish. Waiting matters: the task owns
+    /// a broadcast receiver, and that receiver only goes away once the future
+    /// is dropped, which is when the task actually stops. Waiting lets the
+    /// channel pruning that follows see the subscriber gone.
+    async fn stop_task(task: JoinHandle<()>) {
+        task.abort();
+        let _ = task.await;
+    }
+
     async fn handle_websocket(
         ws: WebSocketUpgrade,
         state: Arc<OrchestratorState>,
@@ -4713,6 +4873,7 @@ pub mod server {
         let (mut sender, mut receiver) = socket.split();
         let (tx, mut rx) = mpsc::channel::<WsServerMessage>(100);
         let mut agent_id: Option<String> = None;
+        let mut subscriptions = SubscriptionTasks::default();
 
         // Task for sending messages to the client
         let send_task = tokio::spawn(async move {
@@ -4732,7 +4893,11 @@ pub mod server {
                     if let Ok(msg) = serde_json::from_str::<WsClientMessage>(&text) {
                         let response = match msg {
                             WsClientMessage::Execute { id, request } => {
-                                let response = process_request(&request);
+                                let response =
+                                    match evaluate_off_thread(request, eval_deadline()).await {
+                                        Ok(response) => response,
+                                        Err(error) => handler_failure(error),
+                                    };
                                 Some(WsServerMessage::Response { id, response })
                             }
                             WsClientMessage::Ping { id } => {
@@ -4787,24 +4952,17 @@ pub mod server {
                                 None
                             }
                             WsClientMessage::Subscribe { channel } => {
-                                let mut rx = state.subscribe_to_channel(&channel).await;
-                                let tx_clone = tx.clone();
-                                let channel_clone = channel.clone();
-                                tokio::spawn(async move {
-                                    while let Ok(payload) = rx.recv().await {
-                                        let msg = WsServerMessage::Channel {
-                                            channel: channel_clone.clone(),
-                                            payload,
-                                        };
-                                        if tx_clone.send(msg).await.is_err() {
-                                            break;
-                                        }
-                                    }
-                                });
+                                // Re-subscribing replaces the old forwarder rather than doubling it.
+                                subscriptions.remove(&channel).await;
+                                let rx = state.subscribe_to_channel(&channel).await;
+                                let task =
+                                    tokio::spawn(forward_channel(rx, tx.clone(), channel.clone()));
+                                subscriptions.insert(channel, task);
                                 None
                             }
-                            WsClientMessage::Unsubscribe { channel: _ } => {
-                                // Channel subscriptions are dropped when the task ends
+                            WsClientMessage::Unsubscribe { channel } => {
+                                subscriptions.remove(&channel).await;
+                                state.prune_idle_channels().await;
                                 None
                             }
                         };
@@ -4835,6 +4993,8 @@ pub mod server {
                 .await;
             state.unregister_agent(aid).await;
         }
+        subscriptions.stop_all().await;
+        state.prune_idle_channels().await;
         send_task.abort();
     }
 
@@ -5380,6 +5540,149 @@ pub mod server {
                 })
                 .collect(),
             None => vec![],
+        }
+    }
+
+    #[cfg(test)]
+    mod lifecycle_tests {
+        use super::*;
+        use std::time::Duration;
+
+        fn test_state() -> OrchestratorState {
+            OrchestratorState {
+                agents: RwLock::new(HashMap::new()),
+                channels: RwLock::new(HashMap::new()),
+                task_queue: RwLock::new(Vec::new()),
+                workflows: RwLock::new(HashMap::new()),
+                marketplace: RwLock::new(None),
+            }
+        }
+
+        /// A task that never finishes on its own. The returned receiver
+        /// resolves (with an error) once the task's future has been dropped,
+        /// which is the point at which the task has really stopped.
+        fn endless_task() -> (JoinHandle<()>, tokio::sync::oneshot::Receiver<()>) {
+            let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel::<()>();
+            let task = tokio::spawn(async move {
+                let _sentinel = dropped_tx;
+                std::future::pending::<()>().await
+            });
+            (task, dropped_rx)
+        }
+
+        async fn assert_stopped(dropped: tokio::sync::oneshot::Receiver<()>) {
+            let outcome = tokio::time::timeout(Duration::from_secs(5), dropped)
+                .await
+                .expect("task future was never dropped");
+            assert!(outcome.is_err(), "sentinel should drop without a value");
+        }
+
+        #[tokio::test]
+        async fn unsubscribe_stops_the_forwarder() {
+            let mut subs = SubscriptionTasks::default();
+            let (task, dropped) = endless_task();
+            subs.insert("news".to_string(), task);
+            assert_eq!(subs.len(), 1);
+
+            assert!(subs.remove("news").await);
+            assert!(!subs.remove("news").await, "second remove finds nothing");
+            assert_eq!(subs.len(), 0);
+            assert_stopped(dropped).await;
+        }
+
+        #[tokio::test]
+        async fn resubscribing_replaces_the_previous_forwarder() {
+            let mut subs = SubscriptionTasks::default();
+            let (first, first_dropped) = endless_task();
+            let (second, _second_dropped) = endless_task();
+            subs.insert("news".to_string(), first);
+            subs.insert("news".to_string(), second);
+
+            assert_eq!(subs.len(), 1);
+            assert_stopped(first_dropped).await;
+        }
+
+        #[tokio::test]
+        async fn disconnect_stops_every_forwarder() {
+            let mut subs = SubscriptionTasks::default();
+            let (a, a_dropped) = endless_task();
+            let (b, b_dropped) = endless_task();
+            subs.insert("a".to_string(), a);
+            subs.insert("b".to_string(), b);
+
+            subs.stop_all().await;
+
+            assert_eq!(subs.len(), 0);
+            assert_stopped(a_dropped).await;
+            assert_stopped(b_dropped).await;
+        }
+
+        #[tokio::test]
+        async fn dropping_the_set_aborts_what_is_left() {
+            let mut subs = SubscriptionTasks::default();
+            let (task, dropped) = endless_task();
+            subs.insert("news".to_string(), task);
+            drop(subs);
+            assert_stopped(dropped).await;
+        }
+
+        #[tokio::test]
+        async fn forwarder_skips_lagged_messages_and_ends_when_channel_closes() {
+            // Capacity 2 and five sends: the receiver lags past 0..=2 and
+            // should still deliver the two newest messages.
+            let (tx, rx) = broadcast::channel(2);
+            for i in 0..5 {
+                let _ = tx.send(json!(i));
+            }
+            drop(tx);
+
+            let (out_tx, mut out_rx) = mpsc::channel(16);
+            let task = tokio::spawn(forward_channel(rx, out_tx, "news".to_string()));
+            tokio::time::timeout(Duration::from_secs(5), task)
+                .await
+                .expect("forwarder did not end when the channel closed")
+                .expect("forwarder panicked");
+
+            let mut payloads = Vec::new();
+            while let Some(msg) = out_rx.recv().await {
+                match msg {
+                    WsServerMessage::Channel { channel, payload } => {
+                        assert_eq!(channel, "news");
+                        payloads.push(payload);
+                    }
+                    _ => panic!("unexpected message kind"),
+                }
+            }
+            assert_eq!(payloads, vec![json!(3), json!(4)]);
+        }
+
+        #[tokio::test]
+        async fn channel_with_no_subscribers_is_pruned_on_broadcast() {
+            let state = test_state();
+            let idle = state.subscribe_to_channel("idle").await;
+            let live = state.subscribe_to_channel("live").await;
+            drop(idle);
+
+            state.broadcast_to_channel("idle", json!(1)).await;
+
+            let channels = state.channels.read().await;
+            assert!(!channels.contains_key("idle"), "idle channel kept");
+            assert!(channels.contains_key("live"), "live channel removed");
+            drop(channels);
+            drop(live);
+        }
+
+        #[tokio::test]
+        async fn evaluate_off_thread_returns_the_evaluation_result() {
+            let response = evaluate_off_thread(
+                AgentRequest::Eval {
+                    code: "1 + 1".to_string(),
+                },
+                None,
+            )
+            .await
+            .expect("evaluation panicked");
+            assert!(response.success);
         }
     }
 }
