@@ -69018,7 +69018,10 @@ mod win_hwprobe_tests {
         };
         let m = record(Some(win_gpu_record(&g)));
         assert_eq!(m.len(), 3);
-        assert_eq!(str_of(&m, "name").as_deref(), Some("NVIDIA GeForce RTX 3090 Ti"));
+        assert_eq!(
+            str_of(&m, "name").as_deref(),
+            Some("NVIDIA GeForce RTX 3090 Ti")
+        );
         assert_eq!(int_of(&m, "vram"), Some(25_757_220_864));
         assert_eq!(str_of(&m, "driver").as_deref(), Some("32.0.15.7270"));
     }
@@ -69082,7 +69085,8 @@ mod win_hwprobe_tests {
         assert!(!m.contains_key("capacity"));
         assert_eq!(str_of(&m, "status").as_deref(), Some("full"));
 
-        let array = json!([{"Name": "Battery", "EstimatedChargeRemaining": 87, "BatteryStatus": 6}]);
+        let array =
+            json!([{"Name": "Battery", "EstimatedChargeRemaining": 87, "BatteryStatus": 6}]);
         let m = record(windows_battery_from_probe(&array));
         assert_eq!(str_of(&m, "status").as_deref(), Some("charging"));
         assert_eq!(str_of(&m, "name").as_deref(), Some("Battery"));
