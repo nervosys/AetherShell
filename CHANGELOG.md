@@ -200,6 +200,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `fs_glob`/`ls`/`cat`, and the POSIX-subset `find` and `grep -r` stop at
     1,000,000 entries and say so, instead of returning a partial list as
     the whole.
+  - Binary inputs (`ai` image, audio and video files, `crypto_hash_file`,
+    `strings_extract`, `clipboard_set_image`) and the project text readers
+    are held to the same file limit.
+  - AI provider, plugin and workflow HTTP responses were buffered whole,
+    with no limit. They now stop at 32 MiB with `E_BUDGET_EXCEEDED`; model
+    downloads still stream to disk.
 - **Bad input is `E_BAD_ARG`, not `E_UNKNOWN`**: nineteen caller-input errors
   (a `where` predicate that is not Bool, a lambda called with the wrong number
   of arguments, non-numeric `sum`/`avg` input, plan ops, `find` predicates,
