@@ -133,7 +133,7 @@ fn sys_cpu_freq_answers_a_positive_mhz_int_or_null_or_a_coded_failure() {
     let allowed: &[&str] = if cfg!(windows) {
         &["E_TOOL_FAILED", "E_TOOL_MISSING", "E_BAD_STATE"]
     } else if cfg!(target_os = "linux") {
-        &["E_POLICY_DENY", "E_IO", "E_BAD_STATE"]
+        &["E_OS_DENIED", "E_IO", "E_BAD_STATE"]
     } else {
         &["E_TOOL_FAILED", "E_TOOL_MISSING", "E_BAD_STATE"]
     };

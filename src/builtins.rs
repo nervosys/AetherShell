@@ -20684,6 +20684,9 @@ fn apply_refused_record(err: String, token: &str) -> Value {
     Value::Record(r)
 }
 
+/// The most ops one `apply` runs, as file_edit and file_patch cap their batches.
+const APPLY_MAX_OPS: usize = 10_000;
+
 /// apply(ops) - Execute a plan atomically inside a transaction. In agent mode it
 /// requires the plan's token to be approved (else returns `{status:"needs_approval"}`);
 /// any failure rolls the whole batch back. Filesystem paths are confined to the
@@ -20692,6 +20695,20 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let ops = args.first().cloned().ok_or_else(|| {
         crate::safety::bad_arg("apply", "ops: Array<Record{op, path}>", "nothing")
     })?;
+    // Each op may copy a file into the transaction journal, so a plan is held
+    // to the batch limit file_edit and file_patch use, before it is parsed.
+    if let Value::Array(a) = &ops {
+        if a.len() > APPLY_MAX_OPS {
+            return Err(crate::safety::budget_exceeded(
+                "apply",
+                format!(
+                    "the plan has {} ops; at most {APPLY_MAX_OPS} run in one apply",
+                    a.len()
+                ),
+                "split the plan into smaller ones",
+            ));
+        }
+    }
     let parsed = parse_plan_ops(&ops)?;
     let token = plan_token(&ops);
     let agent = matches!(crate::safety::current_mode(), crate::safety::Mode::Agent);
@@ -24061,7 +24078,7 @@ fn proc_refused(
     .iter()
     .any(|w| lower.contains(w))
     {
-        return crate::safety::policy_deny(
+        return crate::safety::os_denied(
             builtin,
             format!("{builtin}: the operating system refused to change process {pid}: {said}"),
             "the process belongs to another user, or this change needs elevated rights; change a process this user owns",
@@ -24078,7 +24095,7 @@ fn proc_read_failed(builtin: &str, pid: i64, what: &str, e: &std::io::Error) -> 
         std::io::ErrorKind::NotFound => {
             crate::safety::not_found(builtin, "process", &pid.to_string())
         }
-        std::io::ErrorKind::PermissionDenied => crate::safety::policy_deny(
+        std::io::ErrorKind::PermissionDenied => crate::safety::os_denied(
             builtin,
             format!("{builtin}: the operating system denied reading {what} of process {pid}"),
             "the process belongs to another user; read processes this user owns",
@@ -24423,7 +24440,7 @@ fn bi_proc_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 Some(libc::ESRCH) => {
                     crate::safety::not_found("proc_kill", "process", &pid.to_string())
                 }
-                Some(libc::EPERM) => crate::safety::policy_deny(
+                Some(libc::EPERM) => crate::safety::os_denied(
                     "proc_kill",
                     format!(
                         "proc_kill: the operating system denied {signal} to process {pid} (EPERM)"
@@ -25086,11 +25103,11 @@ fn proc_sys_env_cwd(pid: i64) -> System {
     sys
 }
 
-/// E_POLICY_DENY for a live process whose environment or directory Windows
+/// E_OS_DENIED for a live process whose environment or directory Windows
 /// would not give us.
 #[cfg(windows)]
 fn proc_access_denied(builtin: &str, what: &str, pid: i64) -> anyhow::Error {
-    crate::safety::policy_deny(
+    crate::safety::os_denied(
         builtin,
         format!("{builtin}: {what} of process {pid} is not readable"),
         "the process is protected or belongs to another user; read a process this user owns",
@@ -25231,7 +25248,7 @@ fn proc_exe_of(pid: i64) -> Result<String> {
     )?;
     let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if path.is_empty() {
-        return Err(crate::safety::policy_deny(
+        return Err(crate::safety::os_denied(
             "proc_exe",
             format!("proc_exe: the path of process {pid} is not readable"),
             "the process is protected or belongs to another user; read the path of a process this user owns",
@@ -25330,7 +25347,7 @@ fn proc_cmdline_of(pid: i64) -> Result<Vec<String>> {
     )?;
     let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if line.is_empty() {
-        return Err(crate::safety::policy_deny(
+        return Err(crate::safety::os_denied(
             "proc_cmdline",
             format!("proc_cmdline: the command line of process {pid} is not readable"),
             "the process is protected or belongs to another user; read the command line of a process this user owns",
@@ -25443,7 +25460,7 @@ fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
     let err = std::io::Error::last_os_error();
     Err(match err.raw_os_error() {
         Some(libc::ESRCH) => crate::safety::not_found(builtin, "process", &pid.to_string()),
-        Some(libc::EPERM) => crate::safety::policy_deny(
+        Some(libc::EPERM) => crate::safety::os_denied(
             builtin,
             format!("{builtin}: the operating system denied SIG{name} to process {pid} (EPERM)"),
             "the process belongs to another user or is protected; signal a process this user owns",
@@ -25487,7 +25504,7 @@ fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
         .find(|l| *l == "ok" || l.starts_with("err:"));
     match verdict {
         Some("ok") => Ok(Value::Bool(true)),
-        Some("err:open:5") => Err(crate::safety::policy_deny(
+        Some("err:open:5") => Err(crate::safety::os_denied(
             builtin,
             format!("{builtin}: the operating system denied PROCESS_SUSPEND_RESUME to process {pid} (ERROR_ACCESS_DENIED)"),
             "the process is protected or belongs to another user; act on a process this user owns",
@@ -68726,5 +68743,46 @@ mod clip_deadline_tests {
                 "a helper that exited at once must not be reported as a timeout"
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod os_denied_tests {
+    use super::*;
+
+    fn code_of(e: &anyhow::Error) -> Option<crate::safety::ErrorCode> {
+        e.downcast_ref::<crate::safety::SafetyError>()
+            .map(|s| s.code)
+    }
+
+    #[test]
+    fn an_os_permission_refusal_is_not_the_shells_policy() {
+        let e = crate::safety::fs_error(
+            "file_read",
+            "x",
+            &std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        );
+        assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::OsDenied));
+        // Same exit status as a policy refusal, different code.
+        assert_eq!(crate::safety::ErrorCode::OsDenied.exit_code(), 77);
+        assert_ne!(
+            crate::safety::ErrorCode::OsDenied.as_str(),
+            crate::safety::ErrorCode::PolicyDeny.as_str()
+        );
+    }
+
+    #[test]
+    fn a_plan_over_the_op_limit_is_refused_before_anything_runs() {
+        let op = |i: usize| {
+            let mut m = BTreeMap::new();
+            m.insert("op".to_string(), Value::Str("write".to_string()));
+            m.insert("path".to_string(), Value::Str(format!("never-written-{i}")));
+            m.insert("content".to_string(), Value::Str(String::new()));
+            Value::Record(m)
+        };
+        let ops = Value::Array((0..=APPLY_MAX_OPS).map(op).collect());
+        let e = bi_apply(vec![ops], None).unwrap_err();
+        assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::BudgetExceeded));
+        assert!(!std::path::Path::new("never-written-0").exists());
     }
 }

@@ -158,12 +158,12 @@ fn proc_cwd_of_a_child_is_the_directory_it_was_started_in() {
 
 #[test]
 fn proc_env_of_the_system_process_is_policy_denied_not_empty() {
-    expect_code("proc_env", vec![Value::Int(SYSTEM_PID)], "E_POLICY_DENY");
+    expect_code("proc_env", vec![Value::Int(SYSTEM_PID)], "E_OS_DENIED");
 }
 
 #[test]
 fn proc_cwd_of_the_system_process_is_policy_denied_not_empty() {
-    expect_code("proc_cwd", vec![Value::Int(SYSTEM_PID)], "E_POLICY_DENY");
+    expect_code("proc_cwd", vec![Value::Int(SYSTEM_PID)], "E_OS_DENIED");
 }
 
 #[test]

@@ -35,6 +35,7 @@ fn the_four_codes_carry_distinct_contracts() {
         (ErrorCode::DecryptFailed, "E_DECRYPT_FAILED", 65, false),
         (ErrorCode::FipsDisallowed, "E_FIPS_DISALLOWED", 77, false),
         (ErrorCode::CryptoFailed, "E_CRYPTO_FAILED", 70, false),
+        (ErrorCode::OsDenied, "E_OS_DENIED", 77, false),
     ] {
         assert_eq!(code.as_str(), text);
         assert_eq!(code.exit_code(), exit, "{text} exit status");

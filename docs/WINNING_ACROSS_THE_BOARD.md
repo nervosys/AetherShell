@@ -139,6 +139,7 @@ step can branch on it without reading stderr at all.
 | `E_DECRYPT_FAILED` | 65 | `EX_DATAERR` -- the input data was incorrect |
 | `E_FIPS_DISALLOWED` | 77 | `EX_NOPERM` -- FIPS mode refused an unapproved hash |
 | `E_CRYPTO_FAILED` | 70 | `EX_SOFTWARE` -- the in-process cipher failed on a valid request |
+| `E_OS_DENIED` | 77 | `EX_NOPERM` -- the operating system refused; `E_POLICY_DENY` is the shell refusing |
 | `E_UNKNOWN` | 1 | unchanged |
 
 The last six were not in the original design. Each was found the same way, by

@@ -696,7 +696,7 @@ fn set_priority_on_a_child_is_its_nice_in_proc() {
 #[cfg(target_os = "linux")]
 #[test]
 #[ignore = "disposable environment only: scripts/disposable_linux_tests.sh"]
-fn set_priority_refused_for_a_lower_nice_is_policy_deny_not_a_false() {
+fn set_priority_refused_for_a_lower_nice_is_os_denied_not_a_false() {
     disposable::require();
     // Only meaningful when this process may not lower its own nice value. The
     // disposable runner is root, so this checks the refusal path only when
@@ -707,7 +707,7 @@ fn set_priority_refused_for_a_lower_nice_is_policy_deny_not_a_false() {
     let mut child = Sleeper::start();
     let e = run("proc_set_priority", vec![child.value(), Value::Int(-5)])
         .expect_err("a non-root raise of priority");
-    assert_eq!(code_of(&e), "E_POLICY_DENY", "{e}");
+    assert_eq!(code_of(&e), "E_OS_DENIED", "{e}");
 }
 
 /// 2^32 + 1 is no process. `pid as u32` wrapped it to pid 1, so proc_info

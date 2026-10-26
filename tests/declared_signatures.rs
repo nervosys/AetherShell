@@ -376,7 +376,7 @@ fn machine_absence(name: &str, msg: &str) -> bool {
     let code = error_code(msg);
     if cfg!(windows)
         && name == "fs_symlink"
-        && matches!(code.as_deref(), Some("E_POLICY_DENY" | "E_IO"))
+        && matches!(code.as_deref(), Some("E_OS_DENIED" | "E_POLICY_DENY" | "E_IO"))
     {
         return msg.contains("os error 1314");
     }
@@ -1280,7 +1280,7 @@ fn symlink_machine_absence_requires_the_specific_windows_privilege_error() {
     if cfg!(windows) {
         assert!(machine_absence(
             "fs_symlink",
-            "E_POLICY_DENY: privilege not held (os error 1314)"
+            "E_OS_DENIED: privilege not held (os error 1314)"
         ));
         assert!(machine_absence(
             "fs_symlink",

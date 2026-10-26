@@ -989,7 +989,7 @@ fn failed_atomic_write_is_coded_and_removes_its_temporary_file() {
     assert!(
         matches!(
             structured["error"]["code"].as_str(),
-            Some("E_IO" | "E_POLICY_DENY")
+            Some("E_IO" | "E_OS_DENIED")
         ),
         "{error}"
     );

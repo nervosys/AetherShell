@@ -88,6 +88,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `E_CRYPTO_FAILED` (exit 70) and `E_FIPS_DISALLOWED` (exit 77) replace errors
   that named a code only in their prose. An external tool stopped at its
   deadline is `E_BUDGET_EXCEEDED`, no longer reported as a failure to start.
+  The operating system's refusals (a file's permissions, another user's or a
+  protected process, a privilege not held) are the new `E_OS_DENIED`, exit 77
+  as before; `E_POLICY_DENY` now means only that the shell's own policy
+  refused. A script that branched on `E_POLICY_DENY` for an unreadable file
+  must test `E_OS_DENIED`. `apply` refuses a plan of more than 10,000 ops
+  with `E_BUDGET_EXCEEDED`.
 - **Agent mode does not read the clipboard.** `clipboard_get`,
   `clipboard_get_image` and `clipboard_history` are `E_POLICY_DENY`, with
   nothing read, unless `AETHER_SECRETS=allow` or `AETHER_POLICY=permissive`: a

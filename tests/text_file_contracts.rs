@@ -133,7 +133,7 @@ fn chown_guards_paths_and_codes_a_denied_transaction_change() {
     let refused = if unsafe { libc::geteuid() } == 0 {
         None
     } else {
-        Some("E_POLICY_DENY")
+        Some("E_OS_DENIED")
     };
     #[cfg(not(unix))]
     let refused = Some("E_UNIMPLEMENTED");
@@ -1466,7 +1466,7 @@ fn file_backup_preserves_source_permissions() {
         std::fs::set_permissions(&source, original).unwrap();
         let failure = result.unwrap_err().to_string();
         assert!(
-            failure.contains("E_IO") || failure.contains("E_POLICY_DENY"),
+            failure.contains("E_IO") || failure.contains("E_OS_DENIED"),
             "{failure}"
         );
         assert_eq!(std::fs::read_to_string(&locked_path).unwrap(), "prior");

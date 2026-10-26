@@ -1344,11 +1344,20 @@ pub enum ErrorCode {
     /// absence nor a refusal: the disk is full, the handle is bad, the
     /// device is gone.
     ///
-    /// Absence is `NotFound` and a refusal is `PolicyDeny`; this is the
+    /// Absence is `NotFound` and the OS's refusal is `OsDenied`; this is the
     /// rest of `io::ErrorKind`, which is identified even when it is not
     /// actionable. `Unknown` would say the shell has no idea what
     /// happened, and it does.
     Io,
+    /// The operating system refused: a file's permissions, another user's
+    /// process, a protected one. Not the shell's policy, which is `PolicyDeny`.
+    ///
+    /// These two used to share `PolicyDeny`, so a count of the shell's own
+    /// refusals (the safety benchmarks, an audit review) included every
+    /// read-only file it met, and an agent could not tell "the shell will not"
+    /// from "this user cannot". Both exit 77, EX_NOPERM, and neither is
+    /// retryable unchanged; the hint says what the OS wanted.
+    OsDenied,
     /// `crypto_decrypt` could not produce plaintext: the ciphertext is malformed,
     /// the password is wrong, the ciphertext was modified, the plaintext is not
     /// text, or the legacy openssl child refused it.
@@ -1394,6 +1403,7 @@ impl ErrorCode {
             ErrorCode::NotFound => "E_NOT_FOUND",
             ErrorCode::ToolFailed => "E_TOOL_FAILED",
             ErrorCode::Io => "E_IO",
+            ErrorCode::OsDenied => "E_OS_DENIED",
             ErrorCode::DecryptFailed => "E_DECRYPT_FAILED",
             ErrorCode::FipsDisallowed => "E_FIPS_DISALLOWED",
             ErrorCode::CryptoFailed => "E_CRYPTO_FAILED",
@@ -1431,6 +1441,9 @@ impl ErrorCode {
             // The disk does not get less full because the call was made
             // twice.
             ErrorCode::Io => false,
+            // The same user asking again is refused again; another user, or
+            // other permissions, is an action outside this call.
+            ErrorCode::OsDenied => false,
             // The same ciphertext and password fail identically on a second
             // call; only a different input can change the outcome.
             ErrorCode::DecryptFailed => false,
@@ -1481,6 +1494,9 @@ impl ErrorCode {
             ErrorCode::BadState => 76,
             // EX_IOERR.
             ErrorCode::Io => 74,
+            // EX_NOPERM -- the operating system refused, as PolicyDeny's 77
+            // is the shell refusing.
+            ErrorCode::OsDenied => 77,
             // EX_DATAERR -- the input data was incorrect: the ciphertext, the
             // password, or what they decode to.
             ErrorCode::DecryptFailed => 65,
@@ -1835,9 +1851,8 @@ pub fn fs_error(
     let path = path.as_str();
     match e.kind() {
         std::io::ErrorKind::NotFound => not_found(builtin, "file", path),
-        // The OS refused, not our policy -- but the shape is the same: no
-        // correction to the call will help.
-        std::io::ErrorKind::PermissionDenied => policy_deny(
+        // The OS refused, not our policy.
+        std::io::ErrorKind::PermissionDenied => os_denied(
             builtin,
             format!("{builtin}: the operating system denied access to `{path}`"),
             "check the file's permissions and owner; the shell did not refuse this",
@@ -1894,6 +1909,26 @@ pub fn policy_deny(
         did_you_mean: Vec::new(),
         expected: String::new(),
         got: String::new(),
+    })
+}
+
+/// Build a structured operating-system refusal (`E_OS_DENIED`): permissions,
+/// ownership, or a protected process. The shell's own refusals are
+/// [`policy_deny`].
+pub fn os_denied(
+    builtin: &str,
+    message: impl Into<String>,
+    hint: impl Into<String>,
+) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::OsDenied,
+        message: message.into(),
+        builtin: builtin.to_string(),
+        hint: hint.into(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: "permission denied".to_string(),
     })
 }
 

@@ -178,8 +178,8 @@ fn refusals_are_coded_and_the_child_keeps_running() {
     expect_code("proc_suspend", vec![Value::Int(NOT_LIVE)], "E_NOT_FOUND");
     expect_code("proc_resume", vec![Value::Int(NOT_LIVE)], "E_NOT_FOUND");
     // The System process: the operating system refuses PROCESS_SUSPEND_RESUME.
-    expect_code("proc_suspend", vec![Value::Int(4)], "E_POLICY_DENY");
-    expect_code("proc_resume", vec![Value::Int(4)], "E_POLICY_DENY");
+    expect_code("proc_suspend", vec![Value::Int(4)], "E_OS_DENIED");
+    expect_code("proc_resume", vec![Value::Int(4)], "E_OS_DENIED");
     expect_code("proc_suspend", vec![Value::Int(own_pid())], "E_BAD_ARG");
     expect_code("proc_resume", vec![Value::Int(own_pid())], "E_BAD_ARG");
     expect_code("proc_suspend", vec![Value::Int(0)], "E_BAD_ARG");

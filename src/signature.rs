@@ -9740,7 +9740,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("signal", Ty::Any, "TERM (default), KILL, HUP, INT, QUIT, STOP or CONT, by name or number"),
         ],
         returns: "Record",
-        doc: "Sends a signal to a process: {pid, signal, sent: true} on success. Unix uses kill(2) directly; Windows sends TERM (graceful, which a console process refuses) or KILL (forced, taskkill /F), and other signals are E_UNIMPLEMENTED there. A pid of 0 or less, a pid that does not fit the OS, this shell's own pid, and pipeline input are E_BAD_ARG; a process that does not exist is E_NOT_FOUND; a process owned by another user is E_POLICY_DENY.",
+        doc: "Sends a signal to a process: {pid, signal, sent: true} on success. Unix uses kill(2) directly; Windows sends TERM (graceful, which a console process refuses) or KILL (forced, taskkill /F), and other signals are E_UNIMPLEMENTED there. A pid of 0 or less, a pid that does not fit the OS, this shell's own pid, and pipeline input are E_BAD_ARG; a process that does not exist is E_NOT_FOUND; a process owned by another user is E_OS_DENIED.",
         examples: &[
             (r#"(try { proc_kill(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_kill(1, "BOGUS") } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
@@ -9831,7 +9831,7 @@ pub static SIGNATURES: &[Signature] = &[
             },
         ],
         returns: "Bool",
-        doc: "Sets a process's scheduling priority (nice on Unix, the nearest priority class on Windows) and answers true. Raising a priority needs privilege, and a refusal is E_POLICY_DENY. A pid that is not live is E_NOT_FOUND; a pid that is not positive is E_BAD_ARG.",
+        doc: "Sets a process's scheduling priority (nice on Unix, the nearest priority class on Windows) and answers true. Raising a priority needs privilege, and a refusal is E_OS_DENIED. A pid that is not live is E_NOT_FOUND; a pid that is not positive is E_BAD_ARG.",
         examples: &[
             (r#"(try { proc_set_priority(0, 5) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_set_priority(2000000000, 5) } catch e { e.error.code })"#, r#"E_NOT_FOUND"#),
@@ -9888,7 +9888,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("pid", Ty::Any, "a positive process id, Int or numeric String")],
         returns: "Record",
-        doc: "The environment of a process as a record of name to value. This shell's own pid is answered on every OS; another process's environment is read on Linux and Windows and is E_UNIMPLEMENTED on macOS. A pid that is not live is E_NOT_FOUND; a process the user does not own, or one Windows will not open, is E_POLICY_DENY.",
+        doc: "The environment of a process as a record of name to value. This shell's own pid is answered on every OS; another process's environment is read on Linux and Windows and is E_UNIMPLEMENTED on macOS. A pid that is not live is E_NOT_FOUND; a process the user does not own, or one Windows will not open, is E_OS_DENIED.",
         examples: &[
             (r#"(try { proc_env(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_env(2000000000) } catch e { e.error.code })"#, r#"E_NOT_FOUND"#),
@@ -9902,7 +9902,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("pid", Ty::Any, "a positive process id, Int or numeric String")],
         returns: "String",
-        doc: "The working directory of a process. This shell's own pid is answered on every OS; another process's directory is read on Linux, macOS and Windows. A process whose directory Windows will not give is E_POLICY_DENY. A pid that is not live is E_NOT_FOUND.",
+        doc: "The working directory of a process. This shell's own pid is answered on every OS; another process's directory is read on Linux, macOS and Windows. A process whose directory Windows will not give is E_OS_DENIED. A pid that is not live is E_NOT_FOUND.",
         examples: &[
             (r#"(try { proc_cwd(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_cwd(2000000000) } catch e { e.error.code })"#, r#"E_NOT_FOUND"#),
@@ -9916,7 +9916,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("pid", Ty::Any, "a positive process id, Int or numeric String")],
         returns: "String",
-        doc: "The executable path of a live process. A pid that is not live is E_NOT_FOUND; a path the OS will not show is E_POLICY_DENY.",
+        doc: "The executable path of a live process. A pid that is not live is E_NOT_FOUND; a path the OS will not show is E_OS_DENIED.",
         examples: &[
             (r#"(try { proc_exe(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_exe(2000000000) } catch e { e.error.code })"#, r#"E_NOT_FOUND"#),
@@ -10010,7 +10010,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("pid", Ty::Any, "a positive process id, Int or numeric String")],
         returns: "Bool",
-        doc: "Stops a process and answers true. Unix sends SIGSTOP; Windows opens the process with PROCESS_SUSPEND_RESUME and calls ntdll NtSuspendProcess, so every thread stops. This shell's own pid, zero and negative pids are E_BAD_ARG; a pid that is not live is E_NOT_FOUND; a process the user does not own (or a protected one, such as System on Windows) is E_POLICY_DENY; any other OS or ntdll failure is E_TOOL_FAILED.",
+        doc: "Stops a process and answers true. Unix sends SIGSTOP; Windows opens the process with PROCESS_SUSPEND_RESUME and calls ntdll NtSuspendProcess, so every thread stops. This shell's own pid, zero and negative pids are E_BAD_ARG; a pid that is not live is E_NOT_FOUND; a process the user does not own (or a protected one, such as System on Windows) is E_OS_DENIED; any other OS or ntdll failure is E_TOOL_FAILED.",
         examples: &[
             (r#"(try { proc_suspend(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_suspend(2000000000) } catch e { e.error.code })"#, r#"E_NOT_FOUND"#),
