@@ -206,6 +206,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - AI provider, plugin and workflow HTTP responses were buffered whole,
     with no limit. They now stop at 32 MiB with `E_BUDGET_EXCEEDED`; model
     downloads still stream to disk.
+- **A rollback undoes every file change it allows**: `file_patch`,
+  `file_replace`, `file_insert`, `file_move`, `save_json`, `session_export`,
+  `platform_db_export`, `touch`, `git_ignore`, `gui_screenshot_window`, the
+  zip and gzip writers changed files inside a transaction without recording
+  them, so `tx_rollback` left their changes in place. They are recorded now,
+  and `zip_extract` and `tar_extract`, whose output cannot be undone, are
+  refused inside a transaction. `tests/tx_coverage_ratchet.rs` requires every
+  writer to do one or the other.
+- **A rollback that could not restore says so**: on a mount where a
+  non-owner cannot set permissions (WSL's `/mnt/c`, many network shares),
+  the transaction's backup copy failed, no backup was kept, and
+  `tx_rollback` restored nothing while reporting `rolled_back: true`.
+  Backups now copy the content regardless, and a change that cannot be put
+  back is `E_IO` naming the path, with the journal kept for recovery.
+  `try_repair` reports `restore_error` and is then not retryable.
+- **Atomic writes keep the file's mode and survive a crash**: overwriting a
+  file through `file_write`, `file_patch`, `file_edit`, `sed` and the rest
+  replaced its permissions (an executable script lost its execute bit), did
+  not flush the data before the rename, and turned a symlink into a regular
+  file. The mode is kept, the data is synced, and a symlink's target is
+  updated in place. `gzip` no longer races between checking and creating its
+  output.
+- **More bounds**: a glob stops gathering at 1,000,000 matches instead of
+  collecting everything before the check; `docs_search` reads each file
+  under the file limit; an AI or MCP response that could not be read is an
+  error, not an empty model or tool list.
 - **Bad input is `E_BAD_ARG`, not `E_UNKNOWN`**: nineteen caller-input errors
   (a `where` predicate that is not Bool, a lambda called with the wrong number
   of arguments, non-numeric `sum`/`avg` input, plan ops, `find` predicates,
