@@ -13755,6 +13755,24 @@ fn bi_sleep(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let duration = Duration::try_from_secs_f64(seconds).map_err(|_| {
         crate::safety::arg_err("sleep: duration must be finite, non-negative and representable")
     })?;
+    // A sleep may not outlast the evaluation deadline. Sleeping only what is
+    // left and then failing tells the caller the time was cut short, rather
+    // than returning Null for a wait that did not happen in full.
+    if let Some(left) = crate::safety::remaining_deadline() {
+        if left < duration {
+            let message = if left.is_zero() {
+                format!("sleep of {seconds} s refused: the evaluation deadline has already expired")
+            } else {
+                std::thread::sleep(left);
+                format!("sleep of {seconds} s cut short by the evaluation deadline after {left:?}")
+            };
+            return Err(crate::safety::budget_exceeded(
+                "sleep",
+                message,
+                "ask for a shorter sleep, or allow a longer evaluation time limit",
+            ));
+        }
+    }
     std::thread::sleep(duration);
     Ok(Value::Null)
 }
@@ -19995,7 +20013,12 @@ pub fn render_agent(v: &Value, budget: Option<usize>) -> Option<String> {
             // and only the small answer crosses back — the saving no encoder can
             // reach, because it is the bytes never sent.
             if crate::handles::worth_handling(v, full.len()) {
-                Some(render_handle(v, full.len()))
+                match render_handle(v, full.len()) {
+                    Ok(handle) => Some(handle),
+                    // At the handle cap the whole result is sent, with the
+                    // refusal stated beside it rather than dropped silently.
+                    Err(e) => Some(format!("{full}\n\n@handle refused: {e}")),
+                }
             } else {
                 Some(full)
             }
@@ -20207,8 +20230,8 @@ fn bi_handle_drop(args: Vec<Value>) -> Result<Value> {
 /// These builtins are reachable but not in the ontology listing, so the call
 /// site teaches itself at the moment it is needed, which beats requiring a
 /// discovery round-trip to learn how to avoid a discovery round-trip.
-fn render_handle(v: &Value, full_bytes: usize) -> String {
-    let h = crate::handles::put(v.clone(), full_bytes);
+fn render_handle(v: &Value, full_bytes: usize) -> anyhow::Result<String> {
+    let h = crate::handles::put(v.clone(), full_bytes)?;
     let preview = crate::handles::preview_of(v);
     let omitted = crate::handles::omitted(v);
     let mut out = String::new();
@@ -20226,7 +20249,7 @@ fn render_handle(v: &Value, full_bytes: usize) -> String {
         "\n@hint handle(\"{}\") | where(...) | take(5)  — full value kept, nothing lost",
         h.id
     ));
-    out
+    Ok(out)
 }
 
 /// Recursively redact known secret shapes from a value before it is rendered to
@@ -27957,8 +27980,10 @@ const NET_SCAN_BATCH: i64 = 128;
 /// The state a connect attempt reports: open when it was accepted, closed when
 /// it was refused, filtered when no answer came within the wait.
 ///
-/// `TcpStream::connect_timeout` is not used. On Windows it reports a refused
-/// loopback connect as a timeout, so a closed port would read as filtered.
+/// On Windows a refused loopback connect takes about two seconds to report, and
+/// `connect_timeout` given less than that reports it as a timeout, so a closed
+/// port reads as filtered when the wait is that short. Plain `connect` has the
+/// same two-second refusal; the wait is what bounds the result either way.
 fn net_state(
     name: &str,
     port: i64,
@@ -27970,6 +27995,9 @@ fn net_state(
     match answer {
         Ok(Ok(_accepted)) => Ok("open"),
         Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => Ok("closed"),
+        // connect_timeout reports no answer as TimedOut; that is filtered, the
+        // same as the wait running out below.
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::TimedOut => Ok("filtered"),
         Ok(Err(e)) => Err(anyhow::Error::new(crate::safety::SafetyError {
             code: crate::safety::ErrorCode::Io,
             message: format!("{name}: probing port {port} failed: {e}"),
@@ -28050,13 +28078,18 @@ fn bi_net_scan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ));
         }
         let batch_end = (batch_start + NET_SCAN_BATCH - 1).min(last);
-        // Every connect in the batch starts now, so they share one wait.
+        // Every connect in the batch starts now, so they share one wait. Each
+        // connect is bounded by the wait and by what is left of the call's
+        // deadline, so no connect thread outlives the call by more than that.
+        let per_port = wait
+            .min(deadline.saturating_sub(started.elapsed()))
+            .max(std::time::Duration::from_millis(1));
         let pending: Vec<_> = (batch_start..=batch_end)
             .map(|port| {
                 let (sender, receiver) = std::sync::mpsc::channel();
                 let addr = std::net::SocketAddr::new(ip, port as u16);
                 std::thread::spawn(move || {
-                    let _ = sender.send(std::net::TcpStream::connect(addr));
+                    let _ = sender.send(std::net::TcpStream::connect_timeout(&addr, per_port));
                 });
                 (port, receiver)
             })
@@ -68806,5 +68839,37 @@ mod os_denied_tests {
         let e = bi_apply(vec![ops], None).unwrap_err();
         assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::BudgetExceeded));
         assert!(!std::path::Path::new("never-written-0").exists());
+    }
+}
+
+#[cfg(test)]
+mod sleep_deadline_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_sleep_past_the_deadline_is_cut_short_with_budget_exceeded() {
+        let _g = crate::safety::enter_deadline(Duration::from_millis(50));
+        let started = Instant::now();
+        let err = bi_sleep(vec![Value::Int(5)], None).expect_err("sleep must be refused");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "sleep ran past the deadline: {:?}",
+            started.elapsed()
+        );
+        assert!(format!("{err}").contains("E_BUDGET_EXCEEDED"), "{err}");
+    }
+
+    #[test]
+    fn a_short_sleep_inside_the_deadline_returns_null() {
+        let _g = crate::safety::enter_deadline(Duration::from_secs(10));
+        let v = bi_sleep(vec![Value::Float(0.01)], None).expect("inside the deadline");
+        assert!(matches!(v, Value::Null));
+    }
+
+    #[test]
+    fn without_a_deadline_sleep_returns_null() {
+        let v = bi_sleep(vec![Value::Float(0.01)], None).expect("no deadline");
+        assert!(matches!(v, Value::Null));
     }
 }

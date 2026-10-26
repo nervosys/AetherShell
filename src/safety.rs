@@ -5079,6 +5079,16 @@ pub(crate) fn bounded_io_timeout(
     })
 }
 
+/// The time left before this thread's evaluation deadline, or `None` when no
+/// deadline is in force. Unlike `bounded_io_timeout` this is not tied to socket
+/// I/O, so it is available on every build.
+pub(crate) fn remaining_deadline() -> Option<std::time::Duration> {
+    DEADLINE.with(|d| {
+        d.get()
+            .map(|at| at.saturating_duration_since(std::time::Instant::now()))
+    })
+}
+
 /// Fail if this thread's evaluation deadline has passed.
 ///
 /// Called from `eval_expr`. Cheap by design: with no deadline set — the REPL,

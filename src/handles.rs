@@ -153,14 +153,35 @@ fn item_count(v: &Value) -> usize {
     }
 }
 
+/// Most handles one session keeps. Each holds a whole result, in memory and on
+/// disk, so an unbounded store is unbounded growth.
+pub const MAX_HANDLES: usize = 4096;
+
 /// Store a value and return its handle id.
 ///
 /// The id continues the session's numbering rather than this process's, so two
 /// consecutive `ae -e` calls do not both mint `h1` and have the second silently
 /// overwrite the first.
-pub fn put(v: Value, rendered_bytes: usize) -> Handle {
+///
+/// Refused with `E_BUDGET_EXCEEDED` once the session holds `MAX_HANDLES`. An
+/// existing handle is never evicted to make room: a handle that vanished would
+/// make a later `handle(id)` fail for a reason the agent cannot see.
+pub fn put(v: Value, rendered_bytes: usize) -> anyhow::Result<Handle> {
+    put_capped(v, rendered_bytes, MAX_HANDLES)
+}
+
+fn put_capped(v: Value, rendered_bytes: usize, cap: usize) -> anyhow::Result<Handle> {
     let mut store = STORE.lock().unwrap_or_else(|e| e.into_inner());
-    let next = persisted_ids()
+    let ids = persisted_ids();
+    let live = ids.len().max(store.len());
+    if live >= cap {
+        return Err(crate::safety::budget_exceeded(
+            "handle",
+            format!("the session already holds {live} result handles, the limit"),
+            "release one with handle_drop(id) before the next large result is handled",
+        ));
+    }
+    let next = ids
         .last()
         .and_then(|id| id[1..].parse::<usize>().ok())
         .unwrap_or(0)
@@ -175,7 +196,7 @@ pub fn put(v: Value, rendered_bytes: usize) -> Handle {
     };
     store.push(h.clone());
     persist(&h);
-    h
+    Ok(h)
 }
 
 /// Retrieve a stored value — from memory, or from the session directory when
@@ -327,7 +348,7 @@ mod tests {
         let _guard = store_lock();
         clear();
         let v = big_array(100);
-        let h = put(v.clone(), 9999);
+        let h = put(v.clone(), 9999).expect("under the cap");
         assert_eq!(get(&h.id), Some(v), "a handle must be lossless");
     }
 
@@ -360,10 +381,46 @@ mod tests {
     fn dropping_a_handle_frees_it_and_reports_whether_it_existed() {
         let _guard = store_lock();
         clear();
-        let h = put(big_array(10), 9999);
+        let h = put(big_array(10), 9999).expect("under the cap");
         assert!(drop_handle(&h.id));
         assert!(!drop_handle(&h.id), "dropping twice must report absence");
         assert_eq!(get(&h.id), None);
+    }
+
+    #[test]
+    fn a_full_store_refuses_a_new_handle_instead_of_evicting() {
+        let _guard = store_lock();
+        // Point the store at a scratch directory so the test does not write
+        // into the real session cache, and restore the caller's setting after.
+        let dir = std::env::temp_dir().join(format!("ae-handles-cap-{}", std::process::id()));
+        let previous = std::env::var_os("AETHER_SESSION_DIR");
+        std::env::set_var("AETHER_SESSION_DIR", &dir);
+        clear();
+
+        let kept: Vec<String> = (0..3)
+            .map(|_| {
+                put_capped(Value::Int(1), 9999, 3)
+                    .expect("under the cap")
+                    .id
+            })
+            .collect();
+        let refused = put_capped(Value::Int(1), 9999, 3).map_err(|e| format!("{e}"));
+        let first_still_there = get(&kept[0]).is_some();
+
+        clear();
+        match previous {
+            Some(v) => std::env::set_var("AETHER_SESSION_DIR", v),
+            None => std::env::remove_var("AETHER_SESSION_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(
+            first_still_there,
+            "the cap must not evict an existing handle"
+        );
+        let message = refused.expect_err("the fourth handle must be refused");
+        assert!(message.contains("E_BUDGET_EXCEEDED"), "{message}");
+        assert!(message.contains("handle_drop"), "{message}");
     }
 
     #[test]

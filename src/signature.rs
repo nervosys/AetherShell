@@ -3310,7 +3310,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "sleep", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("seconds", Ty::Numeric, "finite, non-negative representable duration in seconds")], returns: "Null",
-        doc: "Block the current thread for a numeric duration in seconds and return Null. Refuse NaN, infinity, negative and unrepresentable durations before sleeping.",
+        doc: "Block the current thread for a numeric duration in seconds and return Null. Refuse NaN, infinity, negative and unrepresentable durations before sleeping. Under an evaluation deadline the sleep never outlasts it: it sleeps only the time left and then fails with E_BUDGET_EXCEEDED, and when the deadline has already expired it fails without sleeping.",
         examples: &[("sleep(0)", "null"), ("sleep(0.001)", "null")],
     },
     // ---- System information -------------------------------------------
