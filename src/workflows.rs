@@ -1014,7 +1014,10 @@ async fn http_step(method: String, url: String, body: Option<Value>) -> Result<V
                 Value::Str(v.to_str().unwrap_or("").to_string()),
             );
         }
-        let body_text = resp.text_capped().unwrap_or_default();
+        // A step whose body could not be read must fail, not succeed with "".
+        let body_text = resp
+            .text_capped()
+            .context("workflow http step: response body could not be read")?;
 
         Ok(Value::Record(BTreeMap::from([
             ("url".to_string(), Value::Str(url)),

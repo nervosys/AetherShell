@@ -932,7 +932,11 @@ fn complete_via_compat(
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let text = resp.text_capped().unwrap_or_default();
+        // The HTTP error is what matters; a body that could not be read (e.g. refused
+        // for size) is named in the message rather than shown as an empty error.
+        let text = resp
+            .text_capped()
+            .unwrap_or_else(|e| format!("<body not read: {e}>"));
         return Err(anyhow!("API error {} from {}: {}", status, base_url, text));
     }
 
@@ -1831,7 +1835,13 @@ fn detect_lmstudio() -> Result<BackendInfo> {
         .map_err(|_| anyhow!("LM Studio not reachable"))?;
 
     if resp.status().is_success() {
-        let body: serde_json::Value = resp.json_capped().unwrap_or_default();
+        // A /v1/models body we cannot read is not "LM Studio with no models": report
+        // the server as unavailable, with the reason. The error is a plain one on
+        // purpose: `detect_backends` stops the whole sweep on a SafetyError (a gate
+        // refusal), and an oversized body here is one backend's fault, not the gate's.
+        let body: serde_json::Value = resp
+            .json_capped()
+            .map_err(|e| anyhow!("LM Studio /v1/models body could not be read: {e}"))?;
         let models: Vec<String> = body
             .get("data")
             .and_then(|d| d.as_array())
@@ -1992,7 +2002,7 @@ fn detect_mcp_server(name: &str, endpoint: &str) -> Result<McpServerInfo> {
     match response {
         Ok(resp) if resp.status().is_success() => {
             // Try to parse the tools list
-            let tools: Vec<mcp::McpToolSchema> = resp.json_capped().unwrap_or_default();
+            let tools = mcp::tools_from_discovery(resp.json_capped())?;
             let tool_names = tools.iter().map(|t| t.name.clone()).collect();
 
             Ok(McpServerInfo {
@@ -2892,6 +2902,13 @@ pub mod mcp {
         }
     }
 
+    /// Turn a tool-discovery body into the tool list. A body that could not be
+    /// read (refused for size, malformed, I/O failure) is an error; it must not
+    /// read as "this server has no tools".
+    pub fn tools_from_discovery(body: Result<Vec<McpToolSchema>>) -> Result<Vec<McpToolSchema>> {
+        body.context("MCP tool discovery: response body could not be read")
+    }
+
     /// MCP Client for communicating with MCP servers
     #[derive(Debug, Clone)]
     pub struct McpClient {
@@ -2922,7 +2939,7 @@ pub mod mcp {
             match self.client.get(&url).send() {
                 Ok(response) => {
                     if response.status().is_success() {
-                        let tools: Vec<McpToolSchema> = response.json_capped().unwrap_or_default();
+                        let tools = tools_from_discovery(response.json_capped())?;
 
                         // Cache discovered tools
                         // SECURITY: Replace .unwrap() with proper error handling (CVSS 7.1)
@@ -3085,6 +3102,28 @@ pub mod mcp {
                 client: Arc::clone(&self.client),
             }))
         }
+    }
+}
+
+#[cfg(test)]
+mod body_refusal_tests {
+    use super::mcp::{tools_from_discovery, McpToolSchema};
+
+    #[test]
+    fn discovery_body_error_propagates_instead_of_empty_list() {
+        let err = tools_from_discovery(Err(anyhow::anyhow!("E_BUDGET_EXCEEDED: body over cap")))
+            .unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("E_BUDGET_EXCEEDED"), "{msg}");
+    }
+
+    #[test]
+    fn discovery_body_ok_parses_tools() {
+        let body: Vec<McpToolSchema> =
+            serde_json::from_str(r#"[{"name":"echo","description":"Echo"}]"#).unwrap();
+        let tools = tools_from_discovery(Ok(body)).unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "echo");
     }
 }
 
