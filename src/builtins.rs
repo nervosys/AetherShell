@@ -43075,6 +43075,16 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
+    // Each patch is a full pass over the file, so the batch is capped the way
+    // file_edit caps its own.
+    if patches.len() > 10_000 {
+        return Err(crate::safety::budget_exceeded(
+            "file_patch",
+            "batch exceeds 10000 patches".into(),
+            "use a smaller batch",
+        ));
+    }
+
     // Refuse malformed instructions before reading or writing the file.
     for (index, patch) in patches.iter().enumerate() {
         let Value::Record(record) = patch else {
@@ -51967,13 +51977,10 @@ fn container_run_cmd(program: &str, args: &[&str]) -> Result<String> {
 // Helper: detect which container runtime is available
 fn detect_container_runtime() -> Result<String> {
     for rt in &["docker", "podman", "nerdctl"] {
-        if std::process::Command::new(rt)
-            .arg("--version")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok()
-        {
+        // Bounded: a probe that hangs does not count as an installed runtime.
+        let mut cmd = std::process::Command::new(rt);
+        cmd.arg("--version");
+        if bounded_cmd_output("container_detect", rt, cmd, PROBE_DEADLINE_SECS).is_ok() {
             return Ok(rt.to_string());
         }
     }
