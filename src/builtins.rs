@@ -8936,8 +8936,7 @@ fn bi_get_content(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
-    let content =
-        fs::read_to_string(&path).map_err(|e| crate::safety::fs_error("get_content", &path, &e))?;
+    let content = read_text_capped("get_content", &path)?;
 
     // Return as array of lines (PowerShell style)
     let lines: Vec<Value> = content
@@ -20412,7 +20411,7 @@ fn bi_plan_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
         // What is there now. `None` means the path does not exist or cannot be
         // read as text -- reported, never guessed at.
-        let existing = std::fs::read_to_string(path).ok();
+        let existing = read_text_capped("plan_diff", path).ok();
         let exists = std::path::Path::new(path).exists();
 
         let (before, after): (Vec<String>, Vec<String>) = match op.as_str() {
@@ -40542,8 +40541,7 @@ fn bi_db_csv_query(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
-    let content = std::fs::read_to_string(&csv_path)
-        .map_err(|e| crate::safety::fs_error("db_csv_query", &csv_path, &e))?;
+    let content = read_text_capped("db_csv_query", &csv_path)?;
     let mut reader = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
         .from_reader(content.as_bytes());
@@ -42172,8 +42170,7 @@ fn bi_db_sqlite_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         }
     };
 
-    let sql = std::fs::read_to_string(&sql_file)
-        .map_err(|e| crate::safety::fs_error("db_sqlite_import", &sql_file, &e))?;
+    let sql = read_text_capped("db_sqlite_import", &sql_file)?;
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
 }
 
@@ -42215,8 +42212,7 @@ fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     };
 
     // Read JSON
-    let content = std::fs::read_to_string(&json_path)
-        .map_err(|e| crate::safety::fs_error("db_json_to_sqlite", &json_path, &e))?;
+    let content = read_text_capped("db_json_to_sqlite", &json_path)?;
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
         if let serde_json::Value::Array(arr) = json {
             if let Some(first) = arr.first() {
@@ -42623,8 +42619,7 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 
     // Read current content
-    let mut content =
-        fs::read_to_string(&path).map_err(|e| crate::safety::fs_error("file_patch", &path, &e))?;
+    let mut content = read_text_capped("file_patch", &path)?;
 
     let mut applied = Vec::new();
     let mut failed = Vec::new();
@@ -42811,8 +42806,7 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
 
-    let mut file_content =
-        fs::read_to_string(&path).map_err(|e| crate::safety::fs_error("file_insert", &path, &e))?;
+    let mut file_content = read_text_capped("file_insert", &path)?;
 
     let mut lines: Vec<String> = file_content.lines().map(|s| s.to_string()).collect();
     let insert_lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
@@ -44965,8 +44959,7 @@ fn bi_code_parse(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)
-        .map_err(|e| crate::safety::fs_error("code_parse", &file, &e))?;
+    let content = read_text_capped("code_parse", &file)?;
     let lines = content.lines().count();
     let mut result = BTreeMap::new();
     result.insert("path".to_string(), Value::Str(file));
@@ -44981,8 +44974,7 @@ fn bi_code_symbols(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)
-        .map_err(|e| crate::safety::fs_error("code_symbols", &file, &e))?;
+    let content = read_text_capped("code_symbols", &file)?;
     let mut symbols = Vec::new();
     for (i, line) in content.lines().enumerate() {
         let trimmed = line.trim();
@@ -45026,8 +45018,7 @@ fn bi_code_imports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)
-        .map_err(|e| crate::safety::fs_error("code_imports", &file, &e))?;
+    let content = read_text_capped("code_imports", &file)?;
     let imports: Vec<Value> = content
         .lines()
         .filter(|l| {
@@ -45047,8 +45038,7 @@ fn bi_code_exports(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)
-        .map_err(|e| crate::safety::fs_error("code_exports", &file, &e))?;
+    let content = read_text_capped("code_exports", &file)?;
     let exports: Vec<Value> = content
         .lines()
         .filter(|l| l.trim().starts_with("pub ") || l.trim().starts_with("export "))
@@ -45167,8 +45157,7 @@ fn bi_code_comments(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)
-        .map_err(|e| crate::safety::fs_error("code_comments", &file, &e))?;
+    let content = read_text_capped("code_comments", &file)?;
     let comments: Vec<Value> = content
         .lines()
         .enumerate()
@@ -45192,8 +45181,7 @@ fn bi_code_todos(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file path required"))?;
-    let content = std::fs::read_to_string(&file)
-        .map_err(|e| crate::safety::fs_error("code_todos", &file, &e))?;
+    let content = read_text_capped("code_todos", &file)?;
     let todos: Vec<Value> = content
         .lines()
         .enumerate()
@@ -46507,8 +46495,7 @@ fn bi_refactor_organize_imports(args: Vec<Value>, _input: Option<Value>) -> Resu
         .and_then(|v| v.as_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("file required"))?;
-    let content = std::fs::read_to_string(&file)
-        .map_err(|e| crate::safety::fs_error("refactor_organize_imports", &file, &e))?;
+    let content = read_text_capped("refactor_organize_imports", &file)?;
     let mut imports: Vec<&str> = content.lines().filter(|l| l.starts_with("use ")).collect();
     imports.sort();
     Ok(Value::Array(
@@ -49234,8 +49221,7 @@ fn bi_platform_db_import(args: Vec<Value>, input: Option<Value>) -> Result<Value
 
     // Check if it's a file path or JSON string
     let content = if std::path::Path::new(&source).exists() {
-        std::fs::read_to_string(&source)
-            .map_err(|e| crate::safety::fs_error("platform_db_import", &source, &e))?
+        read_text_capped("platform_db_import", &source)?
     } else {
         source.clone()
     };
@@ -56727,8 +56713,7 @@ fn bi_ssh_copy_id(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             &key_file,
         ));
     }
-    let text = std::fs::read_to_string(&key_file)
-        .map_err(|e| crate::safety::fs_error("ssh_copy_id", &key_file, &e))?;
+    let text = read_text_capped("ssh_copy_id", &key_file)?;
     let Some(key) = public_key_line(&text) else {
         return Err(crate::safety::bad_arg(
             "ssh_copy_id",
@@ -56784,8 +56769,18 @@ fn bi_ssh_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             format!("{}/.ssh/config", home)
         }
     };
-    let content = std::fs::read_to_string(&config_path)
-        .map_err(|_| crate::safety::not_found("ssh_config", "ssh config file", &config_path))?;
+    let content = read_text_capped("ssh_config", &config_path).map_err(|e| {
+        // Every read failure stays "not found", as before. Only an over-limit
+        // file keeps its own answer.
+        let over_limit = e
+            .downcast_ref::<crate::safety::SafetyError>()
+            .is_some_and(|s| matches!(s.code, crate::safety::ErrorCode::BudgetExceeded));
+        if over_limit {
+            e
+        } else {
+            crate::safety::not_found("ssh_config", "ssh config file", &config_path)
+        }
+    })?;
     let mut hosts: Vec<Value> = Vec::new();
     let mut current: Option<BTreeMap<String, Value>> = None;
     for line in content.lines() {
@@ -63764,8 +63759,7 @@ fn bi_logrotate_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "split the configuration or shorten it",
         ));
     }
-    let text = std::fs::read_to_string(&config_path)
-        .map_err(|e| crate::safety::fs_error("logrotate_run", &config_path, &e))?;
+    let text = read_text_capped("logrotate_run", &config_path)?;
     logrotate_config_check("logrotate_run", &text)?;
     let dir = config_path
         .parent()
@@ -67384,5 +67378,61 @@ mod capped_read_tests {
     fn the_file_size_check_is_coded() {
         let e = crate::security::check_file_size_limit(u64::MAX).unwrap_err();
         assert_eq!(code(&e), Some(crate::safety::ErrorCode::BudgetExceeded));
+    }
+}
+
+#[cfg(test)]
+mod capped_reads_tests {
+    use super::*;
+
+    fn temp_file(name: &str, body: &str) -> String {
+        let path = std::env::temp_dir().join(format!("ae-cr-{}-{name}", std::process::id()));
+        std::fs::write(&path, body).expect("write temp file");
+        path.display().to_string()
+    }
+
+    #[test]
+    fn get_content_returns_every_line_of_a_small_file() {
+        let path = temp_file("get-content.txt", "alpha\nbeta\n");
+        let result = bi_get_content(vec![Value::Str(path.clone())], None);
+        let _ = std::fs::remove_file(&path);
+        match result.expect("get_content reads a small file") {
+            Value::Array(lines) => {
+                let lines: Vec<String> = lines
+                    .into_iter()
+                    .map(|v| match v {
+                        Value::Str(s) => s,
+                        other => panic!("expected a string line, got {other:?}"),
+                    })
+                    .collect();
+                assert_eq!(lines, vec!["alpha".to_string(), "beta".to_string()]);
+            }
+            other => panic!("expected an array of lines, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn code_todos_still_reads_a_small_file() {
+        let path = temp_file("code-todos.rs", "fn a() {}\n// TODO: later\n");
+        let result = bi_code_todos(vec![Value::Str(path.clone())], None);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            result.is_ok(),
+            "code_todos should read the file: {result:?}"
+        );
+    }
+
+    #[test]
+    fn get_content_on_a_missing_file_is_still_not_found() {
+        let path = std::env::temp_dir()
+            .join(format!("ae-cr-{}-missing.txt", std::process::id()))
+            .display()
+            .to_string();
+        let err =
+            bi_get_content(vec![Value::Str(path)], None).expect_err("a missing file is an error");
+        let safety = err
+            .downcast_ref::<crate::safety::SafetyError>()
+            .expect("the error carries a safety code");
+        assert!(matches!(safety.code, crate::safety::ErrorCode::NotFound));
     }
 }
