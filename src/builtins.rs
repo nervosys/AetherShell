@@ -22121,6 +22121,7 @@ fn bi_save_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // An existing file is replaced, and the record says so: a save that quietly
     // destroyed an earlier file is the surprise to avoid.
     let overwrote = std::path::Path::new(&path).exists();
+    crate::tx::snapshot(&path); // record pre-save state if a transaction is active
     fs::write(&path, &json_str)
         .with_context(|| format!("save_json: failed to write to '{}'", path))?;
 
@@ -26572,6 +26573,21 @@ fn net_ip_literal(name: &str, args: &[Value], idx: usize) -> Result<std::net::Ip
         .map_err(|_| crate::safety::bad_arg(name, "an IPv4 or IPv6 address literal", text))
 }
 
+/// Refuse a call inside a transaction when the files it writes cannot be named
+/// before it runs (an archive's members, say), so the journal cannot snapshot
+/// them. The refusal is coded the same way as the scheduler's and the network
+/// builtins', so an agent sees why, not a silent unrolled change.
+fn refuse_in_transaction(builtin: &str, why: &str) -> Result<()> {
+    if crate::tx::is_active() {
+        return Err(crate::safety::unimplemented(
+            builtin,
+            why,
+            "finish the transaction first",
+        ));
+    }
+    Ok(())
+}
+
 /// Refuse a network-effect call inside a transaction, which cannot roll back
 /// traffic that has already left the machine.
 fn net_refuse_in_transaction(name: &str) -> Result<()> {
@@ -30755,6 +30771,8 @@ fn bi_zip_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .iter()
         .map(|f| crate::safety::resolve_path_str(f))
         .collect();
+    // The archive is new (refused above if it exists), so rollback removes it.
+    crate::tx::snapshot(&archive);
     let (tool, cmd) = zip_command(&archive, &files, false);
     if let Err(e) = run_checked("zip_create", tool, cmd, LOCAL_DEADLINE_SECS) {
         remove_partial(&archive);
@@ -30781,6 +30799,9 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             _ => None,
         })
         .unwrap_or(".".to_string());
+    // Extraction writes every member of the archive, which is not known until
+    // it runs, so the journal cannot snapshot them.
+    refuse_in_transaction("zip_extract", "extracting an archive cannot be rolled back")?;
 
     #[cfg(target_os = "windows")]
     {
@@ -30857,6 +30878,8 @@ fn bi_zip_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .iter()
         .map(|f| crate::safety::resolve_path_str(f))
         .collect();
+    // `zip -u` rewrites the one existing archive in place.
+    crate::tx::snapshot(&archive);
     let (tool, cmd) = zip_command(&archive, &files, true);
     run_checked("zip_add", tool, cmd, LOCAL_DEADLINE_SECS)?;
     Ok(Value::Bool(true))
@@ -30948,6 +30971,9 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     });
 
     crate::safety::reject_option_like("tar_extract", std::slice::from_ref(&archive))?;
+    // Extraction writes every member of the archive, which is not known until
+    // it runs, so the journal cannot snapshot them.
+    refuse_in_transaction("tar_extract", "extracting an archive cannot be rolled back")?;
     let mut cmd = std::process::Command::new("tar");
     cmd.args(["-xvf", &archive]);
     if let Some(d) = dest {
@@ -31307,6 +31333,7 @@ fn bi_gzip_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "gzip_compress",
         &gzip_out_path("gzip_compress", &file, false)?,
     )?;
+    crate::tx::snapshot(&out); // the one output file; absent until written
     gzip_file("gzip_compress", &file, &out, false)
 }
 
@@ -31325,6 +31352,7 @@ fn bi_gzip_decompress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
         "gzip_decompress",
         &gzip_out_path("gzip_decompress", &file, true)?,
     )?;
+    crate::tx::snapshot(&out); // the one output file; absent until written
     gzip_file("gzip_decompress", &file, &out, true)
 }
 
@@ -34969,6 +34997,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
                 "its output was not a PNG image",
             ));
         }
+        crate::tx::snapshot(&path); // record pre-capture state if a transaction is active
         fs::write(&path, &shot.stdout).map_err(|e| crate::safety::fs_error(NAME, &path, &e))?;
         Ok(Value::Str(path))
     }
@@ -42850,6 +42879,7 @@ fn bi_file_patch(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 
     // Write back atomically
+    crate::tx::snapshot(&path); // record pre-patch state if a transaction is active
     write_file_atomically("file_patch", &path, content.as_bytes())?;
 
     let mut result = BTreeMap::new();
@@ -43039,6 +43069,7 @@ fn bi_file_insert(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         file_content.push('\n');
     }
 
+    crate::tx::snapshot(&path); // record pre-insert state if a transaction is active
     write_file_atomically("file_insert", &path, file_content.as_bytes())?;
 
     let mut result = BTreeMap::new();
@@ -43808,6 +43839,11 @@ fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         fs::metadata(&source).map_err(|e| crate::safety::fs_error("file_move", &source, &e))?;
     let bytes = metadata.len();
 
+    // Both ends change: the source disappears and the destination is replaced
+    // (or created). Rollback restores the source and removes or restores the
+    // destination.
+    crate::tx::snapshot(&source);
+    crate::tx::snapshot(&dest);
     fs::rename(&source, &dest)
         .map_err(|error| crate::safety::fs_error("file_move", &dest, &error))?;
 
@@ -45087,6 +45123,11 @@ fn bi_git_ignore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     text.push_str(pattern.trim());
     text.push('\n');
+    // `.gitignore` is written relative to the working directory, so the journal
+    // is given that absolute path (a relative one resolves to the workspace root).
+    if let Ok(cwd) = std::env::current_dir() {
+        crate::tx::snapshot(&cwd.join(".gitignore").to_string_lossy());
+    }
     std::fs::write(".gitignore", text)
         .map_err(|e| crate::safety::fs_error("git_ignore", ".gitignore", &e))?;
     Ok(Value::Bool(true))
@@ -46951,6 +46992,7 @@ fn bi_session_export(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     cmd.args(["diff"]);
     let output = bounded_cmd_output("session_export", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_export", &output, ".")?;
+    crate::tx::snapshot(&file); // record pre-export state if a transaction is active
     std::fs::write(&file, &output.stdout)
         .map_err(|e| crate::safety::fs_error("session_export", &file, &e))?;
     Ok(Value::Str(file))
@@ -49375,6 +49417,7 @@ fn bi_platform_db_export(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     if let Some(path) = file_path {
         // The destination was written with no workspace check at all.
         let path = guard_local_write("platform_db_export", path)?;
+        crate::tx::snapshot(&path); // record pre-export state if a transaction is active
         std::fs::write(&path, &content)
             .map_err(|e| crate::safety::fs_error("platform_db_export", &path, &e))?;
         Ok(Value::Str(path))
@@ -55178,6 +55221,14 @@ fn bi_touch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // that already existed; errors were uncoded. It also skipped the
     // workspace jail the other writers go through.
     let path = guard_local_write("touch", &path)?;
+    // An existing file gets only its timestamp changed, so its metadata is what
+    // is recorded; a file this call creates is recorded as absent so rollback
+    // removes it.
+    if std::path::Path::new(&path).exists() {
+        crate::tx::snapshot_metadata(&path);
+    } else {
+        crate::tx::snapshot(&path);
+    }
     let file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
