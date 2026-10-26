@@ -8288,6 +8288,47 @@ fn line_count(builtin: &str, value: &Value) -> Result<usize> {
     })
 }
 
+/// Read a whole text file a caller named, up to the resource limit
+/// (`max_file_size_mb`, 100 MiB by default). A larger file is
+/// E_BUDGET_EXCEEDED, not an allocation the size of the file. The limit is
+/// enforced on the bytes read, not only on the size the metadata reports, so a
+/// file that grows, or a device or pipe that reports 0, is held to it too.
+/// Path validation stays with the caller.
+fn read_text_capped(builtin: &str, path: impl AsRef<std::path::Path>) -> Result<String> {
+    read_text_capped_at(
+        builtin,
+        path.as_ref(),
+        crate::security::max_file_size_bytes()?,
+    )
+}
+
+fn read_text_capped_at(builtin: &str, path: &std::path::Path, max: u64) -> Result<String> {
+    use std::io::Read;
+    let over = || {
+        crate::safety::budget_exceeded(
+            builtin,
+            format!(
+                "{builtin}: `{}` is larger than {} MiB",
+                path.display(),
+                max / (1024 * 1024)
+            ),
+            "read a part of the file (head, tail, line_read) or raise max_file_size_mb",
+        )
+    };
+    let file = fs::File::open(path).map_err(|e| crate::safety::fs_error(builtin, path, &e))?;
+    if file.metadata().is_ok_and(|m| m.len() > max) {
+        return Err(over());
+    }
+    let mut content = String::new();
+    file.take(max.saturating_add(1))
+        .read_to_string(&mut content)
+        .map_err(|e| crate::safety::fs_error(builtin, path, &e))?;
+    if content.len() as u64 > max {
+        return Err(over());
+    }
+    Ok(content)
+}
+
 fn line_read(builtin: &str, path: &str) -> Result<String> {
     use std::io::Read;
     const MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -8539,7 +8580,7 @@ fn bi_wc(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 ))
             }
         };
-        fs::read_to_string(path).map_err(|e| crate::safety::fs_error("wc", &path, &e))?
+        read_text_capped("wc", path)?
     } else {
         return Err(crate::safety::bad_arg(
             "wc",
@@ -8641,7 +8682,7 @@ fn bi_grep(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 ))
             }
         };
-        fs::read_to_string(path).map_err(|e| crate::safety::fs_error("grep", &path, &e))?
+        read_text_capped("grep", path)?
     } else {
         return Err(crate::safety::bad_arg(
             "grep",
@@ -45210,11 +45251,7 @@ fn bi_project_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             o.status.code(),
             &String::from_utf8_lossy(&o.stderr),
         )),
-        Err(e) if is_tool_missing(&e) => Err(crate::safety::not_found(
-            "project_root",
-            "project root",
-            &cwd,
-        )),
+        // No git is E_TOOL_MISSING from the spawn, not "no project root".
         Err(e) => Err(e),
     }
 }
@@ -67300,5 +67337,52 @@ mod quiet_svc_tests {
         assert!(systemd_units("svc_list", "Failed to connect to bus").is_err());
         assert!(systemd_units("svc_list", r#"{"unit":"x.service"}"#).is_err());
         assert!(systemd_units("svc_list", r#"[1, 2]"#).is_err());
+    }
+}
+
+#[cfg(test)]
+mod capped_read_tests {
+    use super::*;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ae-capped-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn code(e: &anyhow::Error) -> Option<crate::safety::ErrorCode> {
+        e.downcast_ref::<crate::safety::SafetyError>()
+            .map(|se| se.code)
+    }
+
+    #[test]
+    fn a_file_within_the_limit_is_read_whole() {
+        let dir = scratch("within");
+        let p = dir.join("f.txt");
+        std::fs::write(&p, "abcd").unwrap();
+        assert_eq!(read_text_capped_at("t", &p, 4).unwrap(), "abcd");
+    }
+
+    #[test]
+    fn a_file_over_the_limit_is_a_budget_refusal() {
+        let dir = scratch("over");
+        let p = dir.join("f.txt");
+        std::fs::write(&p, "abcde").unwrap();
+        let e = read_text_capped_at("t", &p, 4).unwrap_err();
+        assert_eq!(code(&e), Some(crate::safety::ErrorCode::BudgetExceeded));
+    }
+
+    #[test]
+    fn a_missing_file_is_not_found() {
+        let dir = scratch("missing");
+        let e = read_text_capped_at("t", &dir.join("none"), 4).unwrap_err();
+        assert_eq!(code(&e), Some(crate::safety::ErrorCode::NotFound));
+    }
+
+    #[test]
+    fn the_file_size_check_is_coded() {
+        let e = crate::security::check_file_size_limit(u64::MAX).unwrap_err();
+        assert_eq!(code(&e), Some(crate::safety::ErrorCode::BudgetExceeded));
     }
 }

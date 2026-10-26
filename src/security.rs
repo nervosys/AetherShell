@@ -1019,18 +1019,27 @@ pub fn configure_resource_limits(limits: ResourceLimits) -> Result<()> {
     Ok(())
 }
 
-/// Check if a file size is within limits
-pub fn check_file_size_limit(size_bytes: u64) -> Result<()> {
+/// The largest file, in bytes, a builtin reads whole (`max_file_size_mb`).
+pub fn max_file_size_bytes() -> Result<u64> {
     let limits = RESOURCE_LIMITS
         .lock()
         .map_err(|e| anyhow!("Failed to acquire resource limits lock: {}", e))?;
+    Ok(limits.max_file_size_mb.saturating_mul(1024 * 1024))
+}
 
-    let size_mb = size_bytes / (1024 * 1024);
-    if size_mb > limits.max_file_size_mb {
-        return Err(anyhow!(
-            "File size exceeds limit: {}MB > {}MB",
-            size_mb,
-            limits.max_file_size_mb
+/// Check if a file size is within limits. Over the limit is E_BUDGET_EXCEEDED;
+/// it was an uncoded error, which reached callers as E_UNKNOWN.
+pub fn check_file_size_limit(size_bytes: u64) -> Result<()> {
+    let max = max_file_size_bytes()?;
+    if size_bytes > max {
+        return Err(crate::safety::budget_exceeded(
+            "",
+            format!(
+                "File size exceeds limit: {}MB > {}MB",
+                size_bytes / (1024 * 1024),
+                max / (1024 * 1024)
+            ),
+            "read a part of the file (head, tail, line_read) or raise max_file_size_mb",
         ));
     }
 
