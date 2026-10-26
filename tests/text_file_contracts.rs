@@ -2713,7 +2713,7 @@ fn symlink_guards_referred_targets_and_journals_transactions() {
         #[cfg(windows)]
         Err(error) => assert!(
             error.to_string().contains("E_POLICY_DENY")
-                || error.to_string().contains("os error 1314"),
+                || error.to_string().contains("E_OS_DENIED"),
             "{error}"
         ),
         #[cfg(not(windows))]
@@ -2746,7 +2746,7 @@ fn symlink_relative_target_uses_destination_parent() {
         // refusal explicitly, never pretend that creation returned false.
         assert!(
             error.to_string().contains("E_POLICY_DENY")
-                || error.to_string().contains("os error 1314"),
+                || error.to_string().contains("E_OS_DENIED"),
             "{error}"
         );
         assert!(std::fs::symlink_metadata(&destination).is_err());

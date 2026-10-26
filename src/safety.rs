@@ -1871,6 +1871,14 @@ pub fn fs_error(
             format!("{builtin}: the operating system denied access to `{path}`"),
             "check the file's permissions and owner; the shell did not refuse this",
         ),
+        // ERROR_PRIVILEGE_NOT_HELD: a symbolic link without the privilege or
+        // Developer Mode. std does not count it as PermissionDenied, but it is
+        // the operating system refusing all the same.
+        _ if cfg!(windows) && e.raw_os_error() == Some(1314) => os_denied(
+            builtin,
+            format!("{builtin}: the operating system denied `{path}`: a required privilege is not held ({e})"),
+            "enable Developer Mode, or run with the symbolic-link privilege; the shell did not refuse this",
+        ),
         _ => anyhow::Error::new(SafetyError {
             code: ErrorCode::Io,
             message: format!("{builtin}: cannot read `{path}`: {e}"),

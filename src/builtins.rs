@@ -68785,6 +68785,15 @@ mod os_denied_tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn a_missing_privilege_is_an_os_refusal() {
+        // ERROR_PRIVILEGE_NOT_HELD, which fs_symlink meets without Developer Mode.
+        let e =
+            crate::safety::fs_error("fs_symlink", "x", &std::io::Error::from_raw_os_error(1314));
+        assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::OsDenied));
+    }
+
+    #[test]
     fn a_plan_over_the_op_limit_is_refused_before_anything_runs() {
         let op = |i: usize| {
             let mut m = BTreeMap::new();

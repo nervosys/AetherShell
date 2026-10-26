@@ -122,6 +122,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and inode, so a hard link is caught too. All 23 file writers are pinned in
   `tests/audit_alias_contracts.rs` (Unix). On Windows a symlink needs
   privilege, and hard-link identity is not compared there yet.
+- **A symlink refused for lack of privilege is `E_OS_DENIED`** (Windows):
+  `ERROR_PRIVILEGE_NOT_HELD` (1314), which `fs_symlink` meets without
+  Developer Mode, is not `PermissionDenied` to std, so it came back as
+  `E_IO`. It is now `E_OS_DENIED`, and the message keeps the OS text. The
+  file builtins are pinned against the read-only attribute in
+  `tests/windows_readonly_contracts.rs`: writes, appends, patches, copies and
+  `touch` are refused with `E_OS_DENIED` and leave the file and no temporary
+  behind; `rm` removes a read-only file; `fs_chmod` maps only owner-write.
 - **Failed platform and screen probes are refused**: `sys_kernel`,
   `platform_kernel`, `platform_os_version`, `platform_build`,
   `platform_machine_id` and `screen_list` did not read their tool's exit
