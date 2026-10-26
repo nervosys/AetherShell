@@ -186,6 +186,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     exit status. A tool that is not installed still reads as absent.
   - `hw_gpu` on macOS, `hw_battery` on Linux, `svc_list` on macOS and
     `pkg_sources` answered null, 0% or `[]` for a failed probe.
+- **Reads, ranges and walks are bounded**:
+  - `grep`, `wc`, `get_content`, `file_patch`, `file_insert`, the `code_*`
+    parsers, the database import builtins, `ssh_config`, `ssh_copy_id` and
+    `logrotate_run` read any file a caller named in full. They now stop at
+    `max_file_size_mb` (100 MiB by default) with `E_BUDGET_EXCEEDED`. The
+    existing size check failed with no code at all.
+  - `range` built every element it was asked for, so `range(0, 1e12)` tried
+    to allocate a trillion values, and a large step could overflow. More than
+    10,000,000 elements is now `E_BUDGET_EXCEEDED`, refused before anything
+    is allocated.
+  - `find`, `get_files`, `fs_walk`, `fs_tree`, the glob behind
+    `fs_glob`/`ls`/`cat`, and the POSIX-subset `find` and `grep -r` stop at
+    1,000,000 entries and say so, instead of returning a partial list as
+    the whole.
+- **Bad input is `E_BAD_ARG`, not `E_UNKNOWN`**: nineteen caller-input errors
+  (a `where` predicate that is not Bool, a lambda called with the wrong number
+  of arguments, non-numeric `sum`/`avg` input, plan ops, `find` predicates,
+  and others) carried no code. `tests/uncoded_error_ratchet.rs` holds the
+  remaining 89, lock and environment faults, to a ceiling that can only fall.
+  `project_root` without git installed reports git as missing, not "no
+  project root".
 - **`svc_list` and the network records refuse a failed probe**:
   - On Windows and Linux, a failed `Get-Service` or `systemctl` run, or output
     that does not parse, answered `[]`, which reads as no services. A Windows
