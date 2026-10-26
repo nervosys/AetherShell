@@ -257,6 +257,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A program that is not installed is `E_TOOL_MISSING` even when a
   `PATH` directory could not be searched; it was reported as a tool that
   exists but could not be run.
+- **`touch` works on a directory, and `ls` lists a dangling symlink**:
+  `touch` opened its path to append, which a directory refuses, and a
+  rollback could not restore a directory's times for the same reason. One
+  dangling symlink made `ls` fail for the whole directory.
 - **Atomic writes keep the file's mode and survive a crash**: overwriting a
   file through `file_write`, `file_patch`, `file_edit`, `sed` and the rest
   replaced its permissions (an executable script lost its execute bit), did
