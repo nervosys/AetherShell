@@ -20015,9 +20015,13 @@ pub fn render_agent(v: &Value, budget: Option<usize>) -> Option<String> {
             if crate::handles::worth_handling(v, full.len()) {
                 match render_handle(v, full.len()) {
                     Ok(handle) => Some(handle),
-                    // At the handle cap the whole result is sent, with the
-                    // refusal stated beside it rather than dropped silently.
-                    Err(e) => Some(format!("{full}\n\n@handle refused: {e}")),
+                    // At the handle cap the result is not sent: it is over the
+                    // budget, which is why it was being handled. The refusal says
+                    // so and how large it was, rather than flooding the output.
+                    Err(e) => Some(format!(
+                        "@handle refused: {e}\nthe result ({} bytes) is over the output budget and was not shown; release a handle with handle_drop(id) and run it again",
+                        full.len()
+                    )),
                 }
             } else {
                 Some(full)
