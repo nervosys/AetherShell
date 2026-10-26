@@ -23,7 +23,7 @@
 //! frame ends. Pairs naturally with the safety model — a destructive batch can be
 //! planned, approved, attempted, and rolled back atomically.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use lazy_static::lazy_static;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -345,7 +345,9 @@ pub fn status() -> Option<(String, usize)> {
 /// Begin a transaction, or **nest** a child frame if one is already active.
 /// Returns the new frame's id.
 pub fn begin() -> Result<String> {
-    let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
+    let mut g = TX
+        .lock()
+        .map_err(|_| crate::safety::lock_poisoned("tx_begin", "the transaction state"))?;
     let id = new_id();
     match g.as_mut() {
         Some(tx) => {
@@ -487,7 +489,9 @@ pub fn snapshot_metadata(path: &str) {
 /// all changes durable and discards the journal. Returns the number of operations
 /// recorded in the committed frame.
 pub fn commit() -> Result<usize> {
-    let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
+    let mut g = TX
+        .lock()
+        .map_err(|_| crate::safety::lock_poisoned("tx_commit", "the transaction state"))?;
     let tx = g.as_mut().ok_or_else(|| {
         crate::safety::bad_state("tx_commit", "no active transaction", "tx_begin")
     })?;
@@ -510,7 +514,9 @@ pub fn commit() -> Result<usize> {
 /// undos in reverse), leaving any parent frame open. If it was the outermost
 /// frame, the journal is discarded. Returns the number of paths restored.
 pub fn rollback() -> Result<usize> {
-    let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
+    let mut g = TX
+        .lock()
+        .map_err(|_| crate::safety::lock_poisoned("tx_rollback", "the transaction state"))?;
     let tx = g.as_mut().ok_or_else(|| {
         crate::safety::bad_state("tx_rollback", "no active transaction", "tx_begin")
     })?;
@@ -552,7 +558,9 @@ pub fn rollback() -> Result<usize> {
 /// transaction is active. Re-using a name adds a new savepoint; `rollback_to`
 /// targets the most recent one with that name (SQL semantics).
 pub fn savepoint(name: &str) -> Result<()> {
-    let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
+    let mut g = TX
+        .lock()
+        .map_err(|_| crate::safety::lock_poisoned("tx_savepoint", "the transaction state"))?;
     let tx = g.as_mut().ok_or_else(|| {
         crate::safety::bad_state("tx_savepoint", "no active transaction", "tx_begin")
     })?;
@@ -577,7 +585,9 @@ pub fn savepoint(name: &str) -> Result<()> {
 /// after it are released. Returns the number of paths restored. Errors if no
 /// transaction is active or the savepoint is unknown.
 pub fn rollback_to(name: &str) -> Result<usize> {
-    let mut g = TX.lock().map_err(|_| anyhow!("tx lock poisoned"))?;
+    let mut g = TX
+        .lock()
+        .map_err(|_| crate::safety::lock_poisoned("tx_rollback_to", "the transaction state"))?;
     let tx = g.as_mut().ok_or_else(|| {
         crate::safety::bad_state("tx_rollback_to", "no active transaction", "tx_begin")
     })?;

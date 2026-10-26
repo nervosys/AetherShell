@@ -586,7 +586,10 @@ impl RbacManager {
     }
 
     pub fn add_user(&self, user: User) -> Result<()> {
-        let mut users = self.users.write().map_err(|_| anyhow!("Lock poisoned"))?;
+        let mut users = self
+            .users
+            .write()
+            .map_err(|_| crate::safety::lock_poisoned("rbac", "the user table"))?;
         users.insert(user.id.clone(), user);
         Ok(())
     }
@@ -615,7 +618,10 @@ impl RbacManager {
     }
 
     pub fn assign_role(&self, user_id: &str, role_name: &str) -> Result<()> {
-        let mut users = self.users.write().map_err(|_| anyhow!("Lock poisoned"))?;
+        let mut users = self
+            .users
+            .write()
+            .map_err(|_| crate::safety::lock_poisoned("rbac", "the user table"))?;
         let user = users
             .get_mut(user_id)
             .ok_or_else(|| anyhow!("User not found"))?;
@@ -634,7 +640,10 @@ impl RbacManager {
     }
 
     pub fn remove_role(&self, user_id: &str, role_name: &str) -> Result<()> {
-        let mut users = self.users.write().map_err(|_| anyhow!("Lock poisoned"))?;
+        let mut users = self
+            .users
+            .write()
+            .map_err(|_| crate::safety::lock_poisoned("rbac", "the user table"))?;
         let user = users
             .get_mut(user_id)
             .ok_or_else(|| anyhow!("User not found"))?;
