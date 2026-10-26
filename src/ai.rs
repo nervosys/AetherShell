@@ -916,7 +916,13 @@ fn complete_via_compat(
         "temperature": 0.7
     });
 
-    let client = reqwest::blocking::Client::new();
+    // A completion may take as long as the providers allow one (120 s), but an
+    // endpoint that never answers must not hang the shell.
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| anyhow!("HTTP client for {} could not be built: {}", url, e))?;
     let mut req = client
         .post(&url)
         .header("Content-Type", "application/json")

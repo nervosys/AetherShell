@@ -953,7 +953,7 @@ impl ServiceDiscovery {
     async fn register_with_registry(&self, url: &str) -> Result<()> {
         #[cfg(feature = "native")]
         {
-            let client = reqwest::Client::new();
+            let client = crate::security::create_secure_async_client()?;
             let announcement = &self.local_instance;
 
             client

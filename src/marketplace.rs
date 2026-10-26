@@ -4,6 +4,16 @@
 //! Agents can be published, searched, installed, and versioned.
 
 use anyhow::{anyhow, Result};
+
+/// A registry client that cannot hang: 10 s to connect, and `total_secs` for
+/// the whole request, the body included.
+fn registry_client(total_secs: u64) -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(total_secs))
+        .build()
+        .map_err(|e| anyhow!("registry HTTP client could not be built: {}", e))
+}
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -173,7 +183,7 @@ impl RegistryClient {
 
     /// Search for agents in the registry
     pub async fn search(&self, query: SearchQuery) -> Result<SearchResults> {
-        let client = reqwest::Client::new();
+        let client = registry_client(30)?;
 
         let mut url = format!("{}/api/v1/agents/search", self.registry_url);
         let mut params = vec![];
@@ -211,7 +221,7 @@ impl RegistryClient {
 
     /// Get agent details
     pub async fn get(&self, name: &str, version: Option<&str>) -> Result<PublishedAgent> {
-        let client = reqwest::Client::new();
+        let client = registry_client(30)?;
 
         let version_suffix = version.map(|v| format!("/{}", v)).unwrap_or_default();
         let url = format!(
@@ -252,7 +262,7 @@ impl RegistryClient {
             }
 
             // Download and install
-            let client = reqwest::Client::new();
+            let client = registry_client(120)?;
             let url = format!(
                 "{}/api/v1/agents/{}/{}/download",
                 self.registry_url, name, agent.manifest.version
@@ -333,7 +343,7 @@ impl RegistryClient {
         agent_code: &str,
         api_key: &str,
     ) -> Result<PublishedAgent> {
-        let client = reqwest::Client::new();
+        let client = registry_client(30)?;
 
         let url = format!("{}/api/v1/agents/publish", self.registry_url);
 
