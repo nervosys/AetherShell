@@ -122,6 +122,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and inode, so a hard link is caught too. All 23 file writers are pinned in
   `tests/audit_alias_contracts.rs` (Unix). On Windows a symlink needs
   privilege, and hard-link identity is not compared there yet.
+- **`proc_kill` can stop a whole tree**: `proc_kill(pid, signal, {tree: true})`
+  reads the target's descendants before signalling anything, then signals
+  them deepest first and the target last (`taskkill /T` on Windows), and
+  answers which pids it signalled as `killed`. A tree that holds this shell,
+  or more than 4,096 descendants, is refused with nothing sent. Without the
+  option, `proc_kill` signals one process, as before.
+- **A poisoned internal lock is `E_BAD_STATE`, not `E_UNKNOWN`**: the 78
+  builtins that read shared state through a lock now say which state an
+  earlier panic left unusable and that the shell must be restarted. The
+  uncoded-error ceiling falls from 86 to 8.
 - **Windows hardware answers are true on a real host** (found by running
   them on a two-GPU desktop with a UPS): `hw_gpu` reported 4 GiB for a 24 GiB
   card, because `Win32_VideoController.AdapterRAM` is 32-bit; it now reads the
