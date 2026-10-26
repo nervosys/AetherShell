@@ -9738,11 +9738,13 @@ pub static SIGNATURES: &[Signature] = &[
         params: &[
             req("pid", Ty::Any, "a positive process id, Int or numeric String"),
             opt("signal", Ty::Any, "TERM (default), KILL, HUP, INT, QUIT, STOP or CONT, by name or number"),
+            opt("options", Ty::Record, "Record {tree: Bool}, tree false by default; any other key, or a non-Bool tree, is E_BAD_ARG"),
         ],
         returns: "Record",
-        doc: "Sends a signal to a process: {pid, signal, sent: true} on success. Unix uses kill(2) directly; Windows sends TERM (graceful, which a console process refuses) or KILL (forced, taskkill /F), and other signals are E_UNIMPLEMENTED there. A pid of 0 or less, a pid that does not fit the OS, this shell's own pid, and pipeline input are E_BAD_ARG; a process that does not exist is E_NOT_FOUND; a process owned by another user is E_OS_DENIED.",
+        doc: "Sends a signal to a process: {pid, signal, sent: true} on success. Unix uses kill(2) directly; Windows sends TERM (graceful, which a console process refuses) or KILL (forced, taskkill /F), and other signals are E_UNIMPLEMENTED there. A pid of 0 or less, a pid that does not fit the OS, this shell's own pid, and pipeline input are E_BAD_ARG; a process that does not exist is E_NOT_FOUND; a process owned by another user is E_OS_DENIED. With options {tree: true} the target and all its descendants are signalled: the descendants are read before any signal, by parent pid, and each is checked as the target is (a tree that contains this shell is E_BAD_ARG); more than 4096 descendants is E_BUDGET_EXCEEDED before anything is sent. A descendant that has already exited is skipped. The signal goes to each process in turn, deepest first and the target last, so a parent cannot respawn a child; an EPERM on a descendant stops the walk and the earlier ones are not undone. On Windows taskkill /PID /T runs once (with /F for KILL). The tree result also has killed: [pids] in the order signalled. Default tree false signals the target alone, as before.",
         examples: &[
             (r#"(try { proc_kill(0) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
+            (r#"(try { proc_kill(0, "TERM", {tree: "yes"}) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { proc_kill(1, "BOGUS") } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
         ],
     },

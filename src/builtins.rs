@@ -24306,13 +24306,93 @@ fn proc_kill_failed(message: String, hint: &str, got: &str) -> anyhow::Error {
     })
 }
 
-/// The Record a successful `proc_kill` answers.
-fn proc_kill_sent(pid: i64, signal: &str) -> Value {
+/// The Record a successful `proc_kill` answers. A tree kill also names every
+/// process it signalled, in the order it signalled them, as `killed`.
+fn proc_kill_sent(pid: i64, signal: &str, killed: Option<&[i64]>) -> Value {
     let mut rec = BTreeMap::new();
     rec.insert("pid".to_string(), Value::Int(pid));
     rec.insert("signal".to_string(), Value::Str(signal.to_string()));
     rec.insert("sent".to_string(), Value::Bool(true));
+    if let Some(killed) = killed {
+        rec.insert(
+            "killed".to_string(),
+            Value::Array(killed.iter().map(|p| Value::Int(*p)).collect()),
+        );
+    }
     Value::Record(rec)
+}
+
+/// The processes under `root`, breadth-first, as sysinfo reports them now. It
+/// is read before anything is signalled. A child that started before its
+/// parent is a reused pid and not a child, so it is left out. More than 4096
+/// descendants is E_BUDGET_EXCEEDED, raised before anything is signalled.
+///
+/// The per-pid checks (a pid that fits, this shell's own pid) apply to each
+/// descendant at the caller. A descendant's pid is a u32 from sysinfo, so it
+/// always fits the OS pid type.
+fn proc_kill_descendants(root: i64) -> Result<Vec<i64>> {
+    const LIMIT: usize = 4096;
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let mut children: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+    for (pid, proc_) in sys.processes() {
+        let Some(parent) = proc_.parent() else {
+            continue;
+        };
+        let Some(parent_proc) = sys.process(parent) else {
+            continue;
+        };
+        if proc_.start_time() < parent_proc.start_time() {
+            continue;
+        }
+        children
+            .entry(parent.as_u32())
+            .or_default()
+            .push(pid.as_u32());
+    }
+    for kids in children.values_mut() {
+        kids.sort_unstable();
+    }
+
+    let root = u32::try_from(root).unwrap_or(u32::MAX);
+    let mut seen = std::collections::HashSet::from([root]);
+    let mut queue = std::collections::VecDeque::from([root]);
+    let mut found: Vec<i64> = Vec::new();
+    while let Some(parent) = queue.pop_front() {
+        let Some(kids) = children.get(&parent) else {
+            continue;
+        };
+        for kid in kids {
+            if !seen.insert(*kid) {
+                continue;
+            }
+            if found.len() == LIMIT {
+                return Err(crate::safety::budget_exceeded(
+                    "proc_kill",
+                    format!(
+                        "proc_kill: process {root} has more than {LIMIT} descendants; NOTHING WAS SENT"
+                    ),
+                    "signal a smaller subtree, or signal its children separately",
+                ));
+            }
+            found.push(i64::from(*kid));
+            queue.push_back(*kid);
+        }
+    }
+    Ok(found)
+}
+
+/// What a failed Unix tree kill already signalled, for the error message.
+#[cfg(unix)]
+fn proc_kill_partial(killed: &[i64], signal: &str) -> String {
+    if killed.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "; {} earlier process(es) of the tree were sent {signal} before this failed",
+            killed.len()
+        )
+    }
 }
 
 fn bi_proc_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -24360,6 +24440,23 @@ fn bi_proc_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // `num` is the kill(1) spelling; neither OS path below uses it any more.
     let _ = num;
 
+    // The options Record, third and last. `tree` is its only key, and it is
+    // read here, before any effect, so a refusal signals nothing.
+    let tree = match args.get(2) {
+        None => false,
+        Some(Value::Record(rec)) => {
+            cfg_known_keys("proc_kill", rec, &["tree"])?;
+            cfg_bool("proc_kill", rec, "tree")?.unwrap_or(false)
+        }
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "proc_kill",
+                "options: a Record {tree: Bool}",
+                other.type_name(),
+            ))
+        }
+    };
+
     // Refused before the guard: these pids address groups of processes or this
     // shell itself, and a pid that does not fit the OS's pid type is no process.
     #[cfg(unix)]
@@ -24373,7 +24470,8 @@ fn bi_proc_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             &pid.to_string(),
         ));
     }
-    if pid == i64::from(std::process::id()) {
+    let own = i64::from(std::process::id());
+    if pid == own {
         return Err(crate::safety::bad_arg(
             "proc_kill",
             "a process other than this shell",
@@ -24381,15 +24479,53 @@ fn bi_proc_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         ));
     }
 
+    // A tree kill reads the descendants now, before any signal, so that each
+    // can be checked and the guard sees the whole set. If this shell is among
+    // them (the target is one of its ancestors), the whole call is refused.
+    let descendants = if tree {
+        proc_kill_descendants(pid)?
+    } else {
+        Vec::new()
+    };
+    if let Some(d) = descendants.iter().find(|d| **d == own) {
+        return Err(crate::safety::bad_arg(
+            "proc_kill",
+            "a process other than this shell, in the tree",
+            &format!("its own pid {d}, a descendant of {pid}; NOTHING WAS SENT"),
+        ));
+    }
+
+    let mut targets = vec![pid.to_string()];
+    targets.extend(descendants.iter().map(|d| d.to_string()));
+    let blast_radius = if tree {
+        serde_json::json!({
+            "pid": pid,
+            "signal": signal,
+            "tree": true,
+            "descendants": descendants.len(),
+        })
+    } else {
+        serde_json::json!({ "pid": pid, "signal": signal })
+    };
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "proc_kill",
         effect: crate::safety::Effect::Process,
         what: "kill",
-        targets: vec![pid.to_string()],
-        blast_radius: serde_json::json!({ "pid": pid, "signal": signal }),
+        targets,
+        blast_radius,
         reversible: false,
         fs_paths: false,
     })?;
+
+    // Deepest first, then the target, as the Unix path signals them. Windows
+    // has taskkill walk the tree, so this is the order it is reported in.
+    #[cfg(windows)]
+    let order: Vec<i64> = descendants
+        .iter()
+        .rev()
+        .copied()
+        .chain(std::iter::once(pid))
+        .collect();
 
     #[cfg(windows)]
     {
@@ -24407,12 +24543,19 @@ fn bi_proc_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         };
         let mut cmd = std::process::Command::new("taskkill");
         cmd.args(["/PID", &pid.to_string()]);
+        if tree {
+            cmd.arg("/T");
+        }
         if force {
             cmd.arg("/F");
         }
         let output = bounded_cmd_output("proc_kill", "taskkill", cmd, TOOL_DEADLINE_SECS)?;
         if output.status.success() {
-            return Ok(proc_kill_sent(pid, signal));
+            return Ok(proc_kill_sent(
+                pid,
+                signal,
+                tree.then_some(order.as_slice()),
+            ));
         }
         let said = format!(
             "{} {}",
@@ -24466,29 +24609,80 @@ fn bi_proc_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             }
         };
         // The fit was checked above. kill(2) reads only its two arguments.
-        let native = libc::pid_t::try_from(pid).unwrap_or(libc::pid_t::MAX);
-        // SAFETY: kill(2) takes a pid and a signal number and touches no memory.
-        if unsafe { libc::kill(native, sig) } != 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(match err.raw_os_error() {
-                Some(libc::ESRCH) => {
-                    crate::safety::not_found("proc_kill", "process", &pid.to_string())
+        let native_of = |p: i64| libc::pid_t::try_from(p).unwrap_or(libc::pid_t::MAX);
+        let mut killed: Vec<i64> = Vec::new();
+
+        // Descendants first, deepest first, so the target is still alive only
+        // until its children are gone and cannot respawn one. A descendant that
+        // has already exited (ESRCH) is not an error.
+        for &child in descendants.iter().rev() {
+            // SAFETY: kill(2) takes a pid and a signal number and touches no memory.
+            if unsafe { libc::kill(native_of(child), sig) } != 0 {
+                let err = std::io::Error::last_os_error();
+                let partial = proc_kill_partial(&killed, signal);
+                match err.raw_os_error() {
+                    Some(libc::ESRCH) => continue,
+                    Some(libc::EPERM) => {
+                        return Err(crate::safety::os_denied(
+                            "proc_kill",
+                            format!(
+                                "proc_kill: the operating system denied {signal} to process {child}, a descendant of {pid} (EPERM){partial}"
+                            ),
+                            "the process belongs to another user or is protected; signal a process this user owns",
+                        ))
+                    }
+                    _ => {
+                        return Err(proc_kill_failed(
+                            format!("proc_kill: kill({child}, {signal}) failed: {err}{partial}"),
+                            "the OS refused the signal; the message names the errno",
+                            &err.to_string(),
+                        ))
+                    }
                 }
-                Some(libc::EPERM) => crate::safety::os_denied(
-                    "proc_kill",
-                    format!(
-                        "proc_kill: the operating system denied {signal} to process {pid} (EPERM)"
-                    ),
-                    "the process belongs to another user or is protected; signal a process this user owns",
-                ),
-                _ => proc_kill_failed(
-                    format!("proc_kill: kill({pid}, {signal}) failed: {err}"),
-                    "the OS refused the signal; the message names the errno",
-                    &err.to_string(),
-                ),
-            });
+            }
+            killed.push(child);
         }
-        Ok(proc_kill_sent(pid, signal))
+
+        // SAFETY: kill(2) takes a pid and a signal number and touches no memory.
+        if unsafe { libc::kill(native_of(pid), sig) } != 0 {
+            let err = std::io::Error::last_os_error();
+            let partial = proc_kill_partial(&killed, signal);
+            match err.raw_os_error() {
+                // The tree's members were signalled and the root has since
+                // gone on its own: nothing is left to fail on.
+                Some(libc::ESRCH) if !killed.is_empty() => {}
+                Some(libc::ESRCH) => {
+                    return Err(crate::safety::not_found(
+                        "proc_kill",
+                        "process",
+                        &pid.to_string(),
+                    ))
+                }
+                Some(libc::EPERM) => {
+                    return Err(crate::safety::os_denied(
+                        "proc_kill",
+                        format!(
+                            "proc_kill: the operating system denied {signal} to process {pid} (EPERM){partial}"
+                        ),
+                        "the process belongs to another user or is protected; signal a process this user owns",
+                    ))
+                }
+                _ => {
+                    return Err(proc_kill_failed(
+                        format!("proc_kill: kill({pid}, {signal}) failed: {err}{partial}"),
+                        "the OS refused the signal; the message names the errno",
+                        &err.to_string(),
+                    ))
+                }
+            }
+        } else {
+            killed.push(pid);
+        }
+        Ok(proc_kill_sent(
+            pid,
+            signal,
+            tree.then_some(killed.as_slice()),
+        ))
     }
 }
 

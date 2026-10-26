@@ -8,6 +8,9 @@
 //! Human mode allows the Process effect, so these calls need no approval. The
 //! audit log is kept out of the workspace, and any agent-mode setting another
 //! test left behind is removed.
+//!
+//! The tree tests also start a child under a parent this test owns. That child
+//! is not a `Child`, so it is killed by pid through a guard as well.
 
 use aethershell::{
     builtins::{call, call_with_input},
@@ -15,10 +18,12 @@ use aethershell::{
     value::Value,
 };
 use std::{
+    collections::BTreeMap,
     process::{Child, Command},
     sync::Mutex,
     time::{Duration, Instant},
 };
+use sysinfo::{Pid, ProcessStatus, ProcessesToUpdate, System};
 
 static LOCK: Mutex<()> = Mutex::new(());
 
@@ -251,4 +256,166 @@ fn stop_then_cont_changes_the_child_state() {
         "CONT did not resume the child"
     );
     assert!(child.alive());
+}
+
+/// A parent this test owns, which starts one long-sleeping child and waits for
+/// it. Unix: `sh -c 'sleep 30 & wait'`. Windows: `cmd /C ping ...`, whose ping
+/// is the child cmd starts.
+fn parent_with_child() -> Owned {
+    #[cfg(windows)]
+    let child = Command::new("cmd")
+        .args(["/C", "ping", "-n", "30", "127.0.0.1"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    #[cfg(not(windows))]
+    let child = Command::new("sh")
+        .args(["-c", "sleep 30 & wait"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    Owned(child.expect("spawn a parent this test owns"))
+}
+
+/// The pid of a process whose parent is `parent`, polled for up to five seconds.
+fn child_of(parent: u32) -> Option<u32> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let mut sys = System::new();
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+        let found = sys
+            .processes()
+            .iter()
+            .find(|(_, p)| p.parent() == Some(Pid::from_u32(parent)))
+            .map(|(pid, _)| pid.as_u32());
+        if found.is_some() || Instant::now() >= deadline {
+            return found;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// True once the process has gone, or is a zombie that has already exited.
+fn gone(pid: u32) -> bool {
+    let mut sys = System::new();
+    let spid = Pid::from_u32(pid);
+    sys.refresh_processes(ProcessesToUpdate::Some(&[spid]), true);
+    match sys.process(spid) {
+        None => true,
+        Some(p) => p.status() == ProcessStatus::Zombie,
+    }
+}
+
+/// A child that a parent this test owns started. Not a `Child`, so it is
+/// killed by pid through sysinfo, on drop if the test has not done so.
+struct ChildOfParent(u32);
+
+impl ChildOfParent {
+    fn kill_now(&self) -> bool {
+        let mut sys = System::new();
+        let spid = Pid::from_u32(self.0);
+        sys.refresh_processes(ProcessesToUpdate::Some(&[spid]), true);
+        sys.process(spid).is_some_and(|p| p.kill())
+    }
+}
+
+impl Drop for ChildOfParent {
+    fn drop(&mut self) {
+        let _ = self.kill_now();
+    }
+}
+
+fn tree_option(tree: Value) -> Value {
+    let mut opts = BTreeMap::new();
+    opts.insert("tree".to_string(), tree);
+    Value::Record(opts)
+}
+
+#[test]
+fn tree_must_be_a_bool_and_nothing_is_killed() {
+    let _g = lock();
+    sandbox();
+    let mut child = sleeper();
+    let pid = child.pid();
+
+    for (what, opts) in [
+        ("a string", tree_option(Value::Str("yes".into()))),
+        ("an int", tree_option(Value::Int(1))),
+        ("an unknown key", {
+            let mut m = BTreeMap::new();
+            m.insert("tre".to_string(), Value::Bool(true));
+            Value::Record(m)
+        }),
+    ] {
+        let e = kill(vec![Value::Int(pid), Value::Str("KILL".into()), opts]).expect_err(what);
+        assert_eq!(code_of(&e), "E_BAD_ARG", "{what}: {e}");
+        assert!(
+            child.alive(),
+            "{what}: a refused call must not signal the child"
+        );
+    }
+}
+
+#[test]
+fn tree_true_kills_the_parent_and_its_child() {
+    let _g = lock();
+    sandbox();
+    let mut parent = parent_with_child();
+    let ppid = parent.pid() as u32;
+    let cpid = child_of(ppid).expect("the parent started a child");
+    let grandchild = ChildOfParent(cpid);
+
+    let v = kill(vec![
+        Value::Int(i64::from(ppid)),
+        Value::Str("KILL".into()),
+        tree_option(Value::Bool(true)),
+    ])
+    .expect("KILL the tree");
+    assert_eq!(record_field(&v, "sent"), Some(&Value::Bool(true)), "{v:?}");
+    match record_field(&v, "killed") {
+        Some(Value::Array(items)) => assert!(
+            items.contains(&Value::Int(i64::from(cpid))),
+            "killed does not name the child {cpid}: {v:?}"
+        ),
+        other => panic!("tree: true must name what it killed, got {other:?}"),
+    }
+    assert!(
+        within_ten_seconds(|| !parent.alive()),
+        "the parent was still running after the tree KILL"
+    );
+    assert!(
+        within_ten_seconds(|| gone(cpid)),
+        "the child was still running after the tree KILL"
+    );
+    drop(grandchild);
+}
+
+#[test]
+fn without_tree_the_child_survives_and_is_cleaned_up_here() {
+    let _g = lock();
+    sandbox();
+    let mut parent = parent_with_child();
+    let ppid = parent.pid() as u32;
+    let cpid = child_of(ppid).expect("the parent started a child");
+    let grandchild = ChildOfParent(cpid);
+
+    let v = kill(vec![Value::Int(i64::from(ppid)), Value::Str("KILL".into())])
+        .expect("KILL the parent alone");
+    assert_eq!(record_field(&v, "killed"), None, "{v:?}");
+    assert!(
+        within_ten_seconds(|| !parent.alive()),
+        "the parent was still running after KILL"
+    );
+
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        !gone(cpid),
+        "without tree the child must still be running after its parent is killed"
+    );
+
+    assert!(grandchild.kill_now(), "clean up the child by pid");
+    assert!(
+        within_ten_seconds(|| gone(cpid)),
+        "the child did not end after its own kill"
+    );
 }
