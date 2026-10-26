@@ -121,7 +121,19 @@ let compared = 0;
 let failedBase = 0;
 let done = 0;
 
+// Each builtin starts from an empty jail. Shared, the sweep ran in one
+// directory: `mkdir("a")` made a directory every later builtin was handed as
+// "a" (read_text, touch, wc, strings...), so what one builtin left behind
+// decided whether the next was comparable. Within a builtin the jail is kept,
+// since its repeated calls are compared with each other.
+const emptyJail = () => {
+    for (const entry of fs.readdirSync(JAIL)) {
+        fs.rmSync(path.join(JAIL, entry), { recursive: true, force: true });
+    }
+};
+
 for (const name of [...names].sort()) {
+    emptyJail();
     const a = run(`${name}(${BASE})`);
     if (a.out === '\u0000TIMEOUT') continue;
     const failed = a.out.startsWith('error') || a.out.startsWith('{"error"') || a.status !== 0;
