@@ -31202,15 +31202,9 @@ fn gzip_file_capped(
 ) -> Result<Value> {
     let src =
         std::fs::File::open(input).map_err(|e| crate::safety::fs_error(builtin, input, &e))?;
-    if std::path::Path::new(&out_path).exists() {
-        return Err(crate::safety::bad_state(
-            builtin,
-            &format!("{out_path} already exists"),
-            "remove it first; the existing file is not overwritten",
-        ));
-    }
-    let dst = std::fs::File::create(out_path)
-        .map_err(|e| crate::safety::fs_error(builtin, out_path, &e))?;
+    // The exclusive create is the existence check: a file that appears after an
+    // exists() test would otherwise be truncated, and removed on failure.
+    let dst = create_new_output(builtin, out_path)?;
     let result = if decompress {
         let mut out = std::io::BufWriter::new(dst);
         gunzip_capped(flate2::read::GzDecoder::new(src), &mut out, cap)
@@ -42483,7 +42477,20 @@ fn bi_db_kv_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///        content | file_write("output.txt")
 fn write_file_atomically(builtin: &str, path: &str, content: &[u8]) -> Result<()> {
     use std::io::Write;
-    let target = std::path::Path::new(path);
+    let requested = std::path::Path::new(path);
+    // A rename over a symlink would replace the link with a regular file. So a
+    // symlink is resolved first, and the write goes next to the file it names;
+    // the link keeps pointing at the updated file. The jail check already
+    // resolves links, so the resolved file is the one that was checked.
+    let resolved;
+    let target: &std::path::Path = match fs::symlink_metadata(requested) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            resolved = fs::canonicalize(requested)
+                .map_err(|error| crate::safety::fs_error(builtin, path, &error))?;
+            &resolved
+        }
+        _ => requested,
+    };
     let parent = target
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -42495,16 +42502,53 @@ fn write_file_atomically(builtin: &str, path: &str, content: &[u8]) -> Result<()
         .create_new(true)
         .open(&temporary)
         .map_err(|error| crate::safety::fs_error(builtin, path, &error))?;
-    let written = file.write_all(content);
+    let original_permissions = file.metadata().ok().map(|m| m.permissions());
+    // The data must reach the disk before the rename publishes it, or a crash
+    // can leave an empty or partial file under the target name.
+    let written = file.write_all(content).and_then(|_| file.sync_all());
     drop(file);
     let result = written
-        .and_then(|_| fs::rename(&temporary, target))
-        .map_err(|error| crate::safety::fs_error(builtin, path, &error));
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+        .map_err(|error| crate::safety::fs_error(builtin, path, &error))
+        .and_then(|_| match fs::metadata(target) {
+            // An existing target keeps its mode (Unix) and read-only attribute (Windows).
+            Ok(existing) => fs::set_permissions(&temporary, existing.permissions())
+                .map_err(|error| crate::safety::fs_error(builtin, path, &error)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(crate::safety::fs_error(builtin, path, &error)),
+        })
+        .and_then(|_| {
+            fs::rename(&temporary, target)
+                .map_err(|error| crate::safety::fs_error(builtin, path, &error))
+        });
+    match result {
+        Ok(()) => {
+            sync_parent_directory(parent);
+            Ok(())
+        }
+        Err(error) => {
+            // Restore our own file's permissions before removing it: a read-only copy cannot be deleted on Windows.
+            if let Some(permissions) = original_permissions {
+                let _ = fs::set_permissions(&temporary, permissions);
+            }
+            let _ = fs::remove_file(&temporary);
+            Err(error)
+        }
     }
-    result
 }
+
+/// Best-effort fsync of the directory that holds a just-renamed file, so the
+/// rename itself survives a crash on Unix. Errors are ignored: the file is
+/// already published, and some filesystems refuse to sync a directory.
+#[cfg(unix)]
+fn sync_parent_directory(parent: &std::path::Path) {
+    if let Ok(dir) = fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+}
+
+/// Windows has no directory fsync in std, and the rename is already durable there.
+#[cfg(not(unix))]
+fn sync_parent_directory(_parent: &std::path::Path) {}
 
 fn bi_file_write(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if args.is_empty() {
@@ -57877,10 +57921,12 @@ fn monitor_store_save(builtin: &str, store: &MonitorStore) -> Result<()> {
     }
     let doc = serde_json::json!({ "rules": store.rules, "history": store.history });
     let bytes = serde_json::to_vec_pretty(&doc)?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| crate::safety::fs_error(builtin, &tmp, &e))?;
-    std::fs::rename(&tmp, &path).map_err(|e| crate::safety::fs_error(builtin, &path, &e))?;
-    Ok(())
+    let path_text = path.to_str().ok_or_else(|| {
+        crate::safety::bad_arg(builtin, "a UTF-8 store path", &path.display().to_string())
+    })?;
+    // A unique temporary name (not a shared "json.tmp") and cleanup on failure
+    // are both done by write_file_atomically.
+    write_file_atomically(builtin, path_text, &bytes)
 }
 
 fn monitor_history_push(store: &mut MonitorStore, event: &str, rule: &serde_json::Value) {
@@ -67787,5 +67833,124 @@ mod glob_cap_tests {
         assert_eq!(r, glob_paths(&recursive));
         assert_eq!(r.len(), 5);
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod atomic_write_tests {
+    use super::{gzip_file_capped, write_file_atomically};
+    use std::path::{Path, PathBuf};
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ae-aw-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn has_no_temporary(dir: &Path) -> bool {
+        std::fs::read_dir(dir).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".aether_tmp_")
+        })
+    }
+
+    #[test]
+    fn overwrite_keeps_content_and_leaves_no_temporary() {
+        let dir = scratch("content");
+        let target = dir.join("config.txt");
+        std::fs::write(&target, "old").unwrap();
+        write_file_atomically("file_write", target.to_str().unwrap(), b"new line\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new line\n");
+        assert!(has_no_temporary(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn overwrite_keeps_execute_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("mode");
+        let target = dir.join("run.sh");
+        std::fs::write(&target, "#!/bin/sh\necho old\n").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_file_atomically(
+            "file_write",
+            target.to_str().unwrap(),
+            b"#!/bin/sh\necho new\n",
+        )
+        .unwrap();
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755);
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "#!/bin/sh\necho new\n"
+        );
+        assert!(has_no_temporary(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Decision: a read-only file is refused, as the OS refuses it. The rename
+    // onto a read-only target fails, the content is unchanged, and no temporary
+    // is left behind (its read-only copy is made writable before removal).
+    #[cfg(windows)]
+    #[test]
+    #[allow(clippy::permissions_set_readonly_false)] // cleanup only: clears the attribute so the directory can be removed
+    fn overwrite_of_read_only_file_is_refused() {
+        let dir = scratch("readonly");
+        let target = dir.join("locked.txt");
+        std::fs::write(&target, "old").unwrap();
+        let mut permissions = std::fs::metadata(&target).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&target, permissions).unwrap();
+        let result = write_file_atomically("file_write", target.to_str().unwrap(), b"new");
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "old");
+        assert!(has_no_temporary(&dir));
+        let mut permissions = std::fs::metadata(&target).unwrap().permissions();
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&target, permissions).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_through_symlink_updates_target_and_keeps_link() {
+        let dir = scratch("symlink");
+        let target = dir.join("real.txt");
+        let link = dir.join("link.txt");
+        std::fs::write(&target, "old").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        write_file_atomically("file_write", link.to_str().unwrap(), b"new").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read_to_string(&link).unwrap(), "new");
+        assert!(has_no_temporary(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn gzip_refuses_existing_output_and_leaves_it_untouched() {
+        let dir = scratch("gzip");
+        let input = dir.join("data.txt");
+        let output = dir.join("data.txt.gz");
+        std::fs::write(&input, "payload").unwrap();
+        std::fs::write(&output, "keep me").unwrap();
+        let result = gzip_file_capped(
+            "gzip_compress",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+            false,
+            1024,
+        );
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&output).unwrap(), "keep me");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
