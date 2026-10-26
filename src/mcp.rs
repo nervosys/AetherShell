@@ -1354,7 +1354,13 @@ pub mod server {
         println!();
 
         let listener = tokio::net::TcpListener::bind(addr).await?;
-        axum::serve(listener, app).await?;
+        crate::serve::serve_until(
+            listener,
+            app,
+            crate::serve::shutdown_signal(),
+            crate::serve::DRAIN,
+        )
+        .await?;
 
         Ok(())
     }

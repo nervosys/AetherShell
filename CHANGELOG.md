@@ -122,6 +122,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and inode, so a hard link is caught too. All 23 file writers are pinned in
   `tests/audit_alias_contracts.rs` (Unix). On Windows a symlink needs
   privilege, and hard-link identity is not compared there yet.
+- **The HTTP servers shut down cleanly**: `ae agent serve`, the MCP server and
+  the AI model API server stop accepting on Ctrl-C (or SIGTERM on Unix), let
+  open requests finish, and close what is still open after 10 seconds, so an
+  SSE stream cannot keep the process alive. Before, a request in flight was
+  cut off mid-response.
 - **`proc_kill` can stop a whole tree**: `proc_kill(pid, signal, {tree: true})`
   reads the target's descendants before signalling anything, then signals
   them deepest first and the target last (`taskkill /T` on Windows), and

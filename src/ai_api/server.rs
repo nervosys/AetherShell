@@ -71,7 +71,13 @@ impl APIServer {
 
         tracing::info!("AI Model API server starting on {}", addr);
 
-        axum::serve(listener, app).await?;
+        crate::serve::serve_until(
+            listener,
+            app,
+            crate::serve::shutdown_signal(),
+            crate::serve::DRAIN,
+        )
+        .await?;
 
         Ok(())
     }

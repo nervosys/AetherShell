@@ -224,6 +224,9 @@ pub mod rlm;
 /// Safety core — effect taxonomy, policy/approval engine, hash-chained audit.
 #[cfg(feature = "native")]
 pub mod safety;
+/// HTTP server shutdown — drain open requests on Ctrl-C or SIGTERM.
+#[cfg(feature = "native")]
+pub mod serve;
 /// Secure configuration — encrypted secrets and credential storage.
 #[cfg(feature = "native")]
 pub mod secure_config;
