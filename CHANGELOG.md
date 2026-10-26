@@ -122,6 +122,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and inode, so a hard link is caught too. All 23 file writers are pinned in
   `tests/audit_alias_contracts.rs` (Unix). On Windows a symlink needs
   privilege, and hard-link identity is not compared there yet.
+- **The RBAC config and the audit key file cannot be written by a guarded
+  builtin** (security): `ae` loads `AETHER_RBAC_CONFIG` (else
+  `<workspace>/.ae/rbac.toml`) at startup, and the SDK starts one process
+  per call, so a jailed `file_write` to it governed the next call. `.ae` was
+  covered only while the audit log lived in it; with `AETHER_AUDIT_LOG`
+  elsewhere, an agent could write itself a role table. The config, its
+  default `.ae` directory and the file named by `AETHER_AUDIT_KEY_FILE` are
+  now refused with `E_OUTSIDE_WORKSPACE`, aliases included
+  (`tests/governance_file_contracts.rs`, which failed before the fix).
 - **A symlink refused for lack of privilege is `E_OS_DENIED`** (Windows):
   `ERROR_PRIVILEGE_NOT_HELD` (1314), which `fs_symlink` meets without
   Developer Mode, is not `PermissionDenied` to std, so it came back as

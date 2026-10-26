@@ -2277,6 +2277,48 @@ fn resolve_existing_prefix(path: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Whether `path` names a file that configures the gate itself: the RBAC
+/// config (`AETHER_RBAC_CONFIG`, else `<workspace>/.ae/rbac.toml` whether or
+/// not it exists yet) or the audit chain key (`AETHER_AUDIT_KEY_FILE`).
+///
+/// Both are read when a process starts, and the Python SDK starts one per
+/// call, so a jailed write to either would govern the next call: an agent
+/// could grant itself roles, or choose the key its log is chained with. The
+/// default config's `.ae` directory is covered too, so it cannot be renamed
+/// away or replaced by a link. Matched the way [`is_audit_artifact`] matches,
+/// aliases included.
+pub fn is_governance_file(path: &str) -> bool {
+    if path.replace('\\', "/").trim_end_matches('/').is_empty() {
+        return false;
+    }
+    let candidates = audit_forms(Path::new(path));
+    let names = |target: &Path| {
+        let forms = audit_forms(target);
+        candidates.iter().any(|c| forms.contains(c)) || same_existing_file(Path::new(path), target)
+    };
+    let mut files = Vec::new();
+    match std::env::var_os("AETHER_RBAC_CONFIG") {
+        Some(config) if !config.is_empty() => files.push(PathBuf::from(config)),
+        _ => {
+            let dir = workspace_root().join(".ae");
+            let dirs = audit_forms(&dir);
+            if candidates.iter().any(|c| {
+                dirs.iter()
+                    .any(|d| !d.is_empty() && (c == d || c.starts_with(&format!("{d}/"))))
+            }) {
+                return true;
+            }
+            files.push(dir.join("rbac.toml"));
+        }
+    }
+    if let Some(key) = std::env::var_os("AETHER_AUDIT_KEY_FILE") {
+        if !key.is_empty() {
+            files.push(PathBuf::from(key));
+        }
+    }
+    files.iter().any(|f| names(f))
+}
+
 /// Whether two existing paths are the same file, hard links included.
 #[cfg(unix)]
 fn same_existing_file(a: &Path, b: &Path) -> bool {
@@ -4236,6 +4278,34 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     hint: "the audit trail is evidence about this session, so the session \
                            may not edit it; point AETHER_AUDIT_LOG elsewhere if you need a \
                            different location"
+                        .to_string(),
+                    approval: None,
+                    did_you_mean: Vec::new(),
+                    expected: String::new(),
+                    got: String::new(),
+                });
+            }
+            // The gate's own configuration, for the same reason: what the
+            // audited party may not edit is what decides what it may do.
+            if is_governance_file(t) {
+                let _ = audit(
+                    ctx.builtin,
+                    ctx.effect,
+                    "deny_governance_tamper",
+                    &resource,
+                    json!({ "target": t }),
+                );
+                return Err(SafetyError {
+                    code: ErrorCode::OutsideWorkspace,
+                    message: format!(
+                        "{}: '{}' configures this shell's access control or audit key and cannot be written by a guarded builtin",
+                        ctx.builtin, t
+                    ),
+                    builtin: ctx.builtin.to_string(),
+                    hint: "the RBAC config and the audit key are read at startup and govern \
+                           later calls, so the session may not edit them; set \
+                           AETHER_RBAC_CONFIG or AETHER_AUDIT_KEY_FILE to a path outside the \
+                           workspace"
                         .to_string(),
                     approval: None,
                     did_you_mean: Vec::new(),
