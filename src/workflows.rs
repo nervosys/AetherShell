@@ -40,16 +40,20 @@
 //! - `input_mapping`, `output_mapping` and `timeout_ms` are honoured, so a
 //!   template's stages actually pass data to each other.
 //!
-//! **Not exposed to the shell.** [`workflow_builtins`] lists sixteen names and
-//! nothing registers them, so `workflow_create` at the prompt still answers
-//! `unknown builtin`. This module is reachable as library API only. Wiring the
-//! names into the dispatcher is a separate decision about the shell's surface,
-//! and the documentation must not describe them as available until it is made.
+//! The shell reaches the engine through [`crate::workflow_builtins`], which
+//! `builtins.rs` dispatches to for every name [`workflow_builtins`] lists.
+//!
+//! Lifecycle: `workflow_cancel` stops a run at the next step boundary or wait
+//! slice and leaves it `Cancelled`; `workflow_pause` holds it at the next step
+//! boundary (a step already running finishes first); `workflow_resume` lets it
+//! continue. No wait may last longer than [`MAX_WAIT_MS`]; a template that asks
+//! for one is refused by `execute` before any of its steps run.
 
 use crate::http_body::BlockingBodyExt;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, RwLock};
@@ -93,7 +97,38 @@ pub struct WorkflowContext {
     /// otherwise recurse until the stack ran out.
     #[serde(default)]
     pub depth: u32,
+    /// The cancel and pause flags of the run this context belongs to. Clones
+    /// share them, so parallel branches and sub-workflows observe the same
+    /// `workflow_cancel`.
+    #[serde(skip)]
+    control: Arc<RunControl>,
 }
+
+/// Cancel and pause flags for one run, shared by every clone of its context.
+#[derive(Debug, Default)]
+struct RunControl {
+    cancelled: AtomicBool,
+    paused: AtomicBool,
+}
+
+impl RunControl {
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+}
+
+/// The longest any single wait may last: one hour. A `Delay` or a step or
+/// `WaitForEvent` timeout above it refuses the whole workflow before it starts,
+/// and a `WaitForEvent` with no timeout waits this long before it gives up.
+pub const MAX_WAIT_MS: u64 = 3_600_000;
+
+/// How often a wait wakes to look at cancellation, pause and the evaluation
+/// deadline. A cancel lands within about this long.
+const WAIT_SLICE: Duration = Duration::from_millis(100);
 
 impl WorkflowContext {
     /// A fresh context for one workflow instance.
@@ -123,6 +158,7 @@ impl Default for WorkflowContext {
             started_at: None,
             ended_at: None,
             depth: 0,
+            control: Arc::new(RunControl::default()),
         }
     }
 }
@@ -193,6 +229,8 @@ pub enum WorkflowEvent {
         workflow_id: WorkflowId,
         error: String,
     },
+    /// The run stopped because `cancel` was called on it. It is not a failure.
+    Cancelled { workflow_id: WorkflowId },
     Compensating {
         workflow_id: WorkflowId,
         step_id: StepId,
@@ -1058,6 +1096,102 @@ async fn call_builtin_off_runtime(
 // Workflow Engine
 // =============================================================================
 
+// -----------------------------------------------------------------------------
+// Cancellation and waits
+// -----------------------------------------------------------------------------
+
+fn cancelled_error(workflow_id: &WorkflowId) -> anyhow::Error {
+    anyhow!("workflow `{workflow_id}` was cancelled")
+}
+
+/// Refuse to go on if the run was cancelled or its evaluation deadline passed.
+fn check_run(context: &WorkflowContext) -> Result<()> {
+    if context.control.is_cancelled() {
+        return Err(cancelled_error(&context.workflow_id));
+    }
+    crate::safety::check_deadline()
+}
+
+/// The next slice of a wait that ends at `until`: at most `WAIT_SLICE`, and
+/// never past the evaluation deadline. `bounded_io_timeout` reads the clock on
+/// every call, where `check_deadline` only does so every 1024th.
+fn next_slice(until: Instant) -> Result<Duration> {
+    let slice = until
+        .saturating_duration_since(Instant::now())
+        .min(WAIT_SLICE);
+    crate::safety::bounded_io_timeout("workflow_wait", slice)
+        .map_err(|_| anyhow!("evaluation exceeded its time limit and was cancelled"))
+}
+
+/// Sleep for `total` in slices, so a cancel or the deadline is seen within one.
+async fn wait_for(context: &WorkflowContext, total: Duration) -> Result<()> {
+    let until = Instant::now() + total;
+    loop {
+        check_run(context)?;
+        if Instant::now() >= until {
+            return Ok(());
+        }
+        tokio::time::sleep(next_slice(until)?).await;
+    }
+}
+
+/// Hold while the run is paused. A cancel still ends the hold.
+async fn wait_while_paused(context: &WorkflowContext) -> Result<()> {
+    while context.control.is_paused() {
+        wait_for(context, WAIT_SLICE).await?;
+    }
+    Ok(())
+}
+
+/// Refuse any wait over `MAX_WAIT_MS` anywhere in a template, so nothing runs.
+fn check_wait_limits(steps: &[WorkflowStep]) -> Result<()> {
+    for step in steps {
+        check_step_waits(step)?;
+    }
+    Ok(())
+}
+
+fn check_step_waits(step: &WorkflowStep) -> Result<()> {
+    let over = |what: &str, ms: u64| -> Result<()> {
+        if ms > MAX_WAIT_MS {
+            return Err(crate::safety::bad_arg(
+                "workflow_execute",
+                &format!("a wait of at most {MAX_WAIT_MS}ms (one hour)"),
+                &format!("{what} of {ms}ms on step `{}`", step.id),
+            ));
+        }
+        Ok(())
+    };
+
+    if let Some(ms) = step.timeout_ms {
+        over("timeout_ms", ms)?;
+    }
+    match &step.step_type {
+        StepType::Delay { duration_ms } => over("delay", *duration_ms)?,
+        StepType::WaitForEvent {
+            timeout_ms: Some(ms),
+            ..
+        } => over("timeout_ms", *ms)?,
+        StepType::Parallel { steps } => check_wait_limits(steps)?,
+        StepType::Branch {
+            conditions,
+            default,
+        } => {
+            for (_, arm) in conditions {
+                check_step_waits(arm)?;
+            }
+            if let Some(arm) = default {
+                check_step_waits(arm)?;
+            }
+        }
+        _ => {}
+    }
+    if let Some(compensate) = &step.compensate {
+        check_step_waits(compensate)?;
+    }
+    Ok(())
+}
+
 /// Workflow execution engine
 #[derive(Clone)]
 pub struct WorkflowEngine {
@@ -1172,6 +1306,29 @@ impl WorkflowEngine {
             (template, instance)
         };
 
+        // Refuse a wait the engine will not honour before any step runs.
+        check_wait_limits(&template.steps)?;
+
+        // The stored record says Running for the whole run, so `pause` and
+        // `status` see it. Before this the stored status was never Running, and
+        // `pause` could not take effect on a run in progress.
+        let control = instance.context.control.clone();
+        if control.is_cancelled() {
+            let _ = self.event_tx.send(WorkflowEvent::Cancelled {
+                workflow_id: workflow_id.clone(),
+            });
+            return Err(cancelled_error(workflow_id));
+        }
+        {
+            let mut instances = self.instances.write().await;
+            if let Some(inst) = instances.get_mut(workflow_id) {
+                // Checked under the write lock that `cancel` also takes, so a
+                // cancel that has landed is not overwritten by Running.
+                if !control.is_cancelled() {
+                    inst.status = WorkflowStatus::Running;
+                }
+            }
+        }
         instance.status = WorkflowStatus::Running;
 
         // Execute based on pattern
@@ -1208,14 +1365,21 @@ impl WorkflowEngine {
             }
         };
 
+        // A run that errored because it was cancelled ends Cancelled, not Failed.
+        // A cancel that lands after the last step has finished changes nothing:
+        // the run completed, and its status says so.
+        let cancelled = control.is_cancelled();
+        let final_status = match &result {
+            Ok(_) => WorkflowStatus::Completed,
+            Err(_) if cancelled => WorkflowStatus::Cancelled,
+            Err(_) => WorkflowStatus::Failed,
+        };
+
         // Update instance status
         {
             let mut instances = self.instances.write().await;
             if let Some(inst) = instances.get_mut(workflow_id) {
-                inst.status = match &result {
-                    Ok(_) => WorkflowStatus::Completed,
-                    Err(_) => WorkflowStatus::Failed,
-                };
+                inst.status = final_status;
                 // The run mutated a clone of the context. Without this the
                 // variables every step wrote and the per-step results were
                 // thrown away, and `get_instance` answered with the state from
@@ -1232,6 +1396,12 @@ impl WorkflowEngine {
                     result: value.clone(),
                 });
                 Ok(value)
+            }
+            Err(e) if cancelled => {
+                let _ = self.event_tx.send(WorkflowEvent::Cancelled {
+                    workflow_id: workflow_id.clone(),
+                });
+                Err(e)
             }
             Err(e) => {
                 let _ = self.event_tx.send(WorkflowEvent::Failed {
@@ -1512,6 +1682,11 @@ impl WorkflowEngine {
         context: &'a mut WorkflowContext,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send + 'a>> {
         Box::pin(async move {
+            // A cancelled run starts no new step, and a paused one waits here.
+            check_run(context)?;
+            wait_while_paused(context).await?;
+            check_run(context)?;
+
             // Check condition if present
             if let Some(condition) = &step.condition {
                 if !self.evaluate_condition(condition, context) {
@@ -1534,6 +1709,7 @@ impl WorkflowEngine {
                 .unwrap_or(0);
 
             loop {
+                check_run(context)?;
                 let attempt = self.execute_step_type(&step.step_type, input.clone(), context);
                 let result = match step.timeout_ms {
                     Some(ms) => {
@@ -1563,8 +1739,8 @@ impl WorkflowEngine {
                                 * config.backoff_multiplier.powi(retries as i32);
                             let delay = delay.min(config.max_delay_ms as f64);
                             let jitter = delay * config.jitter * rand::random::<f64>();
-                            tokio::time::sleep(Duration::from_millis((delay + jitter) as u64))
-                                .await;
+                            let backoff = ((delay + jitter) as u64).min(MAX_WAIT_MS);
+                            wait_for(context, Duration::from_millis(backoff)).await?;
                         }
                     }
                     Err(e) => return Err(e),
@@ -1657,34 +1833,32 @@ impl WorkflowEngine {
                         return Ok(seen);
                     }
 
+                    // With no timeout the wait is capped at MAX_WAIT_MS, not left
+                    // to run forever. Each pass is one slice, so a cancel lands
+                    // within WAIT_SLICE.
+                    let limit = Duration::from_millis(timeout_ms.unwrap_or(MAX_WAIT_MS));
+                    let until = Instant::now() + limit;
                     let mut rx = self.event_tx.subscribe();
-                    let workflow_id = context.workflow_id.clone();
-                    let wait = async {
-                        loop {
-                            match rx.recv().await {
-                                Ok(WorkflowEvent::Custom {
-                                    workflow_id: id,
-                                    event_type: ty,
-                                    payload,
-                                }) if id == workflow_id && ty == wanted => return Ok(payload),
-                                Ok(_) => continue,
-                                Err(e) => return Err(anyhow!("event stream closed: {e}")),
-                            }
+                    loop {
+                        check_run(context)?;
+                        if Instant::now() >= until {
+                            return Err(anyhow!(
+                                "timed out after {}ms waiting for event `{}`",
+                                limit.as_millis(),
+                                wanted
+                            ));
                         }
-                    };
-
-                    match timeout_ms {
-                        Some(ms) => {
-                            match tokio::time::timeout(Duration::from_millis(*ms), wait).await {
-                                Ok(v) => v,
-                                Err(_) => Err(anyhow!(
-                                    "timed out after {}ms waiting for event `{}`",
-                                    ms,
-                                    wanted
-                                )),
-                            }
+                        match tokio::time::timeout(next_slice(until)?, rx.recv()).await {
+                            // The slice ran out: look at cancel and the clock again.
+                            Err(_) => continue,
+                            Ok(Ok(WorkflowEvent::Custom {
+                                workflow_id: id,
+                                event_type: ty,
+                                payload,
+                            })) if id == context.workflow_id && ty == wanted => return Ok(payload),
+                            Ok(Ok(_)) => continue,
+                            Ok(Err(e)) => return Err(anyhow!("event stream closed: {e}")),
                         }
-                        None => wait.await,
                     }
                 }
 
@@ -1704,7 +1878,9 @@ impl WorkflowEngine {
                 }
 
                 StepType::Delay { duration_ms } => {
-                    tokio::time::sleep(Duration::from_millis(*duration_ms)).await;
+                    // Validated against MAX_WAIT_MS before the run starts; the
+                    // wait itself is sliced so a cancel ends it promptly.
+                    wait_for(context, Duration::from_millis(*duration_ms)).await?;
                     Ok(Value::Null)
                 }
 
@@ -1734,6 +1910,9 @@ impl WorkflowEngine {
 
                     let child_id = self.create_instance(template_id, child_inputs).await?;
                     self.set_instance_depth(&child_id, context.depth + 1).await;
+                    // The child is part of this run: a cancel or pause of the
+                    // parent reaches it, through the same flags.
+                    self.adopt_control(&child_id, context.control.clone()).await;
                     self.execute(&child_id).await
                 }
             }
@@ -1772,6 +1951,13 @@ impl WorkflowEngine {
             inst.context.depth = depth;
         }
     }
+
+    /// Make a sub-workflow instance share its parent run's cancel and pause flags.
+    async fn adopt_control(&self, workflow_id: &WorkflowId, control: Arc<RunControl>) {
+        if let Some(inst) = self.instances.write().await.get_mut(workflow_id) {
+            inst.context.control = control;
+        }
+    }
     /// Get a workflow instance
     pub async fn get_instance(&self, workflow_id: &WorkflowId) -> Option<WorkflowInstanceInfo> {
         self.instances
@@ -1801,22 +1987,53 @@ impl WorkflowEngine {
             .collect()
     }
 
-    /// Cancel a workflow instance
+    /// Cancel a workflow instance.
+    ///
+    /// A run in progress stops at its next step boundary or wait slice and
+    /// ends `Cancelled`; a run that has not started never starts. Cancelling a
+    /// run that already `Completed` or `Failed` is refused, since there is
+    /// nothing left to stop, and cancelling twice is harmless.
     pub async fn cancel(&self, workflow_id: &WorkflowId) -> Result<()> {
         let mut instances = self.instances.write().await;
-        if let Some(instance) = instances.get_mut(workflow_id) {
-            instance.status = WorkflowStatus::Cancelled;
-            Ok(())
-        } else {
-            Err(anyhow!("Workflow not found"))
+        let Some(instance) = instances.get_mut(workflow_id) else {
+            return Err(anyhow!("Workflow not found"));
+        };
+        match instance.status {
+            WorkflowStatus::Completed | WorkflowStatus::Failed => Err(anyhow!(
+                "workflow `{workflow_id}` already {}; there is nothing to cancel",
+                if instance.status == WorkflowStatus::Completed {
+                    "completed"
+                } else {
+                    "failed"
+                }
+            )),
+            WorkflowStatus::Cancelled => Ok(()),
+            _ => {
+                instance
+                    .context
+                    .control
+                    .cancelled
+                    .store(true, Ordering::SeqCst);
+                instance.status = WorkflowStatus::Cancelled;
+                Ok(())
+            }
         }
     }
 
-    /// Pause a workflow instance
+    /// Pause a workflow instance.
+    ///
+    /// The pause takes effect at the next step boundary: a step already
+    /// running, including a `Delay` or a wait, finishes first. Pausing a run
+    /// that is not running does nothing.
     pub async fn pause(&self, workflow_id: &WorkflowId) -> Result<()> {
         let mut instances = self.instances.write().await;
         if let Some(instance) = instances.get_mut(workflow_id) {
             if instance.status == WorkflowStatus::Running {
+                instance
+                    .context
+                    .control
+                    .paused
+                    .store(true, Ordering::SeqCst);
                 instance.status = WorkflowStatus::Paused;
             }
             Ok(())
@@ -1830,6 +2047,11 @@ impl WorkflowEngine {
         let mut instances = self.instances.write().await;
         if let Some(instance) = instances.get_mut(workflow_id) {
             if instance.status == WorkflowStatus::Paused {
+                instance
+                    .context
+                    .control
+                    .paused
+                    .store(false, Ordering::SeqCst);
                 instance.status = WorkflowStatus::Running;
             }
             Ok(())
@@ -2908,5 +3130,131 @@ mod tests {
              before the executor was implemented it returned a string and did \
              nothing"
         );
+    }
+
+    // =========================================================================
+    // Lifecycle: cancel, and the cap on waits. Each test finishes in well
+    // under a second; none sleeps for longer than that.
+    // =========================================================================
+
+    fn delay_step(id: &str, duration_ms: u64) -> WorkflowStep {
+        let mut step = exec_step(id, "upper", vec![]);
+        step.step_type = StepType::Delay { duration_ms };
+        step
+    }
+
+    async fn instance_of(engine: &WorkflowEngine, template: WorkflowTemplate) -> WorkflowId {
+        let id = template.id.clone();
+        engine.register_template(template).await;
+        engine
+            .create_instance(&id, HashMap::from([("input".to_string(), Value::Null)]))
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_delay_over_the_limit_is_refused_before_anything_runs() {
+        let engine = WorkflowEngine::new();
+        // The first step would run if the refusal came late, so it must not.
+        let first = exec_step("first", "upper", vec![Value::Str("ran".into())]);
+        let template = WorkflowTemplateFactory::pipeline(
+            "Too long",
+            "",
+            vec![first, delay_step("slow", MAX_WAIT_MS + 1)],
+        );
+        let workflow_id = instance_of(&engine, template).await;
+
+        let started = Instant::now();
+        let err = engine
+            .execute(&workflow_id)
+            .await
+            .expect_err("a delay over the limit must be refused");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(
+            err.to_string().contains(&MAX_WAIT_MS.to_string()),
+            "the error must name the limit, got: {err}"
+        );
+
+        let info = engine.get_instance(&workflow_id).await.unwrap();
+        assert!(
+            info.context.results.is_empty(),
+            "no step may run once a wait is refused"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_wait_for_event_over_the_limit_is_refused() {
+        let engine = WorkflowEngine::new();
+        let mut wait = exec_step("wait", "upper", vec![]);
+        wait.step_type = StepType::WaitForEvent {
+            event_type: "never".to_string(),
+            timeout_ms: Some(MAX_WAIT_MS + 1),
+        };
+        let template = WorkflowTemplateFactory::pipeline("Wait", "", vec![wait]);
+        let workflow_id = instance_of(&engine, template).await;
+
+        let err = engine
+            .execute(&workflow_id)
+            .await
+            .expect_err("a wait timeout over the limit must be refused");
+        assert!(err.to_string().contains(&MAX_WAIT_MS.to_string()));
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_long_delay_stops_the_run_promptly() {
+        let engine = WorkflowEngine::new();
+        let template =
+            WorkflowTemplateFactory::pipeline("Long", "", vec![delay_step("long", 10_000)]);
+        let workflow_id = instance_of(&engine, template).await;
+
+        // Cancel from another task while the Delay is sleeping.
+        let canceller = engine.clone();
+        let target = workflow_id.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            canceller.cancel(&target).await.unwrap();
+        });
+
+        let started = Instant::now();
+        let err = engine
+            .execute(&workflow_id)
+            .await
+            .expect_err("a cancelled run must not succeed");
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "cancel took {:?} to stop a 10s delay",
+            started.elapsed()
+        );
+        assert!(err.to_string().contains("cancelled"), "got: {err}");
+
+        let info = engine.get_instance(&workflow_id).await.unwrap();
+        assert_eq!(info.status, WorkflowStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn a_run_cancelled_before_it_starts_runs_nothing() {
+        let engine = WorkflowEngine::new();
+        let first = exec_step("first", "upper", vec![Value::Str("ran".into())]);
+        let template = WorkflowTemplateFactory::pipeline("Early", "", vec![first]);
+        let workflow_id = instance_of(&engine, template).await;
+
+        engine.cancel(&workflow_id).await.unwrap();
+        assert!(engine.execute(&workflow_id).await.is_err());
+
+        let info = engine.get_instance(&workflow_id).await.unwrap();
+        assert!(info.context.results.is_empty());
+        assert_eq!(info.status, WorkflowStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn a_finished_run_cannot_be_cancelled() {
+        let engine = WorkflowEngine::new();
+        let template = WorkflowTemplateFactory::pipeline("Done", "", vec![]);
+        let workflow_id = instance_of(&engine, template).await;
+        engine.execute(&workflow_id).await.unwrap();
+
+        assert!(engine.cancel(&workflow_id).await.is_err());
+        let info = engine.get_instance(&workflow_id).await.unwrap();
+        assert_eq!(info.status, WorkflowStatus::Completed);
     }
 }

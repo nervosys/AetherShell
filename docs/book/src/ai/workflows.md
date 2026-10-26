@@ -36,9 +36,9 @@ A step is a record. Exactly one key decides what kind of step it is:
 | `run` | call a builtin | `{run: "grep", args: ["TODO", "src"]}` |
 | `agent` | run an agent | `{agent: "reviewer", prompt: "$.task"}` |
 | `url` | make an HTTP request | `{url: "https://example.com", method: "POST", body: {...}}` |
-| `delay_ms` | wait | `{delay_ms: 500}` |
+| `delay_ms` | wait (at most one hour) | `{delay_ms: 500}` |
 | `emit` | emit an event | `{emit: "ready", payload: 7}` |
-| `wait` | wait for an event | `{wait: "ready", timeout_ms: 2000}` |
+| `wait` | wait for an event (at most one hour; no `timeout_ms` means one hour) | `{wait: "ready", timeout_ms: 2000}` |
 | `workflow` | run another template | `{workflow: "<template id>"}` |
 
 Any step also takes:
@@ -49,7 +49,7 @@ Any step also takes:
 | `input` | the variable to feed it, as `$.name` |
 | `output` | where to store its result, as `$.name` |
 | `when` | a condition; the step is skipped unless it holds |
-| `timeout_ms` | how long it may run before failing |
+| `timeout_ms` | how long it may run before failing (at most one hour) |
 | `retries` | how many times to retry, with exponential backoff |
 | `compensate` | the step to run if a later saga step fails |
 
@@ -128,6 +128,20 @@ workflow_templates()
 ```
 
 `workflow_cancel`, `workflow_pause` and `workflow_resume` take a workflow id.
+
+- `workflow_cancel` stops a run that is in progress. It takes effect at the next
+  step boundary or within about 100 ms during a wait; the run ends `cancelled`
+  and a step that has not started does not start. Cancelling a run that has
+  already completed or failed is refused, and cancelling a cancelled run is a
+  no-op. A cancelled saga does not run its compensations: cancel stops the run,
+  it does not roll it back.
+- `workflow_pause` holds a running workflow at its next step boundary. A step
+  that is already running, including a `delay_ms` or a `wait`, finishes first.
+- `workflow_resume` lets a paused workflow continue.
+
+No wait may last longer than one hour (3600000 ms). A template with a longer
+`delay_ms`, `timeout_ms` or `wait` timeout is refused by `workflow_execute` before
+any step runs; the error names the limit.
 
 ## Circuit breakers
 
