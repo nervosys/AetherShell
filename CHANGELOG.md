@@ -241,9 +241,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timeout. They connect within 10 s and finish within 120 s (completions,
   downloads) or 30 s. `file_patch` refuses more than 10,000 patches in one
   call, as `file_edit` does.
+  Marketplace replies stop at 32 MiB and package downloads at the file
+  limit. Setting the clipboard on macOS or Linux stops a helper that has
+  not finished after 120 s, instead of waiting on it forever.
 - **More errors carry a code**: `ls` directory and metadata failures,
   `save_json` (which now writes atomically) and an unknown provider in
-  `ai_set_default` no longer reach callers as `E_UNKNOWN`.
+  `ai_set_default`, and a transaction whose journal directory cannot be
+  made, no longer reach callers as `E_UNKNOWN`.
 - **Atomic writes keep the file's mode and survive a crash**: overwriting a
   file through `file_write`, `file_patch`, `file_edit`, `sed` and the rest
   replaced its permissions (an executable script lost its execute bit), did
