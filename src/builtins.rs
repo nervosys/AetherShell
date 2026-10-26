@@ -30795,6 +30795,169 @@ fn bi_zip_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Bool(true))
 }
 
+// Archive entries are checked before the extracting tool runs. The tool would
+// write each member relative to the destination, so a member whose name is
+// absolute, or climbs out with `..`, lands outside it ("zip slip"). A symlink
+// or hard link whose target does the same is refused too, since a later member
+// could then be written through it. Nothing is written if any entry is refused.
+
+/// True when an archive entry name, or a link target, can resolve outside the
+/// directory the archive is extracted into: an absolute path, a drive path
+/// (`C:x`, `C:\x`), a UNC path, or any `..` component. Both `/` and `\` separate
+/// components, because one archive may be extracted on either platform.
+fn archive_entry_escapes(name: &str) -> bool {
+    if name.starts_with('/') || name.starts_with('\\') {
+        return true;
+    }
+    let b = name.as_bytes();
+    if b.len() >= 2 && b[1] == b':' && b[0].is_ascii_alphabetic() {
+        return true;
+    }
+    name.split(['/', '\\']).any(|part| part == "..")
+}
+
+/// Refuse the first entry, or link target, that would land outside the
+/// destination, and any archive with more than `WALK_MAX_ENTRIES` entries.
+/// Each item is an entry name and, for a symlink or hard link, its target.
+fn check_archive_entries(
+    builtin: &str,
+    entries: impl Iterator<Item = (String, Option<String>)>,
+) -> Result<()> {
+    for (n, (name, target)) in entries.enumerate() {
+        if n >= WALK_MAX_ENTRIES {
+            return Err(walk_over(builtin, WALK_MAX_ENTRIES));
+        }
+        if archive_entry_escapes(&name) {
+            return Err(refuse_archive_entry(builtin, &name));
+        }
+        if let Some(t) = target {
+            if archive_entry_escapes(&t) {
+                return Err(refuse_archive_entry(builtin, &name));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn refuse_archive_entry(builtin: &str, name: &str) -> anyhow::Error {
+    crate::safety::policy_deny(
+        builtin,
+        format!("{builtin}: entry `{name}` would land outside the destination"),
+        "the archive was refused before anything was written; remove the entry \
+         or rebuild the archive with relative paths that stay inside it",
+    )
+}
+
+/// Largest symlink target read from a zip entry. Longer targets are not read in
+/// full; they are refused as if absolute.
+const ARCHIVE_LINK_TARGET_MAX: u64 = 4096;
+
+/// List every entry of a zip archive, with the target of each symlink entry.
+/// The zip format stores a symlink as a member whose unix mode is `S_IFLNK` and
+/// whose content is the target path.
+fn zip_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Option<String>)>> {
+    use std::io::Read as _;
+    let file =
+        std::fs::File::open(archive).map_err(|e| crate::safety::fs_error(builtin, archive, &e))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| {
+        crate::safety::tool_failed(builtin, "zip", None, &format!("not a zip archive: {e}"))
+    })?;
+    if zip.len() > WALK_MAX_ENTRIES {
+        return Err(walk_over(builtin, WALK_MAX_ENTRIES));
+    }
+    let mut out = Vec::with_capacity(zip.len());
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).map_err(|e| {
+            crate::safety::tool_failed(builtin, "zip", None, &format!("unreadable entry: {e}"))
+        })?;
+        let name = entry.name().to_string();
+        let is_link = matches!(entry.unix_mode(), Some(m) if m & 0o170000 == 0o120000);
+        let target = if is_link {
+            let mut buf = Vec::new();
+            std::io::Read::take(&mut entry, ARCHIVE_LINK_TARGET_MAX + 1)
+                .read_to_end(&mut buf)
+                .map_err(|e| {
+                    crate::safety::tool_failed(
+                        builtin,
+                        "zip",
+                        None,
+                        &format!("unreadable link: {e}"),
+                    )
+                })?;
+            if buf.len() as u64 > ARCHIVE_LINK_TARGET_MAX {
+                Some("/".to_string())
+            } else {
+                Some(String::from_utf8_lossy(&buf).into_owned())
+            }
+        } else {
+            None
+        };
+        out.push((name, target));
+    }
+    Ok(out)
+}
+
+/// List every entry of a tar archive, with the target of each symlink and hard
+/// link. A plain or gzip-compressed tar is read in-process. A bzip2, xz or zstd
+/// stream is refused, since no decoder is linked for it and its entries cannot
+/// be checked before extraction.
+fn tar_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Option<String>)>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file =
+        std::fs::File::open(archive).map_err(|e| crate::safety::fs_error(builtin, archive, &e))?;
+    let mut magic = [0u8; 2];
+    let n = file
+        .read(&mut magic)
+        .map_err(|e| crate::safety::fs_error(builtin, archive, &e))?;
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| crate::safety::fs_error(builtin, archive, &e))?;
+    let reader: Box<dyn Read> = if n == 2 && magic == [0x1f, 0x8b] {
+        Box::new(flate2::read::GzDecoder::new(file))
+    } else if n == 2
+        && (magic == [0x42, 0x5a] // "BZ": bzip2
+            || magic == [0xfd, 0x37] // xz
+            || magic == [0x28, 0xb5])
+    // zstd
+    {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "a plain or gzip-compressed tar archive, whose entries can be checked before extraction",
+            "a bzip2, xz or zstd compressed archive",
+        ));
+    } else {
+        Box::new(file)
+    };
+    let mut ar = tar::Archive::new(reader);
+    let entries = ar.entries().map_err(|e| {
+        crate::safety::tool_failed(builtin, "tar", None, &format!("not a tar archive: {e}"))
+    })?;
+    let mut out = Vec::new();
+    for entry in entries {
+        if out.len() >= WALK_MAX_ENTRIES {
+            return Err(walk_over(builtin, WALK_MAX_ENTRIES));
+        }
+        let entry = entry.map_err(|e| {
+            crate::safety::tool_failed(builtin, "tar", None, &format!("unreadable entry: {e}"))
+        })?;
+        let name = entry
+            .path()
+            .map_err(|e| crate::safety::tool_failed(builtin, "tar", None, &e.to_string()))?
+            .to_string_lossy()
+            .into_owned();
+        let ty = entry.header().entry_type();
+        let target = if ty.is_symlink() || ty.is_hard_link() {
+            entry
+                .link_name()
+                .map_err(|e| crate::safety::tool_failed(builtin, "tar", None, &e.to_string()))?
+                .map(|p| p.to_string_lossy().into_owned())
+        } else {
+            None
+        };
+        out.push((name, target));
+    }
+    Ok(out)
+}
+
 fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let archive = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -30816,6 +30979,12 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Extraction writes every member of the archive, which is not known until
     // it runs, so the journal cannot snapshot them.
     refuse_in_transaction("zip_extract", "extracting an archive cannot be rolled back")?;
+    // Refuse a member that would land outside the destination before the tool
+    // writes anything.
+    check_archive_entries(
+        "zip_extract",
+        zip_archive_entries("zip_extract", &archive)?.into_iter(),
+    )?;
 
     #[cfg(target_os = "windows")]
     {
@@ -30988,6 +31157,12 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Extraction writes every member of the archive, which is not known until
     // it runs, so the journal cannot snapshot them.
     refuse_in_transaction("tar_extract", "extracting an archive cannot be rolled back")?;
+    // Refuse a member, or a link, that would land outside the destination before
+    // tar writes anything.
+    check_archive_entries(
+        "tar_extract",
+        tar_archive_entries("tar_extract", &archive)?.into_iter(),
+    )?;
     let mut cmd = std::process::Command::new("tar");
     cmd.args(["-xvf", &archive]);
     if let Some(d) = dest {
@@ -68017,5 +68192,133 @@ mod atomic_write_tests {
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&output).unwrap(), "keep me");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod archive_prescan_tests {
+    use super::*;
+
+    fn entries(items: &[(&str, Option<&str>)]) -> Vec<(String, Option<String>)> {
+        items
+            .iter()
+            .map(|(n, t)| (n.to_string(), t.map(str::to_string)))
+            .collect()
+    }
+
+    fn check(items: &[(&str, Option<&str>)]) -> bool {
+        check_archive_entries("tar_extract", entries(items).into_iter()).is_ok()
+    }
+
+    #[test]
+    fn relative_names_inside_the_destination_are_allowed() {
+        assert!(!archive_entry_escapes("a/b.txt"));
+        assert!(!archive_entry_escapes("a"));
+        assert!(!archive_entry_escapes("a/"));
+        assert!(!archive_entry_escapes("./a/b"));
+        // `..` is only special as a whole component.
+        assert!(!archive_entry_escapes("a..b/c"));
+        assert!(!archive_entry_escapes("dir/..hidden"));
+    }
+
+    #[test]
+    fn escaping_names_are_refused() {
+        for name in [
+            "../x",
+            "a/../../x",
+            "/etc/passwd",
+            "\\\\server\\share\\x",
+            "C:\\x",
+            "C:x",
+            "a\\..\\..\\x",
+            "..",
+            "a/..",
+        ] {
+            assert!(archive_entry_escapes(name), "{name} should be refused");
+        }
+    }
+
+    #[test]
+    fn symlink_targets_are_checked_like_names() {
+        assert!(check(&[("a", Some("b"))]));
+        assert!(check(&[("a", Some("sub/b"))]));
+        assert!(!check(&[("a", Some("../../etc"))]));
+        assert!(!check(&[("a", Some("/etc"))]));
+        assert!(check(&[("a/b.txt", None)]));
+    }
+
+    #[test]
+    fn one_escaping_entry_refuses_the_whole_archive() {
+        assert!(!check(&[
+            ("ok.txt", None),
+            ("../x", None),
+            ("ok2.txt", None)
+        ]));
+        assert!(check(&[("ok.txt", None), ("dir/ok2.txt", None)]));
+    }
+
+    #[test]
+    fn too_many_entries_are_refused() {
+        let items = (0..=WALK_MAX_ENTRIES).map(|_| ("a".to_string(), None));
+        assert!(check_archive_entries("tar_extract", items).is_err());
+    }
+
+    #[test]
+    fn zip_extract_refuses_a_zip_slip_member_before_writing() {
+        use std::io::Write;
+        let root = std::env::temp_dir().join(format!("ae-ap-{}-zip", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dest = root.join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+        let archive = root.join("evil.zip");
+        {
+            let file = std::fs::File::create(&archive).unwrap();
+            let mut w = zip::ZipWriter::new(file);
+            let opts = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            w.start_file("../evil.txt", opts).unwrap();
+            w.write_all(b"pwned").unwrap();
+            w.finish().unwrap();
+        }
+        let args = vec![
+            Value::Str(archive.display().to_string()),
+            Value::Str(dest.display().to_string()),
+        ];
+        let result = bi_zip_extract(args, None);
+        assert!(result.is_err(), "zip-slip archive must be refused");
+        assert!(
+            !root.join("evil.txt").exists(),
+            "nothing may land outside dest"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tar_extract_refuses_a_symlink_to_outside_before_writing() {
+        let root = std::env::temp_dir().join(format!("ae-ap-{}-tar", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dest = root.join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+        let archive = root.join("evil.tar");
+        {
+            let file = std::fs::File::create(&archive).unwrap();
+            let mut b = tar::Builder::new(file);
+            let mut h = tar::Header::new_gnu();
+            h.set_path("a").unwrap();
+            h.set_entry_type(tar::EntryType::Symlink);
+            h.set_link_name("../../etc").unwrap();
+            h.set_size(0);
+            h.set_cksum();
+            b.append(&h, std::io::empty()).unwrap();
+            b.finish().unwrap();
+        }
+        let args = vec![
+            Value::Str(archive.display().to_string()),
+            Value::Str(dest.display().to_string()),
+        ];
+        let result = bi_tar_extract(args, None);
+        assert!(result.is_err(), "escaping symlink must be refused");
+        assert!(!dest.join("a").exists(), "nothing may be written");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
