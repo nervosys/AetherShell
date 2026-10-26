@@ -2179,13 +2179,14 @@ pub fn workspace_root() -> PathBuf {
 /// exist yet — a truncating write to a path that is about to *become* the log is
 /// the same attack as editing the one that is there.
 ///
-/// Compared again after resolving symlinks, and on Unix by file identity too.
+/// Compared again after resolving symlinks, and by file identity too.
 /// The lexical test alone let an alias through: a symlink in the workspace
 /// whose target is the log passed the jail (the link is inside it) and passed
 /// this test (the link's name is not the log's), and `file.write`,
 /// `file.append`, `fs.chmod` and others then followed the link and changed the
 /// log. A hard link is the same alias with no link to resolve, so it is
-/// matched by device and inode.
+/// matched by file identity: device and inode on Unix, volume serial and file
+/// index on Windows (see [`same_existing_file`]).
 pub fn is_audit_artifact(path: &str) -> bool {
     let p = path.replace('\\', "/");
     if p.trim_end_matches('/').is_empty() {
@@ -2320,6 +2321,10 @@ pub fn is_governance_file(path: &str) -> bool {
 }
 
 /// Whether two existing paths are the same file, hard links included.
+///
+/// On Unix this compares device and inode. On Windows it compares the volume
+/// serial number and the 64-bit file index, which NTFS assigns per file however
+/// many names link to it. A path that cannot be opened answers false.
 #[cfg(unix)]
 fn same_existing_file(a: &Path, b: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
@@ -2329,9 +2334,72 @@ fn same_existing_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn same_existing_file(a: &Path, b: &Path) -> bool {
+    match (windows_file_id(a), windows_file_id(b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 fn same_existing_file(_a: &Path, _b: &Path) -> bool {
     false
+}
+
+/// `(volume serial number, file index)` of `path`, from
+/// `GetFileInformationByHandle`. Std does not expose these on stable Rust, so
+/// the call is declared here rather than adding a crate for one function.
+#[cfg(windows)]
+fn windows_file_id(path: &Path) -> Option<(u32, u64)> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+
+    /// `BY_HANDLE_FILE_INFORMATION` from the Windows SDK, laid out to match.
+    /// Every field is part of the layout; only two of them are read.
+    #[repr(C)]
+    #[derive(Default)]
+    #[allow(dead_code)]
+    struct ByHandleFileInformation {
+        file_attributes: u32,
+        creation_time: [u32; 2],
+        last_access_time: [u32; 2],
+        last_write_time: [u32; 2],
+        volume_serial_number: u32,
+        file_size_high: u32,
+        file_size_low: u32,
+        number_of_links: u32,
+        file_index_high: u32,
+        file_index_low: u32,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetFileInformationByHandle(
+            h: *mut std::ffi::c_void,
+            info: *mut ByHandleFileInformation,
+        ) -> i32;
+    }
+
+    // Access 0 asks for metadata only, so a locked or read-only file still
+    // opens. Sharing read, write and delete does not block its owner. The
+    // backup-semantics flag lets a directory open as well as a file.
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    let file = std::fs::OpenOptions::new()
+        .access_mode(0)
+        .share_mode(0x7)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .ok()?;
+    let mut info = ByHandleFileInformation::default();
+    // SAFETY: `file` holds a valid open handle for the whole call, and `info`
+    // is a writable value whose layout matches BY_HANDLE_FILE_INFORMATION.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) };
+    if ok == 0 {
+        return None;
+    }
+    let index = (u64::from(info.file_index_high) << 32) | u64::from(info.file_index_low);
+    Some((info.volume_serial_number, index))
 }
 
 /// Whether the jail is enforced. Enforced in agent mode, or whenever the
@@ -5860,5 +5928,26 @@ mod tests {
         assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
 
         clear_env();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn same_existing_file_matches_hard_links_only() {
+        let dir = std::env::temp_dir().join(format!("ae-fileid-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.txt");
+        let link = dir.join("link.txt");
+        let other = dir.join("other.txt");
+        let missing = dir.join("missing.txt");
+        std::fs::write(&a, "a").unwrap();
+        std::fs::hard_link(&a, &link).unwrap();
+        std::fs::write(&other, "b").unwrap();
+
+        assert!(same_existing_file(&a, &link));
+        assert!(same_existing_file(&link, &a));
+        assert!(!same_existing_file(&a, &other));
+        assert!(!same_existing_file(&a, &missing));
+        assert!(!same_existing_file(&missing, &missing));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
