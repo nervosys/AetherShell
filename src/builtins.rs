@@ -21394,9 +21394,17 @@ fn bi_try_repair(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Resul
         Err(e) => {
             // Undo this attempt's mutations before reporting, so the caller's
             // next attempt starts from the same state this one did.
-            let restored = crate::tx::rollback_to(&mark).unwrap_or(0);
+            // A restore that failed means the next attempt would not start
+            // from this one's state; it is reported, and the attempt is then
+            // not retryable.
+            let (restored, mut restore_error) = match crate::tx::rollback_to(&mark) {
+                Ok(n) => (n, None),
+                Err(e) => (0, Some(e.to_string())),
+            };
             if owned {
-                let _ = crate::tx::rollback();
+                if let Err(e) = crate::tx::rollback() {
+                    restore_error.get_or_insert(e.to_string());
+                }
             }
             // Every failure reaching here is structured (the builtin boundary
             // guarantees it), but a parse error raised before dispatch is not —
@@ -21418,7 +21426,13 @@ fn bi_try_repair(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Resul
             };
             out.insert("ok".to_string(), Value::Bool(false));
             out.insert("restored".to_string(), Value::Int(restored as i64));
-            out.insert("retryable".to_string(), Value::Bool(retryable));
+            out.insert(
+                "retryable".to_string(),
+                Value::Bool(retryable && restore_error.is_none()),
+            );
+            if let Some(why) = restore_error {
+                out.insert("restore_error".to_string(), Value::Str(why));
+            }
             out.insert("error".to_string(), structured);
         }
     }

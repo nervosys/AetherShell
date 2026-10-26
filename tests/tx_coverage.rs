@@ -24,8 +24,18 @@ impl Drop for TxCleanup {
     }
 }
 
+/// The workspace these tests run in. The journal lives under
+/// `<workspace>/.ae/tx`, so without this it went into whatever directory the
+/// binary was started from, the repository included.
+fn workspace() -> std::path::PathBuf {
+    let w = std::env::temp_dir().join(format!("ae-txc-ws-{}", std::process::id()));
+    std::fs::create_dir_all(&w).unwrap();
+    std::env::set_var("AETHER_WORKSPACE", &w);
+    w
+}
+
 fn scratch_path(name: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("ae-txc-{}-{name}", std::process::id()))
+    workspace().join(name)
 }
 
 fn text(v: &str) -> Value {
@@ -150,4 +160,44 @@ fn zip_extract_is_refused_inside_a_transaction() {
     );
     assert!(!dest.exists(), "a refused extraction must write nothing");
     aethershell::tx::rollback().unwrap();
+}
+
+#[test]
+fn a_rollback_that_cannot_restore_says_so_and_keeps_its_journal() {
+    let _lock = TX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _cleanup = TxCleanup;
+    let p = scratch_path("lost-backup.txt");
+    std::fs::write(
+        &p, "before
+",
+    )
+    .unwrap();
+
+    let id = aethershell::tx::begin().unwrap();
+    call(
+        "file_write",
+        vec![
+            path_arg(&p),
+            text(
+                "after
+",
+            ),
+        ],
+    )
+    .unwrap();
+    // Lose the backup, as a full disk or a mount that refused the copy would.
+    let journal = workspace().join(".ae").join("tx").join(&id);
+    for entry in std::fs::read_dir(&journal).unwrap() {
+        std::fs::remove_file(entry.unwrap().path()).unwrap();
+    }
+    let err = aethershell::tx::rollback().expect_err("nothing could be restored");
+    let code = err
+        .downcast_ref::<aethershell::safety::SafetyError>()
+        .map(|s| s.code);
+    assert_eq!(code, Some(aethershell::safety::ErrorCode::Io), "{err:#}");
+    assert!(format!("{err:#}").contains("lost-backup.txt"), "{err:#}");
+    assert!(journal.exists(), "the journal is kept for recovery");
+    assert!(!aethershell::tx::is_active(), "the transaction still ended");
+    let _ = std::fs::remove_dir_all(&journal);
+    let _ = std::fs::remove_file(&p);
 }

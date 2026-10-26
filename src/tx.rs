@@ -66,10 +66,55 @@ fn copy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
         if ft.is_dir() {
             copy_tree(&from, &to)?;
         } else if ft.is_file() {
-            std::fs::copy(&from, &to)?;
+            copy_file(&from, &to)?;
         }
     }
     Ok(())
+}
+
+/// Copy a file's content, then its permissions where the filesystem allows.
+///
+/// `std::fs::copy` fails as a whole when it cannot set the copy's permissions,
+/// which a non-owner cannot do on some mounts (WSL's /mnt/c, many network
+/// shares). The content had been copied, but the error made `snapshot` keep no
+/// backup, so a rollback restored nothing and still reported success. The
+/// content is what a rollback needs; the mode is restored when it can be.
+fn copy_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut src = std::fs::File::open(from)?;
+    let mut dst = std::fs::File::create(to)?;
+    std::io::copy(&mut src, &mut dst)?;
+    drop(dst);
+    if let Ok(md) = std::fs::metadata(from) {
+        let _ = std::fs::set_permissions(to, md.permissions());
+    }
+    Ok(())
+}
+
+/// A rollback that could not put everything back. The transaction is over
+/// either way; the journal directory is kept, so what was not restored can be
+/// recovered by hand.
+fn rollback_incomplete(
+    builtin: &str,
+    failures: &[String],
+    journal: Option<&Path>,
+) -> anyhow::Error {
+    let kept = journal
+        .map(|d| format!("; the journal is kept at `{}`", d.display()))
+        .unwrap_or_default();
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::Io,
+        message: format!(
+            "{builtin}: {} change(s) could not be restored: {}{kept}",
+            failures.len(),
+            failures.join("; ")
+        ),
+        builtin: builtin.to_string(),
+        hint: "check those paths by hand; the rest of the transaction was undone".to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
+    })
 }
 
 /// One nesting level. `start` is the index into the shared `undos` where this
@@ -97,40 +142,50 @@ struct TxState {
 
 /// Restore a single recorded path to its pre-modification state. Returns whether
 /// anything was restored. Shared by full `rollback`, `commit`-fold, and `rollback_to`.
-fn restore_one(u: &Undo) -> bool {
+/// Undo one record. `Ok(true)` restored something, `Ok(false)` had nothing to
+/// undo (a path that was to be created never was), and `Err` names what could
+/// not be put back.
+fn restore_one(u: &Undo) -> std::result::Result<bool, String> {
+    let at = u.original.display();
     if let Some(m) = &u.meta {
         // Owner first: chown can clear setuid/setgid bits, so the mode goes last.
         #[cfg(unix)]
-        let owner_ok = std::os::unix::fs::chown(&u.original, Some(m.uid), Some(m.gid)).is_ok();
-        #[cfg(not(unix))]
-        let owner_ok = true;
-        let mode_ok = std::fs::set_permissions(&u.original, m.permissions.clone()).is_ok();
-        return owner_ok && mode_ok;
+        std::os::unix::fs::chown(&u.original, Some(m.uid), Some(m.gid))
+            .map_err(|e| format!("`{at}` owner: {e}"))?;
+        std::fs::set_permissions(&u.original, m.permissions.clone())
+            .map_err(|e| format!("`{at}` permissions: {e}"))?;
+        return Ok(true);
     }
     if u.existed {
-        if let Some(b) = &u.backup {
-            if u.is_dir {
-                let _ = std::fs::remove_dir_all(&u.original);
-                copy_tree(b, &u.original).is_ok()
-            } else {
-                if let Some(parent) = u.original.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                std::fs::copy(b, &u.original).is_ok()
-            }
+        let Some(b) = &u.backup else {
+            return Err(format!(
+                "`{at}`: no backup could be taken before it changed"
+            ));
+        };
+        if u.is_dir {
+            let _ = std::fs::remove_dir_all(&u.original);
+            copy_tree(b, &u.original).map_err(|e| format!("`{at}`: {e}"))?;
         } else {
-            false
+            if let Some(parent) = u.original.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            copy_file(b, &u.original).map_err(|e| format!("`{at}`: {e}"))?;
         }
+        Ok(true)
     } else if let Some(removed) = remove_created_symlink(&u.original) {
-        removed
+        if removed {
+            Ok(true)
+        } else {
+            Err(format!("`{at}`: the link it created could not be removed"))
+        }
     } else if u.original.is_file() {
-        let _ = std::fs::remove_file(&u.original);
-        true
+        std::fs::remove_file(&u.original).map_err(|e| format!("`{at}`: {e}"))?;
+        Ok(true)
     } else if u.original.is_dir() {
-        let _ = std::fs::remove_dir_all(&u.original);
-        true
+        std::fs::remove_dir_all(&u.original).map_err(|e| format!("`{at}`: {e}"))?;
+        Ok(true)
     } else {
-        false
+        Ok(false)
     }
 }
 
@@ -272,7 +327,7 @@ pub fn snapshot(path: &str) {
     let backup = if existed && abs.is_file() {
         let bpath = tx.dir.join(format!("b{}", tx.n));
         tx.n += 1;
-        std::fs::copy(&abs, &bpath).ok().map(|_| bpath)
+        copy_file(&abs, &bpath).ok().map(|_| bpath)
     } else if is_dir {
         // Back up the whole tree so a recursive delete can be undone.
         let bpath = tx.dir.join(format!("d{}", tx.n));
@@ -375,15 +430,30 @@ pub fn rollback() -> Result<usize> {
     })?;
     let tail: Vec<Undo> = tx.undos.drain(frame.start..).collect();
     let mut restored = 0usize;
+    let mut failures = Vec::new();
     for u in tail.iter().rev() {
-        if restore_one(u) {
-            restored += 1;
+        match restore_one(u) {
+            Ok(true) => restored += 1,
+            Ok(false) => {}
+            Err(why) => failures.push(why),
         }
     }
+    let mut kept = None;
     if tx.frames.is_empty() {
         let dir = tx.dir.clone();
         *g = None;
-        let _ = std::fs::remove_dir_all(&dir);
+        if failures.is_empty() {
+            let _ = std::fs::remove_dir_all(&dir);
+        } else {
+            kept = Some(dir);
+        }
+    }
+    if !failures.is_empty() {
+        return Err(rollback_incomplete(
+            "tx_rollback",
+            &failures,
+            kept.as_deref(),
+        ));
     }
     Ok(restored)
 }
@@ -443,6 +513,7 @@ pub fn rollback_to(name: &str) -> Result<usize> {
     // their paths can be re-snapshotted (within this frame) if modified again.
     let tail: Vec<Undo> = tx.undos.drain(idx..).collect();
     let mut restored = 0usize;
+    let mut failures = Vec::new();
     {
         let frame = tx.frames.last_mut().unwrap();
         for u in tail.iter().rev() {
@@ -451,12 +522,17 @@ pub fn rollback_to(name: &str) -> Result<usize> {
             } else {
                 frame.seen.remove(&u.original);
             }
-            if restore_one(u) {
-                restored += 1;
+            match restore_one(u) {
+                Ok(true) => restored += 1,
+                Ok(false) => {}
+                Err(why) => failures.push(why),
             }
         }
         // Release savepoints created after the targeted one (keep it).
         frame.savepoints.truncate(pos + 1);
+    }
+    if !failures.is_empty() {
+        return Err(rollback_incomplete("tx_rollback_to", &failures, None));
     }
     Ok(restored)
 }

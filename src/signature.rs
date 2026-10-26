@@ -4083,7 +4083,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "Roll back the innermost transaction, restoring every path it recorded to its state at the point it was begun, newest change first. An outermost rollback also discards the journal; a nested one leaves the parent open. Returns rolled_back and restored (how many paths were put back). Without an active transaction it is E_BAD_STATE. Refuses arguments and pipeline input.",
+        doc: "Roll back the innermost transaction, restoring every path it recorded to its state at the point it was begun, newest change first. An outermost rollback also discards the journal; a nested one leaves the parent open. Returns rolled_back and restored (how many paths were put back). A change that cannot be put back is E_IO naming each path; the transaction still ends, and an outermost rollback then keeps its journal for recovery. Without an active transaction it is E_BAD_STATE. Refuses arguments and pipeline input.",
         examples: &[
             (r#"(try { tx_rollback(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { "x" | tx_rollback() } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -4111,7 +4111,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("name", Ty::Str, "a savepoint named by tx_savepoint() in the active transaction")],
         returns: "Record",
-        doc: "Undo the operations recorded after the named savepoint, newest first, leaving the transaction open and the savepoint in place. Returns rolled_back_to and restored. An unknown savepoint is E_BAD_STATE, and so is having no active transaction. Refuses pipeline input.",
+        doc: "Undo the operations recorded after the named savepoint, newest first, leaving the transaction open and the savepoint in place. Returns rolled_back_to and restored; a change that cannot be put back is E_IO naming each path. An unknown savepoint is E_BAD_STATE, and so is having no active transaction. Refuses pipeline input.",
         examples: &[
             (r#"(try { tx_rollback_to() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { tx_rollback_to(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -13246,7 +13246,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Str),
         params: &[],
         returns: "Record",
-        doc: "Run code in a savepoint: {ok: true, value} on success; on failure {ok: false, error, restored, retryable}, with its changes rolled back.",
+        doc: "Run code in a savepoint: {ok: true, value} on success; on failure {ok: false, error, restored, retryable}, with its changes rolled back. If they cannot all be rolled back, restore_error says why and retryable is false.",
         examples: &[
             (r#"try_repair("1 + 1").value"#, r#"2"#),
             (r#"try_repair("null - null").error.code"#, r#"E_BAD_ARG"#),
