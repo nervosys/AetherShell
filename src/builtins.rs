@@ -8131,12 +8131,12 @@ fn bi_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .map_err(|e| crate::safety::fs_error("ls", &validated_path, &e))?
                 .map(|e| e.map(|e| e.path()))
                 .collect::<std::io::Result<Vec<_>>>()
-                .with_context(|| "ls: failed to read directory entry")?
+                .map_err(|e| crate::safety::fs_error("ls", &validated_path, &e))?
         };
     let mut files = Vec::new();
 
     for path in paths {
-        let metadata = fs::metadata(&path).with_context(|| "ls: failed to read file metadata")?;
+        let metadata = fs::metadata(&path).map_err(|e| crate::safety::fs_error("ls", &path, &e))?;
         let name = path
             .file_name()
             .ok_or_else(|| crate::safety::arg_err("ls: invalid filename"))?
@@ -10696,9 +10696,11 @@ fn bi_ai_set_default(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         PROVIDER_REGISTRY.register(provider_type, config);
     }
 
+    // Registered just above, so the only failure is a provider the registry
+    // does not hold; say which name missed.
     PROVIDER_REGISTRY
         .set_default(provider_type)
-        .map_err(|e| anyhow!("{}", e))?;
+        .map_err(|_| crate::safety::not_found(B, "provider", &provider_str))?;
 
     Ok(Value::Str(format!(
         "Default provider set to '{}'",
@@ -22205,8 +22207,7 @@ fn bi_save_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // destroyed an earlier file is the surprise to avoid.
     let overwrote = std::path::Path::new(&path).exists();
     crate::tx::snapshot(&path); // record pre-save state if a transaction is active
-    fs::write(&path, &json_str)
-        .with_context(|| format!("save_json: failed to write to '{}'", path))?;
+    write_file_atomically("save_json", &path, json_str.as_bytes())?;
 
     let mut record = BTreeMap::new();
     record.insert("path".to_string(), Value::Str(path));
@@ -51975,7 +51976,7 @@ fn container_run_cmd(program: &str, args: &[&str]) -> Result<String> {
 }
 
 // Helper: detect which container runtime is available
-fn detect_container_runtime() -> Result<String> {
+fn detect_container_runtime(builtin: &str) -> Result<String> {
     for rt in &["docker", "podman", "nerdctl"] {
         // Bounded: a probe that hangs does not count as an installed runtime.
         let mut cmd = std::process::Command::new(rt);
@@ -51984,8 +51985,10 @@ fn detect_container_runtime() -> Result<String> {
             return Ok(rt.to_string());
         }
     }
-    Err(anyhow!(
-        "No container runtime found. Install docker, podman, or nerdctl."
+    Err(crate::safety::tool_missing(
+        builtin,
+        "docker, podman or nerdctl",
+        "none of them was found on PATH",
     ))
 }
 
@@ -68505,5 +68508,65 @@ mod apply_preflight_tests {
             op("mkdir", "d", None),
         ];
         assert_eq!(apply_preflight_refusal(&ops, false), None);
+    }
+}
+
+#[cfg(test)]
+mod coded_errors2_tests {
+    use super::*;
+
+    fn code_of(e: &anyhow::Error) -> Option<crate::safety::ErrorCode> {
+        e.downcast_ref::<crate::safety::SafetyError>()
+            .map(|s| s.code)
+    }
+
+    fn scratch_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "ae_coded2_{}_{}",
+            name,
+            uuid::Uuid::new_v4().simple()
+        ))
+    }
+
+    #[test]
+    fn ls_missing_path_is_coded_not_found() {
+        let missing = scratch_path("ls_missing");
+        let e = bi_ls(vec![Value::Str(missing.display().to_string())], None).unwrap_err();
+        assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::NotFound));
+    }
+
+    #[test]
+    fn ls_on_a_plain_file_is_coded() {
+        // read_dir on a file fails with an OS error; before the fix that error
+        // reached the caller with no code attached.
+        let file = scratch_path("ls_file");
+        fs::write(&file, b"not a directory").unwrap();
+        let result = bi_ls(vec![Value::Str(file.display().to_string())], None);
+        let _ = fs::remove_file(&file);
+        let e = result.unwrap_err();
+        assert!(
+            code_of(&e).is_some(),
+            "ls on a file must carry an error code, got: {e}"
+        );
+    }
+
+    #[test]
+    fn save_json_into_a_missing_directory_is_coded() {
+        let dir = format!("ae_coded2_nodir_{}", uuid::Uuid::new_v4().simple());
+        let path = format!("{dir}/out.json");
+        let args = vec![Value::Str(path.clone()), Value::Str("payload".to_string())];
+        let e = bi_save_json(args, None).unwrap_err();
+        assert!(
+            code_of(&e).is_some(),
+            "save_json into a missing directory must carry an error code, got: {e}"
+        );
+        assert!(!std::path::Path::new(&path).exists());
+    }
+
+    #[test]
+    fn ai_set_default_unknown_provider_is_bad_arg() {
+        let e = bi_ai_set_default(vec![Value::Str("no-such-provider-xyz".to_string())], None)
+            .unwrap_err();
+        assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::BadArg));
     }
 }
