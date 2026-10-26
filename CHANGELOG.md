@@ -122,6 +122,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and inode, so a hard link is caught too. All 23 file writers are pinned in
   `tests/audit_alias_contracts.rs` (Unix). On Windows a symlink needs
   privilege, and hard-link identity is not compared there yet.
+- **Windows hardware answers are true on a real host** (found by running
+  them on a two-GPU desktop with a UPS): `hw_gpu` reported 4 GiB for a 24 GiB
+  card, because `Win32_VideoController.AdapterRAM` is 32-bit; it now reads the
+  driver's 64-bit size, and `platform_gpus` uses the same probe instead of
+  `wmic`, which current Windows 11 does not ship. `hw_battery` reported a UPS
+  on mains power as `charging`; Win32_Battery status 2 is now `ac`, the other
+  documented codes are mapped, and the record names the device.
+  `platform_gpu_memory` summed only the first GPU; it now totals every GPU and
+  says how many (`devices`). `monitor_uptime`, `monitor_nmon`,
+  `monitor_glances` and `monitor_health_check` gave a load average of 0.0 on
+  Windows, which has none; those fields are now null there. `sys_load_avg`'s
+  documentation now says that on Windows its three values are the current
+  processor load as a fraction.
+- **A hard link to a protected file is refused on Windows too**: the audit
+  log and governance-file checks compare the volume serial and file index, as
+  they compare device and inode on Unix
+  (`tests/audit_hardlink_windows.rs`).
 - **Waits end when they should**: `sleep` no longer outlasts the evaluation
   deadline; it sleeps what is left and answers `E_BUDGET_EXCEEDED`.
   `net_scan` bounds each connect, so no thread outlives the call. The result
