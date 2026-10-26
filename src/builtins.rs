@@ -51975,23 +51975,6 @@ fn container_run_cmd(program: &str, args: &[&str]) -> Result<String> {
     container_cli(program, program, args, false)
 }
 
-// Helper: detect which container runtime is available
-fn detect_container_runtime(builtin: &str) -> Result<String> {
-    for rt in &["docker", "podman", "nerdctl"] {
-        // Bounded: a probe that hangs does not count as an installed runtime.
-        let mut cmd = std::process::Command::new(rt);
-        cmd.arg("--version");
-        if bounded_cmd_output("container_detect", rt, cmd, PROBE_DEADLINE_SECS).is_ok() {
-            return Ok(rt.to_string());
-        }
-    }
-    Err(crate::safety::tool_missing(
-        builtin,
-        "docker, podman or nerdctl",
-        "none of them was found on PATH",
-    ))
-}
-
 // ---------------------------------------------------------------------------
 // Argument checks shared by the docker_* and podman_* builtins
 // ---------------------------------------------------------------------------
@@ -68552,8 +68535,7 @@ mod coded_errors2_tests {
 
     #[test]
     fn save_json_into_a_missing_directory_is_coded() {
-        let dir = format!("ae_coded2_nodir_{}", uuid::Uuid::new_v4().simple());
-        let path = format!("{dir}/out.json");
+        let path = scratch_path("nodir").join("out.json").display().to_string();
         let args = vec![Value::Str(path.clone()), Value::Str("payload".to_string())];
         let e = bi_save_json(args, None).unwrap_err();
         assert!(
