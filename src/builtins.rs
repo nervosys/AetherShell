@@ -20629,10 +20629,63 @@ fn bi_plan_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(out))
 }
 
+/// The refusal, if any, that `apply` gives one op: a path or destination outside
+/// the workspace jail (when enforced), or a copy/move onto its own source.
+/// Paths are already resolved by the caller. Pure: no filesystem writes, audit
+/// entries or budget charges, so it can run for every op before any op executes.
+fn apply_op_refusal(
+    op: &str,
+    path: &str,
+    dest: Option<&str>,
+    enforce_jail: bool,
+) -> Option<String> {
+    if enforce_jail && !crate::safety::within_workspace(path) {
+        return Some(format!("'{}' is outside the workspace", path));
+    }
+    // copy/move write a destination — it is jailed too.
+    if let Some(d) = dest {
+        if enforce_jail && !crate::safety::within_workspace(d) {
+            return Some(format!("destination '{}' is outside the workspace", d));
+        }
+        if d == path {
+            return Some(format!("{} {}: destination is the source", op, path));
+        }
+    }
+    None
+}
+
+/// The first refusal among a whole plan, checked before the transaction opens.
+fn apply_preflight_refusal(
+    ops: &[(String, String, Option<String>, Option<String>)],
+    enforce_jail: bool,
+) -> Option<String> {
+    ops.iter()
+        .find_map(|(op, path, _, dest)| apply_op_refusal(op, path, dest.as_deref(), enforce_jail))
+}
+
+/// The `apply` result for a plan refused before anything ran. Nothing was
+/// written, so there is no transaction and nothing to roll back.
+fn apply_refused_record(err: String, token: &str) -> Value {
+    let _ = crate::safety::audit(
+        "apply",
+        crate::safety::Effect::Destructive,
+        "failed",
+        token,
+        serde_json::json!({ "error": err, "rolled_back": 0, "preflight": true }),
+    );
+    let mut r = BTreeMap::new();
+    r.insert("status".to_string(), Value::Str("failed".to_string()));
+    r.insert("error".to_string(), Value::Str(err));
+    r.insert("rolled_back".to_string(), Value::Bool(false));
+    r.insert("restored".to_string(), Value::Int(0));
+    r.insert("preflight".to_string(), Value::Bool(true));
+    Value::Record(r)
+}
+
 /// apply(ops) - Execute a plan atomically inside a transaction. In agent mode it
 /// requires the plan's token to be approved (else returns `{status:"needs_approval"}`);
 /// any failure rolls the whole batch back. Filesystem paths are confined to the
-/// workspace jail when enforced.
+/// workspace jail when enforced. Every op is checked before the first one runs.
 fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let ops = args.first().cloned().ok_or_else(|| {
         crate::safety::bad_arg("apply", "ops: Array<Record{op, path}>", "nothing")
@@ -20671,28 +20724,44 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
 
     let enforce_jail = agent || std::env::var("AETHER_WORKSPACE").is_ok();
+    // Resolve relative paths once, the way the jail judges them (see
+    // resolve_path_str), so the checks and the operations use the same path.
+    let resolved: Vec<(String, String, Option<String>, Option<String>)> = parsed
+        .iter()
+        .map(|(op, path, content, dest)| {
+            (
+                op.clone(),
+                crate::safety::resolve_path_str(path),
+                content.clone(),
+                dest.as_deref().map(crate::safety::resolve_path_str),
+            )
+        })
+        .collect();
+    // Preflight: every op's path checks run before the transaction opens and
+    // before any op executes, so a plan refused at op N never touches the disk.
+    if let Some(err) = apply_preflight_refusal(&resolved, enforce_jail) {
+        return Ok(apply_refused_record(err, &token));
+    }
     crate::tx::begin().map_err(|e| anyhow!("apply: {}", e))?;
 
     let mut applied = 0i64;
     let mut failure: Option<String> = None;
-    for (op, path, content, dest) in &parsed {
-        if enforce_jail && !crate::safety::within_workspace(path) {
-            failure = Some(format!("'{}' is outside the workspace", path));
+    for (op, path, content, dest) in &resolved {
+        // Already checked by the preflight; repeated here so no write can
+        // ever run in front of an unchecked path.
+        if let Some(err) = apply_op_refusal(op, path, dest.as_deref(), enforce_jail) {
+            failure = Some(err);
             break;
-        }
-        // copy/move write a destination — it is jailed and snapshotted too.
-        if let Some(d) = dest {
-            if enforce_jail && !crate::safety::within_workspace(d) {
-                failure = Some(format!("destination '{}' is outside the workspace", d));
-                break;
-            }
         }
         crate::tx::snapshot(path);
         if let Some(d) = dest {
             crate::tx::snapshot(d);
         }
         let res: std::io::Result<()> = match op.as_str() {
-            "write" => std::fs::write(path, content.as_deref().unwrap_or("")),
+            "write" => {
+                write_file_atomically("apply", path, content.as_deref().unwrap_or("").as_bytes())
+                    .map_err(|e| std::io::Error::other(e.to_string()))
+            }
             "append" => {
                 use std::io::Write;
                 std::fs::OpenOptions::new()
@@ -68372,5 +68441,64 @@ mod archive_prescan_tests {
         assert!(result.is_err(), "escaping symlink must be refused");
         assert!(!dest.join("a").exists(), "nothing may be written");
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod apply_preflight_tests {
+    use super::{apply_op_refusal, apply_preflight_refusal};
+
+    type Op = (String, String, Option<String>, Option<String>);
+
+    fn op(o: &str, p: &str, d: Option<&str>) -> Op {
+        (o.to_string(), p.to_string(), None, d.map(str::to_string))
+    }
+
+    // These use enforce_jail = false, so they never read the workspace root or
+    // the environment, and they are safe to run in parallel.
+
+    #[test]
+    fn copy_onto_its_own_source_is_refused() {
+        let refusal = apply_op_refusal("copy", "a.txt", Some("a.txt"), false);
+        assert_eq!(
+            refusal.as_deref(),
+            Some("copy a.txt: destination is the source")
+        );
+    }
+
+    #[test]
+    fn move_to_a_distinct_destination_is_allowed() {
+        assert_eq!(
+            apply_op_refusal("move", "a.txt", Some("b.txt"), false),
+            None
+        );
+    }
+
+    #[test]
+    fn write_has_no_destination_to_check() {
+        assert_eq!(apply_op_refusal("write", "a.txt", None, false), None);
+    }
+
+    #[test]
+    fn plan_refusal_is_the_first_refused_op() {
+        let ops = vec![
+            op("write", "a.txt", None),
+            op("copy", "b.txt", Some("b.txt")),
+            op("copy", "c.txt", Some("c.txt")),
+        ];
+        assert_eq!(
+            apply_preflight_refusal(&ops, false).as_deref(),
+            Some("copy b.txt: destination is the source")
+        );
+    }
+
+    #[test]
+    fn delete_then_write_the_same_path_is_a_clean_plan() {
+        let ops = vec![
+            op("rm", "a.txt", None),
+            op("write", "a.txt", None),
+            op("mkdir", "d", None),
+        ];
+        assert_eq!(apply_preflight_refusal(&ops, false), None);
     }
 }
