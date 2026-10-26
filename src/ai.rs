@@ -3111,10 +3111,17 @@ mod body_refusal_tests {
 
     #[test]
     fn discovery_body_error_propagates_instead_of_empty_list() {
-        let err = tools_from_discovery(Err(anyhow::anyhow!("E_BUDGET_EXCEEDED: body over cap")))
-            .unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(msg.contains("E_BUDGET_EXCEEDED"), "{msg}");
+        let refused = crate::safety::budget_exceeded("http_body", "body over cap".into(), "");
+        let err = tools_from_discovery(Err(refused)).unwrap_err();
+        // The refusal's code survives the added context.
+        let code = err
+            .downcast_ref::<crate::safety::SafetyError>()
+            .map(|s| s.code);
+        assert_eq!(
+            code,
+            Some(crate::safety::ErrorCode::BudgetExceeded),
+            "{err:#}"
+        );
     }
 
     #[test]
