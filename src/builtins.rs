@@ -8384,6 +8384,37 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(lines.join("\n")))
 }
 
+/// The most entries one directory walk may return. A walk over `/` or `C:\`
+/// could otherwise build an array of every file on the disk before anyone saw
+/// it. Past this the walk is refused with E_BUDGET_EXCEEDED, not cut short: a
+/// shorter listing presented as the whole is the silent wrong answer.
+pub(crate) const WALK_MAX_ENTRIES: usize = 1_000_000;
+
+/// The refusal for a walk that would return more than `max` entries.
+fn walk_over(builtin: &str, max: usize) -> anyhow::Error {
+    crate::safety::budget_exceeded(
+        builtin,
+        format!("more than {max} entries; the listing would be partial, so nothing was returned"),
+        "narrow the root, or filter with a pattern or depth",
+    )
+}
+
+/// Refuses when a walk that already holds `len` entries cannot take one more
+/// without exceeding `max`.
+fn check_walk_room(builtin: &str, len: usize, max: usize) -> Result<()> {
+    if len >= max {
+        return Err(walk_over(builtin, max));
+    }
+    Ok(())
+}
+
+/// Adds `v` to a walk's output, or refuses once the output is at the cap.
+fn push_capped(builtin: &str, out: &mut Vec<Value>, v: Value, max: usize) -> Result<()> {
+    check_walk_room(builtin, out.len(), max)?;
+    out.push(v);
+    Ok(())
+}
+
 fn bi_find(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let (path_str, pattern) = if args.len() >= 2 {
         match (&args[0], &args[1]) {
@@ -8443,10 +8474,10 @@ fn bi_find(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 &pattern.chars().collect::<Vec<_>>(),
                 &filename.chars().collect::<Vec<_>>(),
             ) {
-                results.push(Value::Str(path_str));
+                push_capped("find", &mut results, Value::Str(path_str), WALK_MAX_ENTRIES)?;
             }
         } else {
-            results.push(Value::Str(path_str));
+            push_capped("find", &mut results, Value::Str(path_str), WALK_MAX_ENTRIES)?;
         }
     }
 
@@ -8852,7 +8883,12 @@ fn bi_get_files(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 continue;
             }
             let full = entry.path().to_string_lossy().to_string();
-            files.push(file_record(name, full, &metadata));
+            push_capped(
+                NAME,
+                &mut files,
+                file_record(name, full, &metadata),
+                WALK_MAX_ENTRIES,
+            )?;
         }
     } else {
         let listing =
@@ -8867,7 +8903,12 @@ fn bi_get_files(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 continue;
             }
             let full = entry.path().to_string_lossy().to_string();
-            files.push(file_record(name, full, &metadata));
+            push_capped(
+                NAME,
+                &mut files,
+                file_record(name, full, &metadata),
+                WALK_MAX_ENTRIES,
+            )?;
         }
     }
 
@@ -25846,7 +25887,11 @@ fn expand_glob_for(builtin: &str, pattern: &str) -> Result<Vec<String>> {
     if !dir.is_empty() && !std::path::Path::new(&dir).is_dir() {
         return Err(crate::safety::not_found(builtin, "directory", &dir));
     }
-    Ok(crate::posix::glob_paths(&pattern))
+    let paths = crate::posix::glob_paths(&pattern);
+    if paths.len() > WALK_MAX_ENTRIES {
+        return Err(walk_over(builtin, WALK_MAX_ENTRIES));
+    }
+    Ok(paths)
 }
 
 fn bi_fs_glob(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -26006,6 +26051,43 @@ fn first_project_text(builtin: &str, names: &[&str]) -> Result<Value> {
     Ok(Value::Null)
 }
 
+/// The entries under `dir` down to `max_depth`, depth first, refused past `max`.
+///
+/// A directory that cannot be listed is an error, not an empty subtree. The
+/// walk used to skip it, and an unreadable root returned []: a shorter listing
+/// that looked complete.
+fn walk_entries_capped(dir: &std::path::Path, max_depth: usize, max: usize) -> Result<Vec<Value>> {
+    fn walk_recursive(
+        dir: &std::path::Path,
+        depth: usize,
+        max_depth: usize,
+        max: usize,
+        results: &mut Vec<Value>,
+    ) -> Result<()> {
+        if depth > max_depth {
+            return Ok(());
+        }
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| crate::safety::fs_error("fs_walk", dir, &e))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| crate::safety::fs_error("fs_walk", dir, &e))?;
+            let path = entry.path();
+            let shown = Value::Str(path.to_string_lossy().to_string());
+            push_capped("fs_walk", results, shown, max)?;
+            // Only a directory the walk would descend into needs its type
+            // checked; one at the depth limit is listed and not opened.
+            if depth < max_depth && entry_is_dir("fs_walk", &path)? {
+                walk_recursive(&path, depth + 1, max_depth, max, results)?;
+            }
+        }
+        Ok(())
+    }
+
+    let mut results = Vec::new();
+    walk_recursive(dir, 0, max_depth, max, &mut results)?;
+    Ok(results)
+}
+
 fn bi_fs_walk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let dir = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -26019,35 +26101,7 @@ fn bi_fs_walk(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .unwrap_or(100);
 
-    // A directory that cannot be listed is an error, not an empty subtree.
-    // The walk used to skip it, and an unreadable root returned []: a
-    // shorter listing that looked complete.
-    fn walk_recursive(
-        dir: &std::path::Path,
-        depth: usize,
-        max_depth: usize,
-        results: &mut Vec<Value>,
-    ) -> Result<()> {
-        if depth > max_depth {
-            return Ok(());
-        }
-        let entries =
-            std::fs::read_dir(dir).map_err(|e| crate::safety::fs_error("fs_walk", dir, &e))?;
-        for entry in entries {
-            let entry = entry.map_err(|e| crate::safety::fs_error("fs_walk", dir, &e))?;
-            let path = entry.path();
-            results.push(Value::Str(path.to_string_lossy().to_string()));
-            // Only a directory the walk would descend into needs its type
-            // checked; one at the depth limit is listed and not opened.
-            if depth < max_depth && entry_is_dir("fs_walk", &path)? {
-                walk_recursive(&path, depth + 1, max_depth, results)?;
-            }
-        }
-        Ok(())
-    }
-
-    let mut results = Vec::new();
-    walk_recursive(std::path::Path::new(&dir), 0, max_depth, &mut results)?;
+    let results = walk_entries_capped(std::path::Path::new(&dir), max_depth, WALK_MAX_ENTRIES)?;
     Ok(Value::Array(results))
 }
 
@@ -26072,6 +26126,7 @@ fn bi_fs_tree(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         prefix: &str,
         depth: usize,
         max_depth: usize,
+        max: usize,
         lines: &mut Vec<String>,
     ) -> Result<()> {
         if depth > max_depth {
@@ -26086,19 +26141,28 @@ fn bi_fs_tree(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             let is_last = i == count - 1;
             let connector = if is_last { "└── " } else { "├── " };
             let name = entry.file_name().to_string_lossy().to_string();
+            // `lines` starts with the root's own line, so the nodes so far are one fewer.
+            check_walk_room("fs_tree", lines.len() - 1, max)?;
             lines.push(format!("{}{}{}", prefix, connector, name));
 
             let path = entry.path();
             if depth < max_depth && entry_is_dir("fs_tree", &path)? {
                 let new_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
-                tree_recursive(&path, &new_prefix, depth + 1, max_depth, lines)?;
+                tree_recursive(&path, &new_prefix, depth + 1, max_depth, max, lines)?;
             }
         }
         Ok(())
     }
 
     let mut lines = vec![dir.clone()];
-    tree_recursive(std::path::Path::new(&dir), "", 0, max_depth, &mut lines)?;
+    tree_recursive(
+        std::path::Path::new(&dir),
+        "",
+        0,
+        max_depth,
+        WALK_MAX_ENTRIES,
+        &mut lines,
+    )?;
     Ok(Value::Str(lines.join("\n")))
 }
 
@@ -67434,5 +67498,54 @@ mod capped_reads_tests {
             .downcast_ref::<crate::safety::SafetyError>()
             .expect("the error carries a safety code");
         assert!(matches!(safety.code, crate::safety::ErrorCode::NotFound));
+    }
+}
+
+#[cfg(test)]
+mod walk_cap_tests {
+    use super::*;
+    use crate::safety::ErrorCode;
+
+    fn is_budget(e: &anyhow::Error) -> bool {
+        e.downcast_ref::<crate::safety::SafetyError>()
+            .is_some_and(|s| matches!(s.code, ErrorCode::BudgetExceeded))
+    }
+
+    /// A fresh directory under the temp dir, holding `n` files.
+    fn fixture(name: &str, n: usize) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ae-wc-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..n {
+            std::fs::write(dir.join(format!("f{i}.txt")), b"x").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn push_capped_refuses_the_entry_past_the_cap() {
+        let mut out = Vec::new();
+        for i in 0..3 {
+            push_capped("find", &mut out, Value::Int(i), 3).unwrap();
+        }
+        let e = push_capped("find", &mut out, Value::Int(3), 3).unwrap_err();
+        assert!(is_budget(&e));
+        assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn walk_refuses_when_entries_exceed_the_cap() {
+        let dir = fixture("over", 5);
+        let result = walk_entries_capped(&dir, 100, 3);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(is_budget(&result.unwrap_err()));
+    }
+
+    #[test]
+    fn walk_succeeds_when_the_cap_is_not_exceeded() {
+        let dir = fixture("under", 5);
+        let result = walk_entries_capped(&dir, 100, 5);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(result.unwrap().len(), 5);
     }
 }

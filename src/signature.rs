@@ -2695,7 +2695,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("path", Ty::Str, "directory to walk recursively")],
         returns: "Array",
-        doc: "Every file beneath a directory, recursively.",
+        doc: "Every file beneath a directory, recursively. At most 1,000,000 entries; more is E_BUDGET_EXCEEDED.",
         examples: &[(r#"(fs_walk("tests") | len) > 0"#, "true")],
     },
     Signature {
@@ -2867,7 +2867,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("path", Ty::Str, "directory to search"), opt("pattern", Ty::Str, "glob such as *.rs; omit for every file")],
         returns: "Array",
-        doc: "Files under a directory, optionally matching a glob.",
+        doc: "Files under a directory, optionally matching a glob. At most 1,000,000 entries; more is E_BUDGET_EXCEEDED.",
         examples: &[(r#"(find("src", "*.rs") | len) > 0"#, "true"), (r#"(find("src") | len) > 0"#, "true")],
     },
     Signature {
@@ -8624,7 +8624,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("pattern", Ty::Str, "a glob such as src/*.rs or src/**/*.rs")],
         returns: "Array",
-        doc: "Paths matching a glob, sorted; ** matches any depth of directories, and a directory in the pattern that does not exist is E_NOT_FOUND.",
+        doc: "Paths matching a glob, sorted; ** matches any depth of directories, and a directory in the pattern that does not exist is E_NOT_FOUND. At most 1,000,000 entries; more is E_BUDGET_EXCEEDED.",
         examples: &[
             (r#"(glob("src/*.rs") | len) > 10"#, r#"true"#),
             (r#"(glob("src/**/*.rs") | len) > (glob("src/*.rs") | len)"#, r#"true"#),
@@ -8760,7 +8760,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt("path", Ty::Str, "directory; default the current one"), opt("depth", Ty::Int, "levels; default 3")],
         returns: "String",
-        doc: "A directory tree as indented text.",
+        doc: "A directory tree as indented text. At most 1,000,000 entries; more is E_BUDGET_EXCEEDED.",
         examples: &[
             (r#"typeof(tree())"#, r#"String"#),
             (r#"typeof(tree("src", 1))"#, r#"String"#),

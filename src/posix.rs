@@ -2813,6 +2813,13 @@ fn grep(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
             }
         }
     }
+    if targets.len() > crate::builtins::WALK_MAX_ENTRIES {
+        sink.eline(&format!(
+            "grep: more than {} files under the search path; nothing was searched",
+            crate::builtins::WALK_MAX_ENTRIES
+        ));
+        return Util::Done(2);
+    }
     let prefix = (targets.len() > 1 || recursive || ops.len() > 1) && !f('h') || f('H');
     let mut any = false;
     for (name, path) in &targets {
@@ -2915,6 +2922,10 @@ fn walk_files(dir: &str, shown: &str, out: &mut Vec<(String, Option<String>)>, s
         return;
     };
     for e in rd.filter_map(|e| e.ok()) {
+        // One past the cap is enough for the caller to refuse the search.
+        if out.len() > crate::builtins::WALK_MAX_ENTRIES {
+            return;
+        }
         let name = e.file_name().to_string_lossy().into_owned();
         let path = if dir.ends_with('/') {
             format!("{dir}{name}")
@@ -3703,6 +3714,8 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
         })
     };
     let mut status = 0;
+    // Matches printed so far. One past the cap marks the walk as stopped.
+    let mut count = 0usize;
     fn visit(
         path: &str,
         depth: usize,
@@ -3711,7 +3724,11 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
         matches: &dyn Fn(&str, &std::fs::FileType) -> bool,
         sink: &mut Sink,
         status: &mut i32,
+        count: &mut usize,
     ) {
+        if *count > crate::builtins::WALK_MAX_ENTRIES {
+            return;
+        }
         let md = match std::fs::symlink_metadata(path) {
             Ok(m) => m,
             Err(e) => {
@@ -3722,6 +3739,16 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
         };
         let ft = md.file_type();
         if depth >= mindepth && matches(path, &ft) {
+            if *count >= crate::builtins::WALK_MAX_ENTRIES {
+                *count += 1;
+                sink.eline(&format!(
+                    "find: stopped after {} entries; the listing is partial",
+                    crate::builtins::WALK_MAX_ENTRIES
+                ));
+                *status = 1;
+                return;
+            }
+            *count += 1;
             sink.out.extend_from_slice(path.as_bytes());
             sink.out.push(b'\n');
         }
@@ -3741,12 +3768,30 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
                 } else {
                     format!("{path}/{name}")
                 };
-                visit(&child, depth + 1, maxdepth, mindepth, matches, sink, status);
+                visit(
+                    &child,
+                    depth + 1,
+                    maxdepth,
+                    mindepth,
+                    matches,
+                    sink,
+                    status,
+                    count,
+                );
             }
         }
     }
     for s in &starts {
-        visit(s, 0, maxdepth, mindepth, &matches, sink, &mut status);
+        visit(
+            s,
+            0,
+            maxdepth,
+            mindepth,
+            &matches,
+            sink,
+            &mut status,
+            &mut count,
+        );
     }
     Util::Done(status)
 }
