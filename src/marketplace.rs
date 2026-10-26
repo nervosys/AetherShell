@@ -215,7 +215,8 @@ impl RegistryClient {
         }
 
         let response = client.get(&url).send().await?;
-        let results: SearchResults = response.json().await?;
+        let results: SearchResults =
+            crate::http_body::body_json_capped(response, crate::http_body::AI_BODY_MAX).await?;
         Ok(results)
     }
 
@@ -234,7 +235,8 @@ impl RegistryClient {
             return Err(anyhow!("Agent not found: {}", name));
         }
 
-        let agent: PublishedAgent = response.json().await?;
+        let agent: PublishedAgent =
+            crate::http_body::body_json_capped(response, crate::http_body::AI_BODY_MAX).await?;
         Ok(agent)
     }
 
@@ -269,7 +271,11 @@ impl RegistryClient {
             );
 
             let response = client.get(&url).send().await?;
-            let bytes = response.bytes().await?;
+            // A package is held whole to check its digest, so it is held to the
+            // file limit every whole-file read uses.
+            let max =
+                usize::try_from(crate::security::max_file_size_bytes()?).unwrap_or(usize::MAX);
+            let bytes = crate::http_body::body_bytes_capped(response, max).await?;
 
             // Verify the download against the registry checksum. New packages
             // publish a SHA-256 (64-hex) digest; legacy packages a 32-hex MD5,
@@ -358,11 +364,13 @@ impl RegistryClient {
             .await?;
 
         if !response.status().is_success() {
-            let error: serde_json::Value = response.json().await?;
+            let error: serde_json::Value =
+                crate::http_body::body_json_capped(response, crate::http_body::AI_BODY_MAX).await?;
             return Err(anyhow!("Failed to publish: {}", error));
         }
 
-        let published: PublishedAgent = response.json().await?;
+        let published: PublishedAgent =
+            crate::http_body::body_json_capped(response, crate::http_body::AI_BODY_MAX).await?;
         Ok(published)
     }
 
