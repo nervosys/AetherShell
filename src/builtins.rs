@@ -8136,7 +8136,14 @@ fn bi_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut files = Vec::new();
 
     for path in paths {
-        let metadata = fs::metadata(&path).map_err(|e| crate::safety::fs_error("ls", &path, &e))?;
+        // A dangling symlink is listed as itself, as ls(1) lists it; it used to
+        // fail the whole directory with E_NOT_FOUND.
+        let metadata = fs::metadata(&path)
+            .or_else(|e| match fs::symlink_metadata(&path) {
+                Ok(link) if link.file_type().is_symlink() => Ok(link),
+                _ => Err(e),
+            })
+            .map_err(|e| crate::safety::fs_error("ls", &path, &e))?;
         let name = path
             .file_name()
             .ok_or_else(|| crate::safety::arg_err("ls: invalid filename"))?
@@ -55598,7 +55605,10 @@ fn bi_touch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = if std::path::Path::new(&path).is_dir() {
         crate::tx::open_for_times(std::path::Path::new(&path))
     } else {
-        std::fs::OpenOptions::new().create(true).append(true).open(&path)
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
     }
     .map_err(|e| crate::safety::fs_error("touch", &path, &e))?;
     file.set_modified(std::time::SystemTime::now())
