@@ -41435,7 +41435,7 @@ fn linux_clipboard_set_image(name: &str, mime: &str, bytes: Vec<u8>) -> Result<(
     } else {
         ("xclip", vec!["-selection", "clipboard", "-t", mime, "-i"])
     };
-    let mut child = std::process::Command::new(tool)
+    let child = std::process::Command::new(tool)
         .args(&tool_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
