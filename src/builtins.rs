@@ -25942,8 +25942,10 @@ fn expand_glob_for(builtin: &str, pattern: &str) -> Result<Vec<String>> {
     if !dir.is_empty() && !std::path::Path::new(&dir).is_dir() {
         return Err(crate::safety::not_found(builtin, "directory", &dir));
     }
-    let paths = crate::posix::glob_paths(&pattern);
-    if paths.len() > WALK_MAX_ENTRIES {
+    // The cap is applied while gathering, so an over-large glob stops early
+    // and is refused, not built in full and counted afterwards.
+    let (paths, over) = crate::posix::glob_paths_capped(&pattern, WALK_MAX_ENTRIES);
+    if over {
         return Err(walk_over(builtin, WALK_MAX_ENTRIES));
     }
     Ok(paths)
@@ -46959,11 +46961,13 @@ fn bi_docs_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 stack.push(p);
                 continue;
             }
-            let bytes = match std::fs::read(&p) {
+            // Capped like every whole-file read: a doc over the limit is an
+            // error, not a search of part of it.
+            let bytes = match read_bytes_capped("docs_search", &p) {
                 Ok(bytes) => bytes,
                 // A dangling link has no text to search.
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(e) => return Err(crate::safety::fs_error("docs_search", &p, &e)),
+                Err(e) if capped_read_not_found(&e) => continue,
+                Err(e) => return Err(e),
             };
             let text = String::from_utf8_lossy(&bytes);
             for (i, line) in text.lines().enumerate() {
@@ -67742,5 +67746,46 @@ mod capped_bytes_tests {
         let got = read_text_lossy("t", &under);
         let _ = std::fs::remove_file(&f);
         assert!(matches!(got, Ok(None)), "{got:?}");
+    }
+}
+
+#[cfg(test)]
+mod glob_cap_tests {
+    use crate::posix::{glob_paths, glob_paths_capped};
+
+    fn dir_with_five(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("ae-gc-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        for f in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+            std::fs::write(root.join(f), "").unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn capped_glob_refuses_over_and_matches_below() {
+        let root = dir_with_five("caps");
+        let base = root.to_string_lossy().replace('\\', "/");
+        let pattern = format!("{base}/*.txt");
+
+        let (none, over) = glob_paths_capped(&pattern, 3);
+        assert!(over, "5 matches must be over a cap of 3");
+        assert!(none.is_empty(), "nothing is returned once over: {none:?}");
+
+        let (all, over) = glob_paths_capped(&pattern, 5);
+        assert!(!over);
+        assert_eq!(all.len(), 5);
+        assert_eq!(all, glob_paths(&pattern));
+        let names: Vec<&str> = all.iter().map(|p| p.rsplit('/').next().unwrap()).collect();
+        assert_eq!(names, ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"]);
+
+        // The recursive form gathers the same names.
+        let recursive = format!("{base}/**/*.txt");
+        let (r, over) = glob_paths_capped(&recursive, 5);
+        assert!(!over);
+        assert_eq!(r, glob_paths(&recursive));
+        assert_eq!(r.len(), 5);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

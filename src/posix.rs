@@ -1013,6 +1013,10 @@ struct Shell {
     vars: HashMap<String, String>,
     exported: HashSet<String>,
     last: i32,
+    /// A pathname expansion over the cap, set by `expand` (which cannot
+    /// report errors itself) and taken by the command that contains it, which
+    /// is then refused rather than run with part of its arguments.
+    glob_refused: Option<String>,
 }
 
 const SHELL_NAME: &str = "ae";
@@ -1095,15 +1099,31 @@ impl Shell {
                 .zip(mask.iter())
                 .any(|(c, &m)| m && matches!(c, '*' | '?' | '['));
             if globby {
-                let matches = glob_expand(&text);
-                if !matches.is_empty() {
-                    out.extend(matches);
-                    continue;
+                match glob_expand(&text) {
+                    Some(matches) if !matches.is_empty() => {
+                        out.extend(matches);
+                        continue;
+                    }
+                    Some(_) => {}
+                    None => {
+                        self.glob_refused.get_or_insert(format!(
+                            "{SHELL_NAME}: {text}: more than {WALK_MAX} matches; nothing was expanded"
+                        ));
+                    }
                 }
             }
             out.push(text);
         }
         out
+    }
+
+    /// The refusal for a command whose expansion went over the glob cap: the
+    /// message goes to stderr, and the command does not run.
+    fn glob_refusal(&mut self, sink: &mut Sink) -> Option<Flow> {
+        let msg = self.glob_refused.take()?;
+        sink.eline(&msg);
+        self.last = 1;
+        Some(Flow::Next(1))
     }
 
     /// Append an expansion's value, splitting it into fields when unquoted.
@@ -1285,6 +1305,10 @@ impl Shell {
     }
 
     fn run_cmd(&mut self, cmd: &Cmd, stdin: &mut Input, sink: &mut Sink) -> Flow {
+        // A refusal is the business of the command whose expansion set it. One
+        // left by an expansion no site checks (a `case` word, a `${x:-...}`
+        // operand) must not refuse this, unrelated, command.
+        self.glob_refused = None;
         let redirs = match cmd {
             Cmd::Simple { redirs, .. }
             | Cmd::If { redirs, .. }
@@ -1347,6 +1371,9 @@ impl Shell {
                 Redir::Dup { .. } => {}
             }
         }
+        if let Some(flow) = self.glob_refusal(sink) {
+            return flow;
+        }
         let mut local = Sink::new(err_mode);
         let flow = match local_in.as_mut() {
             Some(i) => self.run_cmd_inner(cmd, i, &mut local),
@@ -1398,6 +1425,9 @@ impl Shell {
                 let mut values = Vec::new();
                 for w in items {
                     values.extend(self.expand(w, stdin));
+                }
+                if let Some(flow) = self.glob_refusal(sink) {
+                    return flow;
                 }
                 let mut status = 0;
                 for v in values {
@@ -1479,6 +1509,9 @@ impl Shell {
             } else {
                 env_overrides.push((name.clone(), v));
             }
+        }
+        if let Some(flow) = self.glob_refusal(sink) {
+            return flow;
         }
         if argv.is_empty() {
             // `$(cmd)` in an assignment leaves its status; a bare assignment 0.
@@ -1909,18 +1942,90 @@ fn glob_match(pat: &str, s: &str) -> bool {
 
 /// Pathname expansion, component by component, sorted as `ls` would sort.
 /// `**` is an ordinary `*` here, as in bash without `globstar`.
-fn glob_expand(pattern: &str) -> Vec<String> {
-    expand_pattern(pattern, false, |a, b| collate(a, b))
+/// `None` when some stage gathers more than `WALK_MAX_ENTRIES` names: the
+/// caller refuses the expansion rather than run with part of it.
+fn glob_expand(pattern: &str) -> Option<Vec<String>> {
+    let (v, over) = expand_pattern(pattern, false, |a, b| collate(a, b), WALK_MAX);
+    (!over).then_some(v)
 }
 
 /// Pathname expansion for the typed builtins (`glob`, `cat`, `ls`): `**`
 /// matches any number of directories, and results sort by bytes, so the
 /// answer does not depend on the locale the shell happens to run under.
 pub fn glob_paths(pattern: &str) -> Vec<String> {
-    let mut v = expand_pattern(pattern, true, |a, b| a.as_bytes().cmp(b.as_bytes()));
+    glob_paths_capped(pattern, usize::MAX).0
+}
+
+/// `glob_paths`, but it stops gathering once more than `max` distinct names
+/// have turned up, and says so: `(paths, true)` then holds only what was
+/// gathered before the stop, and the caller must refuse. Below the cap the
+/// paths are the same, sorted and without duplicates, as `glob_paths` gives.
+pub fn glob_paths_capped(pattern: &str, max: usize) -> (Vec<String>, bool) {
+    let (mut v, over) = expand_pattern(pattern, true, |a, b| a.as_bytes().cmp(b.as_bytes()), max);
+    if over {
+        return (Vec::new(), true);
+    }
     v.sort();
     v.dedup();
-    v
+    (v, false)
+}
+
+/// The cap the POSIX subset applies to a glob, the same as the typed
+/// builtins' walks.
+const WALK_MAX: usize = crate::builtins::WALK_MAX_ENTRIES;
+
+/// The names one expansion stage has gathered. A stage that gathers more
+/// than `max` distinct names is over, and stops as soon as it knows that.
+/// Under `dedup` (for `**`, whose stages can repeat a name), duplicates are
+/// removed before the count, so only distinct names count against the cap;
+/// the list is kept small by settling it when it has doubled since the last
+/// settle, not on every push.
+struct Gather {
+    out: Vec<String>,
+    max: usize,
+    dedup: bool,
+    settle_at: usize,
+    over: bool,
+}
+
+impl Gather {
+    fn new(max: usize, dedup: bool) -> Self {
+        Gather {
+            out: Vec::new(),
+            max,
+            dedup,
+            settle_at: max,
+            over: false,
+        }
+    }
+
+    fn push(&mut self, name: String) {
+        if self.over {
+            return;
+        }
+        self.out.push(name);
+        if self.out.len() > self.settle_at {
+            self.settle();
+        }
+    }
+
+    fn settle(&mut self) {
+        if self.dedup {
+            self.out.sort_unstable();
+            self.out.dedup();
+        }
+        if self.out.len() > self.max {
+            self.over = true;
+            self.out.clear();
+        }
+        self.settle_at = self.out.len().max(self.max).saturating_mul(2);
+    }
+
+    /// The stage's names, or `None` when it is over.
+    fn finish(mut self) -> Option<Vec<String>> {
+        self.settle();
+        (!self.over).then_some(self.out)
+    }
 }
 
 /// Whether a string contains glob metacharacters.
@@ -1929,8 +2034,9 @@ pub fn has_glob_meta(s: &str) -> bool {
 }
 
 /// The directories beneath `dir`, depth first, not following symbolic links
-/// and skipping hidden names, as bash's `globstar` does.
-fn descendant_dirs(dir: &str, out: &mut Vec<String>) {
+/// and skipping hidden names, as bash's `globstar` does. Stops once `out` is
+/// over the cap.
+fn descendant_dirs(dir: &str, out: &mut Gather) {
     let Ok(rd) = std::fs::read_dir(if dir.is_empty() { "." } else { dir }) else {
         return;
     };
@@ -1942,6 +2048,9 @@ fn descendant_dirs(dir: &str, out: &mut Vec<String>) {
         .collect();
     names.sort();
     for n in names {
+        if out.over {
+            return;
+        }
         let p = if dir.is_empty() {
             n
         } else if dir.ends_with('/') {
@@ -1954,26 +2063,33 @@ fn descendant_dirs(dir: &str, out: &mut Vec<String>) {
     }
 }
 
+/// Expands `pattern` one component at a time. The second value is true when
+/// some stage gathered more than `max` names; the names are then not
+/// returned, and the caller must refuse.
 fn expand_pattern(
     pattern: &str,
     globstar: bool,
     order: impl Fn(&String, &String) -> std::cmp::Ordering,
-) -> Vec<String> {
+    max: usize,
+) -> (Vec<String>, bool) {
     let absolute = pattern.starts_with('/');
     let comps: Vec<&str> = pattern.split('/').filter(|c| !c.is_empty()).collect();
     let mut bases: Vec<String> = vec![if absolute { "/".into() } else { String::new() }];
     for (i, comp) in comps.iter().enumerate() {
         let last = i + 1 == comps.len();
-        let mut next = Vec::new();
+        let mut next = Gather::new(max, globstar);
         if globstar && *comp == "**" {
             // Zero or more directories: each base, and everything below it.
             for base in &bases {
                 next.push(base.clone());
                 descendant_dirs(base, &mut next);
+                if next.over {
+                    return (Vec::new(), true);
+                }
             }
             if last {
                 // A trailing `**` also names the files in those directories.
-                let dirs = next.clone();
+                let dirs = next.out.clone();
                 for d in dirs {
                     let dir = if d.is_empty() {
                         ".".to_string()
@@ -1990,14 +2106,23 @@ fn expand_pattern(
                             }
                         }
                     }
+                    if next.over {
+                        return (Vec::new(), true);
+                    }
                 }
-                next.retain(|p| !p.is_empty());
+                next.out.retain(|p| !p.is_empty());
             }
-            bases = next;
+            bases = match next.finish() {
+                Some(v) => v,
+                None => return (Vec::new(), true),
+            };
             continue;
         }
         let has_meta = has_glob_meta(comp);
         for base in &bases {
+            if next.over {
+                break;
+            }
             let join = |name: &str| {
                 if base.is_empty() {
                     name.to_string()
@@ -2033,12 +2158,15 @@ fn expand_pattern(
                 }
             }
         }
-        bases = next;
+        bases = match next.finish() {
+            Some(v) => v,
+            None => return (Vec::new(), true),
+        };
     }
     if pattern.ends_with('/') {
         bases = bases.into_iter().map(|b| format!("{b}/")).collect();
     }
-    bases
+    (bases, false)
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -3829,6 +3957,7 @@ pub fn run(src: &str) -> Option<i32> {
         vars: HashMap::new(),
         exported: HashSet::new(),
         last: 0,
+        glob_refused: None,
     };
     let mut stdin = Input::real();
     let mut sink = Sink::new(ErrMode::Real);
@@ -3866,6 +3995,7 @@ mod tests {
             vars: HashMap::new(),
             exported: HashSet::new(),
             last: 0,
+            glob_refused: None,
         };
         let mut stdin = Input::buf(Vec::new());
         let mut sink = Sink::new(ErrMode::Null);
@@ -4045,7 +4175,7 @@ mod tests {
             .collect();
         assert_eq!(names, vec!["deep.rs", "mid.rs", "top.rs"], "{found:?}");
         // Without globstar, `**` is `*`: one level only.
-        let shell = glob_expand(&format!("{r}/**/*.rs"));
+        let shell = glob_expand(&format!("{r}/**/*.rs")).expect("under the cap");
         assert_eq!(shell.len(), 1, "{shell:?}");
         let _ = std::fs::remove_dir_all(&root);
     }
