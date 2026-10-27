@@ -90,8 +90,10 @@ jobs:
             - name: Verify sqlite3 is on PATH
               run: sqlite3 --version
 
+            # --no-fail-fast: without it cargo stops at the first failing test
+            # binary, and every later binary's failures go unreported.
             - name: Run tests
-              run: cargo test --workspace --features native
+              run: cargo test --workspace --features native --no-fail-fast
 
             - name: Run doc tests
               run: cargo test --doc
