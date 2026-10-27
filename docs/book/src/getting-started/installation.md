@@ -75,7 +75,7 @@ ae --help
 Install the AetherShell extension for syntax highlighting and IDE features:
 
 ```bash
-code --install-extension nervosys.aethershell
+code --install-extension admercs.aethershell
 ```
 
 Or search for "AetherShell" in the VS Code marketplace.
