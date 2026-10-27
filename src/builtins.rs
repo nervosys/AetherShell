@@ -51929,47 +51929,24 @@ fn bi_platform_memory(_args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     // A probe that fails is a coded error. Each one used to be skipped, so a
     // failed query answered {} -- indistinguishable from "this host has no
     // memory to report".
+    // Was WMI Win32_OperatingSystem through PowerShell; now sysinfo, in process.
+    // The old "free" was WMI's FreePhysicalMemory, and sysinfo's available_memory
+    // counts standby memory too, so free_kb can read higher than the old figure.
     #[cfg(target_os = "windows")]
     {
-        // Use PowerShell instead of WMIC
-        let query = "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | ConvertTo-Json";
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args(["-Command", query]);
-        let out = bounded_cmd_output("platform_memory", "powershell", cmd, PROBE_DEADLINE_SECS)
-            .map_err(|e| {
-                crate::safety::tool_missing("platform_memory", "powershell", &e.to_string())
-            })?;
-        if !out.status.success() {
-            return Err(crate::safety::tool_failed(
-                "platform_memory",
-                "powershell Get-CimInstance Win32_OperatingSystem",
-                out.status.code(),
-                &String::from_utf8_lossy(&out.stderr),
-            ));
-        }
-        let json: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&out.stdout))
-            .map_err(|e| {
-            crate::safety::tool_failed(
-                "platform_memory",
-                "powershell Get-CimInstance Win32_OperatingSystem",
-                out.status.code(),
-                &format!("its output was not JSON: {e}"),
-            )
-        })?;
-        if let Some(total) = json.get("TotalVisibleMemorySize").and_then(|v| v.as_i64()) {
-            info.insert("total_kb".to_string(), Value::Int(total));
-            info.insert(
-                "total_gb".to_string(),
-                Value::Float(total as f64 / 1024.0 / 1024.0),
-            );
-        }
-        if let Some(free) = json.get("FreePhysicalMemory").and_then(|v| v.as_i64()) {
-            info.insert("free_kb".to_string(), Value::Int(free));
-            info.insert(
-                "free_gb".to_string(),
-                Value::Float(free as f64 / 1024.0 / 1024.0),
-            );
-        }
+        let system = memory_snapshot("platform_memory")?;
+        let total = system.total_memory();
+        info.insert("total_kb".to_string(), Value::Int((total / 1024) as i64));
+        info.insert(
+            "total_gb".to_string(),
+            Value::Float(total as f64 / 1024.0 / 1024.0 / 1024.0),
+        );
+        let free = system.available_memory();
+        info.insert("free_kb".to_string(), Value::Int((free / 1024) as i64));
+        info.insert(
+            "free_gb".to_string(),
+            Value::Float(free as f64 / 1024.0 / 1024.0 / 1024.0),
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -52079,26 +52056,12 @@ fn bi_platform_memory(_args: Vec<Value>, input: Option<Value>) -> Result<Value> 
 }
 
 fn bi_platform_memory_total(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Was WMI Win32_OperatingSystem through PowerShell; now sysinfo, in process.
+    // Returns bytes, as before.
     #[cfg(target_os = "windows")]
     {
-        // Use PowerShell instead of WMIC
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            "(Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize",
-        ]);
-        if let Ok(out) = bounded_cmd_output(
-            "platform_memory_total",
-            "powershell",
-            cmd,
-            PROBE_DEADLINE_SECS,
-        ) {
-            if out.status.success() {
-                if let Ok(kb) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
-                    return Ok(Value::Int(kb * 1024)); // Return bytes
-                }
-            }
-        }
+        let system = memory_snapshot("platform_memory_total")?;
+        return memory_bytes("platform_memory_total", system.total_memory());
     }
     #[cfg(target_os = "linux")]
     {
