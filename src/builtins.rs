@@ -26899,56 +26899,50 @@ fn bi_fs_du(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // This was `Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free`
+    // through PowerShell. It now reads the same drives from kernel32 (fixed,
+    // removable, network and RAM-disk roots). `size` is the true total from
+    // GetDiskFreeSpaceExW; it was used + free before, which is the same number.
+    // `used` is total minus free, and `available` is the free figure. A drive
+    // whose sizes cannot be read keeps `filesystem` and `mounted_on`, and the
+    // size fields are left out.
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free | ConvertTo-Json",
-        ]);
-        let output = bounded_cmd_output("fs_df", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                // Normalize to canonical field names
-                let normalize = |item: serde_json::Value| -> Value {
-                    if let serde_json::Value::Object(obj) = item {
-                        let mut rec = std::collections::BTreeMap::new();
-                        let name = obj.get("Name").and_then(|v| v.as_str()).unwrap_or("");
-                        let used = obj.get("Used").and_then(|v| v.as_i64()).unwrap_or(0);
-                        let free = obj.get("Free").and_then(|v| v.as_i64()).unwrap_or(0);
-                        let total = used + free;
-                        let use_pct = if total > 0 {
-                            (used as f64 / total as f64 * 100.0) as i64
-                        } else {
-                            0
-                        };
-                        rec.insert("filesystem".to_string(), Value::Str(format!("{}:\\", name)));
-                        rec.insert("size".to_string(), Value::Str(format_bytes(total)));
-                        rec.insert("used".to_string(), Value::Str(format_bytes(used)));
-                        rec.insert("available".to_string(), Value::Str(format_bytes(free)));
-                        rec.insert(
-                            "use_percent".to_string(),
-                            Value::Str(format!("{}%", use_pct)),
-                        );
-                        rec.insert("mounted_on".to_string(), Value::Str(format!("{}:\\", name)));
-                        Value::Record(rec)
-                    } else {
-                        Value::Null
-                    }
+        let mut drives = Vec::new();
+        for v in windows_volumes("fs_df")?
+            .into_iter()
+            .filter(|v| windows_listed_by_powershell(v.drive_type))
+        {
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert(
+                "filesystem".to_string(),
+                Value::Str(format!("{}:\\", v.letter)),
+            );
+            if let (Some(total), Some(free)) = (v.total, v.free) {
+                let used = total.saturating_sub(free);
+                let use_pct = if total > 0 {
+                    (used as f64 / total as f64 * 100.0) as i64
+                } else {
+                    0
                 };
-                match json {
-                    serde_json::Value::Array(arr) => {
-                        let drives: Vec<Value> = arr.into_iter().map(normalize).collect();
-                        return Ok(Value::Array(drives));
-                    }
-                    obj @ serde_json::Value::Object(_) => {
-                        return Ok(Value::Array(vec![normalize(obj)]));
-                    }
-                    _ => {}
-                }
+                rec.insert("size".to_string(), Value::Str(format_bytes(total as i64)));
+                rec.insert("used".to_string(), Value::Str(format_bytes(used as i64)));
+                rec.insert(
+                    "available".to_string(),
+                    Value::Str(format_bytes(free as i64)),
+                );
+                rec.insert(
+                    "use_percent".to_string(),
+                    Value::Str(format!("{}%", use_pct)),
+                );
             }
+            rec.insert(
+                "mounted_on".to_string(),
+                Value::Str(format!("{}:\\", v.letter)),
+            );
+            drives.push(Value::Record(rec));
         }
+        return Ok(Value::Array(drives));
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -26975,7 +26969,10 @@ fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Array(drives));
         }
     }
-    Ok(Value::Array(vec![]))
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(Value::Array(vec![]))
+    }
 }
 
 fn bi_fs_mount(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -26987,42 +26984,32 @@ fn bi_fs_unmount(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // This was `Get-PSDrive -PSProvider FileSystem | Select-Object Name,Root`
+    // through PowerShell, with fstype hardcoded to "NTFS". It now lists the
+    // same drives as fs_df (fixed, removable, network and RAM-disk roots) from
+    // kernel32. `fstype` is the volume's real file system name from
+    // GetVolumeInformationW, and it is left out when that call fails or the
+    // volume has no name.
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Root | ConvertTo-Json",
-        ]);
-        let output = bounded_cmd_output("fs_mounts", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                // Normalize to canonical field names
-                let normalize = |item: &serde_json::Value| -> Value {
-                    let mut rec = std::collections::BTreeMap::new();
-                    if let serde_json::Value::Object(obj) = item {
-                        let name = obj.get("Name").and_then(|v| v.as_str()).unwrap_or("");
-                        let root = obj.get("Root").and_then(|v| v.as_str()).unwrap_or("");
-                        rec.insert("device".to_string(), Value::Str(format!("{}:", name)));
-                        rec.insert("mountpoint".to_string(), Value::Str(root.to_string()));
-                        rec.insert("fstype".to_string(), Value::Str("NTFS".to_string()));
-                        rec.insert("options".to_string(), Value::Str("rw".to_string()));
-                    }
-                    Value::Record(rec)
-                };
-                match &json {
-                    serde_json::Value::Array(arr) => {
-                        let result: Vec<Value> = arr.iter().map(normalize).collect();
-                        return Ok(Value::Array(result));
-                    }
-                    obj @ serde_json::Value::Object(_) => {
-                        return Ok(Value::Array(vec![normalize(obj)]));
-                    }
-                    _ => {}
-                }
+        let mut result = Vec::new();
+        for v in windows_volumes("fs_mounts")?
+            .into_iter()
+            .filter(|v| windows_listed_by_powershell(v.drive_type))
+        {
+            let mut rec = std::collections::BTreeMap::new();
+            rec.insert("device".to_string(), Value::Str(format!("{}:", v.letter)));
+            rec.insert(
+                "mountpoint".to_string(),
+                Value::Str(format!("{}:\\", v.letter)),
+            );
+            if let Some(fs) = v.fs_name.filter(|s| !s.is_empty()) {
+                rec.insert("fstype".to_string(), Value::Str(fs));
             }
+            rec.insert("options".to_string(), Value::Str("rw".to_string()));
+            result.push(Value::Record(rec));
         }
+        return Ok(Value::Array(result));
     }
     #[cfg(target_os = "linux")]
     {
@@ -27076,12 +27063,15 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     }
     // A failed query answered [], "nothing mounted".
-    Err(crate::safety::tool_failed(
-        "fs_mounts",
-        "the mount table",
-        None,
-        "it could not be read",
-    ))
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(crate::safety::tool_failed(
+            "fs_mounts",
+            "the mount table",
+            None,
+            "it could not be read",
+        ))
+    }
 }
 
 // ============================================================================
@@ -49859,6 +49849,161 @@ fn windows_is_admin(builtin: &str) -> Result<bool> {
     result
 }
 
+/// The drive types Get-PSDrive -PSProvider FileSystem listed in
+/// `bi_fs_df` and `bi_fs_mounts`: fixed, removable, network and RAM-disk
+/// roots. CD-ROM drives are not in that set.
+#[cfg(target_os = "windows")]
+fn windows_listed_by_powershell(drive_type: u32) -> bool {
+    matches!(
+        drive_type,
+        DRIVE_FIXED | DRIVE_REMOVABLE | DRIVE_REMOTE | DRIVE_RAMDISK
+    )
+}
+
+#[cfg(target_os = "windows")]
+const DRIVE_UNKNOWN: u32 = 0;
+#[cfg(target_os = "windows")]
+const DRIVE_NO_ROOT_DIR: u32 = 1;
+#[cfg(target_os = "windows")]
+const DRIVE_REMOVABLE: u32 = 2;
+#[cfg(target_os = "windows")]
+const DRIVE_FIXED: u32 = 3;
+#[cfg(target_os = "windows")]
+const DRIVE_REMOTE: u32 = 4;
+#[cfg(target_os = "windows")]
+const DRIVE_RAMDISK: u32 = 6;
+
+/// One drive letter with a root, as kernel32 described it. A field is `None`
+/// where the call that answers it failed: an empty card reader or a
+/// disconnected network drive has no size and no file system.
+#[cfg(target_os = "windows")]
+struct WinVolume {
+    /// The drive letter, such as 'C'.
+    letter: char,
+    /// GetDriveTypeW's answer, one of the DRIVE_* constants.
+    drive_type: u32,
+    /// Total bytes on the volume, from GetDiskFreeSpaceExW.
+    total: Option<u64>,
+    /// Free bytes, from GetDiskFreeSpaceExW's TotalNumberOfFreeBytes. This is
+    /// the figure WMI's FreeSpace and Get-PSDrive's Free reported, not the
+    /// caller-available figure.
+    free: Option<u64>,
+    /// The file system name from GetVolumeInformationW, such as "NTFS".
+    fs_name: Option<String>,
+    /// The volume label. `Some("")` is an unlabeled volume that answered.
+    label: Option<String>,
+}
+
+/// Every drive letter with a root (GetLogicalDrives, GetDriveTypeW). A zero
+/// bitmask is a failed call, since no machine has no drive letters.
+#[cfg(target_os = "windows")]
+fn windows_volumes(builtin: &str) -> Result<Vec<WinVolume>> {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetLogicalDrives() -> u32;
+        fn GetDriveTypeW(root: *const u16) -> u32;
+        fn GetDiskFreeSpaceExW(
+            root: *const u16,
+            free_to_caller: *mut u64,
+            total: *mut u64,
+            total_free: *mut u64,
+        ) -> i32;
+        fn GetVolumeInformationW(
+            root: *const u16,
+            name: *mut u16,
+            name_len: u32,
+            serial: *mut u32,
+            max_component: *mut u32,
+            flags: *mut u32,
+            fs_name: *mut u16,
+            fs_name_len: u32,
+        ) -> i32;
+    }
+    // MAX_PATH + 1, the buffer size GetVolumeInformationW is documented with.
+    const NAME_UNITS: usize = 261;
+    let text = |buf: &[u16]| {
+        let end = buf.iter().position(|&u| u == 0).unwrap_or(buf.len());
+        String::from_utf16_lossy(&buf[..end])
+    };
+    // SAFETY: GetLogicalDrives takes no arguments and only reads the drive
+    // table.
+    let mask = unsafe { GetLogicalDrives() };
+    if mask == 0 {
+        return Err(crate::safety::bad_state(
+            builtin,
+            &format!(
+                "GetLogicalDrives failed: {}",
+                std::io::Error::last_os_error()
+            ),
+            "a readable drive table",
+        ));
+    }
+    let mut volumes = Vec::new();
+    for bit in 0..26u32 {
+        if mask & (1 << bit) == 0 {
+            continue;
+        }
+        let letter = char::from(b'A' + bit as u8);
+        let root: Vec<u16> = format!("{letter}:\\")
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        // SAFETY: `root` is NUL-terminated and lives across the call.
+        let drive_type = unsafe { GetDriveTypeW(root.as_ptr()) };
+        if drive_type == DRIVE_UNKNOWN || drive_type == DRIVE_NO_ROOT_DIR {
+            continue;
+        }
+        let (mut free_to_caller, mut total, mut total_free) = (0u64, 0u64, 0u64);
+        // SAFETY: `root` is NUL-terminated, and each out-pointer is a valid
+        // u64 for the call to write.
+        let sized = unsafe {
+            GetDiskFreeSpaceExW(
+                root.as_ptr(),
+                &mut free_to_caller,
+                &mut total,
+                &mut total_free,
+            )
+        } != 0;
+        // An empty or disconnected drive fails here, and its size stays unknown.
+        let (size, free) = if sized {
+            (Some(total), Some(total_free))
+        } else {
+            (None, None)
+        };
+        let mut label_buf = [0u16; NAME_UNITS];
+        let mut fs_buf = [0u16; NAME_UNITS];
+        // SAFETY: both buffers hold NAME_UNITS units, and the lengths passed
+        // say so. The serial, max-component and flags out-pointers are null,
+        // which the call accepts.
+        let described = unsafe {
+            GetVolumeInformationW(
+                root.as_ptr(),
+                label_buf.as_mut_ptr(),
+                NAME_UNITS as u32,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                fs_buf.as_mut_ptr(),
+                NAME_UNITS as u32,
+            )
+        } != 0;
+        let (label, fs_name) = if described {
+            (Some(text(&label_buf)), Some(text(&fs_buf)))
+        } else {
+            (None, None)
+        };
+        volumes.push(WinVolume {
+            letter,
+            drive_type,
+            total: size,
+            free,
+            fs_name,
+            label,
+        });
+    }
+    Ok(volumes)
+}
+
 /// A REG_DWORD under HKEY_LOCAL_MACHINE: `Ok(None)` when the key or value is
 /// absent, `Err` with the Win32 status for anything else.
 #[cfg(target_os = "windows")]
@@ -52247,53 +52392,41 @@ fn bi_platform_memory_free(_args: Vec<Value>, _input: Option<Value>) -> Result<V
 fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut disks = Vec::new();
 
+    // This was `Get-CimInstance Win32_LogicalDisk` through PowerShell. It now
+    // reads the same volumes from kernel32. WMI listed every logical disk
+    // with a root, CD-ROM, network, removable and RAM-disk ones included, so
+    // this lists every volume GetDriveTypeW gives a root to. Each field WMI
+    // left empty for a drive is left out when its call fails: `size_*` and
+    // `free_*` when GetDiskFreeSpaceExW fails, `filesystem` when
+    // GetVolumeInformationW fails or the name is empty, and `label` when
+    // GetVolumeInformationW fails. An unlabeled volume keeps `label` as "",
+    // which is what WMI reported.
     #[cfg(target_os = "windows")]
     {
-        // Use PowerShell instead of WMIC
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args(["-Command", "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,Size,FreeSpace,FileSystem,VolumeName | ConvertTo-Json"]);
-        let json_str = probe_text("platform_disks", "powershell", cmd)?;
-        // Output that is not JSON was an empty disk list before. It is an error.
-        let json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
-            crate::safety::bad_state(
-                "platform_disks",
-                &format!("Get-CimInstance disk output is not JSON: {e}"),
-                "a readable Win32_LogicalDisk query",
-            )
-        })?;
-        // Handle both single object and array
-        let items = match json {
-            serde_json::Value::Array(items) => items,
-            other => vec![other],
-        };
-        for item in items {
+        for v in windows_volumes("platform_disks")? {
             let mut disk = std::collections::BTreeMap::new();
-            if let Some(id) = item.get("DeviceID").and_then(|v| v.as_str()) {
-                disk.insert("mount".to_string(), Value::Str(id.to_string()));
-            }
-            if let Some(size) = item.get("Size").and_then(|v| v.as_i64()) {
-                disk.insert("size_bytes".to_string(), Value::Int(size));
+            disk.insert("mount".to_string(), Value::Str(format!("{}:", v.letter)));
+            if let Some(size) = v.total {
+                disk.insert("size_bytes".to_string(), Value::Int(size as i64));
                 disk.insert(
                     "size_gb".to_string(),
                     Value::Float(size as f64 / 1024.0 / 1024.0 / 1024.0),
                 );
             }
-            if let Some(free) = item.get("FreeSpace").and_then(|v| v.as_i64()) {
-                disk.insert("free_bytes".to_string(), Value::Int(free));
+            if let Some(free) = v.free {
+                disk.insert("free_bytes".to_string(), Value::Int(free as i64));
                 disk.insert(
                     "free_gb".to_string(),
                     Value::Float(free as f64 / 1024.0 / 1024.0 / 1024.0),
                 );
             }
-            if let Some(fs) = item.get("FileSystem").and_then(|v| v.as_str()) {
-                disk.insert("filesystem".to_string(), Value::Str(fs.to_string()));
+            if let Some(fs) = v.fs_name.filter(|s| !s.is_empty()) {
+                disk.insert("filesystem".to_string(), Value::Str(fs));
             }
-            if let Some(label) = item.get("VolumeName").and_then(|v| v.as_str()) {
-                disk.insert("label".to_string(), Value::Str(label.to_string()));
+            if let Some(label) = v.label {
+                disk.insert("label".to_string(), Value::Str(label));
             }
-            if !disk.is_empty() {
-                disks.push(Value::Record(disk));
-            }
+            disks.push(Value::Record(disk));
         }
     }
 
