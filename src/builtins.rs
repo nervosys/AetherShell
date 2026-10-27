@@ -29412,6 +29412,29 @@ mod quiet_sys_tests {
             ),
             Ok(None)
         );
+        // A REG_SZ reads whole, and an absent one is None.
+        let zone = windows_hklm_string(
+            r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation",
+            "TimeZoneKeyName",
+        );
+        assert!(matches!(&zone, Ok(Some(z)) if !z.is_empty()), "{zone:?}");
+        // A buffer too small for it grows rather than truncating.
+        assert_eq!(
+            windows_hklm_string_from(
+                r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation",
+                "TimeZoneKeyName",
+                1,
+            ),
+            zone
+        );
+        assert_eq!(
+            windows_hklm_string(
+                r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+                "NoSuchValue"
+            ),
+            Ok(None)
+        );
+        assert!(matches!(bi_sys_locale(vec![], None).unwrap(), Value::Str(l) if !l.is_empty()));
         // One record per interface, not ipconfig's text in a `raw` field.
         let Value::Array(nics) = bi_platform_network_interfaces(vec![], None).unwrap() else {
             panic!("platform_network_interfaces is not an Array");
@@ -29731,13 +29754,18 @@ fn bi_sys_env_all(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_locale(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args(["-Command", "(Get-Culture).Name"]);
-        let output = bounded_cmd_output("sys_locale", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
+        // The user's locale, as `(Get-Culture).Name` gave it, without
+        // starting PowerShell to ask.
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetUserDefaultLocaleName(name: *mut u16, len: i32) -> i32;
+        }
+        // LOCALE_NAME_MAX_LENGTH, NUL included.
+        let mut buf = [0u16; 85];
+        // SAFETY: `buf` holds `len` UTF-16 units.
+        let n = unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), buf.len() as i32) };
+        if n > 1 {
+            return Ok(Value::Str(String::from_utf16_lossy(&buf[..n as usize - 1])));
         }
     }
     #[cfg(not(target_os = "windows"))]
@@ -29752,13 +29780,15 @@ fn bi_sys_locale(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_timezone(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args(["-Command", "(Get-TimeZone).Id"]);
-        let output = bounded_cmd_output("sys_timezone", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
+        // The zone ID `(Get-TimeZone).Id` gave (`Pacific Standard Time`),
+        // read from where Windows keeps it instead of from PowerShell.
+        if let Ok(Some(zone)) = windows_hklm_string(
+            r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation",
+            "TimeZoneKeyName",
+        ) {
+            if !zone.is_empty() {
+                return Ok(Value::Str(zone));
+            }
         }
     }
     #[cfg(not(target_os = "windows"))]
@@ -49755,6 +49785,74 @@ fn windows_hklm_dword(subkey: &str, value: &str) -> std::result::Result<Option<u
         0 => Ok(Some(data)),
         ERROR_FILE_NOT_FOUND => Ok(None),
         other => Err(other),
+    }
+}
+
+/// A REG_SZ under HKEY_LOCAL_MACHINE, as [`windows_hklm_dword`] reads a
+/// DWORD.
+#[cfg(target_os = "windows")]
+fn windows_hklm_string(subkey: &str, value: &str) -> std::result::Result<Option<String>, i32> {
+    windows_hklm_string_from(subkey, value, 128)
+}
+
+/// [`windows_hklm_string`] starting from a buffer of `units` UTF-16 units,
+/// so a test can make it grow.
+#[cfg(target_os = "windows")]
+fn windows_hklm_string_from(
+    subkey: &str,
+    value: &str,
+    units: usize,
+) -> std::result::Result<Option<String>, i32> {
+    use std::ffi::c_void;
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn RegGetValueW(
+            key: isize,
+            subkey: *const u16,
+            value: *const u16,
+            flags: u32,
+            kind: *mut u32,
+            data: *mut c_void,
+            len: *mut u32,
+        ) -> i32;
+    }
+    const HKEY_LOCAL_MACHINE: isize = 0x8000_0002u32 as i32 as isize;
+    const RRF_RT_REG_SZ: u32 = 0x0000_0002;
+    const ERROR_FILE_NOT_FOUND: i32 = 2;
+    let wide = |s: &str| {
+        s.encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>()
+    };
+    let (subkey, value) = (wide(subkey), wide(value));
+    let mut buf = vec![0u16; units.max(1)];
+    loop {
+        let mut len = (buf.len() * 2) as u32;
+        // SAFETY: both names are NUL-terminated, and RegGetValueW writes at
+        // most `len` bytes into `buf`, NUL included.
+        let status = unsafe {
+            RegGetValueW(
+                HKEY_LOCAL_MACHINE,
+                subkey.as_ptr(),
+                value.as_ptr(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr().cast(),
+                &mut len,
+            )
+        };
+        match status {
+            0 => {
+                let units = (len as usize / 2).min(buf.len());
+                let text = &buf[..units];
+                let end = text.iter().position(|&u| u == 0).unwrap_or(text.len());
+                return Ok(Some(String::from_utf16_lossy(&text[..end])));
+            }
+            ERROR_FILE_NOT_FOUND => return Ok(None),
+            // ERROR_MORE_DATA: `len` is the size needed.
+            234 if (len as usize) / 2 > buf.len() => buf = vec![0u16; len as usize / 2 + 1],
+            other => return Err(other),
+        }
     }
 }
 

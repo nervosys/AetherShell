@@ -3484,7 +3484,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "String",
-        doc: "The system's IANA time zone name.",
+        doc: "The system's time zone: the IANA name on Unix (`Europe/Berlin`), the Windows zone ID on Windows (`W. Europe Standard Time`). UTC when none is set.",
         examples: &[("typeof(sys_timezone())", "String")],
     },
     Signature {
