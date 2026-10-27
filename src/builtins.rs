@@ -53848,12 +53848,18 @@ const TASKKILL_LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
 /// shell); `configure` may set the directory and environment; `stdin` is a
 /// fixed payload, or the child gets a null stdin when `None`.
 ///
-/// The child leads its own process group (unix). At `limit` the child's tree is
-/// killed (the group on unix, `taskkill /T` on Windows) and the child is reaped.
-/// After a normal exit, a pipe still open after [`PIPE_GRACE`] means a leftover
-/// descendant holds it, so the group is killed. A pipe still open after the
-/// grace that follows a kill is abandoned, not joined. The call therefore takes
-/// at most `limit` plus a few seconds, whatever the descendants do.
+/// The child leads its own process group (unix), and on Windows it is put in a
+/// job object at once (see [`TreeJob`]). At `limit` the child's tree is killed
+/// (the group on unix; the job, then `taskkill /T`, on Windows) and the child is
+/// reaped. After a normal exit, a pipe still open after [`PIPE_GRACE`] means a
+/// leftover descendant holds it, so the group is killed (the job on Windows). A
+/// pipe still open after the grace that follows a kill is abandoned, not joined.
+/// The call therefore takes at most `limit` plus a few seconds, whatever the
+/// descendants do.
+///
+/// On Windows the job reaches descendants whose parent has already exited, which
+/// `taskkill /T` cannot walk. A descendant started before the child joined the
+/// job escapes every kill here; that window is short but not zero.
 pub(crate) fn run_tree(
     program: &str,
     args: &[&str],
@@ -53894,6 +53900,8 @@ pub(crate) fn run_tree_cmd(
         command.process_group(0);
     }
     let mut child = command.spawn().map_err(TreeError::Spawn)?;
+    #[cfg(windows)]
+    let job = TreeJob::for_child(&child);
     if let (Some(payload), Some(mut pipe)) = (stdin, child.stdin.take()) {
         // Detached: a child that never reads its stdin blocks this write until
         // the kill closes the pipe, which then fails the write.
@@ -53911,6 +53919,8 @@ pub(crate) fn run_tree_cmd(
             Ok(Some(status)) => break Some(status),
             Ok(None) => {}
             Err(e) => {
+                #[cfg(windows)]
+                kill_job(job.as_ref());
                 kill_tree(&mut child);
                 return Err(TreeError::Wait(e));
             }
@@ -53926,6 +53936,8 @@ pub(crate) fn run_tree_cmd(
             if !(out_closed && err_closed) {
                 // A descendant that outlived the child holds a pipe: kill its
                 // group rather than wait for it.
+                #[cfg(windows)]
+                kill_job(job.as_ref());
                 kill_group(child.id());
                 (out_closed, err_closed) = wait_pipes(&out, &err, AFTER_KILL_GRACE);
             }
@@ -53939,6 +53951,8 @@ pub(crate) fn run_tree_cmd(
             )
         }
         None => {
+            #[cfg(windows)]
+            kill_job(job.as_ref());
             kill_tree(&mut child);
             let (out_closed, err_closed) = wait_pipes(&out, &err, PIPE_GRACE);
             (false, None, None, true, out_closed, err_closed)
@@ -54191,7 +54205,8 @@ fn wait_pipes(out: &PipeReader, err: &PipeReader, grace: std::time::Duration) ->
 
 /// Kill the child's tree, then reap the child. Unix: the child leads its own
 /// process group, so the whole group is signalled. Windows: `taskkill /T` walks
-/// the tree, which only works while the child is alive, so it runs first.
+/// the tree, which only works while the child is alive, so it runs first. Callers
+/// on Windows terminate the run's job ([`kill_job`]) before this.
 fn kill_tree(child: &mut std::process::Child) {
     kill_group(child.id());
     #[cfg(windows)]
@@ -54200,6 +54215,74 @@ fn kill_tree(child: &mut std::process::Child) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Windows: a job object that holds one bounded run's child and what it starts.
+/// A process started by a job member joins the job (Windows 8 and later), so the
+/// job reaches descendants whose parent has already exited, which `taskkill /T`
+/// cannot walk. The job does not kill on close: a descendant that closed its
+/// pipes and was left running survives, as on unix. A descendant the child starts
+/// before it is assigned to the job escapes the job.
+#[cfg(windows)]
+struct TreeJob(*mut std::ffi::c_void);
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn CreateJobObjectW(attrs: *mut std::ffi::c_void, name: *const u16) -> *mut std::ffi::c_void;
+    fn AssignProcessToJobObject(job: *mut std::ffi::c_void, process: *mut std::ffi::c_void) -> i32;
+    fn TerminateJobObject(job: *mut std::ffi::c_void, exit_code: u32) -> i32;
+    fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
+}
+
+#[cfg(windows)]
+impl TreeJob {
+    /// A job holding `child`, or `None` when no job can be made or the child
+    /// cannot join one (for example a process already in a job that forbids
+    /// nesting). Without a job the run falls back to `taskkill /T`.
+    fn for_child(child: &std::process::Child) -> Option<TreeJob> {
+        use std::os::windows::io::AsRawHandle;
+        // SAFETY: null attributes and a null name ask for an unnamed job with the
+        // default security descriptor; the call has no other effects.
+        let job = TreeJob(unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) });
+        if job.0.is_null() {
+            return None;
+        }
+        // SAFETY: `job.0` is the live job handle made above, and the child's
+        // process handle stays valid while `child` is borrowed. On failure `job`
+        // is dropped, which closes the job.
+        let assigned = unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle()) };
+        (assigned != 0).then_some(job)
+    }
+
+    /// Kill every process in the job, the child's descendants included, whether
+    /// or not their parent is still alive.
+    fn terminate(&self) {
+        // SAFETY: `self.0` is a live job handle owned by `self`.
+        unsafe {
+            TerminateJobObject(self.0, 1);
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for TreeJob {
+    fn drop(&mut self) {
+        // SAFETY: the handle came from CreateJobObjectW and is closed only here.
+        // Closing it ends nothing: kill-on-close is not set.
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+/// Windows: terminate a run's job, if it has one. Called before `taskkill /T` at
+/// a deadline, and after a normal exit when a pipe is held open.
+#[cfg(windows)]
+fn kill_job(job: Option<&TreeJob>) {
+    if let Some(job) = job {
+        job.terminate();
+    }
 }
 
 /// Signal the process group whose id is `pid` (the child's own group on unix).
@@ -57220,7 +57303,11 @@ where
     let mut child = cmd
         .spawn()
         .map_err(|e| crate::safety::spawn_error(builtin, tool, &e))?;
+    #[cfg(windows)]
+    let job = TreeJob::for_child(&child);
     let (Some(out_pipe), Some(err_pipe)) = (child.stdout.take(), child.stderr.take()) else {
+        #[cfg(windows)]
+        kill_job(job.as_ref());
         kill_tree(&mut child);
         return Err(crate::safety::tool_failed(
             builtin,
@@ -57255,6 +57342,8 @@ where
             Ok(Some(status)) => break status,
             Ok(None) => {}
             Err(e) => {
+                #[cfg(windows)]
+                kill_job(job.as_ref());
                 kill_tree(&mut child);
                 return Err(crate::safety::tool_failed(
                     builtin,
@@ -57265,6 +57354,8 @@ where
             }
         }
         if halt.load(Ordering::SeqCst) != HALT_NONE || started.elapsed() >= limit {
+            #[cfg(windows)]
+            kill_job(job.as_ref());
             kill_tree(&mut child);
             return Err(halt_error(
                 builtin,
@@ -57284,6 +57375,8 @@ where
     if !closed || flag != HALT_NONE {
         // A descendant still holds a pipe, or the run was halted: kill its group
         // so nothing it started keeps running after the call returns.
+        #[cfg(windows)]
+        kill_job(job.as_ref());
         kill_group(child.id());
     }
     if flag != HALT_NONE {
@@ -69697,5 +69790,120 @@ mod win_loadgpu_tests {
             let e = gpu_memory_record(output).expect_err("no GPU rows");
             assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::BadState));
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod win_job_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+    use std::time::{Duration, Instant};
+
+    /// The live `ping.exe` processes started with `-n <count>`. Each test uses its
+    /// own count, so tests that run in parallel do not see each other's processes.
+    fn pings_with_count(count: &str) -> BTreeSet<u32> {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            true,
+            sysinfo::ProcessRefreshKind::everything(),
+        );
+        sys.processes()
+            .iter()
+            .filter(|(_, p)| {
+                p.name().eq_ignore_ascii_case("ping.exe")
+                    && p.cmd().iter().any(|a| a.to_str() == Some(count))
+            })
+            .map(|(pid, _)| pid.as_u32())
+            .collect()
+    }
+
+    /// Runs `cmd /C <line>` through `run_tree` on a thread. Before the call can
+    /// be judged, a `ping -n <count>` grandchild must exist, so a pass cannot come
+    /// from the grandchild never starting. Returns the run, how long the call took,
+    /// and any such `ping` still alive a second after the call returned.
+    fn run_with_ping(
+        line: &'static str,
+        count: &'static str,
+        limit: Duration,
+    ) -> (TreeRun, Duration, BTreeSet<u32>) {
+        let before = pings_with_count(count);
+        let call = std::thread::spawn(move || {
+            let started = Instant::now();
+            let run = run_tree(
+                "cmd",
+                &["/C", line],
+                |_| {},
+                None,
+                limit,
+                Keep::Tail(4096),
+                Keep::Tail(4096),
+            );
+            (run, started.elapsed())
+        });
+        let until = Instant::now() + Duration::from_secs(10);
+        while pings_with_count(count).is_subset(&before) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            !pings_with_count(count).is_subset(&before),
+            "the grandchild ping never started"
+        );
+        let (run, elapsed) = call.join().expect("the run thread panicked");
+        let run = match run {
+            Ok(run) => run,
+            Err(_) => panic!("the run did not start"),
+        };
+        std::thread::sleep(Duration::from_secs(1));
+        let survivors = pings_with_count(count)
+            .difference(&before)
+            .copied()
+            .collect();
+        (run, elapsed, survivors)
+    }
+
+    /// `cmd` exits at once, but its `start /B` child keeps the inherited pipes and
+    /// would run for 33 s. The job must take it down: the call returns quickly,
+    /// the pipes close, and the grandchild is gone.
+    #[test]
+    fn grandchild_holding_a_pipe_is_killed_after_the_child_exits() {
+        let (run, elapsed, survivors) = run_with_ping(
+            "start /B ping -n 33 127.0.0.1",
+            "33",
+            Duration::from_secs(20),
+        );
+        assert!(
+            !run.timed_out,
+            "the child exits at once; the call must not time out"
+        );
+        assert!(
+            !run.pipes_abandoned,
+            "the grandchild's pipes must close once it is killed"
+        );
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "the call took {elapsed:?}"
+        );
+        assert!(
+            survivors.is_empty(),
+            "ping survived the call: {survivors:?}"
+        );
+    }
+
+    /// The child is still running at the deadline. Its job, and the `ping` it
+    /// started, must both be killed, and the call reports the timeout.
+    #[test]
+    fn deadline_kills_the_child_and_its_descendants() {
+        let (run, elapsed, survivors) =
+            run_with_ping("ping -n 34 127.0.0.1", "34", Duration::from_secs(4));
+        assert!(run.timed_out, "the deadline must report a timeout");
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "the call took {elapsed:?}"
+        );
+        assert!(
+            survivors.is_empty(),
+            "ping survived the deadline kill: {survivors:?}"
+        );
     }
 }
