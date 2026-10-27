@@ -128,6 +128,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses the model's `tokenizer.json` and real pooling, ONNX `generate` is
   `E_UNIMPLEMENTED`, `max_tokens` over 4096 is refused, and `ort` is pinned
   exactly. Checked with all-MiniLM-L6-v2 (ONNX) and SmolLM2-135M (GGUF).
+  candle now refuses (`E_UNIMPLEMENTED`) what it had guessed at: an
+  architecture other than llama, mistral, phi2 or phi3 (it had loaded as
+  Llama), safetensors files and GGUF embeddings (embed had averaged
+  input-embedding rows). A Mistral GGUF must carry its size keys, the
+  tokenizer is read only from the model's directory, and `ai_local_load` keeps
+  a backend's error code. No chat template is applied yet.
 
 - **`tar_extract` checks link targets in bzip2, xz and zstd tars**: these were
   listed with `tar -tf`, which gives names only, so a symlink pointing outside
