@@ -25,7 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   two-argument reduce throughput, 1.2–1.3x map/filter throughput, and 1.63–1.79x
   warm module-request latency improvements against `570bff8`. Full results,
   including workloads without gains, are in
-  `benches/agentic/results/perf-2026-09-29-followup.md`.
+  `benches/agentic/results/perf-2026-09-29-followup.md`. A rerun of the final
+  code against the same baseline, on Linux, reproduced the module-call (4.56x),
+  reduce (1.91x) and warm module-request (about 2x) gains in every round;
+  map/filter did not move consistently there
+  (`benches/agentic/results/perf-2026-10-27.md`). All of these are in-process
+  figures; no CLI startup or Agent API speedup is claimed.
 - **`ae -b` runs POSIX shell in-process** (`src/posix.rs`): pipelines, `&&`/`||`,
   variables, `$(…)`, redirections, `if`/`for`/`while`, `test`, and GNU-compatible
   text utilities. Other commands run as the real program through `guard_exec`,
