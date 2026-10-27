@@ -64336,7 +64336,7 @@ fn bi_tmux_attach(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     devtool_attach(
         "tmux_attach",
         "tmux",
-        &["attach-session", "-t", name.as_str()],
+        &["attach-session", "-t", &exact_tmux_target(&name)],
         "tmux attach-session",
     )?;
     let mut rec = BTreeMap::new();
@@ -64361,7 +64361,7 @@ fn bi_tmux_send(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "tmux_send",
             "tmux",
             None,
-            &["send-keys", "-t", target.as_str(), keys.as_str(), "Enter"],
+            &["send-keys", "-t", &exact_tmux_target(&target), keys.as_str(), "Enter"],
             Keep::Tail(TOOL_KEEP_TAIL),
             TOOL_DEADLINE_SECS,
         )?,
@@ -64370,6 +64370,13 @@ fn bi_tmux_send(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     rec.insert("target".to_string(), Value::Str(target));
     rec.insert("keys".to_string(), Value::Str(keys));
     Ok(Value::Record(rec))
+}
+
+/// A tmux target that names a session exactly. tmux otherwise resolves
+/// `-t work` to a session whose name starts with "work" when none is called
+/// "work", so a kill, attach or send-keys would reach another session.
+fn exact_tmux_target(target: &str) -> String {
+    format!("={target}")
 }
 
 /// tmux kill-session — End a session that tmux_new started, and what runs in it.
@@ -64392,7 +64399,7 @@ fn bi_tmux_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "tmux_kill",
             "tmux",
             None,
-            &["kill-session", "-t", name.as_str()],
+            &["kill-session", "-t", &exact_tmux_target(&name)],
             Keep::Tail(TOOL_KEEP_TAIL),
             TOOL_DEADLINE_SECS,
         )?,
