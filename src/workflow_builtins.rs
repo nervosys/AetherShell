@@ -265,6 +265,103 @@ async fn register(template: WorkflowTemplate) -> Result<Value> {
     Ok(Value::Str(id))
 }
 
+/// Read the options `workflow_execute` takes: `{wait: Bool}`, default true.
+///
+/// Checked before the id is looked at, so a malformed call is `E_BAD_ARG`
+/// whatever the id is, and nothing is started.
+fn execute_wait(options: Option<&Value>) -> Result<bool> {
+    let r = match options {
+        None => return Ok(true),
+        Some(Value::Record(r)) => r,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "workflow_execute",
+                "options: a record such as {wait: false}",
+                other.type_name(),
+            ))
+        }
+    };
+    if let Some(key) = r.keys().find(|k| k.as_str() != "wait") {
+        return Err(crate::safety::bad_arg(
+            "workflow_execute",
+            "only the key wait",
+            &format!("unknown key '{key}'"),
+        ));
+    }
+    match r.get("wait") {
+        None => Ok(true),
+        Some(Value::Bool(wait)) => Ok(*wait),
+        Some(other) => Err(crate::safety::bad_arg(
+            "workflow_execute",
+            "wait: a boolean",
+            other.type_name(),
+        )),
+    }
+}
+
+/// An instance's status, as the same text `workflow_status` reports it.
+async fn instance_status(id: &str) -> Result<&'static str> {
+    engine()
+        .get_instance(&id.to_string())
+        .await
+        .map(|info| status_str(&info.status))
+        .ok_or_else(|| anyhow!("Workflow instance not found: {id}"))
+}
+
+/// Start a run without waiting for it: `workflow_execute(id, {wait: false})`.
+///
+/// The run is spawned and this answers at once with `{id, status}`, where
+/// status is read after the spawn. The engine has no pending state, so that is
+/// `created` until the run's first step begins and `running` after. Progress is
+/// read with `workflow_status`.
+///
+/// A `workflow_cancel` issued straight after this returns needs no extra
+/// handling. `cancel` accepts a run that has not started yet and sets the
+/// shared flag, and `execute` checks that flag before it does anything, so a
+/// cancel that lands before the spawned task is scheduled still stops the run
+/// before its first step.
+///
+/// The spawned run's result is dropped. The engine records the terminal status
+/// itself, `failed` and `cancelled` included.
+///
+/// Runtime. The run goes on the caller's runtime when there is one, so it uses
+/// the blocking pool and stack the blocking call would use. Otherwise it goes
+/// on the process-lifetime fallback runtime, which outlives this call. A
+/// current-thread caller never gets this far, because `block_on` refuses it.
+///
+/// Limits and gating. The evaluation deadline is per-thread and is not
+/// inherited. The run keeps its own bounds: each wait is capped at
+/// `MAX_WAIT_MS`, and a template over that cap is refused before its first
+/// step. Execution mode, approval grants and the acting principal are
+/// process-wide, not per-thread, so the run sees the same ones a blocking call
+/// does. Each step is gated through `call_with_input` either way.
+fn start_detached(id: String) -> Result<Value> {
+    // An unknown id is refused here, with the blocking call's error, rather
+    // than failing unseen inside the spawned run.
+    block_on(async { instance_status(&id).await.map(|_| Value::Null) })?;
+
+    let run_id = id.clone();
+    let run = async move {
+        let _ = engine().execute(&run_id).await;
+    };
+    match Handle::try_current() {
+        Ok(handle) => {
+            handle.spawn(run);
+        }
+        Err(_) => {
+            fallback_runtime()?.spawn(run);
+        }
+    }
+
+    let status = block_on(async {
+        instance_status(&id).await.map(|s| Value::Str(s.to_string()))
+    })?;
+    Ok(Value::Record(BTreeMap::from([
+        ("id".to_string(), Value::Str(id)),
+        ("status".to_string(), status),
+    ])))
+}
+
 // -----------------------------------------------------------------------------
 // Dispatch
 // -----------------------------------------------------------------------------
@@ -477,8 +574,16 @@ pub(crate) fn dispatch(name: &str, args: Vec<Value>, input: Option<Value>) -> Re
         }
 
         "workflow_execute" => {
-            let id = as_str(arg(0).as_ref(), "workflow_execute(workflow_id)")?;
-            block_on(async move { engine().execute(&id).await })
+            let wait = execute_wait(arg(1).as_ref())?;
+            let id = as_str(
+                arg(0).as_ref(),
+                "workflow_execute(workflow_id, [{wait: Bool}])",
+            )?;
+            if wait {
+                block_on(async move { engine().execute(&id).await })
+            } else {
+                start_detached(id)
+            }
         }
 
         "workflow_status" => {
@@ -760,5 +865,168 @@ mod tests {
             err.to_string().contains("single-threaded"),
             "the refusal should say why, got: {err}"
         );
+    }
+
+    fn options(wait: bool) -> Value {
+        Value::Record(BTreeMap::from([("wait".to_string(), Value::Bool(wait))]))
+    }
+
+    /// Create an instance of a one-step pipeline and return its id.
+    fn one_step_instance(name: &str, step: Vec<(&str, Value)>) -> String {
+        let step = Value::Record(step.into_iter().map(|(k, v)| (k.to_string(), v)).collect());
+        let Value::Str(template_id) = call_ok(
+            "workflow_pipeline",
+            vec![Value::Str(name.into()), Value::Array(vec![step])],
+        ) else {
+            panic!("expected a template id");
+        };
+        let Value::Str(workflow_id) = call_ok(
+            "workflow_create",
+            vec![
+                Value::Str(template_id),
+                Value::Record(BTreeMap::from([("input".to_string(), Value::Null)])),
+            ],
+        ) else {
+            panic!("expected a workflow id");
+        };
+        workflow_id
+    }
+
+    /// The `status` field `workflow_status` reports for an instance.
+    fn status_of(workflow_id: &str) -> String {
+        let Value::Record(r) = call_ok("workflow_status", vec![Value::Str(workflow_id.into())])
+        else {
+            panic!("expected a status record");
+        };
+        match r.get("status") {
+            Some(Value::Str(s)) => s.clone(),
+            other => panic!("expected a status string, got {other:?}"),
+        }
+    }
+
+    /// Poll `workflow_status` until it reads `want`, failing after `within`.
+    fn wait_for_status(workflow_id: &str, want: &str, within: Duration) {
+        let started = std::time::Instant::now();
+        loop {
+            let got = status_of(workflow_id);
+            if got == want {
+                return;
+            }
+            assert!(
+                started.elapsed() < within,
+                "{workflow_id} is still `{got}` after {within:?}; wanted `{want}`"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn a_detached_run_answers_at_once_and_its_caller_can_cancel_it() {
+        let workflow_id = one_step_instance(
+            "detached-long",
+            vec![
+                ("id", Value::Str("slow".into())),
+                ("delay_ms", Value::Int(10_000)),
+            ],
+        );
+
+        let started = std::time::Instant::now();
+        let out = call_ok(
+            "workflow_execute",
+            vec![Value::Str(workflow_id.clone()), options(false)],
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "a detached start took {:?}",
+            started.elapsed()
+        );
+        let Value::Record(r) = out else {
+            panic!("expected an {{id, status}} record");
+        };
+        assert_eq!(r.get("id"), Some(&Value::Str(workflow_id.clone())));
+        let Some(Value::Str(status)) = r.get("status") else {
+            panic!("expected a status string");
+        };
+        assert!(
+            status == "created" || status == "running",
+            "the reply carries the instance status, got `{status}`"
+        );
+
+        // The run is really going, not merely accepted, before the cancel.
+        wait_for_status(&workflow_id, "running", Duration::from_secs(5));
+        call_ok("workflow_cancel", vec![Value::Str(workflow_id.clone())]);
+        wait_for_status(&workflow_id, "cancelled", Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_detached_short_run_completes_in_the_background() {
+        let workflow_id = one_step_instance(
+            "detached-short",
+            vec![
+                ("id", Value::Str("up".into())),
+                ("run", Value::Str("upper".into())),
+                ("args", Value::Array(vec![Value::Str("hi".into())])),
+            ],
+        );
+        call_ok(
+            "workflow_execute",
+            vec![Value::Str(workflow_id.clone()), options(false)],
+        );
+        wait_for_status(&workflow_id, "completed", Duration::from_secs(5));
+    }
+
+    #[test]
+    fn malformed_options_are_refused_whatever_the_id_and_start_nothing() {
+        let workflow_id = one_step_instance(
+            "detached-bad",
+            vec![
+                ("id", Value::Str("up".into())),
+                ("run", Value::Str("upper".into())),
+                ("args", Value::Array(vec![Value::Str("hi".into())])),
+            ],
+        );
+        let bad_options = [
+            Value::Record(BTreeMap::from([("wait".to_string(), Value::Int(1))])),
+            Value::Record(BTreeMap::from([("bogus".to_string(), Value::Bool(true))])),
+            Value::Str("wait".into()),
+        ];
+        for options in bad_options {
+            // A real id and an absent one: the refusal comes before the lookup.
+            for id in [workflow_id.clone(), "no-such-workflow".to_string()] {
+                let err = call(
+                    "workflow_execute",
+                    vec![Value::Str(id), options.clone()],
+                    None,
+                )
+                .unwrap()
+                .expect_err("malformed options must be refused");
+                assert!(err.to_string().contains("E_BAD_ARG"), "got: {err}");
+            }
+        }
+        assert_eq!(
+            status_of(&workflow_id),
+            "created",
+            "a refused call must not start the run"
+        );
+    }
+
+    #[test]
+    fn an_unknown_id_gets_the_blocking_calls_error_either_way() {
+        let missing = "no-such-workflow-detached";
+        let blocking = call(
+            "workflow_execute",
+            vec![Value::Str(missing.into())],
+            None,
+        )
+        .unwrap()
+        .expect_err("an unknown id must be refused");
+        let detached = call(
+            "workflow_execute",
+            vec![Value::Str(missing.into()), options(false)],
+            None,
+        )
+        .unwrap()
+        .expect_err("an unknown id must be refused");
+        assert_eq!(blocking.to_string(), detached.to_string());
     }
 }
