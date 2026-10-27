@@ -28586,33 +28586,26 @@ fn probe_text_if_installed(
     }
 }
 
-/// The dotted version in `cmd /C ver` output: `Microsoft Windows [Version
-/// 10.0.26200.9711]` gives `10.0.26200.9711`. `None` when the line is not
-/// there, which is also how a localised `ver` would look.
-fn ver_version(text: &str) -> Option<String> {
-    let version = text.split("Version ").nth(1)?.split(']').next()?.trim();
-    let dotted_digits =
-        !version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.');
-    dotted_digits.then(|| version.to_string())
+/// The Windows version from the kernel: major, minor, build and, from the
+/// registry, the update revision.
+///
+/// Every Windows version probe ran `cmd /C ver` and parsed
+/// `Microsoft Windows [Version 10.0.26200.9711]`. That started a process per
+/// call and failed on a host whose display language translates "Version", so
+/// platform_snapshot refused on those hosts. RtlGetVersion, unlike
+/// GetVersionEx, is not capped by the application manifest; the update
+/// revision is only in the registry.
+#[cfg(target_os = "windows")]
+struct WindowsVersion {
+    major: u32,
+    minor: u32,
+    build: u32,
+    revision: Option<u32>,
 }
 
-fn ver_unreadable(builtin: &str) -> anyhow::Error {
-    crate::safety::bad_state(
-        builtin,
-        "unexpected `ver` output",
-        "a `Microsoft Windows [Version x.y.z]` line",
-    )
-}
-
-fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    #[cfg(target_os = "windows")]
-    {
-        // The kernel's own version, as `10.0.26200.6899`: the release string
-        // `uname -r` is elsewhere. This was `cmd /C ver`, which started a
-        // process and answered in a localized sentence ("Microsoft Windows
-        // [Version ...]") whose wording varied with the display language.
-        // RtlGetVersion, unlike GetVersionEx, is not capped by the manifest;
-        // the fourth part (the update revision) is only in the registry.
+#[cfg(target_os = "windows")]
+impl WindowsVersion {
+    fn read(builtin: &str) -> Result<WindowsVersion> {
         #[repr(C)]
         struct OsVersionInfoW {
             size: u32,
@@ -28638,18 +28631,49 @@ fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let status = unsafe { RtlGetVersion(&mut info) };
         if status != 0 {
             return Err(crate::safety::bad_state(
-                "sys_kernel",
+                builtin,
                 &format!("RtlGetVersion returned NTSTATUS {status:#x}"),
                 "a Windows kernel that reports its version",
             ));
         }
-        let mut release = format!("{}.{}.{}", info.major, info.minor, info.build);
-        if let Ok(Some(ubr)) =
-            windows_hklm_dword(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "UBR")
-        {
-            release.push_str(&format!(".{ubr}"));
+        let revision = windows_hklm_dword(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "UBR")
+            .ok()
+            .flatten();
+        Ok(WindowsVersion {
+            major: info.major,
+            minor: info.minor,
+            build: info.build,
+            revision,
+        })
+    }
+
+    /// `10.0.26200`, the kernel version `wmic os get Version` printed.
+    fn kernel(&self) -> String {
+        format!("{}.{}.{}", self.major, self.minor, self.build)
+    }
+
+    /// `10.0.26200.9711`, with the update revision when the registry has one.
+    fn release(&self) -> String {
+        match self.revision {
+            Some(r) => format!("{}.{r}", self.kernel()),
+            None => self.kernel(),
         }
-        Ok(Value::Str(release))
+    }
+
+    /// The line `ver` prints on an English host, which platform_os_version
+    /// and platform_snapshot have always answered. platform_snapshot's
+    /// fingerprint hashes it, so it is reproduced, not reworded.
+    fn ver_line(&self) -> String {
+        format!("Microsoft Windows [Version {}]", self.release())
+    }
+}
+
+fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    #[cfg(target_os = "windows")]
+    {
+        // The release string, as `uname -r` gives one elsewhere. It was
+        // ver's whole sentence.
+        Ok(Value::Str(WindowsVersion::read("sys_kernel")?.release()))
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -48855,13 +48879,6 @@ fn probe_tool_versions(tools: &[&str]) -> Vec<(String, String)> {
     })
 }
 
-/// The build number in `cmd /C ver` output: the third component of its
-/// version. `None` when the line is not the English `Microsoft Windows [Version
-/// ...]` form.
-fn windows_ver_build(ver: &str) -> Option<String> {
-    ver_version(ver).and_then(|v| v.split('.').nth(2).map(str::to_string))
-}
-
 /// PRETTY_NAME from /etc/os-release text, without its quotes.
 #[cfg(any(not(target_os = "windows"), test))]
 fn os_release_pretty_name(content: &str) -> Option<String> {
@@ -48911,14 +48928,11 @@ fn bi_platform_snapshot(_args: Vec<Value>, input: Option<Value>) -> Result<Value
 
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("cmd");
-        cmd.args(["/c", "ver"]);
-        let ver = probe_text("platform_snapshot", "cmd", cmd)?;
-        // The build is the third component of the version: the number that
-        // `wmic os get BuildNumber` printed, and wmic is absent on Windows 11.
-        let build = windows_ver_build(&ver).ok_or_else(|| ver_unreadable("platform_snapshot"))?;
-        snapshot.insert("os_version".to_string(), Value::Str(ver));
-        snapshot.insert("build".to_string(), Value::Str(build));
+        // The same strings as when they came from `cmd /c ver`, so the
+        // fingerprint is unchanged on an English host.
+        let version = WindowsVersion::read("platform_snapshot")?;
+        snapshot.insert("os_version".to_string(), Value::Str(version.ver_line()));
+        snapshot.insert("build".to_string(), Value::Str(version.build.to_string()));
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -49023,15 +49037,15 @@ fn md5_simple(s: &str) -> u64 {
 /// refused. The old code fell through to a literal "unknown", which read as an
 /// answer.
 fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut failure: Option<anyhow::Error> = None;
-    if cfg!(target_os = "windows") {
-        let mut cmd = std::process::Command::new("cmd");
-        cmd.args(["/c", "ver"]);
-        match probe_text("platform_os_version", "cmd", cmd) {
-            Ok(text) => return Ok(Value::Str(text)),
-            Err(e) => failure = Some(e),
-        }
+    #[cfg(target_os = "windows")]
+    {
+        // ver's line, as before, from the kernel instead of `cmd /c ver`.
+        return Ok(Value::Str(
+            WindowsVersion::read("platform_os_version")?.ver_line(),
+        ));
     }
+    #[allow(unreachable_code)]
+    let mut failure: Option<anyhow::Error> = None;
     if cfg!(target_os = "macos") {
         let mut cmd = std::process::Command::new("sw_vers");
         cmd.arg("-productVersion");
@@ -49068,36 +49082,32 @@ fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
     }))
 }
 
-/// The kernel release. On Windows that is the first three components of the
-/// `ver` line's version, which is what `wmic os get Version` printed. `wmic` is
-/// deprecated and absent from current Windows 11 installs, so it cannot be the
-/// source.
+/// The kernel release. On Windows that is major.minor.build, which is what
+/// `wmic os get Version` printed; the update revision is not part of it.
 fn bi_platform_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    if cfg!(target_os = "windows") {
-        let mut cmd = std::process::Command::new("cmd");
-        cmd.args(["/c", "ver"]);
-        let text = probe_text("platform_kernel", "cmd", cmd)?;
-        // The first three components, as `wmic os get Version` printed them;
-        // the fourth is the update revision, not part of the kernel version.
-        return ver_version(&text)
-            .map(|v| v.split('.').take(3).collect::<Vec<_>>().join("."))
-            .map(Value::Str)
-            .ok_or_else(|| ver_unreadable("platform_kernel"));
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(Value::Str(
+            WindowsVersion::read("platform_kernel")?.kernel(),
+        ));
     }
+    #[allow(unreachable_code)]
     let mut cmd = std::process::Command::new("uname");
     cmd.arg("-r");
     Ok(Value::Str(probe_text("platform_kernel", "uname", cmd)?))
 }
 
-/// The OS build. On Windows it is the third component of the `ver` version, the
-/// same number `wmic os get BuildNumber` gave.
+/// The OS build. On Windows it is the kernel's build number, the number
+/// `wmic os get BuildNumber` gave.
 fn bi_platform_build(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let build = if cfg!(target_os = "windows") {
-        let mut cmd = std::process::Command::new("cmd");
-        cmd.args(["/c", "ver"]);
-        let text = probe_text("platform_build", "cmd", cmd)?;
-        windows_ver_build(&text).ok_or_else(|| ver_unreadable("platform_build"))?
-    } else if cfg!(target_os = "macos") {
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(Value::Str(
+            WindowsVersion::read("platform_build")?.build.to_string(),
+        ));
+    }
+    #[allow(unreachable_code)]
+    let build = if cfg!(target_os = "macos") {
         let mut cmd = std::process::Command::new("sw_vers");
         cmd.arg("-buildVersion");
         probe_text("platform_build", "sw_vers", cmd)?
@@ -49224,22 +49234,6 @@ mod probe_status_tests {
         )
         .unwrap();
         assert_eq!(text, "6.8.0-45-generic");
-    }
-
-    #[test]
-    fn ver_version_reads_the_version_and_refuses_other_text() {
-        assert_eq!(
-            ver_version("\r\nMicrosoft Windows [Version 10.0.26200.9711]\r\n").as_deref(),
-            Some("10.0.26200.9711")
-        );
-        for text in [
-            "",
-            "Microsoft Windows [Version ]",
-            "Microsoft Windows",
-            "Version 10.0 beta",
-        ] {
-            assert_eq!(ver_version(text), None, "{text:?}");
-        }
     }
 
     #[test]
@@ -51192,22 +51186,38 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
 mod platform_probe_status_tests {
     use super::*;
 
+    /// platform_snapshot's fingerprint hashes os_version and build, so the
+    /// kernel-read strings must be the ones `cmd /c ver` gave. Compared only
+    /// where ver prints the English line it can be compared with.
+    #[cfg(target_os = "windows")]
     #[test]
-    fn windows_ver_build_is_the_third_component() {
+    fn the_version_strings_are_the_ones_ver_printed() {
+        let out = std::process::Command::new("cmd")
+            .args(["/c", "ver"])
+            .output()
+            .expect("cmd runs");
+        let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let Value::Str(line) = bi_platform_os_version(vec![], None).unwrap() else {
+            panic!("platform_os_version is not a String");
+        };
+        if ver.contains("[Version ") {
+            assert_eq!(line, ver);
+        }
+        let inner = line
+            .strip_prefix("Microsoft Windows [Version ")
+            .and_then(|v| v.strip_suffix(']'))
+            .expect("the ver form");
+        let parts: Vec<&str> = inner.split('.').collect();
+        let str_of = |v: Value| match v {
+            Value::Str(s) => s,
+            other => panic!("not a String: {other:?}"),
+        };
         assert_eq!(
-            windows_ver_build("Microsoft Windows [Version 10.0.26200.9711]").as_deref(),
-            Some("26200")
+            str_of(bi_platform_kernel(vec![], None).unwrap()),
+            parts[..3].join(".")
         );
-    }
-
-    #[test]
-    fn windows_ver_build_refuses_a_localised_ver_line() {
-        // A localised `ver` says "Versão", so there is no build to report. The
-        // snapshot refuses instead of writing "" as the build.
-        assert_eq!(
-            windows_ver_build("Microsoft Windows [Versão 10.0.26200.9711]"),
-            None
-        );
+        assert_eq!(str_of(bi_platform_build(vec![], None).unwrap()), parts[2]);
+        assert_eq!(str_of(bi_sys_kernel(vec![], None).unwrap()), inner);
     }
 
     #[test]

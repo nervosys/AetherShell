@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   3.4-3.8 s; the rest is the probes themselves. Detection results and their
   order are unchanged.
 
-- Fourteen Windows builtins ask the OS instead of starting a process.
+- Eighteen Windows builtins ask the OS instead of starting a process.
   `sys_uptime` and `sys_boot_time` read the tick count instead of WMI through
   PowerShell (about 12 s on an idle host, past the 30 s probe deadline on a
   loaded one; now under a second). `sudo_check`, `platform_has_admin` and
@@ -91,7 +91,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `platform_memory` and `platform_memory_total` read sysinfo, as
   `sys_mem_info` did, instead of WMI (the same total here, and free within
   6 MB). `proc_mem_usage`, `proc_exe` and `proc_children` read sysinfo instead
-  of `Get-Process` and Win32_Process.
+  of `Get-Process` and Win32_Process. `platform_os_version`,
+  `platform_kernel`, `platform_build` and `platform_snapshot` read the kernel
+  instead of `cmd /c ver` and give the strings `ver` printed, so
+  `platform_snapshot`'s fingerprint is unchanged; on a host whose display
+  language translates "Version", where `platform_snapshot` used to refuse, it
+  now answers.
 
 ### Changed
 
