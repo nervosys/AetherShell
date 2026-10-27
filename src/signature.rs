@@ -10585,7 +10585,7 @@ pub static SIGNATURES: &[Signature] = &[
             req("ssh_host", Ty::Str, "[user@]host to tunnel through"),
         ],
         returns: "Record",
-        doc: "Start a background local forward (ssh -f -N -L) through ssh_host and return {success, local_port, remote_host, remote_port, ssh_host}. The tunnel outlives the call and no handle to it is returned, so this builtin cannot stop it. ExitOnForwardFailure makes a port that cannot be bound an error. Opens a listening port on this machine.",
+        doc: "Start a local forward (ssh -N -L) through ssh_host and return {success, pid, local_port, remote_host, remote_port, ssh_host}. pid is the ssh process itself, so proc_kill(pid) stops the tunnel. The local port must be free on this machine: the call refuses one already in use. The call waits until the forward is listening, or fails when ssh exits or the deadline passes. ExitOnForwardFailure makes a port that cannot be bound an error. Opens a listening port on this machine.",
         examples: &[
             (r#"(try { ssh_tunnel(0, "db.internal", 5432, "bastion") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { ssh_tunnel(15432, "db.internal", 5432, "-oProxyCommand=id") } catch e { e.error.code })"#, "E_BAD_ARG"),

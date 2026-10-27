@@ -57488,12 +57488,15 @@ fn bi_ssh_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ]))
 }
 
-// 981: bi_ssh_tunnel - Open a background local port forward through an ssh host.
+// 981: bi_ssh_tunnel - Open a local port forward through an ssh host.
 //
-// The tunnel outlives the call: ssh forks into the background after it
-// authenticates, and no handle to it is returned. ExitOnForwardFailure makes a
-// port that cannot be bound an error rather than a silent tunnel that does
-// nothing.
+// ssh runs in the foreground (`-N`, not `-f`), so this process holds the ssh
+// pid and the call answers it: proc_kill(pid) stops the tunnel. The call returns
+// once the forward is listening, or fails when ssh exits or the deadline passes.
+// The local port must be free before ssh starts: a connect to a port something
+// else holds would report a tunnel that ssh never opened. ExitOnForwardFailure
+// makes a port that cannot be bound an error rather than a silent tunnel that
+// does nothing.
 fn bi_ssh_tunnel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     refuse_piped("ssh_tunnel", &input)?;
     let local_port = match args.first() {
@@ -57539,16 +57542,110 @@ fn bi_ssh_tunnel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     tunnel_host_arg("ssh_tunnel", &remote_host)?;
     ssh_target_arg("ssh_tunnel", "ssh_host", &ssh_host)?;
+    // Checked above to be in 1..=65535.
+    let port = local_port as u16;
+    // Refused when something already holds the port. The probe listener is
+    // dropped here, before ssh is started. A bind error other than "in use"
+    // (for example a privileged port) is refused the same way, with the OS text.
+    match std::net::TcpListener::bind(("127.0.0.1", port)) {
+        Ok(listener) => drop(listener),
+        Err(e) => {
+            return Err(crate::safety::bad_arg(
+                "ssh_tunnel",
+                &format!("a local_port that is free on 127.0.0.1 (bind said: {e})"),
+                &local_port.to_string(),
+            ))
+        }
+    }
     let spec = format!("{local_port}:{remote_host}:{remote_port}");
+    // ssh's stderr goes to a new file, not a pipe: nothing reads a pipe after
+    // this call returns, and a full pipe would block ssh. The file name carries
+    // the port and this process's pid, plus a uuid so a stale file cannot collide.
+    let stderr_path = std::env::temp_dir().join(format!(
+        "ae-ssh-tunnel-{local_port}-{}-{}.err",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
+    let stderr_path = stderr_path.to_string_lossy().into_owned();
+    let stderr_file = create_new_output("ssh_tunnel", &stderr_path)?;
     let mut cmd = std::process::Command::new("ssh");
-    cmd.args(["-f", "-N", "-o", "ExitOnForwardFailure=yes"])
+    cmd.args(["-N", "-o", "ExitOnForwardFailure=yes"])
         .args(SSH_OPTS)
         .arg("-L")
         .arg(&spec)
-        .arg(&ssh_host);
-    run_checked("ssh_tunnel", "ssh", cmd, NETWORK_DEADLINE_SECS)?;
+        .arg(&ssh_host)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(stderr_file);
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            remove_partial(&stderr_path);
+            return Err(crate::safety::spawn_error("ssh_tunnel", "ssh", &e));
+        }
+    };
+    drop(cmd);
+    // Wait until the forward listens, ssh exits, or the deadline passes. The
+    // deadline is the network one, or the evaluation's own if that is sooner.
+    let mut limit = std::time::Duration::from_secs(NETWORK_DEADLINE_SECS);
+    if let Some(left) = crate::safety::remaining_deadline() {
+        limit = limit.min(left);
+    }
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let stderr = std::fs::read_to_string(&stderr_path).unwrap_or_default();
+                remove_partial(&stderr_path);
+                return Err(crate::safety::tool_failed(
+                    "ssh_tunnel",
+                    "ssh",
+                    status.code(),
+                    &tail_text(stderr.trim(), 300),
+                ));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                remove_partial(&stderr_path);
+                return Err(crate::safety::tool_failed(
+                    "ssh_tunnel",
+                    "ssh",
+                    None,
+                    &e.to_string(),
+                ));
+            }
+        }
+        if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(200))
+            .is_ok()
+        {
+            break;
+        }
+        if started.elapsed() >= limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            remove_partial(&stderr_path);
+            return Err(crate::safety::budget_exceeded(
+                "ssh_tunnel",
+                format!(
+                    "ssh did not open the forward on 127.0.0.1:{port} within {:.1} s and was stopped",
+                    limit.as_secs_f64()
+                ),
+                "the call is refused rather than answered in part; check the host, its key authentication and the network, and try again",
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    // The forward is up. The child is not waited for: dropping it does not kill
+    // it, and it is the tunnel. Its pid is the answer, and proc_wait may reap it.
+    remove_partial(&stderr_path);
+    let pid = i64::from(child.id());
+    spawned_note(pid);
     Ok(rec(vec![
         ("success", Value::Bool(true)),
+        ("pid", Value::Int(pid)),
         ("local_port", Value::Int(local_port)),
         ("remote_host", Value::Str(remote_host)),
         ("remote_port", Value::Int(remote_port)),
