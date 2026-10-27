@@ -25149,6 +25149,152 @@ fn bi_proc_parent(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .unwrap_or(Value::Null))
 }
 
+/// A Win32 FILETIME: 100 ns ticks split into two 32-bit halves.
+#[cfg(windows)]
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct WinFileTime {
+    low: u32,
+    high: u32,
+}
+
+#[cfg(windows)]
+impl WinFileTime {
+    fn ticks(self) -> u64 {
+        (u64::from(self.high) << 32) | u64::from(self.low)
+    }
+}
+
+/// A Win32 THREADENTRY32, as Thread32First and Thread32Next fill it.
+#[cfg(windows)]
+#[repr(C)]
+struct WinThreadEntry32 {
+    dw_size: u32,
+    cnt_usage: u32,
+    th32_thread_id: u32,
+    th32_owner_process_id: u32,
+    tp_base_pri: i32,
+    tp_delta_pri: i32,
+    dw_flags: u32,
+}
+
+/// Runs `f` with a handle to process `pid` opened with
+/// PROCESS_QUERY_LIMITED_INFORMATION, then closes the handle exactly once,
+/// whether `f` succeeds or not. A refused open is E_OS_DENIED, a pid that has
+/// gone is E_NOT_FOUND, and anything else is E_BAD_STATE.
+#[cfg(windows)]
+fn win_with_process<T>(
+    builtin: &str,
+    pid: i64,
+    f: impl FnOnce(*mut std::ffi::c_void) -> Result<T>,
+) -> Result<T> {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const ERROR_ACCESS_DENIED: i32 = 5;
+    const ERROR_INVALID_PARAMETER: i32 = 87;
+    // SAFETY: OpenProcess takes plain values and returns a handle or null; the
+    // pid was checked to fit a u32 by proc_pid before any reader calls this.
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32) };
+    if handle.is_null() {
+        let err = std::io::Error::last_os_error();
+        return Err(match err.raw_os_error() {
+            Some(ERROR_ACCESS_DENIED) => crate::safety::os_denied(
+                builtin,
+                format!("{builtin}: the operating system denied PROCESS_QUERY_LIMITED_INFORMATION to process {pid} (ERROR_ACCESS_DENIED)"),
+                "the process is protected or belongs to another user; read a process this user owns",
+            ),
+            Some(ERROR_INVALID_PARAMETER) => {
+                crate::safety::not_found(builtin, "process", &pid.to_string())
+            }
+            _ => crate::safety::bad_state(
+                builtin,
+                &format!("OpenProcess on process {pid} failed: {err}"),
+                "a live process this user can query",
+            ),
+        });
+    }
+    let result = f(handle);
+    // SAFETY: `handle` came from the successful OpenProcess above and is closed
+    // here and nowhere else.
+    unsafe { CloseHandle(handle) };
+    result
+}
+
+/// Counts the threads whose owner is `pid`, from a system thread snapshot.
+#[cfg(windows)]
+fn win_thread_count(builtin: &str, pid: i64) -> Result<i64> {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateToolhelp32Snapshot(flags: u32, process: u32) -> *mut c_void;
+        fn Thread32First(snapshot: *mut c_void, entry: *mut WinThreadEntry32) -> i32;
+        fn Thread32Next(snapshot: *mut c_void, entry: *mut WinThreadEntry32) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+    const TH32CS_SNAPTHREAD: u32 = 0x4;
+    const ERROR_NO_MORE_FILES: i32 = 18;
+    // INVALID_HANDLE_VALUE is (HANDLE)-1.
+    let invalid = -1isize as *mut c_void;
+    // SAFETY: CreateToolhelp32Snapshot takes two plain values and returns a
+    // snapshot handle or INVALID_HANDLE_VALUE; the handle is closed below.
+    let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if snap == invalid {
+        return Err(crate::safety::bad_state(
+            builtin,
+            &format!(
+                "CreateToolhelp32Snapshot failed: {}",
+                std::io::Error::last_os_error()
+            ),
+            "a thread snapshot of this system",
+        ));
+    }
+    let mut entry = WinThreadEntry32 {
+        dw_size: std::mem::size_of::<WinThreadEntry32>() as u32,
+        cnt_usage: 0,
+        th32_thread_id: 0,
+        th32_owner_process_id: 0,
+        tp_base_pri: 0,
+        tp_delta_pri: 0,
+        dw_flags: 0,
+    };
+    let owner = pid as u32;
+    let mut count: i64 = 0;
+    let mut failure = None;
+    // SAFETY: `entry` is a writable THREADENTRY32 whose dw_size is set, and
+    // `snap` is the snapshot opened above.
+    let mut more = unsafe { Thread32First(snap, &mut entry) } != 0;
+    loop {
+        if !more {
+            // ERROR_NO_MORE_FILES is the normal end of the walk.
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() != Some(ERROR_NO_MORE_FILES) {
+                failure = Some(err);
+            }
+            break;
+        }
+        if entry.th32_owner_process_id == owner {
+            count += 1;
+        }
+        // SAFETY: as for Thread32First above.
+        more = unsafe { Thread32Next(snap, &mut entry) } != 0;
+    }
+    // SAFETY: `snap` is a handle from CreateToolhelp32Snapshot, closed once.
+    unsafe { CloseHandle(snap) };
+    match failure {
+        Some(err) => Err(crate::safety::bad_state(
+            builtin,
+            &format!("Thread32Next failed: {err}"),
+            "a thread snapshot of this system",
+        )),
+        None => Ok(count),
+    }
+}
+
 fn bi_proc_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     proc_check("proc_priority", &args, &input, 1)?;
     let pid = proc_pid("proc_priority", args.first())?;
@@ -25156,37 +25302,48 @@ fn bi_proc_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     // One record on every OS: nice from -20 (highest) to 19 (lowest), and the
     // Windows priority class it corresponds to.
+    // Was PowerShell's Get-Process; now read in process (GetPriorityClass).
     #[cfg(windows)]
     let (nice, class) = {
-        let cmd = crate::ps_script!("(Get-Process -Id {}).PriorityClass", pid);
-        let out = proc_tool(
-            "proc_priority",
-            "powershell",
-            {
-                let mut c = Command::new("powershell");
-                c.args(["-Command", &cmd]);
-                c
-            },
-            PROBE_DEADLINE_SECS,
-        )?;
-        let class = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let nice: i64 = match class.as_str() {
-            "Idle" => 19,
-            "BelowNormal" => 10,
-            "Normal" => 0,
-            "AboveNormal" => -5,
-            "High" => -10,
-            "RealTime" => -20,
-            _ => {
+        use std::ffi::c_void;
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetPriorityClass(process: *mut c_void) -> u32;
+        }
+        let raw = win_with_process("proc_priority", pid, |h| {
+            // SAFETY: `h` is the live handle win_with_process opened; the call
+            // only reads it.
+            let class = unsafe { GetPriorityClass(h) };
+            if class == 0 {
+                return Err(crate::safety::bad_state(
+                    "proc_priority",
+                    &format!(
+                        "GetPriorityClass failed: {}",
+                        std::io::Error::last_os_error()
+                    ),
+                    "a live process this user can query",
+                ));
+            }
+            Ok(class)
+        })?;
+        // Each Windows class maps to the nice value its PowerShell name had.
+        let (nice, name): (i64, &str) = match raw {
+            0x40 => (19, "Idle"),
+            0x4000 => (10, "BelowNormal"),
+            0x20 => (0, "Normal"),
+            0x8000 => (-5, "AboveNormal"),
+            0x80 => (-10, "High"),
+            0x100 => (-20, "RealTime"),
+            other => {
                 return Err(crate::safety::tool_failed(
                     "proc_priority",
-                    "powershell",
-                    Some(0),
-                    &format!("priority class {class:?} is not one this builtin knows"),
+                    "GetPriorityClass",
+                    None,
+                    &format!("priority class 0x{other:X} is not one this builtin knows"),
                 ))
             }
         };
-        (nice, class)
+        (nice, name.to_string())
     };
     #[cfg(not(windows))]
     let (nice, class) = {
@@ -25300,26 +25457,40 @@ fn bi_proc_cpu_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let pid = proc_pid("proc_cpu_usage", args.first())?;
     proc_require("proc_cpu_usage", pid)?;
     // Units differ by OS: ps %CPU (percent of one CPU) on Unix, total CPU
-    // seconds from Get-Process on Windows. The builtin says so in its doc.
+    // seconds from GetProcessTimes on Windows. The builtin says so in its doc.
+    // Was PowerShell's Get-Process; now read in process (GetProcessTimes).
     #[cfg(windows)]
-    let cpu: f64 = {
-        let cmd = crate::ps_script!("(Get-Process -Id {}).CPU", pid);
-        let out = proc_tool(
-            "proc_cpu_usage",
-            "powershell",
-            {
-                let mut c = Command::new("powershell");
-                c.args(["-Command", &cmd]);
-                c
-            },
-            PROBE_DEADLINE_SECS,
-        )?;
-        proc_parse(
-            "proc_cpu_usage",
-            "powershell",
-            &String::from_utf8_lossy(&out.stdout),
-        )?
-    };
+    let cpu: f64 = win_with_process("proc_cpu_usage", pid, |h| {
+        use std::ffi::c_void;
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetProcessTimes(
+                process: *mut c_void,
+                creation: *mut WinFileTime,
+                exit: *mut WinFileTime,
+                kernel: *mut WinFileTime,
+                user: *mut WinFileTime,
+            ) -> i32;
+        }
+        let mut creation = WinFileTime::default();
+        let mut exit = WinFileTime::default();
+        let mut kernel = WinFileTime::default();
+        let mut user = WinFileTime::default();
+        // SAFETY: `h` is the live handle win_with_process opened; each
+        // out-pointer is a valid, writable FILETIME.
+        if unsafe { GetProcessTimes(h, &mut creation, &mut exit, &mut kernel, &mut user) } == 0 {
+            return Err(crate::safety::bad_state(
+                "proc_cpu_usage",
+                &format!(
+                    "GetProcessTimes failed: {}",
+                    std::io::Error::last_os_error()
+                ),
+                "a live process this user can query",
+            ));
+        }
+        // Kernel plus user time in 100 ns ticks: the total Get-Process reported.
+        Ok((kernel.ticks() + user.ticks()) as f64 / 1e7)
+    })?;
     #[cfg(not(windows))]
     let cpu: f64 = {
         let out = proc_tool(
@@ -25384,25 +25555,9 @@ fn bi_proc_threads(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     proc_check("proc_threads", &args, &input, 1)?;
     let pid = proc_pid("proc_threads", args.first())?;
     proc_require("proc_threads", pid)?;
+    // Was PowerShell's Get-Process; now counted in process from a thread snapshot.
     #[cfg(windows)]
-    let threads: i64 = {
-        let cmd = crate::ps_script!("(Get-Process -Id {}).Threads.Count", pid);
-        let out = proc_tool(
-            "proc_threads",
-            "powershell",
-            {
-                let mut c = Command::new("powershell");
-                c.args(["-Command", &cmd]);
-                c
-            },
-            PROBE_DEADLINE_SECS,
-        )?;
-        proc_parse(
-            "proc_threads",
-            "powershell",
-            &String::from_utf8_lossy(&out.stdout),
-        )?
-    };
+    let threads: i64 = win_thread_count("proc_threads", pid)?;
     #[cfg(target_os = "linux")]
     let threads: i64 = {
         let entries = std::fs::read_dir(format!("/proc/{pid}/task"))
