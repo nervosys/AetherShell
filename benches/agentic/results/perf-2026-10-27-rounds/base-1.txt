@@ -1,0 +1,16 @@
+case                      median ms      ns / op   result
+builtin call x100k            34.87          349   100000
+lambda map x1M               245.91          246   999999000000
+where x1M                    433.84          434   333334
+implicit .field x100k        118.27         1183   99994
+module calls x100k           104.64         1046   4999950000
+nested field x100k          1699.77        16998   99994
+indexed map x100k             27.91          279   9999900000
+reduce x100k                  29.80          298   4999950000
+indexed reduce x100k          24.89          249   9999900000
+string concat x100k          104.32         1043   100000
+sort 200k                     77.77          389   200000
+sql over 50k rows             74.54         1491   10
+warm parse+eval 1 + 1                       236 ns / request
+warm parse+eval math.abs(-42)              1185 ns / request
+warm parse+eval str.upper("hello")         1221 ns / request
