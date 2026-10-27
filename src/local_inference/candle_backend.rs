@@ -1,8 +1,10 @@
 //! Candle Backend — Pure Rust inference via HuggingFace Candle
 //!
-//! Supports GGUF and SafeTensors model formats for text generation and embeddings.
-//! Uses candle-transformers for model architectures (LLaMA, Mistral, Phi, etc.)
-//! and the HuggingFace tokenizers crate for BPE/SentencePiece tokenization.
+//! Supports GGUF model files for text generation. SafeTensors files and
+//! embeddings are refused until they can be done honestly (see `load_model`
+//! and `embed`). Uses candle-transformers for model architectures (LLaMA,
+//! Mistral, Phi, etc.) and the HuggingFace tokenizers crate for BPE/SentencePiece
+//! tokenization.
 
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
@@ -46,24 +48,12 @@ impl QuantizedModel {
 
 /// A loaded model handle
 struct LoadedModel {
-    /// Quantized transformer model (for GGUF)
-    quantized: Option<QuantizedModel>,
-    /// Embedding weights (for SafeTensors — embedding-only mode)
-    embed_weights: Option<Tensor>,
+    /// Quantized transformer model
+    quantized: QuantizedModel,
     /// Tokenizer for this model
     tokenizer: tokenizers::Tokenizer,
     /// Device the model is loaded on
     device: Device,
-}
-
-/// Minimal model configuration
-#[derive(Debug, Clone)]
-struct ModelConfig {
-    hidden_size: usize,
-    num_layers: usize,
-    num_heads: usize,
-    max_seq_len: usize,
-    model_type: ModelType,
 }
 
 /// Model architecture type — determines which quantized model to instantiate
@@ -73,29 +63,6 @@ enum ModelType {
     Mistral,
     Phi2,
     Phi3,
-}
-
-impl std::fmt::Display for ModelType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Llama => write!(f, "llama"),
-            Self::Mistral => write!(f, "mistral"),
-            Self::Phi2 => write!(f, "phi2"),
-            Self::Phi3 => write!(f, "phi3"),
-        }
-    }
-}
-
-impl Default for ModelConfig {
-    fn default() -> Self {
-        Self {
-            hidden_size: 4096,
-            num_layers: 32,
-            num_heads: 32,
-            max_seq_len: 4096,
-            model_type: ModelType::Llama,
-        }
-    }
 }
 
 /// Candle-based local inference backend
@@ -120,68 +87,58 @@ impl CandleBackend {
         }
     }
 
-    /// Detect model architecture from GGUF metadata
+    /// Detect the model architecture from the GGUF "general.architecture" key.
+    /// Any architecture other than the four supported ones is refused: running it
+    /// through a guessed loader would produce wrong output without an error.
     fn detect_model_type_from_gguf(
         content: &candle_core::quantized::gguf_file::Content,
-    ) -> ModelType {
-        // Check the "general.architecture" GGUF metadata key
-        if let Some(arch) = content.metadata.get("general.architecture") {
-            let arch_str = format!("{:?}", arch).to_lowercase();
-            if arch_str.contains("llama") {
-                return ModelType::Llama;
-            } else if arch_str.contains("mistral") {
-                return ModelType::Mistral;
-            } else if arch_str.contains("phi3") {
-                return ModelType::Phi3;
-            } else if arch_str.contains("phi") {
-                return ModelType::Phi2;
-            }
-        }
-
-        // Fall back to filename-based heuristics
-        ModelType::Llama
-    }
-
-    /// Detect model type from filename heuristics (for non-GGUF formats)
-    fn detect_model_type_from_filename(filename: &str) -> ModelType {
-        let lower = filename.to_lowercase();
-        if lower.contains("mistral") {
-            ModelType::Mistral
-        } else if lower.contains("phi-3") || lower.contains("phi3") {
-            ModelType::Phi3
-        } else if lower.contains("phi-2") || lower.contains("phi2") || lower.contains("phi") {
-            ModelType::Phi2
-        } else if lower.contains("qwen") {
-            // Qwen uses a llama-like architecture in GGUF
-            ModelType::Llama
-        } else if lower.contains("gemma") {
-            ModelType::Llama
-        } else {
-            ModelType::Llama
+    ) -> Result<ModelType> {
+        let arch = content
+            .metadata
+            .get("general.architecture")
+            .and_then(|v| v.to_string().ok())
+            .map(String::as_str)
+            .unwrap_or("none");
+        match arch {
+            "llama" => Ok(ModelType::Llama),
+            "mistral" => Ok(ModelType::Mistral),
+            "phi2" => Ok(ModelType::Phi2),
+            "phi3" => Ok(ModelType::Phi3),
+            _ => Err(crate::safety::unimplemented(
+                "ai_local_load",
+                &format!("GGUF architecture `{arch}`"),
+                "load a llama, mistral, phi2 or phi3 GGUF model",
+            )),
         }
     }
 
-    /// Detect model config from a GGUF file's metadata
-    fn detect_config_from_gguf(
+    /// Load `tokenizer.json` from the model's own directory. No other directory
+    /// is searched: in a shared models folder a parent's tokenizer may belong to
+    /// a different model.
+    fn load_tokenizer(model_path: &str) -> Result<tokenizers::Tokenizer> {
+        let tokenizer_path = std::path::Path::new(model_path)
+            .parent()
+            .map(|dir| dir.join("tokenizer.json"))
+            .filter(|p| p.exists());
+
+        match tokenizer_path {
+            Some(p) => tokenizers::Tokenizer::from_file(&p)
+                .map_err(|e| anyhow!("Failed to load tokenizer: {}", e)),
+            None => Err(anyhow!(
+                "No tokenizer.json found for {}. A tokenizer.json is needed in the same directory as the model.",
+                model_path
+            )),
+        }
+    }
+
+    /// Build a Mistral config from GGUF metadata. The required keys must be
+    /// present: a guessed size would run the file as a different model.
+    fn mistral_config_from_gguf(
         content: &candle_core::quantized::gguf_file::Content,
-        filename: &str,
-    ) -> ModelConfig {
-        let model_type = Self::detect_model_type_from_gguf(content);
+    ) -> Result<candle_transformers::models::mistral::Config> {
+        use candle_nn::Activation;
 
-        let mut config = ModelConfig {
-            model_type: model_type.clone(),
-            ..Default::default()
-        };
-
-        // Try to read numeric metadata from GGUF keys
-        let arch_prefix = match &model_type {
-            ModelType::Llama => "llama",
-            ModelType::Mistral => "mistral",
-            ModelType::Phi2 => "phi2",
-            ModelType::Phi3 => "phi3",
-        };
-
-        // Helper closure to extract u32 metadata
+        // Helper to extract u32 value from GGUF metadata
         let get_u32 = |key: &str| -> Option<usize> {
             content.metadata.get(key).and_then(|v| {
                 let s = format!("{:?}", v);
@@ -190,102 +147,6 @@ impl CandleBackend {
                     .parse::<usize>()
                     .ok()
             })
-        };
-
-        if let Some(v) = get_u32(&format!("{}.embedding_length", arch_prefix)) {
-            config.hidden_size = v;
-        }
-        if let Some(v) = get_u32(&format!("{}.block_count", arch_prefix)) {
-            config.num_layers = v;
-        }
-        if let Some(v) = get_u32(&format!("{}.attention.head_count", arch_prefix)) {
-            config.num_heads = v;
-        }
-        if let Some(v) = get_u32(&format!("{}.context_length", arch_prefix)) {
-            config.max_seq_len = v;
-        }
-
-        // Fallback: filename-based size heuristics
-        let lower = filename.to_lowercase();
-        if config.hidden_size == 4096 {
-            // Only override if we got the default
-            if lower.contains("13b") || lower.contains("14b") {
-                config.hidden_size = 5120;
-                config.num_layers = 40;
-                config.num_heads = 40;
-            } else if lower.contains("70b") {
-                config.hidden_size = 8192;
-                config.num_layers = 80;
-                config.num_heads = 64;
-            } else if lower.contains("1b") || lower.contains("1.5b") {
-                config.hidden_size = 2048;
-                config.num_layers = 22;
-                config.num_heads = 32;
-            } else if lower.contains("3b") {
-                config.hidden_size = 3200;
-                config.num_layers = 26;
-                config.num_heads = 32;
-            }
-        }
-
-        if lower.contains("128k") {
-            config.max_seq_len = 131072;
-        } else if lower.contains("32k") {
-            config.max_seq_len = 32768;
-        } else if lower.contains("8k") {
-            config.max_seq_len = 8192;
-        }
-
-        config
-    }
-
-    /// Load a tokenizer — tries to find tokenizer.json next to the model, falls back to default
-    fn load_tokenizer(model_path: &str) -> Result<tokenizers::Tokenizer> {
-        let path = std::path::Path::new(model_path);
-
-        // Try tokenizer.json in the same directory
-        if let Some(dir) = path.parent() {
-            let tokenizer_path = dir.join("tokenizer.json");
-            if tokenizer_path.exists() {
-                return tokenizers::Tokenizer::from_file(&tokenizer_path)
-                    .map_err(|e| anyhow!("Failed to load tokenizer: {}", e));
-            }
-        }
-
-        // Try parent directory (common in HuggingFace layouts)
-        if let Some(dir) = path.parent().and_then(|d| d.parent()) {
-            let tokenizer_path = dir.join("tokenizer.json");
-            if tokenizer_path.exists() {
-                return tokenizers::Tokenizer::from_file(&tokenizer_path)
-                    .map_err(|e| anyhow!("Failed to load tokenizer: {}", e));
-            }
-        }
-
-        Err(anyhow!(
-            "No tokenizer.json found near {}. Place a tokenizer.json in the same directory.",
-            model_path
-        ))
-    }
-
-    /// Build a MistralConfig from GGUF metadata
-    fn mistral_config_from_gguf(
-        content: &candle_core::quantized::gguf_file::Content,
-    ) -> candle_transformers::models::mistral::Config {
-        use candle_nn::Activation;
-
-        // Helper to extract u32 value from GGUF metadata
-        let get_u32 = |key: &str, default: usize| -> usize {
-            content
-                .metadata
-                .get(key)
-                .and_then(|v| {
-                    let s = format!("{:?}", v);
-                    s.trim_start_matches("U32(")
-                        .trim_end_matches(')')
-                        .parse::<usize>()
-                        .ok()
-                })
-                .unwrap_or(default)
         };
 
         let get_f64 = |key: &str, default: f64| -> f64 {
@@ -302,26 +163,43 @@ impl CandleBackend {
                 .unwrap_or(default)
         };
 
-        let prefix = "mistral";
-        let hidden_size = get_u32(&format!("{prefix}.embedding_length"), 4096);
-        let num_heads = get_u32(&format!("{prefix}.attention.head_count"), 32);
-        let num_kv_heads = get_u32(&format!("{prefix}.attention.head_count_kv"), 8);
+        let require = |key: &str| -> Result<usize> {
+            get_u32(key).ok_or_else(|| {
+                crate::safety::arg_err(format!(
+                    "ai_local_load: the GGUF file has no `{key}`; it cannot be run as mistral"
+                ))
+            })
+        };
 
-        candle_transformers::models::mistral::Config {
-            vocab_size: get_u32(&format!("{prefix}.vocab_size"), 32000),
+        let prefix = "mistral";
+        let hidden_size = require(&format!("{prefix}.embedding_length"))?;
+        let num_heads = require(&format!("{prefix}.attention.head_count"))?;
+        let num_kv_heads = require(&format!("{prefix}.attention.head_count_kv"))?;
+        // Both are divisors (head_dim, and the query/key-value head ratio)
+        if num_heads == 0 || num_kv_heads == 0 {
+            return Err(crate::safety::arg_err(
+                "ai_local_load: the GGUF file has a zero attention head count; it cannot be run as mistral",
+            ));
+        }
+
+        // The optional keys below keep the Mistral 7B values when absent
+        Ok(candle_transformers::models::mistral::Config {
+            vocab_size: require(&format!("{prefix}.vocab_size"))?,
             hidden_size,
-            intermediate_size: get_u32(&format!("{prefix}.feed_forward_length"), 14336),
-            num_hidden_layers: get_u32(&format!("{prefix}.block_count"), 32),
+            intermediate_size: require(&format!("{prefix}.feed_forward_length"))?,
+            num_hidden_layers: require(&format!("{prefix}.block_count"))?,
             num_attention_heads: num_heads,
             head_dim: Some(hidden_size / num_heads),
             num_key_value_heads: num_kv_heads,
             hidden_act: Activation::Silu,
-            max_position_embeddings: get_u32(&format!("{prefix}.context_length"), 32768),
+            max_position_embeddings: get_u32(&format!("{prefix}.context_length")).unwrap_or(32768),
             rms_norm_eps: get_f64(&format!("{prefix}.attention.layer_norm_rms_epsilon"), 1e-5),
             rope_theta: get_f64(&format!("{prefix}.rope.freq_base"), 10000.0),
-            sliding_window: Some(get_u32(&format!("{prefix}.attention.sliding_window"), 4096)),
+            sliding_window: Some(
+                get_u32(&format!("{prefix}.attention.sliding_window")).unwrap_or(4096),
+            ),
             use_flash_attn: false,
-        }
+        })
     }
 
     /// Create a LogitsProcessor from GenerationParams
@@ -538,104 +416,81 @@ impl LocalInferenceBackend for CandleBackend {
                 .unwrap_or("model")
         );
 
-        let tokenizer = Self::load_tokenizer(path)?;
-
         let ext = std::path::Path::new(path)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
 
-        let filename = std::path::Path::new(path)
-            .file_name()
-            .and_then(|f| f.to_str())
-            .unwrap_or("");
+        // A safetensors file would give only the input-embedding table, which is
+        // not a usable model: refuse it before anything is read.
+        if ext == "safetensors" {
+            return Err(crate::safety::unimplemented(
+                "ai_local_load",
+                "running a safetensors model",
+                "load a GGUF model to generate text, or an ONNX model to embed",
+            ));
+        }
+        if ext != "gguf" {
+            return Err(anyhow!(
+                "Candle backend does not support .{} format. Use .gguf",
+                ext
+            ));
+        }
 
-        let (quantized, embed_weights, _config) = match ext {
-            "gguf" => {
-                // Load GGUF via candle's quantized format support
-                let mut file =
-                    std::fs::File::open(path).context("Failed to open GGUF model file")?;
-                let content = candle_core::quantized::gguf_file::Content::read(
-                    &mut std::io::BufReader::new(&mut file),
-                )?;
+        let tokenizer = Self::load_tokenizer(path)?;
 
-                let config = Self::detect_config_from_gguf(&content, filename);
+        // Load GGUF via candle's quantized format support
+        let mut file = std::fs::File::open(path).context("Failed to open GGUF model file")?;
+        let content = candle_core::quantized::gguf_file::Content::read(
+            &mut std::io::BufReader::new(&mut file),
+        )?;
+        let model_type = Self::detect_model_type_from_gguf(&content)?;
 
-                // Re-open file (Content::read consumed the reader position)
-                let mut file2 = std::fs::File::open(path).context("Failed to re-open GGUF file")?;
-                let content2 = candle_core::quantized::gguf_file::Content::read(
+        // Re-open file (Content::read consumed the reader position)
+        let mut file2 = std::fs::File::open(path).context("Failed to re-open GGUF file")?;
+        let content2 = candle_core::quantized::gguf_file::Content::read(
+            &mut std::io::BufReader::new(&mut file2),
+        )?;
+
+        let quantized = match model_type {
+            ModelType::Llama => {
+                let weights = quantized_llama::ModelWeights::from_gguf(
+                    content2,
                     &mut std::io::BufReader::new(&mut file2),
+                    &self.device,
                 )?;
-
-                let quantized_model = match &config.model_type {
-                    ModelType::Llama => {
-                        let weights = quantized_llama::ModelWeights::from_gguf(
-                            content2,
-                            &mut std::io::BufReader::new(&mut file2),
-                            &self.device,
-                        )?;
-                        QuantizedModel::Llama(weights)
-                    }
-                    ModelType::Mistral => {
-                        let mistral_config = Self::mistral_config_from_gguf(&content2);
-                        let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(
-                            path,
-                            &self.device,
-                        )?;
-                        let model = quantized_mistral::Model::new(&mistral_config, vb)?;
-                        QuantizedModel::Mistral(model)
-                    }
-                    ModelType::Phi2 => {
-                        let weights = quantized_phi::ModelWeights::from_gguf(
-                            content2,
-                            &mut std::io::BufReader::new(&mut file2),
-                            &self.device,
-                        )?;
-                        QuantizedModel::Phi2(weights)
-                    }
-                    ModelType::Phi3 => {
-                        let weights = quantized_phi3::ModelWeights::from_gguf(
-                            false, // use_flash_attn
-                            content2,
-                            &mut std::io::BufReader::new(&mut file2),
-                            &self.device,
-                        )?;
-                        QuantizedModel::Phi3(weights)
-                    }
-                };
-
-                (Some(quantized_model), None, config)
+                QuantizedModel::Llama(weights)
             }
-            "safetensors" => {
-                // SafeTensors: load embedding weights for embedding-only mode
-                // Full transformer inference from SafeTensors requires model-specific
-                // weight key mapping — GGUF is preferred for generation
-                let tensors = candle_core::safetensors::load(path, &self.device)?;
-
-                let embed = tensors
-                    .get("model.embed_tokens.weight")
-                    .or_else(|| tensors.get("transformer.wte.weight"))
-                    .cloned();
-
-                let model_type = Self::detect_model_type_from_filename(filename);
-                let config = ModelConfig {
-                    model_type,
-                    ..Default::default()
-                };
-
-                (None, embed, config)
+            ModelType::Mistral => {
+                let mistral_config = Self::mistral_config_from_gguf(&content2)?;
+                let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(
+                    path,
+                    &self.device,
+                )?;
+                let model = quantized_mistral::Model::new(&mistral_config, vb)?;
+                QuantizedModel::Mistral(model)
             }
-            _ => {
-                return Err(anyhow!(
-                    "Candle backend does not support .{} format. Use .gguf (recommended) or .safetensors",
-                    ext
-                ));
+            ModelType::Phi2 => {
+                let weights = quantized_phi::ModelWeights::from_gguf(
+                    content2,
+                    &mut std::io::BufReader::new(&mut file2),
+                    &self.device,
+                )?;
+                QuantizedModel::Phi2(weights)
+            }
+            ModelType::Phi3 => {
+                let weights = quantized_phi3::ModelWeights::from_gguf(
+                    false, // use_flash_attn
+                    content2,
+                    &mut std::io::BufReader::new(&mut file2),
+                    &self.device,
+                )?;
+                QuantizedModel::Phi3(weights)
             }
         };
 
         let loaded = LoadedModel {
             quantized,
-            embed_weights,
             tokenizer,
             device: self.device.clone(),
         };
@@ -670,62 +525,27 @@ impl LocalInferenceBackend for CandleBackend {
             .get_mut(handle)
             .ok_or_else(|| anyhow!("Model '{}' not loaded", handle))?;
 
-        if let Some(ref mut quantized) = model.quantized {
-            // Full transformer generation via candle-transformers
-            Self::generate_with_quantized(
-                quantized,
-                &model.tokenizer,
-                &model.device,
-                prompt,
-                params,
-            )
-        } else {
-            // SafeTensors embedding-only mode — no generation capability
-            Err(anyhow!(
-                "Model loaded from SafeTensors supports embeddings only. \
-                 Use a .gguf model for text generation."
-            ))
-        }
+        Self::generate_with_quantized(
+            &mut model.quantized,
+            &model.tokenizer,
+            &model.device,
+            prompt,
+            params,
+        )
     }
 
-    fn embed(&self, handle: &str, inputs: &[String]) -> Result<EmbeddingResult> {
+    fn embed(&self, handle: &str, _inputs: &[String]) -> Result<EmbeddingResult> {
         let models = self.models.lock().unwrap();
-        let model = models
-            .get(handle)
-            .ok_or_else(|| anyhow!("Model '{}' not loaded", handle))?;
-
-        let mut all_embeddings = Vec::new();
-        let mut total_tokens = 0u32;
-
-        // Use embedding weights if available (SafeTensors or GGUF with extracted embeddings)
-        let embed_weight = model.embed_weights.as_ref().ok_or_else(|| {
-            anyhow!(
-                "No embedding weights available for model '{}'. \
-                 Embeddings require model.embed_tokens.weight in the model file.",
-                handle
-            )
-        })?;
-
-        for input in inputs {
-            let encoding = model
-                .tokenizer
-                .encode(input.as_str(), true)
-                .map_err(|e| anyhow!("Tokenization failed: {}", e))?;
-            let token_ids = encoding.get_ids().to_vec();
-            total_tokens += token_ids.len() as u32;
-
-            let input_tensor = Tensor::new(token_ids.as_slice(), &model.device)?;
-            let embeddings = embed_weight.index_select(&input_tensor, 0)?;
-            // Mean pool across sequence dimension
-            let mean = embeddings.mean(0)?;
-            let embedding: Vec<f32> = mean.to_vec1()?;
-            all_embeddings.push(embedding);
+        if !models.contains_key(handle) {
+            return Err(anyhow!("Model '{}' not loaded", handle));
         }
-
-        Ok(EmbeddingResult {
-            embeddings: all_embeddings,
-            total_tokens,
-        })
+        // Averaging a GGUF model's input-embedding rows is not a model embedding,
+        // so embeddings are refused rather than guessed.
+        Err(crate::safety::unimplemented(
+            "ai_local_embed",
+            "embeddings from a GGUF model",
+            "load an ONNX embedding model (with its tokenizer.json) and call ai_local_embed on that",
+        ))
     }
 
     fn supports_format(&self, extension: &str) -> bool {
