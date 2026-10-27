@@ -31405,6 +31405,7 @@ fn zip_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Opti
 
 /// The member names of a compressed tar archive, as `tar -tf` lists them.
 fn tar_tool_entry_names(builtin: &str, archive: &str) -> Result<Vec<(String, Option<String>)>> {
+    crate::safety::reject_option_like(builtin, &[archive.to_string()])?;
     let mut cmd = std::process::Command::new("tar");
     cmd.arg("-tf").arg(archive);
     let out = bounded_cmd_output(builtin, "tar", cmd, TOOL_DEADLINE_SECS)?;

@@ -125,10 +125,29 @@ fn risky_spawn_sites(src: &str) -> Vec<(String, String, String, String)> {
         best
     };
 
+    // Lines inside a top-level `#[cfg(test)]` (or `#[cfg(all(test, ...))]`)
+    // module. A fixture spawned there takes no caller value, and without this
+    // it would be credited to the last `fn` above the module.
+    let mut in_test = vec![false; lines.len()];
+    let mut i = 0;
+    while i < lines.len() {
+        let l = lines[i];
+        let test_attr = l.starts_with("#[cfg(test)]") || l.starts_with("#[cfg(all(test");
+        if test_attr && lines.get(i + 1).is_some_and(|n| n.starts_with("mod ")) {
+            let mut j = i;
+            while j < lines.len() && lines[j] != "}" {
+                in_test[j] = true;
+                j += 1;
+            }
+            i = j;
+        }
+        i += 1;
+    }
+
     let mut out = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let t = line.trim();
-        if t.starts_with("//") || t.starts_with('*') {
+        if t.starts_with("//") || t.starts_with('*') || in_test[i] {
             continue;
         }
         // `web_curl` is the one place curl is spawned (through `run_tree`), so
