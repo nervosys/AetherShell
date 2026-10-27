@@ -377,7 +377,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - **Language:** Rust
 - **Source Lines:** ~198,000 (src/)
 - **Test Lines:** ~85,000 (tests/)
-- **Builtins:** 1,171 in the ontology (1,437 names including aliases)
+- **Builtins:** 1,172 in the ontology (1,438 names including aliases)
 - **Modules:** 108
 - **Themes:** 38
 
