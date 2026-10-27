@@ -122,6 +122,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and inode, so a hard link is caught too. All 23 file writers are pinned in
   `tests/audit_alias_contracts.rs` (Unix). On Windows a symlink needs
   privilege, and hard-link identity is not compared there yet.
+- **`workflow_execute(id, {wait: false})`** starts a run in the background and
+  answers `{id, status}` at once; the same caller can then follow it with
+  `workflow_status` and stop it with `workflow_cancel`. The plain call still
+  waits for the run to end.
 - **`proc_spawn` takes a deadline**: `proc_spawn(cmd, args..., {timeout_ms: N})`
   stops the process and its tree if it is still running N ms later (its own
   process group on Unix, SIGTERM then SIGKILL; `taskkill /T` on Windows). A
