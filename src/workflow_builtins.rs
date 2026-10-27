@@ -46,12 +46,20 @@ fn engine() -> &'static WorkflowEngine {
     ENGINE.get_or_init(WorkflowEngine::new)
 }
 
-/// The runtime used when the caller has none of its own.
+/// The runtime used when the caller has none of its own, and for every
+/// detached run. Its workers get the evaluation stack, as the Agent API's do,
+/// because a detached run evaluates its steps on them.
 fn fallback_runtime() -> Result<&'static Runtime> {
     static RT: OnceLock<Option<Runtime>> = OnceLock::new();
-    RT.get_or_init(|| Runtime::new().ok())
-        .as_ref()
-        .ok_or_else(|| anyhow!("workflow: could not start an async runtime"))
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_stack_size(crate::safety::EVAL_STACK_SIZE)
+            .build()
+            .ok()
+    })
+    .as_ref()
+    .ok_or_else(|| anyhow!("workflow: could not start an async runtime"))
 }
 
 /// Run an engine future to completion from synchronous builtin code.
@@ -324,10 +332,10 @@ async fn instance_status(id: &str) -> Result<&'static str> {
 /// The spawned run's result is dropped. The engine records the terminal status
 /// itself, `failed` and `cancelled` included.
 ///
-/// Runtime. The run goes on the caller's runtime when there is one, so it uses
-/// the blocking pool and stack the blocking call would use. Otherwise it goes
-/// on the process-lifetime fallback runtime, which outlives this call. A
-/// current-thread caller never gets this far, because `block_on` refuses it.
+/// Runtime. The run goes on the process-lifetime fallback runtime, never the
+/// caller's: a caller's runtime may be short-lived, and dropping it would end
+/// the run with its status left at `running`. That runtime's workers have the
+/// evaluation stack. A run still going when the process exits ends with it.
 ///
 /// Limits and gating. The evaluation deadline is per-thread and is not
 /// inherited. The run keeps its own bounds: each wait is capped at
@@ -344,17 +352,15 @@ fn start_detached(id: String) -> Result<Value> {
     let run = async move {
         let _ = engine().execute(&run_id).await;
     };
-    match Handle::try_current() {
-        Ok(handle) => {
-            handle.spawn(run);
-        }
-        Err(_) => {
-            fallback_runtime()?.spawn(run);
-        }
-    }
+    // Always the process-lifetime runtime: a caller's runtime may be a
+    // short-lived one, and dropping it would end the run with its status left
+    // at `running`.
+    fallback_runtime()?.spawn(run);
 
     let status = block_on(async {
-        instance_status(&id).await.map(|s| Value::Str(s.to_string()))
+        instance_status(&id)
+            .await
+            .map(|s| Value::Str(s.to_string()))
     })?;
     Ok(Value::Record(BTreeMap::from([
         ("id".to_string(), Value::Str(id)),
@@ -1013,13 +1019,9 @@ mod tests {
     #[test]
     fn an_unknown_id_gets_the_blocking_calls_error_either_way() {
         let missing = "no-such-workflow-detached";
-        let blocking = call(
-            "workflow_execute",
-            vec![Value::Str(missing.into())],
-            None,
-        )
-        .unwrap()
-        .expect_err("an unknown id must be refused");
+        let blocking = call("workflow_execute", vec![Value::Str(missing.into())], None)
+            .unwrap()
+            .expect_err("an unknown id must be refused");
         let detached = call(
             "workflow_execute",
             vec![Value::Str(missing.into()), options(false)],
