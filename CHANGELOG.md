@@ -122,6 +122,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and inode, so a hard link is caught too. All 23 file writers are pinned in
   `tests/audit_alias_contracts.rs` (Unix). On Windows a symlink needs
   privilege, and hard-link identity is not compared there yet.
+- **`ssh_tunnel` can be stopped**: it answers the ssh pid, and
+  `proc_kill(pid)` ends the tunnel. ssh now runs in the foreground and the
+  call returns once the forward is listening. A local port already in use is
+  refused (`E_BAD_ARG`) before ssh starts. Before, ssh forked itself into the
+  background and nothing could find it again.
+- **`tmux_kill(session)`** ends a session that `tmux_new` started.
+- **tmux calls name the session exactly**: tmux resolves `-t work` to a
+  session called `workshop` when there is no `work`, so `tmux_send` could
+  type into, and `tmux_attach` attach to, a session the caller did not name.
+  `tmux_kill`, `tmux_attach` and `tmux_send` now match the name exactly.
 - **The HTTP servers shut down cleanly**: `ae agent serve`, the MCP server and
   the AI model API server stop accepting on Ctrl-C (or SIGTERM on Unix), let
   open requests finish, and close what is still open after 10 seconds, so an
