@@ -122,6 +122,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and inode, so a hard link is caught too. All 23 file writers are pinned in
   `tests/audit_alias_contracts.rs` (Unix). On Windows a symlink needs
   privilege, and hard-link identity is not compared there yet.
+- **`proc_spawn` takes a deadline**: `proc_spawn(cmd, args..., {timeout_ms: N})`
+  stops the process and its tree if it is still running N ms later (its own
+  process group on Unix, SIGTERM then SIGKILL; `taskkill /T` on Windows). A
+  reused pid is never signalled, and `proc_wait` still reports the exit.
+  Without the option nothing changes.
+- **Leftover processes on Windows are stopped as on Unix**: a command run with
+  a time limit is put in a job object, so a background process it started that
+  still holds its output open is killed when the command ends, and a timeout
+  reaches processes whose parent has already exited.
 - **`ssh_tunnel` can be stopped**: it answers the ssh pid, and
   `proc_kill(pid)` ends the tunnel. ssh now runs in the foreground and the
   call returns once the forward is listening. A local port already in use is
