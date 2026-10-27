@@ -27490,31 +27490,188 @@ fn bi_net_ip(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     net_address(NAME)
 }
 
+/// One network adapter as GetAdaptersAddresses reports it.
+#[cfg(windows)]
+struct WinAdapter {
+    /// The friendly name, `Ethernet` or `Wi-Fi`: Get-NetIPAddress's
+    /// InterfaceAlias.
+    name: String,
+    /// `aa:bb:cc:dd:ee:ff`, or `None` for an adapter with no hardware address
+    /// (loopback, most VPN tunnels).
+    mac: Option<String>,
+    up: bool,
+    addresses: Vec<std::net::IpAddr>,
+}
+
+/// Every adapter with its unicast addresses, from iphlpapi.
+///
+/// This is the table Get-NetIPAddress and ipconfig read. sysinfo's interface
+/// list is not: on one host it left out the loopback interface, a VPN tunnel
+/// carrying the host's traffic and every disconnected Wi-Fi adapter.
+#[cfg(windows)]
+fn windows_adapters(builtin: &str) -> Result<Vec<WinAdapter>> {
+    use std::ffi::c_void;
+    // The leading fields of IP_ADAPTER_ADDRESSES_LH, up to OperStatus. The
+    // buffer is the OS's, so a prefix is all that has to match.
+    #[repr(C)]
+    struct AdapterAddresses {
+        length: u32,
+        if_index: u32,
+        next: *const AdapterAddresses,
+        adapter_name: *const u8,
+        first_unicast: *const UnicastAddress,
+        first_anycast: *const c_void,
+        first_multicast: *const c_void,
+        first_dns_server: *const c_void,
+        dns_suffix: *const u16,
+        description: *const u16,
+        friendly_name: *const u16,
+        physical_address: [u8; 8],
+        physical_address_length: u32,
+        flags: u32,
+        mtu: u32,
+        if_type: u32,
+        oper_status: u32,
+    }
+    // The leading fields of IP_ADAPTER_UNICAST_ADDRESS_LH.
+    #[repr(C)]
+    struct UnicastAddress {
+        length: u32,
+        flags: u32,
+        next: *const UnicastAddress,
+        sockaddr: *const u16,
+        sockaddr_length: i32,
+    }
+    #[link(name = "iphlpapi")]
+    extern "system" {
+        fn GetAdaptersAddresses(
+            family: u32,
+            flags: u32,
+            reserved: *mut c_void,
+            addresses: *mut c_void,
+            size: *mut u32,
+        ) -> u32;
+    }
+    const AF_UNSPEC: u32 = 0;
+    const AF_INET: u16 = 2;
+    const AF_INET6: u16 = 23;
+    const GAA_FLAG_SKIP_ANYCAST: u32 = 0x2;
+    const GAA_FLAG_SKIP_MULTICAST: u32 = 0x4;
+    const GAA_FLAG_SKIP_DNS_SERVER: u32 = 0x8;
+    const ERROR_BUFFER_OVERFLOW: u32 = 111;
+    const ERROR_NO_DATA: u32 = 232;
+    const IF_OPER_STATUS_UP: u32 = 1;
+
+    // u64 elements, so the buffer is aligned for the structures in it.
+    let mut buf: Vec<u64> = vec![0; 16 * 1024 / 8];
+    let status = loop {
+        let mut size = (buf.len() * 8) as u32;
+        // SAFETY: `buf` holds `size` writable bytes.
+        let status = unsafe {
+            GetAdaptersAddresses(
+                AF_UNSPEC,
+                GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr().cast(),
+                &mut size,
+            )
+        };
+        if status == ERROR_BUFFER_OVERFLOW && size as usize > buf.len() * 8 {
+            buf = vec![0; (size as usize).div_ceil(8)];
+            continue;
+        }
+        break status;
+    };
+    if status == ERROR_NO_DATA {
+        return Ok(Vec::new());
+    }
+    if status != 0 {
+        return Err(crate::safety::bad_state(
+            builtin,
+            &format!(
+                "GetAdaptersAddresses failed: {}",
+                std::io::Error::from_raw_os_error(status as i32)
+            ),
+            "a readable network adapter table",
+        ));
+    }
+    // A NUL-terminated UTF-16 string the OS owns.
+    let wide = |p: *const u16| {
+        if p.is_null() {
+            return String::new();
+        }
+        let mut n = 0;
+        // SAFETY: the OS terminates every string in the table.
+        while unsafe { *p.add(n) } != 0 {
+            n += 1;
+        }
+        // SAFETY: `n` units were just read.
+        String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(p, n) })
+    };
+    let mut adapters = Vec::new();
+    let mut node = buf.as_ptr() as *const AdapterAddresses;
+    while !node.is_null() {
+        // SAFETY: `node` is the head of, or a `next` link in, the list the OS
+        // wrote into `buf`, which outlives this loop.
+        let adapter = unsafe { &*node };
+        let mac_len = (adapter.physical_address_length as usize).min(8);
+        let mac = (mac_len > 0).then(|| {
+            adapter.physical_address[..mac_len]
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(":")
+        });
+        let mut addresses = Vec::new();
+        let mut unicast = adapter.first_unicast;
+        while !unicast.is_null() {
+            // SAFETY: a link in the same OS-written list.
+            let u = unsafe { &*unicast };
+            if !u.sockaddr.is_null() {
+                // SAFETY: a SOCKADDR starts with its u16 family; the length
+                // is checked before the address bytes are read.
+                let family = unsafe { *u.sockaddr };
+                let bytes = u.sockaddr.cast::<u8>();
+                if family == AF_INET && u.sockaddr_length >= 8 {
+                    let mut octets = [0u8; 4];
+                    // SAFETY: sockaddr_in: family, port, then 4 address bytes.
+                    unsafe { std::ptr::copy_nonoverlapping(bytes.add(4), octets.as_mut_ptr(), 4) };
+                    addresses.push(std::net::IpAddr::from(octets));
+                } else if family == AF_INET6 && u.sockaddr_length >= 24 {
+                    let mut octets = [0u8; 16];
+                    // SAFETY: sockaddr_in6: family, port, flowinfo, then 16
+                    // address bytes.
+                    unsafe { std::ptr::copy_nonoverlapping(bytes.add(8), octets.as_mut_ptr(), 16) };
+                    addresses.push(std::net::IpAddr::from(octets));
+                }
+            }
+            unicast = u.next;
+        }
+        adapters.push(WinAdapter {
+            name: wide(adapter.friendly_name),
+            mac,
+            up: adapter.oper_status == IF_OPER_STATUS_UP,
+            addresses,
+        });
+        node = adapter.next;
+    }
+    Ok(adapters)
+}
+
 #[cfg(windows)]
 fn net_address(name: &str) -> Result<Value> {
-    let script = "Get-NetIPAddress -AddressFamily IPv4 | Select-Object IPAddress,InterfaceAlias | ConvertTo-Json";
-    let out = net_run(
-        name,
-        "powershell",
-        &["-NoProfile", "-NonInteractive", "-Command", script],
-        NET_TOOL_SECS,
-    )?;
-    net_checked(name, "powershell", &out)?;
+    // Get-NetIPAddress -AddressFamily IPv4's rows, from the adapter table
+    // instead of PowerShell.
     let mut rows = Vec::new();
-    for item in net_ps_items(name, &out.stdout)? {
-        let Some(o) = item.as_object() else {
-            return Err(net_unparsed(name, "powershell"));
-        };
-        rows.push(net_record(vec![
-            (
-                "ip",
-                Value::Str(net_req_str(name, "powershell", o, "IPAddress")?),
-            ),
-            (
-                "interface",
-                Value::Str(net_req_str(name, "powershell", o, "InterfaceAlias")?),
-            ),
-        ]));
+    for adapter in windows_adapters(name)? {
+        for ip in &adapter.addresses {
+            if ip.is_ipv4() {
+                rows.push(net_record(vec![
+                    ("ip", Value::Str(ip.to_string())),
+                    ("interface", Value::Str(adapter.name.clone())),
+                ]));
+            }
+        }
     }
     if rows.is_empty() {
         return Err(crate::safety::not_found(
@@ -29574,6 +29731,28 @@ mod quiet_sys_tests {
             Ok(None)
         );
         assert!(matches!(bi_sys_locale(vec![], None).unwrap(), Value::Str(l) if !l.is_empty()));
+        // The adapter table has loopback, which sysinfo's interface list left
+        // out, with its IPv4 address.
+        let adapters = windows_adapters("net_ip").unwrap();
+        assert!(adapters.iter().any(|a| a.up
+            && a.addresses
+                .contains(&std::net::IpAddr::from([127, 0, 0, 1]))));
+        // The system drive answers with sizes and a file system.
+        let system = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+        let volumes = windows_volumes("fs_df").unwrap();
+        let sys = volumes
+            .iter()
+            .find(|v| system.starts_with(v.letter))
+            .expect("the system drive is listed");
+        assert!(matches!((sys.total, sys.free), (Some(t), Some(f)) if t > 0 && f <= t));
+        assert!(sys.fs_name.as_deref().is_some_and(|n| !n.is_empty()));
+        // This process: its own threads, CPU time and priority, no PowerShell.
+        let me = vec![Value::Int(std::process::id() as i64)];
+        assert!(matches!(bi_proc_threads(me.clone(), None).unwrap(), Value::Int(n) if n >= 1));
+        assert!(
+            matches!(bi_proc_cpu_usage(me.clone(), None).unwrap(), Value::Float(s) if s >= 0.0)
+        );
+        bi_proc_priority(me, None).unwrap();
         // One record per interface, not ipconfig's text in a `raw` field.
         let Value::Array(nics) = bi_platform_network_interfaces(vec![], None).unwrap() else {
             panic!("platform_network_interfaces is not an Array");
@@ -49894,10 +50073,47 @@ struct WinVolume {
     label: Option<String>,
 }
 
+/// [`windows_volumes_now`] on a worker thread, bounded by the probe deadline.
+///
+/// PowerShell's Get-PSDrive was bounded by it, and these calls need it too:
+/// asking a disconnected network drive for its size waits on SMB, which can
+/// take longer than that. The worker also turns off the "There is no disk in
+/// the drive" dialog an empty removable drive could raise on the desktop.
+#[cfg(target_os = "windows")]
+fn windows_volumes(builtin: &str) -> Result<Vec<WinVolume>> {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetThreadErrorMode(mode: u32, old: *mut u32) -> i32;
+    }
+    const SEM_FAILCRITICALERRORS: u32 = 0x0001;
+    const SEM_NOOPENFILEERRORBOX: u32 = 0x8000;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let name = builtin.to_string();
+    std::thread::spawn(move || {
+        // SAFETY: affects only this worker thread; the old mode is not needed
+        // because the thread ends after the walk.
+        unsafe {
+            SetThreadErrorMode(
+                SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX,
+                std::ptr::null_mut(),
+            )
+        };
+        let _ = tx.send(windows_volumes_now(&name));
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(PROBE_DEADLINE_SECS)) {
+        Ok(result) => result,
+        Err(_) => Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("the drive table did not answer in {PROBE_DEADLINE_SECS}s"),
+            "a network drive may be unreachable; disconnect it or retry",
+        )),
+    }
+}
+
 /// Every drive letter with a root (GetLogicalDrives, GetDriveTypeW). A zero
 /// bitmask is a failed call, since no machine has no drive letters.
 #[cfg(target_os = "windows")]
-fn windows_volumes(builtin: &str) -> Result<Vec<WinVolume>> {
+fn windows_volumes_now(builtin: &str) -> Result<Vec<WinVolume>> {
     #[link(name = "kernel32")]
     extern "system" {
         fn GetLogicalDrives() -> u32;
@@ -52719,22 +52935,24 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
 
     #[cfg(target_os = "windows")]
     {
-        // The interface table, in process. This was `wmic nic`, which Windows
+        // The adapter table, in process. This was `wmic nic`, which Windows
         // 11 no longer ships; without it the answer was one record holding
         // ipconfig's raw text instead of a list of interfaces. The records
-        // now have the Linux branch's fields: name, mac and addresses.
-        let networks = sysinfo::Networks::new_with_refreshed_list();
-        for (name, data) in networks.iter() {
+        // have the Linux branch's fields: name, state, mac and addresses.
+        for adapter in windows_adapters("platform_network_interfaces")? {
             let mut nic = std::collections::BTreeMap::new();
-            nic.insert("name".to_string(), Value::Str(name.clone()));
+            nic.insert("name".to_string(), Value::Str(adapter.name));
             nic.insert(
-                "mac".to_string(),
-                Value::Str(data.mac_address().to_string()),
+                "state".to_string(),
+                Value::Str(if adapter.up { "UP" } else { "DOWN" }.to_string()),
             );
-            let ips: Vec<Value> = data
-                .ip_networks()
+            if let Some(mac) = adapter.mac {
+                nic.insert("mac".to_string(), Value::Str(mac));
+            }
+            let ips: Vec<Value> = adapter
+                .addresses
                 .iter()
-                .map(|n| Value::Str(n.addr.to_string()))
+                .map(|ip| Value::Str(ip.to_string()))
                 .collect();
             if !ips.is_empty() {
                 nic.insert("addresses".to_string(), Value::Array(ips));

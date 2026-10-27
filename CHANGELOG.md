@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   3.4-3.8 s; the rest is the probes themselves. Detection results and their
   order are unchanged.
 
-- Eighteen Windows builtins ask the OS instead of starting a process.
+- Twenty-five Windows builtins ask the OS instead of starting a process.
   `sys_uptime` and `sys_boot_time` read the tick count instead of WMI through
   PowerShell (about 12 s on an idle host, past the 30 s probe deadline on a
   loaded one; now under a second). `sudo_check`, `platform_has_admin` and
@@ -96,15 +96,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of `cmd /c ver` and give the strings `ver` printed, so
   `platform_snapshot`'s fingerprint is unchanged; on a host whose display
   language translates "Version", where `platform_snapshot` used to refuse, it
-  now answers.
+  now answers. `fs_df` (and through it `sys_disk_info` and `hw_disk`),
+  `fs_mounts` and `platform_disks` read kernel32 instead of `Get-PSDrive` and
+  Win32_LogicalDisk, with the same sizes; `fs_mounts` names each volume's
+  file system instead of saying NTFS for all of them, and `Get-PSDrive`'s
+  `Temp:` folder alias is no longer listed as a disk. `proc_priority`,
+  `proc_cpu_usage` and `proc_threads` read the process directly; a protected
+  process is `E_OS_DENIED` instead of `E_TOOL_FAILED`. `net_ip` reads the
+  adapter table instead of `Get-NetIPAddress`.
 
 ### Changed
 
-- `platform_network_interfaces` on Windows lists the interfaces, each with
-  `name`, `mac` and `addresses` as on Linux. It called `wmic`, which Windows 11
-  no longer ships, and without it answered a single record holding
+- `platform_network_interfaces` on Windows lists the adapters, each with
+  `name`, `state`, `mac` and `addresses` as on Linux. It called `wmic`, which
+  Windows 11 no longer ships, and without it answered a single record holding
   `ipconfig`'s raw text. The `speed_bps` and `speed_mbps` fields that wmic
-  supplied are gone.
+  supplied are gone, and an adapter without a hardware address has no `mac`.
 
 - `sys_kernel` on Windows answers the version, `10.0.26200.9711`, like
   `uname -r` elsewhere. It was the output of `cmd /C ver`,
