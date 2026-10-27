@@ -118,6 +118,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`tar_extract` checks link targets in bzip2, xz and zstd tars**: these were
+  listed with `tar -tf`, which gives names only, so a symlink pointing outside
+  the destination was left to tar's own protection. The stream now goes
+  through its decompressor into the in-process reader, as gzip does, under
+  the tool deadline, and a corrupt stream is `E_TOOL_FAILED`. Where the
+  decompressor is not installed (bsdtar has these built in), the names-only
+  check remains.
+
 - **`ae -b` sorts by bytes when the named locale is missing**: glibc's `ls`
   and `sort` fall back to byte order when `LANG` names a locale the host never
   generated, but the in-process POSIX `ls`, `sort` and glob expansion kept
