@@ -1850,7 +1850,44 @@ fn locale_collates() -> bool {
         .filter_map(|k| std::env::var(k).ok())
         .find(|v| !v.is_empty())
         .unwrap_or_default();
-    !(loc.is_empty() || loc == "C" || loc == "POSIX" || loc.starts_with("C."))
+    if loc.is_empty() || loc == "C" || loc == "POSIX" || loc.starts_with("C.") {
+        return false;
+    }
+    locale_loads(&loc)
+}
+
+/// Whether glibc can load the collation the environment names. When it cannot
+/// (the locale was never generated), `ls` and `sort` fall back to bytes, so
+/// output meant to match theirs must too. Cached per name: a sort asks once
+/// per comparison.
+#[cfg(target_os = "linux")]
+fn locale_loads(name: &str) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static SEEN: Mutex<Option<HashMap<String, bool>>> = Mutex::new(None);
+    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&ok) = seen.as_ref().and_then(|m| m.get(name)) {
+        return ok;
+    }
+    // `newlocale` with "" resolves the same variables `setlocale` would,
+    // without touching the process locale.
+    let ok = unsafe {
+        let l = libc::newlocale(libc::LC_COLLATE_MASK, c"".as_ptr(), std::ptr::null_mut());
+        if l.is_null() {
+            false
+        } else {
+            libc::freelocale(l);
+            true
+        }
+    };
+    seen.get_or_insert_with(HashMap::new)
+        .insert(name.to_string(), ok);
+    ok
+}
+
+#[cfg(not(target_os = "linux"))]
+fn locale_loads(_name: &str) -> bool {
+    true
 }
 
 /// glibc's ISO 14651 ordering for ASCII, as measured against glibc 2.41's
@@ -1859,8 +1896,12 @@ fn locale_collates() -> bool {
 /// the full strings with punctuation ranked below letters and digits. Beyond
 /// ASCII this falls back to bytes, which is where it stops being exact.
 fn collate(a: &str, b: &str) -> std::cmp::Ordering {
+    collate_in(locale_collates(), a, b)
+}
+
+fn collate_in(natural: bool, a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
-    if !locale_collates() {
+    if !natural {
         return a.as_bytes().cmp(b.as_bytes());
     }
     let l1 = |s: &str| -> Vec<char> {
@@ -4084,6 +4125,20 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_locale_that_was_never_generated_sorts_by_bytes() {
+        // glibc's `ls` and `sort` fall back to bytes when LANG names a locale
+        // the host lacks; ae-disposable sets en_US.UTF-8 without generating it.
+        let _env = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("LC_ALL", "xx_NOWHERE.UTF-8");
+        let natural = locale_collates();
+        std::env::remove_var("LC_ALL");
+        assert!(!natural);
+    }
+
     #[test]
     fn collation_matches_glibc_en_us() {
         // Measured against glibc 2.41 `sort` under en_US.UTF-8.
@@ -4117,13 +4172,9 @@ mod tests {
             "aB",
             "Ab",
         ];
-        // Process-global: hold the lock the other env-mutating tests hold.
-        let _env = crate::safety::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("LC_COLLATE", "en_US.UTF-8");
-        v.sort_by(|a, b| collate(a, b));
-        std::env::remove_var("LC_COLLATE");
+        // The ordering itself, independent of whether this host generated
+        // en_US.UTF-8.
+        v.sort_by(|a, b| collate_in(true, a, b));
         assert_eq!(
             v,
             vec![
