@@ -118,6 +118,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Local inference builds and keeps its models**: the `candle` and `onnx`
+  features did not compile. Each `ai_local_*` call also built new backends,
+  so a model loaded by `ai_local_load` was gone by the next call. candle fed
+  each generated token one position late, and token id 2 ended generation in
+  any vocabulary. The ONNX backend's `generate` answered "[generated 1
+  token(s)]" from one forward pass over Unicode code points, and its `embed`
+  used code points as token ids and a zero vector on failure. Now `embed`
+  uses the model's `tokenizer.json` and real pooling, ONNX `generate` is
+  `E_UNIMPLEMENTED`, `max_tokens` over 4096 is refused, and `ort` is pinned
+  exactly. Checked with all-MiniLM-L6-v2 (ONNX) and SmolLM2-135M (GGUF).
+
 - **`tar_extract` checks link targets in bzip2, xz and zstd tars**: these were
   listed with `tar -tf`, which gives names only, so a symlink pointing outside
   the destination was left to tar's own protection. The stream now goes
