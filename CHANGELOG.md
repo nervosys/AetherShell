@@ -113,6 +113,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`ae -b` sorts by bytes when the named locale is missing**: glibc's `ls`
+  and `sort` fall back to byte order when `LANG` names a locale the host never
+  generated, but the in-process POSIX `ls`, `sort` and glob expansion kept
+  sorting as that locale would. On Linux the collation is now used only when
+  `newlocale` can load it. Found by E6, which scored 29 of 32 on a host with
+  `LANG=en_US.UTF-8` and no such locale; 32 of 32 after.
+
 - **A link to the audit log no longer gets writes through** (security): the
   guard's audit check compared the path as written, so a symlink in the
   workspace whose target was the audit log passed it, and `file_write`,
