@@ -9961,12 +9961,16 @@ pub static SIGNATURES: &[Signature] = &[
         params: &[
             req("program", Ty::Str, "the program to run, found on PATH or given by path"),
             opt_rest("args", Ty::Str, "arguments, each a String, passed without a shell"),
+            opt("options", Ty::Record, "Record {timeout_ms: Int}, given as the last argument; no options by default; any other key, or a timeout_ms that is not an Int in 1..=86400000, is E_BAD_ARG"),
         ],
         returns: "Int",
-        doc: "Starts a program directly, never through a shell, and answers the child's process id. The child is not waited for by this call; proc_wait waits for it. Pipeline input, a non-string argument, or a NUL byte is E_BAD_ARG; a program that does not exist is E_TOOL_MISSING. Agent mode gates it as Exec.",
+        doc: "Starts a program directly, never through a shell, and answers the child's process id. The child is not waited for by this call; proc_wait waits for it. Pipeline input, a non-string argument, or a NUL byte is E_BAD_ARG; a program that does not exist is E_TOOL_MISSING. Agent mode gates it as Exec. With options {timeout_ms: N} (a positive Int, at most 86400000) the process is stopped if it is still running N ms after the spawn: on Unix the child is made the leader of its own process group, and SIGTERM goes to the group, then SIGKILL after up to 2 s, so its descendants that stayed in the group stop with it; a descendant that left the group (setsid, setpgid) is not reached. On Windows taskkill /T /F stops the process and its tree. The watcher checks the process's start time as well as its pid, so a pid that has since been reused by another process is never signalled, and a process that has ended, or been reaped by proc_wait, is left alone. The stop is logged to stderr. proc_wait still reports the exit: a process stopped on Unix reports as killed by a signal. Without the options record the spawn is unchanged. The answer is the same Int pid either way.",
         examples: &[
             (r#"(try { proc_spawn(5) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
             (r#"(try { "x" | proc_spawn("hostname") } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
+            (r#"(try { proc_spawn("x", {timeout_ms: 0}) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
+            (r#"(try { proc_spawn("x", {timeout_ms: "1"}) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
+            (r#"(try { proc_spawn("x", {nope: 1}) } catch e { e.error.code })"#, r#"E_BAD_ARG"#),
         ],
     },
     Signature {

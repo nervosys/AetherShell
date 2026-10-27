@@ -24755,6 +24755,18 @@ fn spawned_take(pid: i64) -> bool {
     }
 }
 
+/// The longest deadline `proc_spawn`'s `timeout_ms` accepts: one day.
+const SPAWN_TIMEOUT_MAX_MS: i64 = 86_400_000;
+
+/// How long a deadline stop waits for SIGTERM to empty the process group
+/// before it sends SIGKILL.
+#[cfg(unix)]
+const SPAWN_STOP_GRACE: Duration = Duration::from_secs(2);
+
+/// How often the deadline watcher re-reads the child. A child that ends
+/// earlier is noticed within this slice.
+const SPAWN_WATCH_SLICE: Duration = Duration::from_millis(100);
+
 fn bi_proc_spawn(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // A piped subject would be silently ignored; refuse it before anything runs.
     if input.is_some() {
@@ -24764,7 +24776,23 @@ fn bi_proc_spawn(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "pipeline input",
         ));
     }
-    let cmd = match args.first() {
+
+    // The options Record is the last argument when a program comes before it.
+    // A Record anywhere else stays an argument, and is refused below.
+    let (words, options) = match args.split_last() {
+        Some((Value::Record(rec), rest)) if !rest.is_empty() => (rest, Some(rec)),
+        _ => (args.as_slice(), None),
+    };
+    // Read and checked here, before the program name, the guard or any spawn.
+    let timeout_ms = match options {
+        None => None,
+        Some(rec) => {
+            cfg_known_keys("proc_spawn", rec, &["timeout_ms"])?;
+            cfg_int("proc_spawn", rec, "timeout_ms", 1, SPAWN_TIMEOUT_MAX_MS)?
+        }
+    };
+
+    let cmd = match words.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
             return Err(crate::safety::bad_arg(
@@ -24791,8 +24819,8 @@ fn bi_proc_spawn(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     // Every argument is a string. A non-string one was dropped, and the
     // program ran with the rest.
-    let mut spawn_args: Vec<String> = Vec::with_capacity(args.len().saturating_sub(1));
-    for (i, v) in args.iter().enumerate().skip(1) {
+    let mut spawn_args: Vec<String> = Vec::with_capacity(words.len().saturating_sub(1));
+    for (i, v) in words.iter().enumerate().skip(1) {
         let Value::Str(s) = v else {
             return Err(crate::safety::bad_arg(
                 "proc_spawn",
@@ -24823,14 +24851,132 @@ fn bi_proc_spawn(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     // Executed directly, never through a shell (CWE-78). The child is not
     // waited for here; proc_wait reaps it.
-    let child = std::process::Command::new(&cmd)
-        .args(&spawn_args)
+    let mut command = Command::new(&cmd);
+    command.args(&spawn_args);
+    // With a deadline the child leads its own process group, so the stop can
+    // signal the child and the descendants that stayed in its group at once.
+    #[cfg(unix)]
+    if timeout_ms.is_some() {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let child = command
         .spawn()
         .map_err(|e| crate::safety::spawn_error("proc_spawn", &cmd, &e))?;
     let pid = i64::from(child.id());
     spawned_note(pid);
+
+    if let Some(ms) = timeout_ms {
+        // The start time is read now, so the watcher can tell this child from
+        // a later process that reuses its pid. None means it has already ended,
+        // and there is nothing left to stop.
+        if let Some((start, _)) = spawn_probe(pid) {
+            if let Err(e) = arm_spawn_deadline(pid, start, ms) {
+                stop_spawn_tree_now(pid);
+                return Err(crate::safety::tool_failed(
+                    "proc_spawn",
+                    &cmd,
+                    None,
+                    &format!("could not start the deadline watcher ({e}); the child was stopped"),
+                ));
+            }
+        }
+    }
     Ok(Value::Int(pid))
 }
+
+/// The start time of a process, and whether it is still running; a zombie
+/// has ended, though nothing has reaped it. It only reads the process table:
+/// proc_wait is the one that reaps a child, so the watcher never takes an exit
+/// status from it.
+fn spawn_probe(pid: i64) -> Option<(u64, bool)> {
+    let spid = sysinfo::Pid::from_u32(u32::try_from(pid).ok()?);
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[spid]), true);
+    let proc_ = sys.process(spid)?;
+    Some((
+        proc_.start_time(),
+        proc_.status() != sysinfo::ProcessStatus::Zombie,
+    ))
+}
+
+/// Whether `pid` is still the process that started at `start`, and is running.
+/// A pid that has ended, or now names a different process, is not.
+fn spawn_is_ours(pid: i64, start: u64) -> bool {
+    matches!(spawn_probe(pid), Some((s, true)) if s == start)
+}
+
+/// Starts the detached watcher for a deadline. It re-checks the child every
+/// slice and returns as soon as the child has ended or its pid has changed
+/// hands. At the deadline it stops the child's tree if the child is still
+/// that process.
+fn arm_spawn_deadline(pid: i64, start: u64, timeout_ms: i64) -> std::io::Result<()> {
+    let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms as u64);
+    std::thread::Builder::new()
+        .name("proc_spawn-deadline".to_string())
+        .spawn(move || {
+            while spawn_is_ours(pid, start) {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    eprintln!(
+                        "[proc.spawn] pid {pid} passed its {timeout_ms} ms deadline; its tree was stopped"
+                    );
+                    stop_spawn_tree(pid);
+                    return;
+                }
+                std::thread::sleep(left.min(SPAWN_WATCH_SLICE));
+            }
+        })
+        .map(|_| ())
+}
+
+/// Stops the child and its process group: SIGTERM to the group, up to two
+/// seconds for it to empty, then SIGKILL to whatever is left. The child was
+/// checked to be the same running process just before this is called.
+#[cfg(unix)]
+fn stop_spawn_tree(pid: i64) {
+    let native = libc::pid_t::try_from(pid).unwrap_or(libc::pid_t::MAX);
+    let group_live = || {
+        // SAFETY: signal 0 sends nothing and touches no memory.
+        let rc = unsafe { libc::kill(-native, 0) };
+        rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    };
+    // SAFETY: kill(2) takes a pid and a signal number and touches no memory.
+    unsafe { libc::kill(-native, libc::SIGTERM) };
+    let until = std::time::Instant::now() + SPAWN_STOP_GRACE;
+    while group_live() && std::time::Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if group_live() {
+        // SAFETY: as above.
+        unsafe { libc::kill(-native, libc::SIGKILL) };
+    }
+}
+
+/// The Windows stop: taskkill /T /F on the tree, once.
+#[cfg(windows)]
+fn stop_spawn_tree(pid: i64) {
+    taskkill_tree(u32::try_from(pid).unwrap_or(u32::MAX));
+}
+
+#[cfg(not(any(unix, windows)))]
+fn stop_spawn_tree(_pid: i64) {}
+
+/// The immediate stop for a child whose watcher could not be started.
+#[cfg(unix)]
+fn stop_spawn_tree_now(pid: i64) {
+    let native = libc::pid_t::try_from(pid).unwrap_or(libc::pid_t::MAX);
+    // SAFETY: kill(2) takes a pid and a signal number and touches no memory.
+    unsafe { libc::kill(-native, libc::SIGKILL) };
+}
+
+#[cfg(windows)]
+fn stop_spawn_tree_now(pid: i64) {
+    taskkill_tree(u32::try_from(pid).unwrap_or(u32::MAX));
+}
+
+#[cfg(not(any(unix, windows)))]
+fn stop_spawn_tree_now(_pid: i64) {}
 
 /// Whether a process has ended. A child this process spawned is reaped here,
 /// so a finished child is not left a zombie that `kill(pid, 0)` would still
