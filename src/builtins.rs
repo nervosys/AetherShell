@@ -64361,7 +64361,13 @@ fn bi_tmux_send(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "tmux_send",
             "tmux",
             None,
-            &["send-keys", "-t", &exact_tmux_target(&target), keys.as_str(), "Enter"],
+            &[
+                "send-keys",
+                "-t",
+                &exact_tmux_pane(&target),
+                keys.as_str(),
+                "Enter",
+            ],
             Keep::Tail(TOOL_KEEP_TAIL),
             TOOL_DEADLINE_SECS,
         )?,
@@ -64372,11 +64378,22 @@ fn bi_tmux_send(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-/// A tmux target that names a session exactly. tmux otherwise resolves
-/// `-t work` to a session whose name starts with "work" when none is called
-/// "work", so a kill, attach or send-keys would reach another session.
-fn exact_tmux_target(target: &str) -> String {
-    format!("={target}")
+/// A tmux session target matched exactly. tmux otherwise resolves `-t work`
+/// to a session whose name starts with "work" when none is called "work", so
+/// a kill or attach would reach another session.
+fn exact_tmux_target(name: &str) -> String {
+    format!("={name}")
+}
+
+/// The pane-target form of [`exact_tmux_target`], for send-keys: tmux reads
+/// a bare `=work` there as a pane name and finds none, so a session alone is
+/// written `=work:` (its current window), and `work:1` becomes `=work:1`.
+fn exact_tmux_pane(target: &str) -> String {
+    if target.contains(':') {
+        format!("={target}")
+    } else {
+        format!("={target}:")
+    }
 }
 
 /// tmux kill-session — End a session that tmux_new started, and what runs in it.

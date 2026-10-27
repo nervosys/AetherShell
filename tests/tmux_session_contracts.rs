@@ -128,4 +128,22 @@ fn send_does_not_reach_a_session_by_prefix() {
     call("tmux_send", vec![s("workshop"), s("true")]).unwrap();
     call("tmux_send", vec![s("workshop:0"), s("true")]).unwrap();
     assert_eq!(server.sessions(), ["workshop"]);
+
+    // The keys land in that session's pane.
+    call("tmux_send", vec![s("workshop"), s("echo ae_mark_42")]).unwrap();
+    let mut seen = String::new();
+    for _ in 0..50 {
+        let out = std::process::Command::new("tmux")
+            .args(["capture-pane", "-p", "-t", "=workshop:"])
+            .env("TMUX_TMPDIR", &server.dir)
+            .output()
+            .unwrap();
+        seen = String::from_utf8_lossy(&out.stdout).into_owned();
+        if seen.matches("ae_mark_42").count() >= 2 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    // Once as typed, once as echoed.
+    assert!(seen.matches("ae_mark_42").count() >= 2, "{seen}");
 }
