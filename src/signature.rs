@@ -2952,6 +2952,7 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"cat("Cargo.toml") | lines | first"#, r#""[workspace]""#),
             (r#"(cat("src/*.rs") | lines | len) > 1000"#, "true"),
+            (r#"lines("a\nb\n") | len"#, "2"),
         ],
     },
     Signature {
@@ -5424,6 +5425,7 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"(try { finetune_start("base-model") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { finetune_start("base-model", "train.jsonl") } catch e { e.error.code })"#, "E_UNIMPLEMENTED"),
+            (r#"(try { finetune_start("base-model", "train.jsonl", {epochs: "3"}) } catch e { e.error.code })"#, "E_UNIMPLEMENTED"),
         ],
     },
     Signature {
@@ -8297,6 +8299,7 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"(try { a2ui_progress("x", -1, 3) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"a2ui_progress("build", 1, 3).current"#, "1"),
+            (r#"a2ui_progress("build", 2, 3, a2ui_progress("build", 1, 3).progress_id).current"#, "2"),
         ],
     },
     Signature {
