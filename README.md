@@ -222,7 +222,10 @@ ae --agent --workspace ./sandbox script.ae
 ```
 
 Every operation is appended to an HMAC-SHA256 chain. A rewritten entry fails
-verification rather than passing quietly.
+verification rather than passing quietly. Agent mode refuses writes to the log
+and the key file, but not reads: it reads anywhere the account running it can.
+Anyone holding the key can sign a forged chain, so for a chain an agent cannot
+forge, make the key file unreadable by the account the agent runs as.
 
 ---
 
