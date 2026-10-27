@@ -181,7 +181,14 @@ fn malformed_options_are_refused_before_anything_is_spawned() {
 fn an_empty_options_record_is_the_plain_spawn() {
     let _g = lock();
     sandbox();
-    let v = spawn(vec![s("true"), options(&[])]).expect("an empty options record spawns");
+    // A program that exits at once and is on every host.
+    #[cfg(windows)]
+    let program = vec![s("cmd"), s("/C"), s("exit"), s("0")];
+    #[cfg(not(windows))]
+    let program = vec![s("true")];
+    let mut args = program;
+    args.push(options(&[]));
+    let v = spawn(args).expect("an empty options record spawns");
     let Value::Int(pid) = v else {
         panic!("proc_spawn answers an Int pid, got {v:?}");
     };
