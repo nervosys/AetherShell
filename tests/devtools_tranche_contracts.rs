@@ -129,6 +129,7 @@ fn every_devtool_refuses_piped_input() {
         ("cmake_build", vec![]),
         ("tmux_new", vec![text("work")]),
         ("tmux_attach", vec![text("work")]),
+        ("tmux_kill", vec![text("work")]),
         ("tmux_send", vec![text("work"), text("ls")]),
         ("screen_new", vec![text("work")]),
         ("screen_attach", vec![text("work")]),
@@ -173,6 +174,7 @@ fn option_like_targets_and_paths_never_reach_a_tool() {
         ),
         ("tmux_new", vec![text("-x")]),
         ("tmux_attach", vec![text("-x")]),
+        ("tmux_kill", vec![text("-x")]),
         ("tmux_send", vec![text("-x"), text("ls")]),
         ("tmux_send", vec![text("work"), text("-la")]),
         ("screen_new", vec![text("-x")]),
@@ -225,6 +227,7 @@ fn unknown_options_and_surplus_arguments_are_refused_not_ignored() {
             vec![text("build"), rec(&[("jobs", Value::Int(0))])],
         ),
         ("tmux_new", vec![text("work"), text("ls")]),
+        ("tmux_kill", vec![text("work"), text("ls")]),
         ("screen_new", vec![text("work"), text("ls")]),
         ("valgrind_run", vec![text("a"), text("b")]),
         ("gdb_run", vec![text("prog"), text("")]),
@@ -252,6 +255,7 @@ fn session_names_targets_and_keys_are_restricted() {
         // tmux reads ':' and '.' as target separators, so they are not names.
         ("tmux_new", vec![text("a:b")]),
         ("tmux_attach", vec![text("a.b")]),
+        ("tmux_kill", vec![text("a:b")]),
         ("screen_new", vec![text("a.b")]),
         ("screen_attach", vec![text("a b")]),
         // A command string would be run by tmux's shell, so tmux_new takes none.

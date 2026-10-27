@@ -12895,6 +12895,23 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "tmux_kill",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[req("session_name", Ty::Str, "an existing session's name; 1-64 letters, digits, '-' or '_'; not starting with '-'")],
+        returns: "Record",
+        doc: "tmux kill-session -t <name>: ends a session that tmux_new started, and everything running in it, answered as {session, exit_code, success, stdout, stderr}. It runs no command, so it is process control: the central gate asks for approval in agent mode. A session that does not exist is E_TOOL_FAILED. Takes no pipeline input.",
+        examples: &[
+            (r#"(try { tmux_kill("-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { tmux_kill("a:b") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { tmux_kill("work", "ls") } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { tmux_kill() } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { "x" | tmux_kill("work") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "eslint_check",
         category: None,
         subject_required: false,

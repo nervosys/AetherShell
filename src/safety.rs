@@ -435,6 +435,9 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check"
         | "proc_suspend" | "proc_resume" | "proc_set_priority"
         | "cron_disable"
+        // Ending a tmux session runs no command, so it is process lifecycle
+        // control like `kill`. tmux_new and tmux_send run caller text: Exec.
+        | "tmux_kill"
         | "svc_restart" | "k8s_rollout_restart" => Some(Effect::Process),
         // Every builtin whose argument *is* a command to run. These are the
         // same capability as `sh` under different names; classifying them as

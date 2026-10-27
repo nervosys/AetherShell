@@ -1345,6 +1345,7 @@ pub fn tmux_module() -> Value {
         ("list", "tmux_list"),
         ("attach", "tmux_attach"),
         ("send", "tmux_send"),
+        ("kill", "tmux_kill"),
     ])
 }
 

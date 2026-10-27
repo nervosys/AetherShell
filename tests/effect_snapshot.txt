@@ -1292,6 +1292,7 @@ timeout	Exec
 timeout_cmd	Exec
 timestamp	Pure
 tmux_attach	Process
+tmux_kill	Process
 tmux_list	ReadLocal
 tmux_new	Exec
 tmux_send	Exec

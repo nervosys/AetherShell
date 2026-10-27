@@ -1297,6 +1297,8 @@ lazy_static::lazy_static! {
     map.insert("tmux_list", 996);
     map.insert("tmux_attach", 997);
     map.insert("tmux_send", 998);
+    // tmux_kill took reserved slot 556; the tmux range 995-998 is full.
+    map.insert("tmux_kill", 556);
     // screen (999-1001)
     map.insert("screen_new", 999);
     map.insert("screen_list", 1000);
@@ -3014,8 +3016,8 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_nanda_status(args, input),
     |args, input, _| bi_nanda_consensus(args, input),
     |args, input, _| bi_nanda_quorum(args, input),
-    // Reserved (556-559)
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    // 556: tmux_kill (a reserved slot). Reserved (557-559)
+    |args, input, _| bi_tmux_kill(args, input), // 556
     |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
     |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
     |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
@@ -64367,6 +64369,36 @@ fn bi_tmux_send(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let mut rec = run_fields(run, "stdout", "stderr");
     rec.insert("target".to_string(), Value::Str(target));
     rec.insert("keys".to_string(), Value::Str(keys));
+    Ok(Value::Record(rec))
+}
+
+/// tmux kill-session — End a session that tmux_new started, and what runs in it.
+/// Usage: tmux_kill(session_name)
+/// The name is 1-64 letters, digits, '-' or '_', as tmux_new takes it. It runs
+/// no command, so it is process control, not exec. A session that does not
+/// exist is E_TOOL_FAILED.
+fn bi_tmux_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    k8s_no_input("tmux_kill", &input)?;
+    if args.len() > 1 {
+        return Err(crate::safety::arg_err(format!(
+            "tmux_kill takes a session name only; {} more argument(s) given.",
+            args.len() - 1
+        )));
+    }
+    let name = k8s_need("tmux_kill", "session name", &args, 0, devtool_session)?;
+    let run = finished(
+        "tmux_kill",
+        tool_run(
+            "tmux_kill",
+            "tmux",
+            None,
+            &["kill-session", "-t", name.as_str()],
+            Keep::Tail(TOOL_KEEP_TAIL),
+            TOOL_DEADLINE_SECS,
+        )?,
+    )?;
+    let mut rec = run_fields(run, "stdout", "stderr");
+    rec.insert("session".to_string(), Value::Str(name));
     Ok(Value::Record(rec))
 }
 
