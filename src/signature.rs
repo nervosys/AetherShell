@@ -14123,10 +14123,10 @@ pub fn validate(name: &str, args: &[Value], input: Option<&Value>) -> anyhow::Re
             &format!("{supplied} of {required} required"),
         ));
     }
-    // A trailing variadic parameter absorbs everything after it, so there is no
-    // upper bound to check.
-    let variadic = sig.params.last().is_some_and(|p| p.variadic);
-    if !variadic && supplied > sig.params.len() {
+    // A variadic parameter absorbs everything after it, so there is no upper
+    // bound to check.
+    let variadic = sig.params.iter().position(|p| p.variadic);
+    if variadic.is_none() && supplied > sig.params.len() {
         return Err(crate::safety::bad_arg(
             name,
             &format!("at most {} argument(s): {}", sig.params.len(), sig.render()),
@@ -14135,12 +14135,20 @@ pub fn validate(name: &str, args: &[Value], input: Option<&Value>) -> anyhow::Re
     }
 
     // Each supplied argument is checked against its own parameter, and every
-    // argument past the last against the variadic one.
-    let rest = args[params_start..].iter().enumerate().map(|(i, a)| {
-        let p = sig
-            .params
-            .get(i)
-            .or_else(|| sig.params.last().filter(|p| p.variadic));
+    // argument from the variadic one on against it. One optional parameter may
+    // follow the variadic (proc_spawn's options Record): the last argument is
+    // that parameter when its type accepts it, and a variadic one otherwise.
+    let supplied_args = &args[params_start..];
+    let last = supplied_args.len().saturating_sub(1);
+    let rest = supplied_args.iter().enumerate().map(|(i, a)| {
+        let p = match variadic {
+            None => sig.params.get(i),
+            Some(v) if i < v => sig.params.get(i),
+            Some(v) => match sig.params.get(v + 1) {
+                Some(tail) if i == last && tail.ty.accepts(a) => Some(tail),
+                _ => sig.params.get(v),
+            },
+        };
         (p, a)
     });
     for (param, arg) in rest.filter_map(|(p, a)| p.map(|p| (p, a))) {
