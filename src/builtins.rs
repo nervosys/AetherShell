@@ -25090,37 +25090,20 @@ mod proc_exists_tests {
 }
 
 /// The child process ids of a live process, from the host's own tree query.
+// Was a PowerShell WMI query; now read in process through sysinfo.
 #[cfg(windows)]
 fn proc_child_pids(pid: i64) -> Result<Vec<i64>> {
-    let cmd = crate::ps_script!(
-        "Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {} }} | Select-Object ProcessId | ConvertTo-Json",
-        pid
-    );
-    let out = proc_tool(
-        "proc_children",
-        "powershell",
-        {
-            let mut c = Command::new("powershell");
-            c.args(["-Command", &cmd]);
-            c
-        },
-        PROBE_DEADLINE_SECS,
-    )?;
-    proc_json_items("proc_children", &String::from_utf8_lossy(&out.stdout))?
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let parent = sysinfo::Pid::from_u32(pid as u32);
+    let mut children: Vec<i64> = sys
+        .processes()
         .iter()
-        .map(|item| {
-            item.get("ProcessId")
-                .and_then(|v| v.as_i64())
-                .ok_or_else(|| {
-                    crate::safety::tool_failed(
-                        "proc_children",
-                        "powershell",
-                        Some(0),
-                        "a child had no ProcessId",
-                    )
-                })
-        })
-        .collect()
+        .filter(|(_, proc_)| proc_.parent() == Some(parent))
+        .map(|(child, _)| i64::from(child.as_u32()))
+        .collect();
+    children.sort_unstable();
+    Ok(children)
 }
 
 #[cfg(not(windows))]
@@ -25363,24 +25346,16 @@ fn bi_proc_mem_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     proc_check("proc_mem_usage", &args, &input, 1)?;
     let pid = proc_pid("proc_mem_usage", args.first())?;
     proc_require("proc_mem_usage", pid)?;
+    // Was PowerShell's Get-Process; now read in process through sysinfo.
     #[cfg(windows)]
     let bytes: i64 = {
-        let cmd = crate::ps_script!("(Get-Process -Id {}).WorkingSet64", pid);
-        let out = proc_tool(
-            "proc_mem_usage",
-            "powershell",
-            {
-                let mut c = Command::new("powershell");
-                c.args(["-Command", &cmd]);
-                c
-            },
-            PROBE_DEADLINE_SECS,
-        )?;
-        proc_parse(
-            "proc_mem_usage",
-            "powershell",
-            &String::from_utf8_lossy(&out.stdout),
-        )?
+        let sys = proc_sys(pid);
+        let process = sys
+            .process(sysinfo::Pid::from_u32(pid as u32))
+            .ok_or_else(|| {
+                crate::safety::not_found("proc_mem_usage", "process", &pid.to_string())
+            })?;
+        i64::try_from(process.memory()).unwrap_or(i64::MAX)
     };
     #[cfg(not(windows))]
     let bytes: i64 = {
@@ -25618,20 +25593,15 @@ fn bi_proc_cwd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(proc_cwd_of(pid)?))
 }
 
+// Was PowerShell's Get-Process; now read in process through sysinfo.
 #[cfg(windows)]
 fn proc_exe_of(pid: i64) -> Result<String> {
-    let cmd = crate::ps_script!("(Get-Process -Id {}).Path", pid);
-    let out = proc_tool(
-        "proc_exe",
-        "powershell",
-        {
-            let mut c = Command::new("powershell");
-            c.args(["-Command", &cmd]);
-            c
-        },
-        PROBE_DEADLINE_SECS,
-    )?;
-    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let sys = proc_sys(pid);
+    let path = sys
+        .process(sysinfo::Pid::from_u32(pid as u32))
+        .and_then(|process| process.exe())
+        .map(|exe| exe.to_string_lossy().trim().to_string())
+        .unwrap_or_default();
     if path.is_empty() {
         return Err(crate::safety::os_denied(
             "proc_exe",
