@@ -397,11 +397,19 @@ impl CandleBackend {
             "<|end|>",
             "<|eot_id|>",
             "<|im_end|>",
+            "<|end_of_text|>",
         ]
         .iter()
         .filter_map(|s| tokenizer.token_to_id(s))
         .collect();
-        let eos_default = 2u32; // common EOS fallback
+        // Id 2 is EOS in the Llama 2 / Mistral vocabularies, but an ordinary
+        // token in others, so it stops generation only when the tokenizer
+        // names no end token of its own.
+        let eos_tokens = if eos_tokens.is_empty() {
+            vec![2u32]
+        } else {
+            eos_tokens
+        };
 
         // Prefill: process the entire prompt in one forward pass
         let input = Tensor::new(prompt_tokens.as_slice(), device)?.unsqueeze(0)?;
@@ -430,7 +438,7 @@ impl CandleBackend {
         };
 
         // Check for immediate EOS
-        if eos_tokens.contains(&first_token) || first_token == eos_default {
+        if eos_tokens.contains(&first_token) {
             let elapsed = start.elapsed();
             return Ok(InferenceResult {
                 text: String::new(),
@@ -443,9 +451,20 @@ impl CandleBackend {
         generated_tokens.push(first_token);
 
         // Autoregressive decode loop
-        let max_tokens = params.max_tokens.min(4096);
+        // Refused, not clamped: a caller asking for more would otherwise get
+        // a shorter answer that looks complete.
+        const MAX_TOKENS: u32 = 4096;
+        if params.max_tokens > MAX_TOKENS {
+            return Err(crate::safety::arg_err(format!(
+                "ai_local_generate: max_tokens {} is over the local limit of {MAX_TOKENS}",
+                params.max_tokens
+            )));
+        }
+        let max_tokens = params.max_tokens;
         for i in 1..max_tokens {
-            let pos = prompt_tokens.len() + i as usize;
+            // The token fed here was sampled at position prompt_len + i - 1:
+            // the first one follows the prompt directly.
+            let pos = prompt_tokens.len() + i as usize - 1;
             let input = Tensor::new(&[*generated_tokens.last().unwrap()], device)?.unsqueeze(0)?;
             let logits = model.forward(&input, pos)?;
 
@@ -473,7 +492,7 @@ impl CandleBackend {
             };
 
             // Check EOS
-            if eos_tokens.contains(&next_token) || next_token == eos_default {
+            if eos_tokens.contains(&next_token) {
                 break;
             }
 

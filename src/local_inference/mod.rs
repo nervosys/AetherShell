@@ -109,38 +109,42 @@ pub trait LocalInferenceBackend: Send + Sync {
 // BACKEND REGISTRY
 // ============================================================================
 
-/// Get all available inference backends based on compiled features
-pub fn available_backends() -> Vec<Box<dyn LocalInferenceBackend>> {
+/// Every inference backend compiled in. Each is one instance for the whole
+/// process: a model that `ai_local_load` puts in a backend's table has to be
+/// there for the `ai_local_generate`, `ai_local_embed` and `ai_local_unload`
+/// calls that name its handle. (They had been built fresh per call, so every
+/// loaded model was dropped as the load returned.)
+pub fn available_backends() -> Vec<&'static dyn LocalInferenceBackend> {
     #[allow(unused_mut)]
-    let mut backends: Vec<Box<dyn LocalInferenceBackend>> = Vec::new();
+    let mut backends: Vec<&'static dyn LocalInferenceBackend> = Vec::new();
 
     #[cfg(feature = "candle")]
     {
-        backends.push(Box::new(candle_backend::CandleBackend::new()));
+        static CANDLE: std::sync::OnceLock<candle_backend::CandleBackend> =
+            std::sync::OnceLock::new();
+        backends.push(CANDLE.get_or_init(candle_backend::CandleBackend::new));
     }
 
     #[cfg(feature = "onnx")]
     {
-        backends.push(Box::new(ort_backend::OrtBackend::new()));
+        static ORT: std::sync::OnceLock<ort_backend::OrtBackend> = std::sync::OnceLock::new();
+        backends.push(ORT.get_or_init(ort_backend::OrtBackend::new));
     }
 
     backends
 }
 
 /// Find the best backend for a given model file
-pub fn backend_for_model(path: &str) -> Option<Box<dyn LocalInferenceBackend>> {
+pub fn backend_for_model(path: &str) -> Option<&'static dyn LocalInferenceBackend> {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
 
-    for backend in available_backends() {
-        if backend.supports_format(&ext) {
-            return Some(backend);
-        }
-    }
-    None
+    available_backends()
+        .into_iter()
+        .find(|backend| backend.supports_format(&ext))
 }
 
 /// Check if any local inference backend is available
@@ -157,4 +161,18 @@ pub fn backend_names() -> Vec<&'static str> {
     #[cfg(feature = "onnx")]
     names.push("onnx");
     names
+}
+
+#[cfg(all(test, any(feature = "candle", feature = "onnx")))]
+mod tests {
+    #[test]
+    fn every_call_sees_the_same_backends() {
+        // A model loaded through one call must be there for the next.
+        let a = super::available_backends();
+        let b = super::available_backends();
+        assert_eq!(a.len(), b.len());
+        for (x, y) in a.iter().zip(&b) {
+            assert!(std::ptr::addr_eq(*x, *y), "{} was built anew", x.name());
+        }
+    }
 }
