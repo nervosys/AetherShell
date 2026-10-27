@@ -11278,7 +11278,16 @@ fn bi_ai_local_load(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             rec.insert("estimate_error".to_string(), Value::Str(e.to_string()));
         }
     }
+    // A backend's coded refusal (an unsupported architecture, say) and a
+    // file it cannot open keep their own codes; only what is left is read as
+    // a file the backend cannot load.
     let handle = backend.load_model(&path).map_err(|e| {
+        if e.downcast_ref::<crate::safety::SafetyError>().is_some() {
+            return e;
+        }
+        if let Some(io) = e.downcast_ref::<std::io::Error>() {
+            return crate::safety::fs_error(B, &path, io);
+        }
         crate::safety::bad_arg(B, "a model file the backend can load", &e.to_string())
     })?;
 
