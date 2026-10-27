@@ -14008,24 +14008,6 @@ pub static SIGNATURES: &[Signature] = &[
             (r#"(try { svc_disable("a b") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
-    Signature {
-        name: "workflow_execute",
-        category: None,
-        subject_required: false,
-        aliases: &[],
-        subject: None,
-        params: &[
-            req("workflow_id", Ty::Str, "an instance id from workflow_create"),
-            opt("options", Ty::Record, "{wait: false} starts the run in the background; {wait: true}, the default, blocks until it ends"),
-        ],
-        returns: "Any",
-        doc: "Run a workflow instance. With no options, or {wait: true}, it blocks until the run ends and answers the run's result. With {wait: false} it starts the run in the background and answers at once with {id, status}; status is the instance's status at that moment, usually created or running. Read progress with workflow_status and stop the run with workflow_cancel. Any other key, or a non-boolean wait, is E_BAD_ARG, and nothing starts. An unknown id is refused with the same error either way. A background run is not bound by the caller's evaluation deadline, but it keeps its own limits: every wait is capped at one hour, and a template over that cap is refused before its first step. Every step is gated as it is in a blocking run.",
-        examples: &[
-            (r#"(try { workflow_execute("nope", {wait: 1}) } catch e { e.error.code })"#, "E_BAD_ARG"),
-            (r#"(try { workflow_execute("nope", {bogus: true}) } catch e { e.error.code })"#, "E_BAD_ARG"),
-            (r#"(try { workflow_execute("nope", "wait") } catch e { e.error.code })"#, "E_BAD_ARG"),
-        ],
-    },
 ];
 
 /// The declaration for `name`, if it has one.

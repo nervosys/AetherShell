@@ -2123,7 +2123,10 @@ pub fn workflow_builtins() -> Vec<(&'static str, &'static str)> {
             "workflow_create",
             "Create a new workflow instance from a template",
         ),
-        ("workflow_execute", "Execute a workflow instance"),
+        (
+            "workflow_execute",
+            "Execute a workflow instance; with {wait: false} start it in the background and answer {id, status}",
+        ),
         ("workflow_status", "Get workflow instance status"),
         ("workflow_cancel", "Cancel a running workflow"),
         ("workflow_pause", "Pause a running workflow"),
