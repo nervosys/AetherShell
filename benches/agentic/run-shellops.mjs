@@ -13,12 +13,14 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ENGINES, COMMANDS, TASKS, EXPECT, selfCheck } from './shellops.mjs';
+import { ENGINES, COMMANDS, TASKS, expectFor, selfCheck } from './shellops.mjs';
 
 const repo = process.argv[2];
 const out = process.argv[3];
 const REPEATS = Number(process.argv[4] ?? 7);
 if (!repo || !out) { console.error('usage: run-shellops.mjs <repo-root> <outdir> [repeats]'); process.exit(2); }
+
+const EXPECT = expectFor(repo);
 
 const tokDir = path.join(out, 'tok-shellops');
 fs.rmSync(tokDir, { recursive: true, force: true });

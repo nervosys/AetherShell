@@ -9,6 +9,10 @@
 // The existing examples/shell_bench.rs compares the same idea against
 // *representative* outputs written by hand. This one executes.
 
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+
 export const ENGINES = {
     aethershell: { bin: 'ae', argv: (c) => ['-c', c], label: 'AetherShell 12.0.2' },
     // The mode an agent actually runs in: AECON output, effect gating on. It is
@@ -74,6 +78,25 @@ export const EXPECT = {
     t7: [/\d{2,}/],
     t8: [/\.rs|@suffix/],
 };
+
+// t4 and t6 as facts of the checkout being measured: its branch, and the
+// version in its Cargo.toml. The fixed `master|main` and `12.x` above failed
+// every engine alike on a release branch or after a version bump, which is a
+// fact about the oracle, not the engines. Read with git and fs, not with any
+// engine under test.
+export function expectFor(repo) {
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'],
+        { cwd: repo, encoding: 'utf8' }).trim();
+    const manifest = fs.readFileSync(path.join(repo, 'Cargo.toml'), 'utf8');
+    const version = manifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+    if (!branch || !version) throw new Error(`no branch or version in ${repo}`);
+    return {
+        ...EXPECT,
+        t4: [new RegExp(esc(branch))],
+        t6: [new RegExp(`${esc(version)}(?![\\d.])`)],
+    };
+}
 
 // A vacuity guard on the guard itself. The first version of this table was
 // written through a script whose escaping ate every backslash, turning
