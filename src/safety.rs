@@ -1669,7 +1669,15 @@ pub fn not_found(builtin: &str, kind: &str, name: &str) -> anyhow::Error {
         code: ErrorCode::NotFound,
         message: format!("{builtin}: no {kind} named '{name}'"),
         builtin: builtin.to_string(),
-        hint: format!("list the available {kind}s and use an identifier from it"),
+        // "processes", not "processs".
+        hint: format!(
+            "list the available {kind}{} and use an identifier from it",
+            if kind.ends_with('s') || kind.ends_with("sh") || kind.ends_with("ch") {
+                "es"
+            } else {
+                "s"
+            }
+        ),
         approval: None,
         did_you_mean: Vec::new(),
         expected: format!("an existing {kind}"),
@@ -5302,6 +5310,24 @@ where
     match handle.join() {
         Ok(v) => v,
         Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+#[cfg(test)]
+mod not_found_tests {
+    use super::*;
+
+    #[test]
+    fn the_hint_names_the_kind_in_the_plural() {
+        for (kind, plural) in [
+            ("process", "processes"),
+            ("job", "jobs"),
+            ("log file", "log files"),
+        ] {
+            let e = not_found("x", kind, "1");
+            let hint = &e.downcast_ref::<SafetyError>().unwrap().hint;
+            assert!(hint.contains(&format!("available {plural} and")), "{hint}");
+        }
     }
 }
 
