@@ -31428,9 +31428,101 @@ fn tar_tool_entry_names(builtin: &str, archive: &str) -> Result<Vec<(String, Opt
     Ok(names)
 }
 
+/// The program that decompresses a bzip2, xz or zstd stream, by its first two
+/// bytes.
+fn tar_stream_decompressor(magic: [u8; 2]) -> Option<&'static str> {
+    match magic {
+        [0x42, 0x5a] => Some("bzip2"), // "BZ"
+        [0xfd, 0x37] => Some("xz"),
+        [0x28, 0xb5] => Some("zstd"),
+        _ => None,
+    }
+}
+
+/// List a bzip2, xz or zstd tar by streaming it through its decompressor into
+/// the in-process reader, so symlink and hard-link targets are checked as they
+/// are for gzip. `None` when the decompressor is not installed: bsdtar has
+/// these formats built in and needs no separate program. Past the tool deadline
+/// the decompressor is killed and the call is a budget error.
+fn tar_decompressed_entries(
+    builtin: &str,
+    archive: &str,
+    tool: &str,
+) -> Result<Option<Vec<(String, Option<String>)>>> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    crate::safety::reject_option_like(builtin, &[archive.to_string()])?;
+    let mut child = match std::process::Command::new(tool)
+        .arg("-dc")
+        .arg("--")
+        .arg(archive)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(crate::safety::spawn_error(builtin, tool, &e)),
+    };
+    let mut stdout = child.stdout.take().expect("stdout is piped");
+    let child = Arc::new(Mutex::new(child));
+    let done = Arc::new(AtomicBool::new(false));
+    let timed_out = Arc::new(AtomicBool::new(false));
+    let watcher = {
+        let (child, done, timed_out) = (child.clone(), done.clone(), timed_out.clone());
+        std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            while !done.load(Ordering::SeqCst) {
+                if start.elapsed() >= std::time::Duration::from_secs(TOOL_DEADLINE_SECS) {
+                    timed_out.store(true, Ordering::SeqCst);
+                    let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        })
+    };
+    // Read to the end, past the tar's end-of-archive blocks, so the exit status
+    // says whether the whole stream decompressed.
+    let listed = read_tar_entries(builtin, &mut stdout).and_then(|v| {
+        std::io::copy(&mut stdout, &mut std::io::sink())
+            .map(|_| v)
+            .map_err(|e| crate::safety::tool_failed(builtin, tool, None, &e.to_string()))
+    });
+    done.store(true, Ordering::SeqCst);
+    let _ = watcher.join();
+    let status = {
+        let mut c = child.lock().unwrap_or_else(|e| e.into_inner());
+        if listed.is_err() {
+            let _ = c.kill();
+        }
+        c.wait()
+            .map_err(|e| crate::safety::spawn_error(builtin, tool, &e))?
+    };
+    if timed_out.load(Ordering::SeqCst) {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!("`{tool}` did not finish within {TOOL_DEADLINE_SECS} s"),
+            "nothing was extracted; the archive was not checked in time",
+        ));
+    }
+    let listed = listed?;
+    if !status.success() {
+        return Err(crate::safety::tool_failed(
+            builtin,
+            tool,
+            status.code(),
+            "the stream did not decompress cleanly",
+        ));
+    }
+    Ok(Some(listed))
+}
+
 /// List every entry of a tar archive, with the target of each symlink and hard
 /// link. A plain or gzip-compressed tar is read in-process. A bzip2, xz or zstd
-/// stream has only its member names checked, as `tar -tf` lists them.
+/// stream is read in-process through its decompressor; where that program is
+/// not installed, only its member names are checked, as `tar -tf` lists them.
 fn tar_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Option<String>)>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file =
@@ -31443,20 +31535,28 @@ fn tar_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Opti
         .map_err(|e| crate::safety::fs_error(builtin, archive, &e))?;
     let reader: Box<dyn Read> = if n == 2 && magic == [0x1f, 0x8b] {
         Box::new(flate2::read::GzDecoder::new(file))
-    } else if n == 2
-        && (magic == [0x42, 0x5a] // "BZ": bzip2
-            || magic == [0xfd, 0x37] // xz
-            || magic == [0x28, 0xb5])
-    // zstd
-    {
-        // No decoder for these is linked in, so the names come from the tar
-        // that will extract them. Link targets are not listed this way; the
-        // tool's own protection (GNU tar and bsdtar strip leading `/`, refuse
-        // `..` members, and delay symlinks) covers those.
+    } else if let Some(tool) = tar_stream_decompressor(magic).filter(|_| n == 2) {
+        drop(file);
+        if let Some(listed) = tar_decompressed_entries(builtin, archive, tool)? {
+            return Ok(listed);
+        }
+        // No decompressor on PATH, so the names come from the tar that will
+        // extract them. Link targets are not listed this way; the tool's own
+        // protection (GNU tar and bsdtar strip leading `/`, refuse `..`
+        // members, and delay symlinks) covers those.
         return tar_tool_entry_names(builtin, archive);
     } else {
         Box::new(file)
     };
+    read_tar_entries(builtin, reader)
+}
+
+/// Every entry of an uncompressed tar stream, with the target of each symlink
+/// and hard link.
+fn read_tar_entries<R: std::io::Read>(
+    builtin: &str,
+    reader: R,
+) -> Result<Vec<(String, Option<String>)>> {
     let mut ar = tar::Archive::new(reader);
     let entries = ar.entries().map_err(|e| {
         crate::safety::tool_failed(builtin, "tar", None, &format!("not a tar archive: {e}"))
@@ -69179,6 +69279,73 @@ mod archive_prescan_tests {
         assert!(names
             .iter()
             .any(|(n, t)| n.trim_end_matches('/') == "a.txt" && t.is_none()));
+    }
+
+    #[test]
+    fn an_xz_tar_has_its_link_targets_checked() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!(
+            "ae_prescan_xzlink_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut raw = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut raw);
+            let mut h = tar::Header::new_gnu();
+            h.set_path("a").unwrap();
+            h.set_entry_type(tar::EntryType::Symlink);
+            h.set_link_name("../../etc").unwrap();
+            h.set_size(0);
+            h.set_cksum();
+            b.append(&h, std::io::empty()).unwrap();
+            b.finish().unwrap();
+        }
+        let xz = std::process::Command::new("xz")
+            .arg("-c")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn();
+        let Ok(mut xz) = xz else {
+            let _ = std::fs::remove_dir_all(&dir);
+            eprintln!("skipped: no xz on PATH");
+            return;
+        };
+        let mut stdin = xz.stdin.take().unwrap();
+        let feed = std::thread::spawn(move || stdin.write_all(&raw));
+        let out = xz.wait_with_output().unwrap();
+        feed.join().unwrap().unwrap();
+        assert!(out.status.success());
+        let archive = dir.join("evil.tar.xz");
+        std::fs::write(&archive, &out.stdout).unwrap();
+        let listed = tar_archive_entries("tar_extract", archive.to_str().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+        let listed = listed.unwrap();
+        assert_eq!(listed, entries(&[("a", Some("../../etc"))]));
+        assert!(check_archive_entries("tar_extract", listed.into_iter()).is_err());
+    }
+
+    #[test]
+    fn a_corrupt_xz_stream_is_a_tool_failure() {
+        let dir = std::env::temp_dir().join(format!(
+            "ae_prescan_xzbad_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("bad.tar.xz");
+        // xz magic, then garbage.
+        std::fs::write(&archive, [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00, 1, 2, 3, 4]).unwrap();
+        let have_xz = std::process::Command::new("xz")
+            .arg("--version")
+            .output()
+            .is_ok();
+        let listed = tar_archive_entries("tar_extract", archive.to_str().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+        if !have_xz {
+            eprintln!("skipped: no xz on PATH");
+            return;
+        }
+        assert!(listed.is_err());
     }
 
     #[test]
