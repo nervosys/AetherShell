@@ -6161,7 +6161,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "Network interfaces with name, MAC address and speed where known.",
+        doc: "Network interfaces with name, MAC address and IP addresses where known.",
         examples: &[("typeof(platform_network_interfaces())", "Array")],
     },
     Signature {
@@ -11499,7 +11499,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Int | Null",
-        doc: "CPU frequency in MHz: the maximum on Windows, the current on Linux, the nominal on macOS. Null when the OS does not say (Apple Silicon, many VMs); a source that exists and cannot be read is a coded error, never null.",
+        doc: "CPU frequency in MHz: the clock Windows measured at boot, the current on Linux, the nominal on macOS. Null when the OS does not say (Apple Silicon, many VMs); a source that exists and cannot be read is a coded error, never null.",
         examples: &[
             (r#"sys_cpu_freq()"#, r#"3200"#),
         ],

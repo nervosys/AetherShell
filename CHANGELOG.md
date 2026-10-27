@@ -76,7 +76,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   3.4-3.8 s; the rest is the probes themselves. Detection results and their
   order are unchanged.
 
+- Seven Windows builtins ask the OS instead of starting a process.
+  `sys_uptime` and `sys_boot_time` read the tick count instead of WMI through
+  PowerShell (about 12 s on an idle host, past the 30 s probe deadline on a
+  loaded one; now under a second). `sudo_check`, `platform_has_admin` and
+  `platform_capabilities` read the process token's elevation flag instead of
+  PowerShell's `IsInRole` or `net session`, which also said "not admin" when
+  the Server service was stopped. `sys_cpu_freq` and `platform_cpu_freq` read
+  the registry's `~MHz` instead of Win32_Processor's MaxClockSpeed: the
+  clock the kernel measured at boot, not the rated figure, so a host may
+  answer 4392 where WMI said 4400.
+
 ### Changed
+
+- `platform_network_interfaces` on Windows lists the interfaces, each with
+  `name`, `mac` and `addresses` as on Linux. It called `wmic`, which Windows 11
+  no longer ships, and without it answered a single record holding
+  `ipconfig`'s raw text. The `speed_bps` and `speed_mbps` fields that wmic
+  supplied are gone.
+
+- `sys_kernel` on Windows answers the version, `10.0.26200.9711`, like
+  `uname -r` elsewhere. It was the output of `cmd /C ver`,
+  `Microsoft Windows [Version 10.0.26200.9711]`, whose wording changes with
+  the display language.
 
 - **Agent-mode network egress needs approval** unless `AETHER_NET_ALLOW` names
   the host (`*` restores the old metered-allow). The allowlist is now enforced in

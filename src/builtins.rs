@@ -28637,14 +28637,49 @@ fn ver_unreadable(builtin: &str) -> anyhow::Error {
 fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        // `ver` is a cmd.exe INTERNAL command: there is no ver.exe, so
-        // `Command::new("ver")` could never start and this builtin answered
-        // E_TOOL_MISSING on every Windows host. Nothing caught it because
-        // nothing ran it -- declaring the signature made its example
-        // executable, and the example failed on the first try.
-        let mut bounded_cmd = std::process::Command::new("cmd");
-        bounded_cmd.args(["/C", "ver"]);
-        Ok(Value::Str(probe_text("sys_kernel", "cmd", bounded_cmd)?))
+        // The kernel's own version, as `10.0.26200.6899`: the release string
+        // `uname -r` is elsewhere. This was `cmd /C ver`, which started a
+        // process and answered in a localized sentence ("Microsoft Windows
+        // [Version ...]") whose wording varied with the display language.
+        // RtlGetVersion, unlike GetVersionEx, is not capped by the manifest;
+        // the fourth part (the update revision) is only in the registry.
+        #[repr(C)]
+        struct OsVersionInfoW {
+            size: u32,
+            major: u32,
+            minor: u32,
+            build: u32,
+            platform: u32,
+            service_pack: [u16; 128],
+        }
+        #[link(name = "ntdll")]
+        extern "system" {
+            fn RtlGetVersion(info: *mut OsVersionInfoW) -> i32;
+        }
+        let mut info = OsVersionInfoW {
+            size: std::mem::size_of::<OsVersionInfoW>() as u32,
+            major: 0,
+            minor: 0,
+            build: 0,
+            platform: 0,
+            service_pack: [0; 128],
+        };
+        // SAFETY: `info` is an OSVERSIONINFOW with its size field set.
+        let status = unsafe { RtlGetVersion(&mut info) };
+        if status != 0 {
+            return Err(crate::safety::bad_state(
+                "sys_kernel",
+                &format!("RtlGetVersion returned NTSTATUS {status:#x}"),
+                "a Windows kernel that reports its version",
+            ));
+        }
+        let mut release = format!("{}.{}.{}", info.major, info.minor, info.build);
+        if let Ok(Some(ubr)) =
+            windows_hklm_dword(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "UBR")
+        {
+            release.push_str(&format!(".{ubr}"));
+        }
+        Ok(Value::Str(release))
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -28658,7 +28693,7 @@ fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 ///
 /// Anything else (empty, text, NaN, negative) is refused. The old code read
 /// it as 0 seconds, "up 0 seconds" on a host that had been up for days.
-#[cfg(any(target_os = "windows", target_os = "linux", test))]
+#[cfg(any(target_os = "linux", test))]
 fn uptime_seconds(builtin: &str, text: &str) -> Result<i64> {
     match text.trim().parse::<f64>() {
         Ok(secs) if secs.is_finite() && secs >= 0.0 => Ok(secs as i64),
@@ -28675,14 +28710,7 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // "up 0 seconds", which a caller could not tell from a fresh boot.
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            "((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalSeconds",
-        ]);
-        let output = bounded_cmd_output("sys_uptime", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        let text = probe_stdout("sys_uptime", "powershell Win32_OperatingSystem", output)?;
-        return uptime_seconds("sys_uptime", &text).map(Value::Int);
+        return Ok(Value::Int((windows_uptime_ms() / 1000) as i64));
     }
     #[cfg(target_os = "linux")]
     {
@@ -28730,20 +28758,39 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
+/// Milliseconds since the Windows kernel started, sleep included.
+///
+/// sys_uptime and sys_boot_time had each started powershell to read WMI's
+/// LastBootUpTime: about 12 s on an idle host and over the 30 s probe deadline
+/// on a loaded one. The kernel's tick count answers at once. Measured on a
+/// host with Fast Startup on, it put the boot 6 s before WMI did (WMI records
+/// a moment later in startup); sleep and Fast Startup leave both alike.
+#[cfg(target_os = "windows")]
+fn windows_uptime_ms() -> u64 {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetTickCount64() -> u64;
+    }
+    // SAFETY: no arguments, no failure mode.
+    unsafe { GetTickCount64() }
+}
+
 fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('o')",
-        ]);
-        let output = bounded_cmd_output("sys_boot_time", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
+        // The shape powershell's ToString('o') gave: local time, seven
+        // fractional digits, offset.
+        let boot =
+            chrono::Local::now() - chrono::Duration::milliseconds(windows_uptime_ms() as i64);
+        // chrono has no seven-digit fraction, so the 100 ns ticks are written
+        // out.
+        use chrono::Timelike;
+        return Ok(Value::Str(format!(
+            "{}.{:07}{}",
+            boot.format("%Y-%m-%dT%H:%M:%S"),
+            boot.nanosecond() % 1_000_000_000 / 100,
+            boot.format("%:z")
+        )));
     }
     // `uptime -s` is a procps/GNU flag. macOS `uptime` does not have it, so
     // this exited non-zero there and fell through to `Ok(Value::Null)` -- a
@@ -28784,14 +28831,13 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             &String::from_utf8_lossy(&output.stderr),
         ));
     }
-    // Windows only: the powershell arm above returns on success. A `Null`
-    // here would be the same silent failure this commit removes.
+    // Every arm above returns. Were one to fall through, this is an error, not
+    // the silent `Null` the macOS arm once answered.
     #[allow(unreachable_code)]
-    Err(crate::safety::tool_failed(
+    Err(crate::safety::unimplemented(
         "sys_boot_time",
-        "powershell Get-CimInstance Win32_OperatingSystem",
-        None,
-        "",
+        "the boot time on this OS",
+        "read the uptime with `sys_uptime` where it is available",
     ))
 }
 
@@ -28977,39 +29023,14 @@ fn bi_sys_cpu_count(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Null means the OS does not expose a frequency: no cpufreq driver, or
-    // Apple Silicon. A source that exists and fails -- PowerShell refusing, a
+    // Apple Silicon. A source that exists and fails -- a registry value or a
     // file that cannot be read, a reading that is not a number -- is a coded
     // error. It used to read as Null, the same answer as "not exposed".
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            "(Get-CimInstance Win32_Processor).MaxClockSpeed",
-        ]);
-        let output = bounded_cmd_output("sys_cpu_freq", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if !output.status.success() {
-            return Err(crate::safety::tool_failed(
-                "sys_cpu_freq",
-                "powershell Get-CimInstance Win32_Processor",
-                output.status.code(),
-                &String::from_utf8_lossy(&output.stderr),
-            ));
-        }
-        // One line per processor; the first is the package's maximum.
-        let text = String::from_utf8_lossy(&output.stdout);
-        let line = text
-            .lines()
-            .map(str::trim)
-            .find(|l| !l.is_empty())
-            .unwrap_or("");
-        return line.parse::<i64>().map(Value::Int).map_err(|_| {
-            crate::safety::bad_state(
-                "sys_cpu_freq",
-                &format!("Win32_Processor reported no clock speed: `{line}`"),
-                "a processor that reports MaxClockSpeed",
-            )
-        });
+        return Ok(
+            windows_cpu_mhz("sys_cpu_freq")?.map_or(Value::Null, |mhz| Value::Int(mhz as i64))
+        );
     }
     #[cfg(target_os = "linux")]
     {
@@ -29348,6 +29369,57 @@ mod quiet_sys_tests {
         assert!(uptime_seconds("sys_uptime", "soon").is_err());
         assert!(uptime_seconds("sys_uptime", "NaN").is_err());
         assert!(uptime_seconds("sys_uptime", "-4").is_err());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_boot_time_and_uptime_agree_without_a_process() {
+        let Value::Str(boot) = bi_sys_boot_time(vec![], None).unwrap() else {
+            panic!("sys_boot_time is not a String");
+        };
+        let boot = chrono::DateTime::parse_from_rfc3339(&boot).expect("an RFC 3339 time");
+        let Value::Int(up) = bi_sys_uptime(vec![], None).unwrap() else {
+            panic!("sys_uptime is not an Int");
+        };
+        let now = chrono::Local::now().fixed_offset();
+        assert!(boot < now && up > 0);
+        let gap = ((now - boot).num_seconds() - up).abs();
+        assert!(gap <= 2, "boot time and uptime disagree by {gap} s");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_kernel_clock_and_elevation_come_from_the_os_itself() {
+        let Value::Str(release) = bi_sys_kernel(vec![], None).unwrap() else {
+            panic!("sys_kernel is not a String");
+        };
+        let parts: Vec<&str> = release.split('.').collect();
+        assert!(
+            (3..=4).contains(&parts.len()) && parts.iter().all(|p| p.parse::<u32>().is_ok()),
+            "not a version: {release}"
+        );
+        assert!(matches!(
+            bi_sys_cpu_freq(vec![], None).unwrap(),
+            Value::Null | Value::Int(1..)
+        ));
+        // Either answer is right; the token must be readable.
+        windows_is_admin("sudo_check").unwrap();
+        // An absent value is None, not an error.
+        assert_eq!(
+            windows_hklm_dword(
+                r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+                "NoSuchValue"
+            ),
+            Ok(None)
+        );
+        // One record per interface, not ipconfig's text in a `raw` field.
+        let Value::Array(nics) = bi_platform_network_interfaces(vec![], None).unwrap() else {
+            panic!("platform_network_interfaces is not an Array");
+        };
+        assert!(!nics.is_empty());
+        for nic in &nics {
+            assert!(field(nic, "name").is_some() && field(nic, "raw").is_none());
+        }
     }
 
     #[test]
@@ -32624,12 +32696,7 @@ fn bi_sudo_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(windows)]
     {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd
-            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
-            .stdin(std::process::Stdio::null());
-        let output = bounded_cmd_output("sudo_check", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        parse_windows_admin_status(output)
+        Ok(Value::Bool(windows_is_admin("sudo_check")?))
     }
     #[cfg(unix)]
     {
@@ -32643,96 +32710,6 @@ fn bi_sudo_check(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "privilege inspection is unavailable on this platform",
             "use the platform's identity inspection tools",
         ))
-    }
-}
-
-#[cfg(any(windows, test))]
-fn parse_windows_admin_status(output: std::process::Output) -> Result<Value> {
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "sudo_check",
-            "powershell",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
-    let text = std::str::from_utf8(&output.stdout).map_err(|_| {
-        crate::safety::bad_state(
-            "sudo_check",
-            "administrator query returned non-UTF-8 output",
-            "use a PowerShell installation that emits a boolean result",
-        )
-    })?;
-    let text = text.trim_matches(|c: char| c.is_ascii_whitespace());
-    if text.eq_ignore_ascii_case("true") {
-        Ok(Value::Bool(true))
-    } else if text.eq_ignore_ascii_case("false") {
-        Ok(Value::Bool(false))
-    } else {
-        Err(crate::safety::bad_state(
-            "sudo_check",
-            "administrator query returned an invalid boolean result",
-            "inspect the PowerShell installation; expected True or False",
-        ))
-    }
-}
-
-#[cfg(test)]
-mod sudo_check_contract_tests {
-    use super::*;
-    fn output(status: i32, stdout: &[u8], stderr: &[u8]) -> std::process::Output {
-        #[cfg(windows)]
-        let status = {
-            use std::os::windows::process::ExitStatusExt;
-            std::process::ExitStatus::from_raw(status as u32)
-        };
-        #[cfg(unix)]
-        let status = {
-            use std::os::unix::process::ExitStatusExt;
-            std::process::ExitStatus::from_raw(status << 8)
-        };
-        std::process::Output {
-            status,
-            stdout: stdout.to_vec(),
-            stderr: stderr.to_vec(),
-        }
-    }
-    #[test]
-    fn windows_query_accepts_only_boolean_results() {
-        for (text, expected) in [
-            (b"True\r\n".as_slice(), true),
-            (b"false".as_slice(), false),
-            (b" \tTRUE\n".as_slice(), true),
-        ] {
-            assert!(
-                matches!(parse_windows_admin_status(output(0, text, b"")).unwrap(), Value::Bool(value) if value == expected)
-            );
-        }
-    }
-    #[test]
-    fn malformed_query_output_never_becomes_false() {
-        for text in [
-            b"".as_slice(),
-            b"0",
-            b"permission denied",
-            b"True\nFalse",
-            b"True extra",
-            &[0xff],
-        ] {
-            let error = parse_windows_admin_status(output(0, text, b"")).unwrap_err();
-            assert!(error.to_string().contains("E_BAD_STATE"), "{error}");
-        }
-    }
-    #[test]
-    fn failed_query_status_takes_precedence_over_output() {
-        for text in [b"True".as_slice(), b"False", b""] {
-            let error =
-                parse_windows_admin_status(output(3, text, b"owned test failure")).unwrap_err();
-            let message = error.to_string();
-            assert!(message.contains("E_TOOL_FAILED"));
-            assert!(message.contains("exited 3"));
-            assert!(message.contains("owned test failure"));
-        }
     }
 }
 
@@ -49669,16 +49646,135 @@ fn bi_platform_has_tool(args: Vec<Value>, _input: Option<Value>) -> Result<Value
     Ok(Value::Bool(on_path(tool)))
 }
 
-/// Whether this Windows process is elevated, by `net session`. That succeeds
-/// only for an administrator; an ordinary user gets a non-zero exit (access
-/// denied), which is the "not admin" answer. A failure to run `net` at all is
-/// an error. Before this, it read as "not admin" too.
+/// Whether this Windows process is elevated, read from its own token.
+///
+/// This was `net session` here and PowerShell's
+/// `IsInRole(Administrator)` in sudo_check. Both answer the same question as
+/// the token's elevation flag (under UAC an administrator's unelevated
+/// process is not elevated for any of them), but each started a process, and
+/// `net session` also failed, reading as "not admin", when the Server service
+/// was stopped.
 #[cfg(target_os = "windows")]
 fn windows_is_admin(builtin: &str) -> Result<bool> {
-    let mut cmd = std::process::Command::new("net");
-    cmd.args(["session"]);
-    let output = bounded_cmd_output(builtin, "net", cmd, PROBE_DEADLINE_SECS)?;
-    Ok(output.status.success())
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+        fn GetTokenInformation(
+            token: *mut c_void,
+            class: u32,
+            info: *mut c_void,
+            len: u32,
+            returned: *mut u32,
+        ) -> i32;
+    }
+    const TOKEN_QUERY: u32 = 0x0008;
+    const TOKEN_ELEVATION: u32 = 20;
+    let failed = |call: &str| {
+        crate::safety::bad_state(
+            builtin,
+            &format!("{call} failed: {}", std::io::Error::last_os_error()),
+            "a process token this process can query",
+        )
+    };
+    let mut token: *mut c_void = std::ptr::null_mut();
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that needs no close;
+    // `token` is a valid out-pointer.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(failed("OpenProcessToken"));
+    }
+    let mut elevated: u32 = 0;
+    let mut returned: u32 = 0;
+    // SAFETY: TOKEN_ELEVATION is a single DWORD, and `elevated` is one.
+    let ok = unsafe {
+        GetTokenInformation(
+            token,
+            TOKEN_ELEVATION,
+            (&mut elevated as *mut u32).cast(),
+            std::mem::size_of::<u32>() as u32,
+            &mut returned,
+        )
+    };
+    let result = if ok == 0 {
+        Err(failed("GetTokenInformation"))
+    } else {
+        Ok(elevated != 0)
+    };
+    // SAFETY: `token` was opened above and is closed once.
+    unsafe { CloseHandle(token) };
+    result
+}
+
+/// A REG_DWORD under HKEY_LOCAL_MACHINE: `Ok(None)` when the key or value is
+/// absent, `Err` with the Win32 status for anything else.
+#[cfg(target_os = "windows")]
+fn windows_hklm_dword(subkey: &str, value: &str) -> std::result::Result<Option<u32>, i32> {
+    use std::ffi::c_void;
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn RegGetValueW(
+            key: isize,
+            subkey: *const u16,
+            value: *const u16,
+            flags: u32,
+            kind: *mut u32,
+            data: *mut c_void,
+            len: *mut u32,
+        ) -> i32;
+    }
+    const HKEY_LOCAL_MACHINE: isize = 0x8000_0002u32 as i32 as isize;
+    const RRF_RT_REG_DWORD: u32 = 0x0000_0010;
+    const ERROR_FILE_NOT_FOUND: i32 = 2;
+    let wide = |s: &str| {
+        s.encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>()
+    };
+    let (subkey, value) = (wide(subkey), wide(value));
+    let mut data: u32 = 0;
+    let mut len = std::mem::size_of::<u32>() as u32;
+    // SAFETY: both names are NUL-terminated, and RRF_RT_REG_DWORD writes at
+    // most `len` (4) bytes into `data`.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            subkey.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            (&mut data as *mut u32).cast(),
+            &mut len,
+        )
+    };
+    match status {
+        0 => Ok(Some(data)),
+        ERROR_FILE_NOT_FOUND => Ok(None),
+        other => Err(other),
+    }
+}
+
+/// Processor 0's clock in MHz as the kernel measured it at boot, from the
+/// registry, without starting PowerShell to ask WMI. It is not quite WMI's
+/// MaxClockSpeed, the rated figure: on one host 4392 where WMI said 4400.
+#[cfg(target_os = "windows")]
+fn windows_cpu_mhz(builtin: &str) -> Result<Option<u32>> {
+    windows_hklm_dword(r"HARDWARE\DESCRIPTION\System\CentralProcessor\0", "~MHz").map_err(
+        |status| {
+            crate::safety::bad_state(
+                builtin,
+                &format!(
+                    "the processor's ~MHz registry value could not be read: {}",
+                    std::io::Error::from_raw_os_error(status)
+                ),
+                "a readable HKLM\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0",
+            )
+        },
+    )
 }
 
 fn bi_platform_capabilities(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -51694,20 +51790,10 @@ fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     // reports no frequency (Apple Silicon, many ARM and virtual CPUs).
     #[cfg(target_os = "windows")]
     {
-        // Use PowerShell instead of WMIC (more reliable)
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            "(Get-CimInstance Win32_Processor).MaxClockSpeed",
-        ]);
-        if let Ok(out) =
-            bounded_cmd_output("platform_cpu_freq", "powershell", cmd, PROBE_DEADLINE_SECS)
-        {
-            if out.status.success() {
-                if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<f64>() {
-                    return Ok(Value::Float(n));
-                }
-            }
+        // Null on an unreadable value, as Null was the answer to a failed
+        // PowerShell query before.
+        if let Ok(Some(mhz)) = windows_cpu_mhz("platform_cpu_freq") {
+            return Ok(Value::Float(mhz as f64));
         }
     }
     #[cfg(target_os = "linux")]
@@ -52304,71 +52390,27 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
 
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("wmic");
-        cmd.args([
-            "nic",
-            "where",
-            "NetEnabled=true",
-            "get",
-            "Name,MACAddress,Speed",
-            "/format:list",
-        ]);
-        if let Ok(out) = bounded_cmd_output(
-            "platform_network_interfaces",
-            "wmic",
-            cmd,
-            PROBE_DEADLINE_SECS,
-        ) {
-            let output = String::from_utf8_lossy(&out.stdout);
-            let mut current = std::collections::BTreeMap::new();
-            for line in output.lines() {
-                if line.is_empty() && !current.is_empty() {
-                    interfaces.push(Value::Record(current.clone()));
-                    current.clear();
-                } else if let Some((key, val)) = line.split_once('=') {
-                    let key = key.trim().to_lowercase();
-                    let val = val.trim();
-                    if !val.is_empty() {
-                        match key.as_str() {
-                            "name" => {
-                                current.insert("name".to_string(), Value::Str(val.to_string()));
-                            }
-                            "macaddress" => {
-                                current.insert("mac".to_string(), Value::Str(val.to_string()));
-                            }
-                            "speed" => {
-                                if let Ok(n) = val.parse::<i64>() {
-                                    current.insert("speed_bps".to_string(), Value::Int(n));
-                                    current.insert(
-                                        "speed_mbps".to_string(),
-                                        Value::Int(n / 1_000_000),
-                                    );
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+        // The interface table, in process. This was `wmic nic`, which Windows
+        // 11 no longer ships; without it the answer was one record holding
+        // ipconfig's raw text instead of a list of interfaces. The records
+        // now have the Linux branch's fields: name, mac and addresses.
+        let networks = sysinfo::Networks::new_with_refreshed_list();
+        for (name, data) in networks.iter() {
+            let mut nic = std::collections::BTreeMap::new();
+            nic.insert("name".to_string(), Value::Str(name.clone()));
+            nic.insert(
+                "mac".to_string(),
+                Value::Str(data.mac_address().to_string()),
+            );
+            let ips: Vec<Value> = data
+                .ip_networks()
+                .iter()
+                .map(|n| Value::Str(n.addr.to_string()))
+                .collect();
+            if !ips.is_empty() {
+                nic.insert("addresses".to_string(), Value::Array(ips));
             }
-            if !current.is_empty() {
-                interfaces.push(Value::Record(current));
-            }
-        }
-        // Also get IP addresses
-        let cmd = std::process::Command::new("ipconfig");
-        if let Ok(out) = bounded_cmd_output(
-            "platform_network_interfaces",
-            "ipconfig",
-            cmd,
-            PROBE_DEADLINE_SECS,
-        ) {
-            let output = String::from_utf8_lossy(&out.stdout);
-            // Just add raw output for now
-            if interfaces.is_empty() {
-                let mut info = std::collections::BTreeMap::new();
-                info.insert("raw".to_string(), Value::Str(output.to_string()));
-                interfaces.push(Value::Record(info));
-            }
+            interfaces.push(Value::Record(nic));
         }
     }
 
