@@ -363,12 +363,14 @@ fn run(cli: Cli) -> Result<()> {
                 aethershell::tui::run()?;
                 Ok(())
             }
-            Commands::Ai { command } => {
-                tokio::runtime::Runtime::new()?.block_on(handle_ai_command(command))
-            }
-            Commands::Mcp { command } => {
-                tokio::runtime::Runtime::new()?.block_on(handle_mcp_command(command))
-            }
+            Commands::Ai { command } => aethershell::serve::run_then_release(
+                tokio::runtime::Runtime::new()?,
+                handle_ai_command(command),
+            ),
+            Commands::Mcp { command } => aethershell::serve::run_then_release(
+                tokio::runtime::Runtime::new()?,
+                handle_mcp_command(command),
+            ),
             Commands::Agent { command } => handle_agent_api_command(command),
             Commands::Assist {
                 query,
@@ -702,11 +704,14 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
                 // `safety::MAX_CALL_DEPTH` could refuse the call. This is the
                 // path that matters for finding 13: it is the one an
                 // unauthenticated-adjacent caller can reach.
-                tokio::runtime::Builder::new_multi_thread()
+                let rt = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .thread_stack_size(aethershell::safety::EVAL_STACK_SIZE)
-                    .build()?
-                    .block_on(agent_api::server::start_agent_api_server(config))
+                    .build()?;
+                aethershell::serve::run_then_release(
+                    rt,
+                    agent_api::server::start_agent_api_server(config),
+                )
             }
 
             #[cfg(not(feature = "native"))]

@@ -15,6 +15,23 @@ use tokio::net::TcpListener;
 /// How long open connections get to finish after the shutdown signal.
 pub const DRAIN: Duration = Duration::from_secs(10);
 
+/// How long blocking work still running after a server stops may hold the
+/// process open.
+pub const RELEASE: Duration = Duration::from_secs(1);
+
+/// Run `f` on `rt`, then shut the runtime down without waiting on blocking
+/// tasks for more than `RELEASE`.
+///
+/// Dropping a runtime waits for every `spawn_blocking` thread. An evaluation
+/// cut off by the drain (a `sleep(3000)`, a long loop) keeps running on one,
+/// and before this the process stayed up until it ended, long after the
+/// server had stopped.
+pub fn run_then_release<F: Future>(rt: tokio::runtime::Runtime, f: F) -> F::Output {
+    let out = rt.block_on(f);
+    rt.shutdown_timeout(RELEASE);
+    out
+}
+
 /// Serve `app` until `signal` resolves, then drain for at most `drain`.
 pub async fn serve_until<F>(
     listener: TcpListener,
