@@ -1,34 +1,43 @@
-//! ONNX Runtime Backend — Cross-platform ONNX model inference
+//! ONNX Runtime Backend — embeddings from ONNX encoder models
 //!
-//! Supports .onnx model files for text generation and embeddings via the `ort` crate.
-//! ONNX Runtime provides hardware-accelerated inference across CPU, CUDA, DirectML,
-//! CoreML, and TensorRT execution providers.
+//! Loads .onnx files through the `ort` crate, with the model's own
+//! `tokenizer.json` (beside the model, or one directory up as in a HuggingFace
+//! `onnx/` layout). Embedding models are supported: sentence-transformers and
+//! BERT-style encoders that output `sentence_embedding` or
+//! `last_hidden_state`. Text generation is not: decoding needs a model-specific
+//! loop with past key-values, so `generate` refuses rather than answering from
+//! a single forward pass. GGUF models generate through the candle backend.
 
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use ort::session::Session;
+use ort::value::Tensor;
 
 use super::{EmbeddingResult, GenerationParams, InferenceResult, LocalInferenceBackend};
 
 /// A loaded ONNX model session
 struct LoadedOnnxModel {
-    /// Path to the ONNX model
-    path: String,
     /// ONNX Runtime session
     session: Session,
-    /// Input names
+    /// The model's own tokenizer
+    tokenizer: tokenizers::Tokenizer,
+    /// Input names, in the graph's order
     input_names: Vec<String>,
-    /// Output names
+    /// Output names, in the graph's order
     output_names: Vec<String>,
-    /// Whether this is likely an embedding model
-    is_embedding: bool,
 }
 
 /// ONNX Runtime inference backend
 pub struct OrtBackend {
     models: Arc<Mutex<HashMap<String, LoadedOnnxModel>>>,
+}
+
+impl Default for OrtBackend {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OrtBackend {
@@ -38,16 +47,31 @@ impl OrtBackend {
         }
     }
 
-    /// Detect if a model is an embedding model from its input/output signature
-    fn is_embedding_model(session: &Session) -> bool {
-        let output_names: Vec<String> = session.outputs.iter().map(|o| o.name.clone()).collect();
-        // Common embedding model output names
-        output_names.iter().any(|n| {
-            n.contains("embedding")
-                || n.contains("sentence_embedding")
-                || n.contains("last_hidden_state")
-                || n.contains("pooler_output")
-        })
+    /// The tokenizer.json beside the model, or one directory up.
+    fn load_tokenizer(model_path: &str) -> Result<tokenizers::Tokenizer> {
+        let path = std::path::Path::new(model_path);
+        for dir in [path.parent(), path.parent().and_then(|d| d.parent())]
+            .into_iter()
+            .flatten()
+        {
+            let candidate = dir.join("tokenizer.json");
+            if candidate.exists() {
+                return tokenizers::Tokenizer::from_file(&candidate).map_err(|e| {
+                    anyhow!("failed to load tokenizer {}: {}", candidate.display(), e)
+                });
+            }
+        }
+        Err(anyhow!(
+            "no tokenizer.json beside {} or one directory up; an ONNX model's token ids \
+             come from its own tokenizer, so it cannot be run without one",
+            model_path
+        ))
+    }
+
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, HashMap<String, LoadedOnnxModel>>> {
+        self.models
+            .lock()
+            .map_err(|_| crate::safety::lock_poisoned("ai_local", "the ONNX model table"))
     }
 }
 
@@ -65,188 +89,156 @@ impl LocalInferenceBackend for OrtBackend {
                 .unwrap_or("model")
         );
 
-        // Create ONNX Runtime session
+        let tokenizer = Self::load_tokenizer(path)?;
         let session = Session::builder()?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .with_intra_threads(num_cpus())?
             .commit_from_file(path)?;
 
-        let input_names: Vec<String> = session.inputs.iter().map(|i| i.name.clone()).collect();
-
-        let output_names: Vec<String> = session.outputs.iter().map(|o| o.name.clone()).collect();
-
-        let is_embedding = Self::is_embedding_model(&session);
+        let input_names: Vec<String> = session
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string())
+            .collect();
+        let output_names: Vec<String> = session
+            .outputs()
+            .iter()
+            .map(|o| o.name().to_string())
+            .collect();
+        if !input_names.iter().any(|n| n == "input_ids") {
+            return Err(anyhow!(
+                "{} has no `input_ids` input (inputs: {}); only encoder models that take \
+                 token ids are supported",
+                path,
+                input_names.join(", ")
+            ));
+        }
 
         let loaded = LoadedOnnxModel {
-            path: path.to_string(),
             session,
+            tokenizer,
             input_names,
             output_names,
-            is_embedding,
         };
-
-        let mut models = self.models.lock().unwrap();
-        models.insert(handle.clone(), loaded);
-
+        self.lock()?.insert(handle.clone(), loaded);
         Ok(handle)
     }
 
     fn unload_model(&self, handle: &str) -> Result<()> {
-        let mut models = self.models.lock().unwrap();
-        models
+        self.lock()?
             .remove(handle)
             .ok_or_else(|| anyhow!("Model '{}' not loaded", handle))?;
         Ok(())
     }
 
     fn loaded_models(&self) -> Vec<String> {
-        let models = self.models.lock().unwrap();
-        models.keys().cloned().collect()
+        self.lock()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     fn generate(
         &self,
-        handle: &str,
-        prompt: &str,
+        _handle: &str,
+        _prompt: &str,
         _params: &GenerationParams,
     ) -> Result<InferenceResult> {
-        let models = self.models.lock().unwrap();
-        let model = models
-            .get(handle)
-            .ok_or_else(|| anyhow!("Model '{}' not loaded", handle))?;
-
-        let start = std::time::Instant::now();
-
-        // For ONNX text generation models, we need token IDs as input
-        // This is a simplified implementation — real usage needs a tokenizer
-        let prompt_bytes = prompt.as_bytes();
-        let prompt_tokens = prompt_bytes.len() as u32 / 4; // rough estimate
-
-        // Create input tensor (simplified: pass raw byte IDs)
-        // Real implementation would use a proper tokenizer
-        let input_ids: Vec<i64> = prompt.chars().map(|c| c as i64).collect();
-        let seq_len = input_ids.len();
-
-        let input_array = ndarray::Array2::from_shape_vec((1, seq_len), input_ids)?;
-
-        // Run inference
-        let outputs = model.session.run(ort::inputs![
-            model.input_names[0].as_str() => input_array.view(),
-        ]?)?;
-
-        // Extract output text (model-dependent)
-        let text = if let Some(first_output) = outputs.values().next() {
-            if let Ok(output) = first_output.try_extract_tensor::<f32>() {
-                // For generative models, output is logits — take argmax
-                let view = output.view();
-                let shape = view.shape();
-                if shape.len() >= 2 {
-                    let last_dim = shape[shape.len() - 1];
-                    // Get last token logits and find argmax
-                    let mut generated = Vec::new();
-                    let total_elements = view.len();
-                    let last_token_start = total_elements.saturating_sub(last_dim);
-                    let logits = &view.as_slice().unwrap_or(&[])[last_token_start..];
-                    if !logits.is_empty() {
-                        let max_idx = logits
-                            .iter()
-                            .enumerate()
-                            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                            .map(|(i, _)| i)
-                            .unwrap_or(0);
-                        generated.push(max_idx as u32);
-                    }
-                    format!("[generated {} token(s)]", generated.len())
-                } else {
-                    "[output shape mismatch]".to_string()
-                }
-            } else {
-                "[non-float output]".to_string()
-            }
-        } else {
-            "[no output]".to_string()
-        };
-
-        let elapsed = start.elapsed();
-        let generation_ms = elapsed.as_secs_f64() * 1000.0;
-
-        Ok(InferenceResult {
-            text,
-            prompt_tokens,
-            completion_tokens: 1,
-            generation_ms,
-            tokens_per_second: if generation_ms > 0.0 {
-                1000.0 / generation_ms
-            } else {
-                0.0
-            },
-        })
+        Err(crate::safety::unimplemented(
+            "ai_local_generate",
+            "text generation from an ONNX model",
+            "load a GGUF model, which the candle backend generates from, or use this \
+             ONNX model with ai_local_embed",
+        ))
     }
 
     fn embed(&self, handle: &str, inputs: &[String]) -> Result<EmbeddingResult> {
-        let models = self.models.lock().unwrap();
+        let mut models = self.lock()?;
         let model = models
-            .get(handle)
+            .get_mut(handle)
             .ok_or_else(|| anyhow!("Model '{}' not loaded", handle))?;
 
-        let mut all_embeddings = Vec::new();
+        let mut all_embeddings = Vec::with_capacity(inputs.len());
         let mut total_tokens = 0u32;
 
         for input in inputs {
-            let input_ids: Vec<i64> = input.chars().map(|c| c as i64).collect();
-            let seq_len = input_ids.len();
+            let encoding = model
+                .tokenizer
+                .encode(input.as_str(), true)
+                .map_err(|e| anyhow!("tokenizing input: {}", e))?;
+            let ids: Vec<i64> = encoding.get_ids().iter().map(|&i| i as i64).collect();
+            let mask: Vec<i64> = encoding
+                .get_attention_mask()
+                .iter()
+                .map(|&m| m as i64)
+                .collect();
+            let type_ids: Vec<i64> = encoding.get_type_ids().iter().map(|&t| t as i64).collect();
+            let seq_len = ids.len();
             total_tokens += seq_len as u32;
 
-            let input_array = ndarray::Array2::from_shape_vec((1, seq_len), input_ids)?;
-
-            // Create attention mask (all 1s)
-            let attention_mask = ndarray::Array2::ones((1, seq_len));
-
-            // Run embedding inference
-            let mut ort_inputs = Vec::new();
-            ort_inputs.push((
-                model.input_names[0].as_str(),
-                ort::value::Value::from_array(input_array.view())?,
-            ));
-            if model.input_names.len() > 1 {
-                ort_inputs.push((
-                    model.input_names[1].as_str(),
-                    ort::value::Value::from_array(attention_mask.view())?,
+            // Feed every input the graph declares that this knows how to fill.
+            let mut feed = Vec::new();
+            for name in &model.input_names {
+                let data = match name.as_str() {
+                    "input_ids" => ids.clone(),
+                    "attention_mask" => mask.clone(),
+                    "token_type_ids" => type_ids.clone(),
+                    other => {
+                        return Err(anyhow!(
+                            "the model needs an input `{}` that a tokenizer does not provide",
+                            other
+                        ))
+                    }
+                };
+                feed.push((
+                    std::borrow::Cow::<str>::from(name.clone()),
+                    ort::session::SessionInputValue::from(Tensor::from_array((
+                        [1usize, seq_len],
+                        data,
+                    ))?),
                 ));
             }
+            let outputs = model.session.run(feed)?;
 
-            let outputs = model.session.run(ort::SessionInputs::from(ort_inputs))?;
-
-            // Extract embedding from output
-            if let Some(output) = outputs.values().next() {
-                if let Ok(tensor) = output.try_extract_tensor::<f32>() {
-                    let view = tensor.view();
-                    let shape = view.shape();
-                    if shape.len() >= 2 {
-                        // Mean pool across sequence dimension
-                        let hidden_dim = shape[shape.len() - 1];
-                        let data = view.as_slice().unwrap_or(&[]);
-                        let mut embedding = vec![0.0f32; hidden_dim];
-                        let num_tokens = data.len() / hidden_dim;
-                        for t in 0..num_tokens {
-                            for d in 0..hidden_dim {
-                                embedding[d] += data[t * hidden_dim + d];
-                            }
-                        }
-                        if num_tokens > 0 {
-                            for d in 0..hidden_dim {
-                                embedding[d] /= num_tokens as f32;
-                            }
-                        }
-                        all_embeddings.push(embedding);
+            // A pooled output is used as it is; a hidden state is mean-pooled
+            // over the tokens the attention mask keeps.
+            let embedding = if let Some(pooled) = outputs.get("sentence_embedding") {
+                let (_, data) = pooled.try_extract_tensor::<f32>()?;
+                data.to_vec()
+            } else {
+                let name = model
+                    .output_names
+                    .iter()
+                    .find(|n| n.as_str() == "last_hidden_state")
+                    .or(model.output_names.first())
+                    .ok_or_else(|| anyhow!("the model has no outputs"))?;
+                let (shape, data) = outputs[name.as_str()].try_extract_tensor::<f32>()?;
+                if shape.len() != 3 || shape[1] as usize != seq_len {
+                    return Err(anyhow!(
+                        "output `{}` has shape {:?}, not [1, {}, hidden]; not an encoder \
+                         hidden state",
+                        name,
+                        &shape[..],
+                        seq_len
+                    ));
+                }
+                let hidden = shape[2] as usize;
+                let mut sum = vec![0.0f32; hidden];
+                let mut kept = 0.0f32;
+                for (t, &m) in mask.iter().enumerate() {
+                    if m == 0 {
+                        continue;
+                    }
+                    kept += 1.0;
+                    for (d, s) in sum.iter_mut().enumerate() {
+                        *s += data[t * hidden + d];
                     }
                 }
-            }
-
-            if all_embeddings.len() < inputs.len() {
-                // Fallback: zero vector
-                all_embeddings.push(vec![0.0f32; 384]);
-            }
+                if kept > 0.0 {
+                    sum.iter_mut().for_each(|s| *s /= kept);
+                }
+                sum
+            };
+            all_embeddings.push(embedding);
         }
 
         Ok(EmbeddingResult {

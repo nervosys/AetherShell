@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use candle_core::{DType, Device, Tensor};
+use candle_core::{Device, Tensor};
 use candle_transformers::generation::{LogitsProcessor, Sampling};
 use candle_transformers::models::{
     quantized_llama, quantized_mistral, quantized_phi, quantized_phi3,
@@ -35,19 +35,17 @@ enum QuantizedModel {
 impl QuantizedModel {
     /// Run a forward pass: token IDs → logits
     fn forward(&mut self, tokens: &Tensor, index_pos: usize) -> Result<Tensor> {
-        match self {
+        Ok(match self {
             Self::Llama(m) => m.forward(tokens, index_pos),
             Self::Mistral(m) => m.forward(tokens, index_pos),
             Self::Phi2(m) => m.forward(tokens, index_pos),
             Self::Phi3(m) => m.forward(tokens, index_pos),
-        }
+        }?)
     }
 }
 
 /// A loaded model handle
 struct LoadedModel {
-    /// Path to the model file
-    path: String,
     /// Quantized transformer model (for GGUF)
     quantized: Option<QuantizedModel>,
     /// Embedding weights (for SafeTensors — embedding-only mode)
@@ -56,14 +54,11 @@ struct LoadedModel {
     tokenizer: tokenizers::Tokenizer,
     /// Device the model is loaded on
     device: Device,
-    /// Model config metadata
-    config: ModelConfig,
 }
 
 /// Minimal model configuration
 #[derive(Debug, Clone)]
 struct ModelConfig {
-    vocab_size: usize,
     hidden_size: usize,
     num_layers: usize,
     num_heads: usize,
@@ -78,7 +73,6 @@ enum ModelType {
     Mistral,
     Phi2,
     Phi3,
-    Unknown(String),
 }
 
 impl std::fmt::Display for ModelType {
@@ -88,7 +82,6 @@ impl std::fmt::Display for ModelType {
             Self::Mistral => write!(f, "mistral"),
             Self::Phi2 => write!(f, "phi2"),
             Self::Phi3 => write!(f, "phi3"),
-            Self::Unknown(s) => write!(f, "{}", s),
         }
     }
 }
@@ -96,7 +89,6 @@ impl std::fmt::Display for ModelType {
 impl Default for ModelConfig {
     fn default() -> Self {
         Self {
-            vocab_size: 32000,
             hidden_size: 4096,
             num_layers: 32,
             num_heads: 32,
@@ -110,6 +102,12 @@ impl Default for ModelConfig {
 pub struct CandleBackend {
     models: Arc<Mutex<HashMap<String, LoadedModel>>>,
     device: Device,
+}
+
+impl Default for CandleBackend {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CandleBackend {
@@ -181,7 +179,6 @@ impl CandleBackend {
             ModelType::Mistral => "mistral",
             ModelType::Phi2 => "phi2",
             ModelType::Phi3 => "phi3",
-            ModelType::Unknown(s) => s.as_str(),
         };
 
         // Helper closure to extract u32 metadata
@@ -534,7 +531,7 @@ impl LocalInferenceBackend for CandleBackend {
             .and_then(|f| f.to_str())
             .unwrap_or("");
 
-        let (quantized, embed_weights, config) = match ext {
+        let (quantized, embed_weights, _config) = match ext {
             "gguf" => {
                 // Load GGUF via candle's quantized format support
                 let mut file =
@@ -552,7 +549,7 @@ impl LocalInferenceBackend for CandleBackend {
                 )?;
 
                 let quantized_model = match &config.model_type {
-                    ModelType::Llama | ModelType::Unknown(_) => {
+                    ModelType::Llama => {
                         let weights = quantized_llama::ModelWeights::from_gguf(
                             content2,
                             &mut std::io::BufReader::new(&mut file2),
@@ -618,12 +615,10 @@ impl LocalInferenceBackend for CandleBackend {
         };
 
         let loaded = LoadedModel {
-            path: path.to_string(),
             quantized,
             embed_weights,
             tokenizer,
             device: self.device.clone(),
-            config,
         };
 
         let mut models = self.models.lock().unwrap();
