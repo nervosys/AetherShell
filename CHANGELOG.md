@@ -199,9 +199,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gated like a native plugin (`AETHER_PLUGINS=off` refuses it; agent mode needs
   `AETHER_PLUGIN_ALLOW`). A name a core builtin serves, a value that is not
   one lambda, or a name another plugin provides is refused before anything is
-  registered; `plugin_unload` removes the entries. They are not reachable
-  through the Agent API's `/api/v1/call`. Loading one had been refused with
-  `E_UNIMPLEMENTED`.
+  registered; `plugin_unload` removes the entries. The Agent API calls them
+  through the same dispatcher, and `GET /api/v1/builtins/<name>` describes one
+  with its `Exec` effect. `explain_effects` does not see into them and lists
+  the call as unresolved. Loading one had been refused with `E_UNIMPLEMENTED`.
 - `net_connections` and `net_ports` on Windows failed on any host with a
   listening socket: the TCP table gives a listener's remote port as 0, which
   was refused as unreadable. It is now `*:*`, and a bound socket's state is
