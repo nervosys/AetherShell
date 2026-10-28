@@ -12,6 +12,17 @@ ignore = [
     "RUSTSEC-2024-0384", # instant     — unmaintained (transitive: keyring -> async-io)
     "RUSTSEC-2024-0436", # paste       — unmaintained (transitive: ratatui)
     "RUSTSEC-2024-0370", # proc-macro-error — unmaintained (transitive: utoipa)
+    # zbus_names / zvariant / zvariant_derive — unmaintained, no patched release
+    # (transitive: keyring 2.3.3 -> secret-service 3.1.0 -> zbus 3.15.2 -> zvariant 3.15.2)
+    "RUSTSEC-2026-0371", # zbus_names 2.6.1 — unmaintained (keyring -> zbus 3)
+    "RUSTSEC-2026-0370", # zvariant 3.15.2 — unmaintained (keyring -> zbus 3)
+    "RUSTSEC-2026-0372", # zvariant_derive 3.15.2 — unmaintained (keyring -> zbus 3)
+    # zip 0.6.6 — extract() symlink/permission advisories. Only build-dependency of
+    # utoipa-swagger-ui 6.0.0 (build.rs reads its bundled swagger-ui zip via by_index,
+    # never extract()). Fixed only in zip >= 9; utoipa-swagger-ui 10 is a breaking bump.
+    "RUSTSEC-2026-0367", # zip 0.6.6 — SUID/SGID preservation in extract() (utoipa-swagger-ui build-dep)
+    "RUSTSEC-2026-0368", # zip 0.6.6 — extract() symlink targets (utoipa-swagger-ui build-dep)
+    "RUSTSEC-2026-0369", # zip 0.6.6 — extract() permissions via symlinks (utoipa-swagger-ui build-dep)
     # Removed 2026-07-29 — cargo-deny reported these as `advisory-not-detected`,
     # i.e. no crate in the tree matches them any more. Stale ignores are worse
     # than none: they read as accepted risk while silently covering nothing.

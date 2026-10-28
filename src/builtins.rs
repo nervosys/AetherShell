@@ -32479,7 +32479,10 @@ fn zip_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Opti
         let mut entry = zip.by_index(i).map_err(|e| {
             crate::safety::tool_failed(builtin, "zip", None, &format!("unreadable entry: {e}"))
         })?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map(|n| n.into_owned())
+            .unwrap_or_else(|_| String::from_utf8_lossy(entry.name_raw()).into_owned());
         let is_link = matches!(entry.unix_mode(), Some(m) if m & 0o170000 == 0o120000);
         let target = if is_link {
             let mut buf = Vec::new();
@@ -33020,7 +33023,11 @@ fn bi_zip_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             .by_index_raw(i)
             .map_err(|e| archive_corrupt("zip_list", &path, e))?;
         let mut r = BTreeMap::new();
-        r.insert("name".to_string(), Value::Str(f.name().to_string()));
+        let name = f
+            .name()
+            .map(|n| n.into_owned())
+            .unwrap_or_else(|_| String::from_utf8_lossy(f.name_raw()).into_owned());
+        r.insert("name".to_string(), Value::Str(name));
         r.insert("size".to_string(), Value::Int(f.size() as i64));
         r.insert(
             "compressed_size".to_string(),
@@ -71946,7 +71953,7 @@ mod archive_prescan_tests {
         {
             let file = std::fs::File::create(&archive).unwrap();
             let mut w = zip::ZipWriter::new(file);
-            let opts = zip::write::FileOptions::default()
+            let opts = zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Stored);
             w.start_file("../evil.txt", opts).unwrap();
             w.write_all(b"pwned").unwrap();
