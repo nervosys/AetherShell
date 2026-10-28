@@ -28144,6 +28144,9 @@ fn windows_state_name(code: i64) -> String {
         10 => "LAST_ACK",
         11 => "TIME_WAIT",
         12 => "DELETE_TCB",
+        // MSFT_NetTCPConnection's Bound: a socket bound to a port with no
+        // listen and no peer, which netstat does not show at all.
+        100 => "BOUND",
         _ => "UNKNOWN",
     };
     name.to_string()
@@ -57219,7 +57222,9 @@ fn blkid_drive(device: &str) -> Result<char> {
         Ok(char::from(b[0].to_ascii_uppercase()))
     } else if device.starts_with("/dev/") {
         // A well-formed Unix device names nothing here, as a missing device
-        // does on Linux, so a script written for both gets the same code.
+        // does on Linux, so a script written for both gets the same code. It
+        // is checked as on Linux first: `/dev/../x` is still a bad argument.
+        linux_diagnostics::device_path("blkid", device)?;
         Err(crate::safety::not_found(
             "blkid",
             "block device",
@@ -60941,21 +60946,25 @@ fn bi_ip_link(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
-/// Windows: an adapter name for Get-NetAdapter -Name. Wildcards are refused so
-/// the name can match one adapter only; spaces and brackets of a real name such
-/// as "Wi-Fi 4" are allowed, since the name is quoted into the script.
+/// Windows: an adapter name, matched exactly (not as a -Name wildcard), so
+/// `Local Area Connection* 1` names that adapter and no other. Letters,
+/// digits, spaces and `- _ . ( ) # *` cover the names Windows gives adapters
+/// ("Wi-Fi 4", "vEthernet (Default Switch)"); a `;` or `/` is refused, as
+/// interface names are on Linux.
 #[cfg(windows)]
 fn ethtool_adapter(device: &str) -> Result<()> {
-    let plain = !device.is_empty()
+    let plain = !device.trim().is_empty()
         && device.len() <= 256
         && !device.starts_with('-')
-        && !device.chars().any(|c| c.is_control() || "*?[]".contains(c));
+        && device
+            .chars()
+            .all(|c| c.is_alphanumeric() || " -_.()#*".contains(c));
     if plain {
         Ok(())
     } else {
         Err(crate::safety::bad_arg(
             "monitor_ethtool",
-            "an adapter name such as \"Ethernet\" or \"Wi-Fi 4\", with no wildcard",
+            "an adapter name such as \"Ethernet\" or \"Wi-Fi 4\"",
             device,
         ))
     }
@@ -60969,7 +60978,7 @@ fn ethtool_windows(device: &str) -> Result<Value> {
     const NAME: &str = "monitor_ethtool";
     ethtool_adapter(device)?;
     let script = crate::ps_script!(
-        "try {{ $a = Get-NetAdapter -Name {} -ErrorAction Stop }} catch {{ if ($_.CategoryInfo.Category -eq 'ObjectNotFound') {{ exit 0 }} else {{ throw }} }}; $a | Select-Object Name,LinkSpeed,FullDuplex,MediaConnectionState,DriverDescription,DriverVersion,MacAddress | ConvertTo-Json",
+        "$n = {}; $a = Get-NetAdapter -ErrorAction Stop | Where-Object {{ $_.Name -eq $n }}; $a | Select-Object Name,LinkSpeed,FullDuplex,MediaConnectionState,DriverDescription,DriverVersion,MacAddress | ConvertTo-Json",
         crate::safety::ps_quote(device)
     );
     let out = net_run(
@@ -60979,7 +60988,7 @@ fn ethtool_windows(device: &str) -> Result<Value> {
         NET_TOOL_SECS,
     )?;
     net_checked(NAME, "powershell", &out)?;
-    // An adapter that does not exist prints nothing (ObjectNotFound, above).
+    // An adapter that does not exist matches nothing and prints nothing.
     let Some(item) = net_ps_items(NAME, &out.stdout)?.into_iter().next() else {
         return Err(crate::safety::not_found(NAME, "network interface", device));
     };
@@ -69886,6 +69895,7 @@ mod quiet_netfield_tests {
     fn windows_state_names_and_unnamed_codes() {
         assert_eq!(windows_state_name(5), "ESTABLISHED");
         assert_eq!(windows_state_name(2), "LISTEN");
+        assert_eq!(windows_state_name(100), "BOUND");
         assert_eq!(windows_state_name(99), "UNKNOWN");
     }
 }

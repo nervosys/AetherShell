@@ -162,7 +162,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Installer's install and removal events, `blkid` a drive's volume and
   partition ids, and `monitor_ethtool` an adapter's speed, duplex, link and
   driver. `dd_copy` copies in-process with the same `bs` and `count`, and
-  refuses a copy onto its own source.
+  refuses a copy onto its own source. `lsof()` lists the TCP sockets each
+  process holds, in lsof's `-i` form; `lsof(path)` stays `E_UNIMPLEMENTED`,
+  since no shipped Windows tool lists open files. `acl_get` reads a file's
+  ACL through `icacls` as {path, entries: [{principal, perms, inherited,
+  flags, deny}]}, in any display language, and `acl_set` grants
+  (`"BUILTIN\\Users:RX"`) or removes (`{remove: true}`) a principal's entry.
+- `net_connections` and `net_ports` on Windows failed on any host with a
+  listening socket: the TCP table gives a listener's remote port as 0, which
+  was refused as unreadable. It is now `*:*`, and a bound socket's state is
+  `BOUND` instead of `UNKNOWN`.
 - `archive_test` stops zip, tar, `.tar.gz` and gzip archives at 4 GiB of
   decompressed data with `E_BUDGET_EXCEEDED`, as it already did for bzip2,
   xz and zstd. A small archive that inflated to terabytes was read to its end.

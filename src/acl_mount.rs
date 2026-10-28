@@ -2,10 +2,11 @@
 //! `fs_unmount`.
 //!
 //! Every builtin checks its arguments before it touches the system, then runs
-//! one tool (`getfacl`, `setfacl`, `mount` or `umount`) with an argv vector.
+//! one tool (`getfacl`, `setfacl`, `icacls`, `mount` or `umount`) with an argv vector.
 //! No shell is involved and no caller string is interpolated into a command
-//! line. Off Linux, each call is refused with E_UNIMPLEMENTED after its
-//! arguments are checked, and nothing is changed.
+//! line. Off Linux, the mount builtins are refused with E_UNIMPLEMENTED after
+//! their arguments are checked. On Windows, `acl_get` and `acl_set` run `icacls`,
+//! and the mount builtins are refused the same way. A refusal changes nothing.
 //!
 //! ACL changes are not recorded by the undo journal. A call inside a
 //! filesystem transaction is refused, because a rollback cannot restore the
@@ -67,7 +68,7 @@ pub(crate) fn acl_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let default = flag("acl_set", &options, "default")?;
     let remove = flag("acl_set", &options, "remove")?;
     let spec = AclSpec {
-        arg: acl_entry(&entry, remove)?,
+        arg: acl_entry(&entry, remove, default)?,
         default,
         remove,
     };
@@ -212,7 +213,8 @@ fn is_name(text: &str) -> bool {
 /// `tag:qualifier` with no permissions, and names a user or group entry only.
 /// Tags are `u`, `g`, `m` or `o`, or the spelled-out `user`, `group`, `mask`
 /// or `other`. A mask or other entry has no qualifier. Numeric IDs are refused.
-fn acl_entry(entry: &str, remove: bool) -> Result<String> {
+#[cfg(not(windows))]
+fn acl_entry(entry: &str, remove: bool, _default: bool) -> Result<String> {
     const SET: &str = "an entry like u:name:r--, u::rw- or o::r-- (tag, qualifier, perms)";
     const REMOVE: &str = "an entry like u:name or g:name (tag and qualifier, no perms)";
     let parts: Vec<&str> = entry.split(':').collect();
@@ -244,6 +246,41 @@ fn acl_entry(entry: &str, remove: bool) -> Result<String> {
             if remove { REMOVE } else { SET },
             &format!("{entry:?}"),
         )),
+    }
+}
+
+/// Validate an `acl_set` entry on Windows and return the icacls argument.
+///
+/// A grant is `principal:rights`, such as `Users:F` or `BUILTIN\Users:RX,D`. It
+/// is normalized to `principal:(rights)`, the form icacls takes. Rights are one
+/// simple right (F, M, RX, R, W or D) or a comma-separated list of specific
+/// rights from the icacls list. With remove, the entry is a bare principal, and
+/// every ACE for it is removed. The Linux `tag:qualifier:perms` form does not
+/// parse as a grant, so it is refused. `default` is refused, because icacls
+/// inheritance flags are not taken.
+#[cfg(windows)]
+fn acl_entry(entry: &str, remove: bool, default: bool) -> Result<String> {
+    const GRANT: &str = "an entry like Users:F or BUILTIN\\Users:RX,D (principal, colon, then rights; the Linux tag:qualifier:perms form is not accepted)";
+    const REMOVE: &str = "a principal such as Users or BUILTIN\\Users (no colon and no rights)";
+    if default {
+        return Err(safety::bad_arg(
+            "acl_set",
+            "no default option on Windows, because icacls inheritance flags are not taken",
+            "default: true",
+        ));
+    }
+    if remove {
+        if !windows_principal(entry) {
+            return Err(safety::bad_arg("acl_set", REMOVE, &format!("{entry:?}")));
+        }
+        return Ok(entry.to_string());
+    }
+    let grant = entry
+        .split_once(':')
+        .filter(|(principal, rights)| windows_principal(principal) && rights_arg(rights));
+    match grant {
+        Some((principal, rights)) => Ok(format!("{principal}:({rights})")),
+        None => Err(safety::bad_arg("acl_set", GRANT, &format!("{entry:?}"))),
     }
 }
 
@@ -389,7 +426,7 @@ fn record(fields: Vec<(&str, Value)>) -> Value {
     )
 }
 
-/// Refusal for every platform but Linux. Nothing has been touched.
+/// Refusal for a builtin with no implementation on this platform. Nothing has been touched.
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 fn off_linux(builtin: &str) -> anyhow::Error {
     safety::unimplemented(
@@ -397,6 +434,154 @@ fn off_linux(builtin: &str) -> anyhow::Error {
         "is implemented on Linux only in 13.0.0 on this platform; NOTHING WAS CHANGED",
         "run it on Linux, or use this platform's own tool",
     )
+}
+
+/// Simple icacls rights, which icacls prints bare, such as `F` or `RX`.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+const SIMPLE_RIGHTS: &[&str] = &["F", "M", "RX", "R", "W", "D"];
+
+/// Specific icacls rights, which icacls prints in a parenthesized list.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+const SPECIFIC_RIGHTS: &[&str] = &[
+    "DE", "RC", "WDAC", "WO", "S", "AS", "MA", "GR", "GW", "GE", "GA", "RD", "WD", "AD", "REA",
+    "WEA", "X", "DC", "RA", "WA",
+];
+
+/// A principal icacls can take: non-empty, not padded, with no control
+/// characters, no leading `-` or `/` (icacls reads those as switches), and no
+/// `:`, `(` or `)`, which the icacls grammar uses.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn windows_principal(text: &str) -> bool {
+    !text.is_empty()
+        && text.trim() == text
+        && !text.starts_with('-')
+        && !text.starts_with('/')
+        && !text.chars().any(|c| c.is_control() || matches!(c, ':' | '(' | ')'))
+}
+
+/// Whether text is one or more icacls rights, comma-separated, as `acl_set` takes them.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn rights_arg(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .split(',')
+            .all(|r| SIMPLE_RIGHTS.contains(&r) || SPECIFIC_RIGHTS.contains(&r))
+}
+
+/// The perms text for one icacls permission group, as the record reports it: a
+/// simple right bare (`F`), and anything else parenthesized (`(RX,D)`). `N`
+/// (no access) is accepted as well, because icacls can print it.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn permission_text(token: &str) -> Option<String> {
+    let known = |r: &str| r == "N" || SIMPLE_RIGHTS.contains(&r) || SPECIFIC_RIGHTS.contains(&r);
+    if token.split(',').any(|r| !known(r)) {
+        return None;
+    }
+    if token == "N" || SIMPLE_RIGHTS.contains(&token) {
+        Some(token.to_string())
+    } else {
+        Some(format!("({token})"))
+    }
+}
+
+/// Split the rights of one ACE, such as `(I)(OI)(CI)(RX,D)`, into its inherited
+/// bit, flag groups, deny bit and perms text. Any group it does not know, or a
+/// missing or second permission group, gives None.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn parse_rights(text: &str) -> Option<(bool, Vec<String>, bool, String)> {
+    let mut inherited = false;
+    let mut flags = Vec::new();
+    let mut deny = false;
+    let mut perms = None;
+    let mut rest = text;
+    while !rest.is_empty() {
+        let inner = rest.strip_prefix('(')?;
+        let close = inner.find(')')?;
+        let token = &inner[..close];
+        rest = &inner[close + 1..];
+        match token {
+            "I" => inherited = true,
+            "OI" | "CI" | "IO" | "NP" => flags.push(token.to_string()),
+            "DENY" => deny = true,
+            _ if perms.is_none() => perms = Some(permission_text(token)?),
+            _ => return None,
+        }
+    }
+    Some((inherited, flags, deny, perms?))
+}
+
+/// Parse the output of `icacls <path>` into the record `acl_get` returns on
+/// Windows: `{path, entries}`, where each entry is `{principal, perms,
+/// inherited, flags, deny}`. The first ACE line is `<path> <principal>:<rights>`
+/// and each further ACE line is indented. A blank line, then one summary line,
+/// ends the output. The summary is in the display language, so its wording is
+/// not read: the caller has already checked icacls's exit status, which is
+/// what reports a failure. A line that is not an ACE, a rights group the
+/// parser does not know, more than one line after the blank, and output with
+/// no summary are all coded tool failures.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn parse_icacls(path: &str, text: &str) -> Result<Value> {
+    let unknown = |line: &str| {
+        safety::tool_failed(
+            "acl_get",
+            "icacls",
+            Some(0),
+            &format!("unrecognised output line {line:?}"),
+        )
+    };
+    let mut entries = Vec::new();
+    let mut after_blank = false;
+    let mut summary = false;
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            if !entries.is_empty() {
+                after_blank = true;
+            }
+            continue;
+        }
+        if after_blank {
+            if summary {
+                return Err(unknown(line));
+            }
+            summary = true;
+            continue;
+        }
+        let rest = if let Some(after) = line.strip_prefix(path).and_then(|r| r.strip_prefix(' ')) {
+            after
+        } else if line.starts_with(' ') {
+            line.trim_start()
+        } else {
+            return Err(unknown(line));
+        };
+        let Some((principal, rights)) = rest.split_once(':') else {
+            return Err(unknown(line));
+        };
+        let Some((inherited, flags, deny, perms)) = parse_rights(rights) else {
+            return Err(unknown(line));
+        };
+        if !windows_principal(principal) {
+            return Err(unknown(line));
+        }
+        entries.push(record(vec![
+            ("principal", Value::Str(principal.to_string())),
+            ("perms", Value::Str(perms)),
+            ("inherited", Value::Bool(inherited)),
+            ("flags", Value::Array(flags.into_iter().map(Value::Str).collect())),
+            ("deny", Value::Bool(deny)),
+        ]));
+    }
+    if !summary {
+        return Err(safety::tool_failed(
+            "acl_get",
+            "icacls",
+            Some(0),
+            "its output had no summary line",
+        ));
+    }
+    Ok(record(vec![
+        ("path", Value::Str(path.to_string())),
+        ("entries", Value::Array(entries)),
+    ]))
 }
 
 // ── System effects ────────────────────────────────────────────────────────
@@ -758,7 +943,115 @@ mod sys {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+mod sys {
+    use super::{guard, off_linux, parse_icacls, record, AclSpec, MountSpec};
+    use crate::{safety, value::Value};
+    use anyhow::Result;
+
+    /// The icacls program in the system directory, by absolute path, so that a
+    /// program of the same name in the working directory is never run.
+    fn icacls_program() -> String {
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+        format!("{root}\\System32\\icacls.exe")
+    }
+
+    /// Run icacls with `args` and return its stdout. A refusal by the operating
+    /// system is E_OS_DENIED. Any other non-zero exit is a coded tool failure
+    /// carrying stderr. A run that does not finish in 30s is stopped.
+    fn run(builtin: &str, args: &[&str]) -> Result<String> {
+        let mut cmd = std::process::Command::new(icacls_program());
+        cmd.args(args);
+        let output = safety::output_with_timeout(cmd, 30).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::TimedOut {
+                safety::budget_exceeded(
+                    builtin,
+                    "`icacls` did not finish within 30s and was stopped".to_string(),
+                    "the file system or the tool is wedged; retry, or inspect the ACL with icacls directly",
+                )
+            } else {
+                safety::spawn_error(builtin, "icacls", &e)
+            }
+        })?;
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            // icacls reports this refusal as English text, the only sign it gives.
+            if stderr.contains("Access is denied") || stdout.contains("Access is denied") {
+                return Err(safety::os_denied(
+                    builtin,
+                    format!("{builtin}: the operating system denied access to the ACL"),
+                    "check the file's owner and permissions; the shell did not refuse this",
+                ));
+            }
+            return Err(safety::tool_failed(
+                builtin,
+                "icacls",
+                output.status.code(),
+                &stderr,
+            ));
+        }
+        Ok(stdout)
+    }
+
+    /// icacls reads `*` and `?` as wildcards and a leading `/` as a switch, so a
+    /// name with either would act on something other than the path given.
+    fn plain_path(builtin: &str, path: &str) -> Result<()> {
+        if path.starts_with('/') || path.chars().any(|c| matches!(c, '*' | '?')) {
+            return Err(safety::bad_arg(
+                builtin,
+                "a path without wildcards * or ?, that does not begin with /",
+                &format!("{path:?}"),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn acl_get(path: &str) -> Result<Value> {
+        plain_path("acl_get", path)?;
+        std::fs::metadata(path).map_err(|e| safety::fs_error("acl_get", path, &e))?;
+        guard(
+            "acl_get",
+            safety::Effect::ReadLocal,
+            "read the ACL of",
+            &[path.to_string()],
+        )?;
+        let text = run("acl_get", &[path])?;
+        parse_icacls(path, &text)
+    }
+
+    pub(super) fn acl_set(path: &str, spec: &AclSpec) -> Result<Value> {
+        plain_path("acl_set", path)?;
+        std::fs::metadata(path).map_err(|e| safety::fs_error("acl_set", path, &e))?;
+        guard(
+            "acl_set",
+            safety::Effect::Privileged,
+            "change the ACL of",
+            &[path.to_string()],
+        )?;
+        // /Q keeps icacls from printing its per-file line.
+        if spec.remove {
+            run("acl_set", &[path, "/remove", spec.arg.as_str(), "/Q"])?;
+        } else {
+            run("acl_set", &[path, "/grant", spec.arg.as_str(), "/Q"])?;
+        }
+        Ok(record(vec![
+            ("path", Value::Str(path.to_string())),
+            ("entry", Value::Str(spec.arg.clone())),
+            ("applied", Value::Bool(true)),
+        ]))
+    }
+
+    pub(super) fn fs_mount(_source: &str, _target: &str, _spec: &MountSpec) -> Result<Value> {
+        Err(off_linux("fs_mount"))
+    }
+
+    pub(super) fn fs_unmount(_target: &str, _lazy: bool) -> Result<Value> {
+        Err(off_linux("fs_unmount"))
+    }
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 mod sys {
     use super::{off_linux, AclSpec, MountSpec};
     use crate::value::Value;
@@ -778,5 +1071,138 @@ mod sys {
 
     pub(super) fn fs_unmount(_target: &str, _lazy: bool) -> Result<Value> {
         Err(off_linux("fs_unmount"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_icacls;
+    use crate::value::Value;
+
+    /// `icacls` on a file, as captured on Windows 11. The local account name is
+    /// replaced by a placeholder. The first line carries the path and an ACE.
+    /// Inherited ACEs have (I). The last ACE has no (I), so it is explicit.
+    const FILE_OUTPUT: &str = r"target-scratch\acl-probe.txt BUILTIN\Users:(RX)
+                             WORKSTATION\SandboxUsers:(I)(RX)
+                             NT AUTHORITY\SYSTEM:(I)(F)
+                             BUILTIN\Administrators:(I)(F)
+                             WORKSTATION\analyst:(I)(F)
+
+Successfully processed 1 files; Failed processing 0 files
+";
+
+    /// `icacls` on a directory, with the (OI)(CI) inheritance flags, captured on
+    /// Windows 11. The DENY line is not from a capture: no DENY ACE was available
+    /// to read, so it is written in icacls's documented form.
+    const DIRECTORY_OUTPUT: &str = r"target-scratch BUILTIN\Users:(I)(OI)(CI)(RX)
+               NT AUTHORITY\SYSTEM:(I)(OI)(CI)(F)
+               Everyone:(DENY)(W)
+
+Successfully processed 1 files; Failed processing 0 files
+";
+
+    fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+        match value {
+            Value::Record(map) => &map[key],
+            _ => panic!("expected a record"),
+        }
+    }
+
+    fn text<'a>(value: &'a Value, key: &str) -> &'a str {
+        match field(value, key) {
+            Value::Str(s) => s,
+            _ => panic!("{key} is not a string"),
+        }
+    }
+
+    fn flag(value: &Value, key: &str) -> bool {
+        match field(value, key) {
+            Value::Bool(b) => *b,
+            _ => panic!("{key} is not a bool"),
+        }
+    }
+
+    fn flags(value: &Value) -> Vec<&str> {
+        match field(value, "flags") {
+            Value::Array(items) => items
+                .iter()
+                .map(|item| match item {
+                    Value::Str(s) => s.as_str(),
+                    _ => panic!("a flag is not a string"),
+                })
+                .collect(),
+            _ => panic!("flags is not an array"),
+        }
+    }
+
+    fn entries(value: &Value) -> &[Value] {
+        match field(value, "entries") {
+            Value::Array(items) => items,
+            _ => panic!("entries is not an array"),
+        }
+    }
+
+    #[test]
+    fn file_output_gives_inherited_and_explicit_aces() {
+        let value = parse_icacls("target-scratch\\acl-probe.txt", FILE_OUTPUT).unwrap();
+        assert_eq!(text(&value, "path"), "target-scratch\\acl-probe.txt");
+        let aces = entries(&value);
+        assert_eq!(aces.len(), 5);
+        assert_eq!(text(&aces[0], "principal"), "BUILTIN\\Users");
+        assert_eq!(text(&aces[0], "perms"), "RX");
+        assert!(!flag(&aces[0], "inherited"));
+        assert!(!flag(&aces[0], "deny"));
+        assert!(flags(&aces[0]).is_empty());
+        assert_eq!(text(&aces[1], "principal"), "WORKSTATION\\SandboxUsers");
+        assert!(flag(&aces[1], "inherited"));
+        assert_eq!(text(&aces[2], "principal"), "NT AUTHORITY\\SYSTEM");
+        assert_eq!(text(&aces[2], "perms"), "F");
+    }
+
+    #[test]
+    fn directory_output_gives_oi_ci_flags_and_deny() {
+        let value = parse_icacls("target-scratch", DIRECTORY_OUTPUT).unwrap();
+        let aces = entries(&value);
+        assert_eq!(aces.len(), 3);
+        assert!(flag(&aces[0], "inherited"));
+        assert_eq!(flags(&aces[0]), vec!["OI", "CI"]);
+        assert_eq!(text(&aces[0], "perms"), "RX");
+        assert_eq!(text(&aces[1], "perms"), "F");
+        assert_eq!(text(&aces[2], "principal"), "Everyone");
+        assert!(flag(&aces[2], "deny"));
+        assert!(!flag(&aces[2], "inherited"));
+        assert_eq!(text(&aces[2], "perms"), "W");
+    }
+
+    #[test]
+    fn the_summary_is_not_read_so_any_display_language_parses() {
+        let german = "target-scratch BUILTIN\\Users:(F)\n\n1 Dateien erfolgreich verarbeitet, bei 0 Dateien ist ein Verarbeitungsfehler aufgetreten.\n";
+        let value = parse_icacls("target-scratch", german).unwrap();
+        assert_eq!(entries(&value).len(), 1);
+    }
+
+    #[test]
+    fn unrecognised_lines_are_errors_not_skipped() {
+        let summary = "\n\nSuccessfully processed 1 files; Failed processing 0 files\n";
+        let cases = [
+            // No colon between the principal and the rights.
+            format!("target-scratch BUILTIN\\Users (RX){summary}"),
+            // A rights group that is never closed.
+            format!("target-scratch BUILTIN\\Users:(I)(F{summary}"),
+            // A rights group icacls does not define.
+            format!("target-scratch BUILTIN\\Users:(ZZ){summary}"),
+            // A line that is neither the path nor indented.
+            format!("other BUILTIN\\Users:(F){summary}"),
+            // Output with no summary line.
+            "target-scratch BUILTIN\\Users:(F)\n".to_string(),
+            // Two lines after the blank one.
+            format!("target-scratch BUILTIN\\Users:(F){summary}more\n"),
+        ];
+        for case in cases {
+            assert!(
+                parse_icacls("target-scratch", &case).is_err(),
+                "accepted {case:?}"
+            );
+        }
     }
 }

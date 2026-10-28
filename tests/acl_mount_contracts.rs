@@ -1,8 +1,8 @@
 //! Contracts for `acl_get`, `acl_set`, `fs_mount` and `fs_unmount`.
 //!
 //! The ordinary tests here run everywhere: they check argument refusals,
-//! pipeline-input refusals, transaction refusals, and on non-Linux the coded
-//! E_UNIMPLEMENTED refusal. Linux also runs a read-only ACL test on a file this
+//! pipeline-input refusals, transaction refusals, and the coded E_UNIMPLEMENTED
+//! refusal off Linux (on Windows, for the mount builtins only). Linux also runs a read-only ACL test on a file this
 //! test owns. The tests that change the system (ACLs on owned files, loop and
 //! bind mounts, unmount refusals) are `#[ignore]`d and run only as root in the
 //! disposable distro: scripts/disposable_linux_tests.sh.
@@ -292,7 +292,11 @@ fn every_builtin_refuses_inside_a_transaction_without_touching_anything() {
     aethershell::tx::begin().unwrap();
     code(call("acl_get", vec![s("/")], &mut env), "E_POLICY_DENY");
     code(
-        call("acl_set", vec![s("/"), s("u::rw-")], &mut env),
+        call(
+            "acl_set",
+            vec![s("/"), s(if cfg!(windows) { "Users:F" } else { "u::rw-" })],
+            &mut env,
+        ),
         "E_POLICY_DENY",
     );
     code(
@@ -318,7 +322,7 @@ fn declared_examples_are_refusals() {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 #[test]
 fn off_linux_every_valid_call_is_unimplemented_and_changes_nothing() {
     let _lock = LOCK.lock().unwrap();
@@ -331,6 +335,30 @@ fn off_linux_every_valid_call_is_unimplemented_and_changes_nothing() {
     code(
         call("acl_set", vec![s(&file), s("u:nobody:r--")], &mut env),
         "E_UNIMPLEMENTED",
+    );
+    code(
+        call("fs_mount", vec![s("/dev/null"), s("/mnt/aeaclm")], &mut env),
+        "E_UNIMPLEMENTED",
+    );
+    code(
+        call("fs_unmount", vec![s("/")], &mut env),
+        "E_UNIMPLEMENTED",
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "unchanged");
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_mount_builtins_stay_unimplemented_and_linux_entries_are_refused() {
+    let _lock = LOCK.lock().unwrap();
+    let sandbox = Sandbox::new();
+    let mut env = Env::default();
+    let file = sandbox.root.join("owned");
+    std::fs::write(&file, "unchanged").unwrap();
+    let file = file.to_string_lossy().into_owned();
+    code(
+        call("acl_set", vec![s(&file), s("u:nobody:r--")], &mut env),
+        "E_BAD_ARG",
     );
     code(
         call("fs_mount", vec![s("/dev/null"), s("/mnt/aeaclm")], &mut env),

@@ -198,15 +198,29 @@ fn monitor_perf_record_refuses_option_like_or_unreachable_output() {
     .is_err());
 }
 
+/// On Windows blkid reads a drive and monitor_ethtool an adapter, so a Linux
+/// device or interface name is absent there, not unimplemented.
+#[cfg(windows)]
+#[test]
+fn linux_names_are_absent_on_windows() {
+    expect_code("blkid", vec![s("/dev/sda1")], "E_NOT_FOUND");
+    expect_code("monitor_ethtool", vec![s("ae-no-such-adapter-0")], "E_NOT_FOUND");
+}
+
 #[cfg(not(target_os = "linux"))]
 #[test]
 fn linux_only_tools_refuse_coded_and_run_nothing_elsewhere() {
-    for (name, args) in [
+    #[cfg(not(windows))]
+    let os_tools = [
         ("blkid", vec![s("/dev/sda1")]),
         ("monitor_ethtool", vec![s("eth0")]),
+    ];
+    #[cfg(windows)]
+    let os_tools: [(&str, Vec<Value>); 0] = [];
+    for (name, args) in os_tools.into_iter().chain([
         ("monitor_perf_stat", vec![argv(&["/usr/bin/true"])]),
         ("monitor_perf_record", vec![argv(&["/usr/bin/true"])]),
-    ] {
+    ]) {
         match call(name, args) {
             Ok(v) => panic!("{name} ran off Linux and answered {v:?}"),
             Err(e) => {
