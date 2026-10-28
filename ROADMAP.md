@@ -294,7 +294,7 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Q4 2026 — Cloud & Scale
 - [ ] Cloud platform (hosted AetherShell instances) — `cloud_deploy`, `cloud_instance_create`, `cloud_instance_status` and `cloud_instance_connect` refuse with E_UNIMPLEMENTED: no provider client is wired in
-- [ ] Remote REPL via WebSocket — `repl_serve`, `repl_connect` and `repl_broadcast` refuse with E_UNIMPLEMENTED: no listener is started and nothing is transmitted
+- [x] Remote REPL — `repl_serve` and `repl_connect` run over a loopback TCP line protocol with a per-listener token, agent mode only. `repl_broadcast` refuses with E_UNIMPLEMENTED: no peer set is held
 - [ ] Team workspaces with shared agents — `workspace_sync` refuses with E_UNIMPLEMENTED: there are no remote peers
 - [x] Marketplace for community plugins and agents — `marketplace` module: 8 builtins (publish, search, install, uninstall, list, info, rate, update)
 - [x] Telemetry and usage analytics (opt-in) — `telemetry` module: 6 builtins (enable, disable, status, report, events, reset)

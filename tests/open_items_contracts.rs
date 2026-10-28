@@ -332,11 +332,30 @@ fn connects_refuse_and_record_no_repl_session() {
         outcome(run("cloud_instance_connect", vec![s("i-0123456789")])),
         "E_UNIMPLEMENTED"
     );
+    // A non-literal target is refused before any connection is attempted.
     assert_eq!(
-        outcome(run("repl_connect", vec![s("nowhere.invalid")])),
-        "E_UNIMPLEMENTED"
+        outcome(run(
+            "repl_connect",
+            vec![
+                s("nowhere.invalid"),
+                Value::Record(std::collections::BTreeMap::from([(
+                    "token".to_string(),
+                    s("t"),
+                )])),
+            ]
+        )),
+        "E_BAD_ARG"
     );
-    assert_eq!(outcome(run("repl_serve", vec![])), "E_UNIMPLEMENTED");
+    assert_eq!(
+        outcome(run(
+            "repl_serve",
+            vec![Value::Record(std::collections::BTreeMap::from([(
+                "stop".to_string(),
+                Value::Bool(true),
+            )]))]
+        )),
+        "E_BAD_STATE"
+    );
 
     let after = run("repl_sessions", vec![]).expect("list sessions again");
     assert_eq!(before, after, "the session table is unchanged");

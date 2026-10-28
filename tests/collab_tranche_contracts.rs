@@ -334,14 +334,25 @@ fn workspace_contracts() {
 #[test]
 fn repl_transports_refuse_rather_than_report_a_session() {
     let _g = serial();
-    expect_code("repl_serve", vec![], "E_UNIMPLEMENTED");
+    // repl_serve() with no options would bind a real listener, so every case
+    // here is refused before any socket is opened.
     expect_code("repl_serve", vec![Value::Int(5)], "E_BAD_ARG");
     expect_code(
-        "repl_connect",
-        vec![s("ws://127.0.0.1:1")],
-        "E_UNIMPLEMENTED",
+        "repl_serve",
+        vec![record(vec![("host", s("10.0.0.1"))])],
+        "E_BAD_ARG",
+    );
+    expect_code(
+        "repl_serve",
+        vec![record(vec![("stop", Value::Bool(true))])],
+        "E_BAD_STATE",
     );
     expect_code("repl_connect", vec![Value::Int(5)], "E_BAD_ARG");
+    expect_code(
+        "repl_connect",
+        vec![s("tcp://127.0.0.1:1"), record(vec![("token", s("t"))])],
+        "E_BAD_ARG",
+    );
     expect_code("repl_broadcast", vec![s("1 + 1")], "E_UNIMPLEMENTED");
     expect_code("repl_disconnect", vec![s("no-such-session")], "E_NOT_FOUND");
     assert!(matches!(ok("repl_sessions", vec![]), Value::Array(_)));

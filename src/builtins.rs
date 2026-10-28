@@ -1703,6 +1703,9 @@ lazy_static::lazy_static! {
         std::sync::RwLock::new(HashMap::new())
     };
 
+    /// The REPL listener started by repl_serve.
+    static ref REPL_SERVER: std::sync::Mutex<Option<ReplServer>> = std::sync::Mutex::new(None);
+
     /// Team workspaces
     static ref WORKSPACES: std::sync::RwLock<HashMap<String, TeamWorkspace>> = {
         std::sync::RwLock::new(HashMap::new())
@@ -62932,50 +62935,523 @@ fn bi_cloud_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // ===================== Remote REPL Builtins =====================
 //
-// No REPL transport exists in this build. The three builtins that would open
-// or address a remote session refuse with E_UNIMPLEMENTED rather than report a
-// listener or a connection that was never made. repl_disconnect remains a real
-// removal from the session table.
+// repl_serve starts a loopback TCP listener that evaluates code sent by a peer
+// holding the token it returns, and only in agent mode. repl_connect is one
+// request per connection: it sends {token, code} and returns the value. Remote
+// code reaches the same builtin dispatcher as local code, so `guard_dispatch`
+// judges every call it makes; nothing on this path skips it.
+//
+// Wire format: one newline-terminated JSON object each way.
+//   request:  {"token": "<token>", "code": "<source>"}
+//   response: {"ok": true, "value": <json>, "type": "<type name>"}
+//             {"ok": false, "error": "<message>"}
+// A wrong token gets {"ok": false, "error": "unauthorized"} and the connection
+// closes. repl_broadcast stays refused: no session is held open, so no peer set
+// exists.
 
-/// repl_serve(options?) - Refused: no listener is started.
+/// Longest request or response line, in bytes.
+const REPL_MAX_LINE: usize = 1024 * 1024;
+/// Connections served at once; one beyond this is refused with one error line.
+const REPL_MAX_CONNECTIONS: usize = 8;
+/// Wall-clock limit on one remote evaluation.
+const REPL_EVAL_LIMIT: Duration = Duration::from_secs(30);
+/// Read and write timeout on each socket operation.
+const REPL_IO_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The running listener, if any. One per process.
+struct ReplServer {
+    addr: std::net::SocketAddr,
+    token: String,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// A request line that passed the shape check.
+#[derive(Debug, PartialEq, Eq)]
+struct ReplRequest {
+    token: String,
+    code: String,
+}
+
+/// Parse one request line. The error text is what the peer is told.
+fn repl_parse_request(line: &[u8]) -> std::result::Result<ReplRequest, String> {
+    let text = std::str::from_utf8(line).map_err(|_| "request is not UTF-8".to_string())?;
+    let value: serde_json::Value = serde_json::from_str(text.trim_end())
+        .map_err(|e| format!("request is not JSON: {e}"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "request must be a JSON object".to_string())?;
+    let token = object
+        .get("token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "request needs a string token".to_string())?;
+    let code = object
+        .get("code")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "request needs a string code".to_string())?;
+    Ok(ReplRequest {
+        token: token.to_string(),
+        code: code.to_string(),
+    })
+}
+
+/// Whether `given` is `expected`. Every byte of an equal-length pair is compared,
+/// so a mismatch does not reveal how much of the token matched.
+fn repl_token_matches(expected: &str, given: &str) -> bool {
+    let (a, b) = (expected.as_bytes(), given.as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Read one newline-terminated line of at most `max` bytes, newline excluded.
+/// `Ok(None)` is EOF before any byte. A longer line is an error. The reader is
+/// never asked for more than one buffer past the cap, so a peer cannot grow the
+/// line without bound.
+fn repl_read_line<R: std::io::BufRead>(
+    reader: &mut R,
+    max: usize,
+) -> std::result::Result<Option<Vec<u8>>, String> {
+    let mut line: Vec<u8> = Vec::new();
+    loop {
+        let (complete, used) = {
+            let buf = reader
+                .fill_buf()
+                .map_err(|e| format!("read failed: {e}"))?;
+            if buf.is_empty() {
+                return if line.is_empty() {
+                    Ok(None)
+                } else {
+                    Err("connection closed mid-line".to_string())
+                };
+            }
+            match buf.iter().position(|&b| b == b'\n') {
+                Some(i) => {
+                    line.extend_from_slice(&buf[..i]);
+                    (true, i + 1)
+                }
+                None => {
+                    line.extend_from_slice(buf);
+                    (false, buf.len())
+                }
+            }
+        };
+        reader.consume(used);
+        if line.len() > max {
+            return Err(format!("line is longer than {max} bytes"));
+        }
+        if complete {
+            return Ok(Some(line));
+        }
+    }
+}
+
+/// Evaluate remote source as `ae -c` evaluates local source: parse, then
+/// `eval_program` in the module environment. Each builtin the source calls is
+/// dispatched, and so guarded, exactly as it is locally.
+fn repl_eval(code: &str) -> std::result::Result<Value, String> {
+    let stmts = crate::parser::parse_program(code).map_err(|e| format!("parse error: {e}"))?;
+    let mut env = crate::modules::env_with_modules();
+    crate::eval::eval_program(&stmts, &mut env).map_err(|e| format!("{e}"))
+}
+
+fn repl_error_reply(reason: &str) -> serde_json::Value {
+    serde_json::json!({"ok": false, "error": reason})
+}
+
+/// Write one reply line. A peer that has gone away is not something the server
+/// can act on, so the write result is dropped.
+fn repl_send(stream: &mut std::net::TcpStream, reply: &serde_json::Value) {
+    use std::io::Write as _;
+    let mut line = reply.to_string();
+    line.push('\n');
+    let _ = stream.write_all(line.as_bytes());
+}
+
+/// Serve one connection: one request, one reply, then close.
+fn repl_handle_connection(mut stream: std::net::TcpStream, token: &str) {
+    let _ = stream.set_read_timeout(Some(REPL_IO_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(REPL_IO_TIMEOUT));
+    let read_side = match stream.try_clone() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let mut reader = std::io::BufReader::new(read_side);
+    let line = match repl_read_line(&mut reader, REPL_MAX_LINE) {
+        Ok(Some(line)) => line,
+        Ok(None) => return,
+        Err(reason) => {
+            repl_send(&mut stream, &repl_error_reply(&reason));
+            return;
+        }
+    };
+    let request = match repl_parse_request(&line) {
+        Ok(request) => request,
+        Err(reason) => {
+            repl_send(&mut stream, &repl_error_reply(&reason));
+            return;
+        }
+    };
+    if crate::safety::current_mode() != crate::safety::Mode::Agent {
+        repl_send(
+            &mut stream,
+            &repl_error_reply("remote evaluation needs agent mode"),
+        );
+        return;
+    }
+    if !repl_token_matches(token, &request.token) {
+        repl_send(&mut stream, &repl_error_reply("unauthorized"));
+        return;
+    }
+    let _deadline = crate::safety::enter_deadline(REPL_EVAL_LIMIT);
+    let reply = match repl_eval(&request.code) {
+        Ok(value) => {
+            let type_name = value.type_name().to_string();
+            serde_json::json!({
+                "ok": true,
+                "value": value_to_json(value),
+                "type": type_name,
+            })
+        }
+        Err(reason) => repl_error_reply(&reason),
+    };
+    repl_send(&mut stream, &reply);
+}
+
+/// Decrements the live-connection count however a connection thread ends.
+struct ReplSlot(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for ReplSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Accept connections until `stop` is set. The listener is non-blocking, so the
+/// flag is seen within one poll interval.
+fn repl_accept_loop(
+    listener: std::net::TcpListener,
+    token: String,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let live = std::sync::Arc::new(AtomicUsize::new(0));
+    while !stop.load(Ordering::SeqCst) {
+        match listener.accept() {
+            Ok((mut stream, _peer)) => {
+                let _ = stream.set_nonblocking(false);
+                if live.fetch_add(1, Ordering::SeqCst) >= REPL_MAX_CONNECTIONS {
+                    live.fetch_sub(1, Ordering::SeqCst);
+                    repl_send(&mut stream, &repl_error_reply("too many connections"));
+                    continue;
+                }
+                let slot = ReplSlot(live.clone());
+                let token = token.clone();
+                let _ = std::thread::Builder::new()
+                    .name("repl-conn".to_string())
+                    .spawn(move || {
+                        let _slot = slot;
+                        repl_handle_connection(stream, &token);
+                    });
+            }
+            Err(_) => std::thread::sleep(Duration::from_millis(25)),
+        }
+    }
+}
+
+/// A transport failure on a REPL connection (`E_IO`).
+fn repl_io_error(builtin: &str, message: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::Io,
+        builtin: builtin.into(),
+        message: format!("{builtin}: {message}"),
+        hint: "the connection was closed or stalled; no remote result was received".into(),
+        approval: None,
+        did_you_mean: vec![],
+        expected: "a complete reply line from the REPL listener".into(),
+        got: message.into(),
+    })
+}
+
+/// repl_serve(options?) - Serve this process's evaluation on a loopback port.
+///
+/// Options: `host` (a literal loopback address, default 127.0.0.1), `port`
+/// (0..65535; 0 picks a free one), and `stop: true` to stop the running
+/// listener. Returns {address, port, token, status}; every request must present
+/// the token. Serving needs agent mode, so a peer gets the agent-mode policy.
 fn bi_repl_serve(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    refuse_piped_subject("repl_serve", &input)?;
-    match args.first() {
-        None | Some(Value::Record(_)) => {}
+    const NAME: &str = "repl_serve";
+    refuse_piped_subject(NAME, &input)?;
+    if args.len() > 1 {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "at most one options Record",
+            "more arguments",
+        ));
+    }
+    let fields = match args.into_iter().next() {
+        None | Some(Value::Null) => BTreeMap::new(),
+        Some(Value::Record(fields)) => fields,
         Some(other) => {
             return Err(crate::safety::bad_arg(
-                "repl_serve",
+                NAME,
                 "options: Record",
                 other.type_name(),
             ))
         }
-    }
-    Err(crate::safety::unimplemented(
-        "repl_serve",
-        "no listener is started, so no session is served and nothing can connect",
-        "the HTTP Agent API (`ae agent serve`) is the networked surface that exists",
-    ))
-}
-
-/// repl_connect(target) - Refused: no connection is made.
-fn bi_repl_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    refuse_piped_subject("repl_connect", &input)?;
-    match args.first() {
-        Some(Value::Str(s)) if !s.trim().is_empty() => {}
-        Some(Value::Record(_)) => {}
-        other => {
-            return Err(crate::safety::bad_arg(
-                "repl_connect",
-                "a URL String or {host, port} Record",
-                other.map(|v| v.type_name()).unwrap_or("nothing"),
-            ))
+    };
+    let mut host: std::net::IpAddr = std::net::Ipv4Addr::LOCALHOST.into();
+    let mut port: i64 = 0;
+    let mut stop = false;
+    for (key, value) in fields {
+        match (key.as_str(), value) {
+            ("host", Value::Str(text)) => {
+                host = text.parse::<std::net::IpAddr>().map_err(|_| {
+                    crate::safety::bad_arg(NAME, "host: a literal IP address", &text)
+                })?;
+            }
+            ("port", Value::Int(n)) if (0..=65535i64).contains(&n) => port = n,
+            ("stop", Value::Bool(flag)) => stop = flag,
+            (other, _) => {
+                return Err(crate::safety::bad_arg(
+                    NAME,
+                    "options: host String, port Int 0..65535, stop Bool",
+                    other,
+                ))
+            }
         }
     }
-    Err(crate::safety::unimplemented(
-        "repl_connect",
-        "no connection is made, so there is no session to report",
-        "the HTTP Agent API (`ae agent serve`) is the networked surface that exists",
-    ))
+
+    let mut slot = REPL_SERVER
+        .lock()
+        .map_err(|_| crate::safety::lock_poisoned(NAME, "the REPL listener"))?;
+    if stop {
+        let server = slot.take().ok_or_else(|| {
+            crate::safety::bad_state(NAME, "no REPL listener is running", "repl_serve")
+        })?;
+        server
+            .stop
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut rec = BTreeMap::new();
+        rec.insert("address".to_string(), Value::Str(server.addr.to_string()));
+        rec.insert("status".to_string(), Value::Str("stopped".to_string()));
+        return Ok(Value::Record(rec));
+    }
+
+    if crate::tx::is_active() {
+        return Err(crate::safety::unimplemented(
+            NAME,
+            "listeners and network effects cannot be rolled back",
+            "finish the transaction first",
+        ));
+    }
+    if !host.is_loopback() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "host: a loopback address (127.0.0.1 or ::1)",
+            &host.to_string(),
+        ));
+    }
+    if crate::safety::current_mode() != crate::safety::Mode::Agent {
+        return Err(crate::safety::policy_deny(
+            NAME,
+            "remote evaluation needs agent mode, so a peer cannot run code with human-mode permissions",
+            "set AETHER_MODE=agent, then serve again",
+        ));
+    }
+    let addr = std::net::SocketAddr::new(host, port as u16);
+    guard_network(NAME, &format!("tcp://{addr}"))?;
+    if let Some(running) = slot.as_ref() {
+        return Err(crate::safety::bad_state(
+            NAME,
+            &format!("already serving on {}", running.addr),
+            "repl_serve({stop: true})",
+        ));
+    }
+
+    let listener = std::net::TcpListener::bind(addr).map_err(|e| nc_io_error(NAME, e))?;
+    let bound = listener.local_addr().map_err(|e| nc_io_error(NAME, e))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| nc_io_error(NAME, e))?;
+    // Two v4 UUIDs: 244 random bits, hex-encoded.
+    let token = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (thread_token, thread_stop) = (token.clone(), stop_flag.clone());
+    std::thread::Builder::new()
+        .name("repl-serve".to_string())
+        .spawn(move || repl_accept_loop(listener, thread_token, thread_stop))
+        .map_err(|e| nc_io_error(NAME, e))?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("address".to_string(), Value::Str(bound.to_string()));
+    rec.insert("port".to_string(), Value::Int(i64::from(bound.port())));
+    rec.insert("token".to_string(), Value::Str(token.clone()));
+    rec.insert("status".to_string(), Value::Str("listening".to_string()));
+    *slot = Some(ReplServer {
+        addr: bound,
+        token,
+        stop: stop_flag,
+    });
+    Ok(Value::Record(rec))
+}
+
+/// repl_connect(target, options) - Send one request to a repl_serve listener and
+/// return its value. `target` is a `tcp://ip:port` String or a `{host, port}`
+/// Record with a literal IP. `options` is `{token, code}`. A refused token raises
+/// E_POLICY_DENY; any other failure from the remote side is returned as
+/// {ok: false, error}.
+fn bi_repl_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    const NAME: &str = "repl_connect";
+    refuse_piped_subject(NAME, &input)?;
+    let (target, options) = match <[Value; 2]>::try_from(args) {
+        Ok([target, options]) => (target, options),
+        Err(_) => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "a target and an options Record {token, code}",
+                "a different number of arguments",
+            ))
+        }
+    };
+    let target_hint = "target: a tcp://ip:port String or {host, port} Record";
+    let addr: std::net::SocketAddr = match &target {
+        Value::Str(text) => text
+            .strip_prefix("tcp://")
+            .unwrap_or(text.as_str())
+            .parse::<std::net::SocketAddr>()
+            .map_err(|_| crate::safety::bad_arg(NAME, target_hint, text))?,
+        Value::Record(fields) => {
+            let host = match fields.get("host") {
+                Some(Value::Str(h)) => h.parse::<std::net::IpAddr>().map_err(|_| {
+                    crate::safety::bad_arg(NAME, "host: a literal IP address", h)
+                })?,
+                _ => {
+                    return Err(crate::safety::bad_arg(
+                        NAME,
+                        target_hint,
+                        "a Record without a String host",
+                    ))
+                }
+            };
+            let port = match fields.get("port") {
+                Some(Value::Int(n)) if (1..=65535i64).contains(n) => *n as u16,
+                _ => {
+                    return Err(crate::safety::bad_arg(
+                        NAME,
+                        "port: Int 1..65535",
+                        "a missing or out-of-range port",
+                    ))
+                }
+            };
+            std::net::SocketAddr::new(host, port)
+        }
+        other => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                target_hint,
+                other.type_name(),
+            ))
+        }
+    };
+    let fields = match &options {
+        Value::Record(fields) => fields,
+        other => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "options: Record {token, code}",
+                other.type_name(),
+            ))
+        }
+    };
+    let token = match fields.get("token") {
+        Some(Value::Str(t)) if !t.is_empty() => t.clone(),
+        _ => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "options.token: a non-empty String",
+                "a missing or non-String token",
+            ))
+        }
+    };
+    let code = match fields.get("code") {
+        Some(Value::Str(c)) => c.clone(),
+        _ => {
+            return Err(crate::safety::bad_arg(
+                NAME,
+                "options.code: a String",
+                "a missing or non-String code",
+            ))
+        }
+    };
+    let line = format!(
+        "{}\n",
+        serde_json::json!({"token": token, "code": code})
+    );
+    if line.len() > REPL_MAX_LINE {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "code that fits one 1 MiB request line",
+            "a longer String",
+        ));
+    }
+    if crate::tx::is_active() {
+        return Err(crate::safety::unimplemented(
+            NAME,
+            "network effects cannot be rolled back",
+            "finish the transaction first",
+        ));
+    }
+    guard_network(NAME, &format!("tcp://{addr}"))?;
+
+    let mut stream = std::net::TcpStream::connect_timeout(&addr, REPL_IO_TIMEOUT)
+        .map_err(|e| nc_io_error(NAME, e))?;
+    stream
+        .set_read_timeout(Some(REPL_EVAL_LIMIT + REPL_IO_TIMEOUT))
+        .map_err(|e| nc_io_error(NAME, e))?;
+    stream
+        .set_write_timeout(Some(REPL_IO_TIMEOUT))
+        .map_err(|e| nc_io_error(NAME, e))?;
+    std::io::Write::write_all(&mut stream, line.as_bytes())
+        .map_err(|e| nc_io_error(NAME, e))?;
+    let read_side = stream.try_clone().map_err(|e| nc_io_error(NAME, e))?;
+    let mut reader = std::io::BufReader::new(read_side);
+    let reply_line = repl_read_line(&mut reader, REPL_MAX_LINE)
+        .map_err(|reason| repl_io_error(NAME, &reason))?
+        .ok_or_else(|| repl_io_error(NAME, "the listener closed without a reply"))?;
+    let reply: serde_json::Value = serde_json::from_slice(&reply_line)
+        .map_err(|e| repl_io_error(NAME, &format!("reply is not JSON: {e}")))?;
+
+    let mut rec = BTreeMap::new();
+    rec.insert("address".to_string(), Value::Str(addr.to_string()));
+    if reply.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+        let value = json_to_value(reply.get("value").cloned().unwrap_or(serde_json::Value::Null));
+        let type_name = reply
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        rec.insert("ok".to_string(), Value::Bool(true));
+        rec.insert("value".to_string(), value);
+        rec.insert("type".to_string(), Value::Str(type_name));
+        return Ok(Value::Record(rec));
+    }
+    let reason = reply
+        .get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or("request refused")
+        .to_string();
+    if reason == "unauthorized" {
+        return Err(crate::safety::policy_deny(
+            NAME,
+            "the listener refused the token",
+            "present the token that repl_serve returned",
+        ));
+    }
+    rec.insert("ok".to_string(), Value::Bool(false));
+    rec.insert("error".to_string(), Value::Str(reason));
+    Ok(Value::Record(rec))
 }
 
 /// repl_disconnect(session_id) - Remove a session from the session table.
@@ -62998,15 +63474,91 @@ fn bi_repl_disconnect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-/// repl_broadcast(expression) - Refused: nothing is transmitted to any session.
+/// repl_broadcast(expression) - Refused: there is no peer set to send to.
 fn bi_repl_broadcast(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     refuse_piped_subject("repl_broadcast", &input)?;
     collab_text_arg("repl_broadcast", "expression", args.first(), 4096)?;
     Err(crate::safety::unimplemented(
         "repl_broadcast",
-        "nothing is sent: there is no session transport to send it over",
-        "run the expression in each place directly",
+        "nothing is sent: repl_connect holds no session open, so there is no peer set to broadcast to",
+        "call repl_connect once per peer",
     ))
+}
+
+#[cfg(test)]
+mod repl_protocol_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn request_line_yields_token_and_code() {
+        let parsed = repl_parse_request(br#"{"token":"t1","code":"1 + 1"}"#).expect("parses");
+        assert_eq!(
+            parsed,
+            ReplRequest {
+                token: "t1".into(),
+                code: "1 + 1".into(),
+            }
+        );
+        // A CRLF peer is tolerated.
+        let crlf = repl_parse_request(b"{\"token\":\"t\",\"code\":\"2\"}\r").expect("parses");
+        assert_eq!(crlf.code, "2");
+    }
+
+    #[test]
+    fn malformed_request_lines_are_refused_with_a_reason() {
+        let cases: [(&[u8], &str); 6] = [
+            (b"not json", "not JSON"),
+            (b"[1,2]", "JSON object"),
+            (br#"{"code":"1"}"#, "token"),
+            (br#"{"token":"t"}"#, "code"),
+            (br#"{"token":5,"code":"1"}"#, "token"),
+            (&[0xffu8, 0xfeu8], "UTF-8"),
+        ];
+        for (line, why) in cases {
+            let reason = repl_parse_request(line).expect_err("refused");
+            assert!(reason.contains(why), "{reason} should mention {why}");
+        }
+    }
+
+    #[test]
+    fn token_check_requires_an_exact_match() {
+        assert!(repl_token_matches("abcd", "abcd"));
+        assert!(!repl_token_matches("abcd", "abce"));
+        assert!(!repl_token_matches("abcd", "abc"));
+        assert!(!repl_token_matches("abcd", "abcde"));
+        assert!(!repl_token_matches("abcd", ""));
+    }
+
+    #[test]
+    fn lines_are_split_on_newline_then_eof() {
+        let mut reader = Cursor::new(b"one\ntwo\n".to_vec());
+        assert_eq!(repl_read_line(&mut reader, 16), Ok(Some(b"one".to_vec())));
+        assert_eq!(repl_read_line(&mut reader, 16), Ok(Some(b"two".to_vec())));
+        assert_eq!(repl_read_line(&mut reader, 16), Ok(None));
+    }
+
+    #[test]
+    fn a_line_over_the_cap_is_refused_and_one_at_the_cap_is_kept() {
+        let mut over = vec![b'x'; 5000];
+        over.push(b'\n');
+        let mut reader = Cursor::new(over);
+        assert!(repl_read_line(&mut reader, 1000).is_err());
+
+        let mut exact = vec![b'x'; 1000];
+        exact.push(b'\n');
+        let mut reader = Cursor::new(exact);
+        assert_eq!(
+            repl_read_line(&mut reader, 1000).map(|l| l.map(|v| v.len())),
+            Ok(Some(1000))
+        );
+    }
+
+    #[test]
+    fn eof_mid_line_is_an_error_not_a_request() {
+        let mut reader = Cursor::new(b"partial".to_vec());
+        assert!(repl_read_line(&mut reader, 100).is_err());
+    }
 }
 
 // ===================== Team Workspace Builtins =====================

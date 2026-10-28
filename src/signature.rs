@@ -5125,12 +5125,12 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[opt("options", Ty::Record, "host, port and workspace; none is used")],
+        params: &[opt("options", Ty::Record, "host, port and stop; none is used")],
         returns: "Record",
-        doc: "Refused: no listener is started, so no session is served.",
+        doc: "Serve this process's evaluation on 127.0.0.1 (or ::1). Returns {address, port, token, status}; every request must present the token, and remote code runs under the same guard as local code. Needs agent mode. `{stop: true}` stops the listener.",
         examples: &[
-            (r#"(try { repl_serve() } catch e { e.error.code })"#, "E_UNIMPLEMENTED"),
-            (r#"(try { repl_serve({port: 3002}) } catch e { e.error.code })"#, "E_UNIMPLEMENTED"),
+            (r#"(try { repl_serve({stop: true}) } catch e { e.error.code })"#, "E_BAD_STATE"),
+            (r#"(try { repl_serve({host: "10.0.0.1"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -5139,12 +5139,15 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[req("target", Ty::Any, "a URL String or {host, port} Record")],
+        params: &[
+            req("target", Ty::Any, "a tcp://ip:port String or {host, port} Record"),
+            req("options", Ty::Record, "{token, code}: the token repl_serve returned and the code to run"),
+        ],
         returns: "Record",
-        doc: "Refused: no connection is made, so no session is reported.",
+        doc: "Send one request to a repl_serve listener and return {ok, value, type}, or {ok: false, error} if the remote evaluation failed. A refused token raises E_POLICY_DENY.",
         examples: &[
-            (r#"(try { repl_connect("ws://127.0.0.1:3002") } catch e { e.error.code })"#, "E_UNIMPLEMENTED"),
-            (r#"(try { repl_connect(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { repl_connect(5, {token: "t"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { repl_connect("tcp://127.0.0.1:1", {token: "t"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -5155,7 +5158,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("expression", Ty::Str, "code to send to every session")],
         returns: "Record",
-        doc: "Refused: nothing is transmitted to any session.",
+        doc: "Refused: repl_connect holds no session open, so there is no peer set to send to.",
         examples: &[
             (r#"(try { repl_broadcast("1 + 1") } catch e { e.error.code })"#, "E_UNIMPLEMENTED"),
         ],
