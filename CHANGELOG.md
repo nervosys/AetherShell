@@ -103,7 +103,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Temp:` folder alias is no longer listed as a disk. `proc_priority`,
   `proc_cpu_usage` and `proc_threads` read the process directly; a protected
   process is `E_OS_DENIED` instead of `E_TOOL_FAILED`. `net_ip` reads the
-  adapter table instead of `Get-NetIPAddress`.
+  adapter table instead of `Get-NetIPAddress`. `sys_cpu_info` and
+  `platform_cpu` read sysinfo and the registry instead of Win32_Processor
+  (the same name and core counts). `proc_list` and `proc_cmdline` read
+  sysinfo and the process's own times instead of `Get-Process` and
+  Win32_Process.
 
 ### Changed
 
@@ -155,6 +159,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Windows: `pkg_list` from the Add/Remove Programs registry entries.
 - `web_websocket`: a bounded one-shot WebSocket exchange (ws and wss), where it
   was a stub refusing every call.
+- `ai_local_generate` takes an Array of `{role, content}` messages as well as
+  a prompt string, and formats them with the model's own chat template, from
+  the GGUF's `tokenizer.chat_template` or the `tokenizer_config.json` beside
+  it (the `candle` feature, through minijinja). A model with no template
+  refuses messages with `E_UNIMPLEMENTED`; a malformed message is
+  `E_BAD_ARG`. Generation also stops on the model's own end token.
 
 ### Fixed
 
@@ -173,7 +183,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Llama), safetensors files and GGUF embeddings (embed had averaged
   input-embedding rows). A Mistral GGUF must carry its size keys, the
   tokenizer is read only from the model's directory, and `ai_local_load` keeps
-  a backend's error code. No chat template is applied yet.
+  a backend's error code.
 
 - **`tar_extract` checks link targets in bzip2, xz and zstd tars**: these were
   listed with `tar -tf`, which gives names only, so a symlink pointing outside

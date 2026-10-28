@@ -11301,11 +11301,83 @@ fn bi_ai_local_load(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
+/// The prompt `ai_local_generate` was given: text for the backend's `generate`,
+/// or chat messages for its `chat`.
+enum GeneratePrompt {
+    Text(String),
+    Chat(Vec<crate::local_inference::ChatMessage>),
+}
+
+/// What `ai_local_generate` takes as its prompt, for a refusal to quote.
+const GENERATE_PROMPT_EXPECTED: &str = "prompt: a String, or an Array of {role, content} messages";
+
+/// The messages of a chat prompt: an Array of Records with exactly `role` and
+/// `content`, both Strings, and a role of system, user, assistant or tool. Every
+/// message is checked here, before a backend is looked up, so a malformed
+/// conversation is refused the same way whichever model it names.
+fn chat_messages_arg(
+    builtin: &str,
+    items: &[Value],
+) -> Result<Vec<crate::local_inference::ChatMessage>> {
+    if items.is_empty() {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            GENERATE_PROMPT_EXPECTED,
+            "an empty Array",
+        ));
+    }
+    let mut messages = Vec::with_capacity(items.len());
+    for (i, item) in items.iter().enumerate() {
+        let n = i + 1;
+        let Value::Record(rec) = item else {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                GENERATE_PROMPT_EXPECTED,
+                &format!("message {n} of type {}", item.type_name()),
+            ));
+        };
+        if rec.len() != 2 || !rec.contains_key("role") || !rec.contains_key("content") {
+            let fields: Vec<&str> = rec.keys().map(String::as_str).collect();
+            return Err(crate::safety::bad_arg(
+                builtin,
+                GENERATE_PROMPT_EXPECTED,
+                &format!("message {n} with fields {fields:?}"),
+            ));
+        }
+        let (role, content) = match (rec.get("role"), rec.get("content")) {
+            (Some(Value::Str(role)), Some(Value::Str(content))) => (role, content),
+            _ => {
+                return Err(crate::safety::bad_arg(
+                    builtin,
+                    GENERATE_PROMPT_EXPECTED,
+                    &format!("message {n} whose role and content are not both Strings"),
+                ))
+            }
+        };
+        if !matches!(role.as_str(), "system" | "user" | "assistant" | "tool") {
+            return Err(crate::safety::bad_arg(
+                builtin,
+                GENERATE_PROMPT_EXPECTED,
+                &format!("message {n} with role {role:?}"),
+            ));
+        }
+        messages.push(crate::local_inference::ChatMessage {
+            role: role.clone(),
+            content: content.clone(),
+        });
+    }
+    Ok(messages)
+}
+
 /// ai_local_generate(handle, prompt, params?) - Generate text using a loaded local model
+/// The prompt is a String, sent as is, or an Array of {role, content} messages
+/// (role: system, user, assistant or tool). A messages Array is formatted by the
+/// model's own chat template, and a model with no chat template refuses it.
 /// Returns: Record with generated text, token counts, and performance metrics
 ///
 /// Example:
 ///   ai_local_generate("candle:llama", "What is Rust?")
+///   ai_local_generate("candle:llama", [{role: "user", content: "What is Rust?"}])
 ///   ai_local_generate("candle:llama", "Hello", {max_tokens: 100, temperature: 0.5})
 fn bi_ai_local_generate(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use crate::local_inference::{self, GenerationParams};
@@ -11322,10 +11394,18 @@ fn bi_ai_local_generate(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     };
 
     let prompt = match args.get(1) {
-        Some(Value::Str(s)) => s.clone(),
-        _ => {
+        Some(Value::Str(s)) => GeneratePrompt::Text(s.clone()),
+        Some(Value::Array(items)) => GeneratePrompt::Chat(chat_messages_arg(B, items)?),
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                B,
+                GENERATE_PROMPT_EXPECTED,
+                other.type_name(),
+            ))
+        }
+        None => {
             return Err(crate::safety::arg_err(
-                "ai_local_generate: requires prompt string as second argument",
+                "ai_local_generate: requires prompt as second argument",
             ))
         }
     };
@@ -11373,7 +11453,10 @@ fn bi_ai_local_generate(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     // Find the right backend from the handle prefix
     for backend in local_inference::available_backends() {
         if handle.starts_with(&format!("{}:", backend.name())) {
-            let result = backend.generate(&handle, &prompt, &params)?;
+            let result = match &prompt {
+                GeneratePrompt::Text(text) => backend.generate(&handle, text, &params)?,
+                GeneratePrompt::Chat(messages) => backend.chat(&handle, messages, &params)?,
+            };
             let mut rec = std::collections::BTreeMap::new();
             rec.insert("text".to_string(), Value::Str(result.text));
             rec.insert(
@@ -11405,6 +11488,20 @@ fn bi_ai_local_generate(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     // and a build with neither `candle` nor `onnx` compiled in — which is the
     // default build — has no in-process backend at all. Treat the handle as the
     // model name and let the gateway route it.
+    // The gateway takes a prompt string, so messages have no route through it.
+    let prompt = match prompt {
+        GeneratePrompt::Text(text) => text,
+        GeneratePrompt::Chat(_) if crate::model_plane::gate_available() => {
+            return Err(crate::safety::unimplemented(
+                B,
+                "chat messages through IronGate",
+                "pass a prompt string",
+            ))
+        }
+        GeneratePrompt::Chat(_) => {
+            return Err(crate::safety::not_found(B, "local model handle", &handle))
+        }
+    };
     if crate::model_plane::gate_available() {
         let max_tokens = Some(params.max_tokens);
         let done = crate::model_plane::gate_complete(&handle, &prompt, max_tokens)?;
@@ -70600,5 +70697,49 @@ mod win_job_tests {
             survivors.is_empty(),
             "ping survived the deadline kill: {survivors:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod ai_local_generate_chat_tests {
+    use super::*;
+
+    fn message(role: &str, content: Value) -> Value {
+        let mut rec = BTreeMap::new();
+        rec.insert("role".to_string(), Value::Str(role.to_string()));
+        rec.insert("content".to_string(), content);
+        Value::Record(rec)
+    }
+
+    /// The error code of a refused `ai_local_generate` call on a handle that
+    /// names no loaded model, so only the argument check can refuse it.
+    fn refused(messages: Vec<Value>) -> crate::safety::ErrorCode {
+        let args = vec![Value::Str("candle:x".to_string()), Value::Array(messages)];
+        let e = bi_ai_local_generate(args, None).unwrap_err();
+        e.downcast_ref::<crate::safety::SafetyError>()
+            .map(|s| s.code)
+            .expect("a SafetyError")
+    }
+
+    #[test]
+    fn malformed_chat_messages_are_bad_arg_before_any_backend() {
+        use crate::safety::ErrorCode::BadArg;
+        assert_eq!(refused(vec![]), BadArg);
+        assert_eq!(refused(vec![Value::Str("hi".to_string())]), BadArg);
+        assert_eq!(
+            refused(vec![message("bot", Value::Str("hi".to_string()))]),
+            BadArg
+        );
+        assert_eq!(refused(vec![message("user", Value::Int(3))]), BadArg);
+
+        let mut no_content = BTreeMap::new();
+        no_content.insert("role".to_string(), Value::Str("user".to_string()));
+        assert_eq!(refused(vec![Value::Record(no_content)]), BadArg);
+
+        let mut extra = BTreeMap::new();
+        extra.insert("role".to_string(), Value::Str("user".to_string()));
+        extra.insert("content".to_string(), Value::Str("hi".to_string()));
+        extra.insert("name".to_string(), Value::Str("x".to_string()));
+        assert_eq!(refused(vec![Value::Record(extra)]), BadArg);
     }
 }

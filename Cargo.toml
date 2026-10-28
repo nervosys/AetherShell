@@ -100,6 +100,8 @@ candle = [
     "dep:candle-transformers",
     "dep:hf-hub",
     "dep:tokenizers",
+    "dep:minijinja",
+    "dep:minijinja-contrib",
 ]
 onnx = ["dep:ort", "dep:tokenizers"]
 # Real GPT-4 BPE tokenizer (embeds cl100k vocab) for exact token counts across
@@ -235,6 +237,13 @@ candle-nn = { version = "0.8", optional = true }
 candle-transformers = { version = "0.8", optional = true }
 hf-hub = { version = "0.3", optional = true }
 tokenizers = { version = "0.21", optional = true }
+# Renders a GGUF model's own chat template (HuggingFace Jinja templates).
+# loop_controls: `{% break %}` and `{% continue %}`. json: the `tojson` filter,
+# which tool-calling templates use. Nothing else is enabled.
+minijinja = { version = "2", optional = true, features = ["loop_controls", "json"] }
+# pycompat: the Python string and dict methods HuggingFace templates call,
+# such as `message['content'].strip()` in Llama 3's.
+minijinja-contrib = { version = "2", optional = true, features = ["pycompat"] }
 tiktoken-rs = { version = "0.6", optional = true }
 # Exact: ort 2.0 pre-releases change the API between rcs (rc.9 to rc.11 broke
 # this backend without a version bump here).

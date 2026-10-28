@@ -1254,11 +1254,12 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "ai_local_generate", category: Some("AI"), subject_required: false, aliases: &["ai-local-generate"],
-        subject: None, params: &[req("handle", Ty::Str, "model handle, such as candle:llama or a model name for IronGate"), req("prompt", Ty::Str, "prompt text"), opt("params", Ty::Record, "optional {max_tokens?, temperature?, top_p?, repetition_penalty?, seed?}")], returns: "Record",
-        doc: "Generate text with a loaded local model, or through IronGate when no in-process backend serves the handle. params may set max_tokens (1 or more), temperature (0 or more), top_p (0 to 1), repetition_penalty (above 0) and seed (0 or more); other keys and wrong types are refused. The reply names the backend that answered. Takes no pipeline input.",
+        subject: None, params: &[req("handle", Ty::Str, "model handle, such as candle:llama or a model name for IronGate"), req("prompt", Ty::Any, "String prompt text, or a nonempty Array of {role, content} messages with role system, user, assistant or tool"), opt("params", Ty::Record, "optional {max_tokens?, temperature?, top_p?, repetition_penalty?, seed?}")], returns: "Record",
+        doc: "Generate text with a loaded local model, or through IronGate when no in-process backend serves the handle. A String prompt is sent as is. A messages Array is formatted by the model's own chat template, which the model's GGUF or tokenizer_config.json must carry; a model without one refuses messages, and IronGate takes only a String. params may set max_tokens (1 or more), temperature (0 or more), top_p (0 to 1), repetition_penalty (above 0) and seed (0 or more); other keys and wrong types are refused. The reply names the backend that answered. Takes no pipeline input.",
         examples: &[
             (r#"(try { ai_local_generate(1, "x") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { ai_local_generate("candle:x", "hi", {max_tokens: 0}) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai_local_generate("candle:x", [{role: "bot", content: "hi"}]) } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {

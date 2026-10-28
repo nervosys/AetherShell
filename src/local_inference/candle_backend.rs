@@ -15,8 +15,11 @@ use candle_transformers::generation::{LogitsProcessor, Sampling};
 use candle_transformers::models::{
     quantized_llama, quantized_mistral, quantized_phi, quantized_phi3,
 };
+use serde_json::Value as JsonValue;
 
-use super::{EmbeddingResult, GenerationParams, InferenceResult, LocalInferenceBackend};
+use super::{
+    ChatMessage, EmbeddingResult, GenerationParams, InferenceResult, LocalInferenceBackend,
+};
 
 // ============================================================================
 // MODEL ARCHITECTURE DISPATCH
@@ -54,6 +57,12 @@ struct LoadedModel {
     tokenizer: tokenizers::Tokenizer,
     /// Device the model is loaded on
     device: Device,
+    /// The model's chat template (Jinja), from the GGUF or tokenizer_config.json
+    chat_template: Option<String>,
+    /// The BOS token text the template receives as `bos_token`
+    bos_token: Option<String>,
+    /// The EOS token text the template receives as `eos_token`
+    eos_token: Option<String>,
 }
 
 /// Model architecture type — determines which quantized model to instantiate
@@ -63,6 +72,131 @@ enum ModelType {
     Mistral,
     Phi2,
     Phi3,
+}
+
+// ============================================================================
+// CHAT TEMPLATES
+// ============================================================================
+
+/// The chat template and special tokens a model ships with
+struct ChatSettings {
+    template: Option<String>,
+    bos_token: Option<String>,
+    eos_token: Option<String>,
+}
+
+/// The chat template string from a `tokenizer_config.json` value. The field is
+/// either a string, or an array of `{name, template}` objects (some repos keep a
+/// tool-use template beside the default one). The object named "default" is
+/// used, else the first.
+fn chat_template_from_config(config: &JsonValue) -> Option<String> {
+    match config.get("chat_template")? {
+        JsonValue::String(s) => Some(s.clone()),
+        JsonValue::Array(items) => {
+            let named_default = items
+                .iter()
+                .find(|item| item.get("name").and_then(JsonValue::as_str) == Some("default"));
+            named_default
+                .or_else(|| items.first())?
+                .get("template")?
+                .as_str()
+                .map(str::to_string)
+        }
+        _ => None,
+    }
+}
+
+/// A special token from a `tokenizer_config.json` value. HuggingFace writes it
+/// either as a plain string or as an `AddedToken` object with a `content` field.
+fn special_token_from_config(config: &JsonValue, key: &str) -> Option<String> {
+    let token = config.get(key)?;
+    match token {
+        JsonValue::String(s) => Some(s.clone()),
+        JsonValue::Object(_) => token.get("content")?.as_str().map(str::to_string),
+        _ => None,
+    }
+}
+
+/// Read `tokenizer_config.json` from the model's own directory, as
+/// `load_tokenizer` reads `tokenizer.json`. A file that is there but does not
+/// parse is an error: its chat template would otherwise vanish without a word.
+fn read_tokenizer_config(model_path: &str) -> Result<Option<JsonValue>> {
+    let path = match std::path::Path::new(model_path)
+        .parent()
+        .map(|dir| dir.join("tokenizer_config.json"))
+        .filter(|p| p.exists())
+    {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read {}", path.display()))?;
+    let config = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not valid JSON", path.display()))?;
+    Ok(Some(config))
+}
+
+/// The chat template and special tokens of a model. The GGUF metadata is read
+/// first, then the tokenizer_config.json beside the model. The GGUF names its
+/// special tokens by vocabulary id, which is mapped to text through the tokenizer.
+fn chat_settings(
+    content: &candle_core::quantized::gguf_file::Content,
+    tokenizer: &tokenizers::Tokenizer,
+    config: Option<&JsonValue>,
+) -> ChatSettings {
+    let gguf_token = |key: &str| {
+        content
+            .metadata
+            .get(key)
+            .and_then(|v| v.to_u32().ok())
+            .and_then(|id| tokenizer.id_to_token(id))
+    };
+    let config_token = |key: &str| config.and_then(|c| special_token_from_config(c, key));
+    let template = content
+        .metadata
+        .get("tokenizer.chat_template")
+        .and_then(|v| v.to_string().ok())
+        .cloned()
+        .or_else(|| config.and_then(chat_template_from_config));
+    ChatSettings {
+        template,
+        bos_token: gguf_token("tokenizer.ggml.bos_token_id").or_else(|| config_token("bos_token")),
+        eos_token: gguf_token("tokenizer.ggml.eos_token_id").or_else(|| config_token("eos_token")),
+    }
+}
+
+/// Render a chat template over `messages` the way HuggingFace's
+/// `apply_chat_template` does: `messages`, `add_generation_prompt` (true, so the
+/// reply header is written), `bos_token` and `eos_token`. A template that calls
+/// `raise_exception(message)` fails the render with that message, which is how a
+/// template refuses input it cannot format.
+fn render_chat_template(
+    template: &str,
+    messages: &[ChatMessage],
+    bos_token: &str,
+    eos_token: &str,
+) -> std::result::Result<String, minijinja::Error> {
+    let mut env = minijinja::Environment::new();
+    // The templates are written for Python's Jinja, and call str and dict
+    // methods (`.strip()`, `.items()`) that minijinja has only through this.
+    env.set_unknown_method_callback(minijinja_contrib::pycompat::unknown_method_callback);
+    env.add_function(
+        "raise_exception",
+        |message: String| -> std::result::Result<String, minijinja::Error> {
+            Err(minijinja::Error::new(
+                minijinja::ErrorKind::InvalidOperation,
+                message,
+            ))
+        },
+    );
+    env.add_template("chat", template)?;
+    let rendered = env.get_template("chat")?.render(minijinja::context! {
+        messages => minijinja::Value::from_serialize(messages),
+        add_generation_prompt => true,
+        bos_token => bos_token,
+        eos_token => eos_token,
+    })?;
+    Ok(rendered)
 }
 
 /// Candle-based local inference backend
@@ -244,19 +378,25 @@ impl CandleBackend {
         }
     }
 
-    /// Autoregressive text generation using a loaded quantized model
+    /// Autoregressive text generation using a loaded quantized model. `prompt`
+    /// is the final text. `add_special_tokens` is passed to the tokenizer: a
+    /// rendered chat template already writes its own BOS, so it is false there.
+    /// `model_eos` is the model's own end token, which stops generation beside
+    /// the common ones: Gemma's `<end_of_turn>` is in none of them.
     fn generate_with_quantized(
         model: &mut QuantizedModel,
         tokenizer: &tokenizers::Tokenizer,
         device: &Device,
         prompt: &str,
+        add_special_tokens: bool,
+        model_eos: Option<&str>,
         params: &GenerationParams,
     ) -> Result<InferenceResult> {
         let start = std::time::Instant::now();
 
         // Tokenize input
         let encoding = tokenizer
-            .encode(prompt, true)
+            .encode(prompt, add_special_tokens)
             .map_err(|e| anyhow!("Tokenization failed: {}", e))?;
         let prompt_tokens = encoding.get_ids().to_vec();
         let prompt_len = prompt_tokens.len() as u32;
@@ -269,7 +409,7 @@ impl CandleBackend {
         let mut logits_processor = Self::make_logits_processor(params);
 
         // Determine EOS token(s)
-        let eos_tokens: Vec<u32> = [
+        let mut eos_tokens: Vec<u32> = [
             "</s>",
             "<|endoftext|>",
             "<|end|>",
@@ -280,6 +420,11 @@ impl CandleBackend {
         .iter()
         .filter_map(|s| tokenizer.token_to_id(s))
         .collect();
+        if let Some(id) = model_eos.and_then(|t| tokenizer.token_to_id(t)) {
+            if !eos_tokens.contains(&id) {
+                eos_tokens.push(id);
+            }
+        }
         // Id 2 is EOS in the Llama 2 / Mistral vocabularies, but an ordinary
         // token in others, so it stops generation only when the tokenizer
         // names no end token of its own.
@@ -445,6 +590,8 @@ impl LocalInferenceBackend for CandleBackend {
             &mut std::io::BufReader::new(&mut file),
         )?;
         let model_type = Self::detect_model_type_from_gguf(&content)?;
+        let config = read_tokenizer_config(path)?;
+        let chat = chat_settings(&content, &tokenizer, config.as_ref());
 
         // Re-open file (Content::read consumed the reader position)
         let mut file2 = std::fs::File::open(path).context("Failed to re-open GGUF file")?;
@@ -493,6 +640,9 @@ impl LocalInferenceBackend for CandleBackend {
             quantized,
             tokenizer,
             device: self.device.clone(),
+            chat_template: chat.template,
+            bos_token: chat.bos_token,
+            eos_token: chat.eos_token,
         };
 
         let mut models = self.models.lock().unwrap();
@@ -530,6 +680,53 @@ impl LocalInferenceBackend for CandleBackend {
             &model.tokenizer,
             &model.device,
             prompt,
+            true,
+            model.eos_token.as_deref(),
+            params,
+        )
+    }
+
+    fn chat(
+        &self,
+        handle: &str,
+        messages: &[ChatMessage],
+        params: &GenerationParams,
+    ) -> Result<InferenceResult> {
+        let mut models = self.models.lock().unwrap();
+        let model = models
+            .get_mut(handle)
+            .ok_or_else(|| anyhow!("Model '{}' not loaded", handle))?;
+
+        let template = model.chat_template.as_deref().ok_or_else(|| {
+            crate::safety::unimplemented(
+                "ai_local_generate",
+                "chat messages for a model with no chat template",
+                "pass a prompt string, formatted for this model",
+            )
+        })?;
+        let prompt = render_chat_template(
+            template,
+            messages,
+            model.bos_token.as_deref().unwrap_or(""),
+            model.eos_token.as_deref().unwrap_or(""),
+        )
+        .map_err(|e| {
+            crate::safety::bad_state(
+                "ai_local_generate",
+                &format!("the model's chat template failed: {e}"),
+                "a model whose chat template renders",
+            )
+        })?;
+
+        // No special tokens are added to the rendered text: the template writes
+        // its own BOS, and a second one would reach the model.
+        Self::generate_with_quantized(
+            &mut model.quantized,
+            &model.tokenizer,
+            &model.device,
+            &prompt,
+            false,
+            model.eos_token.as_deref(),
             params,
         )
     }
@@ -563,5 +760,101 @@ impl LocalInferenceBackend for CandleBackend {
             .unwrap_or("");
         let multiplier = if ext == "gguf" { 1.2 } else { 1.0 };
         Ok((file_bytes as f64 * multiplier / (1024.0 * 1024.0)) as u64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// ChatML, as Qwen and many other instruct models ship it
+    const CHATML: &str = "{% for message in messages %}<|im_start|>{{ message.role }}\n{{ message.content }}<|im_end|>\n{% endfor %}{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}";
+
+    fn user(content: &str) -> ChatMessage {
+        ChatMessage {
+            role: "user".to_string(),
+            content: content.to_string(),
+        }
+    }
+
+    #[test]
+    fn chatml_template_renders_one_user_turn_with_generation_prompt() {
+        let out = render_chat_template(CHATML, &[user("hi")], "", "").unwrap();
+        assert_eq!(
+            out,
+            "<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n"
+        );
+    }
+
+    #[test]
+    fn python_string_methods_render_as_in_llama3_templates() {
+        let template = "{% for m in messages %}{{ m.content | trim }}|{{ m['content'].strip() }}{% endfor %}";
+        assert_eq!(
+            render_chat_template(template, &[user("  hi  ")], "", "").unwrap(),
+            "hi|hi"
+        );
+    }
+
+    #[test]
+    fn tokenizer_config_array_form_picks_the_default_template() {
+        let config = json!({"chat_template": [
+            {"name": "tool_use", "template": "TOOL"},
+            {"name": "default", "template": "DEFAULT"}
+        ]});
+        assert_eq!(
+            chat_template_from_config(&config).as_deref(),
+            Some("DEFAULT")
+        );
+
+        let no_default = json!({"chat_template": [
+            {"name": "tool_use", "template": "TOOL"},
+            {"name": "other", "template": "OTHER"}
+        ]});
+        assert_eq!(
+            chat_template_from_config(&no_default).as_deref(),
+            Some("TOOL")
+        );
+
+        let string_form = json!({"chat_template": "PLAIN"});
+        assert_eq!(
+            chat_template_from_config(&string_form).as_deref(),
+            Some("PLAIN")
+        );
+        assert_eq!(chat_template_from_config(&json!({})), None);
+    }
+
+    #[test]
+    fn raise_exception_fails_the_render_with_its_message() {
+        let template = "{% if messages[0].role == 'system' %}{{ raise_exception('no system role here') }}{% endif %}ok";
+        let system = ChatMessage {
+            role: "system".to_string(),
+            content: "be brief".to_string(),
+        };
+        let err = render_chat_template(template, &[system], "", "").unwrap_err();
+        assert!(err.to_string().contains("no system role here"), "{err}");
+
+        // The same template renders when the condition is not met
+        assert_eq!(
+            render_chat_template(template, &[user("hi")], "", "").unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn special_token_is_read_from_string_or_content_object() {
+        let config = json!({
+            "bos_token": {"content": "<s>", "lstrip": false},
+            "eos_token": "</s>"
+        });
+        assert_eq!(
+            special_token_from_config(&config, "bos_token").as_deref(),
+            Some("<s>")
+        );
+        assert_eq!(
+            special_token_from_config(&config, "eos_token").as_deref(),
+            Some("</s>")
+        );
+        assert_eq!(special_token_from_config(&config, "pad_token"), None);
     }
 }

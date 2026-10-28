@@ -73,6 +73,15 @@ impl Default for GenerationParams {
     }
 }
 
+/// One message of a chat conversation, as `ai_local_generate` receives it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    /// One of system, user, assistant or tool
+    pub role: String,
+    /// Message text
+    pub content: String,
+}
+
 /// Trait for local inference backends (Candle, ONNX, etc.)
 pub trait LocalInferenceBackend: Send + Sync {
     /// Human-readable backend name
@@ -94,6 +103,21 @@ pub trait LocalInferenceBackend: Send + Sync {
         prompt: &str,
         params: &GenerationParams,
     ) -> Result<InferenceResult>;
+
+    /// Generate a reply to a chat conversation. The model's own chat template
+    /// formats the messages; a backend without one refuses.
+    fn chat(
+        &self,
+        _handle: &str,
+        _messages: &[ChatMessage],
+        _params: &GenerationParams,
+    ) -> Result<InferenceResult> {
+        Err(crate::safety::unimplemented(
+            "ai_local_generate",
+            "chat messages for this backend",
+            "pass a prompt string instead",
+        ))
+    }
 
     /// Generate embeddings for input texts
     fn embed(&self, handle: &str, inputs: &[String]) -> Result<EmbeddingResult>;
