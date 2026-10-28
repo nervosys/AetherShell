@@ -61,7 +61,24 @@ function available(arm) {
     // and the run refused with sqlite3, jq and ae all installed (2026-09-29).
     // A missing binary is a spawn error; anything that starts is present.
     const r = spawnSync(arm.bin, ['--version'], { encoding: 'utf8', timeout: 30000 });
-    return r.error === undefined;
+    if (r.error !== undefined) return false;
+    // The jq arm runs its command under `bash -c`. On Windows the first
+    // `bash` on PATH is often the WSL launcher (System32 or WindowsApps),
+    // which re-parses the command line and drops its `|` and `$`: the
+    // known-good q9 answer then failed replay, scoring jq 9/10 for a
+    // reason that is the host's, not the syntax's (2026-10-28). That bash
+    // is refused, so the arm is skipped and named rather than handicapped.
+    const runner = arm.run('').at(0);
+    if (process.platform === 'win32' && runner === 'bash') {
+        const where = spawnSync('where', ['bash'], { encoding: 'utf8', timeout: 30000 });
+        const first = (where.stdout ?? '').split(/\r?\n/)[0].trim();
+        if (/\\(System32|WindowsApps)\\bash\.exe$/i.test(first)) {
+            console.error('the ' + arm.id + ' arm needs a POSIX bash; the first on PATH is ' +
+                first + ', the WSL launcher. Put Git Bash first on PATH.');
+            return false;
+        }
+    }
+    return true;
 }
 
 // ── the prompts are frozen; prove it ────────────────────────────────────
@@ -274,9 +291,9 @@ if (replay) {
 const shuffle = (a) => a.map((v) => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(([, v]) => v);
 
 const ACTIVE = ARMS.filter(available);
-const MISSING = ARMS.filter((a) => !available(a));
+const MISSING = ARMS.filter((a) => !ACTIVE.includes(a));
 if (MISSING.length) {
-    console.log('skipped, not scored (interpreter absent): ' +
+    console.log('skipped, not scored (interpreter unavailable): ' +
         MISSING.map((a) => a.id + ' (needs ' + a.bin + ')').join(', '));
 }
 if (!ACTIVE.length) {
@@ -328,7 +345,7 @@ for (const arm of ARMS) {
     const rs = rows.filter((r) => r.arm === arm.id);
     console.log(pad(arm.id, 22) + (rs.length
         ? rs.filter((r) => r.correct).length + '/' + rs.length
-        : 'skipped (' + arm.bin + ' not installed)'));
+        : 'skipped (' + arm.bin + ' unavailable)'));
 }
 console.log('');
 console.log('results: ' + outFile);
