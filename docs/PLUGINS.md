@@ -38,11 +38,11 @@ plugin_categories
 ### Load an External Plugin
 
 ```aether
-# Register a plugin's metadata from its manifest file. A manifest with a
-# non-empty [builtins] table is refused with E_UNIMPLEMENTED (see below).
+# Register a plugin from its manifest file. Its [builtins] entries become
+# callable by name (see below).
 plugin_load("~/.config/aethershell/plugins/my-plugin/plugin.toml")
 
-# Enable/disable a plugin (enabling does not make its builtins callable)
+# Enable/disable a plugin (a disabled plugin's builtins are not callable)
 plugin_enable("my-plugin")
 plugin_disable("my-plugin")
 
@@ -185,9 +185,15 @@ plugin_load("./plugins/my-plugin/plugin.toml")
 # { id: "my-plugin", name: "My Plugin", version: "1.0.0", status: "registered" }
 ```
 
-A manifest whose `[builtins]` table is not empty is refused with
-`E_UNIMPLEMENTED`, because nothing runs a plugin's builtins. A duplicate id is
-`E_BAD_STATE`. Native and script plugins are not loaded by this builtin.
+Each `[builtins]` entry is `name = "fn(...) => ..."`, one lambda literal. Its
+name becomes callable (`hello("x")`). A name that is a core builtin, or is
+provided by another loaded plugin, is refused (`E_BAD_ARG`, `E_BAD_STATE`), and so
+is a value that is not one lambda literal (`E_BAD_ARG`). A manifest with
+`[builtins]` is code: `AETHER_PLUGINS=off` refuses it, and in agent mode it needs
+`AETHER_PLUGIN_ALLOW` (`E_POLICY_DENY`). A plugin builtin is classed `exec`, so
+agent mode approves each call; the calls its body makes are guarded as usual.
+A duplicate id is `E_BAD_STATE`. Native and script plugins are not loaded by
+this builtin.
 
 ### `plugin_unload(id)`
 
@@ -215,11 +221,8 @@ plugin_categories
 
 ### Creating a Simple Builtin Plugin
 
-> **Not runnable in this build.** Script builtins in a `[builtins]` table are
-> not loaded: `plugin_load` refuses such a manifest with `E_UNIMPLEMENTED`, and
-> the `hello` functions below are never defined. The steps are kept as the
-> intended manifest shape; a manifest with no `[builtins]` entries registers
-> its metadata only.
+> Each `[builtins]` entry is registered as a callable builtin, so the `hello`
+> functions below exist after `plugin_load`.
 
 1. **Create the plugin directory:**
 
@@ -243,11 +246,11 @@ hello = "fn(name) => 'Hello, ' + name + '!'"
 hello_upper = "fn(name) => upper('Hello, ' + name + '!')"
 ```
 
-3. **Register the plugin (refused while it has a `[builtins]` table):**
+3. **Register the plugin:**
 
 ```aether
 plugin_load("~/.config/aethershell/plugins/hello-plugin/plugin.toml")
-# E_UNIMPLEMENTED in this build; hello("World") would be undefined
+# hello("World") is now callable
 ```
 
 ### Creating a File Handler Plugin
@@ -382,9 +385,9 @@ AetherShell ships with these built-in plugins:
 
 ## Example Plugins
 
-> Each example below has a `[builtins]` table, which `plugin_load` refuses
-> with `E_UNIMPLEMENTED` in this build. They show the intended manifest shape
-> only.
+> Each example below has a `[builtins]` table, whose entries `plugin_load`
+> registers as callable builtins. A builtin only works if the functions its body
+> calls exist in this build.
 
 ### 1. Math Utilities Plugin
 

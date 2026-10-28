@@ -999,7 +999,7 @@ fn match_pattern_impl(
 /// - String/Uri → builtin with (pipe_input ++ args)
 /// - Null → error
 /// - Other → error
-fn call_value_with_pipe(
+pub(crate) fn call_value_with_pipe(
     f: Value,
     pin: Option<Value>,
     mut args: Vec<Value>,

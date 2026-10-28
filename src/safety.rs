@@ -225,6 +225,14 @@ pub fn idempotent(name: &str) -> bool {
 /// has classified is not advertised with the same confidence as one that was
 /// read and found pure.
 pub fn effect_of(name: &str) -> Effect {
+    // A manifest builtin runs arbitrary AetherShell, which this classifier
+    // cannot see into. It takes the strictest class that is centrally enforced
+    // (agent mode needs approval per call), and each builtin its body calls is
+    // still guarded as it runs. Checked before the cache, because it changes
+    // with plugin_load and plugin_unload.
+    if crate::plugins::is_manifest_builtin(name) {
+        return Effect::Exec;
+    }
     // Every builtin call asks this at least once. `classified_effect` is a
     // string match of about a thousand arms, and the answer is a pure function
     // of the name, so it is computed once per name per thread.

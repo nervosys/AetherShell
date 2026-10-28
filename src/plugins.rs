@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Instant, SystemTime};
 
 use crate::value::Value;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // ===================== Plugin Metadata =====================
 
@@ -601,6 +602,27 @@ pub fn is_hot_reload_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// A `[builtins]` entry of a manifest, parsed at load into the lambda it names.
+///
+/// Its source is one lambda literal. Calling it evaluates that lambda in the
+/// caller's environment and applies it, so every builtin the body calls goes
+/// through the dispatcher and passes that builtin's own guard.
+struct ManifestBuiltin {
+    plugin_id: String,
+    lambda: Arc<crate::ast::Expr>,
+}
+
+/// Number of registered manifest builtins, readable without the registry lock.
+///
+/// `effect_of` asks [`is_manifest_builtin`] about every name it classifies, and
+/// almost none of them are manifest builtins; this keeps that question off the
+/// mutex when there are none.
+static MANIFEST_BUILTIN_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+fn sync_manifest_count(registry: &PluginRegistry) {
+    MANIFEST_BUILTIN_COUNT.store(registry.manifest_builtins.len(), Ordering::Release);
+}
+
 /// Central registry for all plugins
 pub struct PluginRegistry {
     /// All registered plugins by ID
@@ -623,6 +645,8 @@ pub struct PluginRegistry {
     marketplaces: Vec<MarketplaceRegistry>,
     /// Plugin dependency graph
     dependency_graph: HashMap<String, Vec<String>>,
+    /// Manifest `[builtins]` entries, by bare name
+    manifest_builtins: HashMap<String, ManifestBuiltin>,
 }
 
 /// Entry for a registered plugin
@@ -687,6 +711,7 @@ impl PluginRegistry {
                 enabled: true,
             }],
             dependency_graph: HashMap::new(),
+            manifest_builtins: HashMap::new(),
         };
 
         // Add default load paths
@@ -1016,6 +1041,9 @@ impl PluginRegistry {
         // Remove from various registries
         self.plugins.remove(plugin_id);
         self.builtins.retain(|_, (pid, _)| pid != plugin_id);
+        self.manifest_builtins
+            .retain(|_, builtin| builtin.plugin_id != plugin_id);
+        sync_manifest_count(self);
         self.dynamic_plugins.remove(plugin_id);
         self.script_plugins.remove(plugin_id);
         self.ai_backends.remove(plugin_id);
@@ -1149,6 +1177,11 @@ impl PluginRegistry {
                     result.push((name.clone(), id.clone()));
                 }
             }
+        }
+
+        // From manifests
+        for (name, builtin) in &self.manifest_builtins {
+            result.push((name.clone(), builtin.plugin_id.clone()));
         }
 
         // From trait-based plugins
@@ -1720,6 +1753,132 @@ pub fn bi_plugin_categories() -> Value {
     )
 }
 
+/// Whether `name` is a manifest builtin of a loaded plugin.
+///
+/// Not cached: the answer changes with `plugin_load` and `plugin_unload`, and
+/// [`crate::safety::effect_of`] asks this before it consults its own cache.
+pub fn is_manifest_builtin(name: &str) -> bool {
+    if MANIFEST_BUILTIN_COUNT.load(Ordering::Acquire) == 0 {
+        return false;
+    }
+    get_plugin_registry()
+        .lock()
+        .map(|registry| registry.manifest_builtins.contains_key(name))
+        .unwrap_or(false)
+}
+
+/// Call a manifest builtin.
+///
+/// The lambda is evaluated in the caller's environment and applied. The registry
+/// lock is released before that, so a body that calls another plugin builtin, or
+/// itself, does not deadlock. The builtins of a disabled plugin refuse to run.
+pub fn call_manifest_builtin(
+    name: &str,
+    args: Vec<Value>,
+    input: Option<Value>,
+    env: &mut crate::env::Env,
+) -> Result<Value> {
+    let lambda = {
+        let registry = get_plugin_registry().lock().unwrap();
+        let Some(entry) = registry.manifest_builtins.get(name) else {
+            return Err(crate::safety::unknown_builtin(name, Vec::new()));
+        };
+        if !registry.is_enabled(&entry.plugin_id) {
+            return Err(crate::safety::bad_state(
+                name,
+                &format!("plugin {} is disabled", entry.plugin_id),
+                "plugin_enable",
+            ));
+        }
+        Arc::clone(&entry.lambda)
+    };
+    let f = crate::eval::eval_expr(&lambda, env)?;
+    crate::eval::call_value_with_pipe(f, input, args, env)
+}
+
+/// Policy for defining code from a manifest. Its `[builtins]` entries are code,
+/// so they are gated like a native plugin load (see
+/// [`DynamicPlugin::is_load_permitted`]): the kill switch refuses them, and in
+/// agent mode they need an allowlisted directory.
+fn authorize_manifest_code(manifest: &Path) -> Result<()> {
+    let plugins_off = std::env::var("AETHER_PLUGINS")
+        .map(|v| v.eq_ignore_ascii_case("off") || v == "0")
+        .unwrap_or(false);
+    let agent_mode = std::env::var("AETHER_MODE")
+        .map(|m| m.eq_ignore_ascii_case("agent"))
+        .unwrap_or(false);
+    let allow = std::env::var("AETHER_PLUGIN_ALLOW").unwrap_or_default();
+    let allow_roots: Vec<&str> = allow.split(';').collect();
+    let canon = std::fs::canonicalize(manifest).unwrap_or_else(|_| manifest.to_path_buf());
+    if DynamicPlugin::is_load_permitted(&canon, plugins_off, &allow_roots, agent_mode) {
+        return Ok(());
+    }
+    Err(crate::safety::policy_deny(
+        "plugin_load",
+        format!(
+            "refusing to define [builtins] code from {} (plugins disabled, or agent mode without an allowlist)",
+            manifest.display()
+        ),
+        "set AETHER_PLUGIN_ALLOW=<dir> to allow an audited directory, or unset AETHER_PLUGINS=off",
+    ))
+}
+
+/// Parse a manifest's `[builtins]` value into `(name, lambda)` pairs.
+///
+/// Pure: nothing is registered here. A name must be an identifier that no core
+/// builtin serves, and each value must parse as exactly one lambda literal. Any
+/// refusal refuses the whole manifest, so no partial plugin is registered.
+fn parse_manifest_builtins(table: &toml::Value) -> Result<Vec<(String, crate::ast::Expr)>> {
+    let Some(map) = table.as_table() else {
+        return Err(crate::safety::bad_arg(
+            "plugin_load",
+            "[builtins] as a table of name = \"fn(...) => ...\" entries",
+            "not a table",
+        ));
+    };
+    let mut parsed = Vec::with_capacity(map.len());
+    for (name, value) in map {
+        let identifier = name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !identifier {
+            return Err(crate::safety::bad_arg(
+                "plugin_load",
+                "a [builtins] name: letters, digits and '_', starting with a letter or '_'",
+                &format!("{name:?}"),
+            ));
+        }
+        if crate::builtins::is_dispatched(name) {
+            return Err(crate::safety::bad_arg(
+                "plugin_load",
+                "a [builtins] name that no core builtin serves",
+                &format!("{name} is a core builtin"),
+            ));
+        }
+        let src = value.as_str().ok_or_else(|| {
+            crate::safety::bad_arg(
+                "plugin_load",
+                &format!("[builtins] {name}: a string of AetherShell source"),
+                "not a string",
+            )
+        })?;
+        let lambda = match crate::parser::parse_program(src).ok().as_deref() {
+            Some([crate::ast::Stmt::Expr(expr @ crate::ast::Expr::Lambda { .. })]) => expr.clone(),
+            _ => {
+                return Err(crate::safety::bad_arg(
+                    "plugin_load",
+                    &format!("[builtins] {name}: exactly one lambda literal, fn(...) => ..."),
+                    src,
+                ))
+            }
+        };
+        parsed.push((name.clone(), lambda));
+    }
+    Ok(parsed)
+}
+
 /// Load a plugin from a manifest file
 ///
 /// The manifest file is a TOML file with the following structure:
@@ -1734,7 +1893,7 @@ pub fn bi_plugin_categories() -> Value {
 /// min_aether_version = "0.1.0"
 ///
 /// [builtins]
-/// # Define custom builtins
+/// # Each entry is one lambda literal; its name becomes callable
 /// my_func = """
 /// fn(x) => x * 2
 /// """
@@ -1803,17 +1962,15 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
         ));
     }
 
-    // The [builtins] table is source meant to become callable. Nothing
-    // dispatches on the plugin registry, so registering it would report the
-    // names as loaded while none of them could be called.
-    if let Some(table) = manifest.get("builtins").and_then(|v| v.as_table()) {
-        if !table.is_empty() {
-            return Err(crate::safety::unimplemented(
-                "plugin_load",
-                "cannot make a manifest's [builtins] callable: no call dispatches on the plugin registry, so they would never run",
-                "load a manifest that carries metadata only; there is no route that runs plugin builtins yet",
-            ));
-        }
+    // [builtins] entries are AetherShell lambda literals, and a manifest that
+    // defines code is gated like a native plugin load. Parsing comes first, so a
+    // bad entry refuses the whole manifest before anything is registered.
+    let builtins = match manifest.get("builtins") {
+        Some(table) => parse_manifest_builtins(table)?,
+        None => Vec::new(),
+    };
+    if !builtins.is_empty() {
+        authorize_manifest_code(manifest_path)?;
     }
 
     let name = plugin_section
@@ -1918,6 +2075,31 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
         ));
     }
 
+    // Every builtin name must be free before anything is registered, so a refused
+    // manifest leaves no half-loaded plugin behind.
+    for (name, _) in &builtins {
+        if let Some(owner) = registry.manifest_builtins.get(name) {
+            return Err(crate::safety::bad_state(
+                "plugin_load",
+                &format!(
+                    "builtin {name} is already provided by plugin {}",
+                    owner.plugin_id
+                ),
+                "plugin_unload",
+            ));
+        }
+    }
+    for (name, lambda) in builtins {
+        registry.manifest_builtins.insert(
+            name,
+            ManifestBuiltin {
+                plugin_id: metadata.id.clone(),
+                lambda: Arc::new(lambda),
+            },
+        );
+    }
+    sync_manifest_count(&registry);
+
     registry.plugins.insert(
         metadata.id.clone(),
         PluginEntry {
@@ -1956,6 +2138,10 @@ pub fn unload_plugin(plugin_id: &str) -> Result<Value> {
     if registry.plugins.remove(plugin_id).is_some() {
         // Also remove any registered builtins, handlers, etc.
         registry.builtins.retain(|_key, (pid, _)| pid != plugin_id);
+        registry
+            .manifest_builtins
+            .retain(|_, builtin| builtin.plugin_id != plugin_id);
+        sync_manifest_count(&registry);
 
         let mut result = std::collections::BTreeMap::new();
         result.insert("id".to_string(), Value::Str(plugin_id.to_string()));
@@ -2234,6 +2420,140 @@ mod tests {
         assert!(!DynamicPlugin::is_load_permitted(p, false, &[""], true));
         // Human/interactive mode → allowed by default (backward compatible).
         assert!(DynamicPlugin::is_load_permitted(p, false, &[], false));
+    }
+
+    /// A plugin directory holding one manifest, under the OS temp dir.
+    fn manifest_fixture(tag: &str, body: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "ae-plugin-{tag}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("fixture directory");
+        let path = dir.join("plugin.toml");
+        std::fs::write(&path, body).expect("fixture manifest");
+        path.to_string_lossy().into_owned()
+    }
+
+    fn call_manifest(name: &str, args: Vec<Value>) -> Result<Value> {
+        let mut env = crate::env::Env::new();
+        crate::builtins::call_with_input(name, args, None, &mut env)
+    }
+
+    fn load_error(path: &str) -> String {
+        load_plugin_from_manifest(path)
+            .expect_err("the manifest should be refused")
+            .to_string()
+    }
+
+    fn is_registered(plugin_id: &str) -> bool {
+        get_plugin_registry()
+            .lock()
+            .unwrap()
+            .get_metadata(plugin_id)
+            .is_some()
+    }
+
+    #[test]
+    fn manifest_builtins_register_call_disable_and_unload() {
+        let _guard = registry_guard();
+        let path = manifest_fixture(
+            "reg",
+            "[plugin]\nid = \"zz-fixture-math\"\n\n[builtins]\nzz_double = \"fn(x) => x * 2\"\n",
+        );
+        load_plugin_from_manifest(&path).expect("a lambda builtin loads");
+        assert!(is_manifest_builtin("zz_double"));
+        assert!(get_plugin_registry()
+            .lock()
+            .unwrap()
+            .list_plugin_builtins()
+            .contains(&("zz_double".to_string(), "zz-fixture-math".to_string())));
+
+        // The body runs, and the name is classed as an effect rather than Pure.
+        assert!(matches!(
+            call_manifest("zz_double", vec![Value::Int(4)]),
+            Ok(Value::Int(8))
+        ));
+        assert_eq!(
+            crate::safety::effect_of("zz_double"),
+            crate::safety::Effect::Exec
+        );
+
+        // A disabled plugin's builtins refuse to run.
+        get_plugin_registry()
+            .lock()
+            .unwrap()
+            .disable_plugin("zz-fixture-math")
+            .expect("disable");
+        assert!(call_manifest("zz_double", vec![Value::Int(4)]).is_err());
+        get_plugin_registry()
+            .lock()
+            .unwrap()
+            .enable_plugin("zz-fixture-math")
+            .expect("enable");
+        assert!(matches!(
+            call_manifest("zz_double", vec![Value::Int(5)]),
+            Ok(Value::Int(10))
+        ));
+
+        // Unloading removes the entries and the name goes back to unknown.
+        assert!(unload_plugin("zz-fixture-math").is_ok());
+        assert!(!is_manifest_builtin("zz_double"));
+        assert!(call_manifest("zz_double", vec![Value::Int(4)]).is_err());
+        assert_eq!(
+            crate::safety::effect_of("zz_double"),
+            crate::safety::Effect::Pure
+        );
+    }
+
+    #[test]
+    fn manifest_builtin_names_refuse_core_dotted_and_non_lambda_entries() {
+        let _guard = registry_guard();
+        let cases = [
+            ("zz-fixture-core", "len = \"fn(x) => x\"\n"),
+            ("zz-fixture-dot", "\"zz.dot\" = \"fn(x) => x\"\n"),
+            ("zz-fixture-body", "zz_not_lambda = \"1 + 1\"\n"),
+        ];
+        for (id, entry) in cases {
+            let path = manifest_fixture(
+                id,
+                &format!("[plugin]\nid = \"{id}\"\n\n[builtins]\n{entry}"),
+            );
+            let err = load_error(&path);
+            assert!(err.contains("E_BAD_ARG"), "{id}: {err}");
+            // A refused manifest leaves nothing registered, not even its metadata.
+            assert!(!is_registered(id), "{id} should not be registered");
+        }
+        // The core name is still the core builtin.
+        assert!(!is_manifest_builtin("len"));
+    }
+
+    #[test]
+    fn manifest_builtin_names_are_exclusive_across_plugins() {
+        let _guard = registry_guard();
+        let first = manifest_fixture(
+            "first",
+            "[plugin]\nid = \"zz-fixture-first\"\n\n[builtins]\nzz_shared = \"fn(x) => x\"\n",
+        );
+        load_plugin_from_manifest(&first).expect("the first provider loads");
+        let second = manifest_fixture(
+            "second",
+            "[plugin]\nid = \"zz-fixture-second\"\n\n[builtins]\nzz_shared = \"fn(x) => x + 1\"\n",
+        );
+        let err = load_error(&second);
+        assert!(err.contains("E_BAD_STATE"), "{err}");
+        assert!(!is_registered("zz-fixture-second"));
+
+        // The first provider keeps the name, and its body is the one that runs.
+        assert!(matches!(
+            call_manifest("zz_shared", vec![Value::Int(3)]),
+            Ok(Value::Int(3))
+        ));
+        assert!(unload_plugin("zz-fixture-first").is_ok());
+        assert!(!is_manifest_builtin("zz_shared"));
     }
 
     #[test]

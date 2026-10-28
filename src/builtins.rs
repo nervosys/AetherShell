@@ -4280,6 +4280,12 @@ fn call_with_input_inner(
         "journal" => bi_journal(),
         "journal_clear" => bi_journal_clear(input),
 
+        // A `[builtins]` entry of a loaded plugin (see crate::plugins). Core names
+        // are matched above and a plugin cannot register one, so this never
+        // shadows a builtin.
+        _ if crate::plugins::is_manifest_builtin(name) => {
+            crate::plugins::call_manifest_builtin(name, args, input, env)
+        }
         _ => Err(crate::safety::unknown_builtin(name, did_you_mean(name))),
     }
 }

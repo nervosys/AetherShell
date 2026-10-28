@@ -7892,7 +7892,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Str),
         params: &[],
         returns: "Record",
-        doc: "Register a plugin from a TOML manifest with a [plugin] table, reporting {id, name, version, status: registered}. Only metadata is registered: a manifest whose [builtins] table is not empty is E_UNIMPLEMENTED, because nothing runs a plugin's builtins. The id must be 1 to 128 letters, digits, '.', '_' or '-'. The manifest is at most 1 MiB. A duplicate id is E_BAD_STATE. Native and script plugins are not loaded by this builtin.",
+        doc: "Register a plugin from a TOML manifest with a [plugin] table, reporting {id, name, version, status: registered}. Each [builtins] entry is one lambda literal (name = 'fn(...) => ...'); its name becomes callable after the load, and the body runs through the evaluator, so every builtin it calls keeps its own guard and a plugin builtin is classed as exec. A name must be an identifier that no core builtin serves and that no other loaded plugin provides (E_BAD_ARG, or E_BAD_STATE for a provider clash). A manifest with [builtins] is code: AETHER_PLUGINS=off refuses it, and agent mode needs AETHER_PLUGIN_ALLOW (E_POLICY_DENY). The id must be 1 to 128 letters, digits, '.', '_' or '-'. The manifest is at most 1 MiB. A duplicate id is E_BAD_STATE. Native and script plugins are not loaded by this builtin.",
         examples: &[
             (r#"try { plugin_load("no-such-manifest-here.plugin.toml") } catch e { e.error.code }"#, r#"E_NOT_FOUND"#),
         ],

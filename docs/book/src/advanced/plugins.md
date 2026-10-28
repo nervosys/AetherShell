@@ -38,11 +38,12 @@ plugin_disable "git-tools"
 ### Loading and Unloading
 
 `plugin_load` takes the path to a plugin's TOML manifest, not a plugin name. It
-registers the plugin's metadata with `status: "registered"`. A manifest with a
-non-empty `[builtins]` table is refused with `E_UNIMPLEMENTED`, because nothing
-runs a plugin's builtins, so script builtins are not callable in this build.
-Native and script plugins are not loaded by this builtin. A duplicate id is
-`E_BAD_STATE`.
+registers the plugin with `status: "registered"`. Each `[builtins]` entry is one
+lambda literal and its name becomes callable. A core name, or a name another
+loaded plugin provides, is refused. A manifest with `[builtins]` is code, so
+`AETHER_PLUGINS=off` refuses it and agent mode needs `AETHER_PLUGIN_ALLOW`. Agent
+mode approves each plugin builtin call. Native and script plugins are not loaded
+by this builtin. A duplicate id is `E_BAD_STATE`.
 
 ```aethershell
 plugin_load "./plugins/my-custom-plugin/plugin.toml"   # Register its metadata

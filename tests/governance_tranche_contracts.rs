@@ -553,9 +553,9 @@ fn plugin_load_registers_metadata_only_and_refuses_builtins_it_cannot_run() {
 
     let code = manifest(
         &w.root.join("code.plugin.toml"),
-        "[plugin]\nid = \"gov-plugin-code\"\n\n[builtins]\nf = \"fn(x) => x\"\n",
+        "[plugin]\nid = \"gov-plugin-code\"\n\n[builtins]\nf = \"1 + 1\"\n",
     );
-    refused_with(call_v("plugin_load", vec![s(&code)]), "E_UNIMPLEMENTED");
+    refused_with(call_v("plugin_load", vec![s(&code)]), "E_BAD_ARG");
 }
 
 #[test]
