@@ -29137,49 +29137,6 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ))
 }
 
-/// The CPU record from `Win32_Processor | ConvertTo-Json` text.
-///
-/// A field PowerShell left null is left out of the record. The old code read
-/// a missing core count as 0 cores and a missing clock as 0 MHz. A field that
-/// is present but of the wrong type is refused.
-#[cfg(any(target_os = "windows", test))]
-fn win_cpu_record(text: &str) -> Result<Value> {
-    let bad = |what: &str| {
-        crate::safety::bad_state(
-            "sys_cpu_info",
-            what,
-            "a Win32_Processor record from ConvertTo-Json",
-        )
-    };
-    let json: serde_json::Value = serde_json::from_str(text)
-        .map_err(|_| bad("Win32_Processor printed text that is not JSON"))?;
-    let obj = match &json {
-        serde_json::Value::Object(o) => Some(o),
-        serde_json::Value::Array(arr) => arr.first().and_then(|v| v.as_object()),
-        _ => None,
-    };
-    let obj = obj.ok_or_else(|| bad("Win32_Processor printed no processor"))?;
-    let field = |key: &str| obj.get(key).filter(|v| !v.is_null());
-    let mut rec = std::collections::BTreeMap::new();
-    if let Some(v) = field("Name") {
-        let name = v.as_str().ok_or_else(|| bad("Name is not text"))?;
-        rec.insert("name".to_string(), Value::Str(name.trim().to_string()));
-    }
-    if let Some(v) = field("NumberOfCores") {
-        let cores = v
-            .as_i64()
-            .ok_or_else(|| bad("NumberOfCores is not a whole number"))?;
-        rec.insert("cores".to_string(), Value::Int(cores));
-    }
-    if let Some(v) = field("MaxClockSpeed") {
-        let mhz = v
-            .as_f64()
-            .ok_or_else(|| bad("MaxClockSpeed is not a number"))?;
-        rec.insert("mhz".to_string(), Value::Float(mhz));
-    }
-    Ok(Value::Record(rec))
-}
-
 /// The CPU record from `/proc/cpuinfo` text.
 ///
 /// A field the kernel does not print on this machine (ARM has no "model
@@ -29223,16 +29180,29 @@ fn parse_cpuinfo(text: &str) -> Result<Value> {
 
 fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns consistent Record {name: String, cores: Int, mhz: Float} on all platforms
+    // Windows: was a PowerShell Get-CimInstance Win32_Processor query (WMI),
+    // parsed from its JSON. Now read in process: the name and physical core
+    // count through sysinfo, the clock from the registry's ~MHz value. A value
+    // that cannot be read is left out of the record.
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json",
-        ]);
-        let output = bounded_cmd_output("sys_cpu_info", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        let text = probe_stdout("sys_cpu_info", "powershell Win32_Processor", output)?;
-        return win_cpu_record(&text);
+        let mut rec = std::collections::BTreeMap::new();
+        let sys = System::new_with_specifics(
+            sysinfo::RefreshKind::nothing().with_cpu(sysinfo::CpuRefreshKind::nothing()),
+        );
+        if let Some(cpu) = sys.cpus().first() {
+            let name = cpu.brand().trim();
+            if !name.is_empty() {
+                rec.insert("name".to_string(), Value::Str(name.to_string()));
+            }
+        }
+        if let Some(cores) = sys.physical_core_count() {
+            rec.insert("cores".to_string(), Value::Int(cores as i64));
+        }
+        if let Ok(Some(mhz)) = windows_cpu_mhz("sys_cpu_info") {
+            rec.insert("mhz".to_string(), Value::Float(mhz as f64));
+        }
+        return Ok(Value::Record(rec));
     }
     #[cfg(target_os = "linux")]
     {
@@ -29774,31 +29744,6 @@ mod quiet_sys_tests {
     fn load_average_refuses_short_or_bad_readings() {
         assert!(load_average_record("sys_load_avg", &["0.1", "0.2"]).is_err());
         assert!(load_average_record("sys_load_avg", &["0.1", "busy", "0.3"]).is_err());
-    }
-
-    #[test]
-    fn win_cpu_record_reads_fields() {
-        let v = win_cpu_record(r#"{"Name":"Intel   ","NumberOfCores":8,"MaxClockSpeed":3600}"#)
-            .unwrap();
-        // WMI pads the processor name with spaces.
-        assert!(matches!(field(&v, "name"), Some(Value::Str(n)) if n == "Intel"));
-        assert!(matches!(field(&v, "cores"), Some(Value::Int(8))));
-        assert!(matches!(field(&v, "mhz"), Some(Value::Float(f)) if (*f - 3600.0).abs() < 1e-9));
-    }
-
-    #[test]
-    fn win_cpu_record_leaves_null_fields_out() {
-        let v = win_cpu_record(r#"[{"Name":"X","NumberOfCores":4,"MaxClockSpeed":null}]"#).unwrap();
-        assert!(matches!(field(&v, "cores"), Some(Value::Int(4))));
-        assert!(field(&v, "mhz").is_none());
-    }
-
-    #[test]
-    fn win_cpu_record_refuses_malformed_output() {
-        assert!(win_cpu_record("not json").is_err());
-        assert!(win_cpu_record("[]").is_err());
-        assert!(win_cpu_record("42").is_err());
-        assert!(win_cpu_record(r#"{"NumberOfCores":"eight"}"#).is_err());
     }
 
     #[test]
@@ -52255,33 +52200,32 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        // Get CPU info from PowerShell (more reliable than WMIC which may not be available)
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args(["-Command", "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json"]);
-        // A failed PowerShell used to leave a record with only `arch`. It is an
-        // error now, and so is output that is not JSON.
-        let json_str = probe_text("platform_cpu", "powershell", cmd)?;
-        let json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
-            crate::safety::bad_state(
-                "platform_cpu",
-                &format!("Get-CimInstance output is not JSON: {e}"),
-                "a readable Win32_Processor query",
-            )
-        })?;
-        if let Some(name) = json.get("Name").and_then(|v| v.as_str()) {
-            info.insert("name".to_string(), Value::Str(name.trim().to_string()));
+        // Windows: was a PowerShell Get-CimInstance Win32_Processor query (WMI),
+        // parsed from its JSON. Now read in process: the name and physical core
+        // count through sysinfo; the logical count from available_parallelism
+        // (the count sys_cpu_count gives, not WMI's NumberOfLogicalProcessors);
+        // and the clock from the registry's ~MHz value (the boot-time reading,
+        // not WMI's rated MaxClockSpeed). A value that cannot be read is left out.
+        let sys = System::new_with_specifics(
+            sysinfo::RefreshKind::nothing().with_cpu(sysinfo::CpuRefreshKind::nothing()),
+        );
+        if let Some(cpu) = sys.cpus().first() {
+            let name = cpu.brand().trim();
+            if !name.is_empty() {
+                info.insert("name".to_string(), Value::Str(name.to_string()));
+            }
         }
-        if let Some(cores) = json.get("NumberOfCores").and_then(|v| v.as_i64()) {
-            info.insert("cores".to_string(), Value::Int(cores));
+        if let Some(cores) = sys.physical_core_count() {
+            info.insert("cores".to_string(), Value::Int(cores as i64));
         }
-        if let Some(lp) = json
-            .get("NumberOfLogicalProcessors")
-            .and_then(|v| v.as_i64())
-        {
-            info.insert("logical_processors".to_string(), Value::Int(lp));
+        if let Ok(lp) = std::thread::available_parallelism() {
+            info.insert(
+                "logical_processors".to_string(),
+                Value::Int(lp.get() as i64),
+            );
         }
-        if let Some(mhz) = json.get("MaxClockSpeed").and_then(|v| v.as_i64()) {
-            info.insert("max_clock_mhz".to_string(), Value::Int(mhz));
+        if let Ok(Some(mhz)) = windows_cpu_mhz("platform_cpu") {
+            info.insert("max_clock_mhz".to_string(), Value::Int(mhz as i64));
         }
         // Also get architecture
         if let Ok(arch) = std::env::var("PROCESSOR_ARCHITECTURE") {
