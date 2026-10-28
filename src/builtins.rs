@@ -57032,6 +57032,14 @@ fn blkid_drive(device: &str) -> Result<char> {
         && (b.len() == 2 || b[2] == b'\\' || b[2] == b'/');
     if plain {
         Ok(char::from(b[0].to_ascii_uppercase()))
+    } else if device.starts_with("/dev/") {
+        // A well-formed Unix device names nothing here, as a missing device
+        // does on Linux, so a script written for both gets the same code.
+        Err(crate::safety::not_found(
+            "blkid",
+            "block device",
+            &format!("{device} (Windows names drives, such as C:)"),
+        ))
     } else {
         Err(crate::safety::bad_arg(
             "blkid",
@@ -57049,9 +57057,11 @@ fn blkid_drive(device: &str) -> Result<char> {
 fn blkid_windows(device: &str) -> Result<Value> {
     const NAME: &str = "blkid";
     let letter = blkid_drive(device)?.to_string();
-    // A drive with no volume prints nothing, which the parse below reads as absent.
+    // A drive with no volume prints nothing, which the parse below reads as
+    // absent. Get-Volume exits 1 for it even under SilentlyContinue, so only
+    // ObjectNotFound is taken as absence; any other error still fails.
     let script = crate::ps_script!(
-        "$v = Get-Volume -DriveLetter {} -ErrorAction SilentlyContinue; if ($v) {{ $p = Get-Partition -DriveLetter {} -ErrorAction SilentlyContinue | Select-Object -First 1; [pscustomobject]@{{ UniqueId=$v.UniqueId; FileSystemType=$v.FileSystemType; FileSystemLabel=$v.FileSystemLabel; PartitionGuid=$p.Guid }} | ConvertTo-Json }}",
+        "try {{ $v = Get-Volume -DriveLetter {} -ErrorAction Stop }} catch {{ if ($_.CategoryInfo.Category -eq 'ObjectNotFound') {{ exit 0 }} else {{ throw }} }}; $p = Get-Partition -DriveLetter {} -ErrorAction SilentlyContinue | Select-Object -First 1; [pscustomobject]@{{ UniqueId=$v.UniqueId; FileSystemType=$v.FileSystemType; FileSystemLabel=$v.FileSystemLabel; PartitionGuid=$p.Guid }} | ConvertTo-Json",
         crate::safety::ps_quote(&letter),
         crate::safety::ps_quote(&letter)
     );
@@ -58137,7 +58147,12 @@ fn dd_io(builtin: &str, path: &str, e: &std::io::Error) -> anyhow::Error {
             format!("`{path}` is not accessible: {e}"),
             "check the path and its permissions",
         ),
-        _ => anyhow!("{builtin}: `{path}`: {e}"),
+        // A device that stops answering, a full disk: still a coded refusal.
+        _ => crate::safety::bad_state(
+            builtin,
+            &format!("`{path}` failed: {e}"),
+            "a readable source and a writable destination",
+        ),
     }
 }
 
@@ -60758,7 +60773,7 @@ fn ethtool_windows(device: &str) -> Result<Value> {
     const NAME: &str = "monitor_ethtool";
     ethtool_adapter(device)?;
     let script = crate::ps_script!(
-        "Get-NetAdapter -Name {} -ErrorAction SilentlyContinue | Select-Object Name,LinkSpeed,FullDuplex,MediaConnectionState,DriverDescription,DriverVersion,MacAddress | ConvertTo-Json",
+        "try {{ $a = Get-NetAdapter -Name {} -ErrorAction Stop }} catch {{ if ($_.CategoryInfo.Category -eq 'ObjectNotFound') {{ exit 0 }} else {{ throw }} }}; $a | Select-Object Name,LinkSpeed,FullDuplex,MediaConnectionState,DriverDescription,DriverVersion,MacAddress | ConvertTo-Json",
         crate::safety::ps_quote(device)
     );
     let out = net_run(
@@ -60768,7 +60783,7 @@ fn ethtool_windows(device: &str) -> Result<Value> {
         NET_TOOL_SECS,
     )?;
     net_checked(NAME, "powershell", &out)?;
-    // An adapter that does not exist prints nothing, not an error.
+    // An adapter that does not exist prints nothing (ObjectNotFound, above).
     let Some(item) = net_ps_items(NAME, &out.stdout)?.into_iter().next() else {
         return Err(crate::safety::not_found(NAME, "network interface", device));
     };

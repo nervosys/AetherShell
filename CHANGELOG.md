@@ -157,6 +157,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `openssl`). Linux: `clipboard_types`, `clipboard_get_image` and
   `clipboard_set_image` (X11 and Wayland), and `gui_screenshot_window` (X11).
   Windows: `pkg_list` from the Add/Remove Programs registry entries.
+  Windows: `journalctl` reads the System event log ({time, provider, level,
+  id, message}; `unit` is an event provider), `pkg_history` the Windows
+  Installer's install and removal events, `blkid` a drive's volume and
+  partition ids, and `monitor_ethtool` an adapter's speed, duplex, link and
+  driver. `dd_copy` copies in-process with the same `bs` and `count`, and
+  refuses a copy onto its own source.
 - `web_websocket`: a bounded one-shot WebSocket exchange (ws and wss), where it
   was a stub refusing every call.
 - `ai_local_generate` takes an Array of `{role, content}` messages as well as

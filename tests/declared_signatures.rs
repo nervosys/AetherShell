@@ -180,7 +180,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "the system journal / event log and what it holds",
     ),
     ("lsof", "lsof (Unix); E_UNIMPLEMENTED on Windows"),
-    ("blkid", "blkid and the block devices present (Linux only)"),
+    ("blkid", "the block devices present: blkid on Linux, a drive's volume on Windows"),
     (
         "crypto_cert_verify",
         "openssl (openssl.exe on Windows) and OpenSSL's default trust store; E_TOOL_MISSING when openssl is not on PATH",
