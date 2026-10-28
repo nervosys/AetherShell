@@ -11665,7 +11665,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("events", Ty::Str, "comma-separated perf events; defaults to cycles,instructions,cache-misses"),
         ],
         returns: "Record",
-        doc: "Linux only. Runs argv under perf stat -e events (no shell) and returns {command, events, counters: [{value, name}], raw_output}. A command string is E_BAD_ARG. A run past 120s is killed with its group and is E_BUDGET_EXCEEDED; a failing perf or command is E_TOOL_FAILED with its stderr. Other platforms refuse with E_UNIMPLEMENTED and run nothing.",
+        doc: "Linux and Windows. Runs argv under perf stat -e events (no shell) on Linux and returns {command, events, counters: [{value, name}], raw_output}; on Windows it runs argv itself (no shell, no events argument) and returns {command, counters: [{name, value}], raw_output}, with task_clock_ms, user_ms, system_ms, elapsed_ms, peak_rss_bytes and page_faults from GetProcessTimes and GetProcessMemoryInfo, and hardware counters are not read there. A command string is E_BAD_ARG. A run past 120s is killed with its group and is E_BUDGET_EXCEEDED; a failing perf or command is E_TOOL_FAILED with its stderr. Other platforms refuse with E_UNIMPLEMENTED and run nothing.",
         examples: &[
             (r#"(try { monitor_perf_stat("sleep 1") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { monitor_perf_stat(["/usr/bin/true"], "-e") } catch e { e.error.code })"#, "E_BAD_ARG"),

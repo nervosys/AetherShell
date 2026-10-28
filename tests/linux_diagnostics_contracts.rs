@@ -217,8 +217,12 @@ fn linux_only_tools_refuse_coded_and_run_nothing_elsewhere() {
     ];
     #[cfg(windows)]
     let os_tools: [(&str, Vec<Value>); 0] = [];
-    for (name, args) in os_tools.into_iter().chain([
-        ("monitor_perf_stat", vec![argv(&["/usr/bin/true"])]),
+    // monitor_perf_stat runs its argv on Windows, so it is refused only elsewhere.
+    #[cfg(not(windows))]
+    let perf_stat = [("monitor_perf_stat", vec![argv(&["/usr/bin/true"])])];
+    #[cfg(windows)]
+    let perf_stat: [(&str, Vec<Value>); 0] = [];
+    for (name, args) in os_tools.into_iter().chain(perf_stat).chain([
         ("monitor_perf_record", vec![argv(&["/usr/bin/true"])]),
     ]) {
         match call(name, args) {

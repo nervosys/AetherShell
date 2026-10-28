@@ -54799,11 +54799,27 @@ pub(crate) fn run_tree(
 /// arguments, environment and directory are kept). Its stdio is set here, so
 /// the caller's stdin, stdout and stderr settings are replaced.
 pub(crate) fn run_tree_cmd(
+    command: std::process::Command,
+    stdin: Option<Vec<u8>>,
+    limit: std::time::Duration,
+    stdout_keep: Keep,
+    stderr_keep: Keep,
+) -> std::result::Result<TreeRun, TreeError> {
+    run_tree_cmd_observed(command, stdin, limit, stdout_keep, stderr_keep, |_, _| {})
+}
+
+/// [`run_tree_cmd`] that also hands `observe` the child once the runner is done
+/// with it (it exited, or was killed at the limit and reaped), before the
+/// child's handle is closed. The second argument is the time from the start of
+/// the wait to that point. Only a caller that reads the child's handle needs
+/// this: perf stat reads process times and memory from it on Windows.
+pub(crate) fn run_tree_cmd_observed(
     mut command: std::process::Command,
     stdin: Option<Vec<u8>>,
     limit: std::time::Duration,
     stdout_keep: Keep,
     stderr_keep: Keep,
+    observe: impl FnOnce(&std::process::Child, std::time::Duration),
 ) -> std::result::Result<TreeRun, TreeError> {
     use std::process::Stdio;
     command
@@ -54850,6 +54866,7 @@ pub(crate) fn run_tree_cmd(
         }
         std::thread::sleep(std::time::Duration::from_millis(5));
     };
+    let waited = started.elapsed();
     let (success, code, status, timed_out, out_closed, err_closed) = match exited {
         Some(status) => {
             let (mut out_closed, mut err_closed) = wait_pipes(&out, &err, PIPE_GRACE);
@@ -54878,6 +54895,7 @@ pub(crate) fn run_tree_cmd(
             (false, None, None, true, out_closed, err_closed)
         }
     };
+    observe(&child, waited);
     let (stdout, stdout_truncated) = out.finish();
     let (stderr, stderr_truncated) = err.finish();
     Ok(TreeRun {
@@ -61096,7 +61114,91 @@ fn bi_ethtool_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 // ---------------------------------------------------------------------------
-// 1027: bi_perf_stat — Performance counters (Linux only)
+// perf stat on Windows: the figures a finished child reports through its handle
+// ---------------------------------------------------------------------------
+
+/// What a finished child reports about itself: CPU times in 100 ns ticks, its
+/// peak working set in bytes, and its page-fault count.
+#[cfg(windows)]
+struct WinProcStats {
+    user_ticks: u64,
+    kernel_ticks: u64,
+    peak_rss: u64,
+    page_faults: u32,
+}
+
+/// The Win32 PROCESS_MEMORY_COUNTERS record, laid out as K32GetProcessMemoryInfo
+/// fills it. Only `peak_working_set_size` and `page_fault_count` are read.
+#[cfg(windows)]
+#[repr(C)]
+#[derive(Default)]
+#[allow(dead_code)]
+struct WinProcessMemoryCounters {
+    cb: u32,
+    page_fault_count: u32,
+    peak_working_set_size: usize,
+    working_set_size: usize,
+    quota_peak_paged_pool_usage: usize,
+    quota_paged_pool_usage: usize,
+    quota_peak_non_paged_pool_usage: usize,
+    quota_non_paged_pool_usage: usize,
+    pagefile_usage: usize,
+    peak_pagefile_usage: usize,
+}
+
+/// Reads a child's CPU times, peak working set and page faults through its
+/// process handle. The child must have exited or been killed, and its `Child`
+/// must not be dropped yet: the handle is what keeps these figures readable.
+#[cfg(windows)]
+fn win_process_stats(child: &std::process::Child) -> std::io::Result<WinProcStats> {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetProcessTimes(
+            process: *mut c_void,
+            creation: *mut WinFileTime,
+            exit: *mut WinFileTime,
+            kernel: *mut WinFileTime,
+            user: *mut WinFileTime,
+        ) -> i32;
+        fn K32GetProcessMemoryInfo(
+            process: *mut c_void,
+            counters: *mut WinProcessMemoryCounters,
+            cb: u32,
+        ) -> i32;
+    }
+    let handle = child.as_raw_handle();
+    let mut creation = WinFileTime::default();
+    let mut exit = WinFileTime::default();
+    let mut kernel = WinFileTime::default();
+    let mut user = WinFileTime::default();
+    // SAFETY: `handle` is the child's process handle, borrowed from `child`,
+    // which is alive for this call; each out-pointer is a local of the type the
+    // API writes.
+    if unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let cb = std::mem::size_of::<WinProcessMemoryCounters>() as u32;
+    let mut mem = WinProcessMemoryCounters {
+        cb,
+        ..Default::default()
+    };
+    // SAFETY: as above; `mem` is a repr(C) record whose `cb` is its own size,
+    // which is what the API checks against.
+    if unsafe { K32GetProcessMemoryInfo(handle, &mut mem, cb) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(WinProcStats {
+        user_ticks: user.ticks(),
+        kernel_ticks: kernel.ticks(),
+        peak_rss: mem.peak_working_set_size as u64,
+        page_faults: mem.page_fault_count,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 1027: bi_perf_stat — Performance counters (Linux and Windows)
 // ---------------------------------------------------------------------------
 fn bi_perf_stat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     linux_diagnostics::no_pipeline_input("perf_stat", &input)?;
@@ -61176,7 +61278,83 @@ fn bi_perf_stat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         rec.insert("raw_output".to_string(), Value::Str(run.stderr));
         Ok(Value::Record(rec))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        // The event list is Linux only. It was checked above; a call that passes
+        // one is refused here rather than read and ignored.
+        if args.len() == 2 {
+            return Err(crate::safety::unimplemented(
+                "perf_stat",
+                "the event list is Linux only: Windows reads a fixed set of counters; NOTHING WAS RUN",
+                "call monitor_perf_stat(argv) with the argv alone",
+            ));
+        }
+        let _ = events;
+        // The argv runs as given: argv[0] is the program, found on PATH, with no
+        // shell and no perf in between.
+        let limit = std::time::Duration::from_secs(120);
+        let mut cmd = std::process::Command::new(&argv[0]);
+        cmd.args(&argv[1..]);
+        let mut sampled = None;
+        let tree = run_tree_cmd_observed(
+            cmd,
+            None,
+            limit,
+            Keep::Head(linux_diagnostics::MAX_OUTPUT),
+            Keep::Head(linux_diagnostics::MAX_OUTPUT),
+            |child, waited| sampled = Some((win_process_stats(child), waited)),
+        )
+        .map_err(|e| match e {
+            TreeError::Spawn(e) => crate::safety::spawn_error("perf_stat", &argv[0], &e),
+            TreeError::Wait(e) => e.into(),
+        })?;
+        let run = linux_diagnostics::Run {
+            code: tree.code,
+            timed_out: tree.timed_out,
+            truncated: tree.stdout_truncated || tree.stderr_truncated || tree.pipes_abandoned,
+            stdout: String::from_utf8_lossy(&tree.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&tree.stderr).into_owned(),
+        };
+        linux_diagnostics::require_success("perf_stat", &command, &run, limit)?;
+        let (stats, waited) = match sampled {
+            Some((Ok(stats), waited)) => (stats, waited),
+            Some((Err(e), _)) => {
+                return Err(crate::safety::bad_state(
+                    "perf_stat",
+                    &format!("GetProcessTimes or K32GetProcessMemoryInfo failed on `{}`: {e}", argv[0]),
+                    "a child this process started, read before its handle is closed",
+                ))
+            }
+            None => {
+                return Err(crate::safety::bad_state(
+                    "perf_stat",
+                    "the child was not sampled before it was reaped",
+                    "a child this process started and waited for",
+                ))
+            }
+        };
+        let ms = |ticks: u64| Value::Int((ticks / 10_000) as i64);
+        let counter = |name: &str, value: Value| {
+            let mut c = BTreeMap::new();
+            c.insert("name".to_string(), Value::Str(name.to_string()));
+            c.insert("value".to_string(), value);
+            Value::Record(c)
+        };
+        let counters = vec![
+            counter("task_clock_ms", ms(stats.user_ticks + stats.kernel_ticks)),
+            counter("user_ms", ms(stats.user_ticks)),
+            counter("system_ms", ms(stats.kernel_ticks)),
+            counter("elapsed_ms", Value::Int(waited.as_millis() as i64)),
+            counter("peak_rss_bytes", Value::Int(stats.peak_rss as i64)),
+            counter("page_faults", Value::Int(i64::from(stats.page_faults))),
+        ];
+        let mut rec = BTreeMap::new();
+        rec.insert("command".to_string(), Value::Str(command));
+        rec.insert("counters".to_string(), Value::Array(counters));
+        rec.insert("raw_output".to_string(), Value::Str(run.stderr));
+        Ok(Value::Record(rec))
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = (command, events);
         Err(crate::safety::unimplemented(
