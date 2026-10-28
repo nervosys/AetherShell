@@ -13093,13 +13093,13 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[req("goal", Ty::Str, "the task"), req("tools", Ty::Array, "builtin tool names; an mcp: prefix is stripped"), opt("endpoint", Ty::Any, "refused: no MCP server is contacted")],
+        params: &[req("goal", Ty::Str, "the task"), req("tools", Ty::Array, "builtin tool names (an mcp: prefix is stripped); with an endpoint, mcp:<name> must be a tool that server lists"), opt("endpoint", Ty::Any, "a loopback MCP server URL that detect_mcp_servers finds; its tools are the mcp: names")],
         returns: "Record",
-        doc: "Run a model-driven agent over named builtin tools. The model call is guarded as a network effect and each tool call passes the dispatch guard; a run without a final answer is refused.",
+        doc: "Run a model-driven agent over named builtin tools and, with an endpoint, the tools of the MCP server at it. The endpoint is connected as mcp_connect connects: only a loopback server that detect_mcp_servers finds is contacted, and any other address is refused. Its tools are named mcp:<tool> and only names in its tools/list are served; each call is guarded as a network effect. The model call is guarded as a network effect and each builtin call passes the dispatch guard; a run without a final answer is refused.",
         examples: &[
             (r#"(try { agent_with_mcp(5, []) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { agent_with_mcp("x", ["no_such_tool_xyz"]) } catch e { e.error.code })"#, "E_NOT_FOUND"),
-            (r#"(try { agent_with_mcp("x", [], "http://127.0.0.1:9") } catch e { e.error.code })"#, "E_UNIMPLEMENTED"),
+            (r#"(try { agent_with_mcp("x", [], "http://127.0.0.1:9") } catch e { e.error.code })"#, "E_TOOL_FAILED"),
         ],
     },
     Signature {

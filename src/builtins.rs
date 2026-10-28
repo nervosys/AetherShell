@@ -22447,11 +22447,119 @@ fn bi_mcp_server_start(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     Ok(Value::Record(result))
 }
 
+/// Prefix for an MCP server's tools in an agent's tool list. Without an endpoint
+/// it is stripped from a builtin name; with one, a name that carries it is a
+/// server tool only when the server's own tools/list names it.
+const AGENT_MCP_PREFIX: &str = "mcp:";
+
+/// A tool name the endpoint may serve: ASCII letters, digits, `_`, `-` and `.`,
+/// at most 128 bytes. The name goes into a request path, so it is checked first.
+fn is_plain_mcp_tool_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
+/// Split the requested tool names between the endpoint's tools and the builtins.
+/// Without an endpoint (`endpoint_tools` is None) every name is a builtin with
+/// any `mcp:` prefix stripped. With one, `mcp:<t>` is a server tool only when `t`
+/// is a plain name the server lists; any other `mcp:` name stays as written, so
+/// it is refused as unknown rather than run as a builtin of the same name.
+/// Returns (server tool names, builtin names).
+fn split_agent_tool_names(
+    requested: &[String],
+    endpoint_tools: Option<&[String]>,
+) -> (Vec<String>, Vec<String>) {
+    let mut remote: Vec<String> = Vec::new();
+    let mut builtin: Vec<String> = Vec::new();
+    for name in requested {
+        let raw = name.as_str();
+        let Some(served) = endpoint_tools else {
+            builtin.push(raw.strip_prefix(AGENT_MCP_PREFIX).unwrap_or(raw).to_string());
+            continue;
+        };
+        match raw.strip_prefix(AGENT_MCP_PREFIX) {
+            Some(t) if is_plain_mcp_tool_name(t) && served.iter().any(|s| s == t) => {
+                if !remote.iter().any(|r| r == t) {
+                    remote.push(t.to_string());
+                }
+            }
+            _ => builtin.push(raw.to_string()),
+        }
+    }
+    (remote, builtin)
+}
+
+/// A tool served by the endpoint's MCP server. The agent sees it as `mcp:<tool>`.
+/// Each call is guarded as a network effect and sent with the MCP client; the
+/// client (and its connection) is dropped when the agent run ends.
+struct AgentMcpTool {
+    name: String,
+    server_tool: String,
+    description: String,
+    endpoint: String,
+    client: std::sync::Arc<crate::ai::mcp::McpClient>,
+}
+
+impl crate::ai::agents::Tool for AgentMcpTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn call(&self, input: &str, _env: &mut Env) -> Result<Value> {
+        crate::safety::guard(crate::safety::GuardCtx {
+            builtin: "agent_with_mcp",
+            effect: crate::safety::Effect::Network,
+            what: "request",
+            targets: vec![format!("{}/{}", self.endpoint, self.server_tool)],
+            blast_radius: serde_json::json!({ "tool": self.name, "endpoint": self.endpoint }),
+            reversible: false,
+            fs_paths: false,
+        })?;
+        let arguments: serde_json::Value = serde_json::from_str(input)
+            .unwrap_or_else(|_| serde_json::Value::String(input.to_string()));
+        self.client.validate_input(&self.server_tool, &arguments)?;
+        let out = self.client.call_tool(&self.server_tool, input)?;
+        Ok(Value::Str(out))
+    }
+}
+
+/// Connect to an MCP server the way `mcp_connect` does: only an endpoint that
+/// `detect_mcp_servers` found (its loopback probe) is matched, and no other
+/// address is contacted. Returns the client and the tools the server lists.
+fn connect_agent_mcp(
+    endpoint: &str,
+) -> Result<(crate::ai::mcp::McpClient, Vec<crate::ai::mcp::McpToolSchema>)> {
+    let detected = crate::ai::detect_mcp_servers()
+        .iter()
+        .any(|s| s.endpoint == endpoint);
+    if !detected {
+        return Err(crate::safety::tool_failed(
+            "agent_with_mcp",
+            "MCP server",
+            None,
+            &format!("Server not responding or not detected: {endpoint}"),
+        ));
+    }
+    let client = crate::ai::mcp::McpClient::new(endpoint);
+    let schemas = client.discover_tools()?;
+    Ok((client, schemas))
+}
+
 /// agent_with_mcp(goal, tools, endpoint?) - Run a model-driven agent over named
-/// tools. The tools are in-process builtins (an `mcp:` prefix is stripped), and
-/// every tool call passes the normal dispatch guard. The model call itself is a
-/// Network effect, so it is guarded here and rate limited like `agent`. The run
-/// is `completed` only when the model gives a final answer.
+/// tools. Builtin tools are in-process and every call passes the normal dispatch
+/// guard. With an endpoint, the MCP server at it is connected as `mcp_connect`
+/// connects (only a loopback server that `detect_mcp_servers` finds), and each
+/// `mcp:<name>` it lists is a tool; each such call is guarded as a network
+/// effect. The model call itself is a Network effect, so it is guarded here and
+/// rate limited like `agent`. The run is `completed` only when the model gives a
+/// final answer.
 /// Usage: agent_with_mcp("Task description", ["mcp:read_file", "mcp:list_dir"])
 fn bi_agent_with_mcp(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Value> {
     refuse_piped_subject("agent_with_mcp", &input)?;
@@ -22505,23 +22613,24 @@ fn bi_agent_with_mcp(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> R
         }
     };
 
-    // The endpoint was accepted and then never read, so the agent ran with the
-    // builtin tools whatever the caller named. Refuse it instead.
-    if matches!(args.get(2), Some(v) if !matches!(v, Value::Null)) {
-        return Err(crate::safety::unimplemented(
-            "agent_with_mcp",
-            "the endpoint is not used: the tools are in-process builtins and no MCP server is contacted",
-            "omit the endpoint argument",
-        ));
-    }
-
-    let base_tools: Vec<&str> = names
-        .iter()
-        .map(|s| s.strip_prefix("mcp:").unwrap_or(s.as_str()))
-        .collect();
+    // The endpoint is optional. When it is given, the server is connected before
+    // any tool name is checked, because its tools/list decides what `mcp:` names mean.
+    let endpoint: Option<String> = match args.get(2) {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(expect_string("agent_with_mcp", v)?.to_string()),
+    };
+    let connection = match endpoint.as_deref() {
+        Some(ep) => Some(connect_agent_mcp(ep)?),
+        None => None,
+    };
+    let server_tools: Option<Vec<String>> = connection
+        .as_ref()
+        .map(|(_, schemas)| schemas.iter().map(|t| t.name.clone()).collect());
+    let (remote, base_tools) = split_agent_tool_names(&names, server_tools.as_deref());
+    let base_refs: Vec<&str> = base_tools.iter().map(String::as_str).collect();
     // The agent's own resolver answers for any name, so the check is against the
     // dispatcher: a name it does not serve is refused, not left to fail mid-run.
-    for name in &base_tools {
+    for name in &base_refs {
         if !is_dispatched(name) {
             return Err(crate::safety::not_found("agent_with_mcp", "tool", name));
         }
@@ -22543,16 +22652,36 @@ fn bi_agent_with_mcp(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> R
         effect: crate::safety::Effect::Network,
         what: "request",
         targets: vec![model.clone()],
-        blast_radius: serde_json::json!({ "model": model, "max_steps": 10, "tools": base_tools }),
+        blast_radius: serde_json::json!({
+            "model": model,
+            "max_steps": 10,
+            "tools": names.clone(),
+            "endpoint": endpoint.clone(),
+        }),
         reversible: false,
         fs_paths: false,
     })?;
 
+    let mut tools = crate::ai::agents::ToolRegistry::with_builtins().resolve_many(&base_refs);
+    if let (Some((client, schemas)), Some(ep)) = (connection, endpoint.as_deref()) {
+        let client = std::sync::Arc::new(client);
+        for name in &remote {
+            if let Some(schema) = schemas.iter().find(|s| &s.name == name) {
+                tools.push(Box::new(AgentMcpTool {
+                    name: format!("{AGENT_MCP_PREFIX}{}", schema.name),
+                    server_tool: schema.name.clone(),
+                    description: schema.description.clone(),
+                    endpoint: ep.to_string(),
+                    client: std::sync::Arc::clone(&client),
+                }));
+            }
+        }
+    }
+
     let max_steps = 10;
-    let result = crate::ai::agents::swarm::run_sync(&goal, &base_tools, max_steps, false, env)
-        .map_err(|e| {
-            crate::safety::tool_failed("agent_with_mcp", "model backend", None, &e.to_string())
-        })?;
+    let result = crate::ai::agents::run_sync_with_tools(&goal, tools, max_steps, env).map_err(
+        |e| crate::safety::tool_failed("agent_with_mcp", "model backend", None, &e.to_string()),
+    )?;
     if result.starts_with("(incomplete)") {
         return Err(crate::safety::budget_exceeded(
             "agent_with_mcp",
@@ -22571,6 +22700,51 @@ fn bi_agent_with_mcp(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> R
     agent_record.insert("result".to_string(), Value::Str(result));
     agent_record.insert("status".to_string(), Value::Str("completed".to_string()));
     Ok(Value::Record(agent_record))
+}
+
+#[cfg(test)]
+mod agent_mcp_endpoint_tests {
+    use super::{is_plain_mcp_tool_name, split_agent_tool_names};
+
+    fn names(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn server_tool_names_must_be_plain() {
+        assert!(is_plain_mcp_tool_name("read_file"));
+        assert!(is_plain_mcp_tool_name("git.log-1"));
+        assert!(!is_plain_mcp_tool_name(""));
+        assert!(!is_plain_mcp_tool_name("../admin"));
+        assert!(!is_plain_mcp_tool_name("a/b"));
+        assert!(!is_plain_mcp_tool_name("a b"));
+        assert!(!is_plain_mcp_tool_name(&"x".repeat(129)));
+    }
+
+    #[test]
+    fn without_an_endpoint_every_name_is_a_builtin() {
+        let (remote, builtin) = split_agent_tool_names(&names(&["mcp:ls", "pwd"]), None);
+        assert!(remote.is_empty());
+        assert_eq!(builtin, names(&["ls", "pwd"]));
+    }
+
+    #[test]
+    fn only_listed_server_tools_are_remote() {
+        let server = names(&["read_file", "bad/name"]);
+        let requested = names(&["mcp:read_file", "mcp:bad/name", "mcp:rm", "pwd"]);
+        let (remote, builtin) = split_agent_tool_names(&requested, Some(&server));
+        assert_eq!(remote, names(&["read_file"]));
+        // Unlisted `mcp:` names are kept as written, so they are refused as
+        // unknown and never run as the builtin of the same name.
+        assert_eq!(builtin, names(&["mcp:bad/name", "mcp:rm", "pwd"]));
+    }
+
+    #[test]
+    fn an_empty_server_list_serves_nothing() {
+        let (remote, builtin) = split_agent_tool_names(&names(&["mcp:ls"]), Some(&[]));
+        assert!(remote.is_empty());
+        assert_eq!(builtin, names(&["mcp:ls"]));
+    }
 }
 
 /// each(fn) - Like map but for side effects, returns original array

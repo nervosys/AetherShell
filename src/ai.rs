@@ -2440,6 +2440,26 @@ pub mod agents {
         agent.run_sync(goal, dry_run, env)
     }
 
+    /// [`run_sync`] over tools the caller has already resolved, so a caller can
+    /// give the agent tools that are not builtins. The tools are dropped with
+    /// the agent when the run ends.
+    pub fn run_sync_with_tools(
+        goal: &str,
+        tools: Vec<Box<dyn Tool>>,
+        max_steps: usize,
+        env: &mut Env,
+    ) -> Result<String> {
+        let mut agent = if let Ok(uri) = std::env::var("AETHER_AGENT_MODEL_URI") {
+            Agent::with_model_uri(tools, &uri)
+        } else {
+            Agent::new(tools)
+        };
+        if max_steps > 0 {
+            agent.max_steps = max_steps;
+        }
+        agent.run_sync(goal, false, env)
+    }
+
     /// Same as `run_sync`, but forces a specific model URI for this run.
     pub fn run_sync_with_model(
         goal: &str,
