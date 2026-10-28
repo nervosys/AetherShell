@@ -2,7 +2,8 @@
 //!
 //! Ordinary tests run everywhere: every bad argument is refused with a coded
 //! E_BAD_ARG before any effect, pipeline input and an active transaction are
-//! refused, and off Linux every call is E_UNIMPLEMENTED with nothing changed.
+//! refused, and off Linux and Windows every call is E_UNIMPLEMENTED with nothing
+//! changed.
 //!
 //! The system-changing tests are `#[ignore]`d and run only in the disposable
 //! distro, via scripts/disposable_linux_tests.sh. They create and delete
@@ -245,7 +246,7 @@ fn aeacct_transaction_refuses_each_change() {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 #[test]
 fn aeacct_off_linux_every_valid_call_is_unimplemented_and_changes_nothing() {
     let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
