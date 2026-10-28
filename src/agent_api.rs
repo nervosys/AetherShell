@@ -598,6 +598,32 @@ fn execute_eval(code: &str) -> AgentResponse {
     }
 }
 
+/// The description of a manifest builtin of a loaded plugin. The manifest
+/// declares no signature, parameters or examples, so the entry says only that
+/// the name exists, that its body is arbitrary AetherShell, and the effect the
+/// dispatch gate applies to it (`Exec`, which agent mode approves per call).
+fn plugin_builtin_response(name: &str) -> AgentResponse {
+    let definition = BuiltinDefinition {
+        name: name.to_string(),
+        description: "A builtin provided by a loaded plugin; its body is arbitrary AetherShell"
+            .to_string(),
+        category: "Plugin".to_string(),
+        signature: format!("{name}(...)"),
+        parameters: Vec::new(),
+        return_type: "Any".to_string(),
+        examples: Vec::new(),
+        aliases: None,
+        json_schema: json!({"type": "object"}),
+    };
+    AgentResponse {
+        success: true,
+        result: Some(serde_json::to_value(&definition).unwrap_or(JsonValue::Null)),
+        error: None,
+        result_type: Some("BuiltinDefinition".to_string()),
+        metadata: Some(json!({"effect": crate::safety::effect_of(name).as_str()})),
+    }
+}
+
 /// Get information about a specific builtin
 fn describe_builtin(name: &str) -> AgentResponse {
     let builtins = get_builtin_definitions();
@@ -610,6 +636,8 @@ fn describe_builtin(name: &str) -> AgentResponse {
             result_type: Some("BuiltinDefinition".to_string()),
             metadata: None,
         }
+    } else if crate::plugins::is_manifest_builtin(name) {
+        plugin_builtin_response(name)
     } else {
         // Check for aliases
         if let Some(builtin) = builtins.iter().find(|b| {

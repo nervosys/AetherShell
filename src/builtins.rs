@@ -33052,13 +33052,21 @@ fn bi_archive_test(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             tar,
         )?));
     }
-    let kind = archive_kind(&path).ok_or_else(|| {
-        crate::safety::bad_arg(
-            "archive_test",
-            "a .zip, .tar, .tar.gz/.tgz or .gz file",
-            &path,
-        )
-    })?;
+    // bzip2, xz and zstd names were taken by `archive_cli::named` above, so
+    // only the in-process formats reach this match.
+    let kind = match archive_kind(&path) {
+        Some("zip") => LocalArchive::Zip,
+        Some("tar") => LocalArchive::Tar,
+        Some("tar.gz") => LocalArchive::TarGz,
+        Some("gzip") => LocalArchive::Gzip,
+        _ => {
+            return Err(crate::safety::bad_arg(
+                "archive_test",
+                "a .zip, .tar, .tar.gz/.tgz or .gz file",
+                &path,
+            ))
+        }
+    };
     Ok(Value::Bool(archive_test_local(
         &path,
         kind,
@@ -33066,12 +33074,33 @@ fn bi_archive_test(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     )?))
 }
 
+/// The formats `archive_test_local` reads in-process. bzip2, xz and zstd are
+/// tested by `archive_cli`, which `bi_archive_test` asks first.
+#[derive(Clone, Copy)]
+enum LocalArchive {
+    Zip,
+    Tar,
+    TarGz,
+    Gzip,
+}
+
+impl LocalArchive {
+    fn label(self) -> &'static str {
+        match self {
+            LocalArchive::Zip => "zip",
+            LocalArchive::Tar => "tar",
+            LocalArchive::TarGz => "tar.gz",
+            LocalArchive::Gzip => "gzip",
+        }
+    }
+}
+
 /// archive_test for the formats read in-process (zip, tar, tar.gz, gzip),
 /// with at most `cap` decompressed bytes. The tool-backed formats had a cap
 /// and these did not, so a small archive that inflates to terabytes was read
 /// to its end; past the cap the answer is E_BUDGET_EXCEEDED, neither true nor
 /// false.
-fn archive_test_local(path: &str, kind: &str, cap: u64) -> Result<bool> {
+fn archive_test_local(path: &str, kind: LocalArchive, cap: u64) -> Result<bool> {
     use std::cell::Cell;
     struct CappedSink<'a> {
         left: &'a Cell<u64>,
@@ -33101,15 +33130,15 @@ fn archive_test_local(path: &str, kind: &str, cap: u64) -> Result<bool> {
         std::io::copy(r, &mut out).is_ok()
     };
     let ok = match kind {
-        "zip" => {
+        LocalArchive::Zip => {
             let Ok(mut z) = zip::ZipArchive::new(archive_open("archive_test", path)?) else {
                 return Ok(false);
             };
             (0..z.len()).all(|i| z.by_index(i).map(|mut f| sink(&mut f)).unwrap_or(false))
         }
-        "tar" | "tar.gz" => {
+        LocalArchive::Tar | LocalArchive::TarGz => {
             let f = archive_open("archive_test", path)?;
-            let reader: Box<dyn std::io::Read> = if kind == "tar.gz" {
+            let reader: Box<dyn std::io::Read> = if matches!(kind, LocalArchive::TarGz) {
                 Box::new(flate2::read::GzDecoder::new(f))
             } else {
                 Box::new(f)
@@ -33122,23 +33151,17 @@ fn archive_test_local(path: &str, kind: &str, cap: u64) -> Result<bool> {
                 Err(_) => false,
             }
         }
-        "gzip" => sink(&mut flate2::read::GzDecoder::new(archive_open(
+        LocalArchive::Gzip => sink(&mut flate2::read::GzDecoder::new(archive_open(
             "archive_test",
             path,
         )?)),
-        other => {
-            return Err(crate::safety::unimplemented(
-                "archive_test",
-                &format!("testing {other} archives is not implemented; NOTHING WAS TESTED"),
-                "use the format's own tool (bzip2 -t, xz -t, zstd -t)",
-            ))
-        }
     };
     if hit.get() {
         return Err(crate::safety::budget_exceeded(
             "archive_test",
             format!(
-                "the decompressed {kind} contents passed {} bytes",
+                "the decompressed {} contents passed {} bytes",
+                kind.label(),
                 cap
             ),
             "the archive is too large to test in-process; it is neither confirmed nor refuted",
@@ -33162,8 +33185,8 @@ mod archive_test_cap_tests {
         std::fs::write(&path, gz.finish().unwrap()).unwrap();
         let p = path.to_string_lossy().to_string();
 
-        assert!(archive_test_local(&p, "gzip", 1 << 20).unwrap());
-        let e = archive_test_local(&p, "gzip", (1 << 20) - 1).unwrap_err();
+        assert!(archive_test_local(&p, LocalArchive::Gzip, 1 << 20).unwrap());
+        let e = archive_test_local(&p, LocalArchive::Gzip, (1 << 20) - 1).unwrap_err();
         let code = e
             .downcast_ref::<crate::safety::SafetyError>()
             .map(|s| s.code);
