@@ -128,15 +128,24 @@ fn an_arm_shape_this_cannot_read_is_reported() {
     // `arm_pairs` reads literal patterns only. A guarded or binding arm
     // (`n if n.starts_with(..)`, `other =>`) would serve names it cannot see, and
     // the mirror would be quietly incomplete rather than wrong. The fallback has
-    // exactly one such arm today — the `_ =>` that reports an unknown builtin,
-    // which serves nothing.
+    // two such arms today: the `_ =>` that reports an unknown builtin, which
+    // serves nothing, and the plugin arm, which serves names that exist only at
+    // run time and so cannot be in any static list. Those are not blind spots:
+    // `effect_of` classes every one of them Exec before its cache, so the gate
+    // still sees them.
+    const PLUGIN_ARM: &str = "_ if crate::plugins::is_manifest_builtin(name) =>";
     let src = builtins_source();
     let body = fallback_match_body(&src);
     let unreadable: Vec<&str> = body
         .lines()
         .map(str::trim_start)
         .filter(|l| l.contains("=>"))
-        .filter(|l| !l.starts_with('"') && !l.starts_with("_ =>") && !l.starts_with("//"))
+        .filter(|l| {
+            !l.starts_with('"')
+                && !l.starts_with("_ =>")
+                && !l.starts_with(PLUGIN_ARM)
+                && !l.starts_with("//")
+        })
         .collect();
     assert!(
         unreadable.is_empty(),

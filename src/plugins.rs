@@ -2404,8 +2404,17 @@ mod tests {
     // disable). Serialize the ones whose assertions depend on a plugin's enabled
     // state so they cannot race under parallel execution.
     static REGISTRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    fn registry_guard() -> std::sync::MutexGuard<'static, ()> {
-        REGISTRY_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    /// Serialises tests that touch the global registry. It also holds the
+    /// environment lock, because loading a manifest that defines code reads the
+    /// agent mode, and other tests in this binary switch it on.
+    fn registry_guard() -> (
+        std::sync::MutexGuard<'static, ()>,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
+        let env = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        (env, REGISTRY_LOCK.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     #[test]

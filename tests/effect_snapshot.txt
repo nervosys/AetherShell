@@ -1058,9 +1058,9 @@ render_code	Pure
 render_content	Pure
 render_table	Pure
 repl_broadcast	Pure
-repl_connect	Pure
+repl_connect	Network
 repl_disconnect	Pure
-repl_serve	Pure
+repl_serve	Network
 repl_sessions	Pure
 replace	Pure
 results	Pure
