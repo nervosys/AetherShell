@@ -28851,6 +28851,14 @@ fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
     let out = net_run(name, "netstat", &["-an", "-p", "tcp"], NET_TOOL_SECS)?;
     net_checked(name, "netstat", &out)?;
     let text = String::from_utf8_lossy(&out.stdout);
+    macos_netstat_rows(name, &text)
+}
+
+/// The TCP table as macOS netstat prints it. An endpoint is written `addr.port`
+/// (`127.0.0.1.49817`, `*.*`), not `addr:port`; macos_netstat_endpoint reads it
+/// in the form the other platforms report.
+#[cfg(any(target_os = "macos", test))]
+fn macos_netstat_rows(name: &str, text: &str) -> Result<Vec<Value>> {
     let mut rows = Vec::new();
     // Two header lines: the title and the column names.
     for line in text.lines().skip(2).filter(|l| !l.trim().is_empty()) {
@@ -28862,11 +28870,22 @@ fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
         rows.push(net_socket_record(
             "tcp",
             &p[5].to_ascii_uppercase(),
-            p[3].to_string(),
-            p[4].to_string(),
+            macos_netstat_endpoint(p[3]),
+            macos_netstat_endpoint(p[4]),
         ));
     }
     Ok(rows)
+}
+
+/// `addr.port` as macOS netstat writes it, read as `addr:port`. The port follows
+/// the last dot; an IPv6 address is bracketed, as ss prints it.
+#[cfg(any(target_os = "macos", test))]
+fn macos_netstat_endpoint(text: &str) -> String {
+    match text.rsplit_once('.') {
+        Some((addr, port)) if addr.contains(':') => format!("[{addr}]:{port}"),
+        Some((addr, port)) => format!("{addr}:{port}"),
+        None => text.to_string(),
+    }
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
@@ -29954,14 +29973,18 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                let hz = text.parse::<f64>().map_err(|_| {
-                    crate::safety::bad_state(
-                        "sys_cpu_info",
-                        &format!("hw.cpufrequency reported `{text}`"),
-                        "a clock frequency in hertz",
-                    )
-                })?;
-                rec.insert("mhz".to_string(), Value::Float(hz / 1_000_000.0));
+                // Apple Silicon prints nothing for this key and exits 0: no
+                // frequency is reported, so the record leaves `mhz` out.
+                if !text.is_empty() {
+                    let hz = text.parse::<f64>().map_err(|_| {
+                        crate::safety::bad_state(
+                            "sys_cpu_info",
+                            &format!("hw.cpufrequency reported `{text}`"),
+                            "a clock frequency in hertz",
+                        )
+                    })?;
+                    rec.insert("mhz".to_string(), Value::Float(hz / 1_000_000.0));
+                }
             }
         }
         if !rec.is_empty() {
@@ -30038,12 +30061,18 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ));
         }
         let text = String::from_utf8_lossy(&output.stdout);
+        let text = text.trim();
+        // Exit 0 with nothing printed is how Apple Silicon answers: the OS
+        // exposes no frequency, so this is a null, not a refusal.
+        if text.is_empty() {
+            return Ok(Value::Null);
+        }
         // Hz to MHz
-        return match text.trim().parse::<i64>() {
+        return match text.parse::<i64>() {
             Ok(hz) => Ok(Value::Int(hz / 1_000_000)),
             Err(_) => Err(crate::safety::bad_state(
                 "sys_cpu_freq",
-                &format!("sysctl reported no frequency: `{}`", text.trim()),
+                &format!("sysctl reported no frequency: `{text}`"),
                 "a Mac whose hw.cpufrequency is an integer",
             )),
         };
@@ -71159,6 +71188,40 @@ mod quiet_netfield_tests {
         assert_eq!(windows_state_name(2), "LISTEN");
         assert_eq!(windows_state_name(100), "BOUND");
         assert_eq!(windows_state_name(99), "UNKNOWN");
+    }
+
+    #[test]
+    fn macos_netstat_endpoints_read_as_addr_colon_port() {
+        assert_eq!(macos_netstat_endpoint("127.0.0.1.49817"), "127.0.0.1:49817");
+        assert_eq!(macos_netstat_endpoint("*.*"), "*:*");
+        assert_eq!(macos_netstat_endpoint("*.22"), "*:22");
+        assert_eq!(macos_netstat_endpoint("::1.5353"), "[::1]:5353");
+    }
+
+    #[test]
+    fn macos_netstat_rows_list_the_listener_on_its_port() {
+        // The shape of `netstat -an -p tcp` on macOS: two header lines, then
+        // one row per socket.
+        let sample = [
+            "Active Internet connections (including servers)",
+            "Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)",
+            "tcp4       0      0  127.0.0.1.49817        *.*                    LISTEN",
+            "tcp4       0      0  127.0.0.1.49817        127.0.0.1.50012        ESTABLISHED",
+        ]
+        .join("\n");
+        let rows = macos_netstat_rows("net_ports", &sample).unwrap();
+        assert_eq!(rows.len(), 2);
+        let field = |i: usize, key: &str| match &rows[i] {
+            Value::Record(r) => match r.get(key) {
+                Some(Value::Str(s)) => s.clone(),
+                other => panic!("no {key} in row {i}: {other:?}"),
+            },
+            other => panic!("row {i} is not a record: {other:?}"),
+        };
+        assert_eq!(field(0, "local"), "127.0.0.1:49817");
+        assert_eq!(field(0, "peer"), "*:*");
+        assert!(net_is_listening(&rows[0]));
+        assert!(!net_is_listening(&rows[1]));
     }
 }
 

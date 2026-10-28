@@ -210,27 +210,36 @@ fn linux_names_are_absent_on_windows() {
 #[cfg(not(target_os = "linux"))]
 #[test]
 fn linux_only_tools_refuse_coded_and_run_nothing_elsewhere() {
+    // Each refusal names the platforms the tool does run on. blkid and ethtool
+    // have Windows implementations, so off Linux they say "Linux and Windows";
+    // perf is Linux only wherever it refuses.
     #[cfg(not(windows))]
     let os_tools = [
-        ("blkid", vec![s("/dev/sda1")]),
-        ("monitor_ethtool", vec![s("eth0")]),
+        ("blkid", vec![s("/dev/sda1")], "Linux and Windows only"),
+        ("monitor_ethtool", vec![s("eth0")], "Linux and Windows only"),
     ];
     #[cfg(windows)]
-    let os_tools: [(&str, Vec<Value>); 0] = [];
+    let os_tools: [(&str, Vec<Value>, &str); 0] = [];
     // monitor_perf_stat runs its argv on Windows, so it is refused only elsewhere.
     #[cfg(not(windows))]
-    let perf_stat = [("monitor_perf_stat", vec![argv(&["/usr/bin/true"])])];
+    let perf_stat = [(
+        "monitor_perf_stat",
+        vec![argv(&["/usr/bin/true"])],
+        "Linux only",
+    )];
     #[cfg(windows)]
-    let perf_stat: [(&str, Vec<Value>); 0] = [];
-    for (name, args) in os_tools.into_iter().chain(perf_stat).chain([
-        ("monitor_perf_record", vec![argv(&["/usr/bin/true"])]),
-    ]) {
+    let perf_stat: [(&str, Vec<Value>, &str); 0] = [];
+    for (name, args, platforms) in os_tools.into_iter().chain(perf_stat).chain([(
+        "monitor_perf_record",
+        vec![argv(&["/usr/bin/true"])],
+        "Linux only",
+    )]) {
         match call(name, args) {
             Ok(v) => panic!("{name} ran off Linux and answered {v:?}"),
             Err(e) => {
                 assert_eq!(code_of(&e), "E_UNIMPLEMENTED", "{name}: {e}");
                 let text = e.to_string();
-                assert!(text.contains("Linux only"), "{name}: {text}");
+                assert!(text.contains(platforms), "{name}: {text}");
                 assert!(text.contains("NOTHING WAS"), "{name}: {text}");
             }
         }

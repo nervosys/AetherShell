@@ -1305,24 +1305,29 @@ fn file_copy_refuses_source_and_destination_symlinks_before_merging() {
         "old"
     );
     std::fs::remove_file(dest.join("link")).unwrap();
-    use std::os::unix::ffi::OsStringExt;
-    std::fs::write(
-        source.join(std::ffi::OsString::from_vec(vec![255])),
-        "bad name",
-    )
-    .unwrap();
-    code(
-        call(
-            "cp",
-            vec![s(&source.to_string_lossy()), s(&dest.to_string_lossy())],
-            &mut env,
-        ),
-        "E_BAD_ARG",
-    );
-    assert_eq!(
-        std::fs::read_to_string(dest.join("ordinary")).unwrap(),
-        "old"
-    );
+    // APFS refuses a file name that is not UTF-8 (EILSEQ), so on macOS this
+    // case cannot be built. The symlink refusals above run on every Unix.
+    #[cfg(not(target_os = "macos"))]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        std::fs::write(
+            source.join(std::ffi::OsString::from_vec(vec![255])),
+            "bad name",
+        )
+        .unwrap();
+        code(
+            call(
+                "cp",
+                vec![s(&source.to_string_lossy()), s(&dest.to_string_lossy())],
+                &mut env,
+            ),
+            "E_BAD_ARG",
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.join("ordinary")).unwrap(),
+            "old"
+        );
+    }
 }
 #[test]
 fn file_backup_preserves_binary_content_and_supports_both_call_forms() {
