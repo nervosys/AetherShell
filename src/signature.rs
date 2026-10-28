@@ -10523,9 +10523,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[req("device", Ty::Str, "a block device such as /dev/sda1")],
+        params: &[req("device", Ty::Str, "a block device such as /dev/sda1, or a Windows drive such as C:")],
         returns: "Record",
-        doc: "Linux only. A block device's attributes (uuid, type, label), read with blkid -o export. A device under /dev/ that blkid cannot identify, or that does not exist, is E_NOT_FOUND. Other platforms refuse with E_UNIMPLEMENTED and change nothing.",
+        doc: "Linux and Windows. On Linux, a block device's attributes (devname, uuid, partuuid, type, label), read with blkid -o export; a device under /dev/ that blkid cannot identify, or that does not exist, is E_NOT_FOUND. On Windows, a drive such as C: is read with Get-Volume and Get-Partition: uuid is the volume UniqueId, partuuid the partition Guid, type the file system lower-cased, label its label and devname the drive; a field the drive does not report is left out, and a drive with no volume is E_NOT_FOUND. Other platforms refuse with E_UNIMPLEMENTED and change nothing.",
         examples: &[
             (r#"blkid("/dev/sda1")"#, r#"{type: ext4, uuid: "...", ...}"#),
         ],
@@ -10790,9 +10790,9 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[req("device", Ty::Str, "an interface such as eth0")],
+        params: &[req("device", Ty::Str, "an interface such as eth0, or a Windows adapter such as Ethernet")],
         returns: "Record",
-        doc: "Linux only. An interface's driver-level settings (speed, duplex, link), read with ethtool. A missing ethtool is E_TOOL_MISSING; a failing one is E_TOOL_FAILED with its stderr. Other platforms refuse with E_UNIMPLEMENTED and inspect nothing.",
+        doc: "Linux and Windows. On Linux, an interface's driver-level settings, read with ethtool; a missing ethtool is E_TOOL_MISSING and a failing one is E_TOOL_FAILED with its stderr. On Windows, the adapter named by Get-NetAdapter -Name: speed, duplex, link_detected, driver_description, driver_version and mac_address, with a field the adapter does not report left out; an unknown adapter is E_NOT_FOUND. Other platforms refuse with E_UNIMPLEMENTED and inspect nothing.",
         examples: &[
             (r#"monitor_ethtool("eth0")"#, r#"{device: eth0, speed: 10000Mb/s, link_detected: yes, ...}"#),
         ],
@@ -13926,7 +13926,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "dd_copy", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("source", Ty::Str, "the input file or device, passed as if=<source>"), req("destination", Ty::Str, "the output file or device, passed as of=<destination>"), opt("options", Ty::Record, "optional {bs: positive Int or a size such as 4M, count: positive Int}")],
         returns: "Record",
-        doc: "Unix only. Copy with dd if=<source> of=<destination> [bs=] [count=], each operand one argument, so a path cannot add another operand. dd runs directly with a 900 s deadline. Returns {success: true, output: dd's own report from stderr}. A nonzero exit is E_TOOL_FAILED. An empty path, an option other than bs and count, a bad value for either, pipeline input and surplus arguments are refused with E_BAD_ARG. On Windows the call is E_UNIMPLEMENTED and nothing is copied; use copy_file.",
+        doc: "Copy with dd if=<source> of=<destination> [bs=] [count=], each operand one argument, so a path cannot add another operand. On Unix dd runs directly with a 900 s deadline and returns {success: true, output: dd's own report from stderr}; a nonzero exit is E_TOOL_FAILED. On Windows the same copy runs in-process with the same bs and count and the same 900 s limit, and output is the three report lines dd prints. An empty path, an option other than bs and count, a bad value for either, pipeline input and surplus arguments are refused with E_BAD_ARG; on Windows a copy onto its own source is E_BAD_ARG.",
         examples: &[
             (r#"(try { dd_copy("", "b") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { dd_copy("a", "b", {skip: 1}) } catch e { e.error.code })"#, "E_BAD_ARG"),

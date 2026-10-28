@@ -57021,7 +57021,86 @@ mod image_match;
 #[path = "pkg_query.rs"]
 mod pkg_query;
 
-/// 958: bi_blkid - Block device attributes (Linux only).
+/// Windows: the drive a `C:`, `C:\` or `c:/` argument names, as its upper-case
+/// letter. Anything else is refused: blkid on Windows takes a drive, not a path.
+#[cfg(windows)]
+fn blkid_drive(device: &str) -> Result<char> {
+    let b = device.as_bytes();
+    let plain = (b.len() == 2 || b.len() == 3)
+        && b[0].is_ascii_alphabetic()
+        && b[1] == b':'
+        && (b.len() == 2 || b[2] == b'\\' || b[2] == b'/');
+    if plain {
+        Ok(char::from(b[0].to_ascii_uppercase()))
+    } else {
+        Err(crate::safety::bad_arg(
+            "blkid",
+            "a drive such as C: or C:\\",
+            device,
+        ))
+    }
+}
+
+/// Windows: one drive's volume and partition, from Get-Volume and Get-Partition.
+/// The volume's UniqueId is uuid and the partition's Guid is partuuid, the way
+/// blkid reports them on Linux; type is the file system lower-cased. A field the
+/// drive does not report is left out, not made up.
+#[cfg(windows)]
+fn blkid_windows(device: &str) -> Result<Value> {
+    const NAME: &str = "blkid";
+    let letter = blkid_drive(device)?.to_string();
+    // A drive with no volume prints nothing, which the parse below reads as absent.
+    let script = crate::ps_script!(
+        "$v = Get-Volume -DriveLetter {} -ErrorAction SilentlyContinue; if ($v) {{ $p = Get-Partition -DriveLetter {} -ErrorAction SilentlyContinue | Select-Object -First 1; [pscustomobject]@{{ UniqueId=$v.UniqueId; FileSystemType=$v.FileSystemType; FileSystemLabel=$v.FileSystemLabel; PartitionGuid=$p.Guid }} | ConvertTo-Json }}",
+        crate::safety::ps_quote(&letter),
+        crate::safety::ps_quote(&letter)
+    );
+    let out = net_run(
+        NAME,
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script.as_str()],
+        NET_TOOL_SECS,
+    )?;
+    net_checked(NAME, "powershell", &out)?;
+    let Some(item) = net_ps_items(NAME, &out.stdout)?.into_iter().next() else {
+        return Err(crate::safety::not_found(NAME, "identifiable device", device));
+    };
+    let Some(o) = item.as_object() else {
+        return Err(net_unparsed(NAME, "powershell"));
+    };
+    let text = |key: &str| {
+        o.get(key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("devname".to_string(), Value::Str(format!("{letter}:")));
+    if let Some(s) = text("UniqueId") {
+        rec.insert("uuid".to_string(), Value::Str(s));
+    }
+    if let Some(s) = text("PartitionGuid") {
+        rec.insert("partuuid".to_string(), Value::Str(s));
+    }
+    if let Some(s) = text("FileSystemType") {
+        rec.insert("type".to_string(), Value::Str(s.to_lowercase()));
+    }
+    if let Some(s) = text("FileSystemLabel") {
+        rec.insert("label".to_string(), Value::Str(s));
+    }
+    // Only the drive name is left: nothing identifies a volume, as on Linux.
+    if rec.len() == 1 {
+        return Err(crate::safety::not_found(
+            NAME,
+            "identifiable device",
+            device,
+        ));
+    }
+    Ok(Value::Record(rec))
+}
+
+/// 958: bi_blkid - Block device attributes (Linux; Windows reads a drive).
 fn bi_blkid(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     linux_diagnostics::no_pipeline_input("blkid", &input)?;
     let device = match args.as_slice() {
@@ -57039,6 +57118,7 @@ fn bi_blkid(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    #[cfg(not(windows))]
     linux_diagnostics::device_path("blkid", &device)?;
     #[cfg(target_os = "linux")]
     {
@@ -57077,11 +57157,15 @@ fn bi_blkid(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
         Ok(Value::Record(rec))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        blkid_windows(&device)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         Err(crate::safety::unimplemented(
             "blkid",
-            "blkid is Linux only; NOTHING WAS DONE on this operating system",
+            "blkid is Linux and Windows only; NOTHING WAS DONE on this operating system",
             "lsblk() lists block devices on every OS",
         ))
     }
@@ -57839,7 +57923,8 @@ fn bi_top_snapshot(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(entries))
 }
 
-/// 970: bi_dd_copy - Copy with `dd if=<source> of=<destination>` (Unix).
+/// 970: bi_dd_copy - Copy with `dd if=<source> of=<destination>` (Unix; Windows
+/// copies in-process, see dd_copy_in_process).
 ///
 /// Each operand is one argv element, so a path cannot add a second operand. It
 /// used to drop an options value that was not a Record, any key but `bs` and
@@ -57895,35 +57980,165 @@ fn bi_dd_copy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ))
         }
     }
-    if cfg!(windows) {
-        return Err(crate::safety::unimplemented(
+    #[cfg(windows)]
+    {
+        dd_copy_in_process(&src, &dst, &operands)
+    }
+    #[cfg(not(windows))]
+    {
+        let argv: Vec<&str> = operands.iter().map(String::as_str).collect();
+        let run = tool_run(
             "dd_copy",
-            "dd is not available on Windows; nothing was copied",
-            "use copy_file",
+            "dd",
+            None,
+            &argv,
+            Keep::Tail(TOOL_STDERR_TAIL),
+            TOOL_LONG_DEADLINE_SECS,
+        )?;
+        if !run.success {
+            return Err(crate::safety::tool_failed(
+                "dd_copy",
+                &run.command,
+                run.code,
+                &run.stderr,
+            ));
+        }
+        let mut rec = BTreeMap::new();
+        rec.insert("success".to_string(), Value::Bool(true));
+        // dd reports what it copied on stderr.
+        rec.insert("output".to_string(), Value::Str(run.stderr));
+        Ok(Value::Record(rec))
+    }
+}
+
+/// Largest block dd_copy's in-process copy reads at once.
+#[cfg(windows)]
+const DD_BLOCK_MAX: u64 = 64 * 1024 * 1024;
+
+/// The byte count of a `dd` block size already checked by [`dd_block_size`].
+#[cfg(windows)]
+fn dd_block_bytes(bs: &str) -> Option<u64> {
+    let (digits, unit) = match bs.char_indices().last() {
+        Some((i, c)) if c.is_ascii_alphabetic() => {
+            let unit: u64 = match c {
+                'c' => 1,
+                'w' => 2,
+                'b' => 512,
+                'k' | 'K' => 1 << 10,
+                'M' => 1 << 20,
+                'G' => 1 << 30,
+                'T' => 1 << 40,
+                _ => return None,
+            };
+            (&bs[..i], unit)
+        }
+        _ => (bs, 1),
+    };
+    digits.parse::<u64>().ok()?.checked_mul(unit)
+}
+
+/// Windows: dd's copy done in-process with the operands dd_copy built. The block
+/// size and count are the ones the options gave (512 and no count when absent).
+/// The Unix run has a 900 s deadline; this one is checked between blocks. The
+/// output is the three report lines dd prints on stderr.
+#[cfg(windows)]
+fn dd_copy_in_process(src: &str, dst: &str, operands: &[String]) -> Result<Value> {
+    use std::io::{Read as _, Write as _};
+    const NAME: &str = "dd_copy";
+    let bs_text = operands
+        .iter()
+        .find_map(|o| o.strip_prefix("bs="))
+        .unwrap_or("512");
+    let block = dd_block_bytes(bs_text)
+        .filter(|n| (1..=DD_BLOCK_MAX).contains(n))
+        .ok_or_else(|| crate::safety::bad_arg(NAME, "a block size of at most 64M", bs_text))?;
+    let count: Option<u64> = operands
+        .iter()
+        .find_map(|o| o.strip_prefix("count="))
+        .map(|text| {
+            text.parse::<u64>()
+                .map_err(|_| crate::safety::bad_arg(NAME, "a positive Int", text))
+        })
+        .transpose()?;
+    linux_diagnostics::file_path(NAME, src)?;
+    linux_diagnostics::output_path(NAME, dst)?;
+    // dd truncates its output before it reads, so a copy onto its own source
+    // would destroy the source. Refuse it.
+    let same = match (std::fs::canonicalize(src), std::fs::canonicalize(dst)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
+    if same {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "a destination other than the source",
+            dst,
         ));
     }
-    let argv: Vec<&str> = operands.iter().map(String::as_str).collect();
-    let run = tool_run(
-        "dd_copy",
-        "dd",
-        None,
-        &argv,
-        Keep::Tail(TOOL_STDERR_TAIL),
-        TOOL_LONG_DEADLINE_SECS,
-    )?;
-    if !run.success {
-        return Err(crate::safety::tool_failed(
-            "dd_copy",
-            &run.command,
-            run.code,
-            &run.stderr,
-        ));
+    let mut input = std::fs::File::open(src).map_err(|e| dd_io(NAME, src, &e))?;
+    let mut output = std::fs::File::create(dst).map_err(|e| dd_io(NAME, dst, &e))?;
+    let started = std::time::Instant::now();
+    let limit = std::time::Duration::from_secs(TOOL_LONG_DEADLINE_SECS);
+    let mut buf = vec![0u8; block as usize];
+    let (mut full_in, mut part_in, mut full_out, mut part_out, mut bytes) =
+        (0u64, 0u64, 0u64, 0u64, 0u64);
+    let mut blocks = 0u64;
+    loop {
+        if let Some(n) = count {
+            if blocks >= n {
+                break;
+            }
+        }
+        if started.elapsed() > limit {
+            return Err(crate::safety::budget_exceeded(
+                NAME,
+                format!("the copy ran past {TOOL_LONG_DEADLINE_SECS} s and was stopped"),
+                "copy less with count, or in smaller parts",
+            ));
+        }
+        let n = match input.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(dd_io(NAME, src, &e)),
+        };
+        output
+            .write_all(&buf[..n])
+            .map_err(|e| dd_io(NAME, dst, &e))?;
+        if n as u64 == block {
+            full_in += 1;
+            full_out += 1;
+        } else {
+            part_in += 1;
+            part_out += 1;
+        }
+        bytes += n as u64;
+        blocks += 1;
     }
+    output.flush().map_err(|e| dd_io(NAME, dst, &e))?;
     let mut rec = BTreeMap::new();
     rec.insert("success".to_string(), Value::Bool(true));
-    // dd reports what it copied on stderr.
-    rec.insert("output".to_string(), Value::Str(run.stderr));
+    rec.insert(
+        "output".to_string(),
+        Value::Str(format!(
+            "{full_in}+{part_in} records in\n{full_out}+{part_out} records out\n{bytes} bytes copied"
+        )),
+    );
     Ok(Value::Record(rec))
+}
+
+/// The coded error for a file dd_copy could not open, read or write.
+#[cfg(windows)]
+fn dd_io(builtin: &str, path: &str, e: &std::io::Error) -> anyhow::Error {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => crate::safety::not_found(builtin, "file", path),
+        std::io::ErrorKind::PermissionDenied => crate::safety::os_denied(
+            builtin,
+            format!("`{path}` is not accessible: {e}"),
+            "check the path and its permissions",
+        ),
+        _ => anyhow!("{builtin}: `{path}`: {e}"),
+    }
 }
 
 /// A `dd` block size: digits with at most one unit suffix (`512`, `4M`, `1k`).
@@ -60515,8 +60730,95 @@ fn bi_ip_link(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
+/// Windows: an adapter name for Get-NetAdapter -Name. Wildcards are refused so
+/// the name can match one adapter only; spaces and brackets of a real name such
+/// as "Wi-Fi 4" are allowed, since the name is quoted into the script.
+#[cfg(windows)]
+fn ethtool_adapter(device: &str) -> Result<()> {
+    let plain = !device.is_empty()
+        && device.len() <= 256
+        && !device.starts_with('-')
+        && !device.chars().any(|c| c.is_control() || "*?[]".contains(c));
+    if plain {
+        Ok(())
+    } else {
+        Err(crate::safety::bad_arg(
+            "monitor_ethtool",
+            "an adapter name such as \"Ethernet\" or \"Wi-Fi 4\", with no wildcard",
+            device,
+        ))
+    }
+}
+
+/// Windows: one adapter's settings from Get-NetAdapter. The keys match the
+/// ethtool record where the fact is the same: speed, duplex, link_detected. A
+/// field the adapter does not report is left out.
+#[cfg(windows)]
+fn ethtool_windows(device: &str) -> Result<Value> {
+    const NAME: &str = "monitor_ethtool";
+    ethtool_adapter(device)?;
+    let script = crate::ps_script!(
+        "Get-NetAdapter -Name {} -ErrorAction SilentlyContinue | Select-Object Name,LinkSpeed,FullDuplex,MediaConnectionState,DriverDescription,DriverVersion,MacAddress | ConvertTo-Json",
+        crate::safety::ps_quote(device)
+    );
+    let out = net_run(
+        NAME,
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script.as_str()],
+        NET_TOOL_SECS,
+    )?;
+    net_checked(NAME, "powershell", &out)?;
+    // An adapter that does not exist prints nothing, not an error.
+    let Some(item) = net_ps_items(NAME, &out.stdout)?.into_iter().next() else {
+        return Err(crate::safety::not_found(NAME, "network interface", device));
+    };
+    let Some(o) = item.as_object() else {
+        return Err(net_unparsed(NAME, "powershell"));
+    };
+    let text = |key: &str| {
+        o.get(key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| Value::Str(s.to_string()))
+    };
+    let mut rec = BTreeMap::new();
+    rec.insert("device".to_string(), Value::Str(device.to_string()));
+    for (out_key, json_key) in [
+        ("speed", "LinkSpeed"),
+        ("driver_description", "DriverDescription"),
+        ("driver_version", "DriverVersion"),
+        ("mac_address", "MacAddress"),
+    ] {
+        if let Some(v) = text(json_key) {
+            rec.insert(out_key.to_string(), v);
+        }
+    }
+    match o.get("FullDuplex").and_then(|v| v.as_bool()) {
+        Some(true) => {
+            rec.insert("duplex".to_string(), Value::Str("Full".to_string()));
+        }
+        Some(false) => {
+            rec.insert("duplex".to_string(), Value::Str("Half".to_string()));
+        }
+        None => {}
+    }
+    // ConvertTo-Json writes the MediaConnectionState enum as a number: 1 is
+    // Connected, 2 is Disconnected, and 0 (Unknown) is left out.
+    match o.get("MediaConnectionState").and_then(|v| v.as_i64()) {
+        Some(1) => {
+            rec.insert("link_detected".to_string(), Value::Str("yes".to_string()));
+        }
+        Some(2) => {
+            rec.insert("link_detected".to_string(), Value::Str("no".to_string()));
+        }
+        _ => {}
+    }
+    Ok(Value::Record(rec))
+}
+
 // ---------------------------------------------------------------------------
-// 1026: bi_ethtool_info — Ethernet device info (Linux only)
+// 1026: bi_ethtool_info — Ethernet device info (Linux; Windows reads Get-NetAdapter)
 // ---------------------------------------------------------------------------
 fn bi_ethtool_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     linux_diagnostics::no_pipeline_input("monitor_ethtool", &input)?;
@@ -60535,6 +60837,7 @@ fn bi_ethtool_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    #[cfg(not(windows))]
     linux_diagnostics::interface_name("monitor_ethtool", &device)?;
     #[cfg(target_os = "linux")]
     {
@@ -60557,12 +60860,16 @@ fn bi_ethtool_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
         Ok(Value::Record(rec))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        ethtool_windows(&device)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = device;
         Err(crate::safety::unimplemented(
             "monitor_ethtool",
-            "ethtool is Linux only; NOTHING WAS INSPECTED on this operating system",
+            "ethtool is Linux and Windows only; NOTHING WAS INSPECTED on this operating system",
             "monitor_ip_link() lists interfaces on every OS",
         ))
     }
