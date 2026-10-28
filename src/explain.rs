@@ -39,7 +39,11 @@ impl Walk<'_> {
             Expr::Ident(n) => {
                 if self.locals.contains(n) {
                     (n.clone(), None)
-                } else if crate::builtins::is_dispatched(n) {
+                } else if crate::builtins::is_dispatched(n)
+                    || crate::plugins::is_manifest_builtin(n)
+                {
+                    // A plugin's manifest builtin is a builtin too: its body is not
+                    // analysed, and effect_of classes it Exec.
                     (n.clone(), Some(n.clone()))
                 } else {
                     (n.clone(), None)

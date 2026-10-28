@@ -2510,6 +2510,37 @@ mod tests {
     }
 
     #[test]
+    fn explain_effects_resolves_a_manifest_builtin_as_exec() {
+        let _guard = registry_guard();
+        let path = manifest_fixture(
+            "explain",
+            "[plugin]\nid = \"zz-fixture-explain\"\n\n[builtins]\nzz_triple = \"fn(x) => x * 3\"\n",
+        );
+        load_plugin_from_manifest(&path).expect("a lambda builtin loads");
+        let report = crate::explain::explain("zz_triple(1)");
+        assert!(unload_plugin("zz-fixture-explain").is_ok());
+        let Ok(Value::Record(r)) = report else {
+            panic!("explain returns a record")
+        };
+        let Some(Value::Array(unresolved)) = r.get("unresolved") else {
+            panic!("explain reports unresolved calls")
+        };
+        assert!(
+            !unresolved.contains(&Value::Str("zz_triple".into())),
+            "{unresolved:?}"
+        );
+        let Some(Value::Array(calls)) = r.get("calls") else {
+            panic!("explain reports calls")
+        };
+        let Some(Value::Record(call)) = calls.first() else {
+            panic!("one call site")
+        };
+        assert_eq!(call.get("builtin"), Some(&Value::Str("zz_triple".into())));
+        assert_eq!(call.get("effect"), Some(&Value::Str("exec".into())));
+        assert_ne!(call.get("decision"), Some(&Value::Str("unknown".into())));
+    }
+
+    #[test]
     fn manifest_builtin_names_refuse_core_dotted_and_non_lambda_entries() {
         let _guard = registry_guard();
         let cases = [
