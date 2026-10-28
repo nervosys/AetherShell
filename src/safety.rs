@@ -1604,15 +1604,31 @@ pub fn tool_failed(
     status: Option<i32>,
     stderr: &str,
 ) -> anyhow::Error {
+    let status_text = match status {
+        Some(c) => format!("exited {c}"),
+        None => "was killed by a signal".to_string(),
+    };
+    tool_failed_text(builtin, command, status_text, stderr)
+}
+
+/// [`tool_failed`] for an exit code that is an HRESULT-style value, such as a
+/// winget `APPINSTALLER_CLI_ERROR_*` code. It is shown in hex (`0x8A150001`),
+/// because the decimal form of those codes is unrecognisable.
+pub fn tool_failed_code(builtin: &str, command: &str, code: u32, stderr: &str) -> anyhow::Error {
+    tool_failed_text(builtin, command, format!("exited 0x{code:08X}"), stderr)
+}
+
+fn tool_failed_text(
+    builtin: &str,
+    command: &str,
+    status_text: String,
+    stderr: &str,
+) -> anyhow::Error {
     let stderr = stderr.trim();
     let said = if stderr.is_empty() {
         "and printed nothing to stderr".to_string()
     } else {
         format!("saying: {stderr}")
-    };
-    let status_text = match status {
-        Some(c) => format!("exited {c}"),
-        None => "was killed by a signal".to_string(),
     };
     anyhow::Error::new(SafetyError {
         code: ErrorCode::ToolFailed,

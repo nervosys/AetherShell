@@ -55,6 +55,10 @@ fn assert_refused(name: &str, args: Vec<Value>, code: &str) {
 // Ordinary tests: no apt is reached by anything below.
 // ---------------------------------------------------------------------------
 
+// Not on Windows: `a` and `Hello` are valid winget identifiers, so on Windows
+// this call would reach winget. tests/windows_winget_admin.rs covers the
+// winget refusals instead.
+#[cfg(not(windows))]
 #[test]
 fn package_names_and_versions_are_validated_before_any_effect() {
     let bad_names = [
@@ -193,7 +197,7 @@ fn changes_are_refused_inside_a_transaction() {
     assert!(text.contains("NOTHING WAS CHANGED"), "{text}");
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 #[test]
 fn non_linux_platforms_refuse_valid_calls_without_changing_anything() {
     let _serial = TRANSACTION.lock().unwrap_or_else(|e| e.into_inner());
@@ -215,6 +219,29 @@ fn non_linux_platforms_refuse_valid_calls_without_changing_anything() {
         assert!(text.contains("E_UNIMPLEMENTED"), "{name}: {text}");
         assert!(text.contains("NOTHING WAS CHANGED"), "{name}: {text}");
         assert!(text.contains("Linux"), "{name} should name Linux: {text}");
+    }
+}
+
+/// On Windows the nine builtins split: install, remove, update and upgrade run
+/// winget (tests/windows_winget_admin.rs), and the rest have no winget
+/// equivalent and are refused before anything runs.
+#[cfg(windows)]
+#[test]
+fn windows_refuses_what_winget_cannot_do_without_running_anything() {
+    let _serial = TRANSACTION.lock().unwrap_or_else(|e| e.into_inner());
+    let source = s("deb https://deb.debian.org/debian trixie main");
+    let calls: [(&str, Vec<Value>); 5] = [
+        ("pkg_clean", vec![]),
+        ("pkg_autoremove", vec![]),
+        ("pkg_hold", vec![strs(&["jqlang.jq"])]),
+        ("pkg_unhold", vec![strs(&["jqlang.jq"])]),
+        ("pkg_add_source", vec![s("aepkg-test"), source]),
+    ];
+    for (name, args) in calls {
+        let text = refusal(name, args);
+        assert!(text.contains("E_UNIMPLEMENTED"), "{name}: {text}");
+        assert!(text.contains("NOTHING WAS CHANGED"), "{name}: {text}");
+        assert!(text.contains("winget"), "{name} should name winget: {text}");
     }
 }
 

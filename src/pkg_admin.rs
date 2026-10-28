@@ -1,20 +1,26 @@
-//! apt package administration for Debian-family Linux.
+//! Package administration: apt on Debian-family Linux, winget on Windows.
 //!
 //! The nine mutating builtins (`pkg_install`, `pkg_remove`, `pkg_update`,
 //! `pkg_upgrade`, `pkg_clean`, `pkg_add_source`, `pkg_hold`, `pkg_unhold`,
 //! `pkg_autoremove`) delegate here. Read-only queries stay in builtins.rs.
 //!
-//! Every tool runs directly from its absolute path with an argv array; no
-//! shell is ever involved. Caller strings only reach argv after they match a
-//! strict pattern, and none of them can begin with `-`. Each run has a time
-//! limit and is killed when it expires. A nonzero exit is a coded
-//! `E_TOOL_FAILED` carrying the last 64 KiB of stderr. A dpkg or apt lock held
-//! by another process is `E_BAD_STATE`, because waiting and retrying is the
-//! repair.
+//! Every tool runs directly with an argv array; no shell is ever involved.
+//! Caller strings only reach argv after they match a strict pattern, and none
+//! of them can begin with `-`. Each run has a time limit and is killed when it
+//! expires. A nonzero exit is a coded `E_TOOL_FAILED` carrying the last 64 KiB
+//! of stderr. A dpkg or apt lock held by another process is `E_BAD_STATE`,
+//! because waiting and retrying is the repair.
 //!
-//! Refused before any effect: pipeline input, an active transaction (apt
+//! On Windows, `pkg_install`, `pkg_remove`, `pkg_update` and `pkg_upgrade` run
+//! winget (see `pkg_admin_winget.rs`). The other builtins have no winget
+//! equivalent and are refused.
+//!
+//! Refused before any effect: pipeline input, an active transaction (package
 //! changes cannot be rolled back), and any platform or package manager other
-//! than apt. Those refusals are `E_UNIMPLEMENTED`.
+//! than apt or winget. Those refusals are `E_UNIMPLEMENTED`.
+
+// The apt half is compiled on Windows but never called there.
+#![cfg_attr(windows, allow(dead_code))]
 
 use crate::safety;
 use crate::value::Value;
@@ -23,6 +29,10 @@ use regex::Regex;
 use std::collections::{BTreeMap, HashSet};
 use std::process::{Command, Output};
 use std::sync::OnceLock;
+
+#[cfg(windows)]
+#[path = "pkg_admin_winget.rs"]
+mod winget;
 
 /// Upper bound on one apt, dpkg-query or apt-mark run.
 const RUN_TIMEOUT_SECS: u64 = 1800;
@@ -77,10 +87,60 @@ struct Status {
 // Entry points: called from the bi_pkg_* bodies in builtins.rs.
 // ---------------------------------------------------------------------------
 
+/// `pkg_install`: winget on Windows, apt elsewhere. See the apt half for its
+/// contract and the winget half for its own.
+pub(super) fn install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    #[cfg(windows)]
+    {
+        winget::install(args, input)
+    }
+    #[cfg(not(windows))]
+    {
+        apt_install(args, input)
+    }
+}
+
+/// `pkg_remove`: winget on Windows, apt elsewhere.
+pub(super) fn remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    #[cfg(windows)]
+    {
+        winget::remove(args, input)
+    }
+    #[cfg(not(windows))]
+    {
+        apt_remove(args, input)
+    }
+}
+
+/// `pkg_update`: winget on Windows, apt elsewhere.
+pub(super) fn update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    #[cfg(windows)]
+    {
+        winget::update(args, input)
+    }
+    #[cfg(not(windows))]
+    {
+        apt_update(args, input)
+    }
+}
+
+/// `pkg_upgrade`: winget on Windows, apt elsewhere.
+pub(super) fn upgrade(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    #[cfg(windows)]
+    {
+        winget::upgrade(args, input)
+    }
+    #[cfg(not(windows))]
+    {
+        apt_upgrade(args, input)
+    }
+}
+
+
 /// `pkg_install(names, options?)`. Options: `no_recommends` Bool, default true.
 /// Names may be `name=version`. Returns `{installed: [{name, version}]}`, with
 /// versions read back from dpkg after apt succeeds.
-pub(super) fn install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+fn apt_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "pkg_install";
     no_pipeline(B, &input)?;
     if args.is_empty() || args.len() > 2 {
@@ -92,7 +152,7 @@ pub(super) fn install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let opts = options(B, args.get(1), &["no_recommends"])?;
     let no_recommends = flag(B, &opts, "no_recommends", true)?;
     refuse_in_transaction(B)?;
-    require_apt(B)?;
+    require_manager(B)?;
 
     let mut argv = apt_argv("install");
     if no_recommends {
@@ -120,7 +180,7 @@ pub(super) fn install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// `required`; the whole call is refused before anything is removed if any
 /// name fails that check. Returns `{removed: [name]}` for the names requested.
 /// Packages apt removes as side effects (reverse dependencies) are not listed.
-pub(super) fn remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+fn apt_remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "pkg_remove";
     no_pipeline(B, &input)?;
     if args.is_empty() || args.len() > 2 {
@@ -132,7 +192,7 @@ pub(super) fn remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let opts = options(B, args.get(1), &["purge"])?;
     let purge = flag(B, &opts, "purge", false)?;
     refuse_in_transaction(B)?;
-    require_apt(B)?;
+    require_manager(B)?;
 
     for spec in &specs {
         let status = match dpkg_status(B, &spec.name)? {
@@ -161,11 +221,11 @@ pub(super) fn remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// `pkg_update()`: refresh the package index (`apt-get update`).
-pub(super) fn update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+fn apt_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "pkg_update";
     no_args_or_input(B, &args, &input)?;
     refuse_in_transaction(B)?;
-    require_apt(B)?;
+    require_manager(B)?;
     checked(B, "apt-get", &apt_argv("update"))?;
     Ok(record(vec![("updated", Value::Bool(true))]))
 }
@@ -174,7 +234,7 @@ pub(super) fn update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// `dist-upgrade` instead of `upgrade`. Returns `{upgraded: Int}`, read from
 /// the `N upgraded, ...` summary line apt prints. A missing summary line is an
 /// `E_TOOL_FAILED`, not a count of zero.
-pub(super) fn upgrade(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+fn apt_upgrade(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "pkg_upgrade";
     no_pipeline(B, &input)?;
     if args.len() > 1 {
@@ -185,7 +245,7 @@ pub(super) fn upgrade(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let opts = options(B, args.first(), &["dist"])?;
     let dist = flag(B, &opts, "dist", false)?;
     refuse_in_transaction(B)?;
-    require_apt(B)?;
+    require_manager(B)?;
 
     let subcommand = if dist { "dist-upgrade" } else { "upgrade" };
     let output = checked(B, "apt-get", &apt_argv(subcommand))?;
@@ -206,7 +266,7 @@ pub(super) fn clean(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "pkg_clean";
     no_args_or_input(B, &args, &input)?;
     refuse_in_transaction(B)?;
-    require_apt(B)?;
+    require_manager(B)?;
     checked(B, "apt-get", &apt_argv("clean"))?;
     Ok(record(vec![("cleaned", Value::Bool(true))]))
 }
@@ -218,7 +278,7 @@ pub(super) fn autoremove(args: Vec<Value>, input: Option<Value>) -> Result<Value
     const B: &str = "pkg_autoremove";
     no_args_or_input(B, &args, &input)?;
     refuse_in_transaction(B)?;
-    require_apt(B)?;
+    require_manager(B)?;
     let output = checked(B, "apt-get", &apt_argv("autoremove"))?;
     let text = String::from_utf8_lossy(&output.stdout);
     let mut removed: Vec<String> = Vec::new();
@@ -246,7 +306,7 @@ pub(super) fn hold(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     let specs = package_specs(B, &args[0], false)?;
     refuse_in_transaction(B)?;
-    require_apt(B)?;
+    require_manager(B)?;
 
     for spec in &specs {
         let installed = matches!(
@@ -294,7 +354,7 @@ pub(super) fn unhold(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     let specs = package_specs(B, &args[0], false)?;
     refuse_in_transaction(B)?;
-    require_apt(B)?;
+    require_manager(B)?;
 
     let mut argv = vec!["unhold".to_string()];
     argv.extend(specs.iter().map(|s| s.name.clone()));
@@ -351,7 +411,7 @@ pub(super) fn add_source(args: Vec<Value>, input: Option<Value>) -> Result<Value
     let opts = options(B, args.get(2), &["update"])?;
     let update = flag(B, &opts, "update", false)?;
     refuse_in_transaction(B)?;
-    require_apt(B)?;
+    require_manager(B)?;
 
     let path = format!("{SOURCES_DIR}/ae-{name}.list");
     if std::fs::symlink_metadata(&path).is_ok() {
@@ -520,7 +580,7 @@ fn refuse_in_transaction(builtin: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn require_apt(builtin: &str) -> Result<()> {
+fn require_manager(builtin: &str) -> Result<()> {
     let pm = super::detect_package_manager();
     if pm == "apt" {
         return Ok(());
@@ -534,11 +594,22 @@ fn require_apt(builtin: &str) -> Result<()> {
     ))
 }
 
-#[cfg(not(target_os = "linux"))]
-fn require_apt(builtin: &str) -> Result<()> {
+#[cfg(windows)]
+fn require_manager(builtin: &str) -> Result<()> {
     Err(safety::unimplemented(
         builtin,
-        "package administration is implemented on Debian-family Linux (apt) only in 13.0.0; NOTHING WAS CHANGED",
+        &format!(
+            "{builtin} has no winget equivalent in 13.0.0; winget covers pkg_install, pkg_remove, pkg_update and pkg_upgrade only; NOTHING WAS CHANGED"
+        ),
+        "use winget directly",
+    ))
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
+fn require_manager(builtin: &str) -> Result<()> {
+    Err(safety::unimplemented(
+        builtin,
+        "package administration is implemented on Debian-family Linux (apt) and Windows (winget) only in 13.0.0; NOTHING WAS CHANGED",
         "use the platform's package manager directly",
     ))
 }
@@ -777,6 +848,34 @@ fn write_then_link(tmp: &str, path: &str, content: &str) -> std::io::Result<()> 
         std::fs::set_permissions(tmp, std::fs::Permissions::from_mode(0o644))?;
     }
     std::fs::hard_link(tmp, path)
+}
+
+#[cfg(all(test, windows))]
+mod winget_tests {
+    use super::winget::{classify, id_ok, Ran};
+
+    #[test]
+    fn identifiers_are_an_allowlist() {
+        for id in ["jqlang.jq", "Microsoft.VisualStudioCode", "a", "a+b_c-d.e"] {
+            assert!(id_ok(id), "{id:?} should be accepted");
+        }
+        let longest = "x".repeat(128);
+        let too_long = "x".repeat(129);
+        assert!(id_ok(&longest), "128 characters should be accepted");
+        assert!(!id_ok(&too_long), "129 characters should be refused");
+        for id in ["", "-x", "a b", "a;b", "a=1.0", "a/b", "a$(b)", "\u{e9}", "a\nb"] {
+            assert!(!id_ok(id), "{id:?} should be refused");
+        }
+    }
+
+    #[test]
+    fn exit_codes_are_classified() {
+        assert_eq!(classify(0), Ok(Ran::Done));
+        assert_eq!(classify(0x8A15_002B), Ok(Ran::NoChange));
+        assert_eq!(classify(0x8A15_0014), Ok(Ran::NotFound));
+        assert_eq!(classify(1), Err(1));
+        assert_eq!(classify(0x8A15_0001), Err(0x8A15_0001));
+    }
 }
 
 fn record(fields: Vec<(&str, Value)>) -> Value {
