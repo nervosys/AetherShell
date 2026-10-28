@@ -1,0 +1,55 @@
+name: Disposable host
+
+# Contract tests for builtins that change the machine they run on: Windows
+# services, local accounts and groups, and winget packages. Each test is
+# #[ignore] and also returns early unless AE_DISPOSABLE_HOST=1, so it never
+# runs on a developer's machine by accident. A GitHub-hosted runner is
+# discarded after the job, which is what makes it the right place for them.
+# Manual only: these install software and create accounts, so a run is a
+# decision, not a side effect of a push.
+
+on:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+env:
+    CARGO_TERM_COLOR: always
+    RUST_BACKTRACE: 1
+
+jobs:
+    windows-mutations:
+        name: Windows system changes
+        runs-on: windows-latest
+        timeout-minutes: 60
+        env:
+            AE_DISPOSABLE_HOST: "1"
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Runner identity
+              shell: pwsh
+              run: |
+                  # The tests need an elevated token; say so if the image changes.
+                  $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+                  $p = New-Object Security.Principal.WindowsPrincipal($id)
+                  "user: $($id.Name)"
+                  "elevated: $($p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))"
+                  winget --version
+
+            - name: Build the gated tests
+              run: cargo test --no-run --test windows_service_admin --test windows_account_admin --test windows_winget_admin
+
+            - name: Services
+              run: cargo test --test windows_service_admin -- --include-ignored --test-threads=1
+
+            - name: Accounts and groups
+              run: cargo test --test windows_account_admin -- --include-ignored --test-threads=1
+
+            - name: winget packages
+              run: cargo test --test windows_winget_admin -- --include-ignored --test-threads=1

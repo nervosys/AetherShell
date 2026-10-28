@@ -208,6 +208,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listening socket: the TCP table gives a listener's remote port as 0, which
   was refused as unreadable. It is now `*:*`, and a bound socket's state is
   `BOUND` instead of `UNKNOWN`.
+- Windows system administration, each tested only on a disposable runner
+  (`.github/workflows/disposable-host.yml`, manual):
+  `svc_create` and `svc_delete` use the Service Control Manager. The service
+  is `ae-<name>`, its binary must be an absolute existing `.exe`, and
+  `svc_delete` removes only a service that `svc_create` made (it carries a
+  marker in its description). `user_add`, `user_del`, `user_mod`,
+  `user_passwd`, `user_lock`, `user_unlock`, `group_add`, `group_del` and
+  `group_mod` use the NetAPI; an account is created disabled, a password
+  never reaches a command line, and options with no Windows meaning (uid,
+  gid, shell, home) are `E_BAD_ARG`. Built-in principals (any `S-1-5-32-*`
+  SID or a RID below 1000) and the running account are `E_POLICY_DENY`
+  before anything is written. `pkg_install`, `pkg_remove`, `pkg_update` and
+  `pkg_upgrade` run winget by argv with `--exact` and a validated id;
+  `pkg_clean`, `pkg_autoremove`, hold and source changes have no winget
+  equivalent and are `E_UNIMPLEMENTED`. All of these refuse inside a
+  transaction.
 - `archive_test` stops zip, tar, `.tar.gz` and gzip archives at 4 GiB of
   decompressed data with `E_BUDGET_EXCEEDED`, as it already did for bzip2,
   xz and zstd. A small archive that inflated to terabytes was read to its end.
@@ -221,6 +237,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `E_BAD_ARG`. Generation also stops on the model's own end token.
 
 ### Fixed
+
+- Dependencies with advisories published 2026-10: quinn-proto 0.11.19,
+  rustls 0.23.46, rustls-webpki 0.103.16, webpki-roots and webpki-root-certs
+  1.0.11, tokio 1.51.6, event-listener 5.4.2, memmap2 0.9.12, and zip 9.1.3
+  for the archive builtins. Two older zip copies remain, read without
+  `extract()`: a build dependency of utoipa-swagger-ui and the optional
+  candle backend. Their three extract advisories are ignored in deny.toml and
+  .cargo/audit.toml, with the reason, until both move to zip 9.
+- On Apple Silicon, `sys_cpu_info` leaves out `mhz` and `sys_cpu_freq` is
+  null: `hw.cpufrequency` does not exist there, and both were `E_BAD_STATE`.
+- `net_ports` on macOS missed every listener: netstat writes `addr.port`,
+  and the parser looked for `:port`.
 
 - **Local inference builds and keeps its models**: the `candle` and `onnx`
   features did not compile. Each `ai_local_*` call also built new backends,
