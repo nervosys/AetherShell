@@ -24154,78 +24154,91 @@ fn proc_read_failed(builtin: &str, pid: i64, what: &str, e: &std::io::Error) -> 
     }
 }
 
-/// The items of a PowerShell `ConvertTo-Json`: an array, a single object (one
-/// item is not wrapped in an array), or nothing.
+/// A Windows process image name without its ".exe" suffix. The suffix is
+/// matched without regard to case, so the name reads as Get-Process's
+/// ProcessName did.
 #[cfg(windows)]
-fn proc_json_items(builtin: &str, text: &str) -> Result<Vec<serde_json::Value>> {
-    let text = text.trim();
-    if text.is_empty() {
-        return Ok(vec![]);
-    }
-    match serde_json::from_str::<serde_json::Value>(text) {
-        Ok(serde_json::Value::Array(items)) => Ok(items),
-        Ok(obj @ serde_json::Value::Object(_)) => Ok(vec![obj]),
-        _ => Err(crate::safety::tool_failed(
-            builtin,
-            "powershell",
-            Some(0),
-            "its output was not JSON this builtin reads",
-        )),
+fn proc_strip_exe(name: &str) -> &str {
+    match name.len().checked_sub(4) {
+        Some(cut) if name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(".exe") => {
+            &name[..cut]
+        }
+        _ => name,
     }
 }
 
-/// A numeric field of a Windows process listing. A null field is Null, not zero.
+/// Total CPU seconds (kernel plus user time) of process `pid`, the value
+/// Get-Process's CPU column reported. None when the process cannot be opened
+/// or queried, which the caller turns into Null as PowerShell did.
 #[cfg(windows)]
-fn proc_json_field(item: &serde_json::Value, key: &str) -> Value {
-    item.get(key)
-        .and_then(|v| v.as_f64())
-        .map(Value::Float)
-        .unwrap_or(Value::Null)
+fn win_process_cpu_seconds(pid: u32) -> Option<f64> {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetProcessTimes(
+            process: *mut c_void,
+            creation: *mut WinFileTime,
+            exit: *mut WinFileTime,
+            kernel: *mut WinFileTime,
+            user: *mut WinFileTime,
+        ) -> i32;
+    }
+    win_with_process("proc_list", i64::from(pid), |h| {
+        let mut creation = WinFileTime::default();
+        let mut exit = WinFileTime::default();
+        let mut kernel = WinFileTime::default();
+        let mut user = WinFileTime::default();
+        // SAFETY: `h` is the live handle win_with_process opened; each
+        // out-pointer is a valid, writable FILETIME.
+        if unsafe { GetProcessTimes(h, &mut creation, &mut exit, &mut kernel, &mut user) } == 0 {
+            return Err(crate::safety::bad_state(
+                "proc_list",
+                &format!(
+                    "GetProcessTimes failed: {}",
+                    std::io::Error::last_os_error()
+                ),
+                "a live process this user can query",
+            ));
+        }
+        Ok((kernel.ticks() + user.ticks()) as f64 / 1e7)
+    })
+    .ok()
 }
 
 fn bi_proc_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     proc_check("proc_list", &args, &input, 0)?;
+    // Was `Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64` run
+    // through PowerShell and parsed from its JSON; now read in process. sysinfo
+    // lists the processes (image name, working set) and GetProcessTimes gives
+    // the CPU seconds. Rows are sorted by pid.
     #[cfg(windows)]
     let procs = {
-        let out = proc_tool(
-            "proc_list",
-            "powershell",
-            {
-                let mut c = Command::new("powershell");
-                c.args([
-                    "-Command",
-                    "Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json",
-                ]);
-                c
-            },
-            PROBE_DEADLINE_SECS,
-        )?;
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            true,
+            sysinfo::ProcessRefreshKind::nothing().with_memory(),
+        );
+        let mut rows: Vec<(u32, &sysinfo::Process)> = sys
+            .processes()
+            .iter()
+            .map(|(pid, process)| (pid.as_u32(), process))
+            .collect();
+        rows.sort_unstable_by_key(|(pid, _)| *pid);
         let mut procs = Vec::new();
-        for item in proc_json_items("proc_list", &String::from_utf8_lossy(&out.stdout))? {
-            let pid = item.get("Id").and_then(|v| v.as_i64()).ok_or_else(|| {
-                crate::safety::tool_failed(
-                    "proc_list",
-                    "powershell",
-                    Some(0),
-                    "a process had no Id",
-                )
-            })?;
-            let name = item
-                .get("ProcessName")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+        for (pid, process) in rows {
+            let raw = process.name().to_string_lossy().into_owned();
+            let name = proc_strip_exe(&raw).to_string();
             let mut rec = BTreeMap::new();
-            rec.insert("pid".to_string(), Value::Int(pid));
+            rec.insert("pid".to_string(), Value::Int(i64::from(pid)));
             rec.insert("name".to_string(), Value::Str(name.clone()));
-            rec.insert("cpu".to_string(), proc_json_field(&item, "CPU"));
             rec.insert(
-                "mem".to_string(),
-                item.get("WorkingSet64")
-                    .and_then(|v| v.as_i64())
-                    .map(Value::Int)
+                "cpu".to_string(),
+                win_process_cpu_seconds(pid)
+                    .map(Value::Float)
                     .unwrap_or(Value::Null),
             );
+            rec.insert("mem".to_string(), Value::Int(process.memory() as i64));
             rec.insert("command".to_string(), Value::Str(name));
             procs.push(Value::Record(rec));
         }
@@ -25805,65 +25818,37 @@ fn bi_proc_exe(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Str(proc_exe_of(pid)?))
 }
 
-/// Splits a Windows command line into its arguments. Whitespace separates
-/// them except inside double quotes, and the quotes are not part of an
-/// argument. This covers the common cases of CommandLineToArgvW; a backslash
-/// before a quote is taken literally.
-#[cfg(windows)]
-fn proc_split_windows(line: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut in_word = false;
-    let mut quoted = false;
-    for c in line.chars() {
-        match c {
-            '"' => {
-                quoted = !quoted;
-                in_word = true;
-            }
-            c if c.is_whitespace() && !quoted => {
-                if in_word {
-                    out.push(std::mem::take(&mut cur));
-                    in_word = false;
-                }
-            }
-            c => {
-                cur.push(c);
-                in_word = true;
-            }
-        }
-    }
-    if in_word {
-        out.push(cur);
-    }
-    out
-}
-
+// Was `(Get-CimInstance Win32_Process -Filter ProcessId=N).CommandLine` run
+// through PowerShell and split on whitespace here; now read in process.
+// sysinfo's cmd() is the command line as CommandLineToArgvW splits it, so each
+// element is one argument.
 #[cfg(windows)]
 fn proc_cmdline_of(pid: i64) -> Result<Vec<String>> {
-    let cmd = crate::ps_script!(
-        "(Get-CimInstance Win32_Process -Filter \"ProcessId={}\").CommandLine",
-        pid
+    let spid = sysinfo::Pid::from_u32(pid as u32);
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[spid]),
+        true,
+        sysinfo::ProcessRefreshKind::nothing().with_cmd(sysinfo::UpdateKind::Always),
     );
-    let out = proc_tool(
-        "proc_cmdline",
-        "powershell",
-        {
-            let mut c = Command::new("powershell");
-            c.args(["-Command", &cmd]);
-            c
-        },
-        PROBE_DEADLINE_SECS,
-    )?;
-    let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if line.is_empty() {
+    let argv: Vec<String> = sys
+        .process(spid)
+        .map(|process| {
+            process
+                .cmd()
+                .iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    if argv.is_empty() {
         return Err(crate::safety::os_denied(
             "proc_cmdline",
             format!("proc_cmdline: the command line of process {pid} is not readable"),
             "the process is protected or belongs to another user; read the command line of a process this user owns",
         ));
     }
-    Ok(proc_split_windows(&line))
+    Ok(argv)
 }
 
 #[cfg(target_os = "linux")]
