@@ -34427,14 +34427,21 @@ fn bi_pkg_history(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     pkg_history_read(limit)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 fn pkg_history_read(_limit: usize) -> Result<Value> {
-    // The apt history log exists only on Linux. Nothing is read here.
+    // The apt history log is Linux's and the Windows Installer log is Windows'.
+    // Nothing is read here.
     Err(crate::safety::unimplemented(
         "pkg_history",
-        "package history is read from the apt log on Linux only; NOTHING WAS READ",
-        "ask the package manager directly (brew list, winget list)",
+        "package history is read from the apt log on Linux and the Windows Installer log on Windows; NOTHING WAS READ",
+        "ask the package manager directly (brew list)",
     ))
+}
+
+#[cfg(windows)]
+fn pkg_history_read(limit: usize) -> Result<Value> {
+    let script = WIN_PKG_HISTORY_SCRIPT.replace("__LIMIT__", &limit.to_string());
+    Ok(Value::Array(win_event_rows("pkg_history", &script)?))
 }
 
 #[cfg(target_os = "linux")]
@@ -57516,6 +57523,11 @@ fn logrotate_config_check(builtin: &str, text: &str) -> Result<()> {
 /// the journal's JSON fields. Linux only; elsewhere the call is E_UNIMPLEMENTED
 /// after its arguments are checked. A line that is not JSON is E_TOOL_FAILED,
 /// never skipped, and output past 16 MiB is E_BUDGET_EXCEEDED.
+///
+/// On Windows the entries are the newest `count` events of the System log, as
+/// Records {time, provider, level, id, message}. `unit` is then an event
+/// provider's name, such as "Service Control Manager". Nothing else maps: the
+/// Linux call takes no priority, so none is accepted here.
 fn bi_journalctl(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     k8s_no_input("journalctl", &input)?;
     k8s_max_args("journalctl", &args, 2)?;
@@ -57530,7 +57542,14 @@ fn bi_journalctl(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ))
         }
     };
+    #[cfg(windows)]
+    let unit = k8s_arg("journalctl", "unit", &args, 1, journal_provider)?;
+    #[cfg(not(windows))]
     let unit = k8s_arg("journalctl", "unit", &args, 1, journal_unit)?;
+    #[cfg(windows)]
+    {
+        journal_windows(count, unit)
+    }
     #[cfg(target_os = "linux")]
     {
         let count_s = count.to_string();
@@ -57561,15 +57580,85 @@ fn bi_journalctl(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
         Ok(Value::Array(entries))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = (count, unit);
         Err(crate::safety::unimplemented(
             "journalctl",
-            "journalctl reads the systemd journal, which exists only on Linux; NOTHING WAS READ on this operating system",
+            "journalctl reads the systemd journal on Linux and the event log on Windows; NOTHING WAS READ on this operating system",
             "cat(path) reads a log file on every OS",
         ))
     }
+}
+
+/// An event provider name for journalctl on Windows: letters, digits, space,
+/// and - _ . only. The name goes inside a single-quoted PowerShell string, so
+/// nothing PowerShell would read as syntax is allowed.
+#[cfg(windows)]
+fn journal_provider(builtin: &str, what: &str, value: &str) -> Result<String> {
+    crate::safety::reject_option_like(builtin, &[value.to_string()])?;
+    let well_formed = !value.trim().is_empty()
+        && value.len() <= 256
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b' ' | b'-' | b'_' | b'.'));
+    if well_formed {
+        Ok(value.to_string())
+    } else {
+        Err(crate::safety::arg_err(format!(
+            "{builtin}: {what} must be an event provider name (letters, digits, space and - _ .), got {value:?}"
+        )))
+    }
+}
+
+/// journalctl on Windows: the newest `count` events of the System log, or of
+/// one provider. A provider with no events is an empty Array.
+#[cfg(windows)]
+fn journal_windows(count: i64, provider: Option<String>) -> Result<Value> {
+    let filter = match provider.as_deref() {
+        Some(p) => format!("@{{LogName='System'; ProviderName='{p}'}}"),
+        None => "@{LogName='System'}".to_string(),
+    };
+    let script = WIN_JOURNAL_SCRIPT
+        .replace("__FILTER__", &filter)
+        .replace("__COUNT__", &count.to_string());
+    Ok(Value::Array(win_event_rows("journalctl", &script)?))
+}
+
+/// Get-WinEvent streams the newest event first. A filter that matches nothing
+/// raises a NoMatching error, caught here and printed as []. Any other error
+/// stops the script under ErrorActionPreference Stop and exits non-zero.
+#[cfg(windows)]
+const WIN_JOURNAL_SCRIPT: &str = r#"$ErrorActionPreference='Stop'; $OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=$OutputEncoding; $rows=@(); try { $rows=@(Get-WinEvent -FilterHashtable __FILTER__ -MaxEvents __COUNT__ | ForEach-Object { [pscustomobject]@{ time=$_.TimeCreated.ToString('o'); provider=$_.ProviderName; level=$_.LevelDisplayName; id=$_.Id; message=$_.Message } }) } catch { if ($_.FullyQualifiedErrorId -like 'NoMatching*') { $rows=@() } else { throw } }; ConvertTo-Json -InputObject $rows -Depth 3 -Compress"#;
+
+/// pkg_history on Windows: the MsiInstaller events 1033 (installed) and 1034
+/// (removed) in the Application log. They carry the product name and version as
+/// properties, and status 0 is success; other statuses are failed transactions
+/// and are left out. Select-Object -First stops the read at the limit.
+#[cfg(windows)]
+const WIN_PKG_HISTORY_SCRIPT: &str = r#"$ErrorActionPreference='Stop'; $OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=$OutputEncoding; $rows=@(); try { $rows=@(Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='MsiInstaller'; Id=1033,1034} | Where-Object { $_.Properties.Count -ge 4 -and [string]$_.Properties[3].Value -eq '0' } | Select-Object -First __LIMIT__ | ForEach-Object { [pscustomobject]@{ time=$_.TimeCreated.ToString('o'); action=$(if ($_.Id -eq 1033) { 'install' } else { 'remove' }); package=[string]$_.Properties[0].Value; version=[string]$_.Properties[1].Value } }) } catch { if ($_.FullyQualifiedErrorId -like 'NoMatching*') { $rows=@() } else { throw } }; ConvertTo-Json -InputObject $rows -Depth 3 -Compress"#;
+
+/// Run one event-log script under the tool deadline and return its records.
+/// The script prints a JSON array. Anything else is an unreadable answer, never
+/// an empty one.
+#[cfg(windows)]
+fn win_event_rows(builtin: &str, script: &str) -> Result<Vec<Value>> {
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
+        .stdin(std::process::Stdio::null());
+    let output = bounded_cmd_output(builtin, "powershell", cmd, TOOL_DEADLINE_SECS)?;
+    let text = probe_stdout(builtin, "powershell", output)?;
+    let items = match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(serde_json::Value::Array(items)) => items,
+        _ => return Err(net_unparsed(builtin, "powershell")),
+    };
+    items
+        .into_iter()
+        .map(|item| match item {
+            obj @ serde_json::Value::Object(_) => Ok(json_to_value(obj)),
+            _ => Err(net_unparsed(builtin, "powershell")),
+        })
+        .collect()
 }
 
 /// 961: bi_lsof - List open files.

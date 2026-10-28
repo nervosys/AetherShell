@@ -773,8 +773,8 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "journalctl", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[opt_range("count", Ty::Int, 1, 1000, "entries to return, default 50"), opt("unit", Ty::Str, "systemd unit name such as sshd.service; a leading '-' is refused")], returns: "Array",
-        doc: "The most recent entries of the systemd journal as an Array of Records of the journal's JSON fields, optionally of one unit. Linux only; elsewhere the call is E_UNIMPLEMENTED after its arguments are checked. A line that is not JSON is E_TOOL_FAILED, never skipped. Output past 16 MiB is E_BUDGET_EXCEEDED. Takes no pipeline input.",
+        params: &[opt_range("count", Ty::Int, 1, 1000, "entries to return, default 50"), opt("unit", Ty::Str, "systemd unit name such as sshd.service on Linux, or an event provider name such as Service Control Manager on Windows; a leading '-' is refused")], returns: "Array",
+        doc: "The most recent entries of the systemd journal on Linux, as an Array of Records of the journal's JSON fields, optionally of one unit. On Windows the rows are the newest System event log entries, read with Get-WinEvent, as Records {time, provider, level, id, message}: count is the event limit and unit an event provider name; no matching events give []. Elsewhere the call is E_UNIMPLEMENTED after its arguments are checked. A line that is not JSON is E_TOOL_FAILED, never skipped. Output past 16 MiB is E_BUDGET_EXCEEDED. Takes no pipeline input.",
         examples: &[
             (r#"(try { journalctl(0) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { journalctl(5, "-x") } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -12690,7 +12690,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt_range("limit", Ty::Int, 1, 1000, "how many of the newest transactions to return; default 50")],
         returns: "Array",
-        doc: "Transactions from the apt history log (/var/log/apt/history.log), newest first, at most limit (1 to 1000, default 50). Each is a Record {start, end, command, installed, upgraded, removed}: end and command are null when the log does not record them, and each package is named without its version. The last 64 MiB of an uncompressed log is read; a block cut at the front is dropped. A missing log is E_NOT_FOUND. Off Linux the call is E_UNIMPLEMENTED and NOTHING WAS READ.",
+        doc: "Transactions, newest first, at most limit (1 to 1000, default 50). On Linux they come from the apt history log (/var/log/apt/history.log), each a Record {start, end, command, installed, upgraded, removed}: end and command are null when the log does not record them, and each package is named without its version. The last 64 MiB of an uncompressed log is read; a block cut at the front is dropped. A missing log is E_NOT_FOUND. On Windows they are the successful MsiInstaller installs (event 1033) and removals (event 1034) in the Application log, each a Record {time, action, package, version} with action install or remove. Elsewhere the call is E_UNIMPLEMENTED and NOTHING WAS READ.",
         examples: &[
             (r#"pkg_history()"#, r#"[{start: "2026-09-01  10:02:11", end: "2026-09-01  10:02:14", command: "apt install curl", installed: [curl:amd64, libcurl4:amd64], upgraded: [], removed: []}, ...]"#),
             (r#"pkg_history(1)"#, r#"[{start: "2026-09-01  10:02:11", end: "2026-09-01  10:02:14", command: "apt install curl", installed: [curl:amd64, libcurl4:amd64], upgraded: [], removed: []}]"#),
