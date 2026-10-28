@@ -15,11 +15,13 @@ env:
     CARGO_TERM_COLOR: always
 
 jobs:
+    # Resolves the version only. The job keeps its id because every other job
+    # reads `needs.create-release.outputs.version`; the release itself is made
+    # by publish-release, after every asset is built.
     create-release:
-        name: Create Release
+        name: Resolve version
         runs-on: ubuntu-latest
         outputs:
-            upload_url: ${{ steps.create_release.outputs.upload_url }}
             version: ${{ steps.get_version.outputs.version }}
         steps:
             - uses: actions/checkout@v4
@@ -37,34 +39,6 @@ jobs:
                     VERSION="${GITHUB_REF#refs/tags/v}"
                   fi
                   python3 scripts/release_version.py "$VERSION" >> "$GITHUB_OUTPUT"
-
-            - name: Create Release
-              id: create_release
-              uses: softprops/action-gh-release@v2
-              with:
-                  tag_name: v${{ steps.get_version.outputs.version }}
-                  name: AetherShell v${{ steps.get_version.outputs.version }}
-                  # Was `draft: true` until 2026-08-07, which silently produced
-                  # *two* releases per tag and threw away the notes.
-                  #
-                  # A draft release is not bound to its tag until published. So
-                  # this step created an unattached draft holding the generated
-                  # notes, and then each `Upload Release Asset` step below asked
-                  # softprops for the release on tag `vX.Y.Z`, found none, and
-                  # created a second one — published, with the assets, and with
-                  # an empty body. The draft was orphaned.
-                  #
-                  # The result: 18 empty drafts accumulated from v0.3.0 to
-                  # v4.0.0, and every published release had no release notes.
-                  # Both symptoms had been visible on the releases page for
-                  # months.
-                  #
-                  # Publishing directly means the upload steps find this release
-                  # by tag and attach to it, so there is one release per tag and
-                  # the notes survive.
-                  draft: false
-                  prerelease: false
-                  generate_release_notes: true
 
     build-binaries:
         name: Build (${{ matrix.target }})
@@ -136,11 +110,12 @@ jobs:
                   cd target/${{ matrix.target }}/release
                   7z a ../../../aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip ae.exe aimodel.exe
 
-            - name: Upload Release Asset
-              uses: softprops/action-gh-release@v2
+            - name: Hand the archive to publish-release
+              uses: actions/upload-artifact@v4
               with:
-                  tag_name: v${{ needs.create-release.outputs.version }}
-                  files: aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+                  name: release-${{ matrix.target }}
+                  path: aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+                  if-no-files-found: error
 
     build-wasm:
         name: Build WASM
@@ -168,11 +143,12 @@ jobs:
                   cd web
                   tar czvf ../aethershell-wasm-${{ needs.create-release.outputs.version }}.tar.gz pkg/
 
-            - name: Upload WASM Release Asset
-              uses: softprops/action-gh-release@v2
+            - name: Hand the archive to publish-release
+              uses: actions/upload-artifact@v4
               with:
-                  tag_name: v${{ needs.create-release.outputs.version }}
-                  files: aethershell-wasm-${{ needs.create-release.outputs.version }}.tar.gz
+                  name: release-wasm
+                  path: aethershell-wasm-${{ needs.create-release.outputs.version }}.tar.gz
+                  if-no-files-found: error
 
     publish-preflight:
         # Which registries are actually configured on this repository.
@@ -236,7 +212,7 @@ jobs:
 
     publish-crates:
         name: Publish to crates.io
-        needs: [create-release, build-binaries, publish-preflight]
+        needs: [create-release, publish-release, publish-preflight]
         if: needs.publish-preflight.outputs.crates == 'true'
         runs-on: ubuntu-latest
         steps:
@@ -346,7 +322,7 @@ jobs:
 
     publish-npm:
         name: Publish WASM to npm
-        needs: [create-release, build-wasm, publish-preflight]
+        needs: [create-release, publish-release, publish-preflight]
         if: needs.publish-preflight.outputs.npm == 'true'
         runs-on: ubuntu-latest
         steps:
@@ -520,7 +496,7 @@ jobs:
 
     publish-pypi:
         name: Publish Python SDK to PyPI
-        needs: [create-release, publish-preflight]
+        needs: [create-release, publish-release, publish-preflight]
         if: needs.publish-preflight.outputs.pypi == 'true'
         runs-on: ubuntu-latest
         permissions:
@@ -646,14 +622,47 @@ jobs:
             - name: Build .rpm package
               run: cargo generate-rpm
 
-            - name: Upload .deb package
-              uses: softprops/action-gh-release@v2
+            - name: Hand the packages to publish-release
+              uses: actions/upload-artifact@v4
               with:
-                  tag_name: v${{ needs.create-release.outputs.version }}
-                  files: target/debian/*.deb
+                  name: release-linux-packages
+                  path: |
+                      target/debian/*.deb
+                      target/generate-rpm/*.rpm
+                  if-no-files-found: error
 
-            - name: Upload .rpm package
+    publish-release:
+        # One release, created once, with every asset and the generated notes.
+        #
+        # The release used to be published first and each build attached its
+        # file as it finished, so for the length of the builds -- and for good
+        # when one failed -- the public release had some platforms' binaries
+        # and not others. A draft is not the fix: a draft is not bound to its
+        # tag, and the uploads then made a second release (see the 2026-08-07
+        # history in git log). Now a failed build means no release: re-run the
+        # failed job, and this one runs when every build has passed.
+        name: Publish GitHub release
+        needs: [create-release, build-binaries, build-wasm, build-linux-packages]
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/download-artifact@v4
+              with:
+                  pattern: release-*
+                  path: dist
+                  merge-multiple: true
+
+            - name: List the assets
+              run: ls -la dist && test "$(ls dist | wc -l)" -ge 9
+
+            - name: Create the release
               uses: softprops/action-gh-release@v2
               with:
                   tag_name: v${{ needs.create-release.outputs.version }}
-                  files: target/generate-rpm/*.rpm
+                  name: AetherShell v${{ needs.create-release.outputs.version }}
+                  draft: false
+                  prerelease: false
+                  generate_release_notes: true
+                  fail_on_unmatched_files: true
+                  files: dist/*

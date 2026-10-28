@@ -233,7 +233,7 @@ without tagging or publishing it first.
 
 - [ ] Obtain explicit approval for the release push/tag, public release and each registry publication included in the release.
 - [ ] Publish the approved release commit and tag; verify that the tag identifies the validated commit.
-- [ ] Monitor every build and upload to completion. The current workflow creates a public release before binary jobs finish.
+- [ ] Monitor every build and upload to completion. 2026-10-28: the workflow no longer creates a public release before the binary jobs finish. publish-release creates it once, after every build has passed, with all nine assets and the notes, and the registry jobs wait for it. This is untested until the tag run.
 - [ ] After the authorized tag exists, compute its real source-archive SHA-256 and update the Homebrew formula; do not invent a prepublication checksum.
 - [ ] Publish the chosen registry packages and independently verify their versions and artifacts in the registries.
 - [ ] Download the actual release assets and test clean installation on Windows, Linux and macOS, including the supported architectures and channels.
