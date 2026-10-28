@@ -32441,16 +32441,56 @@ fn bi_archive_test(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             &path,
         )
     })?;
-    let sink = |r: &mut dyn std::io::Read| std::io::copy(r, &mut std::io::sink()).is_ok();
-    Ok(Value::Bool(match kind {
+    Ok(Value::Bool(archive_test_local(
+        &path,
+        kind,
+        archive_cli::DECOMPRESSED_CAP,
+    )?))
+}
+
+/// archive_test for the formats read in-process (zip, tar, tar.gz, gzip),
+/// with at most `cap` decompressed bytes. The tool-backed formats had a cap
+/// and these did not, so a small archive that inflates to terabytes was read
+/// to its end; past the cap the answer is E_BUDGET_EXCEEDED, neither true nor
+/// false.
+fn archive_test_local(path: &str, kind: &str, cap: u64) -> Result<bool> {
+    use std::cell::Cell;
+    struct CappedSink<'a> {
+        left: &'a Cell<u64>,
+        hit: &'a Cell<bool>,
+    }
+    impl std::io::Write for CappedSink<'_> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let left = self.left.get();
+            if buf.len() as u64 > left {
+                self.hit.set(true);
+                return Err(std::io::Error::other("decompressed size cap reached"));
+            }
+            self.left.set(left - buf.len() as u64);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let left = Cell::new(cap);
+    let hit = Cell::new(false);
+    let sink = |r: &mut dyn std::io::Read| {
+        let mut out = CappedSink {
+            left: &left,
+            hit: &hit,
+        };
+        std::io::copy(r, &mut out).is_ok()
+    };
+    let ok = match kind {
         "zip" => {
-            let Ok(mut z) = zip::ZipArchive::new(archive_open("archive_test", &path)?) else {
-                return Ok(Value::Bool(false));
+            let Ok(mut z) = zip::ZipArchive::new(archive_open("archive_test", path)?) else {
+                return Ok(false);
             };
             (0..z.len()).all(|i| z.by_index(i).map(|mut f| sink(&mut f)).unwrap_or(false))
         }
         "tar" | "tar.gz" => {
-            let f = archive_open("archive_test", &path)?;
+            let f = archive_open("archive_test", path)?;
             let reader: Box<dyn std::io::Read> = if kind == "tar.gz" {
                 Box::new(flate2::read::GzDecoder::new(f))
             } else {
@@ -32466,7 +32506,7 @@ fn bi_archive_test(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
         "gzip" => sink(&mut flate2::read::GzDecoder::new(archive_open(
             "archive_test",
-            &path,
+            path,
         )?)),
         other => {
             return Err(crate::safety::unimplemented(
@@ -32475,7 +32515,43 @@ fn bi_archive_test(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 "use the format's own tool (bzip2 -t, xz -t, zstd -t)",
             ))
         }
-    }))
+    };
+    if hit.get() {
+        return Err(crate::safety::budget_exceeded(
+            "archive_test",
+            format!(
+                "the decompressed {kind} contents passed {} bytes",
+                cap
+            ),
+            "the archive is too large to test in-process; it is neither confirmed nor refuted",
+        ));
+    }
+    Ok(ok)
+}
+
+#[cfg(test)]
+mod archive_test_cap_tests {
+    use super::*;
+    use std::io::Write as _;
+
+    #[test]
+    fn an_archive_past_the_cap_is_budget_exceeded_not_false() {
+        let dir = std::env::temp_dir().join(format!("ae-archcap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("zeros.gz");
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        gz.write_all(&vec![0u8; 1 << 20]).unwrap();
+        std::fs::write(&path, gz.finish().unwrap()).unwrap();
+        let p = path.to_string_lossy().to_string();
+
+        assert!(archive_test_local(&p, "gzip", 1 << 20).unwrap());
+        let e = archive_test_local(&p, "gzip", (1 << 20) - 1).unwrap_err();
+        let code = e
+            .downcast_ref::<crate::safety::SafetyError>()
+            .map(|s| s.code);
+        assert_eq!(code, Some(crate::safety::ErrorCode::BudgetExceeded), "{e}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 /// gzip, in-process (flate2): `gzip -k` semantics -- the input is kept and

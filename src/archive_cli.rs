@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use crate::safety;
 
 /// Decompressed bytes a tar archive may produce before the test gives up.
-const DECOMPRESSED_CAP: u64 = 4 << 30;
+pub(crate) const DECOMPRESSED_CAP: u64 = 4 << 30;
 /// Wall-clock limit for one tool run, including the read of a tar stream.
 const DEADLINE: Duration = Duration::from_secs(600);
 /// Stderr kept for a failure message.

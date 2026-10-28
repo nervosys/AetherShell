@@ -163,6 +163,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partition ids, and `monitor_ethtool` an adapter's speed, duplex, link and
   driver. `dd_copy` copies in-process with the same `bs` and `count`, and
   refuses a copy onto its own source.
+- `archive_test` stops zip, tar, `.tar.gz` and gzip archives at 4 GiB of
+  decompressed data with `E_BUDGET_EXCEEDED`, as it already did for bzip2,
+  xz and zstd. A small archive that inflated to terabytes was read to its end.
 - `web_websocket`: a bounded one-shot WebSocket exchange (ws and wss), where it
   was a stub refusing every call.
 - `ai_local_generate` takes an Array of `{role, content}` messages as well as
