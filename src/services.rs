@@ -841,12 +841,7 @@ mod scm {
             )
         };
         if raw.is_null() {
-            return Err(scm_error(
-                BUILTIN,
-                "CreateServiceW",
-                last_error(),
-                &service,
-            ));
+            return Err(scm_error(BUILTIN, "CreateServiceW", last_error(), &service));
         }
         let svc = Handle(raw);
         let description = format!("{WIN_MARKER}{}", spec.description);
@@ -859,9 +854,7 @@ mod scm {
         record.insert("name".to_string(), Value::Str(service.clone()));
         record.insert(
             "unit_path".to_string(),
-            Value::Str(format!(
-                r"HKLM\SYSTEM\CurrentControlSet\Services\{service}"
-            )),
+            Value::Str(format!(r"HKLM\SYSTEM\CurrentControlSet\Services\{service}")),
         );
         record.insert("enabled".to_string(), Value::Bool(spec.enable));
         record.insert("started".to_string(), Value::Bool(spec.start));
@@ -892,10 +885,15 @@ mod scm {
     }
 
     fn start_type_of(builtin: &str, svc: &Handle, service: &str) -> Result<u32> {
-        let buf = query_buffer(builtin, service, "QueryServiceConfigW", |p, size, needed| {
-            // SAFETY: the buffer and its size are the ones query_buffer passes.
-            unsafe { QueryServiceConfigW(svc.0, p, size, needed) }
-        })?;
+        let buf = query_buffer(
+            builtin,
+            service,
+            "QueryServiceConfigW",
+            |p, size, needed| {
+                // SAFETY: the buffer and its size are the ones query_buffer passes.
+                unsafe { QueryServiceConfigW(svc.0, p, size, needed) }
+            },
+        )?;
         // SAFETY: a successful call wrote a QUERY_SERVICE_CONFIGW at the start of
         // the buffer, and the buffer outlives this read.
         Ok(unsafe { (*buf.as_ptr().cast::<QueryConfig>()).start_type })
@@ -909,9 +907,7 @@ mod scm {
             "QueryServiceConfig2W",
             |p, size, needed| {
                 // SAFETY: the buffer and its size are the ones query_buffer passes.
-                unsafe {
-                    QueryServiceConfig2W(svc.0, SERVICE_CONFIG_DESCRIPTION, p, size, needed)
-                }
+                unsafe { QueryServiceConfig2W(svc.0, SERVICE_CONFIG_DESCRIPTION, p, size, needed) }
             },
         )?;
         // SAFETY: a successful call wrote a SERVICE_DESCRIPTIONW whose string lies
@@ -925,7 +921,9 @@ mod scm {
             while *ptr.add(len) != 0 {
                 len += 1;
             }
-            Ok(String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len)))
+            Ok(String::from_utf16_lossy(std::slice::from_raw_parts(
+                ptr, len,
+            )))
         }
     }
 

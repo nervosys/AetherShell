@@ -456,7 +456,9 @@ fn windows_principal(text: &str) -> bool {
         && text.trim() == text
         && !text.starts_with('-')
         && !text.starts_with('/')
-        && !text.chars().any(|c| c.is_control() || matches!(c, ':' | '(' | ')'))
+        && !text
+            .chars()
+            .any(|c| c.is_control() || matches!(c, ':' | '(' | ')'))
 }
 
 /// Whether text is one or more icacls rights, comma-separated, as `acl_set` takes them.
@@ -566,7 +568,10 @@ fn parse_icacls(path: &str, text: &str) -> Result<Value> {
             ("principal", Value::Str(principal.to_string())),
             ("perms", Value::Str(perms)),
             ("inherited", Value::Bool(inherited)),
-            ("flags", Value::Array(flags.into_iter().map(Value::Str).collect())),
+            (
+                "flags",
+                Value::Array(flags.into_iter().map(Value::Str).collect()),
+            ),
             ("deny", Value::Bool(deny)),
         ]));
     }

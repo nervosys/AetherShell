@@ -789,7 +789,8 @@ mod tests {
 
     #[test]
     fn python_string_methods_render_as_in_llama3_templates() {
-        let template = "{% for m in messages %}{{ m.content | trim }}|{{ m['content'].strip() }}{% endfor %}";
+        let template =
+            "{% for m in messages %}{{ m.content | trim }}|{{ m['content'].strip() }}{% endfor %}";
         assert_eq!(
             render_chat_template(template, &[user("  hi  ")], "", "").unwrap(),
             "hi|hi"

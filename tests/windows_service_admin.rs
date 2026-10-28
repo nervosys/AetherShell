@@ -122,21 +122,37 @@ fn malformed_service_calls_are_refused_before_the_manager() {
         vec![s("svc-ok"), argv(&["/usr/bin/true"])],
         vec![s("svc-ok"), argv(&[CMD, "/c", "echo"])],
         vec![s("svc-ok"), argv(&[r"C:\aethershell\no-such-program.exe"])],
-        vec![s("svc-ok"), argv(&[CMD]), record(&[("restart", s("sometimes"))])],
+        vec![
+            s("svc-ok"),
+            argv(&[CMD]),
+            record(&[("restart", s("sometimes"))]),
+        ],
         vec![s("svc-ok"), argv(&[CMD]), record(&[("enable", s("yes"))])],
-        vec![s("svc-ok"), argv(&[CMD]), record(&[("bogus", Value::Bool(true))])],
+        vec![
+            s("svc-ok"),
+            argv(&[CMD]),
+            record(&[("bogus", Value::Bool(true))]),
+        ],
     ] {
         code(call("svc_create", args, &mut env), "E_BAD_ARG");
     }
     code(
         call(
             "svc_create",
-            vec![s("svc-ok"), argv(&[CMD]), record(&[("user", s("no-such-account-ae"))])],
+            vec![
+                s("svc-ok"),
+                argv(&[CMD]),
+                record(&[("user", s("no-such-account-ae"))]),
+            ],
             &mut env,
         ),
         "E_NOT_FOUND",
     );
-    for args in [vec![s("Bad Name")], vec![s("-leading")], vec![Value::Int(7)]] {
+    for args in [
+        vec![s("Bad Name")],
+        vec![s("-leading")],
+        vec![Value::Int(7)],
+    ] {
         code(call("svc_delete", args, &mut env), "E_BAD_ARG");
     }
 }

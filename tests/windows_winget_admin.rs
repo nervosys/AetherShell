@@ -141,7 +141,10 @@ fn wrong_types_and_arguments_are_refused_before_winget_runs() {
     assert_refused("pkg_install", vec![], "E_BAD_ARG");
     assert_refused(
         "pkg_install",
-        vec![strs(&[PACKAGE]), record(&[("no_recommends", Value::Bool(true))])],
+        vec![
+            strs(&[PACKAGE]),
+            record(&[("no_recommends", Value::Bool(true))]),
+        ],
         "E_BAD_ARG",
     );
     assert_refused("pkg_remove", vec![s(PACKAGE)], "E_BAD_ARG");
@@ -157,11 +160,7 @@ fn wrong_types_and_arguments_are_refused_before_winget_runs() {
 #[test]
 fn upgrade_options_are_checked_before_winget_runs() {
     assert_refused("pkg_upgrade", vec![s("jqlang.jq")], "E_BAD_ARG");
-    assert_refused(
-        "pkg_upgrade",
-        vec![record(&[("id", s("-x"))])],
-        "E_BAD_ARG",
-    );
+    assert_refused("pkg_upgrade", vec![record(&[("id", s("-x"))])], "E_BAD_ARG");
     assert_refused(
         "pkg_upgrade",
         vec![record(&[("id", s("a b"))])],
@@ -252,8 +251,8 @@ fn disposable_install_upgrade_and_uninstall_jq() {
         "an up-to-date package must report changed: false"
     );
 
-    let removed = call("pkg_remove", vec![strs(&[PACKAGE])], &mut Env::new())
-        .expect("pkg_remove jqlang.jq");
+    let removed =
+        call("pkg_remove", vec![strs(&[PACKAGE])], &mut Env::new()).expect("pkg_remove jqlang.jq");
     match field(&removed, "removed") {
         Value::Array(items) => assert_eq!(items, &vec![s(PACKAGE)]),
         other => panic!("removed is not an Array: {other:?}"),

@@ -1774,11 +1774,7 @@ pub fn is_manifest_builtin(name: &str) -> bool {
 /// is called, and a caller's variable cannot stand in for it. The registry lock
 /// is released before that, so a body that calls another plugin builtin, or
 /// itself, does not deadlock. The builtins of a disabled plugin refuse to run.
-pub fn call_manifest_builtin(
-    name: &str,
-    args: Vec<Value>,
-    input: Option<Value>,
-) -> Result<Value> {
+pub fn call_manifest_builtin(name: &str, args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let lambda = {
         let registry = get_plugin_registry().lock().unwrap();
         let Some(entry) = registry.manifest_builtins.get(name) else {
@@ -2437,10 +2433,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!(
-            "ae-plugin-{tag}-{}-{nanos}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ae-plugin-{tag}-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("fixture directory");
         let path = dir.join("plugin.toml");
         std::fs::write(&path, body).expect("fixture manifest");

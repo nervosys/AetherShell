@@ -27,8 +27,7 @@ const UF_ACCOUNTDISABLE: u32 = 0x0002;
 
 #[link(name = "netapi32")]
 extern "system" {
-    fn NetUserGetInfo(server: *const u16, user: *const u16, level: u32, buf: *mut *mut u8)
-        -> u32;
+    fn NetUserGetInfo(server: *const u16, user: *const u16, level: u32, buf: *mut *mut u8) -> u32;
     fn NetApiBufferFree(buf: *mut u8) -> u32;
 }
 
@@ -112,9 +111,7 @@ fn expect_code(result: anyhow::Result<Value>, want: &str) {
 
 fn field<'a>(v: &'a Value, key: &str) -> &'a Value {
     match v {
-        Value::Record(m) => m
-            .get(key)
-            .unwrap_or_else(|| panic!("no {key} in {v:?}")),
+        Value::Record(m) => m.get(key).unwrap_or_else(|| panic!("no {key} in {v:?}")),
         other => panic!("not a record: {other:?}"),
     }
 }
@@ -304,7 +301,10 @@ fn aeci_options_without_a_windows_meaning_are_refused() {
     expect_code(
         call(
             "user_add",
-            vec![s("aeci_probe"), rec(&[("groups", Value::Array(vec![s("aeci_g")]))])],
+            vec![
+                s("aeci_probe"),
+                rec(&[("groups", Value::Array(vec![s("aeci_g")]))]),
+            ],
         ),
         "E_BAD_ARG",
     );
@@ -362,13 +362,13 @@ fn aeci_built_in_accounts_and_groups_are_refused_before_any_change() {
     expect_code(call("user_del", vec![s("administrator")]), "E_POLICY_DENY");
     expect_code(call("user_lock", vec![s("administrator")]), "E_POLICY_DENY");
     expect_code(
-        call(
-            "user_passwd",
-            vec![s("administrator"), s("Aeci-Probe-1")],
-        ),
+        call("user_passwd", vec![s("administrator"), s("Aeci-Probe-1")]),
         "E_POLICY_DENY",
     );
-    expect_code(call("group_del", vec![s("administrators")]), "E_POLICY_DENY");
+    expect_code(
+        call("group_del", vec![s("administrators")]),
+        "E_POLICY_DENY",
+    );
     expect_code(
         call(
             "group_mod",
@@ -415,9 +415,15 @@ fn aeci_user_lifecycle_verifies_each_step() {
         "user_add",
         vec![s(&user), rec(&[("comment", s("aeci initial"))])],
     );
-    assert!(net_ok(&["user", user.as_str()]), "net user sees the account");
+    assert!(
+        net_ok(&["user", user.as_str()]),
+        "net user sees the account"
+    );
     assert!(flag(&added, "locked"), "a new account starts disabled");
-    assert!(account_disabled(&user), "NetUserGetInfo sees the disabled flag");
+    assert!(
+        account_disabled(&user),
+        "NetUserGetInfo sees the disabled flag"
+    );
     assert_eq!(text(&added, "name"), user);
     assert!(
         text(&added, "sid").starts_with("S-1-5-21-"),
@@ -448,7 +454,10 @@ fn aeci_user_lifecycle_verifies_each_step() {
     let locked = call_ok("user_lock", vec![s(&user)]);
     assert!(flag(&locked, "locked"));
     assert!(account_disabled(&user), "lock disables the account");
-    assert!(!logon_ok(&user, &password), "a disabled account does not log on");
+    assert!(
+        !logon_ok(&user, &password),
+        "a disabled account does not log on"
+    );
     call_ok("user_unlock", vec![s(&user)]);
     assert!(!account_disabled(&user), "unlock clears the disabled flag");
 
@@ -457,7 +466,10 @@ fn aeci_user_lifecycle_verifies_each_step() {
     assert!(net_ok(&["localgroup", group.as_str()]));
     let appended = call_ok(
         "user_mod",
-        vec![s(&user), rec(&[("add_groups", Value::Array(vec![s(&group)]))])],
+        vec![
+            s(&user),
+            rec(&[("add_groups", Value::Array(vec![s(&group)]))]),
+        ],
     );
     assert_eq!(changed(&appended), ["add_groups"]);
     assert!(
@@ -468,8 +480,14 @@ fn aeci_user_lifecycle_verifies_each_step() {
     // delete: the account is gone, and so is the group
     let deleted = call_ok("user_del", vec![s(&user)]);
     assert!(!flag(&deleted, "removed_home"));
-    assert!(!net_ok(&["user", user.as_str()]), "net user no longer finds it");
-    assert!(account_flags(&user).is_none(), "NetUserGetInfo no longer finds it");
+    assert!(
+        !net_ok(&["user", user.as_str()]),
+        "net user no longer finds it"
+    );
+    assert!(
+        account_flags(&user).is_none(),
+        "NetUserGetInfo no longer finds it"
+    );
     call_ok("group_del", vec![s(&group)]);
     assert!(!net_ok(&["localgroup", group.as_str()]));
 }
@@ -493,7 +511,10 @@ fn aeci_group_lifecycle_verifies_each_step() {
         text(&added, "sid").starts_with("S-1-5-21-"),
         "a local group SID"
     );
-    assert!(net_ok(&["localgroup", first.as_str()]), "net localgroup sees it");
+    assert!(
+        net_ok(&["localgroup", first.as_str()]),
+        "net localgroup sees it"
+    );
     expect_code(call("group_add", vec![s(&first)]), "E_BAD_STATE");
 
     let renamed = call_ok(
@@ -502,10 +523,19 @@ fn aeci_group_lifecycle_verifies_each_step() {
     );
     assert_eq!(text(&renamed, "name"), second);
     assert_eq!(changed(&renamed), ["new_name"]);
-    assert!(!net_ok(&["localgroup", first.as_str()]), "the old name is gone");
-    assert!(net_ok(&["localgroup", second.as_str()]), "the new name exists");
+    assert!(
+        !net_ok(&["localgroup", first.as_str()]),
+        "the old name is gone"
+    );
+    assert!(
+        net_ok(&["localgroup", second.as_str()]),
+        "the new name exists"
+    );
 
     let deleted = call_ok("group_del", vec![s(&second)]);
     assert_eq!(text(&deleted, "name"), second);
-    assert!(!net_ok(&["localgroup", second.as_str()]), "the group is gone");
+    assert!(
+        !net_ok(&["localgroup", second.as_str()]),
+        "the group is gone"
+    );
 }

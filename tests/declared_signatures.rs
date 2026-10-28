@@ -376,7 +376,10 @@ fn machine_absence(name: &str, msg: &str) -> bool {
     let code = error_code(msg);
     if cfg!(windows)
         && name == "fs_symlink"
-        && matches!(code.as_deref(), Some("E_OS_DENIED" | "E_POLICY_DENY" | "E_IO"))
+        && matches!(
+            code.as_deref(),
+            Some("E_OS_DENIED" | "E_POLICY_DENY" | "E_IO")
+        )
     {
         return msg.contains("os error 1314");
     }

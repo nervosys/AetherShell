@@ -136,7 +136,6 @@ pub(super) fn upgrade(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
 }
 
-
 /// `pkg_install(names, options?)`. Options: `no_recommends` Bool, default true.
 /// Names may be `name=version`. Returns `{installed: [{name, version}]}`, with
 /// versions read back from dpkg after apt succeeds.
@@ -863,7 +862,9 @@ mod winget_tests {
         let too_long = "x".repeat(129);
         assert!(id_ok(&longest), "128 characters should be accepted");
         assert!(!id_ok(&too_long), "129 characters should be refused");
-        for id in ["", "-x", "a b", "a;b", "a=1.0", "a/b", "a$(b)", "\u{e9}", "a\nb"] {
+        for id in [
+            "", "-x", "a b", "a;b", "a=1.0", "a/b", "a$(b)", "\u{e9}", "a\nb",
+        ] {
             assert!(!id_ok(id), "{id:?} should be refused");
         }
     }

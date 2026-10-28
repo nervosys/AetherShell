@@ -20,7 +20,7 @@ use std::ffi::c_void;
 use std::ptr::{from_ref, null, null_mut};
 
 use super::{
-    refuse_in_transaction, record, strings, GroupAdd, GroupDel, GroupMod, UserAdd, UserDel,
+    record, refuse_in_transaction, strings, GroupAdd, GroupDel, GroupMod, UserAdd, UserDel,
     UserMod, UserOnly, UserPasswd,
 };
 use crate::safety::{arg_err, bad_state, not_found, os_denied, policy_deny, tool_failed};
@@ -59,8 +59,7 @@ extern "system" {
         buf: *const u8,
         parm_err: *mut u32,
     ) -> u32;
-    fn NetLocalGroupAdd(server: *const u16, level: u32, buf: *const u8, parm_err: *mut u32)
-        -> u32;
+    fn NetLocalGroupAdd(server: *const u16, level: u32, buf: *const u8, parm_err: *mut u32) -> u32;
     fn NetLocalGroupDel(server: *const u16, group: *const u16) -> u32;
     fn NetLocalGroupGetInfo(
         server: *const u16,
@@ -483,13 +482,7 @@ pub fn group_mod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let info = LocalGroupInfo0 { name: new.as_ptr() };
     // SAFETY: `old`, `new` and `info` outlive the call.
     let status = unsafe {
-        NetLocalGroupSetInfo(
-            null(),
-            old.as_ptr(),
-            0,
-            from_ref(&info).cast(),
-            null_mut(),
-        )
+        NetLocalGroupSetInfo(null(), old.as_ptr(), 0, from_ref(&info).cast(), null_mut())
     };
     if status != NERR_SUCCESS {
         return Err(net_failure(
@@ -537,7 +530,13 @@ fn set_lock(builtin: &str, args: Vec<Value>, input: Option<Value>, lock: bool) -
         )
     };
     if status != NERR_SUCCESS {
-        return Err(net_failure(builtin, "NetUserSetInfo", status, &name, "user"));
+        return Err(net_failure(
+            builtin,
+            "NetUserSetInfo",
+            status,
+            &name,
+            "user",
+        ));
     }
     Ok(record(vec![
         ("name", Value::Str(name)),
@@ -577,9 +576,8 @@ fn add_member(builtin: &str, group: &str, user_sid: &[u32]) -> Result<()> {
     };
     // SAFETY: `name` and `member` outlive the call, and `member` points at the
     // SID buffer, which lives across it too.
-    let status = unsafe {
-        NetLocalGroupAddMembers(null(), name.as_ptr(), 0, from_ref(&member).cast(), 1)
-    };
+    let status =
+        unsafe { NetLocalGroupAddMembers(null(), name.as_ptr(), 0, from_ref(&member).cast(), 1) };
     match status {
         NERR_SUCCESS | ERROR_MEMBER_IN_ALIAS => Ok(()),
         other => Err(net_failure(

@@ -183,7 +183,8 @@ fn a_journal_directory_that_cannot_be_made_is_a_coded_error() {
     let _ = std::fs::remove_file(&file);
     let err = result.expect_err("begin must fail under a file");
     assert!(
-        err.downcast_ref::<aethershell::safety::SafetyError>().is_some(),
+        err.downcast_ref::<aethershell::safety::SafetyError>()
+            .is_some(),
         "the failure must carry a code: {err}"
     );
 }

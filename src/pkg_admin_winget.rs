@@ -13,8 +13,8 @@
 //! already changed; one name per call is the exact form.
 
 use super::{
-    no_args_or_input, no_pipeline, options, record, refuse_in_transaction, stderr_tail,
-    MAX_NAMES, RUN_TIMEOUT_SECS,
+    no_args_or_input, no_pipeline, options, record, refuse_in_transaction, stderr_tail, MAX_NAMES,
+    RUN_TIMEOUT_SECS,
 };
 use crate::safety;
 use crate::value::Value;
@@ -123,7 +123,13 @@ pub(super) fn remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     refuse_in_transaction(B)?;
 
     for id in &ids {
-        let argv = ["list", "--id", id.as_str(), "--exact", "--disable-interactivity"];
+        let argv = [
+            "list",
+            "--id",
+            id.as_str(),
+            "--exact",
+            "--disable-interactivity",
+        ];
         if winget(B, &argv)? == Ran::NotFound {
             return Err(safety::not_found(B, "installed package", id));
         }
@@ -179,13 +185,15 @@ pub(super) fn upgrade(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => None,
         Some(Value::Str(id)) if id_ok(id) => Some(id.clone()),
         Some(Value::Str(id)) => {
+            return Err(safety::bad_arg(B, WINGET_ID_EXPECTED, &format!("{id:?}")))
+        }
+        Some(other) => {
             return Err(safety::bad_arg(
                 B,
-                WINGET_ID_EXPECTED,
-                &format!("{id:?}"),
+                "String for option id",
+                other.type_name(),
             ))
         }
-        Some(other) => return Err(safety::bad_arg(B, "String for option id", other.type_name())),
     };
     refuse_in_transaction(B)?;
 
@@ -235,7 +243,13 @@ fn one_list(builtin: &str, args: &[Value]) -> Result<Vec<String>> {
 fn identifiers(builtin: &str, value: &Value) -> Result<Vec<String>> {
     let items = match value {
         Value::Array(items) => items,
-        other => return Err(safety::bad_arg(builtin, "Array of String", other.type_name())),
+        other => {
+            return Err(safety::bad_arg(
+                builtin,
+                "Array of String",
+                other.type_name(),
+            ))
+        }
     };
     if items.is_empty() {
         return Err(safety::arg_err(format!(
@@ -276,12 +290,7 @@ fn identifiers(builtin: &str, value: &Value) -> Result<Vec<String>> {
 fn winget(builtin: &str, args: &[&str]) -> Result<Ran> {
     let output = run(builtin, args)?;
     let Some(code) = output.status.code() else {
-        return Err(safety::tool_failed(
-            builtin,
-            "winget",
-            None,
-            &tail(&output),
-        ));
+        return Err(safety::tool_failed(builtin, "winget", None, &tail(&output)));
     };
     match classify(code as u32) {
         Ok(ran) => Ok(ran),

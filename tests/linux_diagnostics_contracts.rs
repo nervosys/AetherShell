@@ -204,7 +204,11 @@ fn monitor_perf_record_refuses_option_like_or_unreachable_output() {
 #[test]
 fn linux_names_are_absent_on_windows() {
     expect_code("blkid", vec![s("/dev/sda1")], "E_NOT_FOUND");
-    expect_code("monitor_ethtool", vec![s("ae-no-such-adapter-0")], "E_NOT_FOUND");
+    expect_code(
+        "monitor_ethtool",
+        vec![s("ae-no-such-adapter-0")],
+        "E_NOT_FOUND",
+    );
 }
 
 #[cfg(not(target_os = "linux"))]

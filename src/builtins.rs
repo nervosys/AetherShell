@@ -22486,7 +22486,11 @@ fn split_agent_tool_names(
     for name in requested {
         let raw = name.as_str();
         let Some(served) = endpoint_tools else {
-            builtin.push(raw.strip_prefix(AGENT_MCP_PREFIX).unwrap_or(raw).to_string());
+            builtin.push(
+                raw.strip_prefix(AGENT_MCP_PREFIX)
+                    .unwrap_or(raw)
+                    .to_string(),
+            );
             continue;
         };
         match raw.strip_prefix(AGENT_MCP_PREFIX) {
@@ -22544,7 +22548,10 @@ impl crate::ai::agents::Tool for AgentMcpTool {
 /// address is contacted. Returns the client and the tools the server lists.
 fn connect_agent_mcp(
     endpoint: &str,
-) -> Result<(crate::ai::mcp::McpClient, Vec<crate::ai::mcp::McpToolSchema>)> {
+) -> Result<(
+    crate::ai::mcp::McpClient,
+    Vec<crate::ai::mcp::McpToolSchema>,
+)> {
     let detected = crate::ai::detect_mcp_servers()
         .iter()
         .any(|s| s.endpoint == endpoint);
@@ -22687,9 +22694,10 @@ fn bi_agent_with_mcp(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> R
     }
 
     let max_steps = 10;
-    let result = crate::ai::agents::run_sync_with_tools(&goal, tools, max_steps, env).map_err(
-        |e| crate::safety::tool_failed("agent_with_mcp", "model backend", None, &e.to_string()),
-    )?;
+    let result =
+        crate::ai::agents::run_sync_with_tools(&goal, tools, max_steps, env).map_err(|e| {
+            crate::safety::tool_failed("agent_with_mcp", "model backend", None, &e.to_string())
+        })?;
     if result.starts_with("(incomplete)") {
         return Err(crate::safety::budget_exceeded(
             "agent_with_mcp",
@@ -26530,7 +26538,11 @@ fn bi_fs_chown(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                     other.type_name(),
                 ))
             }
-            None => return Err(crate::safety::arg_err("fs_chown requires an owner account name")),
+            None => {
+                return Err(crate::safety::arg_err(
+                    "fs_chown requires an owner account name",
+                ))
+            }
         };
         if args.next().is_some() {
             return Err(crate::safety::bad_arg(
@@ -26818,10 +26830,8 @@ mod win_chown_tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let path = std::env::temp_dir().join(format!(
-            "ae-{tag}-{}-{nanos}.txt",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("ae-{tag}-{}-{nanos}.txt", std::process::id()));
         std::fs::write(&path, "x").expect("create temp file");
         path.to_string_lossy().into_owned()
     }
@@ -57845,7 +57855,11 @@ fn blkid_windows(device: &str) -> Result<Value> {
     )?;
     net_checked(NAME, "powershell", &out)?;
     let Some(item) = net_ps_items(NAME, &out.stdout)?.into_iter().next() else {
-        return Err(crate::safety::not_found(NAME, "identifiable device", device));
+        return Err(crate::safety::not_found(
+            NAME,
+            "identifiable device",
+            device,
+        ));
     };
     let Some(o) = item.as_object() else {
         return Err(net_unparsed(NAME, "powershell"));
@@ -58510,8 +58524,14 @@ const WIN_PKG_HISTORY_SCRIPT: &str = r#"$ErrorActionPreference='Stop'; $OutputEn
 #[cfg(windows)]
 fn win_event_rows(builtin: &str, script: &str) -> Result<Vec<Value>> {
     let mut cmd = std::process::Command::new("powershell");
-    cmd.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
-        .stdin(std::process::Stdio::null());
+    cmd.args([
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        script,
+    ])
+    .stdin(std::process::Stdio::null());
     let output = bounded_cmd_output(builtin, "powershell", cmd, TOOL_DEADLINE_SECS)?;
     let text = probe_stdout(builtin, "powershell", output)?;
     let items = match serde_json::from_str::<serde_json::Value>(&text) {
@@ -61887,7 +61907,10 @@ fn bi_perf_stat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             Some((Err(e), _)) => {
                 return Err(crate::safety::bad_state(
                     "perf_stat",
-                    &format!("GetProcessTimes or K32GetProcessMemoryInfo failed on `{}`: {e}", argv[0]),
+                    &format!(
+                        "GetProcessTimes or K32GetProcessMemoryInfo failed on `{}`: {e}",
+                        argv[0]
+                    ),
                     "a child this process started, read before its handle is closed",
                 ))
             }
@@ -63032,8 +63055,8 @@ struct ReplRequest {
 /// Parse one request line. The error text is what the peer is told.
 fn repl_parse_request(line: &[u8]) -> std::result::Result<ReplRequest, String> {
     let text = std::str::from_utf8(line).map_err(|_| "request is not UTF-8".to_string())?;
-    let value: serde_json::Value = serde_json::from_str(text.trim_end())
-        .map_err(|e| format!("request is not JSON: {e}"))?;
+    let value: serde_json::Value =
+        serde_json::from_str(text.trim_end()).map_err(|e| format!("request is not JSON: {e}"))?;
     let object = value
         .as_object()
         .ok_or_else(|| "request must be a JSON object".to_string())?;
@@ -63069,9 +63092,7 @@ fn repl_read_line<R: std::io::BufRead>(
     let mut line: Vec<u8> = Vec::new();
     loop {
         let (complete, used) = {
-            let buf = reader
-                .fill_buf()
-                .map_err(|e| format!("read failed: {e}"))?;
+            let buf = reader.fill_buf().map_err(|e| format!("read failed: {e}"))?;
             if buf.is_empty() {
                 return if line.is_empty() {
                     Ok(None)
@@ -63283,9 +63304,7 @@ fn bi_repl_serve(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let server = slot.take().ok_or_else(|| {
             crate::safety::bad_state(NAME, "no REPL listener is running", "repl_serve")
         })?;
-        server
-            .stop
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        server.stop.store(true, std::sync::atomic::Ordering::SeqCst);
         let mut rec = BTreeMap::new();
         rec.insert("address".to_string(), Value::Str(server.addr.to_string()));
         rec.insert("status".to_string(), Value::Str("stopped".to_string()));
@@ -63381,9 +63400,9 @@ fn bi_repl_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             .map_err(|_| crate::safety::bad_arg(NAME, target_hint, text))?,
         Value::Record(fields) => {
             let host = match fields.get("host") {
-                Some(Value::Str(h)) => h.parse::<std::net::IpAddr>().map_err(|_| {
-                    crate::safety::bad_arg(NAME, "host: a literal IP address", h)
-                })?,
+                Some(Value::Str(h)) => h
+                    .parse::<std::net::IpAddr>()
+                    .map_err(|_| crate::safety::bad_arg(NAME, "host: a literal IP address", h))?,
                 _ => {
                     return Err(crate::safety::bad_arg(
                         NAME,
@@ -63404,13 +63423,7 @@ fn bi_repl_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             };
             std::net::SocketAddr::new(host, port)
         }
-        other => {
-            return Err(crate::safety::bad_arg(
-                NAME,
-                target_hint,
-                other.type_name(),
-            ))
-        }
+        other => return Err(crate::safety::bad_arg(NAME, target_hint, other.type_name())),
     };
     let fields = match &options {
         Value::Record(fields) => fields,
@@ -63442,10 +63455,7 @@ fn bi_repl_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-    let line = format!(
-        "{}\n",
-        serde_json::json!({"token": token, "code": code})
-    );
+    let line = format!("{}\n", serde_json::json!({"token": token, "code": code}));
     if line.len() > REPL_MAX_LINE {
         return Err(crate::safety::bad_arg(
             NAME,
@@ -63470,8 +63480,7 @@ fn bi_repl_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     stream
         .set_write_timeout(Some(REPL_IO_TIMEOUT))
         .map_err(|e| nc_io_error(NAME, e))?;
-    std::io::Write::write_all(&mut stream, line.as_bytes())
-        .map_err(|e| nc_io_error(NAME, e))?;
+    std::io::Write::write_all(&mut stream, line.as_bytes()).map_err(|e| nc_io_error(NAME, e))?;
     let read_side = stream.try_clone().map_err(|e| nc_io_error(NAME, e))?;
     let mut reader = std::io::BufReader::new(read_side);
     let reply_line = repl_read_line(&mut reader, REPL_MAX_LINE)
@@ -63483,7 +63492,12 @@ fn bi_repl_connect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let mut rec = BTreeMap::new();
     rec.insert("address".to_string(), Value::Str(addr.to_string()));
     if reply.get("ok").and_then(|v| v.as_bool()) == Some(true) {
-        let value = json_to_value(reply.get("value").cloned().unwrap_or(serde_json::Value::Null));
+        let value = json_to_value(
+            reply
+                .get("value")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        );
         let type_name = reply
             .get("type")
             .and_then(|v| v.as_str())
@@ -71116,7 +71130,10 @@ mod quiet_probe_tests {
             Some(8080)
         );
         // Remote port 0 is the table's "no peer" (a listener): read as 0.
-        assert_eq!(net_remote_port("net_sockets", &o, "RemotePort").ok(), Some(0));
+        assert_eq!(
+            net_remote_port("net_sockets", &o, "RemotePort").ok(),
+            Some(0)
+        );
         assert!(net_remote_port("net_sockets", &o, "Missing").is_err());
         assert!(
             net_remote_port("net_sockets", &obj(r#"{"RemotePort":70000}"#), "RemotePort").is_err()

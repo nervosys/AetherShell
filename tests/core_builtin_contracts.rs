@@ -511,7 +511,11 @@ fn chgrp_names_a_windows_account_and_refuses_numeric_ids() {
     let file = dir.join("f.txt");
     std::fs::write(&file, "x").unwrap();
     refused("chgrp", vec![s("1000"), p(&file)], "E_BAD_ARG");
-    refused("chgrp", vec![s("ae-no-such-group-zq"), p(&file)], "E_NOT_FOUND");
+    refused(
+        "chgrp",
+        vec![s("ae-no-such-group-zq"), p(&file)],
+        "E_NOT_FOUND",
+    );
     refused(
         "chgrp",
         vec![s("ae-no-such-group-zq"), p(&dir.join("missing"))],
