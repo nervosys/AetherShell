@@ -469,11 +469,12 @@ fn agent_with_mcp_refuses_bad_input_before_any_model_call() {
         vec![s("x"), Value::Array(vec![s("no_such_tool_xyz")])],
         "E_NOT_FOUND",
     );
-    // The endpoint is refused, not read and ignored.
+    // Only an endpoint `detect_mcp_servers` found is contacted; any other is
+    // not found, before any model call.
     expect_code(
         "agent_with_mcp",
         vec![s("x"), Value::Array(vec![]), s("http://127.0.0.1:9")],
-        "E_UNIMPLEMENTED",
+        "E_NOT_FOUND",
     );
     let too_many = Value::Array(vec![s("now"); 33]);
     expect_code(

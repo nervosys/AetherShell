@@ -178,8 +178,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `agent_with_mcp(goal, tools, endpoint)` uses the endpoint: each
   `mcp:<name>` the server lists becomes a tool, and each call goes to that
   server, guarded as a network request. As with `mcp_connect`, only a
-  loopback server that `detect_mcp_servers` finds is contacted. The endpoint
-  had been refused with `E_UNIMPLEMENTED`.
+  loopback server that `detect_mcp_servers` finds is contacted; any other
+  endpoint is `E_NOT_FOUND`. The endpoint had been refused with
+  `E_UNIMPLEMENTED`.
+- `repl_serve(options?)` serves this process's evaluation on 127.0.0.1 (or
+  ::1) and returns `{address, port, token, status}`; `repl_connect(target,
+  {token, code})` sends one request and returns `{ok, value, type}`. Each
+  request is one JSON line that must carry the token (compared in constant
+  time; a wrong one is `E_POLICY_DENY`). Requests are capped at 1 MiB, with 8
+  connections at once and 30 seconds per evaluation. Serving needs agent mode,
+  so a peer's code runs under the agent-mode policy, and every builtin it calls
+  is guarded as it would be locally. A non-loopback host is `E_BAD_ARG`;
+  `{stop: true}` stops the listener. Both are network effects and refuse
+  inside a transaction. `repl_broadcast` is still `E_UNIMPLEMENTED`: no
+  session is held open, so there are no peers to send to.
+- A plugin manifest's `[builtins]` entries are callable. Each is one
+  AetherShell lambda literal, run in a fresh module environment, so every
+  builtin it calls passes its own guard. A plugin builtin is classed `Exec`,
+  so agent mode asks for approval per call, and a manifest that defines code is
+  gated like a native plugin (`AETHER_PLUGINS=off` refuses it; agent mode needs
+  `AETHER_PLUGIN_ALLOW`). A name a core builtin serves, a value that is not
+  one lambda, or a name another plugin provides is refused before anything is
+  registered; `plugin_unload` removes the entries. They are not reachable
+  through the Agent API's `/api/v1/call`. Loading one had been refused with
+  `E_UNIMPLEMENTED`.
 - `net_connections` and `net_ports` on Windows failed on any host with a
   listening socket: the TCP table gives a listener's remote port as 0, which
   was refused as unreadable. It is now `*:*`, and a bound socket's state is

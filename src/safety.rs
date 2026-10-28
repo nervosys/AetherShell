@@ -1112,6 +1112,9 @@ fn classified_effect(name: &str) -> Option<Effect> {
         {
             Some(Effect::Network)
         }
+        // A loopback listener that evaluates a peer's code, and the client that
+        // sends it. What the remote code does is judged per call when it runs.
+        "repl_serve" | "repl_connect" => Some(Effect::Network),
         // `kubectl get` against a cluster endpoint: a read, but a *remote* one
         // that ships credentials off the machine, so it is metered as egress.
         "k8s_deployments" | "k8s_services" => Some(Effect::Network),
@@ -4657,6 +4660,8 @@ pub const SELF_GUARDED: &[&str] = &[
     "proc_spawn",
     "project_scripts",
     "rbac_principal",
+    "repl_connect",
+    "repl_serve",
     "rlm_spawn",
     "rm",
     "rmdir",

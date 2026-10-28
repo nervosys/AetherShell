@@ -4284,7 +4284,7 @@ fn call_with_input_inner(
         // are matched above and a plugin cannot register one, so this never
         // shadows a builtin.
         _ if crate::plugins::is_manifest_builtin(name) => {
-            crate::plugins::call_manifest_builtin(name, args, input, env)
+            crate::plugins::call_manifest_builtin(name, args, input)
         }
         _ => Err(crate::safety::unknown_builtin(name, did_you_mean(name))),
     }
@@ -22549,11 +22549,10 @@ fn connect_agent_mcp(
         .iter()
         .any(|s| s.endpoint == endpoint);
     if !detected {
-        return Err(crate::safety::tool_failed(
+        return Err(crate::safety::not_found(
             "agent_with_mcp",
-            "MCP server",
-            None,
-            &format!("Server not responding or not detected: {endpoint}"),
+            "detected MCP server",
+            endpoint,
         ));
     }
     let client = crate::ai::mcp::McpClient::new(endpoint);
@@ -26509,98 +26508,90 @@ fn bi_fs_chown(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "fs_chown requires path, owner ID and optional group ID, without pipeline input",
         ));
     }
+    // The two platforms' bodies are inline so the guard each calls is in this
+    // function's body, where the SELF_GUARDED check reads it.
     #[cfg(windows)]
     {
-        fs_chown_windows(args)
+        // Windows: set the owner of one file to a named account through the
+        // native security API. The owner is an account name String, because a
+        // numeric ID has no Windows meaning; there is no group argument (chgrp
+        // sets the group). A call inside a transaction is refused, because the
+        // prior owner is not journaled.
+        let mut args = args.into_iter();
+        let Some(Value::Str(path)) = args.next() else {
+            return Err(crate::safety::arg_err("fs_chown path must be String"));
+        };
+        let owner = match args.next() {
+            Some(Value::Str(name)) => name,
+            Some(other) => {
+                return Err(crate::safety::bad_arg(
+                    "fs_chown",
+                    "owner: an account or group name, as a String",
+                    other.type_name(),
+                ))
+            }
+            None => return Err(crate::safety::arg_err("fs_chown requires an owner account name")),
+        };
+        if args.next().is_some() {
+            return Err(crate::safety::bad_arg(
+                "fs_chown",
+                "path and owner only (Windows sets no group here; use chgrp)",
+                "a third argument",
+            ));
+        }
+        windows_account_arg("fs_chown", &owner)?;
+        let path = crate::safety::resolve_path_str(&path);
+        let path = guard_local_write("fs_chown", &path)?;
+        std::fs::symlink_metadata(&path)
+            .map_err(|e| crate::safety::fs_error("fs_chown", &path, &e))?;
+        windows_refuse_untracked_change("fs_chown")?;
+        let mut sid = windows_account_sid("fs_chown", &owner)?;
+        windows_set_file_principal("fs_chown", &path, &mut sid, false)?;
+        Ok(Value::Bool(true))
     }
     #[cfg(not(windows))]
     {
-        fs_chown_unix(args)
-    }
-}
-
-#[cfg(not(windows))]
-fn fs_chown_unix(args: Vec<Value>) -> Result<Value> {
-    fn id(value: Value) -> Result<u32> {
-        match value {
-            Value::Int(n) if (0..i64::from(u32::MAX)).contains(&n) => Ok(n as u32),
-            _ => Err(crate::safety::arg_err("fs_chown IDs must be Int in 0..4294967295, excluding the reserved unchanged sentinel")),
+        fn id(value: Value) -> Result<u32> {
+            match value {
+                Value::Int(n) if (0..i64::from(u32::MAX)).contains(&n) => Ok(n as u32),
+                _ => Err(crate::safety::arg_err("fs_chown IDs must be Int in 0..4294967295, excluding the reserved unchanged sentinel")),
+            }
         }
-    }
-    let mut args = args.into_iter();
-    let Some(Value::Str(path)) = args.next() else {
-        return Err(crate::safety::arg_err("fs_chown path must be String"));
-    };
-    let owner = args
-        .next()
-        .map(id)
-        .transpose()?
-        .ok_or_else(|| crate::safety::arg_err("fs_chown requires owner ID"))?;
-    let group = args.next().map(id).transpose()?;
-    let path = crate::safety::resolve_path_str(&path);
-    #[cfg(unix)]
-    let path = fs::canonicalize(&path)
-        .map_err(|e| crate::safety::fs_error("fs_chown", &path, &e))?
-        .into_os_string()
-        .into_string()
-        .map_err(|_| crate::safety::arg_err("fs_chown resolved target must be valid UTF-8"))?;
-    let path = guard_local_write("fs_chown", &path)?;
-    crate::tx::snapshot_metadata(&path);
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::chown(&path, Some(owner), group)
-            .map_err(|e| crate::safety::fs_error("fs_chown", &path, &e))?;
-        Ok(Value::Bool(true))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (path, owner, group);
-        Err(crate::safety::unimplemented(
-            "fs_chown",
-            "Unix numeric ownership is unavailable on this platform",
-            "use the platform's ownership and access-control tools",
-        ))
-    }
-}
-
-/// fs_chown on Windows: set the owner of one file to a named account through
-/// the native security API. The owner is an account name String, because a
-/// numeric ID has no Windows meaning; there is no group argument (chgrp sets
-/// the group). The path is guarded like the Unix call. A call inside a
-/// transaction is refused, because the prior owner is not journaled.
-#[cfg(windows)]
-fn fs_chown_windows(args: Vec<Value>) -> Result<Value> {
-    let mut args = args.into_iter();
-    let Some(Value::Str(path)) = args.next() else {
-        return Err(crate::safety::arg_err("fs_chown path must be String"));
-    };
-    let owner = match args.next() {
-        Some(Value::Str(name)) => name,
-        Some(other) => {
-            return Err(crate::safety::bad_arg(
+        let mut args = args.into_iter();
+        let Some(Value::Str(path)) = args.next() else {
+            return Err(crate::safety::arg_err("fs_chown path must be String"));
+        };
+        let owner = args
+            .next()
+            .map(id)
+            .transpose()?
+            .ok_or_else(|| crate::safety::arg_err("fs_chown requires owner ID"))?;
+        let group = args.next().map(id).transpose()?;
+        let path = crate::safety::resolve_path_str(&path);
+        #[cfg(unix)]
+        let path = fs::canonicalize(&path)
+            .map_err(|e| crate::safety::fs_error("fs_chown", &path, &e))?
+            .into_os_string()
+            .into_string()
+            .map_err(|_| crate::safety::arg_err("fs_chown resolved target must be valid UTF-8"))?;
+        let path = guard_local_write("fs_chown", &path)?;
+        crate::tx::snapshot_metadata(&path);
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::chown(&path, Some(owner), group)
+                .map_err(|e| crate::safety::fs_error("fs_chown", &path, &e))?;
+            Ok(Value::Bool(true))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (path, owner, group);
+            Err(crate::safety::unimplemented(
                 "fs_chown",
-                "owner: an account or group name, as a String",
-                other.type_name(),
+                "Unix numeric ownership is unavailable on this platform",
+                "use the platform's ownership and access-control tools",
             ))
         }
-        None => return Err(crate::safety::arg_err("fs_chown requires an owner account name")),
-    };
-    if args.next().is_some() {
-        return Err(crate::safety::bad_arg(
-            "fs_chown",
-            "path and owner only (Windows sets no group here; use chgrp)",
-            "a third argument",
-        ));
     }
-    windows_account_arg("fs_chown", &owner)?;
-    let path = crate::safety::resolve_path_str(&path);
-    let path = guard_local_write("fs_chown", &path)?;
-    std::fs::symlink_metadata(&path)
-        .map_err(|e| crate::safety::fs_error("fs_chown", &path, &e))?;
-    windows_refuse_untracked_change("fs_chown")?;
-    let mut sid = windows_account_sid("fs_chown", &owner)?;
-    windows_set_file_principal("fs_chown", &path, &mut sid, false)?;
-    Ok(Value::Bool(true))
 }
 
 /// chgrp on Windows: set the primary group of one file to a named account or

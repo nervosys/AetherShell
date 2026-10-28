@@ -13102,7 +13102,7 @@ pub static SIGNATURES: &[Signature] = &[
         examples: &[
             (r#"(try { agent_with_mcp(5, []) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { agent_with_mcp("x", ["no_such_tool_xyz"]) } catch e { e.error.code })"#, "E_NOT_FOUND"),
-            (r#"(try { agent_with_mcp("x", [], "http://127.0.0.1:9") } catch e { e.error.code })"#, "E_TOOL_FAILED"),
+            (r#"(try { agent_with_mcp("x", [], "http://127.0.0.1:9") } catch e { e.error.code })"#, "E_NOT_FOUND"),
         ],
     },
     Signature {

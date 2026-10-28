@@ -1769,14 +1769,15 @@ pub fn is_manifest_builtin(name: &str) -> bool {
 
 /// Call a manifest builtin.
 ///
-/// The lambda is evaluated in the caller's environment and applied. The registry
-/// lock is released before that, so a body that calls another plugin builtin, or
+/// The lambda is evaluated and applied in a fresh module environment, not the
+/// caller's: a free name in the plugin's source means the same thing wherever it
+/// is called, and a caller's variable cannot stand in for it. The registry lock
+/// is released before that, so a body that calls another plugin builtin, or
 /// itself, does not deadlock. The builtins of a disabled plugin refuse to run.
 pub fn call_manifest_builtin(
     name: &str,
     args: Vec<Value>,
     input: Option<Value>,
-    env: &mut crate::env::Env,
 ) -> Result<Value> {
     let lambda = {
         let registry = get_plugin_registry().lock().unwrap();
@@ -1792,8 +1793,9 @@ pub fn call_manifest_builtin(
         }
         Arc::clone(&entry.lambda)
     };
-    let f = crate::eval::eval_expr(&lambda, env)?;
-    crate::eval::call_value_with_pipe(f, input, args, env)
+    let mut env = crate::modules::env_with_modules();
+    let f = crate::eval::eval_expr(&lambda, &mut env)?;
+    crate::eval::call_value_with_pipe(f, input, args, &mut env)
 }
 
 /// Policy for defining code from a manifest. Its `[builtins]` entries are code,
@@ -1804,9 +1806,7 @@ fn authorize_manifest_code(manifest: &Path) -> Result<()> {
     let plugins_off = std::env::var("AETHER_PLUGINS")
         .map(|v| v.eq_ignore_ascii_case("off") || v == "0")
         .unwrap_or(false);
-    let agent_mode = std::env::var("AETHER_MODE")
-        .map(|m| m.eq_ignore_ascii_case("agent"))
-        .unwrap_or(false);
+    let agent_mode = crate::safety::current_mode() == crate::safety::Mode::Agent;
     let allow = std::env::var("AETHER_PLUGIN_ALLOW").unwrap_or_default();
     let allow_roots: Vec<&str> = allow.split(';').collect();
     let canon = std::fs::canonicalize(manifest).unwrap_or_else(|_| manifest.to_path_buf());
