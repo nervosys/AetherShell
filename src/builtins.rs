@@ -28149,8 +28149,24 @@ fn windows_state_name(code: i64) -> String {
     name.to_string()
 }
 
-/// A port from `Get-NetTCPConnection`. Missing, non-integer or 0 is refused:
-/// the old `unwrap_or(0)` listed the socket as port 0, which no socket has.
+/// A remote port from `Get-NetTCPConnection`. 0 is the table's word for "no
+/// peer" (a listener or a bound socket), so it is read as 0 and rendered by the
+/// caller. Any other value outside 1..=65535, or a missing one, is refused.
+#[cfg(any(windows, test))]
+fn net_remote_port(
+    name: &str,
+    o: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<i64> {
+    o.get(key)
+        .and_then(|v| v.as_i64())
+        .filter(|p| (0..=65535).contains(p))
+        .ok_or_else(|| net_unparsed(name, "powershell"))
+}
+
+/// A local port from `Get-NetTCPConnection`. Missing, non-integer or 0 is
+/// refused: the old `unwrap_or(0)` listed the socket as port 0, which no socket
+/// has.
 #[cfg(any(windows, test))]
 fn net_socket_port(
     name: &str,
@@ -28163,9 +28179,23 @@ fn net_socket_port(
         .ok_or_else(|| net_unparsed(name, "powershell"))
 }
 
+/// One row of the Windows TCP table, with the process that owns the socket.
+/// `remote_port` is 0 when the socket has no peer: a listener or a bound socket.
 #[cfg(windows)]
-fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
-    let script = "Get-NetTCPConnection | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State | ConvertTo-Json";
+struct WinTcpRow {
+    owner: i64,
+    state: String,
+    local_addr: String,
+    local_port: i64,
+    peer_addr: String,
+    remote_port: i64,
+}
+
+/// The TCP table, read once through `Get-NetTCPConnection`. net_connections,
+/// net_ports and lsof all read sockets here, so the table is read one way.
+#[cfg(windows)]
+fn win_tcp_table(name: &str) -> Result<Vec<WinTcpRow>> {
+    let script = "Get-NetTCPConnection | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess | ConvertTo-Json";
     let out = net_run(
         name,
         "powershell",
@@ -28190,19 +28220,98 @@ fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
             }
             _ => return Err(net_unparsed(name, "powershell")),
         };
-        let local = format!(
-            "{}:{}",
-            net_req_str(name, "powershell", o, "LocalAddress")?,
-            net_socket_port(name, o, "LocalPort")?
-        );
-        let peer = format!(
-            "{}:{}",
-            net_req_str(name, "powershell", o, "RemoteAddress")?,
-            net_socket_port(name, o, "RemotePort")?
-        );
-        rows.push(net_socket_record("tcp", &state, local, peer));
+        // The owning pid is 0 for a socket that no process holds.
+        let owner = o
+            .get("OwningProcess")
+            .and_then(|v| v.as_i64())
+            .filter(|p| *p >= 0)
+            .ok_or_else(|| net_unparsed(name, "powershell"))?;
+        rows.push(WinTcpRow {
+            owner,
+            state,
+            local_addr: net_req_str(name, "powershell", o, "LocalAddress")?,
+            local_port: net_socket_port(name, o, "LocalPort")?,
+            peer_addr: net_req_str(name, "powershell", o, "RemoteAddress")?,
+            remote_port: net_remote_port(name, o, "RemotePort")?,
+        });
     }
     Ok(rows)
+}
+
+#[cfg(windows)]
+fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
+    Ok(win_tcp_table(name)?
+        .iter()
+        .map(|r| {
+            let local = format!("{}:{}", r.local_addr, r.local_port);
+            let peer = if r.remote_port == 0 {
+                "*:*".to_string()
+            } else {
+                format!("{}:{}", r.peer_addr, r.remote_port)
+            };
+            net_socket_record("tcp", &r.state, local, peer)
+        })
+        .collect())
+}
+
+/// lsof with no path on Windows: the TCP sockets a process holds, as `lsof -i`
+/// reports them, from the table net_connections reads. A socket that no process
+/// holds (owner 0) is left out, and so is one whose owner exited between the
+/// two reads: lsof lists only the sockets it can attribute to a process.
+#[cfg(windows)]
+fn lsof_windows_sockets() -> Result<Value> {
+    const NAME: &str = "lsof";
+    let table = win_tcp_table(NAME)?;
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let mut rows = Vec::new();
+    for row in table.iter().filter(|r| r.owner > 0) {
+        let pid = u32::try_from(row.owner).map_err(|_| net_unparsed(NAME, "powershell"))?;
+        let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) else {
+            continue;
+        };
+        // lsof names the command, not the image: `svchost.exe` is `svchost`.
+        let raw = process.name().to_string_lossy().into_owned();
+        let command = if raw.to_ascii_lowercase().ends_with(".exe") {
+            raw[..raw.len() - 4].to_string()
+        } else {
+            raw
+        };
+        let local = lsof_endpoint(&row.local_addr, row.local_port);
+        let name = if row.remote_port == 0 {
+            format!("{local} ({})", row.state)
+        } else {
+            let peer = lsof_endpoint(&row.peer_addr, row.remote_port);
+            format!("{local}->{peer} ({})", row.state)
+        };
+        let kind = if row.local_addr.contains(':') {
+            "IPv6"
+        } else {
+            "IPv4"
+        };
+        rows.push(net_record(vec![
+            ("command", Value::Str(command)),
+            ("pid", Value::Str(pid.to_string())),
+            ("type", Value::Str(kind.to_string())),
+            ("node", Value::Str("TCP".to_string())),
+            ("name", Value::Str(name)),
+        ]));
+    }
+    net_cap(NAME, rows)
+}
+
+/// An endpoint as lsof prints it with -n: a wildcard address is `*`, and an
+/// IPv6 address is bracketed.
+#[cfg(windows)]
+fn lsof_endpoint(addr: &str, port: i64) -> String {
+    let host = if addr == "0.0.0.0" || addr == "::" {
+        "*".to_string()
+    } else if addr.contains(':') {
+        format!("[{addr}]")
+    } else {
+        addr.to_string()
+    };
+    format!("{host}:{port}")
 }
 
 #[cfg(target_os = "linux")]
@@ -57896,7 +58005,18 @@ fn bi_lsof(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             .collect();
         Ok(Value::Array(entries))
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        match path {
+            None => lsof_windows_sockets(),
+            Some(_) => Err(crate::safety::unimplemented(
+                "lsof",
+                "the processes holding a file open are not read on Windows: no shipped source lists open files (handle.exe is Sysinternals, not shipped); NOTHING WAS LISTED",
+                "net_connections() lists sockets",
+            )),
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = path;
         Err(crate::safety::unimplemented(
@@ -69687,7 +69807,12 @@ mod quiet_probe_tests {
             net_socket_port("net_sockets", &o, "LocalPort").ok(),
             Some(8080)
         );
-        // Port 0 is never a listening or connected port: refused, not listed.
+        // Remote port 0 is the table's "no peer" (a listener): read as 0.
+        assert_eq!(net_remote_port("net_sockets", &o, "RemotePort").ok(), Some(0));
+        assert!(net_remote_port("net_sockets", &o, "Missing").is_err());
+        assert!(
+            net_remote_port("net_sockets", &obj(r#"{"RemotePort":70000}"#), "RemotePort").is_err()
+        );
         assert!(net_socket_port("net_sockets", &o, "RemotePort").is_err());
         assert!(net_socket_port("net_sockets", &o, "Missing").is_err());
         assert!(

@@ -10511,7 +10511,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt("path", Ty::Str, "an existing file; lists the processes that hold it open")],
         returns: "Array",
-        doc: "Without a path: this machine's network connections as lsof -i reports them. With a path: the processes holding that file open (an empty array when none). One record per line. Linux and macOS only; Windows refuses with E_UNIMPLEMENTED and lists nothing.",
+        doc: "Without a path: this machine's network connections as lsof -i reports them. With a path: the processes holding that file open (an empty array when none). One record per line. Linux and macOS read both forms; on Windows the no-path form lists TCP sockets and a path is E_UNIMPLEMENTED, as no shipped Windows source lists open files.",
         examples: &[
             (r#"lsof()"#, r#"[{command: sshd, pid: "812", ...}, ...]"#),
             (r#"lsof("/etc/hosts")"#, r#"[] (no process holds it open)"#),

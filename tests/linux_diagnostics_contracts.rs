@@ -222,6 +222,10 @@ fn linux_only_tools_refuse_coded_and_run_nothing_elsewhere() {
 #[cfg(not(unix))]
 #[test]
 fn lsof_and_tcpdump_refuse_coded_off_unix() {
+    // On Windows lsof lists sockets with no path; a path is not read there.
+    #[cfg(windows)]
+    let e = call("lsof", vec![s("C:/ae-lsof-contract")]).expect_err("lsof path must refuse here");
+    #[cfg(not(windows))]
     let e = call("lsof", vec![]).expect_err("lsof must refuse on this OS");
     assert_eq!(code_of(&e), "E_UNIMPLEMENTED", "{e}");
     let e = call("monitor_tcpdump", vec![]).expect_err("tcpdump must refuse on this OS");
