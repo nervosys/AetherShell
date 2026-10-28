@@ -1,8 +1,10 @@
 //! systemd service creation and deletion, and non-interactive sudo.
 //!
-//! Linux only. Argument validation runs on every platform, so a malformed call
-//! is refused the same way everywhere. Valid calls on Windows and macOS then
-//! refuse with E_UNIMPLEMENTED and change nothing.
+//! Linux and Windows. Argument validation runs on every platform, so a malformed
+//! call is refused the same way everywhere. `svc_create` and `svc_delete` act on
+//! systemd units on Linux and on Service Control Manager services on Windows.
+//! On macOS, and for `sudo_exec` everywhere but Linux, a valid call refuses with
+//! E_UNIMPLEMENTED and changes nothing.
 //!
 //! `svc_create` writes `/etc/systemd/system/ae-<name>.service`, tagged with a
 //! marker line on its first line. `svc_delete` removes only units that carry
@@ -155,7 +157,7 @@ fn refuse_in_transaction(builtin: &str) -> Result<()> {
         return Err(crate::safety::policy_deny(
             builtin,
             format!(
-                "{builtin}: refusing inside a transaction: systemd and sudo effects cannot be rolled back"
+                "{builtin}: refusing inside a transaction: service and sudo effects cannot be rolled back"
             ),
             "run it outside the transaction, after commit or rollback",
         ));
@@ -167,7 +169,7 @@ fn refuse_in_transaction(builtin: &str) -> Result<()> {
 fn not_linux(builtin: &str) -> anyhow::Error {
     crate::safety::unimplemented(
         builtin,
-        "systemd services and sudo are implemented on Linux only in 13.0.0; NOTHING WAS CHANGED",
+        "systemd services and sudo are implemented on Linux only in 13.0.0, and service creation and deletion also on Windows; NOTHING WAS CHANGED",
         "use the platform's own service manager or `sudo` directly",
     )
 }
@@ -198,13 +200,14 @@ fn parse_create(args: &[Value], input: &Option<Value>) -> Result<CreateSpec> {
     let name = name_arg(BUILTIN, &args[0])?;
     let argv = argv_arg(BUILTIN, &args[1], "an Array of String argv")?;
     let first = &argv[0];
-    if !first.starts_with('/') || first.len() < 2 {
+    if !absolute_program(first) {
         return Err(crate::safety::bad_arg(
             BUILTIN,
             "an absolute path as argv[0]",
             &format!("{first:?}"),
         ));
     }
+    windows_program_alone(BUILTIN, &argv)?;
     for arg in &argv {
         if arg.contains(['\n', '\r', '%']) {
             return Err(crate::safety::bad_arg(
@@ -286,6 +289,30 @@ fn parse_create(args: &[Value], input: &Option<Value>) -> Result<CreateSpec> {
     })
 }
 
+/// Whether argv[0] is an absolute program path on this platform: a leading `/`
+/// on Unix, a drive-letter or UNC path on Windows. On Windows a path containing
+/// a double quote is refused, since the quote is what delimits the binary path.
+fn absolute_program(path: &str) -> bool {
+    if cfg!(windows) {
+        std::path::Path::new(path).is_absolute() && !path.contains('"')
+    } else {
+        path.starts_with('/') && path.len() >= 2
+    }
+}
+
+/// A Windows service runs one program. Its binary path is built from argv[0]
+/// alone, so extra arguments are refused rather than joined into a command line.
+fn windows_program_alone(builtin: &str, argv: &[String]) -> Result<()> {
+    if cfg!(windows) && argv.len() > 1 {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "argv holding the program alone on Windows: a service takes no arguments in this release",
+            &format!("{} elements", argv.len()),
+        ));
+    }
+    Ok(())
+}
+
 fn valid_account_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     !bytes.is_empty()
@@ -303,7 +330,14 @@ pub(crate) fn svc_create(args: Vec<Value>, input: Option<Value>) -> Result<Value
     linux::create(spec)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+pub(crate) fn svc_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let spec = parse_create(&args, &input)?;
+    refuse_in_transaction("svc_create")?;
+    scm::create(spec)
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 pub(crate) fn svc_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     parse_create(&args, &input)?;
     refuse_in_transaction("svc_create")?;
@@ -326,7 +360,14 @@ pub(crate) fn svc_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value
     linux::delete(name)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+pub(crate) fn svc_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let name = parse_delete(&args, &input)?;
+    refuse_in_transaction("svc_delete")?;
+    scm::delete(name)
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 pub(crate) fn svc_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     parse_delete(&args, &input)?;
     refuse_in_transaction("svc_delete")?;
@@ -392,6 +433,600 @@ pub(crate) fn sudo_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     parse_sudo(&args, &input)?;
     refuse_in_transaction("sudo_exec")?;
     Err(not_linux("sudo_exec"))
+}
+
+// ── Windows backend ─────────────────────────────────────────────────────────
+
+/// The Service Control Manager, called through advapi32. A service has no unit
+/// file, so the marker `svc_delete` checks for is the start of the service's
+/// description: every description this module writes begins with it.
+#[cfg(windows)]
+mod scm {
+    use super::*;
+    use crate::safety::{bad_state, budget_exceeded, not_found, os_denied, policy_deny};
+    use std::ffi::c_void;
+    use std::ptr::{null, null_mut};
+    use std::time::{Duration, Instant};
+
+    const WIN_MARKER: &str = "[AetherShell svc_create] ";
+    /// How long `svc_delete` waits for a running service to report stopped.
+    const STOP_WAIT: Duration = Duration::from_secs(30);
+    /// Delay before each of the three restarts that `restart: "on-failure"` sets.
+    const RESTART_DELAY_MS: u32 = 60_000;
+    /// The failure count starts again after a day without a failure.
+    const RESET_PERIOD_SECS: u32 = 86_400;
+
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn OpenSCManagerW(machine: *const u16, database: *const u16, access: u32) -> *mut c_void;
+        fn OpenServiceW(scm: *mut c_void, name: *const u16, access: u32) -> *mut c_void;
+        #[allow(clippy::too_many_arguments)]
+        fn CreateServiceW(
+            scm: *mut c_void,
+            name: *const u16,
+            display: *const u16,
+            access: u32,
+            service_type: u32,
+            start_type: u32,
+            error_control: u32,
+            binary_path: *const u16,
+            load_order_group: *const u16,
+            tag_id: *mut u32,
+            dependencies: *const u16,
+            start_name: *const u16,
+            password: *const u16,
+        ) -> *mut c_void;
+        fn ChangeServiceConfig2W(service: *mut c_void, level: u32, info: *mut c_void) -> i32;
+        fn QueryServiceConfigW(
+            service: *mut c_void,
+            config: *mut c_void,
+            size: u32,
+            needed: *mut u32,
+        ) -> i32;
+        fn QueryServiceConfig2W(
+            service: *mut c_void,
+            level: u32,
+            buffer: *mut c_void,
+            size: u32,
+            needed: *mut u32,
+        ) -> i32;
+        fn QueryServiceStatusEx(
+            service: *mut c_void,
+            level: u32,
+            buffer: *mut c_void,
+            size: u32,
+            needed: *mut u32,
+        ) -> i32;
+        fn StartServiceW(service: *mut c_void, argc: u32, argv: *const *const u16) -> i32;
+        fn ControlService(service: *mut c_void, control: u32, status: *mut c_void) -> i32;
+        fn DeleteService(service: *mut c_void) -> i32;
+        fn CloseServiceHandle(handle: *mut c_void) -> i32;
+    }
+
+    const SC_MANAGER_CONNECT: u32 = 0x0001;
+    const SC_MANAGER_CREATE_SERVICE: u32 = 0x0002;
+    const SERVICE_QUERY_CONFIG: u32 = 0x0001;
+    const SERVICE_CHANGE_CONFIG: u32 = 0x0002;
+    const SERVICE_QUERY_STATUS: u32 = 0x0004;
+    const SERVICE_START: u32 = 0x0010;
+    const SERVICE_STOP: u32 = 0x0020;
+    const DELETE: u32 = 0x0001_0000;
+    /// The access a created service's handle needs for the calls that follow.
+    const SERVICE_RIGHTS: u32 =
+        SERVICE_CHANGE_CONFIG | SERVICE_QUERY_STATUS | SERVICE_START | SERVICE_STOP | DELETE;
+    const SERVICE_WIN32_OWN_PROCESS: u32 = 0x10;
+    const SERVICE_AUTO_START: u32 = 2;
+    const SERVICE_DEMAND_START: u32 = 3;
+    const SERVICE_DISABLED: u32 = 4;
+    const SERVICE_ERROR_NORMAL: u32 = 1;
+    const SERVICE_CONTROL_STOP: u32 = 1;
+    const SERVICE_STOPPED: u32 = 1;
+    const SC_STATUS_PROCESS_INFO: u32 = 0;
+    const SERVICE_CONFIG_DESCRIPTION: u32 = 1;
+    const SERVICE_CONFIG_FAILURE_ACTIONS: u32 = 2;
+    const SERVICE_CONFIG_FAILURE_ACTIONS_FLAG: u32 = 4;
+    const SC_ACTION_RESTART: u32 = 1;
+
+    const ERROR_ACCESS_DENIED: u32 = 5;
+    const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
+    const ERROR_SERVICE_DOES_NOT_EXIST: u32 = 1060;
+    const ERROR_SERVICE_CANNOT_ACCEPT_CTRL: u32 = 1061;
+    const ERROR_SERVICE_NOT_ACTIVE: u32 = 1062;
+    const ERROR_SERVICE_MARKED_FOR_DELETE: u32 = 1072;
+    const ERROR_SERVICE_EXISTS: u32 = 1073;
+    const ERROR_DUPLICATE_SERVICE_NAME: u32 = 1078;
+    const ERROR_INVALID_SERVICE_ACCOUNT: u32 = 1057;
+    const ERROR_SERVICE_LOGON_FAILED: u32 = 1069;
+    const ERROR_LOGON_FAILURE: u32 = 1326;
+
+    /// SERVICE_STATUS_PROCESS, the buffer QueryServiceStatusEx fills.
+    #[allow(dead_code)]
+    #[derive(Default)]
+    #[repr(C)]
+    struct ServiceStatusProcess {
+        service_type: u32,
+        current_state: u32,
+        controls_accepted: u32,
+        win32_exit_code: u32,
+        service_specific_exit_code: u32,
+        check_point: u32,
+        wait_hint: u32,
+        process_id: u32,
+        service_flags: u32,
+    }
+
+    /// The start of QUERY_SERVICE_CONFIGW; only the start type is read.
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct QueryConfig {
+        service_type: u32,
+        start_type: u32,
+        error_control: u32,
+        binary_path: *mut u16,
+        load_order_group: *mut u16,
+        tag_id: u32,
+        dependencies: *mut u16,
+        start_name: *mut u16,
+        display_name: *mut u16,
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct ServiceDescriptionW {
+        description: *mut u16,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Clone, Copy)]
+    #[repr(C)]
+    struct ScAction {
+        kind: u32,
+        delay_ms: u32,
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct ServiceFailureActionsW {
+        reset_period: u32,
+        reboot_message: *mut u16,
+        command: *mut u16,
+        count: u32,
+        actions: *mut ScAction,
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct ServiceFailureFlag {
+        on_non_crash_failures: i32,
+    }
+
+    /// An open SCM or service handle, closed when it goes out of scope.
+    struct Handle(*mut c_void);
+
+    impl Drop for Handle {
+        fn drop(&mut self) {
+            // SAFETY: the handle came from a successful Open or Create call and
+            // is closed exactly once, here.
+            unsafe { CloseServiceHandle(self.0) };
+        }
+    }
+
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    fn last_error() -> u32 {
+        std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32
+    }
+
+    /// Maps a failed service-control call to a coded error. Nothing is changed
+    /// by a call that fails, so each arm only names the cause.
+    fn scm_error(builtin: &str, call: &str, code: u32, service: &str) -> anyhow::Error {
+        let win = std::io::Error::from_raw_os_error(code as i32);
+        match code {
+            ERROR_ACCESS_DENIED => os_denied(
+                builtin,
+                format!("{builtin}: the service control manager refused {call} for '{service}' (access denied)"),
+                "run as an administrator; the shell did not refuse this",
+            ),
+            ERROR_SERVICE_DOES_NOT_EXIST => not_found(builtin, "service", service),
+            ERROR_SERVICE_EXISTS | ERROR_DUPLICATE_SERVICE_NAME => bad_state(
+                builtin,
+                &format!("{service} already exists, or its display name is taken; a service is never overwritten"),
+                "choose another name",
+            ),
+            ERROR_SERVICE_MARKED_FOR_DELETE => bad_state(
+                builtin,
+                &format!("{service} is marked for deletion and goes when the machine restarts"),
+                "restart the machine, then retry",
+            ),
+            ERROR_INVALID_SERVICE_ACCOUNT | ERROR_SERVICE_LOGON_FAILED | ERROR_LOGON_FAILURE => {
+                os_denied(
+                    builtin,
+                    format!("{builtin}: {call} could not log on the account of '{service}' ({win})"),
+                    "use a built-in or virtual account such as LocalSystem; AetherShell never supplies a password",
+                )
+            }
+            _ => bad_state(
+                builtin,
+                &format!("{call} failed for '{service}': {win} (Win32 error {code})"),
+                "check the service with `sc.exe query`, then retry",
+            ),
+        }
+    }
+
+    fn open_scm(builtin: &str, access: u32) -> Result<Handle> {
+        // SAFETY: null machine and database names select the local machine's
+        // active service database; nothing is retained past the call.
+        let raw = unsafe { OpenSCManagerW(null(), null(), access) };
+        if raw.is_null() {
+            return Err(scm_error(builtin, "OpenSCManagerW", last_error(), ""));
+        }
+        Ok(Handle(raw))
+    }
+
+    fn open_service(builtin: &str, scm: &Handle, service: &str, access: u32) -> Result<Handle> {
+        let name = wide(service);
+        // SAFETY: `name` is NUL-terminated and lives until the call returns.
+        let raw = unsafe { OpenServiceW(scm.0, name.as_ptr(), access) };
+        if raw.is_null() {
+            return Err(scm_error(builtin, "OpenServiceW", last_error(), service));
+        }
+        Ok(Handle(raw))
+    }
+
+    /// The program must be an existing .exe file: the path is the service's
+    /// binary, and the manager runs nothing else.
+    fn check_executable(argv0: &str) -> Result<()> {
+        let refuse = |why: &str| {
+            crate::safety::bad_arg(
+                "svc_create",
+                "an existing .exe file as argv[0]",
+                &format!("{argv0:?} ({why})"),
+            )
+        };
+        let meta = std::fs::metadata(argv0).map_err(|_| refuse("does not exist"))?;
+        if !meta.is_file() {
+            return Err(refuse("not a regular file"));
+        }
+        let is_exe = std::path::Path::new(argv0)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"));
+        if !is_exe {
+            return Err(refuse("not an .exe file"));
+        }
+        Ok(())
+    }
+
+    fn change_config2(
+        builtin: &str,
+        svc: &Handle,
+        service: &str,
+        level: u32,
+        info: *mut c_void,
+    ) -> Result<()> {
+        // SAFETY: `info` points at the structure `level` names, and the caller
+        // keeps that structure and every pointer in it alive for the call.
+        if unsafe { ChangeServiceConfig2W(svc.0, level, info) } == 0 {
+            return Err(scm_error(
+                builtin,
+                "ChangeServiceConfig2W",
+                last_error(),
+                service,
+            ));
+        }
+        Ok(())
+    }
+
+    /// The settings a new service gets after CreateServiceW: description,
+    /// restart actions, and the start when asked. Any failure here is undone by
+    /// the caller.
+    fn configure_new(
+        svc: &Handle,
+        spec: &CreateSpec,
+        service: &str,
+        description: &str,
+    ) -> Result<()> {
+        const BUILTIN: &str = "svc_create";
+        let mut text = wide(description);
+        let mut info = ServiceDescriptionW {
+            description: text.as_mut_ptr(),
+        };
+        change_config2(
+            BUILTIN,
+            svc,
+            service,
+            SERVICE_CONFIG_DESCRIPTION,
+            (&mut info as *mut ServiceDescriptionW).cast(),
+        )?;
+        if spec.restart == "on-failure" {
+            let mut actions = [ScAction {
+                kind: SC_ACTION_RESTART,
+                delay_ms: RESTART_DELAY_MS,
+            }; 3];
+            let mut failure = ServiceFailureActionsW {
+                reset_period: RESET_PERIOD_SECS,
+                reboot_message: null_mut(),
+                command: null_mut(),
+                count: actions.len() as u32,
+                actions: actions.as_mut_ptr(),
+            };
+            change_config2(
+                BUILTIN,
+                svc,
+                service,
+                SERVICE_CONFIG_FAILURE_ACTIONS,
+                (&mut failure as *mut ServiceFailureActionsW).cast(),
+            )?;
+            // A non-zero exit is a failure as well, as `on-failure` means on Linux.
+            let mut flag = ServiceFailureFlag {
+                on_non_crash_failures: 1,
+            };
+            change_config2(
+                BUILTIN,
+                svc,
+                service,
+                SERVICE_CONFIG_FAILURE_ACTIONS_FLAG,
+                (&mut flag as *mut ServiceFailureFlag).cast(),
+            )?;
+        }
+        if spec.start {
+            // SAFETY: no arguments are passed, so the argument vector is null.
+            if unsafe { StartServiceW(svc.0, 0, null()) } == 0 {
+                return Err(scm_error(BUILTIN, "StartServiceW", last_error(), service));
+            }
+        }
+        Ok(())
+    }
+
+    /// Stops and deletes a service that a failed create left behind. Both calls
+    /// are best effort: the caller is already returning an error.
+    fn undo_create(svc: &Handle) {
+        let mut status = ServiceStatusProcess::default();
+        // SAFETY: the status buffer is a SERVICE_STATUS-sized prefix of
+        // ServiceStatusProcess, and the handle is open.
+        unsafe {
+            ControlService(
+                svc.0,
+                SERVICE_CONTROL_STOP,
+                (&mut status as *mut ServiceStatusProcess).cast(),
+            );
+            DeleteService(svc.0);
+        }
+    }
+
+    pub(super) fn create(spec: CreateSpec) -> Result<Value> {
+        const BUILTIN: &str = "svc_create";
+        if spec.restart == "always" {
+            return Err(crate::safety::unimplemented(
+                BUILTIN,
+                "restart \"always\" would also restart after a clean exit, which the Windows service control manager cannot do; NOTHING WAS CHANGED",
+                "use restart \"on-failure\" or \"no\"",
+            ));
+        }
+        let service = format!("{UNIT_PREFIX}{}", spec.name);
+        check_executable(&spec.argv[0])?;
+        if let Some(user) = &spec.user {
+            crate::builtins::windows_account_sid(BUILTIN, user)?;
+        }
+
+        let scm = open_scm(BUILTIN, SC_MANAGER_CREATE_SERVICE)?;
+        let name = wide(&service);
+        // The binary path is argv[0] alone, quoted; argument-free by check above.
+        let binary = wide(&format!("\"{}\"", spec.argv[0]));
+        let account = spec.user.as_deref().map(wide);
+        let start_type = if spec.enable {
+            SERVICE_AUTO_START
+        } else {
+            SERVICE_DEMAND_START
+        };
+        // SAFETY: every string is NUL-terminated and lives until the call returns.
+        // Null is the documented value for the load-order group, tag, dependencies
+        // and password; a null account means LocalSystem.
+        let raw = unsafe {
+            CreateServiceW(
+                scm.0,
+                name.as_ptr(),
+                name.as_ptr(),
+                SERVICE_RIGHTS,
+                SERVICE_WIN32_OWN_PROCESS,
+                start_type,
+                SERVICE_ERROR_NORMAL,
+                binary.as_ptr(),
+                null(),
+                null_mut(),
+                null(),
+                account.as_ref().map_or(null(), |w| w.as_ptr()),
+                null(),
+            )
+        };
+        if raw.is_null() {
+            return Err(scm_error(
+                BUILTIN,
+                "CreateServiceW",
+                last_error(),
+                &service,
+            ));
+        }
+        let svc = Handle(raw);
+        let description = format!("{WIN_MARKER}{}", spec.description);
+        if let Err(e) = configure_new(&svc, &spec, &service, &description) {
+            undo_create(&svc);
+            return Err(e);
+        }
+
+        let mut record = BTreeMap::new();
+        record.insert("name".to_string(), Value::Str(service.clone()));
+        record.insert(
+            "unit_path".to_string(),
+            Value::Str(format!(
+                r"HKLM\SYSTEM\CurrentControlSet\Services\{service}"
+            )),
+        );
+        record.insert("enabled".to_string(), Value::Bool(spec.enable));
+        record.insert("started".to_string(), Value::Bool(spec.start));
+        Ok(Value::Record(record))
+    }
+
+    /// Reads a configuration-style buffer through the two-call pattern: a sizing
+    /// call that fails with ERROR_INSUFFICIENT_BUFFER, then the call with a
+    /// buffer of that size. The buffer is u64-backed, so it is 8-byte aligned.
+    fn query_buffer(
+        builtin: &str,
+        service: &str,
+        call: &str,
+        mut run: impl FnMut(*mut c_void, u32, *mut u32) -> i32,
+    ) -> Result<Vec<u64>> {
+        let mut needed: u32 = 0;
+        if run(null_mut(), 0, &mut needed) == 0 {
+            let code = last_error();
+            if code != ERROR_INSUFFICIENT_BUFFER {
+                return Err(scm_error(builtin, call, code, service));
+            }
+        }
+        let mut buf = vec![0u64; (needed as usize).div_ceil(8).max(1)];
+        if run(buf.as_mut_ptr().cast(), needed, &mut needed) == 0 {
+            return Err(scm_error(builtin, call, last_error(), service));
+        }
+        Ok(buf)
+    }
+
+    fn start_type_of(builtin: &str, svc: &Handle, service: &str) -> Result<u32> {
+        let buf = query_buffer(builtin, service, "QueryServiceConfigW", |p, size, needed| {
+            // SAFETY: the buffer and its size are the ones query_buffer passes.
+            unsafe { QueryServiceConfigW(svc.0, p, size, needed) }
+        })?;
+        // SAFETY: a successful call wrote a QUERY_SERVICE_CONFIGW at the start of
+        // the buffer, and the buffer outlives this read.
+        Ok(unsafe { (*buf.as_ptr().cast::<QueryConfig>()).start_type })
+    }
+
+    /// The service description, or an empty string when it has none.
+    fn description_of(builtin: &str, svc: &Handle, service: &str) -> Result<String> {
+        let buf = query_buffer(
+            builtin,
+            service,
+            "QueryServiceConfig2W",
+            |p, size, needed| {
+                // SAFETY: the buffer and its size are the ones query_buffer passes.
+                unsafe {
+                    QueryServiceConfig2W(svc.0, SERVICE_CONFIG_DESCRIPTION, p, size, needed)
+                }
+            },
+        )?;
+        // SAFETY: a successful call wrote a SERVICE_DESCRIPTIONW whose string lies
+        // in the same buffer and is NUL-terminated; the buffer outlives the reads.
+        unsafe {
+            let ptr = (*buf.as_ptr().cast::<ServiceDescriptionW>()).description;
+            if ptr.is_null() {
+                return Ok(String::new());
+            }
+            let mut len = 0;
+            while *ptr.add(len) != 0 {
+                len += 1;
+            }
+            Ok(String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len)))
+        }
+    }
+
+    fn current_state(builtin: &str, svc: &Handle, service: &str) -> Result<u32> {
+        let mut status = ServiceStatusProcess::default();
+        let mut needed: u32 = 0;
+        // SAFETY: the buffer is a SERVICE_STATUS_PROCESS and its size is passed.
+        let ok = unsafe {
+            QueryServiceStatusEx(
+                svc.0,
+                SC_STATUS_PROCESS_INFO,
+                (&mut status as *mut ServiceStatusProcess).cast(),
+                std::mem::size_of::<ServiceStatusProcess>() as u32,
+                &mut needed,
+            )
+        };
+        if ok == 0 {
+            return Err(scm_error(
+                builtin,
+                "QueryServiceStatusEx",
+                last_error(),
+                service,
+            ));
+        }
+        Ok(status.current_state)
+    }
+
+    /// Asks a running service to stop, then waits up to STOP_WAIT for it to
+    /// report stopped. A service already stopping is waited for, not refused.
+    fn stop_and_wait(builtin: &str, svc: &Handle, service: &str) -> Result<()> {
+        let mut status = ServiceStatusProcess::default();
+        // SAFETY: the status buffer is a SERVICE_STATUS-sized prefix of
+        // ServiceStatusProcess, and the handle has SERVICE_STOP access.
+        let ok = unsafe {
+            ControlService(
+                svc.0,
+                SERVICE_CONTROL_STOP,
+                (&mut status as *mut ServiceStatusProcess).cast(),
+            )
+        };
+        if ok == 0 {
+            let code = last_error();
+            if code != ERROR_SERVICE_NOT_ACTIVE && code != ERROR_SERVICE_CANNOT_ACCEPT_CTRL {
+                return Err(scm_error(builtin, "ControlService", code, service));
+            }
+        }
+        let deadline = Instant::now() + STOP_WAIT;
+        while current_state(builtin, svc, service)? != SERVICE_STOPPED {
+            if Instant::now() >= deadline {
+                return Err(budget_exceeded(
+                    builtin,
+                    format!(
+                        "{builtin}: service '{service}' did not stop within {}s",
+                        STOP_WAIT.as_secs()
+                    ),
+                    "check it with `sc.exe query`, then retry",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        Ok(())
+    }
+
+    pub(super) fn delete(name: String) -> Result<Value> {
+        const BUILTIN: &str = "svc_delete";
+        let service = format!("{UNIT_PREFIX}{name}");
+        let scm = open_scm(BUILTIN, SC_MANAGER_CONNECT)?;
+        let svc = open_service(
+            BUILTIN,
+            &scm,
+            &service,
+            SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | SERVICE_STOP | DELETE,
+        )?;
+
+        if !description_of(BUILTIN, &svc, &service)?.starts_with(WIN_MARKER) {
+            return Err(policy_deny(
+                BUILTIN,
+                format!("{BUILTIN}: service '{service}' has no AetherShell marker in its description; refusing to remove it"),
+                "only services svc_create created can be deleted; remove hand-written services with sc.exe",
+            ));
+        }
+        let start_type = start_type_of(BUILTIN, &svc, &service)?;
+        let running = current_state(BUILTIN, &svc, &service)? != SERVICE_STOPPED;
+        if running {
+            stop_and_wait(BUILTIN, &svc, &service)?;
+        }
+        // Linux reports whether the unit was enabled. A Windows service counts as
+        // enabled unless its start type is demand or disabled.
+        let disabled = !matches!(start_type, SERVICE_DEMAND_START | SERVICE_DISABLED);
+        // SAFETY: the handle is open with DELETE access.
+        if unsafe { DeleteService(svc.0) } == 0 {
+            return Err(scm_error(BUILTIN, "DeleteService", last_error(), &service));
+        }
+
+        let mut record = BTreeMap::new();
+        record.insert("name".to_string(), Value::Str(service));
+        record.insert("stopped".to_string(), Value::Bool(running));
+        record.insert("disabled".to_string(), Value::Bool(disabled));
+        record.insert("removed".to_string(), Value::Bool(true));
+        Ok(Value::Record(record))
+    }
 }
 
 // ── Linux backend ───────────────────────────────────────────────────────────

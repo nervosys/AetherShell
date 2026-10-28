@@ -21,6 +21,15 @@ fn s(text: &str) -> Value {
     Value::Str(text.to_string())
 }
 
+/// An absolute program path that the argument checks accept on this platform.
+fn absolute_program() -> &'static str {
+    if cfg!(windows) {
+        r"C:\Windows\System32\cmd.exe"
+    } else {
+        "/usr/bin/true"
+    }
+}
+
 fn argv(items: &[&str]) -> Value {
     Value::Array(items.iter().map(|item| s(item)).collect())
 }
@@ -164,7 +173,7 @@ fn every_effect_is_refused_inside_a_transaction() {
     let refused = [
         call(
             "svc_create",
-            vec![s("aesvc-tx"), argv(&["/usr/bin/true"])],
+            vec![s("aesvc-tx"), argv(&[absolute_program()])],
             &mut env,
         ),
         call("svc_delete", vec![s("aesvc-tx")], &mut env),
@@ -176,9 +185,9 @@ fn every_effect_is_refused_inside_a_transaction() {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 #[test]
-fn valid_calls_refuse_with_unimplemented_and_change_nothing_off_linux() {
+fn valid_calls_refuse_with_unimplemented_and_change_nothing_on_macos() {
     let _lock = LOCK.lock().unwrap();
     let mut env = Env::default();
     for result in [

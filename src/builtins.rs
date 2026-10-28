@@ -26651,7 +26651,7 @@ fn windows_refuse_untracked_change(builtin: &str) -> Result<()> {
 /// a sizing call with no buffers, then the call with owned buffers. The SID is
 /// returned as a Vec<u32> so that it is 4-byte aligned, as a SID is.
 #[cfg(windows)]
-fn windows_account_sid(builtin: &str, name: &str) -> Result<Vec<u32>> {
+pub(crate) fn windows_account_sid(builtin: &str, name: &str) -> Result<Vec<u32>> {
     use std::ffi::c_void;
     #[link(name = "advapi32")]
     extern "system" {
