@@ -168,6 +168,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ACL through `icacls` as {path, entries: [{principal, perms, inherited,
   flags, deny}]}, in any display language, and `acl_set` grants
   (`"BUILTIN\\Users:RX"`) or removes (`{remove: true}`) a principal's entry.
+  `monitor_perf_stat(argv)` runs the command and reports its CPU, user,
+  system and elapsed milliseconds, peak working set and page faults from
+  the process itself (no hardware counters; an event list is refused).
+  `fs_chown` and `chgrp` take account and group names (numeric ids are
+  `E_BAD_ARG`); making another account the owner needs the restore
+  privilege and is otherwise `E_OS_DENIED`. Neither is journaled, so both
+  refuse inside a transaction.
+- `agent_with_mcp(goal, tools, endpoint)` uses the endpoint: each
+  `mcp:<name>` the server lists becomes a tool, and each call goes to that
+  server, guarded as a network request. As with `mcp_connect`, only a
+  loopback server that `detect_mcp_servers` finds is contacted. The endpoint
+  had been refused with `E_UNIMPLEMENTED`.
 - `net_connections` and `net_ports` on Windows failed on any host with a
   listening socket: the TCP table gives a listener's remote port as 0, which
   was refused as unreadable. It is now `*:*`, and a bound socket's state is

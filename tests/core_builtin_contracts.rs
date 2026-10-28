@@ -358,15 +358,30 @@ fn dd_copy_refuses_bad_options_before_running() {
     refused("dd_copy", vec![s("a"), s("b"), s("bs=1M")], "E_BAD_ARG");
 }
 
+/// Windows copies in-process with dd's bs and count, so a missing source is
+/// the file's own E_NOT_FOUND rather than a failed dd run.
 #[cfg(windows)]
 #[test]
-fn dd_copy_is_unimplemented_on_windows_and_copies_nothing() {
+fn dd_copy_copies_the_requested_blocks_on_windows() {
     let dir = scratch("dd_win");
     let src = dir.join("in.bin");
     let dst = dir.join("out.bin");
-    std::fs::write(&src, "abc").unwrap();
-    refused("dd_copy", vec![p(&src), p(&dst)], "E_UNIMPLEMENTED");
-    assert!(!dst.exists());
+    std::fs::write(&src, "abcdefghij").unwrap();
+    let mut opts = BTreeMap::new();
+    opts.insert("bs".to_string(), Value::Int(2));
+    opts.insert("count".to_string(), Value::Int(3));
+    let out = ok("dd_copy", vec![p(&src), p(&dst), Value::Record(opts)]);
+    assert_eq!(field(&out, "success"), &Value::Bool(true));
+    assert_eq!(std::fs::read_to_string(&dst).unwrap(), "abcdef");
+
+    refused(
+        "dd_copy",
+        vec![p(&dir.join("missing")), p(&dst)],
+        "E_NOT_FOUND",
+    );
+    // dd would truncate its own source before reading it.
+    refused("dd_copy", vec![p(&src), p(&src)], "E_BAD_ARG");
+    assert_eq!(std::fs::read_to_string(&src).unwrap(), "abcdefghij");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
