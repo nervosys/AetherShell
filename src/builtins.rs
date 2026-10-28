@@ -52488,9 +52488,9 @@ mod platform_probe_status_tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn the_version_strings_are_the_ones_ver_printed() {
-        let out = std::process::Command::new("cmd")
-            .args(["/c", "ver"])
-            .output()
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/c", "ver"]);
+        let out = bounded_cmd_output("platform_os_version", "cmd", cmd, PROBE_DEADLINE_SECS)
             .expect("cmd runs");
         let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let Value::Str(line) = bi_platform_os_version(vec![], None).unwrap() else {
@@ -53187,9 +53187,10 @@ fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     {
         let mut cmd = std::process::Command::new("sysctl");
         cmd.args(["-n", "hw.cpufrequency"]);
-        if let Ok(out) = bounded_cmd_output("platform_cpu_freq", "sysctl", cmd, PROBE_DEADLINE_SECS)
-        {
-            if let Ok(n) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
+        // A sysctl that exits non-zero has no hw.cpufrequency (Apple Silicon),
+        // which is the Null below. probe_text checks the exit status.
+        if let Ok(text) = probe_text("platform_cpu_freq", "sysctl", cmd) {
+            if let Ok(n) = text.parse::<i64>() {
                 return Ok(Value::Float(n as f64 / 1_000_000.0)); // Hz to MHz
             }
         }
@@ -53355,12 +53356,10 @@ fn bi_platform_memory_total(_args: Vec<Value>, _input: Option<Value>) -> Result<
     {
         let mut cmd = std::process::Command::new("sysctl");
         cmd.args(["-n", "hw.memsize"]);
-        if let Ok(out) =
-            bounded_cmd_output("platform_memory_total", "sysctl", cmd, PROBE_DEADLINE_SECS)
-        {
-            if let Ok(bytes) = String::from_utf8_lossy(&out.stdout).trim().parse::<i64>() {
-                return Ok(Value::Int(bytes));
-            }
+        // probe_text refuses a non-zero exit with its code and stderr.
+        let text = probe_text("platform_memory_total", "sysctl", cmd)?;
+        if let Ok(bytes) = text.parse::<i64>() {
+            return Ok(Value::Int(bytes));
         }
     }
     // Every machine has memory; reaching here means detection failed, which a
@@ -58863,6 +58862,8 @@ fn dd_copy_in_process(src: &str, dst: &str, operands: &[String]) -> Result<Value
         ));
     }
     let mut input = std::fs::File::open(src).map_err(|e| dd_io(NAME, src, &e))?;
+    // Record dst's pre-image (or its absence) before File::create truncates it.
+    crate::tx::snapshot(dst);
     let mut output = std::fs::File::create(dst).map_err(|e| dd_io(NAME, dst, &e))?;
     let started = std::time::Instant::now();
     let limit = std::time::Duration::from_secs(TOOL_LONG_DEADLINE_SECS);
@@ -71906,10 +71907,9 @@ mod archive_prescan_tests {
         let archive = dir.join("bad.tar.xz");
         // xz magic, then garbage.
         std::fs::write(&archive, [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00, 1, 2, 3, 4]).unwrap();
-        let have_xz = std::process::Command::new("xz")
-            .arg("--version")
-            .output()
-            .is_ok();
+        let mut xz = std::process::Command::new("xz");
+        xz.arg("--version");
+        let have_xz = bounded_cmd_output("tar_extract", "xz", xz, PROBE_DEADLINE_SECS).is_ok();
         let listed = tar_archive_entries("tar_extract", archive.to_str().unwrap());
         let _ = std::fs::remove_dir_all(&dir);
         if !have_xz {
