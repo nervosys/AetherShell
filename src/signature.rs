@@ -881,11 +881,11 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "fs_chown", category: None, subject_required: false, aliases: &[],
-        subject: None, params: &[req("path", Ty::Str, "filesystem path; symlinks affect their target"), req("owner", Ty::Int, "numeric Unix owner ID from 0 through 4294967294"), opt("group", Ty::Int, "numeric Unix group ID in the same range; omitted preserves the existing group")], returns: "Bool",
-        doc: "Set ownership through the native Unix API and return true or a coded filesystem refusal, without launching a process. Guard the resolved path. Refuse non-Unix platforms with E_UNIMPLEMENTED. Inside a filesystem transaction, journal the prior owner and group so rollback restores them; reject reserved IDs, malformed or ignored arguments and pipeline input. Native ownership changes may clear special mode bits and capabilities.",
+        subject: None, params: &[req("path", Ty::Str, "filesystem path; symlinks affect their target"), req("owner", Ty::Any, "numeric Unix owner ID from 0 through 4294967294; on Windows an account name String"), opt("group", Ty::Int, "numeric Unix group ID in the same range; omitted preserves the existing group")], returns: "Bool",
+        doc: "Set ownership through the native Unix API and return true or a coded filesystem refusal, without launching a process. Guard the resolved path. On Windows, set the owner to a named account (a numeric ID is E_BAD_ARG, an unknown account E_NOT_FOUND, a refusal E_OS_DENIED) and take no group; a call inside a transaction is E_UNIMPLEMENTED because the Windows owner cannot be rolled back. Other platforms refuse with E_UNIMPLEMENTED. Inside a filesystem transaction on Unix, journal the prior owner and group so rollback restores them; reject reserved IDs, malformed or ignored arguments and pipeline input. Native ownership changes may clear special mode bits and capabilities.",
         examples: &[
-            (r#"let d = fs_tempdir("ae_chown"); let f = d + "/x"; file_write(f, "hi"); let m = fs_stat(f); let result = if sys_os() == "windows" { [rmdir(d, true), fs_chown(f, 0)] } else { fs_chown(f, m.uid) }; rmdir(d, true); result"#, "true"),
-            (r#"let d = fs_tempdir("ae_chown_group"); let f = d + "/x"; file_write(f, "hi"); let m = fs_stat(f); let result = if sys_os() == "windows" { [rmdir(d, true), fs_chown(f, 0, 0)] } else { fs_chown(f, m.uid, m.gid) }; rmdir(d, true); result"#, "true"),
+            (r#"let d = fs_tempdir("ae_chown"); let f = d + "/x"; file_write(f, "hi"); let m = fs_stat(f); let result = if sys_os() == "windows" { fs_chown(f, whoami()) } else { fs_chown(f, m.uid) }; rmdir(d, true); result"#, "true"),
+            (r#"let d = fs_tempdir("ae_chown_group"); let f = d + "/x"; file_write(f, "hi"); let m = fs_stat(f); let result = if sys_os() == "windows" { fs_chown(f, whoami()) } else { fs_chown(f, m.uid, m.gid) }; rmdir(d, true); result"#, "true"),
         ],
     },
     Signature {
@@ -13956,7 +13956,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "chgrp", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("group", Ty::Str, "a group name or numeric id, not beginning with '-'"), req("path", Ty::Str, "an existing file, passed after --")],
         returns: "Record",
-        doc: "Unix only. Change the group of one file with chgrp -- <group> <path>, with a 120 s deadline. Returns {group, path}. A missing file is E_NOT_FOUND; a refusal by chgrp (unknown group, not permitted) is E_TOOL_FAILED. An empty or option-like group, an empty path, pipeline input and surplus arguments are refused with E_BAD_ARG. On Windows the call is E_UNIMPLEMENTED and nothing is changed.",
+        doc: "Change the group of one file with chgrp -- <group> <path>, with a 120 s deadline. Returns {group, path}. A missing file is E_NOT_FOUND; a refusal by chgrp (unknown group, not permitted) is E_TOOL_FAILED. An empty or option-like group, an empty path, pipeline input and surplus arguments are refused with E_BAD_ARG. On Windows the group is an account name set as the file's primary group through the native security API: a numeric id is E_BAD_ARG, an unknown account E_NOT_FOUND, a refusal E_OS_DENIED, and a call inside a transaction E_UNIMPLEMENTED.",
         examples: &[
             (r#"(try { chgrp("staff", "") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { chgrp("-R", "f") } catch e { e.error.code })"#, "E_BAD_ARG"),

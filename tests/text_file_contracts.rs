@@ -137,10 +137,17 @@ fn chown_guards_paths_and_codes_a_denied_transaction_change() {
     };
     #[cfg(not(unix))]
     let refused = Some("E_UNIMPLEMENTED");
+    // Windows takes an account name; any name passes the argument checks, and
+    // the transaction refusal comes before the account is looked up.
+    let owner = if cfg!(windows) {
+        s("Users")
+    } else {
+        Value::Int(0)
+    };
     aethershell::tx::begin().unwrap();
     if let Some(expected) = refused {
         code(
-            call("fs_chown", vec![s("input"), Value::Int(0)], &mut env),
+            call("fs_chown", vec![s("input"), owner.clone()], &mut env),
             expected,
         );
     }
@@ -149,12 +156,12 @@ fn chown_guards_paths_and_codes_a_denied_transaction_change() {
     std::fs::create_dir(&jail).unwrap();
     std::env::set_var("AETHER_WORKSPACE", jail);
     code(
-        call("fs_chown", vec![s(&path), Value::Int(0)], &mut env),
+        call("fs_chown", vec![s(&path), owner], &mut env),
         "E_OUTSIDE_WORKSPACE",
     );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 #[test]
 fn chown_reports_non_unix_support_explicitly_instead_of_false() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -175,6 +182,46 @@ fn chown_reports_non_unix_support_explicitly_instead_of_false() {
     }
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
 }
+#[cfg(windows)]
+#[test]
+fn chown_on_windows_takes_account_names_not_numeric_ids() {
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let fixture = Fixture::new();
+    let mut env = Env::default();
+    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    let path = fixture.path("input");
+    std::fs::write(&path, "unchanged").unwrap();
+    code(
+        call("fs_chown", vec![s(&path), Value::Int(0)], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call(
+            "fs_chown",
+            vec![s(&path), Value::Int(4_294_967_294), Value::Int(0)],
+            &mut env,
+        ),
+        "E_BAD_ARG",
+    );
+    code(
+        call(
+            "fs_chown",
+            vec![s(&path), s("ae-no-such-account-zz")],
+            &mut env,
+        ),
+        "E_NOT_FOUND",
+    );
+    code(
+        call(
+            "fs_chown",
+            vec![s(&fixture.path("missing")), s("ae-no-such-account-zz")],
+            &mut env,
+        ),
+        "E_NOT_FOUND",
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "unchanged");
+}
+
 #[cfg(unix)]
 #[test]
 fn chown_native_calls_preserve_omitted_group_and_code_missing_files() {

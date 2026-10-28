@@ -68,7 +68,7 @@ fn ok(name: &str, args: Vec<Value>) -> Value {
 const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("sudo_check", "current effective privilege state; Windows reads the process token, Unix the effective UID; the query never elevates"),
     ("fs_symlink", "native symlink support; Windows may require symbolic-link privilege (OS error 1314); examples use and clean owned temporary fixtures"),
-    ("fs_chown", "native Unix ownership; non-Unix returns E_UNIMPLEMENTED; Unix examples use only owned temporary files and their existing owner/group"),
+    ("fs_chown", "native ownership: Unix sets a numeric owner and group; Windows sets the owner to the current account (no privilege needed); examples use only owned temporary files"),
     ("platform_libcpp", "the C++ runtime installed on this machine: msvcp140.dll on Windows (refused as E_BAD_STATE where the Visual C++ Redistributable is absent), libstdc++ or libc++ on Linux (E_BAD_STATE where neither is installed)"),
     ("sys_mem_info", "the OS memory query and current memory usage"),
     ("sys_swap_info", "the OS memory query and configured swap"),

@@ -26500,6 +26500,18 @@ fn bi_fs_chown(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "fs_chown requires path, owner ID and optional group ID, without pipeline input",
         ));
     }
+    #[cfg(windows)]
+    {
+        fs_chown_windows(args)
+    }
+    #[cfg(not(windows))]
+    {
+        fs_chown_unix(args)
+    }
+}
+
+#[cfg(not(windows))]
+fn fs_chown_unix(args: Vec<Value>) -> Result<Value> {
     fn id(value: Value) -> Result<u32> {
         match value {
             Value::Int(n) if (0..i64::from(u32::MAX)).contains(&n) => Ok(n as u32),
@@ -26539,6 +26551,326 @@ fn bi_fs_chown(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "Unix numeric ownership is unavailable on this platform",
             "use the platform's ownership and access-control tools",
         ))
+    }
+}
+
+/// fs_chown on Windows: set the owner of one file to a named account through
+/// the native security API. The owner is an account name String, because a
+/// numeric ID has no Windows meaning; there is no group argument (chgrp sets
+/// the group). The path is guarded like the Unix call. A call inside a
+/// transaction is refused, because the prior owner is not journaled.
+#[cfg(windows)]
+fn fs_chown_windows(args: Vec<Value>) -> Result<Value> {
+    let mut args = args.into_iter();
+    let Some(Value::Str(path)) = args.next() else {
+        return Err(crate::safety::arg_err("fs_chown path must be String"));
+    };
+    let owner = match args.next() {
+        Some(Value::Str(name)) => name,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "fs_chown",
+                "owner: an account or group name, as a String",
+                other.type_name(),
+            ))
+        }
+        None => return Err(crate::safety::arg_err("fs_chown requires an owner account name")),
+    };
+    if args.next().is_some() {
+        return Err(crate::safety::bad_arg(
+            "fs_chown",
+            "path and owner only (Windows sets no group here; use chgrp)",
+            "a third argument",
+        ));
+    }
+    windows_account_arg("fs_chown", &owner)?;
+    let path = crate::safety::resolve_path_str(&path);
+    let path = guard_local_write("fs_chown", &path)?;
+    std::fs::symlink_metadata(&path)
+        .map_err(|e| crate::safety::fs_error("fs_chown", &path, &e))?;
+    windows_refuse_untracked_change("fs_chown")?;
+    let mut sid = windows_account_sid("fs_chown", &owner)?;
+    windows_set_file_principal("fs_chown", &path, &mut sid, false)?;
+    Ok(Value::Bool(true))
+}
+
+/// chgrp on Windows: set the primary group of one file to a named account or
+/// group. Same guard, existence and transaction checks as fs_chown; the record
+/// is {group, path} with the path as the caller wrote it, as on Unix.
+#[cfg(windows)]
+fn chgrp_windows(group: String, path: String) -> Result<Value> {
+    windows_account_arg("chgrp", &group)?;
+    let target = guard_local_write("chgrp", &path)?;
+    std::fs::symlink_metadata(&target)
+        .map_err(|e| crate::safety::fs_error("chgrp", &target, &e))?;
+    windows_refuse_untracked_change("chgrp")?;
+    let mut sid = windows_account_sid("chgrp", &group)?;
+    windows_set_file_principal("chgrp", &target, &mut sid, true)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("group".to_string(), Value::Str(group));
+    rec.insert("path".to_string(), Value::Str(path));
+    Ok(Value::Record(rec))
+}
+
+/// Windows owner and group arguments are account names. A numeric ID has no
+/// Windows meaning, so it is refused rather than looked up as a name.
+#[cfg(windows)]
+fn windows_account_arg(builtin: &str, name: &str) -> Result<()> {
+    if name.trim().is_empty() || name.contains('\0') {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "an account or group name, not empty",
+            "an empty or NUL-containing String",
+        ));
+    }
+    if name.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(crate::safety::bad_arg(
+            builtin,
+            "an account or group name",
+            "a numeric ID, which Windows does not use",
+        ));
+    }
+    Ok(())
+}
+
+/// A Windows owner or group change is not journaled, so rollback could not
+/// undo it. Inside a transaction it is refused before anything changes.
+#[cfg(windows)]
+fn windows_refuse_untracked_change(builtin: &str) -> Result<()> {
+    if crate::tx::is_active() {
+        return Err(crate::safety::unimplemented(
+            builtin,
+            "a Windows owner or group change cannot be rolled back; nothing was changed",
+            "finish the transaction first",
+        ));
+    }
+    Ok(())
+}
+
+/// The SID of a named account, through LookupAccountNameW's two-call pattern:
+/// a sizing call with no buffers, then the call with owned buffers. The SID is
+/// returned as a Vec<u32> so that it is 4-byte aligned, as a SID is.
+#[cfg(windows)]
+fn windows_account_sid(builtin: &str, name: &str) -> Result<Vec<u32>> {
+    use std::ffi::c_void;
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn LookupAccountNameW(
+            system: *const u16,
+            account: *const u16,
+            sid: *mut c_void,
+            sid_len: *mut u32,
+            domain: *mut u16,
+            domain_len: *mut u32,
+            kind: *mut i32,
+        ) -> i32;
+    }
+    const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
+    const ERROR_NONE_MAPPED: i32 = 1332;
+    let account: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut sid_len: u32 = 0;
+    let mut domain_len: u32 = 0;
+    let mut kind: i32 = 0;
+    // SAFETY: `account` is NUL-terminated. With no buffers the call only
+    // reports the sizes it needs, and fails with ERROR_INSUFFICIENT_BUFFER, or
+    // ERROR_NONE_MAPPED for an account it does not know.
+    unsafe {
+        LookupAccountNameW(
+            std::ptr::null(),
+            account.as_ptr(),
+            std::ptr::null_mut(),
+            &mut sid_len,
+            std::ptr::null_mut(),
+            &mut domain_len,
+            &mut kind,
+        )
+    };
+    let sizing = std::io::Error::last_os_error();
+    match sizing.raw_os_error() {
+        Some(ERROR_INSUFFICIENT_BUFFER) => {}
+        Some(ERROR_NONE_MAPPED) => return Err(crate::safety::not_found(builtin, "account", name)),
+        _ => {
+            return Err(crate::safety::bad_state(
+                builtin,
+                &format!("LookupAccountNameW failed: {sizing}"),
+                "an account name this machine or its domain knows",
+            ))
+        }
+    }
+    let mut sid = vec![0u32; (sid_len as usize).div_ceil(4).max(1)];
+    let mut domain = vec![0u16; (domain_len as usize).max(1)];
+    let mut domain_cch = domain.len() as u32;
+    // SAFETY: the SID buffer holds at least `sid_len` bytes, the domain buffer
+    // holds `domain_cch` UTF-16 units, and both lengths are passed by reference.
+    let ok = unsafe {
+        LookupAccountNameW(
+            std::ptr::null(),
+            account.as_ptr(),
+            sid.as_mut_ptr().cast(),
+            &mut sid_len,
+            domain.as_mut_ptr(),
+            &mut domain_cch,
+            &mut kind,
+        )
+    };
+    if ok == 0 {
+        return Err(crate::safety::bad_state(
+            builtin,
+            &format!(
+                "LookupAccountNameW failed: {}",
+                std::io::Error::last_os_error()
+            ),
+            "an account name this machine or its domain knows",
+        ));
+    }
+    Ok(sid)
+}
+
+/// Set the owner (or the primary group) of one file to `sid` through
+/// SetNamedSecurityInfoW. Only the requested part of the security descriptor
+/// changes; the DACL and SACL are passed as null and left alone.
+#[cfg(windows)]
+fn windows_set_file_principal(
+    builtin: &str,
+    path: &str,
+    sid: &mut [u32],
+    group: bool,
+) -> Result<()> {
+    use std::ffi::c_void;
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn SetNamedSecurityInfoW(
+            object: *mut u16,
+            object_type: i32,
+            info: u32,
+            owner: *mut c_void,
+            primary_group: *mut c_void,
+            dacl: *mut c_void,
+            sacl: *mut c_void,
+        ) -> u32;
+    }
+    const SE_FILE_OBJECT: i32 = 1;
+    const OWNER_SECURITY_INFORMATION: u32 = 0x0000_0001;
+    const GROUP_SECURITY_INFORMATION: u32 = 0x0000_0002;
+    const ERROR_FILE_NOT_FOUND: u32 = 2;
+    const ERROR_PATH_NOT_FOUND: u32 = 3;
+    const ERROR_ACCESS_DENIED: u32 = 5;
+    const ERROR_INVALID_OWNER: u32 = 1307;
+    const ERROR_PRIVILEGE_NOT_HELD: u32 = 1314;
+    let mut object: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+    let (info, owner, primary_group): (u32, *mut c_void, *mut c_void) = if group {
+        (
+            GROUP_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            sid.as_mut_ptr().cast(),
+        )
+    } else {
+        (
+            OWNER_SECURITY_INFORMATION,
+            sid.as_mut_ptr().cast(),
+            std::ptr::null_mut(),
+        )
+    };
+    // SAFETY: `object` is NUL-terminated and outlives the call; `sid` is a
+    // SID the lookup just filled, and exactly one of owner/primary_group is
+    // non-null, matching `info`.
+    let status = unsafe {
+        SetNamedSecurityInfoW(
+            object.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            info,
+            owner,
+            primary_group,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    let what = if group { "group" } else { "owner" };
+    match status {
+        0 => Ok(()),
+        ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND => {
+            Err(crate::safety::not_found(builtin, "file", path))
+        }
+        ERROR_ACCESS_DENIED | ERROR_PRIVILEGE_NOT_HELD | ERROR_INVALID_OWNER => {
+            Err(crate::safety::os_denied(
+                builtin,
+                format!(
+                    "{builtin}: the operating system refused to set the {what} of '{path}' (Win32 error {status})"
+                ),
+                "setting yourself as owner needs no privilege; setting another account as owner needs SeRestorePrivilege, and any change needs WRITE_OWNER on the file",
+            ))
+        }
+        other => Err(crate::safety::bad_state(
+            builtin,
+            &format!("SetNamedSecurityInfoW failed with Win32 error {other}"),
+            "a file this process can name and change",
+        )),
+    }
+}
+
+#[cfg(all(test, windows))]
+mod win_chown_tests {
+    use super::*;
+
+    /// A temp file with a name this run makes up; the caller removes it.
+    fn temp_file(tag: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "ae-{tag}-{}-{nanos}.txt",
+            std::process::id()
+        ));
+        std::fs::write(&path, "x").expect("create temp file");
+        path.to_string_lossy().into_owned()
+    }
+
+    /// `MACHINE\user`, which LookupAccountNameW resolves on this machine.
+    fn current_account() -> String {
+        let user = std::env::var("USERNAME").expect("USERNAME is set on Windows");
+        match std::env::var("COMPUTERNAME") {
+            Ok(machine) if !machine.is_empty() => format!("{machine}\\{user}"),
+            _ => user,
+        }
+    }
+
+    #[test]
+    fn fs_chown_sets_the_owner_to_the_current_account() {
+        let path = temp_file("chown-self");
+        let result = bi_fs_chown(
+            vec![Value::Str(path.clone()), Value::Str(current_account())],
+            None,
+        );
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            result.expect("naming yourself as owner needs no privilege"),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn fs_chown_refuses_a_numeric_owner_as_bad_arg() {
+        let path = temp_file("chown-num");
+        let result = bi_fs_chown(vec![Value::Str(path.clone()), Value::Int(0)], None);
+        let _ = std::fs::remove_file(&path);
+        let err = result.expect_err("a numeric owner has no Windows meaning");
+        assert!(err.to_string().contains("E_BAD_ARG"), "{err}");
+    }
+
+    #[test]
+    fn fs_chown_reports_an_unknown_account_as_not_found() {
+        let path = temp_file("chown-unknown");
+        let result = bi_fs_chown(
+            vec![
+                Value::Str(path.clone()),
+                Value::Str("ae-no-such-account-zz".to_string()),
+            ],
+            None,
+        );
+        let _ = std::fs::remove_file(&path);
+        let err = result.expect_err("no such account exists");
+        assert!(err.to_string().contains("E_NOT_FOUND"), "{err}");
     }
 }
 
@@ -67228,11 +67560,12 @@ fn bi_strings_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
 // --- chgrp (1020) ---
 
-/// chgrp — Change the group of one file (Unix).
+/// chgrp — Change the group of one file.
 /// Usage: chgrp(group, path). The group is a name or numeric id and may not begin
 /// with '-'; the path must exist and is passed after `--`. The result is
 /// {group, path}. A refusal by chgrp (unknown group, not permitted) is
-/// E_TOOL_FAILED; on Windows the call is E_UNIMPLEMENTED and changes nothing.
+/// E_TOOL_FAILED. On Windows the group is an account name set as the file's
+/// primary group through the security API (see chgrp_windows).
 ///
 /// It used to answer `success: false` as a value when chgrp refused, ignore
 /// surplus arguments and pipeline input, and run with no deadline.
@@ -67250,13 +67583,18 @@ fn bi_chgrp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-    if cfg!(windows) {
-        return Err(crate::safety::unimplemented(
-            "chgrp",
-            "Windows files have no Unix group; nothing was changed",
-            "use perm_set or icacls",
-        ));
+    #[cfg(windows)]
+    {
+        chgrp_windows(group, path)
     }
+    #[cfg(not(windows))]
+    {
+        chgrp_unix(group, path)
+    }
+}
+
+#[cfg(not(windows))]
+fn chgrp_unix(group: String, path: String) -> Result<Value> {
     if std::fs::symlink_metadata(&path).is_err() {
         return Err(crate::safety::not_found("chgrp", "file", &path));
     }

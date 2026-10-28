@@ -491,11 +491,17 @@ fn chgrp_refuses_bad_shapes_before_running() {
 
 #[cfg(windows)]
 #[test]
-fn chgrp_is_unimplemented_on_windows() {
+fn chgrp_names_a_windows_account_and_refuses_numeric_ids() {
     let dir = scratch("chgrp_win");
     let file = dir.join("f.txt");
     std::fs::write(&file, "x").unwrap();
-    refused("chgrp", vec![s("staff"), p(&file)], "E_UNIMPLEMENTED");
+    refused("chgrp", vec![s("1000"), p(&file)], "E_BAD_ARG");
+    refused("chgrp", vec![s("ae-no-such-group-zq"), p(&file)], "E_NOT_FOUND");
+    refused(
+        "chgrp",
+        vec![s("ae-no-such-group-zq"), p(&dir.join("missing"))],
+        "E_NOT_FOUND",
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
