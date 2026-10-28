@@ -165,6 +165,40 @@ jobs:
             - name: Check on the declared MSRV
               run: cargo check --workspace --features native
 
+    # The optional local-inference backends. No other job enables them, and
+    # both had stopped compiling unnoticed (ort's rc.9 to rc.11 API change). The
+    # unit tests here need no model file; the end-to-end checks against real
+    # models are run by hand (docs/COMPLETION_PLAN.md).
+    inference-features:
+        name: Features (${{ matrix.feature }})
+        timeout-minutes: 40
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                feature: [candle, onnx]
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: ${{ matrix.feature }}
+
+            - name: Install Linux dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+
+            - name: Clippy
+              run: cargo clippy --lib --bins --tests --features native,${{ matrix.feature }} -- -D warnings
+
+            - name: Backend unit tests
+              run: cargo test --lib --features native,${{ matrix.feature }} local_inference
+
     # The catalogue probes, as gates. They were run by hand, which meant every
     # number in docs/TYPED_SHELL_RESPONSE.md was only as current as the last
     # time someone remembered to run them. Each probe already exits 2 when it
