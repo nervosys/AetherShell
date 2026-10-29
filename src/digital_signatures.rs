@@ -59,6 +59,8 @@ const TAG_OID: u8 = 0x06;
 const TAG_SEQUENCE: u8 = 0x30;
 const TAG_CONTEXT_0: u8 = 0xa0;
 const TAG_CONTEXT_1: u8 = 0xa1;
+/// `publicKey [1] IMPLICIT BIT STRING` in RFC 5958 OneAsymmetricKey.
+const TAG_IMPLICIT_1: u8 = 0x81;
 
 /// DER contents of the object identifiers this module understands.
 const OID_RSA_ENCRYPTION: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01];
@@ -69,8 +71,11 @@ const OID_ED25519: &[u8] = &[0x2b, 0x65, 0x70];
 
 /// PKCS#8 (version 1, with public key) header for Ed25519, up to the seed. The
 /// 32-byte seed and the `[1]` public key follow. Same layout the previous backend produced.
+/// RFC 5958 OneAsymmetricKey v2 for Ed25519, up to the seed: the form ring
+/// wrote, so keys made before IronCrypto still sign. The public key follows
+/// the seed as `[1] IMPLICIT BIT STRING`, tag 0x81 (see `ed25519_pkcs8`).
 const ED25519_PKCS8_HEAD: [u8; 16] = [
-    0x30, 0x53, 0x02, 0x01, 0x01, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+    0x30, 0x51, 0x02, 0x01, 0x01, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
 ];
 
 fn bad(name: &str, message: &str) -> anyhow::Error {
@@ -343,11 +348,11 @@ fn ed25519_pkcs8(der: &[u8]) -> Option<(&[u8], &[u8])> {
     }
     let (private, rest) = take(rest, TAG_OCTET_STRING)?;
     let seed = whole(private, TAG_OCTET_STRING)?;
-    let (public, rest) = take(rest, TAG_CONTEXT_1)?;
+    let (public, rest) = take(rest, TAG_IMPLICIT_1)?;
     if !rest.is_empty() {
         return None;
     }
-    let key = bit_string(whole(public, TAG_BIT_STRING)?)?;
+    let key = bit_string(public)?;
     (seed.len() == 32 && key.len() == 32).then_some((seed, key))
 }
 
@@ -780,7 +785,7 @@ fn ed25519_generate(name: &str) -> Result<Zeroizing<Vec<u8>>> {
     let mut der = Zeroizing::new(Vec::with_capacity(ED25519_PKCS8_HEAD.len() + 37));
     der.extend_from_slice(&ED25519_PKCS8_HEAD);
     der.extend_from_slice(&seed[..]);
-    der.extend_from_slice(&[0xa1, 0x23, 0x03, 0x21, 0x00]);
+    der.extend_from_slice(&[TAG_IMPLICIT_1, 0x21, 0x00]);
     der.extend_from_slice(&key.public_key()[..]);
     Ok(der)
 }
@@ -1327,6 +1332,24 @@ oUQDQgAECEeTcZaVbpT7gw6+9t7F7FfNS1RDboY21RDpP8VNguNPYmCR2v7aCmhd
             assert_eq!(returned, algorithm);
             assert!(verifies(&public, "generated", &signature), "{kind}");
         }
+    }
+
+    /// RFC 5958 puts the Ed25519 public key in `[1] IMPLICIT BIT STRING`, tag
+    /// 0x81, and so did the keys ring made. An explicit `[1]` (0xa1) wrapper
+    /// was briefly written and read, which refused every earlier key.
+    #[test]
+    fn ed25519_pkcs8_carries_the_public_key_as_rfc5958_implicit_tag_1() {
+        let pem = text_of(&generate_key("ed25519", 0).expect("key generation"));
+        let body: String = pem
+            .lines()
+            .filter(|line| !line.starts_with("-----"))
+            .collect();
+        let der = STANDARD.decode(body).expect("Base64 body");
+        assert_eq!(der.len(), 83);
+        assert_eq!(&der[..16], &ED25519_PKCS8_HEAD[..]);
+        assert_eq!(&der[48..51], &[0x81, 0x21, 0x00]);
+        let explicit = [&der[..48], &[0xa1, 0x23, 0x03, 0x21, 0x00], &der[51..]].concat();
+        assert!(ed25519_pkcs8(&explicit).is_none());
     }
 
     #[test]
