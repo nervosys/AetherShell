@@ -61,9 +61,12 @@ function run() {
     win.setTitle(title);
     win.makeKeyAndOrderFront(null);
     app.activateIgnoringOtherApps(true);
-    for (var i = 0; i < 60; i++) {
-        $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(1));
-    }
+    // NSApp.run finishes launching, which is what makes AppKit answer
+    // Accessibility; a bare run-loop pump leaves System Events seeing the
+    // process with no windows (run 40821843417). The test kills this process
+    // when it is done; terminate: after 60 s is the backstop.
+    app.performSelectorWithObjectAfterDelay('terminate:', null, 60);
+    app.run();
 }
 "#;
 
