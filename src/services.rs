@@ -3,13 +3,16 @@
 //! Linux, Windows and macOS. Argument validation runs on every platform, so a
 //! malformed call is refused the same way everywhere. `svc_create` and
 //! `svc_delete` act on systemd units on Linux, Service Control Manager services
-//! on Windows, and launchd LaunchDaemons on macOS. For `sudo_exec` everywhere
-//! but Linux, a valid call refuses with E_UNIMPLEMENTED and changes nothing.
+//! on Windows, and launchd LaunchDaemons on macOS. For `sudo_exec` on any other
+//! platform, a valid call refuses with E_UNIMPLEMENTED and changes nothing.
 //!
 //! `svc_create` writes `/etc/systemd/system/ae-<name>.service`, tagged with a
 //! marker line on its first line. `svc_delete` removes only units that carry
 //! that marker, so the `ae-` namespace cannot reach hand-written units.
-//! `sudo_exec` runs `sudo -n -- argv...` and never prompts for a password.
+//! `sudo_exec` runs `sudo -n -- argv...` on Linux and macOS and never prompts
+//! for a password. On Windows it runs argv directly, and only when this process
+//! is already elevated: Windows can elevate only through a UAC prompt, which
+//! AetherShell never shows, so a process that is not elevated is refused.
 
 use crate::value::Value;
 use anyhow::Result;
@@ -165,11 +168,11 @@ fn refuse_in_transaction(builtin: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn not_linux(builtin: &str) -> anyhow::Error {
     crate::safety::unimplemented(
         builtin,
-        "sudo is implemented on Linux only in 13.0.0, and service creation and deletion also on Windows and macOS; NOTHING WAS CHANGED",
+        "service creation, service deletion and sudo_exec are implemented on Linux, macOS and Windows only; NOTHING WAS CHANGED",
         "use the platform's own service manager or `sudo` directly",
     )
 }
@@ -390,7 +393,10 @@ pub(crate) fn svc_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value
 
 // ── sudo_exec ────────────────────────────────────────────────────────────────
 
-#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    allow(dead_code)
+)]
 struct SudoSpec {
     argv: Vec<String>,
     timeout_ms: u64,
@@ -442,7 +448,14 @@ pub(crate) fn sudo_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     unix_sudo::sudo(spec)
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+pub(crate) fn sudo_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let spec = parse_sudo(&args, &input)?;
+    refuse_in_transaction("sudo_exec")?;
+    win_sudo::sudo(spec)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 pub(crate) fn sudo_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     parse_sudo(&args, &input)?;
     refuse_in_transaction("sudo_exec")?;
@@ -623,6 +636,88 @@ mod unix_sudo {
             ));
             assert!(!sudo_password_required(""));
         }
+    }
+}
+
+// ── sudo_exec (Windows) ─────────────────────────────────────────────────────
+
+/// Runs argv directly, and only in a process that is already elevated. Windows
+/// has no `sudo -n`: a process gets an elevated token only through a UAC consent
+/// prompt, and AetherShell never prompts, so an unelevated process is refused
+/// before anything runs. Nothing here starts `runas`, `Start-Process -Verb
+/// RunAs` or `sudo.exe`. The run goes through the bounded tree runner the
+/// builtins share, so a timeout kills the command's descendants too (a job
+/// object, then `taskkill /T`).
+#[cfg(windows)]
+mod win_sudo {
+    use super::*;
+    use crate::builtins::{run_tree_cmd, windows_is_admin, Keep, TreeError};
+    use crate::safety::{policy_deny, spawn_error};
+    use std::path::Path;
+    use std::process::Command;
+    use std::time::Duration;
+
+    pub(super) fn sudo(spec: SudoSpec) -> Result<Value> {
+        const BUILTIN: &str = "sudo_exec";
+        let program = spec.argv[0].clone();
+        if !Path::new(&program).is_absolute() {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                r"an argv[0] that is an absolute path, such as C:\Windows\System32\whoami.exe",
+                &format!("{program:?}"),
+            ));
+        }
+        // Rust starts a .bat or .cmd file through cmd.exe, which re-parses its
+        // arguments: a shell after all, and the BatBadBut injection class. A
+        // batch file is refused; run cmd.exe by its path to mean it.
+        let batch = Path::new(&program)
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("bat") || e.eq_ignore_ascii_case("cmd"));
+        if batch {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                r"an argv[0] that is a program, not a .bat or .cmd file (run C:\Windows\System32\cmd.exe with /c to mean a batch file)",
+                &format!("{program:?}"),
+            ));
+        }
+        if !windows_is_admin(BUILTIN)? {
+            return Err(policy_deny(
+                BUILTIN,
+                "sudo_exec: this process is not elevated and Windows elevates only through a UAC prompt, so the command was not run",
+                "start ae from an elevated terminal (Run as administrator); AetherShell never shows a UAC prompt",
+            ));
+        }
+
+        let mut command = Command::new(&program);
+        command.args(&spec.argv[1..]);
+        let run = run_tree_cmd(
+            command,
+            None,
+            Duration::from_millis(spec.timeout_ms),
+            Keep::Tail(OUTPUT_TAIL_BYTES),
+            Keep::Tail(OUTPUT_TAIL_BYTES),
+        )
+        .map_err(|e| match e {
+            TreeError::Spawn(e) | TreeError::Wait(e) => spawn_error(BUILTIN, &program, &e),
+        })?;
+
+        let exit_code = match run.code {
+            Some(code) if !run.timed_out => Value::Int(i64::from(code)),
+            _ => Value::Null,
+        };
+        let mut record = BTreeMap::new();
+        record.insert("exit_code".to_string(), exit_code);
+        record.insert(
+            "stdout".to_string(),
+            Value::Str(String::from_utf8_lossy(&run.stdout).into_owned()),
+        );
+        record.insert(
+            "stderr".to_string(),
+            Value::Str(String::from_utf8_lossy(&run.stderr).into_owned()),
+        );
+        record.insert("timed_out".to_string(), Value::Bool(run.timed_out));
+        Ok(Value::Record(record))
     }
 }
 

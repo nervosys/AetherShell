@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`sudo_exec` on Windows**: runs argv directly, with no shell, only when the AetherShell process is already elevated; an unelevated process is refused with E_POLICY_DENY, since Windows elevates only through a UAC prompt, which AetherShell never shows.
 - **`pkg_list` on dnf, yum and Homebrew**: on RPM systems `pkg_list` reads
   `rpm -qa` (the version carries the epoch when the package has one, and
   multilib duplicates of the same version are kept once), and on macOS it reads

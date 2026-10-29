@@ -268,6 +268,47 @@ fn macos_sudo_exec_reports_identity_exit_codes_stderr_and_timeouts() {
     assert!(started.elapsed() < std::time::Duration::from_secs(4));
 }
 
+/// On Windows sudo_exec runs argv only in an elevated process. These tests
+/// never run a command: a relative argv[0] is refused as bad arguments, and an
+/// unelevated process is refused before spawning. On an elevated developer
+/// machine the refusal test is skipped, so it never runs a command there; the
+/// command runs only on the disposable runner (tests/windows_sudo_admin.rs).
+#[cfg(windows)]
+#[test]
+fn windows_sudo_exec_refuses_a_relative_program_and_an_unelevated_process() {
+    let _lock = LOCK.lock().unwrap();
+    let mut env = Env::default();
+
+    code(
+        call("sudo_exec", vec![argv(&["whoami.exe"])], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call("sudo_exec", vec![argv(&[r"System32\whoami.exe"])], &mut env),
+        "E_BAD_ARG",
+    );
+    // A batch file would run through cmd.exe's re-parsing; it is refused
+    // before the elevation check, so this holds on any host.
+    for batch in [r"C:\ae-no-such\run.bat", r"C:\ae-no-such\RUN.CMD"] {
+        code(
+            call("sudo_exec", vec![argv(&[batch])], &mut env),
+            "E_BAD_ARG",
+        );
+    }
+
+    let elevated = matches!(call("sudo_check", vec![], &mut env), Ok(Value::Bool(true)));
+    if !elevated {
+        code(
+            call(
+                "sudo_exec",
+                vec![argv(&[absolute_program(), "/c", "exit 0"])],
+                &mut env,
+            ),
+            "E_POLICY_DENY",
+        );
+    }
+}
+
 #[cfg(target_os = "linux")]
 mod linux_disposable {
     use super::*;

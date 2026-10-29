@@ -51563,7 +51563,7 @@ fn bi_platform_has_tool(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 /// `net session` also failed, reading as "not admin", when the Server service
 /// was stopped.
 #[cfg(target_os = "windows")]
-fn windows_is_admin(builtin: &str) -> Result<bool> {
+pub(crate) fn windows_is_admin(builtin: &str) -> Result<bool> {
     use std::ffi::c_void;
     #[link(name = "kernel32")]
     extern "system" {
