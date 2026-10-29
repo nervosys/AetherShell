@@ -29765,7 +29765,19 @@ fn bi_net_scan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 let (sender, receiver) = std::sync::mpsc::channel();
                 let addr = std::net::SocketAddr::new(ip, port as u16);
                 std::thread::spawn(move || {
-                    let _ = sender.send(std::net::TcpStream::connect_timeout(&addr, per_port));
+                    // macOS now and then fails a non-blocking loopback connect
+                    // with EINVAL (seen on a CI runner, next to a listening
+                    // port). One more try on a fresh socket, inside the same
+                    // wait, settles it; a second EINVAL is still reported.
+                    let begun = std::time::Instant::now();
+                    let mut answer = std::net::TcpStream::connect_timeout(&addr, per_port);
+                    if matches!(&answer, Err(e) if e.kind() == std::io::ErrorKind::InvalidInput) {
+                        let left = per_port.saturating_sub(begun.elapsed());
+                        if !left.is_zero() {
+                            answer = std::net::TcpStream::connect_timeout(&addr, left);
+                        }
+                    }
+                    let _ = sender.send(answer);
                 });
                 (port, receiver)
             })
