@@ -267,3 +267,6 @@ pub mod workflows;
 /// WASM bindings — browser REPL and web integration.
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 pub mod wasm;
+
+/// XPath over HTML — the parser and evaluator behind the `web_xpath` builtin.
+pub mod web_xpath;

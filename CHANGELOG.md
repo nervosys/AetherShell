@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`web_xpath`**: queries HTML or simple XML with a subset of XPath 1.0, implemented in-tree with no new crate (`src/web_xpath.rs`): elements come back as their outer HTML, attributes and text as decoded values. Unsupported expressions such as `count()` or `following-sibling::` are refused with E_BAD_ARG; it was E_UNIMPLEMENTED before.
 - **`sudo_exec` on Windows**: runs argv directly, with no shell, only when the AetherShell process is already elevated; an unelevated process is refused with E_POLICY_DENY, since Windows elevates only through a UAC prompt, which AetherShell never shows.
 - **`pkg_list` on dnf, yum and Homebrew**: on RPM systems `pkg_list` reads
   `rpm -qa` (the version carries the epoch when the package has one, and

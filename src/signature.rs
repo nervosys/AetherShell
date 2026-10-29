@@ -1619,9 +1619,15 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "web_xpath", category: None, subject_required: false, aliases: &[],
-        subject: None, params: &[req("html", Ty::Str, "XML or HTML text"), req("expression", Ty::Str, "XPath expression")], returns: "Any",
-        doc: "Evaluate an XPath expression against markup. NOT IMPLEMENTED: every call is refused with E_UNIMPLEMENTED before anything runs: 13.0.0 adds no XML parser. Use web_scrape for simple extraction.",
-        examples: &[(r#"(try { web_xpath("<p>x</p>", "//p") } catch e { e.error.code })"#, "E_UNIMPLEMENTED")],
+        subject: None, params: &[req("html", Ty::Str, "HTML or simple XML text"), req("expression", Ty::Str, "XPath expression")], returns: "Array",
+        doc: "Evaluate an XPath expression against markup, with a lenient in-tree parser and no network or file access. Returns the matches in document order, without duplicates: an element as its outer HTML, an attribute as its decoded value, a text node as its decoded text. Supported: absolute and relative paths, //, ., .., the axes child, descendant, descendant-or-self, self, parent and attribute (abbreviated or spelled out), the tests name, *, text(), node(), @name and @*, predicates with position, last(), =, !=, <, <=, >, >=, existence, and, or, not(), contains(), starts-with() and normalize-space(), and a top-level union with |. Not supported, and refused with E_BAD_ARG: functions other than those listed (count(), string-length(), ...), other axes (following-sibling::, ...), variables, parenthesised path expressions such as (//li)[1], and comparisons between two node sets. Documents over 16 MiB, more than 1000 matches, or element nesting over 512 are E_BUDGET_EXCEEDED. Use web_scrape for a plain tag selector.",
+        examples: &[
+            (r#"web_xpath("<ul><li>a</li><li>b</li></ul>", "//li")"#, r#"["<li>a</li>", "<li>b</li>"]"#),
+            (r#"web_xpath("<a href='/x'>y</a>", "//a/@href")"#, r#"["/x"]"#),
+            (r#"web_xpath("<p>a<b>b</b>c</p>", "//p/text()")"#, r#"["a", "c"]"#),
+            (r#"web_xpath("<ul><li>a</li><li>b</li></ul>", "//li[2]")"#, r#"["<li>b</li>"]"#),
+            (r#"(try { web_xpath("<p>x</p>", "count(//p)") } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
     },
     Signature {
         name: "type_fields", category: None, subject_required: false, aliases: &[],

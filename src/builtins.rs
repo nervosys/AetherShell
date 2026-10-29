@@ -40236,16 +40236,60 @@ fn bi_web_json_path(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     Ok(current)
 }
 
-fn bi_web_xpath(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // Refused before anything runs. XPath needs an XML parser, and none is
-    // added for 13.0.0: the candidates are unmaintained and parse XML only,
-    // while the pages web builtins fetch are HTML.
+/// Query markup with a subset of XPath. Pure: the parser and evaluator live in
+/// `src/web_xpath.rs`, and this wrapper only checks arguments and maps refusals.
+fn bi_web_xpath(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     web_no_input("web_xpath", &input)?;
-    Err(crate::safety::unimplemented(
-        "web_xpath",
-        "querying with XPath is not implemented; NOTHING WAS DONE",
-        "use web_scrape for simple extraction",
-    ))
+    let html = web_text_arg("web_xpath", &args, 0, "html: String")?;
+    let expression = web_text_arg("web_xpath", &args, 1, "expression: String")?;
+    if args.len() > 2 {
+        return Err(crate::safety::bad_arg(
+            "web_xpath",
+            "two arguments: html and expression",
+            &format!("{} arguments", args.len()),
+        ));
+    }
+    if html.len() > crate::web_xpath::MAX_HTML_BYTES {
+        return Err(crate::safety::budget_exceeded(
+            "web_xpath",
+            format!(
+                "html of {} bytes is over the {} MiB limit",
+                html.len(),
+                crate::web_xpath::MAX_HTML_BYTES / (1024 * 1024)
+            ),
+            "pass the part of the page that holds the match",
+        ));
+    }
+    use crate::web_xpath::Refusal;
+    match crate::web_xpath::evaluate(html, expression, WEB_SCRAPE_MAX_MATCHES) {
+        Ok(found) => Ok(Value::Array(found.into_iter().map(Value::Str).collect())),
+        Err(Refusal::Expression { got }) => Err(crate::safety::bad_arg(
+            "web_xpath",
+            "a supported XPath expression",
+            &got,
+        )),
+        Err(Refusal::Depth) => Err(crate::safety::budget_exceeded(
+            "web_xpath",
+            format!(
+                "element nesting deeper than {}",
+                crate::web_xpath::MAX_DEPTH
+            ),
+            "the markup is nested too deeply to query; fix the source or extract a smaller part",
+        )),
+        Err(Refusal::Work) => Err(crate::safety::budget_exceeded(
+            "web_xpath",
+            format!(
+                "an evaluation visiting more than {} nodes",
+                crate::web_xpath::MAX_WORK
+            ),
+            "use a narrower expression: fewer // steps, or a path in a predicate over fewer nodes",
+        )),
+        Err(Refusal::TooManyResults { limit }) => Err(crate::safety::budget_exceeded(
+            "web_xpath",
+            format!("more than {limit} matches"),
+            "use a narrower expression; this shell returns no partial list",
+        )),
+    }
 }
 
 // Helper function
