@@ -42782,33 +42782,38 @@ impl CryptoKdf {
 /// Argon2id by default -- the same KDF `auth.rs` uses for password storage,
 /// for the same reason: the threat is a precomputed table over a small
 /// guessable space, and a fast hash invites one.
-fn crypto_derive_key(password: &str, salt: &[u8], kdf: CryptoKdf) -> Result<[u8; 32]> {
+fn crypto_derive_key(
+    builtin: &str,
+    password: &str,
+    salt: &[u8],
+    kdf: CryptoKdf,
+) -> Result<[u8; 32]> {
     let mut key = [0u8; 32];
     match kdf {
-        CryptoKdf::Argon2id => argon2::Argon2::default()
-            .hash_password_into(password.as_bytes(), salt, &mut key)
-            .map_err(|e| {
-                crate::safety::crypto_failed(
-                    "",
-                    format!("key derivation failed: {e}"),
-                    "no ciphertext was produced; the same input fails the same way, so check the host's Argon2 support",
-                )
-            })?,
-        CryptoKdf::Pbkdf2HmacSha256 => {
-            pbkdf2::pbkdf2_hmac::<sha2::Sha256>(
-                password.as_bytes(),
-                salt,
-                CRYPTO_PBKDF2_ROUNDS,
-                &mut key,
-            );
-        }
+        // Argon2id v1.3 at the old `Argon2::default()` cost, so an envelope
+        // written by 10.x-12.x derives the same key.
+        CryptoKdf::Argon2id => ironcrypto::kdf::argon2::argon2(
+            ironcrypto::kdf::argon2::Variant::Argon2id,
+            &ironcrypto::kdf::argon2::Argon2Params::DEFAULT,
+            password.as_bytes(),
+            salt,
+            &mut key,
+        )
+        .map_err(|e| crate::safety::ic_failed(builtin, e))?,
+        CryptoKdf::Pbkdf2HmacSha256 => ironcrypto::kdf::pbkdf2::<ironcrypto::mac::HmacSha256>(
+            password.as_bytes(),
+            salt,
+            CRYPTO_PBKDF2_ROUNDS,
+            &mut key,
+        )
+        .map_err(|e| crate::safety::ic_failed(builtin, e))?,
     }
     Ok(key)
 }
 
 fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    use aes_gcm::aead::{Aead, KeyInit, Payload};
     use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use ironcrypto::core_types::traits::Aead;
 
     let data = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -42843,23 +42848,16 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::ic_fill_random("crypto_encrypt", &mut salt)?;
     crate::safety::ic_fill_random("crypto_encrypt", &mut nonce_bytes)?;
     let kdf = CryptoKdf::for_new_ciphertext();
-    let key = crypto_derive_key(&password, &salt, kdf)?;
+    let key = crypto_derive_key("crypto_encrypt", &password, &salt, kdf)?;
 
-    let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key).map_err(|e| {
-        crate::safety::crypto_failed(
-            "",
-            format!("bad key length: {e}"),
-            "no ciphertext was produced; the derived key was rejected by the cipher",
-        )
-    })?;
-    let ct = cipher
-        .encrypt(
-            aes_gcm::Nonce::from_slice(&nonce_bytes),
-            Payload {
-                msg: data.as_bytes(),
-                aad: kdf.aad(),
-            },
-        )
+    // The envelope carries ciphertext then the 16-byte tag, the layout the
+    // RustCrypto crate produced, so IronCrypto's detached tag is appended here.
+    let cipher = ironcrypto::cipher::Aes256Gcm::new(&key)
+        .map_err(|e| crate::safety::ic_failed("crypto_encrypt", e))?;
+    let mut ct = data.as_bytes().to_vec();
+    let mut tag = [0u8; 16];
+    cipher
+        .seal_detached(&nonce_bytes, kdf.aad(), &mut ct, &mut tag)
         .map_err(|_| {
             crate::safety::crypto_failed(
                 "",
@@ -42867,6 +42865,7 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 "retry once; if it fails again the in-process cipher is refusing this input",
             )
         })?;
+    ct.extend_from_slice(&tag);
 
     Ok(Value::Str(format!(
         "{}.{}.{}.{}",
@@ -42877,95 +42876,123 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     )))
 }
 
-/// Decrypt a pre-AS-2026-04 `openssl enc -aes-256-cbc` ciphertext. Kept so data
-/// written by an older AetherShell stays recoverable, but off by default: see
-/// the refusal in `bi_crypto_decrypt` for why.
-/// Deadline for one legacy decrypt. OpenSSL on a few MiB finishes in well under
-/// a second; this bounds a hung child, not a slow one.
-const CRYPTO_LEGACY_DEADLINE_SECS: u64 = 30;
+/// Decrypt a pre-AS-2026-04 `openssl enc -aes-256-cbc -pbkdf2` ciphertext. Kept so
+/// data written by an older AetherShell stays recoverable, but off by default:
+/// see the refusal in `bi_crypto_decrypt` for why.
+///
+/// The format is OpenSSL's `Salted__` envelope, base64 encoded: the magic, an
+/// 8-byte salt, then AES-256-CBC with PKCS#7 padding. The key and IV come from
+/// PBKDF2-HMAC-SHA256 at 10 000 iterations, 48 bytes, which is what
+/// `openssl enc -pbkdf2` does with its defaults (OpenSSL 1.1.1 and later).
+/// `openssl` is no longer run; a test decrypts OpenSSL's own output.
+const CRYPTO_LEGACY_MAGIC: &[u8] = b"Salted__";
+/// PBKDF2 iterations OpenSSL's `enc -pbkdf2` uses when none is given.
+const CRYPTO_LEGACY_ITERATIONS: u32 = 10_000;
 /// The most plaintext one legacy decrypt may return. Past it the call is
 /// refused: a plaintext cut short would look whole.
 const CRYPTO_LEGACY_MAX_BYTES: usize = 64 * 1024 * 1024;
 
-/// Re-wrap legacy base64 the way `openssl enc -base64` writes it: 64-character
-/// lines, each newline-terminated.
+/// PBKDF2-HMAC-SHA256 for a salt of any length, from IronCrypto's HMAC.
 ///
-/// `openssl enc -d -base64` without `-A` reads line by line, and a final line
-/// with no newline fails with "error reading input file". Callers trim their
-/// input, so a short ciphertext always arrived that way. Whitespace is dropped
-/// first, so one unbroken line and openssl's own wrapped form both reach
-/// openssl in the shape it reads.
-fn legacy_base64_lines(data: &str) -> String {
-    const LINE: usize = 64;
-    let compact: Vec<char> = data.chars().filter(|c| !c.is_whitespace()).collect();
-    let mut out = String::with_capacity(compact.len() + compact.len() / LINE + 1);
-    for chunk in compact.chunks(LINE) {
-        out.extend(chunk.iter());
-        out.push('\n');
+/// IronCrypto's `pbkdf2` refuses salts under 128 bits, and OpenSSL's salt is 64
+/// bits. The derivation is RFC 8018's F function over the same HMAC, so the
+/// primitive is still IronCrypto's.
+fn legacy_pbkdf2_sha256(
+    password: &[u8],
+    salt: &[u8],
+    iterations: u32,
+    out: &mut [u8],
+) -> Result<()> {
+    use ironcrypto::core_types::traits::Mac as _;
+    let mac = |key: &[u8], data: &[u8]| -> Result<Vec<u8>> {
+        ironcrypto::mac::HmacSha256::mac(key, data)
+            .map(|tag| tag.as_ref().to_vec())
+            .map_err(|e| crate::safety::ic_failed("crypto_decrypt", e))
+    };
+    for (index, block) in out.chunks_mut(32).enumerate() {
+        let mut first_input = salt.to_vec();
+        first_input.extend_from_slice(&((index as u32) + 1).to_be_bytes());
+        let mut u = mac(password, &first_input)?;
+        let mut t = u.clone();
+        for _ in 1..iterations {
+            u = mac(password, &u)?;
+            for (a, b) in t.iter_mut().zip(u.iter()) {
+                *a ^= b;
+            }
+        }
+        block.copy_from_slice(&t[..block.len()]);
     }
-    out
+    Ok(())
 }
 
 fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
-    let output = run_output(
-        "crypto_decrypt",
-        "openssl",
-        "openssl",
-        &[
-            "enc",
-            "-aes-256-cbc",
-            "-pbkdf2",
-            "-d",
-            "-base64",
-            // `pass:` puts the secret in argv, which is world-readable via
-            // /proc/<pid>/cmdline on Linux. `env:` keeps it in the child
-            // environment, which is owner-readable only (AS-2026-03).
-            "-pass",
-            "env:AE_OPENSSL_PASS",
-        ],
-        |cmd| {
-            cmd.env("AE_OPENSSL_PASS", password);
-        },
-        Some(legacy_base64_lines(data).into_bytes()),
-        CRYPTO_LEGACY_DEADLINE_SECS,
-        CRYPTO_LEGACY_MAX_BYTES,
-    )?;
-    if output.status.success() {
-        // The same refusal as the authenticated path: a lossy conversion would
-        // silently change the plaintext, so non-UTF-8 output is not returned.
-        return String::from_utf8(output.stdout)
-            .map(Value::Str)
-            .map_err(|_| {
-                crate::safety::decrypt_failed(
-                    "crypto_decrypt",
-                    "crypto_decrypt: plaintext is not valid UTF-8; the legacy decrypt \
-                     succeeded but its bytes are not text, so nothing was returned",
-                    "the plaintext is binary; decrypt it with `openssl enc -d` and handle \
-                     the bytes there",
-                )
-            });
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use ironcrypto::core_types::traits::BlockCipher as _;
+
+    let refused = |why: &str| {
+        crate::safety::decrypt_failed(
+            "crypto_decrypt",
+            format!(
+                "crypto_decrypt: legacy (unauthenticated) decrypt failed -- the password may be \
+                 wrong, or the ciphertext may have been modified. AES-256-CBC is not authenticated, \
+                 so a *successful* legacy decrypt is not proof of integrity either. {why}"
+            ),
+            "check the password; if it is right, the ciphertext was altered and should not be \
+             trusted. Nothing was decrypted",
+        )
+    };
+    let compact: String = data.chars().filter(|c| !c.is_whitespace()).collect();
+    let raw = STANDARD
+        .decode(&compact)
+        .map_err(|_| refused("the input is not base64."))?;
+    if raw.len() < 16 || &raw[..8] != CRYPTO_LEGACY_MAGIC {
+        return Err(refused("the input has no `Salted__` header."));
     }
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(crate::safety::decrypt_failed(
-        "crypto_decrypt",
-        format!(
-            "crypto_decrypt: legacy (unauthenticated) decrypt failed -- the password may be \
-             wrong, or the ciphertext may have been modified. AES-256-CBC is not authenticated, \
-             so a *successful* legacy decrypt is not proof of integrity either. openssl: {}",
-            if stderr.is_empty() {
-                "(no detail)".to_string()
-            } else {
-                stderr
-            }
-        ),
-        "check the password; if it is right, the ciphertext was altered and should not be \
-         trusted. Nothing was decrypted",
-    ))
+    let (salt, body) = (&raw[8..16], &raw[16..]);
+    if body.is_empty() || body.len() % 16 != 0 {
+        return Err(refused(
+            "the ciphertext is not a whole number of AES blocks.",
+        ));
+    }
+    if body.len() > CRYPTO_LEGACY_MAX_BYTES + 16 {
+        return Err(refused(
+            "the ciphertext is larger than the legacy decrypt limit.",
+        ));
+    }
+
+    // 32 bytes of AES-256 key, then the 16-byte CBC IV.
+    let mut derived = [0u8; 48];
+    legacy_pbkdf2_sha256(
+        password.as_bytes(),
+        salt,
+        CRYPTO_LEGACY_ITERATIONS,
+        &mut derived,
+    )?;
+    let cipher = ironcrypto::cipher::Aes256::new(&derived[..32])
+        .map_err(|e| crate::safety::ic_failed("crypto_decrypt", e))?;
+    let mut plain = body.to_vec();
+    ironcrypto::cipher::cbc_decrypt(&cipher, &derived[32..], &mut plain)
+        .map_err(|e| crate::safety::ic_failed("crypto_decrypt", e))?;
+    let n = ironcrypto::cipher::pkcs7_unpad(&plain)
+        .map_err(|_| refused("the padding is wrong, which is what a bad password gives."))?;
+    plain.truncate(n);
+
+    // The same refusal as the authenticated path: a lossy conversion would
+    // silently change the plaintext, so non-UTF-8 output is not returned.
+    String::from_utf8(plain).map(Value::Str).map_err(|_| {
+        crate::safety::decrypt_failed(
+            "crypto_decrypt",
+            "crypto_decrypt: plaintext is not valid UTF-8; the legacy decrypt \
+             succeeded but its bytes are not text, so nothing was returned",
+            "the plaintext is binary; the legacy ciphertext has to be decrypted by the \
+             tool that wrote it",
+        )
+    })
 }
 
 fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    use aes_gcm::aead::{Aead, KeyInit, Payload};
     use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use ironcrypto::core_types::traits::Aead;
 
     let data = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -43040,36 +43067,36 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // salt is attacker-chosen text, so a salt the KDF refuses is a malformed
     // ciphertext, not a shell fault.
     let kdf = kdf.expect("checked above");
-    let key = crypto_derive_key(&password, &salt, kdf).map_err(|e| {
+    let key = crypto_derive_key("crypto_decrypt", &password, &salt, kdf).map_err(|e| {
         malformed(&format!(
             "the key could not be derived from its salt: {}",
             strip_code_prefix(&e.to_string())
         ))
     })?;
-    let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key)
+    let cipher = ironcrypto::cipher::Aes256Gcm::new(&key)
         .map_err(|e| malformed(&format!("the key has the wrong length: {e}")))?;
 
     // AES-GCM verifies the tag before any plaintext is released, so a wrong
     // password and a modified ciphertext give the same answer here -- and
     // unlike the CBC path, "it decrypted" now genuinely means "it was not
-    // modified".
-    let plaintext = cipher
-        .decrypt(
-            aes_gcm::Nonce::from_slice(&nonce_bytes),
-            Payload {
-                msg: &ct,
-                aad: kdf.aad(),
-            },
+    // modified". The envelope stores the 16-byte tag after the ciphertext.
+    let auth_failed = || {
+        crate::safety::decrypt_failed(
+            "crypto_decrypt",
+            "crypto_decrypt: authentication failed -- the password is wrong or the \
+             ciphertext was modified. No plaintext was released",
+            "check the password; if it is right, the ciphertext was altered and should \
+             not be trusted",
         )
-        .map_err(|_| {
-            crate::safety::decrypt_failed(
-                "crypto_decrypt",
-                "crypto_decrypt: authentication failed -- the password is wrong or the \
-                 ciphertext was modified. No plaintext was released",
-                "check the password; if it is right, the ciphertext was altered and should \
-                 not be trusted",
-            )
-        })?;
+    };
+    let Some(tag_start) = ct.len().checked_sub(16) else {
+        return Err(auth_failed());
+    };
+    let mut plaintext = ct;
+    let tag = plaintext.split_off(tag_start);
+    cipher
+        .open_detached(&nonce_bytes, kdf.aad(), &mut plaintext, &tag)
+        .map_err(|_| auth_failed())?;
 
     String::from_utf8(plaintext).map(Value::Str).map_err(|_| {
         crate::safety::decrypt_failed(
@@ -43169,33 +43196,23 @@ fn password_arguments<'a>(
 }
 
 fn bi_crypto_password_hash(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    use argon2::password_hash::{PasswordHasher, SaltString};
-    let values = password_arguments("crypto_password_hash", &args, &input, 1)?;
+    let name = "crypto_password_hash";
+    let values = password_arguments(name, &args, &input, 1)?;
     let mut salt = [0u8; 16];
-    crate::safety::ic_fill_random("crypto_password_hash", &mut salt)?;
-    let salt = SaltString::encode_b64(&salt).map_err(|_| {
-        crate::safety::bad_state("crypto_password_hash", "salt encoding failed", "valid salt")
-    })?;
+    crate::safety::ic_fill_random(name, &mut salt)?;
     let hash = if crate::safety::fips_enabled() {
-        pbkdf2::Pbkdf2.hash_password(values[0].as_bytes(), &salt)
+        crate::crypto_phc::pbkdf2_sha256_hash(name, values[0].as_bytes(), &salt)?
     } else {
-        argon2::Argon2::default().hash_password(values[0].as_bytes(), &salt)
-    }
-    .map_err(|_| {
-        crate::safety::bad_state(
-            "crypto_password_hash",
-            "password derivation failed",
-            "supported parameters",
-        )
-    })?;
-    Ok(Value::Str(hash.to_string()))
+        crate::crypto_phc::argon2id_hash(name, values[0].as_bytes(), &salt)?
+    };
+    Ok(Value::Str(hash))
 }
 
 #[path = "sha_crypt.rs"]
 mod sha_crypt;
 
 fn bi_crypto_password_verify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    use argon2::password_hash::{PasswordHash, PasswordVerifier};
+    use ironcrypto::core_types::ErrorKind;
     let name = "crypto_password_verify";
     let values = password_arguments(name, &args, &input, 2)?;
     let malformed = || {
@@ -43234,19 +43251,27 @@ fn bi_crypto_password_verify(args: Vec<Value>, input: Option<Value>) -> Result<V
         }
         return Ok(Value::Bool(sha_crypt::verify(name, values[0], values[1])?));
     }
-    let hash = PasswordHash::new(values[1]).map_err(|_| malformed())?;
-    let salt = hash.salt.ok_or_else(malformed)?;
-    let mut salt_bytes = [0u8; 64];
-    let salt_len = salt
-        .decode_b64(&mut salt_bytes)
-        .map_err(|_| malformed())?
-        .len();
-    let digest_len = hash.hash.ok_or_else(malformed)?.len();
-    if !(8..=64).contains(&salt_len) || !(16..=64).contains(&digest_len) {
-        return Err(malformed());
-    }
-    let result = match hash.algorithm.as_str() {
+    // Salt and digest bounds are shared by both formats, and are checked before
+    // the policy, as they always were.
+    let bounded = |salt_len: usize, digest_len: usize| {
+        if (8..=64).contains(&salt_len) && (16..=64).contains(&digest_len) {
+            Ok(())
+        } else {
+            Err(malformed())
+        }
+    };
+    let stored = values[1];
+    let algorithm = stored
+        .strip_prefix('$')
+        .and_then(|rest| rest.split('$').next())
+        .unwrap_or("");
+    let verified = match algorithm {
         "argon2id" => {
+            // IronCrypto's parser is the canonical Argon2 PHC reader: it refuses
+            // padding, non-canonical decimals and unused base64 bits.
+            let hash = ironcrypto::kdf::argon2::phc::PasswordHash::parse(stored)
+                .map_err(|_| malformed())?;
+            bounded(hash.salt.len(), hash.hash.len())?;
             if crate::safety::fips_enabled() {
                 return Err(crate::safety::policy_deny(
                     name,
@@ -43254,45 +43279,61 @@ fn bi_crypto_password_verify(args: Vec<Value>, input: Option<Value>) -> Result<V
                     "use a PBKDF2 password hash",
                 ));
             }
-            if hash.version != Some(19) || hash.params.iter().count() != 3 {
+            // Version 1.3 with the three cost parameters only. A keyid or data
+            // field is not something this function writes.
+            if hash.version != ironcrypto::kdf::argon2::Version::V0x13
+                || !hash.keyid.is_empty()
+                || !hash.data.is_empty()
+            {
                 return Err(malformed());
             }
-            for key in ["m", "t", "p"] {
-                if hash.params.get_decimal(key).is_none() {
-                    return Err(malformed());
-                }
-            }
-            let params = argon2::Params::try_from(&hash).map_err(|_| malformed())?;
-            if params.m_cost() > 65536 || params.t_cost() > 10 || params.p_cost() > 4 {
+            let params = hash.params;
+            if params.memory_kib > 65536 || params.passes > 10 || params.lanes > 4 {
                 return Err(crate::safety::budget_exceeded(
                     name,
                     "stored Argon2 parameters exceed verification limits".into(),
                     "maximum m=65536 KiB, t=10, p=4",
                 ));
             }
-            argon2::Argon2::default().verify_password(values[0].as_bytes(), &hash)
+            match ironcrypto::kdf::argon2::phc::verify_password(values[0].as_bytes(), stored) {
+                Ok(()) => true,
+                Err(e) if e.kind() == ErrorKind::AuthenticationFailed => false,
+                Err(_) => return Err(malformed()),
+            }
         }
         "pbkdf2-sha256" => {
-            let params = pbkdf2::Params::try_from(&hash).map_err(|_| malformed())?;
-            if params.rounds == 0 || !(16..=64).contains(&params.output_length) {
+            let hash = crate::crypto_phc::parse_pbkdf2_sha256(stored).ok_or_else(|| malformed())?;
+            bounded(hash.salt.len(), hash.hash.len())?;
+            // The `pbkdf2` crate's defaults stand in for absent fields.
+            let rounds = hash.rounds.unwrap_or(crate::crypto_phc::PBKDF2_HASH_ROUNDS);
+            let output_length = hash.output_length.unwrap_or(32);
+            if rounds == 0 || !(16..=64).contains(&output_length) {
                 return Err(malformed());
             }
-            if params.rounds > 1200000 {
+            if rounds > 1200000 {
                 return Err(crate::safety::budget_exceeded(
                     name,
                     "stored PBKDF2 iterations exceed verification limit".into(),
                     "maximum 1200000 iterations",
                 ));
             }
-            pbkdf2::Pbkdf2.verify_password(values[0].as_bytes(), &hash)
+            if output_length != hash.hash.len() {
+                false
+            } else {
+                let derived = crate::crypto_phc::pbkdf2_sha256_derive(
+                    name,
+                    values[0].as_bytes(),
+                    &hash.salt,
+                    rounds,
+                    output_length,
+                )
+                .map_err(|_| malformed())?;
+                ironcrypto::core_types::ct::verify(&derived, &hash.hash)
+            }
         }
         _ => return Err(malformed()),
     };
-    match result {
-        Ok(()) => Ok(Value::Bool(true)),
-        Err(argon2::password_hash::Error::Password) => Ok(Value::Bool(false)),
-        Err(_) => Err(malformed()),
-    }
+    Ok(Value::Bool(verified))
 }
 
 fn bi_crypto_checksum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

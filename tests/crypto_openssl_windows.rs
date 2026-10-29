@@ -313,7 +313,7 @@ fn openssl_backed_crypto_builtins_on_this_host() {
     }
 
     // With no openssl on PATH: cert_info still answers, since it needs no
-    // tool; the legacy decrypt path is still E_TOOL_MISSING.
+    // tool, and the legacy decrypt answers too, since it is in-process now.
     let empty = ScratchDir::new("no-openssl");
     let _restore = RestorePath(std::env::var_os("PATH"));
     std::env::set_var("PATH", empty.0.as_os_str());
@@ -326,14 +326,17 @@ fn openssl_backed_crypto_builtins_on_this_host() {
         ),
         "crypto_cert_info needs no openssl on PATH"
     );
-    let missing = [(
+    match call(
         "crypto_decrypt",
         vec![text(&ciphertext), text("legacy-pass")],
-    )];
-    for (name, args) in missing {
-        let e =
-            call(name, args, &mut env).expect_err(&format!("{name} ran without openssl on PATH"));
-        assert!(e.to_string().contains("E_TOOL_MISSING"), "{name}: {e}");
+        &mut env,
+    )
+    .expect("legacy decrypt is in-process and needs no openssl on PATH")
+    {
+        Value::Str(plaintext) => {
+            assert_eq!(plaintext, "legacy line one\nlegacy line two\n");
+        }
+        other => panic!("legacy decrypt returned {}", other.type_name()),
     }
 }
 

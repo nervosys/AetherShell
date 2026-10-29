@@ -138,6 +138,8 @@ pub mod auth;
 /// Built-in functions — 1,100+ typed builtins across 108 modules.
 #[cfg(feature = "native")]
 pub mod builtins;
+#[cfg(feature = "native")]
+pub(crate) mod crypto_phc;
 /// Configuration — XDG-compliant config, themes, and settings.
 #[cfg(feature = "native")]
 pub mod config;

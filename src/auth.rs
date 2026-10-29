@@ -280,28 +280,20 @@ impl ApiKey {
 /// offline at billions of tries a second, and identical passwords collide into
 /// identical hashes so one crack breaks every account sharing it.
 pub fn hash_password(password: &str) -> Result<String> {
-    use argon2::password_hash::{PasswordHasher, SaltString};
-    // The same 16-byte salt `SaltString::generate` draws, from IronCrypto.
+    // The same 16-byte salt `SaltString::generate` drew, from IronCrypto.
     let mut raw = [0u8; 16];
     crate::safety::ic_fill_random("hash_password", &mut raw)?;
-    let salt = SaltString::encode_b64(&raw).map_err(|e| anyhow!("password salt: {e}"))?;
-    argon2::Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map(|h| h.to_string())
-        .map_err(|e| anyhow!("password hashing failed: {e}"))
+    crate::crypto_phc::argon2id_hash("hash_password", password.as_bytes(), &raw)
 }
 
 /// Verify a password against a PHC string produced by [`hash_password`].
 /// A malformed or unknown stored hash verifies as `false`, never as an error
 /// the caller might treat as success.
+///
+/// Any Argon2 variant and version the PHC string names is accepted, as it was
+/// before the move to IronCrypto; the parameters come from the string.
 pub fn verify_password(password: &str, stored: &str) -> bool {
-    use argon2::password_hash::{PasswordHash, PasswordVerifier};
-    match PasswordHash::new(stored) {
-        Ok(parsed) => argon2::Argon2::default()
-            .verify_password(password.as_bytes(), &parsed)
-            .is_ok(),
-        Err(_) => false,
-    }
+    ironcrypto::kdf::argon2::phc::verify_password(password.as_bytes(), stored).is_ok()
 }
 
 /// A real Argon2id hash of a value nobody can supply, used to spend the same

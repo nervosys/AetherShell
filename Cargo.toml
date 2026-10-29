@@ -146,8 +146,7 @@ async-stream = "0.3"
 rand = "0.8"
 # SHA-2 hashing, HMAC-SHA2, constant-time comparison, random numbers, and
 # Ed25519/ECDSA/RSA signatures and key generation come from
-# IronCrypto (pure Rust, no dependencies). sha2 stays only for the PBKDF2 path,
-# whose `pbkdf2` crate takes a RustCrypto digest type, and for the integration
+# IronCrypto (pure Rust, no dependencies). sha2 stays only for the integration
 # tests that use it as an independent oracle; hmac stays for HMAC-SHA-1.
 ironcrypto = { version = "0.3.2" }
 # X.509 certificate parsing, chain validation and trust stores for
@@ -156,10 +155,10 @@ ironcrypto = { version = "0.3.2" }
 ironsocketlayer = "0.7.1"
 sha2 = "0.10"
 sha1 = "0.10"  # already locked as a transitive dependency; hashing is in-process
-# Password hashing. Deliberately not sha2: `hash_key` (unsalted SHA-256) is
-# right for a 256-bit random API key and wrong for a password, where the whole
-# threat is a precomputed table over a small guessable space.
-argon2 = { version = "0.5", features = ["std"] }
+# Password hashing (Argon2id, PBKDF2-HMAC-SHA256) comes from IronCrypto.
+# Deliberately not sha2: `hash_key` (unsalted SHA-256) is right for a 256-bit
+# random API key and wrong for a password, where the whole threat is a
+# precomputed table over a small guessable space.
 # Authenticated encryption for `crypto.encrypt` (AS-2026-04). The previous
 # implementation shelled out to `openssl enc -aes-256-cbc`, which has no
 # integrity: a modified ciphertext decrypts to modified plaintext and the
@@ -172,17 +171,15 @@ argon2 = { version = "0.5", features = ["std"] }
 # that. AES-GCM is the approved AEAD and gives the same guarantee.
 # Moving in-process also drops the subprocess, which removes the
 # password-in-child-environment handoff (AS-2026-03) and makes the builtin
-# work on Windows, where the openssl path was compiled out.
-aes-gcm = "0.10"
+# work on Windows, where the openssl path was compiled out. The cipher is
+# IronCrypto's Aes256Gcm.
 # Keying the audit hash chain (AS-2026-02). An unkeyed SHA-256 chain is
 # evidence against corruption, not against an author: anyone can recompute it
 # end to end.
 hmac = "0.12"
-# PBKDF2 is the KDF SP 800-132 approves. Argon2id is the better choice against
-# offline cracking and stays the default; this exists so that a deployment
-# running under AETHER_FIPS has an all-approved chain rather than one
-# documented exception (AS-2026-08).
-pbkdf2 = { version = "0.12", default-features = false, features = ["hmac", "simple"] }
+# PBKDF2 (SP 800-132) is IronCrypto's too. Argon2id is the default; PBKDF2 lets
+# a deployment running under AETHER_FIPS have an all-approved chain rather than
+# one documented exception (AS-2026-08).
 url = "2.5"
 urlencoding = "2.1"
 flate2 = "1.0"

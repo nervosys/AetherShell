@@ -1379,7 +1379,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "crypto_decrypt", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("data", Ty::Str, "versioned authenticated ciphertext"), req("password", Ty::Str, "encryption password")], returns: "String",
-        doc: "Authenticate and decrypt a versioned envelope to UTF-8 text. The envelope selects its KDF. Legacy unauthenticated CBC requires explicit environment opt-in (AETHER_CRYPTO_LEGACY_DECRYPT) and the openssl CLI on every OS; an absent openssl is E_TOOL_MISSING.",
+        doc: "Authenticate and decrypt a versioned envelope to UTF-8 text. The envelope selects its KDF. Legacy unauthenticated CBC requires explicit environment opt-in (AETHER_CRYPTO_LEGACY_DECRYPT); it is decrypted in-process, with no openssl CLI.",
         examples: &[(r#"crypto_decrypt(crypto_encrypt("hello", "example-password"), "example-password")"#, "hello")],
     },
     Signature {
