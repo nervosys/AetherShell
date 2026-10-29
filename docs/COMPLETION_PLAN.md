@@ -338,7 +338,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_pkg_unhold — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_pkg_autoremove — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_pkg_history
-- [ ] bi_gui_screenshot
+- [x] bi_gui_screenshot — Windows (CopyFromScreen), Linux (scrot) and macOS (screencapture). 2026-10-28, disposable-host run 40808228156: tests/screenshot_window_admin.rs `the_whole_screen_is_captured_as_a_png` passed on windows-latest and macos-26-arm64 (a PNG of at least 640x480 at the answered path).
 - [x] bi_gui_screenshot_window — Linux X11 implemented (xwininfo + ImageMagick import); Windows (FindWindow + PrintWindow) and macOS (CGWindowList + screencapture -l) implemented. 2026-10-28, disposable-host run 40807253389 on windows-latest and macos-26-arm64: tests/screenshot_window_admin.rs passed on both (a WinForms form checked by PNG size, a TextEdit window by PNG header; an unknown title is E_NOT_FOUND). The first run found FindWindow($null, …) never matched, which also broke the six gui_*_window operations on Windows; after the fix, tests/windows_window_admin.rs passed 2/2 on the runner (run 40807474184): move, resize, minimize, maximize and close each checked with user32, focus answered true, and an unknown title is E_NOT_FOUND for all six.
 - [x] bi_gui_find_image
 - [x] bi_web_websocket — one bounded exchange through tungstenite (already built for axum): ws and wss, 8 MiB, 1000 messages, 120 s
