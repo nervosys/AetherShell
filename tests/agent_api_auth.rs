@@ -52,6 +52,13 @@ async fn serve_with_timeout(token: &str, request_timeout_secs: u64) -> u16 {
     panic!("agent api server did not start on port {port}");
 }
 
+/// reqwest is built without a crypto provider of its own, so a client needs
+/// IronCrypto's installed first, as every client in the crate does.
+fn client() -> reqwest::Client {
+    aethershell::tls::install_provider();
+    reqwest::Client::new()
+}
+
 fn eval_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/api/v1/eval")
 }
@@ -59,7 +66,7 @@ fn eval_url(port: u16) -> String {
 #[tokio::test]
 async fn eval_without_a_token_is_rejected() {
     let port = serve("correct-horse-battery-staple").await;
-    let res = reqwest::Client::new()
+    let res = client()
         .post(eval_url(port))
         .json(&serde_json::json!({ "code": "1 + 1" }))
         .send()
@@ -88,7 +95,7 @@ async fn eval_with_the_wrong_token_is_rejected() {
         "the-real",
         "",
     ] {
-        let res = reqwest::Client::new()
+        let res = client()
             .post(eval_url(port))
             .bearer_auth(wrong)
             .json(&serde_json::json!({ "code": "1 + 1" }))
@@ -107,7 +114,7 @@ async fn eval_with_the_wrong_token_is_rejected() {
 async fn eval_with_the_right_token_is_allowed() {
     let token = "a-token-that-should-work";
     let port = serve(token).await;
-    let res = reqwest::Client::new()
+    let res = client()
         .post(eval_url(port))
         .bearer_auth(token)
         .json(&serde_json::json!({ "code": "1 + 1" }))
@@ -136,7 +143,7 @@ async fn a_wedged_request_is_cancelled_rather_than_holding_a_worker() {
     let port = serve_with_timeout(token, 1).await;
 
     let started = std::time::Instant::now();
-    let res = reqwest::Client::new()
+    let res = client()
         .post(eval_url(port))
         .bearer_auth(token)
         .json(&serde_json::json!({ "code": "sleep 20" }))
@@ -168,7 +175,7 @@ async fn streaming_routes_are_exempt_from_the_deadline() {
     let port = serve_with_timeout(token, 1).await;
 
     let started = std::time::Instant::now();
-    let res = reqwest::Client::new()
+    let res = client()
         .post(format!("http://127.0.0.1:{port}/api/v1/stream/eval"))
         .bearer_auth(token)
         .json(&serde_json::json!({ "type": "Eval", "code": "sleep 3" }))
@@ -191,7 +198,7 @@ async fn streaming_routes_are_exempt_from_the_deadline() {
 #[tokio::test]
 async fn health_stays_reachable_without_a_token() {
     let port = serve("some-token").await;
-    let res = reqwest::Client::new()
+    let res = client()
         .get(format!("http://127.0.0.1:{port}/health"))
         .send()
         .await
