@@ -61,14 +61,20 @@ fn png_size(bytes: &[u8]) -> (u32, u32) {
     (w, h)
 }
 
-/// Captures `title` to `path`, retrying while no window has that title yet.
-/// Any other refusal fails at once, so a permission problem is not waited on.
+/// Captures `title` to `path`, retrying while no window has that title yet,
+/// or while macOS lists it but has not drawn it (screencapture: "could not
+/// create image from window", run 40830532418). Any other refusal fails at
+/// once, so a permission problem is not waited on.
 fn capture_when_shown(title: &str, path: &str, within: Duration) -> Value {
     let deadline = Instant::now() + within;
     loop {
         match call("gui_screenshot_window", vec![s(title), s(path)]) {
             Ok(v) => return v,
-            Err(e) if e.to_string().contains("E_NOT_FOUND") && Instant::now() < deadline => {
+            Err(e)
+                if (e.to_string().contains("E_NOT_FOUND")
+                    || e.to_string().contains("could not create image from window"))
+                    && Instant::now() < deadline =>
+            {
                 std::thread::sleep(Duration::from_millis(200));
             }
             Err(e) => panic!("{title}: {e}"),
