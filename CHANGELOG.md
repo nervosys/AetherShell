@@ -179,6 +179,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   macOS: `acl_get` (`ls -led`) and `acl_set` (`chmod +a`, or `chmod -a` with remove)
   for `user:NAME allow|deny PERMS` and `group:NAME` entries; default ACLs are
   `E_BAD_ARG`, and removing an entry that is not there is `E_NOT_FOUND`.
+  macOS: `fs_mount` attaches a disk image with `hdiutil attach` (`readonly`
+  only; `bind`, `fstype` and `options` are `E_BAD_ARG`) and `fs_unmount`
+  detaches it with `hdiutil detach` or unmounts any other mount with `umount`;
+  both read the mount back with statfs. Protected paths are refused by exact
+  canonical path, and a non-mount point is `E_NOT_FOUND`. Tested only on
+  disposable runners.
   Windows: `pkg_list` from the Add/Remove Programs registry entries.
   Windows: `journalctl` reads the System event log ({time, provider, level,
   id, message}; `unit` is an event provider), `pkg_history` the Windows

@@ -99,7 +99,7 @@ jobs:
             - uses: Swatinem/rust-cache@v2
 
             - name: Build the gated tests
-              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin --test macos_window_admin --test macos_service_admin --test macos_account_admin --test libcpp_contracts --test proc_env_macos --test macos_acl_admin
+              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin --test macos_window_admin --test macos_service_admin --test macos_account_admin --test libcpp_contracts --test proc_env_macos --test macos_acl_admin --test macos_mount_admin
 
             - name: Clipboard images
               if: ${{ !cancelled() }}
@@ -137,4 +137,10 @@ jobs:
               if: ${{ !cancelled() }}
               run: |
                   exe=$(cargo test --no-run --test macos_account_admin --message-format=json | jq -r 'select(.target.name == "macos_account_admin" and .executable != null) | .executable' | head -n 1)
+                  sudo -E env AE_DISPOSABLE_HOST=1 "$exe" --include-ignored --test-threads=1
+
+            - name: Mounts (root)
+              if: ${{ !cancelled() }}
+              run: |
+                  exe=$(cargo test --no-run --test macos_mount_admin --message-format=json | jq -r 'select(.target.name == "macos_mount_admin" and .executable != null) | .executable' | head -n 1)
                   sudo -E env AE_DISPOSABLE_HOST=1 "$exe" --include-ignored --test-threads=1

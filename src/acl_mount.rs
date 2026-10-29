@@ -1,15 +1,18 @@
 //! ACLs and mounts: `acl_get`, `acl_set`, `fs_mount` and `fs_unmount`.
 //!
 //! Every builtin checks its arguments before it touches the system, then runs
-//! one tool (`getfacl`, `setfacl`, `icacls`, `ls`, `chmod`, `mount` or `umount`)
-//! with an argv vector. No shell is involved and no caller string is
+//! one tool (`getfacl`, `setfacl`, `icacls`, `ls`, `chmod`, `mount`, `umount`,
+//! `hdiutil`) with an argv vector. No shell is involved and no caller string is
 //! interpolated into a command line. On Linux, `acl_get` and `acl_set` run
 //! `getfacl` and `setfacl`, and the mount builtins run `mount` and `umount`. On
 //! Windows, `acl_get` and `acl_set` run `icacls`. On macOS, `acl_get` runs
 //! `ls -led` and `acl_set` runs `chmod +a` or `chmod -a`, with the entry in the
-//! `user:NAME allow|deny PERMS` form. Off Linux and macOS, the mount builtins
-//! are refused with E_UNIMPLEMENTED after their arguments are checked, and on
-//! Windows the same refusal covers them. A refusal changes nothing.
+//! `user:NAME allow|deny PERMS` form. On macOS, `fs_mount` attaches a disk-image
+//! file with `hdiutil attach` and reads the mount back with statfs, and
+//! `fs_unmount` detaches a disk image with `hdiutil detach` or unmounts any other
+//! mount with `umount`. Off Linux, macOS and Windows, the mount builtins are
+//! refused with E_UNIMPLEMENTED after their arguments are checked, and on Windows
+//! the same refusal covers them. A refusal changes nothing.
 //!
 //! ACL changes are not recorded by the undo journal. A call inside a
 //! filesystem transaction is refused, because a rollback cannot restore the
@@ -17,7 +20,8 @@
 //!
 //! `fs_unmount` refuses the mount points `/`, `/proc`, `/sys`, `/dev`, `/run`,
 //! `/boot`, `/usr`, `/etc`, `/var` and `/home` by exact path, after the path
-//! is canonicalized. `fs_mount` refuses the same paths as a target.
+//! is canonicalized. `fs_mount` refuses the same paths as a target. macOS has
+//! its own list, in its `sys` module, and refuses the same calls by exact path.
 use crate::safety::reject_option_like;
 use crate::{safety, value::Value};
 use anyhow::Result;
@@ -511,7 +515,7 @@ fn record(fields: Vec<(&str, Value)>) -> Value {
 }
 
 /// Refusal for a builtin with no implementation on this platform. Nothing has been touched.
-#[cfg_attr(target_os = "linux", allow(dead_code))]
+#[cfg_attr(any(target_os = "linux", target_os = "macos"), allow(dead_code))]
 fn off_linux(builtin: &str) -> anyhow::Error {
     safety::unimplemented(
         builtin,
@@ -1240,12 +1244,34 @@ mod sys {
 
 #[cfg(target_os = "macos")]
 mod sys {
-    use super::{guard, off_linux, parse_ls_acl, record, AclSpec, MountSpec};
+    use super::{guard, parse_ls_acl, record, AclSpec, MountSpec};
     use crate::{safety, value::Value};
     use anyhow::Result;
 
     const LS: &str = "/bin/ls";
     const CHMOD: &str = "/bin/chmod";
+    const HDIUTIL: &str = "/usr/bin/hdiutil";
+    const UMOUNT: &str = "/sbin/umount";
+
+    /// Mount points that `fs_mount` refuses as a target and `fs_unmount` refuses,
+    /// by exact canonical path. canonicalize turns /tmp into /private/tmp and
+    /// /var into /private/var, so the list names the canonical forms.
+    const PROTECTED: &[&str] = &[
+        "/",
+        "/System",
+        "/System/Volumes/Data",
+        "/System/Volumes/Preboot",
+        "/System/Volumes/VM",
+        "/System/Volumes/Update",
+        "/private",
+        "/private/var",
+        "/usr",
+        "/dev",
+        "/Library",
+        "/Users",
+        "/Applications",
+        "/Volumes",
+    ];
 
     /// Run `program` with `args` and return the finished output, whatever its
     /// exit status. A run that does not finish in 30s is stopped and refused as
@@ -1341,12 +1367,222 @@ mod sys {
         ]))
     }
 
-    pub(super) fn fs_mount(_source: &str, _target: &str, _spec: &MountSpec) -> Result<Value> {
-        Err(off_linux("fs_mount"))
+    /// The canonical form of `path`, as a String. A path that does not exist is
+    /// E_NOT_FOUND from the file system check, so nothing else is run.
+    fn canonical_path(builtin: &str, path: &str) -> Result<String> {
+        std::fs::canonicalize(path)
+            .map_err(|e| safety::fs_error(builtin, path, &e))?
+            .into_os_string()
+            .into_string()
+            .map_err(|_| safety::arg_err(format!("{builtin}: the path is not valid UTF-8")))
     }
 
-    pub(super) fn fs_unmount(_target: &str, _lazy: bool) -> Result<Value> {
-        Err(off_linux("fs_unmount"))
+    fn check_protected(builtin: &str, canonical: &str, verb: &str) -> Result<()> {
+        if PROTECTED.contains(&canonical) {
+            return Err(safety::policy_deny(
+                builtin,
+                format!("{builtin}: {canonical} is a protected system path; NOTHING WAS {verb}"),
+                "choose a mount point outside the system paths; these are refused by exact path",
+            ));
+        }
+        Ok(())
+    }
+
+    /// A C char array from statfs, read up to its NUL.
+    fn c_text(field: &[libc::c_char]) -> String {
+        let bytes: Vec<u8> = field
+            .iter()
+            .take_while(|&&c| c != 0)
+            .map(|&c| c as u8)
+            .collect();
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    /// What the kernel holds for the file system at a path, from statfs(2).
+    struct Fs {
+        mount_on: String,
+        device: String,
+        fstype: String,
+        read_only: bool,
+    }
+
+    fn statfs_of(builtin: &str, path: &str) -> Result<Fs> {
+        let c_path = std::ffi::CString::new(path).map_err(|_| {
+            safety::arg_err(format!("{builtin}: the path must not contain a NUL byte"))
+        })?;
+        // SAFETY: statfs writes one struct statfs into `buf`, which is zeroed first,
+        // and reads the NUL-terminated path, which c_path keeps alive.
+        let mut buf: libc::statfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statfs(c_path.as_ptr(), &mut buf) } != 0 {
+            return Err(safety::fs_error(
+                builtin,
+                path,
+                &std::io::Error::last_os_error(),
+            ));
+        }
+        Ok(Fs {
+            mount_on: c_text(&buf.f_mntonname),
+            device: c_text(&buf.f_mntfromname),
+            fstype: c_text(&buf.f_fstypename),
+            read_only: (buf.f_flags & (libc::MNT_RDONLY as u32)) != 0,
+        })
+    }
+
+    /// The whole-disk node of a device: `/dev/disk4` for `/dev/disk4s1`.
+    fn whole_disk(device: &str) -> Option<&str> {
+        let digits = device
+            .strip_prefix("/dev/disk")?
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .count();
+        (digits > 0).then(|| &device[.."/dev/disk".len() + digits])
+    }
+
+    /// Whether a device is a disk image. `hdiutil info` lists the whole-disk node
+    /// of every image it attached, so a device it does not list is not one and
+    /// is unmounted with umount instead.
+    fn disk_image(device: &str) -> Result<bool> {
+        let Some(whole) = whole_disk(device) else {
+            return Ok(false);
+        };
+        let output = execute("fs_unmount", HDIUTIL, &["info"])?;
+        let text = finished("fs_unmount", "hdiutil", &output)?;
+        Ok(text
+            .lines()
+            .any(|line| line.split_whitespace().next() == Some(whole)))
+    }
+
+    /// Attach a disk-image file on an empty directory and read the mount back.
+    /// No bind, fstype or options: those are refused before anything runs.
+    pub(super) fn fs_mount(source: &str, target: &str, spec: &MountSpec) -> Result<Value> {
+        if spec.bind {
+            return Err(safety::arg_err(
+                "fs_mount: bind: true is not supported on macOS, which has no bind mounts; NOTHING WAS MOUNTED",
+            ));
+        }
+        if spec.fstype.is_some() {
+            return Err(safety::arg_err(
+                "fs_mount: fstype is not taken on macOS, because hdiutil detects the format of a disk image; NOTHING WAS MOUNTED",
+            ));
+        }
+        if !spec.options.is_empty() {
+            return Err(safety::arg_err(
+                "fs_mount: options are not taken on macOS, except readonly; NOTHING WAS MOUNTED",
+            ));
+        }
+        let target = canonical_path("fs_mount", target)?;
+        check_protected("fs_mount", &target, "MOUNTED")?;
+        let target_meta =
+            std::fs::metadata(&target).map_err(|e| safety::fs_error("fs_mount", &target, &e))?;
+        if !target_meta.is_dir() {
+            return Err(safety::arg_err(format!(
+                "fs_mount: the target {target} is not a directory"
+            )));
+        }
+        let occupied = std::fs::read_dir(&target)
+            .map_err(|e| safety::fs_error("fs_mount", &target, &e))?
+            .next()
+            .is_some();
+        if occupied {
+            return Err(safety::arg_err(format!(
+                "fs_mount: the target {target} is not empty; mount on an empty directory"
+            )));
+        }
+        let source = canonical_path("fs_mount", source)?;
+        let source_meta =
+            std::fs::metadata(&source).map_err(|e| safety::fs_error("fs_mount", &source, &e))?;
+        if !source_meta.is_file() {
+            return Err(safety::arg_err(format!(
+                "fs_mount: {source} is not a regular file; macOS fs_mount takes disk-image files \
+                 (.dmg, .sparseimage, .iso), not a block device or a directory"
+            )));
+        }
+
+        guard(
+            "fs_mount",
+            safety::Effect::Privileged,
+            "mount",
+            &[source.clone(), target.clone()],
+        )?;
+        let mut args = vec![
+            "attach",
+            "-nobrowse",
+            "-noautoopen",
+            "-mountpoint",
+            target.as_str(),
+        ];
+        if spec.readonly {
+            args.push("-readonly");
+        }
+        args.push(source.as_str());
+        let output = execute("fs_mount", HDIUTIL, &args)?;
+        finished("fs_mount", "hdiutil", &output)?;
+
+        // Read the mount back from the kernel, not from what was asked.
+        let fs = statfs_of("fs_mount", &target)?;
+        if fs.mount_on != target {
+            // Best effort: an empty directory with nothing attached on it has no
+            // image to detach, so the result is ignored.
+            let _ = execute("fs_mount", HDIUTIL, &["detach", target.as_str()]);
+            return Err(safety::tool_failed(
+                "fs_mount",
+                "hdiutil",
+                Some(0),
+                &format!("{target} is not a mount point after attaching {source}"),
+            ));
+        }
+        Ok(record(vec![
+            ("source", Value::Str(source)),
+            ("target", Value::Str(target)),
+            ("fstype", Value::Str(fs.fstype)),
+            ("readonly", Value::Bool(fs.read_only)),
+        ]))
+    }
+
+    /// Detach a disk image, or unmount any other mount point. A target that is
+    /// not a mount point is E_NOT_FOUND, as on Linux.
+    pub(super) fn fs_unmount(target: &str, lazy: bool) -> Result<Value> {
+        let canonical_target = canonical_path("fs_unmount", target)?;
+        check_protected("fs_unmount", &canonical_target, "UNMOUNTED")?;
+        let fs = statfs_of("fs_unmount", &canonical_target)?;
+        if fs.mount_on != canonical_target {
+            return Err(safety::not_found("fs_unmount", "mount point", target));
+        }
+        guard(
+            "fs_unmount",
+            safety::Effect::Privileged,
+            "unmount",
+            &[canonical_target.clone()],
+        )?;
+        let (output, tool) = if disk_image(&fs.device)? {
+            let mut args: Vec<&str> = vec!["detach"];
+            if lazy {
+                args.push("-force");
+            }
+            args.push(canonical_target.as_str());
+            (execute("fs_unmount", HDIUTIL, &args)?, "hdiutil")
+        } else {
+            let mut args: Vec<&str> = Vec::new();
+            if lazy {
+                args.push("-f");
+            }
+            args.push(canonical_target.as_str());
+            (execute("fs_unmount", UMOUNT, &args)?, "umount")
+        };
+        finished("fs_unmount", tool, &output)?;
+        let after = statfs_of("fs_unmount", &canonical_target)?;
+        if after.mount_on == canonical_target {
+            return Err(safety::tool_failed(
+                "fs_unmount",
+                tool,
+                Some(0),
+                &format!("{canonical_target} is still a mount point after {tool}"),
+            ));
+        }
+        Ok(record(vec![
+            ("target", Value::Str(target.to_string())),
+            ("unmounted", Value::Bool(true)),
+        ]))
     }
 }
 

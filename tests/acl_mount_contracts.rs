@@ -2,8 +2,8 @@
 //!
 //! The ordinary tests here run everywhere: they check argument refusals,
 //! pipeline-input refusals, transaction refusals, and the coded E_UNIMPLEMENTED
-//! refusal of the mount builtins off Linux (and of the ACL builtins off Linux,
-//! Windows and macOS). Linux also runs a read-only ACL test on a file this
+//! refusal of the mount builtins off Linux and Windows (and of the ACL builtins
+//! off Linux, Windows and macOS). Linux also runs a read-only ACL test on a file this
 //! test owns. The tests that change the system (ACLs on owned files, loop and
 //! bind mounts, unmount refusals) are `#[ignore]`d and run only as root in the
 //! disposable distro: scripts/disposable_linux_tests.sh.
@@ -334,10 +334,10 @@ fn declared_examples_are_refusals() {
     }
 }
 
-/// Off Linux, Windows and macOS, the ACL builtins are unimplemented. On macOS
-/// they run ls and chmod, which macos_acl_admin covers, so only the mount
-/// builtins are asserted here.
-#[cfg(not(any(target_os = "linux", windows)))]
+/// Off Linux, Windows and macOS, the ACL and mount builtins are unimplemented.
+/// macOS runs ls, chmod, hdiutil and umount for them, which macos_acl_admin and
+/// macos_mount_admin cover.
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 #[test]
 fn off_linux_every_valid_call_is_unimplemented_and_changes_nothing() {
     let _lock = LOCK.lock().unwrap();
@@ -346,13 +346,11 @@ fn off_linux_every_valid_call_is_unimplemented_and_changes_nothing() {
     let file = sandbox.root.join("owned");
     std::fs::write(&file, "unchanged").unwrap();
     let file = file.to_string_lossy().into_owned();
-    if !cfg!(target_os = "macos") {
-        code(call("acl_get", vec![s(&file)], &mut env), "E_UNIMPLEMENTED");
-        code(
-            call("acl_set", vec![s(&file), s("u:nobody:r--")], &mut env),
-            "E_UNIMPLEMENTED",
-        );
-    }
+    code(call("acl_get", vec![s(&file)], &mut env), "E_UNIMPLEMENTED");
+    code(
+        call("acl_set", vec![s(&file), s("u:nobody:r--")], &mut env),
+        "E_UNIMPLEMENTED",
+    );
     code(
         call("fs_mount", vec![s("/dev/null"), s("/mnt/aeaclm")], &mut env),
         "E_UNIMPLEMENTED",
