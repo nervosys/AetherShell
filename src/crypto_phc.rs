@@ -66,6 +66,60 @@ pub(crate) fn pbkdf2_sha256_derive(
     Ok(out)
 }
 
+/// PBKDF2-HMAC-SHA256 for checking a stored hash. IronCrypto's `pbkdf2`
+/// refuses salts under 128 bits and fewer than 1000 rounds, which is right for
+/// a new hash, but the `pbkdf2` crate verified such strings and a stored one
+/// must still verify. When IronCrypto refuses, RFC 8018's F function over
+/// IronCrypto's HMAC-SHA256 computes the same bytes.
+pub(crate) fn pbkdf2_sha256_verify_derive(
+    builtin: &str,
+    password: &[u8],
+    salt: &[u8],
+    rounds: u32,
+    out_len: usize,
+) -> Result<Vec<u8>> {
+    if let Ok(out) = pbkdf2_sha256_derive(builtin, password, salt, rounds, out_len) {
+        return Ok(out);
+    }
+    let mut out = vec![0u8; out_len];
+    pbkdf2_sha256_rfc8018(builtin, password, salt, rounds, &mut out)?;
+    Ok(out)
+}
+
+/// PBKDF2-HMAC-SHA256 for a salt of any length, from IronCrypto's HMAC.
+///
+/// IronCrypto's `pbkdf2` refuses salts under 128 bits, and OpenSSL's salt is 64
+/// bits, as are some stored PHC salts. The derivation is RFC 8018's F function over the same HMAC, so the
+/// primitive is still IronCrypto's.
+pub(crate) fn pbkdf2_sha256_rfc8018(
+    builtin: &str,
+    password: &[u8],
+    salt: &[u8],
+    iterations: u32,
+    out: &mut [u8],
+) -> Result<()> {
+    use ironcrypto::core_types::traits::Mac as _;
+    let mac = |key: &[u8], data: &[u8]| -> Result<Vec<u8>> {
+        ironcrypto::mac::HmacSha256::mac(key, data)
+            .map(|tag| tag.as_ref().to_vec())
+            .map_err(|e| crate::safety::ic_failed(builtin, e))
+    };
+    for (index, block) in out.chunks_mut(32).enumerate() {
+        let mut first_input = salt.to_vec();
+        first_input.extend_from_slice(&((index as u32) + 1).to_be_bytes());
+        let mut u = mac(password, &first_input)?;
+        let mut t = u.clone();
+        for _ in 1..iterations {
+            u = mac(password, &u)?;
+            for (a, b) in t.iter_mut().zip(u.iter()) {
+                *a ^= b;
+            }
+        }
+        block.copy_from_slice(&t[..block.len()]);
+    }
+    Ok(())
+}
+
 /// A `$pbkdf2-sha256$` PHC string, parsed but not yet checked against policy.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Pbkdf2Phc {

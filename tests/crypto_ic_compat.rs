@@ -79,6 +79,22 @@ fn pbkdf2_hash_from_the_old_crate_verifies_with_and_without_fips() {
 }
 
 #[test]
+fn stored_pbkdf2_hashes_ironcrypto_would_not_write_still_verify() {
+    // IronCrypto's pbkdf2 refuses an 8-byte salt and fewer than 1000 rounds
+    // for a new hash; the pbkdf2 crate verified both, so a stored one must
+    // still verify. The digests are Python's hashlib.pbkdf2_hmac("sha256").
+    const SHORT_SALT: &str =
+        "$pbkdf2-sha256$i=1000,l=32$OGJ5dGVzYWw$wT5SxnJh2d8Il6K53xfSLtm99Goy6y6EmnBzWijREgs";
+    const FEW_ROUNDS: &str =
+        "$pbkdf2-sha256$i=500,l=32$c2l4dGVlbi1ieXRlLXNsdA$jAezz6jY+ORIUsLy7LnFcCr9tUtsRAO2sh2RVdUfRgU";
+    let _env = configure(false, false);
+    for stored in [SHORT_SALT, FEW_ROUNDS] {
+        assert!(verify("old hash", stored), "{stored}");
+        assert!(!verify("old hasH", stored), "{stored}");
+    }
+}
+
+#[test]
 fn argon2_hash_is_refused_under_fips_as_before() {
     let _env = configure(true, false);
     assert!(call(

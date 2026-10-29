@@ -42892,39 +42892,6 @@ const CRYPTO_LEGACY_ITERATIONS: u32 = 10_000;
 /// refused: a plaintext cut short would look whole.
 const CRYPTO_LEGACY_MAX_BYTES: usize = 64 * 1024 * 1024;
 
-/// PBKDF2-HMAC-SHA256 for a salt of any length, from IronCrypto's HMAC.
-///
-/// IronCrypto's `pbkdf2` refuses salts under 128 bits, and OpenSSL's salt is 64
-/// bits. The derivation is RFC 8018's F function over the same HMAC, so the
-/// primitive is still IronCrypto's.
-fn legacy_pbkdf2_sha256(
-    password: &[u8],
-    salt: &[u8],
-    iterations: u32,
-    out: &mut [u8],
-) -> Result<()> {
-    use ironcrypto::core_types::traits::Mac as _;
-    let mac = |key: &[u8], data: &[u8]| -> Result<Vec<u8>> {
-        ironcrypto::mac::HmacSha256::mac(key, data)
-            .map(|tag| tag.as_ref().to_vec())
-            .map_err(|e| crate::safety::ic_failed("crypto_decrypt", e))
-    };
-    for (index, block) in out.chunks_mut(32).enumerate() {
-        let mut first_input = salt.to_vec();
-        first_input.extend_from_slice(&((index as u32) + 1).to_be_bytes());
-        let mut u = mac(password, &first_input)?;
-        let mut t = u.clone();
-        for _ in 1..iterations {
-            u = mac(password, &u)?;
-            for (a, b) in t.iter_mut().zip(u.iter()) {
-                *a ^= b;
-            }
-        }
-        block.copy_from_slice(&t[..block.len()]);
-    }
-    Ok(())
-}
-
 fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use ironcrypto::core_types::traits::BlockCipher as _;
@@ -42962,7 +42929,8 @@ fn crypto_decrypt_legacy_cbc(data: &str, password: &str) -> Result<Value> {
 
     // 32 bytes of AES-256 key, then the 16-byte CBC IV.
     let mut derived = [0u8; 48];
-    legacy_pbkdf2_sha256(
+    crate::crypto_phc::pbkdf2_sha256_rfc8018(
+        "crypto_decrypt",
         password.as_bytes(),
         salt,
         CRYPTO_LEGACY_ITERATIONS,
@@ -43320,7 +43288,7 @@ fn bi_crypto_password_verify(args: Vec<Value>, input: Option<Value>) -> Result<V
             if output_length != hash.hash.len() {
                 false
             } else {
-                let derived = crate::crypto_phc::pbkdf2_sha256_derive(
+                let derived = crate::crypto_phc::pbkdf2_sha256_verify_derive(
                     name,
                     values[0].as_bytes(),
                     &hash.salt,
