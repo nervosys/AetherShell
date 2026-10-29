@@ -36926,13 +36926,16 @@ const MACOS_INPUT_ADMIN_JXA: &str = r#"ObjC.import('stdlib');
 ObjC.import('AppKit');
 ObjC.import('CoreGraphics');
 ObjC.import('ApplicationServices');
-// CGEventCreateScrollWheelEvent is variadic, so JXA does not expose it; it is
-// bound with its fixed prefix: source, units (1 = kCGScrollEventUnitLine),
-// wheel count, then the wheel-1 delta.
-ObjC.bindFunction('CGEventCreateScrollWheelEvent', ['id', ['void *', 'uint32', 'uint32', 'int32']]);
-// The UniChar count and buffer are bound explicitly; the buffer is the UTF-16
-// bytes of a chunk of at most 20 units.
-ObjC.bindFunction('CGEventKeyboardSetUnicodeString', ['void', ['id', 'ulong', 'void *']]);
+// No ObjC.bindFunction: a signature the bridge rejects raises an NSException
+// that JavaScript cannot catch, and osascript dies before any operation runs
+// (run 40845668146). Only bridged functions are used, each checked first, so
+// a missing one is a named failure of that operation alone.
+function need(name) {
+    if (typeof $[name] !== 'function') {
+        throw new Error('-1 ' + name + ' is not available to JavaScript for Automation on this macOS');
+    }
+    return $[name];
+}
 var TRUST_NEEDED = {move: 1, click: 1, drag: 1, scroll: 1, key: 1, combo: 1, type: 1};
 function post(ev) {
     $.CGEventPost($.kCGHIDEventTap, ev);
@@ -36966,12 +36969,13 @@ function keyEvent(code, flags, down) {
 // Types a chunk of at most 20 UTF-16 units as one keyboard event pair.
 function typeChunk(s) {
     if (s.length === 0) return;
+    var setText = need('CGEventKeyboardSetUnicodeString');
     var units = $(s).dataUsingEncoding($.NSUTF16LittleEndianStringEncoding);
     var down = $.CGEventCreateKeyboardEvent(null, 0, true);
-    $.CGEventKeyboardSetUnicodeString(down, s.length, units.bytes);
+    setText(down, s.length, units.bytes);
     post(down);
     var up = $.CGEventCreateKeyboardEvent(null, 0, false);
-    $.CGEventKeyboardSetUnicodeString(up, s.length, units.bytes);
+    setText(up, s.length, units.bytes);
     post(up);
 }
 // The text split into code points, so a surrogate pair is never cut.
@@ -37058,7 +37062,9 @@ function run(argv) {
             return 'ok';
         case 'scroll':
             // Positive notches scroll up, as on the other platforms.
-            post($.CGEventCreateScrollWheelEvent(null, 1, 1, Number(argv[1])));
+            // CGEventCreateScrollWheelEvent2 is the non-variadic form the bridge
+            // exposes: source, units (1 = line), wheel count, then three deltas.
+            post(need('CGEventCreateScrollWheelEvent2')(null, 1, 1, Number(argv[1]), 0, 0));
             return 'ok';
         case 'pos':
             var p = here();
@@ -60203,6 +60209,21 @@ fn journal_ndjson_rows(stdout: &str, truncated: bool, count: i64) -> Result<Vec<
         .filter(|l| !l.trim().is_empty())
         .skip_while(|l| !l.trim_start().starts_with('{'))
         .collect();
+    // The stream ends with a summary, {"count": N, "finished": 1}, which is not
+    // an entry (run 40845679109); it does not take one of the `count` slots.
+    let mut lines = lines;
+    if let Some(last) = lines.last() {
+        let summary = serde_json::from_str::<serde_json::Value>(last)
+            .ok()
+            .and_then(|v| {
+                v.as_object()
+                    .map(|o| o.contains_key("finished") && !o.contains_key("timestamp"))
+            })
+            .unwrap_or(false);
+        if summary {
+            lines.pop();
+        }
+    }
     let keep = (count.max(0) as usize).min(lines.len());
     lines[lines.len() - keep..]
         .iter()
@@ -60249,6 +60270,13 @@ mod macos_readonly_rows {
         assert_eq!(rows.iter().map(rec_n).collect::<Vec<_>>(), [1, 2]);
         let late = [r#"{"n":1}"#, "not json"].join("\n");
         assert!(journal_ndjson_rows(&late, false, 10).is_err());
+    }
+
+    #[test]
+    fn the_closing_summary_is_not_an_entry() {
+        let out = [r#"{"n":1}"#, r#"{"n":2}"#, r#"{"count":2,"finished":1}"#].join("\n");
+        let rows = journal_ndjson_rows(&out, false, 1).expect("rows");
+        assert_eq!(rows.iter().map(rec_n).collect::<Vec<_>>(), [2]);
     }
 
     #[test]
