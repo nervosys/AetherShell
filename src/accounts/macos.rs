@@ -288,18 +288,23 @@ pub fn user_passwd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     guard_user(B, &plan.name, account.uid)?;
     let path = user_path(&plan.name);
-    // `dscl -passwd` rewrites AuthenticationAuthority, so a disabled account
-    // is disabled again afterwards: a new password does not enable it.
+    // `dscl -passwd` refuses a disabled account (eDSAuthAccountDisabled), so
+    // the tag is lifted for the write and put back after it, whether or not
+    // the write succeeded: a new password does not enable the account.
     let was_disabled = is_disabled(B, &plan.name)?;
-    run(
+    if was_disabled {
+        set_disabled(B, &plan.name, false)?;
+    }
+    let written = run(
         B,
         "dscl",
         &[".", "-passwd", path.as_str(), plan.password.as_str()],
         Some(plan.password.as_str()),
-    )?;
+    );
     if was_disabled {
         set_disabled(B, &plan.name, true)?;
     }
+    written?;
     Ok(record(vec![
         ("name", Value::Str(plan.name)),
         ("changed", Value::Bool(true)),
