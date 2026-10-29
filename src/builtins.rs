@@ -36966,83 +36966,42 @@ function keyEvent(code, flags, down) {
     $.CGEventSetFlags(ev, flags);
     post(ev);
 }
-// Types a chunk of at most 20 UTF-16 units as one keyboard event pair. How
-// the bridge takes the UniChar buffer is not documented, and a wrong way can
-// fail silently: a JavaScript array was accepted and carried no text, so each
-// chunk typed keycode 0, "a" (run 40854789936). So each way builds its events
-// and they are posted only if NSEvent reads back exactly the chunk from them.
+// Types a chunk of at most 20 UTF-16 units as one keyboard event pair. The
+// bridged CGEventKeyboardSetUnicodeString takes no usable UniChar buffer: a
+// JavaScript array or Uint16Array is accepted and sets no text, so each chunk
+// typed keycode 0, "a" (runs 40854789936, 40857315810), and an untyped Ref is
+// refused. Bound with a void * buffer, it takes the bytes of UTF-16 NSData
+// (run 40858670214). The bind is lazy and inside the caller's error handling:
+// at the top level a rejected signature raised an NSException that killed the
+// whole script (4fe8a17). The events are posted only if NSEvent reads back
+// exactly the chunk, so a bridge that changes fails loudly, not with "a"s.
+var boundSetText = false;
 function readBack(ev) {
     try {
         var back = $.NSEvent.eventWithCGEvent(ev);
-        if (!back) return 'no NSEvent';
-        return JSON.stringify(ObjC.unwrap(back.characters));
+        return back ? JSON.stringify(ObjC.unwrap(back.characters)) : 'no NSEvent';
     } catch (e) {
         return 'unreadable (' + e + ')';
     }
 }
-function withText(codes, buf) {
-    var down = $.CGEventCreateKeyboardEvent(null, 0, true);
-    var up = $.CGEventCreateKeyboardEvent(null, 0, false);
-    $.CGEventKeyboardSetUnicodeString(down, codes.length, buf);
-    $.CGEventKeyboardSetUnicodeString(up, codes.length, buf);
-    return [down, up];
-}
-var boundSetText = false;
 function typeChunk(s) {
     if (s.length === 0) return;
-    var codes = [];
-    for (var i = 0; i < s.length; i++) codes.push(s.charCodeAt(i));
-    var ways = [
-        ['NSEvent', function () {
-            var made = [];
-            var types = [$.NSEventTypeKeyDown, $.NSEventTypeKeyUp];
-            for (var k = 0; k < 2; k++) {
-                var ev = $.NSEvent.keyEventWithTypeLocationModifierFlagsTimestampWindowNumberContextCharactersCharactersIgnoringModifiersIsARepeatKeyCode(
-                    types[k], {x: 0, y: 0}, 0, 0, 0, null, $(s), $(s), false, 0);
-                made.push(ev ? ev.CGEvent : null);
-            }
-            return made;
-        }],
-        ['Ref', function () {
-            var buf = Ref();
-            for (var j = 0; j < codes.length; j++) buf[j] = codes[j];
-            return withText(codes, buf);
-        }],
-        ['Uint16Array', function () { return withText(codes, new Uint16Array(codes)); }],
-        ['array', function () { return withText(codes, codes); }],
-        // Last, as binding replaces the bridged function the ways above use.
-        // Bound inside the try: a signature the bridge rejects raises at the
-        // bind, which at the top level killed the whole script (4fe8a17).
-        ['bound', function () {
-            if (!boundSetText) {
-                ObjC.bindFunction('CGEventKeyboardSetUnicodeString',
-                    ['void', ['void *', 'unsigned long', 'void *']]);
-                boundSetText = true;
-            }
-            var data = $(s).dataUsingEncoding($.NSUTF16LittleEndianStringEncoding);
-            return withText(codes, data.bytes);
-        }]
-    ];
-    var tried = [];
-    for (var w = 0; w < ways.length; w++) {
-        try {
-            var evs = ways[w][1]();
-            if (!evs[0] || !evs[1]) {
-                tried.push(ways[w][0] + ': no event was made');
-                continue;
-            }
-            var got = readBack(evs[0]);
-            if (got === JSON.stringify(s)) {
-                post(evs[0]);
-                post(evs[1]);
-                return;
-            }
-            tried.push(ways[w][0] + ': the event read back as ' + got);
-        } catch (e) {
-            tried.push(ways[w][0] + ': ' + e);
-        }
+    if (!boundSetText) {
+        ObjC.bindFunction('CGEventKeyboardSetUnicodeString',
+            ['void', ['void *', 'unsigned long', 'void *']]);
+        boundSetText = true;
     }
-    throw new Error('-1 no way to set the text of an event worked: ' + tried.join('; '));
+    var data = $(s).dataUsingEncoding($.NSUTF16LittleEndianStringEncoding);
+    var down = $.CGEventCreateKeyboardEvent(null, 0, true);
+    var up = $.CGEventCreateKeyboardEvent(null, 0, false);
+    $.CGEventKeyboardSetUnicodeString(down, s.length, data.bytes);
+    $.CGEventKeyboardSetUnicodeString(up, s.length, data.bytes);
+    var got = readBack(down);
+    if (got !== JSON.stringify(s)) {
+        throw new Error('-1 the key event did not carry the text: it read back as ' + got);
+    }
+    post(down);
+    post(up);
 }
 // The text split into code points, so a surrogate pair is never cut.
 function codePoints(text) {
