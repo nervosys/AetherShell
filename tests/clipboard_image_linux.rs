@@ -15,6 +15,7 @@ use aethershell::value::Value;
 mod disposable;
 
 /// A 67-byte 1x1 RGBA PNG.
+#[cfg(target_os = "linux")]
 const PNG_1X1: &[u8] = &[
     0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // signature
     0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR, 13 bytes
@@ -106,14 +107,19 @@ fn set_image_checks_its_argument_and_file_before_the_clipboard() {
     assert!(msg.contains("E_BAD_ARG"), "a text file: {msg}");
 }
 
+/// Windows and macOS have clipboard-image backends, verified with real changes
+/// in tests/clipboard_image_admin.rs on disposable runners. Here only the
+/// read, which changes nothing: an image, or E_NOT_FOUND when there is none.
 #[cfg(not(target_os = "linux"))]
 #[test]
-fn both_refuse_off_linux_after_the_checks() {
-    let msg = refusal("clipboard_get_image", vec![], None);
-    assert!(msg.contains("E_UNIMPLEMENTED"), "get: {msg}");
-    let png = scratch_file("one.png", PNG_1X1);
-    let msg = refusal("clipboard_set_image", vec![s(&png.to_string_lossy())], None);
-    assert!(msg.contains("E_UNIMPLEMENTED"), "set: {msg}");
+fn reading_the_image_off_linux_answers_or_finds_none() {
+    match call_with_input("clipboard_get_image", vec![], None, &mut env()) {
+        Ok(_) => {}
+        Err(e) => {
+            let msg = e.to_string();
+            assert!(msg.contains("E_NOT_FOUND"), "get: {msg}");
+        }
+    }
 }
 
 // ----------------------------------------------------------------- Linux only

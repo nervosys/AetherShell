@@ -246,21 +246,29 @@ fn aeacct_transaction_refuses_each_change() {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+/// macOS has a backend (dscl), and every change needs root: as an ordinary
+/// user each valid call is refused before any tool runs, and no account or
+/// group of that name appears. The changes themselves are verified as root in
+/// tests/macos_account_admin.rs on a disposable runner.
+#[cfg(target_os = "macos")]
 #[test]
-fn aeacct_off_linux_every_valid_call_is_unimplemented_and_changes_nothing() {
+fn aeacct_macos_every_valid_call_needs_root_and_changes_nothing() {
     let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    if unsafe { libc::geteuid() } == 0 {
+        return; // as root these calls would act; the disposable tests cover that
+    }
     for (name, args) in valid_calls() {
         match call(name, args) {
-            Ok(v) => panic!("{name} answered {v:?} on a platform without account tools"),
-            Err(e) => {
-                assert_eq!(code_of(&e), "E_UNIMPLEMENTED", "{name}: {e}");
-                assert!(
-                    e.to_string().contains("NOTHING WAS CHANGED"),
-                    "{name} must say nothing changed: {e}"
-                );
-            }
+            Ok(v) => panic!("{name} answered {v:?} without root"),
+            Err(e) => assert_eq!(code_of(&e), "E_OS_DENIED", "{name}: {e}"),
         }
+    }
+    for kind in ["/Users/aeacct_x", "/Groups/aeacct_x"] {
+        let read = std::process::Command::new("dscl")
+            .args([".", "-read", kind])
+            .output()
+            .expect("run dscl");
+        assert!(!read.status.success(), "{kind} exists after refused calls");
     }
 }
 

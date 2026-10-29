@@ -5525,7 +5525,11 @@ mod tests {
         let started = std::time::Instant::now();
         assert!(egress_permitted(&args[1..2], "example.com").is_err());
         if cfg!(windows) {
-            assert!(started.elapsed().as_secs() < 5, "probed: {:?}", started.elapsed());
+            assert!(
+                started.elapsed().as_secs() < 5,
+                "probed: {:?}",
+                started.elapsed()
+            );
         }
         // A local path is still found, and a single leading slash is not a share.
         let here = std::env::current_dir().unwrap().display().to_string();

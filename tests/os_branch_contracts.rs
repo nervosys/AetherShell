@@ -438,13 +438,15 @@ fn clipboard_types_lists_only_the_known_formats() {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(target_os = "macos")]
 #[test]
-fn clipboard_types_refuses_on_macos_with_a_coded_error() {
-    assert_eq!(
-        code_of(&run("clipboard_types", vec![]).unwrap_err()),
-        "E_UNIMPLEMENTED"
-    );
+fn clipboard_types_on_macos_answers_an_array() {
+    // The formats are checked in tests/clipboard_types_linux.rs; here only that
+    // the macOS branch answers rather than refuses.
+    assert!(matches!(
+        run("clipboard_types", vec![]),
+        Ok(Value::Array(_))
+    ));
 }
 
 // ------------------------------------------------------- crypto_cert_verify

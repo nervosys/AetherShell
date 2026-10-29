@@ -208,7 +208,9 @@ fn a_long_line_does_not_grow_the_process() {
         small.peak_rss > 0 && large.peak_rss > 0,
         "no resident size was sampled; the memory check did not run"
     );
-    let allowance = 4 * 1024 * 1024;
+    // 6 MiB: a run on a GitHub Linux runner sampled 4.6 MiB of noise, and an
+    // 8 MiB line held whole would still exceed it.
+    let allowance = 6 * 1024 * 1024;
     assert!(
         large.peak_rss < small.peak_rss + allowance,
         "peak {} bytes for an 8 MiB line against {} bytes for a short one",

@@ -45,11 +45,25 @@ fn clipboard_types_refuses_piped_input() {
     assert!(msg.contains("E_BAD_ARG"), "piped input: {msg}");
 }
 
+/// macOS reads the pasteboard's types: an Array of the format names the other
+/// platforms use. Reading changes nothing.
 #[cfg(target_os = "macos")]
 #[test]
-fn clipboard_types_refuses_on_macos_with_e_unimplemented() {
-    let msg = refusal(vec![], None);
-    assert!(msg.contains("E_UNIMPLEMENTED"), "macOS: {msg}");
+fn clipboard_types_on_macos_lists_known_formats() {
+    match call_with_input("clipboard_types", vec![], None, &mut env()) {
+        Ok(Value::Array(types)) => {
+            for t in types {
+                match t {
+                    Value::Str(t) => assert!(
+                        ["text", "image", "files", "audio"].contains(&t.as_str()),
+                        "unknown clipboard format {t}"
+                    ),
+                    other => panic!("a format should be a String, got {other:?}"),
+                }
+            }
+        }
+        other => panic!("clipboard_types should answer an Array, got {other:?}"),
+    }
 }
 
 // ----------------------------------------------------------------- Linux only

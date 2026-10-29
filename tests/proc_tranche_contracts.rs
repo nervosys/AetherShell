@@ -617,11 +617,16 @@ fn set_priority_on_a_child_is_read_back_as_its_class() {
 // Windows reads another process's environment and directory: see
 // tests/proc_env_cwd_windows.rs.
 
+/// macOS reads another process's environment through sysinfo (KERN_PROCARGS2);
+/// tests/proc_env_macos.rs compares it with the child's real variables.
 #[cfg(target_os = "macos")]
 #[test]
-fn another_processes_environment_is_unimplemented_on_macos() {
+fn another_processes_environment_is_read_on_macos() {
     let mut child = Sleeper::start();
-    expect_code("proc_env", vec![child.value()], "E_UNIMPLEMENTED");
+    match run("proc_env", vec![child.value()]) {
+        Ok(Value::Record(vars)) => assert!(!vars.is_empty(), "an empty environment"),
+        other => panic!("proc_env of a child should be a Record, got {other:?}"),
+    }
 }
 
 // ── Linux: state changes, in the disposable environment only ──────────────
