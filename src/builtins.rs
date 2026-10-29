@@ -36194,7 +36194,7 @@ fn gui_dialog_ack(name: &str, tool: &str, output: &std::process::Output) -> Resu
 
 /// A JSON answer on stdout, as a Value. A failed run, or an answer that is
 /// not JSON, is a coded tool failure.
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn gui_json_answer(name: &str, tool: &str, output: &std::process::Output) -> Result<Value> {
     if !output.status.success() {
         return Err(crate::safety::tool_failed(
@@ -36416,6 +36416,134 @@ fn clipboard_answer(name: &str, bytes: &[u8]) -> Result<Value> {
     Ok(Value::Str(String::from_utf8_lossy(bytes).into_owned()))
 }
 
+/// The osascript (JavaScript) behind the macOS window builtins. `argv[0]` picks
+/// the operation: `list`, or a window operation whose target is `argv[1]`, the
+/// exact window title, and whose numbers follow it. The title and numbers are
+/// only ever arguments, never script text. A window that no System Events
+/// process has exits 3, the not-found status the builtins map to E_NOT_FOUND.
+/// Accessibility refusals (-1719, -25211) are thrown, so they reach the caller
+/// as E_OS_DENIED rather than as a false "no such window".
+#[cfg(target_os = "macos")]
+const MACOS_WINDOW_ADMIN_JXA: &str = r#"ObjC.import('stdlib');
+ObjC.import('AppKit');
+ObjC.import('CoreGraphics');
+function denied(e) {
+    return /-1719|-25211|assistive access/.test(String(e));
+}
+// The first System Events window whose name is exactly `title`, as
+// {proc, win}; null when no window has that name.
+function findWindow(se, title) {
+    var procs = se.processes();
+    for (var i = 0; i < procs.length; i++) {
+        var wins = [];
+        try {
+            wins = procs[i].windows();
+        } catch (e) {
+            if (denied(e)) throw e;
+            continue;
+        }
+        for (var j = 0; j < wins.length; j++) {
+            var name;
+            try {
+                name = wins[j].name();
+            } catch (e) {
+                if (denied(e)) throw e;
+                continue;
+            }
+            if (name === title) return {proc: procs[i], win: wins[j]};
+        }
+    }
+    return null;
+}
+function run(argv) {
+    var op = argv[0];
+    if (op === 'list') {
+        // Option 17 is kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+        // 0 is kCGNullWindowID. Layer 0 is ordinary windows (not menus or the Dock).
+        var all = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(17, 0))) || [];
+        var out = [];
+        for (var k = 0; k < all.length; k++) {
+            var w = all[k];
+            if (w.kCGWindowLayer !== 0) continue;
+            if (typeof w.kCGWindowName !== 'string' || w.kCGWindowName === '') continue;
+            out.push({hwnd: w.kCGWindowNumber, title: w.kCGWindowName, pid: w.kCGWindowOwnerPID});
+        }
+        return JSON.stringify(out);
+    }
+    var title = argv[1];
+    var found = findWindow(Application('System Events'), title);
+    if (found === null) {
+        $.exit(3);
+    }
+    var win = found.win;
+    switch (op) {
+        case 'focus':
+            found.proc.frontmost = true;
+            win.actions.byName('AXRaise').perform();
+            break;
+        case 'minimize':
+            win.attributes.byName('AXMinimized').value = true;
+            break;
+        case 'maximize':
+            // System Events positions are top-left origin, measured from the
+            // primary display; Cocoa's visibleFrame is bottom-left origin.
+            var screen = $.NSScreen.mainScreen || $.NSScreen.screens.objectAtIndex(0);
+            var vf = screen.visibleFrame;
+            var primary = $.NSScreen.screens.objectAtIndex(0).frame;
+            win.position = [
+                Math.round(vf.origin.x),
+                Math.round(primary.size.height - (vf.origin.y + vf.size.height))
+            ];
+            win.size = [Math.round(vf.size.width), Math.round(vf.size.height)];
+            break;
+        case 'close':
+            var buttons = win.buttons();
+            var close = null;
+            for (var b = 0; b < buttons.length; b++) {
+                if (buttons[b].subrole() === 'AXCloseButton') {
+                    close = buttons[b];
+                    break;
+                }
+            }
+            if (close === null) throw new Error('the window has no close button');
+            close.click();
+            break;
+        case 'move':
+            win.position = [Number(argv[2]), Number(argv[3])];
+            break;
+        case 'resize':
+            win.size = [Number(argv[2]), Number(argv[3])];
+            break;
+        default:
+            throw new Error('unknown window operation ' + op);
+    }
+    return 'ok';
+}
+"#;
+
+/// Runs `MACOS_WINDOW_ADMIN_JXA` with `/usr/bin/osascript`: `op`, then the
+/// operands as argv. Accessibility refusals are E_OS_DENIED with a hint.
+#[cfg(target_os = "macos")]
+fn gui_macos_window_admin(name: &str, op: &str, operands: &[&str]) -> Result<std::process::Output> {
+    let mut cmd = std::process::Command::new("/usr/bin/osascript");
+    cmd.args(["-l", "JavaScript", "-e", MACOS_WINDOW_ADMIN_JXA, op]);
+    cmd.args(operands);
+    let output = bounded_cmd_output(name, "osascript", cmd, TOOL_DEADLINE_SECS)?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success()
+        && ["-1719", "-25211", "not allowed assistive access"]
+            .iter()
+            .any(|marker| stderr.contains(marker))
+    {
+        return Err(crate::safety::os_denied(
+            name,
+            "System Events is not allowed to control windows: Accessibility access is not granted to the process running ae",
+            "grant Accessibility in System Settings > Privacy & Security > Accessibility to the terminal or app that runs ae, then retry",
+        ));
+    }
+    Ok(output)
+}
+
 #[allow(unused_variables)]
 fn bi_gui_list_windows(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     no_args_or_input("gui_list_windows", &args, &input)?;
@@ -36500,7 +36628,12 @@ ConvertTo-Json -InputObject @([WindowHelper]::windows)
         }
         Ok(Value::Array(windows))
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_window_admin("gui_list_windows", "list", &[])?;
+        gui_json_answer("gui_list_windows", "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             "gui_list_windows",
@@ -36576,7 +36709,19 @@ if (-not [WindowFocus]::SetForegroundWindow($hwnd)) {{ exit 4 }}
         let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &label, 1, &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        if handle.is_some() {
+            return Err(crate::safety::unimplemented(
+                NAME,
+                "focusing a window by its handle is not supported on macOS: handles are CGWindow numbers from gui_list_windows; NOTHING WAS DONE",
+                "focus the window by its exact title",
+            ));
+        }
+        let output = gui_macos_window_admin(NAME, "focus", &[label.as_str()])?;
+        gui_window_action(NAME, "osascript", &label, 3, &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
@@ -36634,7 +36779,12 @@ if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "xdotool", &title, 1, &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_window_admin(NAME, "minimize", &[title.as_str()])?;
+        gui_window_action(NAME, "osascript", &title, 3, &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
@@ -36684,7 +36834,12 @@ if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
         let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_window_admin(NAME, "maximize", &[title.as_str()])?;
+        gui_window_action(NAME, "osascript", &title, 3, &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
@@ -36734,7 +36889,12 @@ if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
         let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_window_admin(NAME, "close", &[title.as_str()])?;
+        gui_window_action(NAME, "osascript", &title, 3, &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
@@ -36788,7 +36948,14 @@ if (-not [WindowMove]::SetWindowPos($hwnd, [IntPtr]::Zero, {}, {}, 0, 0, 0x0001)
         let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let (xs, ys) = (x.to_string(), y.to_string());
+        let output =
+            gui_macos_window_admin(NAME, "move", &[title.as_str(), xs.as_str(), ys.as_str()])?;
+        gui_window_action(NAME, "osascript", &title, 3, &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
@@ -36846,7 +37013,14 @@ if (-not [WindowResize]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, {}, {}, 0x000
         let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let (ws, hs) = (w.to_string(), h.to_string());
+        let output =
+            gui_macos_window_admin(NAME, "resize", &[title.as_str(), ws.as_str(), hs.as_str()])?;
+        gui_window_action(NAME, "osascript", &title, 3, &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,

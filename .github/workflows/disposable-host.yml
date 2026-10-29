@@ -95,7 +95,7 @@ jobs:
             - uses: Swatinem/rust-cache@v2
 
             - name: Build the gated tests
-              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin --test macos_service_admin --test macos_account_admin --test libcpp_contracts --test proc_env_macos
+              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin --test macos_window_admin --test macos_service_admin --test macos_account_admin --test libcpp_contracts --test proc_env_macos
 
             - name: Clipboard images
               if: ${{ !cancelled() }}
@@ -104,6 +104,10 @@ jobs:
             - name: Window screenshots
               if: ${{ !cancelled() }}
               run: cargo test --test screenshot_window_admin -- --include-ignored --test-threads=1
+
+            - name: Window operations
+              if: ${{ !cancelled() }}
+              run: cargo test --test macos_window_admin -- --include-ignored --test-threads=1
 
             - name: libc++ version
               if: ${{ !cancelled() }}

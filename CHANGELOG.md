@@ -171,6 +171,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`start` without `enable` is `E_BAD_ARG`); `platform_libcpp` reads libc++'s
   version from the LC_ID_DYLIB command of the copy dyld maps from the shared
   cache (there is no file on disk for `otool -L` to read).
+  macOS: the `gui_list_windows`, `gui_focus_window`, `gui_minimize_window`,
+  `gui_maximize_window`, `gui_close_window`, `gui_move_window` and
+  `gui_resize_window` builtins through osascript and System Events (the title
+  is an argument, never script text; no Accessibility permission `E_OS_DENIED`;
+  focusing by a CGWindow number is `E_UNIMPLEMENTED`). Tested only on disposable runners.
   Windows: `pkg_list` from the Add/Remove Programs registry entries.
   Windows: `journalctl` reads the System event log ({time, provider, level,
   id, message}; `unit` is an event provider), `pkg_history` the Windows
