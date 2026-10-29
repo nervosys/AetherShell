@@ -215,14 +215,22 @@ fn linux_names_are_absent_on_windows() {
 #[test]
 fn linux_only_tools_refuse_coded_and_run_nothing_elsewhere() {
     // Each refusal names the platforms the tool does run on. blkid and ethtool
-    // have Windows implementations, so off Linux they say "Linux and Windows";
-    // perf is Linux only wherever it refuses.
-    #[cfg(not(windows))]
+    // have Windows and macOS implementations, so where they refuse they say
+    // "Linux, macOS and Windows"; perf is Linux only wherever it refuses.
+    #[cfg(not(any(windows, target_os = "macos")))]
     let os_tools = [
-        ("blkid", vec![s("/dev/sda1")], "Linux and Windows only"),
-        ("monitor_ethtool", vec![s("eth0")], "Linux and Windows only"),
+        (
+            "blkid",
+            vec![s("/dev/sda1")],
+            "Linux, macOS and Windows only",
+        ),
+        (
+            "monitor_ethtool",
+            vec![s("eth0")],
+            "Linux, macOS and Windows only",
+        ),
     ];
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     let os_tools: [(&str, Vec<Value>, &str); 0] = [];
     // monitor_perf_stat runs its argv on Windows, so it is refused only elsewhere.
     #[cfg(not(windows))]

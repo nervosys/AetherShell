@@ -4,7 +4,8 @@
 //! yum systems) or `brew list --versions` with an argv and no shell, or on
 //! Windows reads the Add/Remove Programs registry keys through PowerShell,
 //! under a 60 s deadline and a 64 MiB output cap. `pkg_history`
-//! reads the uncompressed `/var/log/apt/history.log`, at most its last 64 MiB.
+//! reads the uncompressed `/var/log/apt/history.log`, at most its last 64 MiB,
+//! and on macOS `/var/log/install.log` through `parse_install_log`.
 //! The parsers are pure functions over text, so their edge cases are unit
 //! tested on every platform; the readers only run on Linux.
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -32,6 +33,8 @@ pub(crate) const MAX_PACKAGES_PER_TRANSACTION: usize = 100_000;
 pub(crate) const HISTORY_LOG: &str = "/var/log/apt/history.log";
 pub(crate) const HISTORY_DEFAULT: usize = 50;
 pub(crate) const HISTORY_MAX: usize = 1000;
+/// The install log `pkg_history` reads on macOS. Only this file.
+pub(crate) const INSTALL_LOG: &str = "/var/log/install.log";
 
 /// A package as a (name, version) pair.
 pub(crate) type Package = (String, String);
@@ -267,6 +270,52 @@ fn keep_newest(window: &mut VecDeque<Transaction>, tx: Transaction, limit: usize
         window.pop_front();
     }
     window.push_back(tx);
+}
+
+/// Parse macOS's `install.log` into its newest `limit` installs, newest first.
+/// A line the installer writes as `Installer[pid]: Installed "name" ...`, or
+/// `softwareupdated[pid]: Installed "name" ...`, is one row: start is the
+/// line's timestamp, and the package is the quoted (or first) name without its
+/// version. end and command are None, since the log does not record them. Every
+/// other line is ignored, as the log is mostly unrelated output.
+pub(crate) fn parse_install_log(text: &str, limit: usize) -> Vec<Transaction> {
+    let mut window: VecDeque<Transaction> = VecDeque::new();
+    for line in text.lines() {
+        if let Some(tx) = install_line(line) {
+            keep_newest(&mut window, tx, limit);
+        }
+    }
+    window.into_iter().rev().collect()
+}
+
+/// One install row from one line of `install.log`, or None for any other line.
+fn install_line(line: &str) -> Option<Transaction> {
+    let tag_at = [" Installer[", " softwareupdated["]
+        .iter()
+        .filter_map(|tag| line.find(tag))
+        .min()?;
+    // The timestamp is everything before the host name, which is the last word
+    // before the process tag.
+    let (stamp, _host) = line[..tag_at].trim_end().rsplit_once(' ')?;
+    let stamp = stamp.trim();
+    let message = line[tag_at..].split_once("]: ")?.1;
+    let rest = message.strip_prefix("Installed ")?.trim();
+    let name = match rest.strip_prefix('"') {
+        Some(quoted) => quoted.split('"').next()?,
+        None => rest.split(" (").next()?,
+    }
+    .trim();
+    if stamp.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some(Transaction {
+        start: stamp.to_string(),
+        end: None,
+        command: None,
+        installed: vec![name.to_string()],
+        upgraded: Vec::new(),
+        removed: Vec::new(),
+    })
 }
 
 /// Add the package names in one `Install:`-style value. Entries are separated
@@ -939,5 +988,54 @@ mod tests {
         );
         assert!(matches!(rec.get("end"), Some(Value::Null)));
         assert!(matches!(rec.get("command"), Some(Value::Null)));
+    }
+
+    #[test]
+    fn install_log_rows_are_newest_first_and_name_the_package_without_its_version() {
+        let text = concat!(
+            "2026-10-20 14:03:11-07 mac-host Installer[812]: Installed \"Command Line Tools\" (\"15.0\")\n",
+            "Oct 21 09:00:00 Mac softwareupdated[99]: Installed \"Safari 18.1\" ()\n",
+            "2026-10-22 08:15:02-07 mac-host installd[77]: PackageKit: something unrelated\n",
+            "2026-10-22 08:16:40-07 mac-host Installer[813]: Installed Rosetta (2.0)\n",
+        );
+        let rows = parse_install_log(text, 10);
+        let pairs: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|t| (t.start.as_str(), t.installed[0].as_str()))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![
+                ("2026-10-22 08:16:40-07", "Rosetta"),
+                ("Oct 21 09:00:00", "Safari 18.1"),
+                ("2026-10-20 14:03:11-07", "Command Line Tools"),
+            ]
+        );
+        assert!(rows.iter().all(|t| t.end.is_none() && t.command.is_none()));
+        assert!(rows
+            .iter()
+            .all(|t| t.upgraded.is_empty() && t.removed.is_empty()));
+    }
+
+    #[test]
+    fn install_log_keeps_only_the_newest_limit_rows() {
+        let text: String = (1..=5)
+            .map(|i| format!("2026-10-2{i} 10:00:00 mac Installer[1]: Installed \"P{i}\" ()\n"))
+            .collect();
+        let rows = parse_install_log(&text, 2);
+        let names: Vec<&str> = rows.iter().map(|t| t.installed[0].as_str()).collect();
+        assert_eq!(names, vec!["P5", "P4"]);
+        assert!(parse_install_log(&text, 0).is_empty());
+        assert!(parse_install_log("", 5).is_empty());
+    }
+
+    #[test]
+    fn install_log_lines_without_a_host_timestamp_or_name_are_ignored() {
+        let text = concat!(
+            "Installer[5]: Installed \"Orphan\" ()\n",
+            "2026-10-20 mac Installer[6]: Installed \"\" ()\n",
+            "2026-10-20 mac Installer[7]: Removed \"Gone\" ()\n",
+        );
+        assert!(parse_install_log(text, 10).is_empty());
     }
 }

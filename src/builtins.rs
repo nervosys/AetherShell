@@ -35513,13 +35513,26 @@ fn bi_pkg_history(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     pkg_history_read(limit)
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+/// macOS: the installs in /var/log/install.log, read whole up to the file-size
+/// limit and parsed by pkg_query::parse_install_log. Only installs are read, so
+/// removed is always empty. Each row has the apt row's shape, with end and
+/// command null.
+#[cfg(target_os = "macos")]
+fn pkg_history_read(limit: usize) -> Result<Value> {
+    let text = read_text_capped("pkg_history", pkg_query::INSTALL_LOG)?;
+    let rows = pkg_query::parse_install_log(&text, limit);
+    Ok(Value::Array(
+        rows.into_iter().map(pkg_query::transaction_value).collect(),
+    ))
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 fn pkg_history_read(_limit: usize) -> Result<Value> {
-    // The apt history log is Linux's and the Windows Installer log is Windows'.
-    // Nothing is read here.
+    // The apt history log is Linux's, the install log is macOS's and the
+    // Windows Installer log is Windows'. Nothing is read here.
     Err(crate::safety::unimplemented(
         "pkg_history",
-        "package history is read from the apt log on Linux and the Windows Installer log on Windows; NOTHING WAS READ",
+        "package history is read from the apt log on Linux, the install log on macOS and the Windows Installer log on Windows; NOTHING WAS READ",
         "ask the package manager directly (brew list)",
     ))
 }
@@ -59017,6 +59030,9 @@ mod image_match;
 #[path = "pkg_query.rs"]
 mod pkg_query;
 
+#[path = "macos_plist.rs"]
+mod macos_plist;
+
 /// Windows: the drive a `C:`, `C:\` or `c:/` argument names, as its upper-case
 /// letter. Anything else is refused: blkid on Windows takes a drive, not a path.
 #[cfg(windows)]
@@ -59112,7 +59128,48 @@ fn blkid_windows(device: &str) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
-/// 958: bi_blkid - Block device attributes (Linux; Windows reads a drive).
+/// macOS: one device's attributes from `diskutil info -plist`, which changes
+/// nothing. devname is DeviceNode, uuid is VolumeUUID (DiskUUID when the device
+/// has no volume), type is FilesystemType lower-cased, and label is VolumeName.
+/// A key the device does not report is left out, as on Linux and Windows. No
+/// partuuid is given: DiskUUID is not the GPT partition GUID blkid reports.
+#[cfg(target_os = "macos")]
+fn blkid_macos(device: &str) -> Result<Value> {
+    const NAME: &str = "blkid";
+    let limit = std::time::Duration::from_secs(20);
+    let argv = ["info".to_string(), "-plist".to_string(), device.to_string()];
+    let run = linux_diagnostics::run_bounded(NAME, "diskutil", "diskutil", &argv, limit)?;
+    linux_diagnostics::require_success(NAME, "diskutil", &run, limit)?;
+    let plist = macos_plist::parse_top_dict(&run.stdout)
+        .map_err(|e| crate::safety::tool_failed(NAME, "diskutil info -plist", Some(0), &e))?;
+    let text = |key: &str| match plist.get(key) {
+        Some(macos_plist::PlistValue::Str(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        _ => None,
+    };
+    let mut rec = BTreeMap::new();
+    if let Some(s) = text("DeviceNode") {
+        rec.insert("devname".to_string(), Value::Str(s));
+    }
+    if let Some(s) = text("VolumeUUID").or_else(|| text("DiskUUID")) {
+        rec.insert("uuid".to_string(), Value::Str(s));
+    }
+    if let Some(s) = text("FilesystemType") {
+        rec.insert("type".to_string(), Value::Str(s.to_lowercase()));
+    }
+    if let Some(s) = text("VolumeName") {
+        rec.insert("label".to_string(), Value::Str(s));
+    }
+    if rec.is_empty() {
+        return Err(crate::safety::not_found(
+            NAME,
+            "identifiable device",
+            device,
+        ));
+    }
+    Ok(Value::Record(rec))
+}
+
+/// 958: bi_blkid - Block device attributes (Linux and macOS; Windows reads a drive).
 fn bi_blkid(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     linux_diagnostics::no_pipeline_input("blkid", &input)?;
     let device = match args.as_slice() {
@@ -59173,11 +59230,15 @@ fn bi_blkid(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     {
         blkid_windows(&device)
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        blkid_macos(&device)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             "blkid",
-            "blkid is Linux and Windows only; NOTHING WAS DONE on this operating system",
+            "blkid is Linux, macOS and Windows only; NOTHING WAS DONE on this operating system",
             "lsblk() lists block devices on every OS",
         ))
     }
@@ -59616,14 +59677,18 @@ fn logrotate_config_check(builtin: &str, text: &str) -> Result<()> {
 /// journalctl — the most recent entries of the systemd journal, optionally of one unit.
 /// Usage: journalctl(), journalctl(count) or journalctl(count, unit). count is
 /// 1..=1000 and defaults to 50. Returns an Array of entries, each a Record of
-/// the journal's JSON fields. Linux only; elsewhere the call is E_UNIMPLEMENTED
-/// after its arguments are checked. A line that is not JSON is E_TOOL_FAILED,
-/// never skipped, and output past 16 MiB is E_BUDGET_EXCEEDED.
+/// the journal's JSON fields. A line that is not JSON is E_TOOL_FAILED, never
+/// skipped, and output past 16 MiB is E_BUDGET_EXCEEDED. Elsewhere the call is
+/// E_UNIMPLEMENTED after its arguments are checked.
 ///
 /// On Windows the entries are the newest `count` events of the System log, as
 /// Records {time, provider, level, id, message}. `unit` is then an event
 /// provider's name, such as "Service Control Manager". Nothing else maps: the
 /// Linux call takes no priority, so none is accepted here.
+///
+/// On macOS the entries are the newest `count` entries of the unified log from
+/// the last hour, as Records of the `log show --style ndjson` fields, and `unit`
+/// is a process name. See journal_macos.
 fn bi_journalctl(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     k8s_no_input("journalctl", &input)?;
     k8s_max_args("journalctl", &args, 2)?;
@@ -59676,12 +59741,16 @@ fn bi_journalctl(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
         Ok(Value::Array(entries))
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        journal_macos(count, unit)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         let _ = (count, unit);
         Err(crate::safety::unimplemented(
             "journalctl",
-            "journalctl reads the systemd journal on Linux and the event log on Windows; NOTHING WAS READ on this operating system",
+            "journalctl reads the systemd journal on Linux, the unified log on macOS and the event log on Windows; NOTHING WAS READ on this operating system",
             "cat(path) reads a log file on every OS",
         ))
     }
@@ -59709,6 +59778,126 @@ fn journal_provider(builtin: &str, what: &str, value: &str) -> Result<String> {
 
 /// journalctl on Windows: the newest `count` events of the System log, or of
 /// one provider. A provider with no events is an empty Array.
+/// macOS: the newest `count` entries of the unified log from the last hour, as
+/// `log show --style ndjson` prints them: one JSON object per line, returned as
+/// Records of the log's own fields, oldest first as journalctl prints them.
+/// `unit` is a process name, matched exactly by a predicate that is a single
+/// argv element; it passed journal_unit, so it holds no quote or space. The
+/// output is read from its end, so a busy hour keeps its newest 16 MiB and the
+/// entries come from there. A line that is not JSON is E_TOOL_FAILED.
+#[cfg(target_os = "macos")]
+fn journal_macos(count: i64, unit: Option<String>) -> Result<Value> {
+    const NAME: &str = "journalctl";
+    let predicate = unit.as_deref().map(|u| {
+        let q = '"';
+        format!("process == {q}{u}{q}")
+    });
+    let mut argv: Vec<&str> = vec!["show", "--style", "ndjson", "--last", "1h"];
+    if let Some(p) = predicate.as_deref() {
+        argv.extend(["--predicate", p]);
+    }
+    let run = tool_run(
+        NAME,
+        "log",
+        None,
+        &argv,
+        Keep::Tail(TOOL_MAX_JSON),
+        TOOL_DEADLINE_SECS,
+    )?;
+    if !run.success {
+        return Err(crate::safety::tool_failed(
+            NAME,
+            "log show --style ndjson",
+            run.code,
+            &run.stderr,
+        ));
+    }
+    Ok(Value::Array(journal_ndjson_rows(
+        &run.stdout,
+        run.stdout_truncated,
+        count,
+    )?))
+}
+
+/// The newest `count` non-empty lines of `log show --style ndjson` output, each
+/// parsed as a JSON object and returned as a Record, oldest first. When the
+/// output was cut to its tail (`truncated`), its first line may begin mid-line,
+/// so it is dropped. A line that is not JSON is E_TOOL_FAILED, never skipped.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn journal_ndjson_rows(stdout: &str, truncated: bool, count: i64) -> Result<Vec<Value>> {
+    const NAME: &str = "journalctl";
+    let mut text = stdout;
+    if truncated {
+        text = text.split_once('\n').map_or("", |(_, rest)| rest);
+    }
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let keep = (count.max(0) as usize).min(lines.len());
+    lines[lines.len() - keep..]
+        .iter()
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .map(json_to_value)
+                .map_err(|e| {
+                    crate::safety::tool_failed(
+                        NAME,
+                        "log show --style ndjson",
+                        Some(0),
+                        &format!("printed a line that is not JSON ({e})"),
+                    )
+                })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod macos_readonly_rows {
+    use super::*;
+
+    fn rec_n(v: &Value) -> i64 {
+        match v {
+            Value::Record(m) => match m.get("n") {
+                Some(Value::Int(n)) => *n,
+                other => panic!("no n: {other:?}"),
+            },
+            other => panic!("not a record: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_newest_count_lines_come_back_oldest_first() {
+        let text = concat!(
+            r#"{"n": 1}"#,
+            "\n",
+            r#"{"n": 2}"#,
+            "\n",
+            "\n",
+            r#"{"n": 3}"#,
+            "\n",
+            r#"{"n": 4}"#,
+            "\n",
+        );
+        let rows = journal_ndjson_rows(text, false, 2).expect("json lines parse");
+        assert_eq!(rows.iter().map(rec_n).collect::<Vec<_>>(), vec![3, 4]);
+        let all = journal_ndjson_rows(text, false, 1000).expect("json lines parse");
+        assert_eq!(all.len(), 4);
+        assert!(journal_ndjson_rows(text, false, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_tail_that_starts_mid_line_drops_its_partial_first_line() {
+        let text = concat!(r#"n": 0}"#, "\n", r#"{"n": 7}"#, "\n");
+        let rows = journal_ndjson_rows(text, true, 5).expect("the partial line is dropped");
+        assert_eq!(rows.iter().map(rec_n).collect::<Vec<_>>(), vec![7]);
+    }
+
+    #[test]
+    fn a_line_that_is_not_json_is_a_tool_failure_not_a_skip() {
+        let text = concat!(r#"{"n": 1}"#, "\n", "Filtering the log data\n");
+        let err = journal_ndjson_rows(text, false, 5).unwrap_err();
+        assert!(err.to_string().contains("E_TOOL_FAILED"), "{err}");
+    }
+}
+
 #[cfg(windows)]
 fn journal_windows(count: i64, provider: Option<String>) -> Result<Value> {
     let filter = match provider.as_deref() {
@@ -62853,8 +63042,60 @@ fn ethtool_windows(device: &str) -> Result<Value> {
     Ok(Value::Record(rec))
 }
 
+/// macOS: one interface from `ifconfig <name>`, which changes nothing. mtu comes
+/// from the header line, mac_address from the ether line, and link_detected is
+/// yes or no from the status line (active or inactive). A line the interface does
+/// not print is left out: loopback has neither a status nor an ether line. speed
+/// and duplex are Null, since ifconfig does not report them.
+#[cfg(target_os = "macos")]
+fn ethtool_macos(device: &str) -> Result<Value> {
+    const NAME: &str = "monitor_ethtool";
+    let limit = std::time::Duration::from_secs(20);
+    let run =
+        linux_diagnostics::run_bounded(NAME, "ifconfig", "ifconfig", &[device.to_string()], limit)?;
+    if !run.timed_out
+        && !run.truncated
+        && run.code == Some(1)
+        && run.stderr.contains("does not exist")
+    {
+        return Err(crate::safety::not_found(NAME, "network interface", device));
+    }
+    linux_diagnostics::require_success(NAME, "ifconfig", &run, limit)?;
+    let mut rec = BTreeMap::new();
+    rec.insert("device".to_string(), Value::Str(device.to_string()));
+    rec.insert("speed".to_string(), Value::Null);
+    rec.insert("duplex".to_string(), Value::Null);
+    for line in run.stdout.lines() {
+        if !line.starts_with(char::is_whitespace) {
+            // The header: `lo0: flags=8049<UP,LOOPBACK,RUNNING> mtu 16384`.
+            if let Some(i) = line.find(" mtu ") {
+                if let Some(mtu) = line[i + 5..].split_whitespace().next() {
+                    rec.insert("mtu".to_string(), Value::Str(mtu.to_string()));
+                }
+            }
+            continue;
+        }
+        let t = line.trim();
+        if let Some(mac) = t.strip_prefix("ether ") {
+            if let Some(m) = mac.split_whitespace().next() {
+                rec.insert("mac_address".to_string(), Value::Str(m.to_string()));
+            }
+        } else if let Some(status) = t.strip_prefix("status: ") {
+            let link = match status.trim() {
+                "active" => Some("yes"),
+                "inactive" => Some("no"),
+                _ => None,
+            };
+            if let Some(link) = link {
+                rec.insert("link_detected".to_string(), Value::Str(link.to_string()));
+            }
+        }
+    }
+    Ok(Value::Record(rec))
+}
+
 // ---------------------------------------------------------------------------
-// 1026: bi_ethtool_info — Ethernet device info (Linux; Windows reads Get-NetAdapter)
+// 1026: bi_ethtool_info — Ethernet device info (Linux and macOS; Windows reads Get-NetAdapter)
 // ---------------------------------------------------------------------------
 fn bi_ethtool_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     linux_diagnostics::no_pipeline_input("monitor_ethtool", &input)?;
@@ -62900,12 +63141,16 @@ fn bi_ethtool_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     {
         ethtool_windows(&device)
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        ethtool_macos(&device)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         let _ = device;
         Err(crate::safety::unimplemented(
             "monitor_ethtool",
-            "ethtool is Linux and Windows only; NOTHING WAS INSPECTED on this operating system",
+            "ethtool is Linux, macOS and Windows only; NOTHING WAS INSPECTED on this operating system",
             "monitor_ip_link() lists interfaces on every OS",
         ))
     }

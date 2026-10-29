@@ -93,7 +93,7 @@ fn pkg_history_refuses_pipeline_input() {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 #[test]
 fn pkg_history_is_unimplemented_off_linux_and_reads_nothing() {
     expect_code("pkg_history", vec![], "E_UNIMPLEMENTED");

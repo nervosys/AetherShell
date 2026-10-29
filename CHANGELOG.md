@@ -154,6 +154,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added (platform backends)
 
 - Windows: `lsof(path)` lists the processes holding a file open, through the Restart Manager (RmStartSession, RmRegisterResources, RmGetList, RmEndSession), in lsof's record shape with `command`, `pid` and `name` filled and the other columns Null. A missing path is E_NOT_FOUND, a directory is E_BAD_ARG (the Restart Manager lists files only), and more than 1024 holders is E_BUDGET_EXCEEDED. Tested in `tests/windows_lsof_path.rs`, which is read-only and runs on any Windows host; it was E_UNIMPLEMENTED before.
+- macOS, read-only: `blkid` reads `diskutil info -plist`, `journalctl` reads `log show --style ndjson` for the last hour (`unit` becomes a process predicate), `monitor_ethtool` reads `ifconfig` (speed and duplex are null), and `pkg_history` reads `/var/log/install.log`; each was E_UNIMPLEMENTED on macOS before.
 - Windows: `fs_mount` attaches a VHD or VHDX file to an empty folder on an NTFS volume and `fs_unmount` detaches it (Mount-DiskImage, partition access paths; elevation needed, E_OS_DENIED otherwise; bind, fstype, options other than readonly and lazy are E_BAD_ARG). Tested only on disposable GitHub runners.
 - Windows: `proc_env` and `proc_cwd` for another process, `proc_suspend` and
   `proc_resume`, and the openssl-backed `crypto_cert_info`, `crypto_cert_verify`,
