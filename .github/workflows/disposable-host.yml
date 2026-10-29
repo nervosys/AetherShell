@@ -5,11 +5,14 @@ name: Disposable host
 # #[ignore] and also returns early unless AE_DISPOSABLE_HOST=1, so it never
 # runs on a developer's machine by accident. A GitHub-hosted runner is
 # discarded after the job, which is what makes it the right place for them.
-# Manual only: these install software and create accounts, so a run is a
-# decision, not a side effect of a push.
+# A run is a decision, not a side effect of ordinary work: it starts only by
+# hand, or by pushing to the one branch named for it. (workflow_dispatch alone
+# cannot start a workflow that is not yet on the default branch.)
 
 on:
     workflow_dispatch:
+    push:
+        branches: [ci/disposable]
 
 permissions:
     contents: read
