@@ -390,7 +390,7 @@ pub(crate) fn svc_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value
 
 // ── sudo_exec ────────────────────────────────────────────────────────────────
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 struct SudoSpec {
     argv: Vec<String>,
     timeout_ms: u64,
@@ -435,18 +435,195 @@ fn parse_sudo(args: &[Value], input: &Option<Value>) -> Result<SudoSpec> {
     Ok(SudoSpec { argv, timeout_ms })
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) fn sudo_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let spec = parse_sudo(&args, &input)?;
     refuse_in_transaction("sudo_exec")?;
-    linux::sudo(spec)
+    unix_sudo::sudo(spec)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub(crate) fn sudo_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     parse_sudo(&args, &input)?;
     refuse_in_transaction("sudo_exec")?;
     Err(not_linux("sudo_exec"))
+}
+
+// ── sudo_exec (Linux and macOS) ─────────────────────────────────────────────
+
+/// `sudo -n` with a deadline, in its own process group so a timeout kill also
+/// reaches the command sudo ran. The same code serves Linux and macOS, whose
+/// sudo is at the same path and words the password refusal the same way.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod unix_sudo {
+    use super::*;
+    use crate::safety::{policy_deny, spawn_error};
+    use std::io::{ErrorKind, Read};
+    use std::process::{Command, Stdio};
+    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::time::{Duration, Instant};
+
+    const SUDO: &str = "/usr/bin/sudo";
+
+    /// True when sudo refused because it would have to ask for a password.
+    /// Matched on a whole line, so a command that merely mentions the phrase
+    /// inside a longer message does not trip it.
+    pub(super) fn sudo_password_required(stderr: &str) -> bool {
+        stderr
+            .lines()
+            .any(|line| line.trim() == "sudo: a password is required")
+    }
+
+    #[derive(Default)]
+    struct Capture {
+        bytes: Vec<u8>,
+        finished: bool,
+    }
+
+    type Shared = Arc<Mutex<Capture>>;
+
+    fn lock(shared: &Shared) -> MutexGuard<'_, Capture> {
+        shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Reads a pipe until EOF, keeping only the most recent output. The
+    /// buffer is shared so the caller can read it even when a grandchild
+    /// holds the pipe open after the timeout kill.
+    fn spawn_reader<R: Read + Send + 'static>(mut pipe: R, shared: Shared) {
+        std::thread::spawn(move || {
+            let mut chunk = [0u8; 8192];
+            loop {
+                match pipe.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let mut capture = lock(&shared);
+                        capture.bytes.extend_from_slice(&chunk[..n]);
+                        if capture.bytes.len() > 2 * OUTPUT_TAIL_BYTES {
+                            let cut = capture.bytes.len() - OUTPUT_TAIL_BYTES;
+                            capture.bytes.drain(..cut);
+                        }
+                    }
+                    Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                    Err(_) => break,
+                }
+            }
+            lock(&shared).finished = true;
+        });
+    }
+
+    fn tail_text(shared: &Shared) -> String {
+        let capture = lock(shared);
+        let start = capture.bytes.len().saturating_sub(OUTPUT_TAIL_BYTES);
+        String::from_utf8_lossy(&capture.bytes[start..]).into_owned()
+    }
+
+    fn finished(shared: &Shared) -> bool {
+        lock(shared).finished
+    }
+
+    /// SIGKILL the child's whole process group. The child was started as a
+    /// group leader, so this also reaches the command that sudo ran.
+    fn kill_group(pid: u32) {
+        // SAFETY: plain libc call with a negated pid; it signals a process group
+        // this function created, and has no memory effects.
+        unsafe {
+            libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+        }
+    }
+
+    pub(super) fn sudo(spec: SudoSpec) -> Result<Value> {
+        use std::os::unix::process::CommandExt;
+
+        const BUILTIN: &str = "sudo_exec";
+        let mut cmd = Command::new(SUDO);
+        cmd.arg("-n")
+            .arg("--")
+            .args(&spec.argv)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0);
+        let mut child = cmd.spawn().map_err(|e| spawn_error(BUILTIN, "sudo", &e))?;
+
+        let stdout = Arc::new(Mutex::new(Capture::default()));
+        let stderr = Arc::new(Mutex::new(Capture::default()));
+        if let Some(pipe) = child.stdout.take() {
+            spawn_reader(pipe, Arc::clone(&stdout));
+        } else {
+            lock(&stdout).finished = true;
+        }
+        if let Some(pipe) = child.stderr.take() {
+            spawn_reader(pipe, Arc::clone(&stderr));
+        } else {
+            lock(&stderr).finished = true;
+        }
+
+        let deadline = Instant::now() + Duration::from_millis(spec.timeout_ms);
+        let (status, timed_out) = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break (Some(status), false),
+                Ok(None) if Instant::now() >= deadline => {
+                    kill_group(child.id());
+                    let _ = child.kill();
+                    break (child.wait().ok(), true);
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                Err(e) => {
+                    kill_group(child.id());
+                    let _ = child.kill();
+                    return Err(spawn_error(BUILTIN, "sudo", &e));
+                }
+            }
+        };
+
+        // Give the readers a moment to reach EOF. A grandchild that keeps a pipe
+        // open must not hold the call indefinitely.
+        let grace = Instant::now() + Duration::from_secs(2);
+        while !(finished(&stdout) && finished(&stderr)) && Instant::now() < grace {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let stdout_text = tail_text(&stdout);
+        let stderr_text = tail_text(&stderr);
+        if !timed_out && sudo_password_required(&stderr_text) {
+            return Err(policy_deny(
+                BUILTIN,
+                format!("{BUILTIN}: sudo needs a password for this user, so the command was not run"),
+                "run it as root, or grant this command NOPASSWD in sudoers; AetherShell never supplies a password",
+            ));
+        }
+
+        let exit_code = match status.and_then(|s| s.code()) {
+            Some(code) if !timed_out => Value::Int(i64::from(code)),
+            _ => Value::Null,
+        };
+        let mut record = BTreeMap::new();
+        record.insert("exit_code".to_string(), exit_code);
+        record.insert("stdout".to_string(), Value::Str(stdout_text));
+        record.insert("stderr".to_string(), Value::Str(stderr_text));
+        record.insert("timed_out".to_string(), Value::Bool(timed_out));
+        Ok(Value::Record(record))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn password_prompt_is_recognised_only_as_a_whole_line() {
+            assert!(sudo_password_required("sudo: a password is required\n"));
+            assert!(sudo_password_required("  sudo: a password is required  \n"));
+            assert!(!sudo_password_required(
+                "the tool said: sudo: a password is required, really\n"
+            ));
+            assert!(!sudo_password_required(
+                "sudo: a terminal is required to read the password\n"
+            ));
+            assert!(!sudo_password_required(""));
+        }
+    }
 }
 
 // ── Windows backend ─────────────────────────────────────────────────────────
@@ -1049,16 +1226,13 @@ mod linux {
     use crate::safety::{
         budget_exceeded, fs_error, not_found, policy_deny, spawn_error, tool_failed,
     };
-    use std::io::{ErrorKind, Read, Write};
+    use std::io::{ErrorKind, Write};
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     use std::path::{Path, PathBuf};
-    use std::process::{Command, Stdio};
-    use std::sync::{Arc, Mutex, MutexGuard};
-    use std::time::{Duration, Instant};
+    use std::process::Command;
 
     const SYSTEMCTL: &str = "/usr/bin/systemctl";
     const GETENT: &str = "/usr/bin/getent";
-    const SUDO: &str = "/usr/bin/sudo";
     const UNIT_DIR: &str = "/etc/systemd/system";
     /// Bound on each systemctl call, so a stuck manager cannot hang the shell.
     const TOOL_TIMEOUT_SECS: u64 = 60;
@@ -1344,148 +1518,6 @@ mod linux {
         Ok(Value::Record(record))
     }
 
-    /// True when sudo refused because it would have to ask for a password.
-    /// Matched on a whole line, so a command that merely mentions the phrase
-    /// inside a longer message does not trip it.
-    pub(super) fn sudo_password_required(stderr: &str) -> bool {
-        stderr
-            .lines()
-            .any(|line| line.trim() == "sudo: a password is required")
-    }
-
-    #[derive(Default)]
-    struct Capture {
-        bytes: Vec<u8>,
-        finished: bool,
-    }
-
-    type Shared = Arc<Mutex<Capture>>;
-
-    fn lock(shared: &Shared) -> MutexGuard<'_, Capture> {
-        shared
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    /// Reads a pipe until EOF, keeping only the most recent output. The
-    /// buffer is shared so the caller can read it even when a grandchild
-    /// holds the pipe open after the timeout kill.
-    fn spawn_reader<R: Read + Send + 'static>(mut pipe: R, shared: Shared) {
-        std::thread::spawn(move || {
-            let mut chunk = [0u8; 8192];
-            loop {
-                match pipe.read(&mut chunk) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        let mut capture = lock(&shared);
-                        capture.bytes.extend_from_slice(&chunk[..n]);
-                        if capture.bytes.len() > 2 * OUTPUT_TAIL_BYTES {
-                            let cut = capture.bytes.len() - OUTPUT_TAIL_BYTES;
-                            capture.bytes.drain(..cut);
-                        }
-                    }
-                    Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-                    Err(_) => break,
-                }
-            }
-            lock(&shared).finished = true;
-        });
-    }
-
-    fn tail_text(shared: &Shared) -> String {
-        let capture = lock(shared);
-        let start = capture.bytes.len().saturating_sub(OUTPUT_TAIL_BYTES);
-        String::from_utf8_lossy(&capture.bytes[start..]).into_owned()
-    }
-
-    fn finished(shared: &Shared) -> bool {
-        lock(shared).finished
-    }
-
-    /// SIGKILL the child's whole process group. The child was started as a
-    /// group leader, so this also reaches the command that sudo ran.
-    fn kill_group(pid: u32) {
-        // SAFETY: plain libc call with a negated pid; it signals a process group
-        // this function created, and has no memory effects.
-        unsafe {
-            libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
-        }
-    }
-
-    pub(super) fn sudo(spec: SudoSpec) -> Result<Value> {
-        use std::os::unix::process::CommandExt;
-
-        const BUILTIN: &str = "sudo_exec";
-        let mut cmd = Command::new(SUDO);
-        cmd.arg("-n")
-            .arg("--")
-            .args(&spec.argv)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .process_group(0);
-        let mut child = cmd.spawn().map_err(|e| spawn_error(BUILTIN, "sudo", &e))?;
-
-        let stdout = Arc::new(Mutex::new(Capture::default()));
-        let stderr = Arc::new(Mutex::new(Capture::default()));
-        if let Some(pipe) = child.stdout.take() {
-            spawn_reader(pipe, Arc::clone(&stdout));
-        } else {
-            lock(&stdout).finished = true;
-        }
-        if let Some(pipe) = child.stderr.take() {
-            spawn_reader(pipe, Arc::clone(&stderr));
-        } else {
-            lock(&stderr).finished = true;
-        }
-
-        let deadline = Instant::now() + Duration::from_millis(spec.timeout_ms);
-        let (status, timed_out) = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break (Some(status), false),
-                Ok(None) if Instant::now() >= deadline => {
-                    kill_group(child.id());
-                    let _ = child.kill();
-                    break (child.wait().ok(), true);
-                }
-                Ok(None) => std::thread::sleep(Duration::from_millis(10)),
-                Err(e) => {
-                    kill_group(child.id());
-                    let _ = child.kill();
-                    return Err(spawn_error(BUILTIN, "sudo", &e));
-                }
-            }
-        };
-
-        // Give the readers a moment to reach EOF. A grandchild that keeps a pipe
-        // open must not hold the call indefinitely.
-        let grace = Instant::now() + Duration::from_secs(2);
-        while !(finished(&stdout) && finished(&stderr)) && Instant::now() < grace {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-
-        let stdout_text = tail_text(&stdout);
-        let stderr_text = tail_text(&stderr);
-        if !timed_out && sudo_password_required(&stderr_text) {
-            return Err(policy_deny(
-                BUILTIN,
-                format!("{BUILTIN}: sudo needs a password for this user, so the command was not run"),
-                "run it as root, or grant this command NOPASSWD in sudoers; AetherShell never supplies a password",
-            ));
-        }
-
-        let exit_code = match status.and_then(|s| s.code()) {
-            Some(code) if !timed_out => Value::Int(i64::from(code)),
-            _ => Value::Null,
-        };
-        let mut record = BTreeMap::new();
-        record.insert("exit_code".to_string(), exit_code);
-        record.insert("stdout".to_string(), Value::Str(stdout_text));
-        record.insert("stderr".to_string(), Value::Str(stderr_text));
-        record.insert("timed_out".to_string(), Value::Bool(timed_out));
-        Ok(Value::Record(record))
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -1494,19 +1526,6 @@ mod linux {
         fn quoting_escapes_backslash_quote_and_dollar() {
             assert_eq!(quote_word(r#"a b"c\d$e"#), r#""a b\"c\\d$$e""#);
             assert_eq!(quote_word(""), "\"\"");
-        }
-
-        #[test]
-        fn password_prompt_is_recognised_only_as_a_whole_line() {
-            assert!(sudo_password_required("sudo: a password is required\n"));
-            assert!(sudo_password_required("  sudo: a password is required  \n"));
-            assert!(!sudo_password_required(
-                "the tool said: sudo: a password is required, really\n"
-            ));
-            assert!(!sudo_password_required(
-                "sudo: a terminal is required to read the password\n"
-            ));
-            assert!(!sudo_password_required(""));
         }
     }
 }

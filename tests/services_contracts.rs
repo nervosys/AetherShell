@@ -210,18 +210,62 @@ fn valid_calls_refuse_with_unimplemented_and_change_nothing_off_every_service_ba
     }
 }
 
-/// On macOS the service calls are real (tests/macos_service_admin.rs), but
-/// sudo_exec is still unimplemented there and must change nothing.
+/// sudo_exec on macOS runs `sudo -n` as on Linux. Run on the disposable
+/// GitHub runner as its ordinary user, whose sudo needs no password, so the
+/// identity, exit codes, stderr and the timeout kill are those of a real sudo.
+/// A developer's Mac would ask for a password, so this never runs there.
 #[cfg(target_os = "macos")]
 #[test]
-fn sudo_exec_refuses_with_unimplemented_and_changes_nothing_on_macos() {
-    let _lock = LOCK.lock().unwrap();
+#[ignore = "runs sudo: disposable macOS runner only (AE_DISPOSABLE_HOST=1)"]
+fn macos_sudo_exec_reports_identity_exit_codes_stderr_and_timeouts() {
+    if std::env::var("AE_DISPOSABLE_HOST").as_deref() != Ok("1") {
+        return;
+    }
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::default();
-    let error = call("sudo_exec", vec![argv(&["/usr/bin/id", "-u"])], &mut env)
-        .expect_err("sudo_exec is refused off Linux");
-    let text = error.to_string();
-    assert!(text.contains("E_UNIMPLEMENTED"), "{text}");
-    assert!(text.contains("NOTHING WAS CHANGED"), "{text}");
+    let fields = |v: Value| match v {
+        Value::Record(m) => m,
+        other => panic!("not a record: {other:?}"),
+    };
+    let text = |m: &std::collections::BTreeMap<String, Value>, k: &str| match m.get(k) {
+        Some(Value::Str(s)) => s.clone(),
+        other => panic!("{k}: {other:?}"),
+    };
+
+    let id = fields(call("sudo_exec", vec![argv(&["/usr/bin/id", "-u"])], &mut env).unwrap());
+    assert_eq!(text(&id, "stdout").trim(), "0");
+    assert_eq!(id.get("exit_code"), Some(&Value::Int(0)));
+    assert_eq!(id.get("timed_out"), Some(&Value::Bool(false)));
+
+    let failed = fields(call("sudo_exec", vec![argv(&["/usr/bin/false"])], &mut env).unwrap());
+    assert_eq!(failed.get("exit_code"), Some(&Value::Int(1)));
+
+    let missing = fields(
+        call(
+            "sudo_exec",
+            vec![argv(&["/bin/ls", "/aesvc-no-such-path"])],
+            &mut env,
+        )
+        .unwrap(),
+    );
+    assert!(matches!(missing.get("exit_code"), Some(Value::Int(code)) if *code != 0));
+    assert!(!text(&missing, "stderr").is_empty());
+
+    let started = std::time::Instant::now();
+    let slow = fields(
+        call(
+            "sudo_exec",
+            vec![
+                argv(&["/bin/sleep", "5"]),
+                record(&[("timeout_ms", Value::Int(300))]),
+            ],
+            &mut env,
+        )
+        .unwrap(),
+    );
+    assert_eq!(slow.get("timed_out"), Some(&Value::Bool(true)));
+    assert_eq!(slow.get("exit_code"), Some(&Value::Null));
+    assert!(started.elapsed() < std::time::Duration::from_secs(4));
 }
 
 #[cfg(target_os = "linux")]

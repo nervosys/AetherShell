@@ -163,6 +163,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   macOS (`clipboard info`), and `gui_screenshot_window` (user32 PrintWindow;
   `screencapture -l`, with no Screen Recording permission `E_OS_DENIED`).
   These are tested only on disposable GitHub runners.
+  macOS: `sudo_exec` runs `sudo -n` with the Linux backend's deadline and
+  process-group kill (one module now serves both).
   macOS: `user_add`/`del`/`mod`/`passwd`/`lock`/`unlock` and
   `group_add`/`del`/`mod` through `dscl` and `dseditgroup`
   (accounts created disabled; uid and gid below 501, `_` names, the running

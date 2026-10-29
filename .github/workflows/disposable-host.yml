@@ -125,6 +125,12 @@ jobs:
               if: ${{ !cancelled() }}
               run: cargo test --test proc_env_macos -- --test-threads=1
 
+            # As the runner user, not root: sudo_exec must go through sudo -n,
+            # which this image allows without a password.
+            - name: sudo_exec
+              if: ${{ !cancelled() }}
+              run: cargo test --test services_contracts -- --include-ignored --test-threads=1 macos_sudo_exec
+
             - name: File ACLs
               if: ${{ !cancelled() }}
               run: cargo test --test macos_acl_admin -- --test-threads=1
