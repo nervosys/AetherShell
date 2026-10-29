@@ -128,6 +128,9 @@ pub(super) fn remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "--id",
             id.as_str(),
             "--exact",
+            "--source",
+            "winget",
+            "--accept-source-agreements",
             "--disable-interactivity",
         ];
         if winget(B, &argv)? == Ran::NotFound {
@@ -140,6 +143,9 @@ pub(super) fn remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "--id",
             id.as_str(),
             "--exact",
+            "--source",
+            "winget",
+            "--accept-source-agreements",
             "--disable-interactivity",
             "--silent",
         ];

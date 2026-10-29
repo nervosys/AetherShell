@@ -3,7 +3,8 @@
 //!
 //! Ordinary tests run everywhere: argument and pipeline-input refusals come
 //! before any platform check, so they are E_BAD_ARG on every OS. On Windows
-//! pkg_list is checked against reg.exe; off Linux pkg_history is
+//! pkg_list is checked against reg.exe and pkg_history reads the Application
+//! event log's MsiInstaller records; elsewhere off Linux pkg_history is
 //! E_UNIMPLEMENTED with nothing read. The rpm and brew parsers are unit tested
 //! in src/pkg_query.rs; no RPM or Homebrew host has run them yet.
 //!
@@ -92,11 +93,27 @@ fn pkg_history_refuses_pipeline_input() {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 #[test]
 fn pkg_history_is_unimplemented_off_linux_and_reads_nothing() {
     expect_code("pkg_history", vec![], "E_UNIMPLEMENTED");
     expect_code("pkg_history", vec![Value::Int(5)], "E_UNIMPLEMENTED");
+}
+
+/// On Windows pkg_history reads the event log: an Array of records, empty on
+/// a host with no MsiInstaller events, and never more rows than asked for.
+#[cfg(windows)]
+#[test]
+fn pkg_history_on_windows_answers_an_array_of_at_most_the_count() {
+    match call("pkg_history", vec![Value::Int(3)]) {
+        Ok(Value::Array(rows)) => {
+            assert!(rows.len() <= 3, "{} rows for a count of 3", rows.len());
+            for row in &rows {
+                assert!(matches!(row, Value::Record(_)), "not a record: {row:?}");
+            }
+        }
+        other => panic!("pkg_history(3) on Windows: {other:?}"),
+    }
 }
 
 /// The DisplayName values `reg.exe` reports under the Uninstall keys

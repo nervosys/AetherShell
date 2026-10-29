@@ -68,12 +68,22 @@ fn disposable() -> bool {
     std::env::var("AE_DISPOSABLE_HOST").as_deref() == Ok("1")
 }
 
-/// Whether `winget list --id <id> --exact` shows the package: it must exit 0
-/// and name the identifier. winget exits 0 with no rows on some hosts, so the
-/// output is checked as well.
+/// Whether `winget list --id <id> --exact --source winget` shows the package:
+/// it must exit 0 and name the identifier. winget exits 0 with no rows on some
+/// hosts, so the output is checked as well. Without `--source`, `list` also
+/// asks the msstore source, whose agreement a fresh runner has not accepted.
 fn winget_lists(id: &str) -> bool {
     Command::new("winget")
-        .args(["list", "--id", id, "--exact", "--disable-interactivity"])
+        .args([
+            "list",
+            "--id",
+            id,
+            "--exact",
+            "--source",
+            "winget",
+            "--accept-source-agreements",
+            "--disable-interactivity",
+        ])
         .stdin(Stdio::null())
         .output()
         .map(|o| {
@@ -96,6 +106,9 @@ impl Drop for Uninstall {
                 "--id",
                 PACKAGE,
                 "--exact",
+                "--source",
+                "winget",
+                "--accept-source-agreements",
                 "--disable-interactivity",
                 "--silent",
             ])

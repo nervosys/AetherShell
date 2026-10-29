@@ -220,7 +220,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gid, shell, home) are `E_BAD_ARG`. Built-in principals (any `S-1-5-32-*`
   SID or a RID below 1000) and the running account are `E_POLICY_DENY`
   before anything is written. `pkg_install`, `pkg_remove`, `pkg_update` and
-  `pkg_upgrade` run winget by argv with `--exact` and a validated id;
+  `pkg_upgrade` run winget by argv with `--exact`, a validated id and
+  `--source winget` (so a host that never accepted the msstore source's
+  agreement is not refused part way, as a fresh GitHub runner was);
   `pkg_clean`, `pkg_autoremove`, hold and source changes have no winget
   equivalent and are `E_UNIMPLEMENTED`. All of these refuse inside a
   transaction.
