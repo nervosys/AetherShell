@@ -60195,7 +60195,14 @@ fn journal_ndjson_rows(stdout: &str, truncated: bool, count: i64) -> Result<Vec<
     if truncated {
         text = text.split_once('\n').map_or("", |(_, rest)| rest);
     }
-    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    // `log show` may print a notice ("Filtering the log data using ...")
+    // before the first entry; lines before the first JSON object are that
+    // header. After it, every line must be an entry.
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .skip_while(|l| !l.trim_start().starts_with('{'))
+        .collect();
     let keep = (count.max(0) as usize).min(lines.len());
     lines[lines.len() - keep..]
         .iter()
@@ -60226,6 +60233,22 @@ mod macos_readonly_rows {
             },
             other => panic!("not a record: {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_notice_before_the_first_entry_is_skipped() {
+        // Raw strings: this file's source scanners read a backslash-quote as
+        // the end of a string.
+        let out = [
+            r#"Filtering the log data using "process == 1""#,
+            r#"{"n":1}"#,
+            r#"{"n":2}"#,
+        ]
+        .join("\n");
+        let rows = journal_ndjson_rows(&out, false, 10).expect("rows");
+        assert_eq!(rows.iter().map(rec_n).collect::<Vec<_>>(), [1, 2]);
+        let late = [r#"{"n":1}"#, "not json"].join("\n");
+        assert!(journal_ndjson_rows(&late, false, 10).is_err());
     }
 
     #[test]
