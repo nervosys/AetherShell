@@ -1379,10 +1379,14 @@ $want = $env:AE_DST + '\'
 $part = Get-Partition | Where-Object { $_.AccessPaths -contains $want } | Select-Object -First 1
 if (-not $part) { exit 4 }
 $disk = Get-Disk -Number $part.DiskNumber
-$part | Remove-PartitionAccessPath -AccessPath $want
+# Found before anything changes: Windows PowerShell's Get-DiskImage needs
+# -ImagePath or -DevicePath (run 40829823865), and a lookup that failed after
+# the access path was removed would leave the folder unmounted and the image
+# attached.
 $device = '\\.\PhysicalDrive' + $disk.Number
-$image = Get-DiskImage | Where-Object { $_.Attached -and $_.DevicePath -eq $device } | Select-Object -First 1
-if ($image) { Dismount-DiskImage -ImagePath $image.ImagePath | Out-Null }
+$image = Get-DiskImage -DevicePath $device -ErrorAction SilentlyContinue
+$part | Remove-PartitionAccessPath -AccessPath $want
+if ($image -and $image.Attached) { Dismount-DiskImage -DevicePath $device | Out-Null }
 "#;
 
     /// Detach the image in AE_SRC. Used only to undo a failed mount, so its
