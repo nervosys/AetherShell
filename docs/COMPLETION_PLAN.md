@@ -325,7 +325,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_acl_get — Linux backend verified as root in the disposable distro; Windows (icacls) and macOS (ls -le) verified on disposable GitHub runners (run 40826282149)
 - [x] bi_acl_set — Linux backend verified as root in the disposable distro; Windows (icacls) and macOS (chmod +a/-a) verified on disposable GitHub runners (run 40826282149)
 - [x] bi_sudo_check
-- [x] bi_sudo_exec — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_sudo_exec — Linux backend verified as root in the disposable distro; macOS shares it (sudo -n) and passed on a disposable GitHub runner as the ordinary user (run 40832269191); Windows refuses explicitly
 - [x] bi_capabilities — Linux-only kernel concept; explicit coded refusal elsewhere.
 - [x] bi_pkg_list
 - [x] bi_pkg_install — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
