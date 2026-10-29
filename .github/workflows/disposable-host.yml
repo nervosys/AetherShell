@@ -47,13 +47,16 @@ jobs:
                   winget --version
 
             - name: Build the gated tests
-              run: cargo test --no-run --test windows_service_admin --test windows_account_admin --test windows_winget_admin
+              run: cargo test --no-run --test windows_service_admin --test windows_account_admin --test windows_task_admin --test windows_winget_admin
 
             - name: Services
               run: cargo test --test windows_service_admin -- --include-ignored --test-threads=1
 
             - name: Accounts and groups
               run: cargo test --test windows_account_admin -- --include-ignored --test-threads=1
+
+            - name: Scheduled tasks
+              run: cargo test --test windows_task_admin -- --include-ignored --test-threads=1
 
             - name: winget packages
               run: cargo test --test windows_winget_admin -- --include-ignored --test-threads=1
