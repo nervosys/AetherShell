@@ -208,6 +208,19 @@ fn net_output(args: &[&str]) -> String {
         .unwrap_or_default()
 }
 
+/// A local account or group's name, looked up by SID, since a runner image may
+/// rename the built-in Administrator account. Empty when nothing matches.
+fn name_by_sid(kind: &str, sid_like: &str) -> String {
+    let script = format!(
+        "(Get-Local{kind} | Where-Object {{ $_.SID.Value -like '{sid_like}' }} | Select-Object -First 1).Name"
+    );
+    Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
 /// A random password with upper and lower case, digits and a symbol. Never
 /// printed.
 fn strong_password() -> String {
@@ -345,8 +358,10 @@ fn aeci_options_without_a_windows_meaning_are_refused() {
     );
 }
 
-/// Names are matched case-insensitively by Windows, so these lowercase names
-/// reach the SID guard, which refuses them before any write.
+/// The accounts are found by SID, not by name: the built-in Administrator
+/// (RID 500) may be renamed, as it is on GitHub's Windows images. Names are
+/// matched case-insensitively by Windows, so the lowercased names still reach
+/// the SID guard, which refuses them before any write.
 ///
 /// Disposable only, although it should change nothing: if the guard were ever
 /// broken, these calls would delete, lock or re-password the real
@@ -359,23 +374,31 @@ fn aeci_built_in_accounts_and_groups_are_refused_before_any_change() {
         return;
     }
     let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    expect_code(call("user_del", vec![s("administrator")]), "E_POLICY_DENY");
-    expect_code(call("user_lock", vec![s("administrator")]), "E_POLICY_DENY");
+    let admin = name_by_sid("User", "S-1-5-21-*-500").to_lowercase();
+    let admins = name_by_sid("Group", "S-1-5-32-544").to_lowercase();
+    let users = name_by_sid("Group", "S-1-5-32-545").to_lowercase();
+    assert!(
+        !admin.is_empty() && !admins.is_empty() && !users.is_empty(),
+        "built-in accounts not found: {admin:?} {admins:?} {users:?}"
+    );
+    expect_code(call("user_del", vec![s(&admin)]), "E_POLICY_DENY");
+    expect_code(call("user_lock", vec![s(&admin)]), "E_POLICY_DENY");
     expect_code(
-        call("user_passwd", vec![s("administrator"), s("Aeci-Probe-1")]),
+        call("user_passwd", vec![s(&admin), s("Aeci-Probe-1")]),
         "E_POLICY_DENY",
     );
-    expect_code(
-        call("group_del", vec![s("administrators")]),
-        "E_POLICY_DENY",
-    );
+    expect_code(call("group_del", vec![s(&admins)]), "E_POLICY_DENY");
     expect_code(
         call(
             "group_mod",
-            vec![s("users"), rec(&[("new_name", s("aeci_probe_g"))])],
+            vec![s(&users), rec(&[("new_name", s("aeci_probe_g"))])],
         ),
         "E_POLICY_DENY",
     );
+    // The account the tests run as is refused too, whatever its RID.
+    let me = std::env::var("USERNAME").unwrap_or_default();
+    assert!(!me.is_empty(), "USERNAME is not set");
+    expect_code(call("user_lock", vec![s(&me)]), "E_POLICY_DENY");
 }
 
 /// Disposable only: it reaches the real account APIs, which is the point, so it
