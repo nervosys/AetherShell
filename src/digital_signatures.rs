@@ -1,34 +1,55 @@
-//! Native signatures over `ring`: Ed25519, ECDSA P-256/P-384 (SHA-256/SHA-384)
-//! and RSA PKCS#1 v1.5 with SHA-256. Key material is supplied as data, never a
-//! path, and nothing here touches the file system or a subprocess.
+//! Native signatures over IronCrypto: Ed25519, ECDSA P-256 and P-384 (with
+//! SHA-256 and SHA-384) and RSA PKCS#1 v1.5 with SHA-256, plus key generation
+//! for the same algorithms. Key material is supplied as data, never a path, and
+//! nothing here touches the file system or a subprocess.
+//!
+//! ECDSA signs with RFC 6979 nonces, so one key and message give one signature.
+//! Signatures leave as DER `Ecdsa-Sig-Value`, the form openssl reads.
 use crate::{safety, value::Value};
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD, Engine};
-use ring::signature::{
-    EcdsaKeyPair, Ed25519KeyPair, KeyPair, RsaKeyPair, UnparsedPublicKey, ECDSA_P256_SHA256_ASN1,
-    ECDSA_P256_SHA256_ASN1_SIGNING, ECDSA_P384_SHA384_ASN1, ECDSA_P384_SHA384_ASN1_SIGNING,
-    ED25519, RSA_PKCS1_2048_8192_SHA256, RSA_PKCS1_SHA256,
+use ironcrypto::core_types::traits::SignatureScheme;
+use ironcrypto::core_types::ErrorKind;
+use ironcrypto::drbg::Rng;
+use ironcrypto::ec::p256::EcdsaP256Sha256;
+use ironcrypto::ec::p384::EcdsaP384Sha384;
+use ironcrypto::ec::{Ed25519, Ed25519Key};
+use ironcrypto::pkix::private_key::parse_rsa_private_key;
+use ironcrypto::pkix::{
+    ecdsa_signature, parse_rsa_public_key, pem, write_rsa_public_key, KeyAlgorithm, PrivateKeyInfo,
 };
+use ironcrypto::rsa::{generate as generate_rsa, Pkcs1Sha256, RsaPrivateKey, RsaPublicKey};
 use std::collections::BTreeMap;
 use zeroize::Zeroizing;
 
-/// Longest private-key PEM accepted, in bytes. ring accepts RSA moduli only up
-/// to 4096 bits, so a larger envelope is refused by the parser, not by this cap.
+/// Longest private-key PEM accepted, in bytes.
 const MAX_PRIVATE_KEY: usize = 16384;
 /// Longest public-key text accepted (raw Base64 or SPKI PEM), in bytes.
 const MAX_PUBLIC_KEY: usize = 4096;
 /// Longest signature Base64 text accepted, in bytes.
 const MAX_SIGNATURE_TEXT: usize = 1400;
-/// Longest RSA signature accepted: a modulus of 8192 bits.
-const MAX_RSA_SIGNATURE: usize = 1024;
+/// The shortest and longest RSA modulus accepted, in bytes: 2048 to 4096 bits,
+/// the range IronCrypto signs and verifies.
+const MIN_RSA_MODULUS: usize = 256;
+const MAX_RSA_MODULUS: usize = 512;
+/// Longest RSA signature accepted: one modulus.
+const MAX_RSA_SIGNATURE: usize = MAX_RSA_MODULUS;
 const MAX_P256_SIGNATURE: usize = 72;
 const MAX_P384_SIGNATURE: usize = 104;
+/// RSA public exponents accepted: 65537 up to 2^33 - 1, as before.
+const MIN_RSA_EXPONENT: u64 = 65537;
+const MAX_RSA_EXPONENT: u64 = (1 << 33) - 1;
+/// Room for the largest DER signature (P-384 with a full-width r and s).
+const DER_SIGNATURE_BUFFER: usize = 128;
+/// PKCS#8 output buffer; the largest key (RSA-4096 with CRT) is about 2.5 KiB.
+const PKCS8_BUFFER: usize = 8192;
 
 const PKCS8_SUPPORT: &str = "invalid PKCS#8 private key: supported are Ed25519 (PKCS#8 v2), ECDSA P-256 or P-384, and RSA with a 2048 to 4096-bit modulus and public exponent of at least 65537";
 const PKCS1_SUPPORT: &str = "invalid PKCS#1 RSA private key: supported are RSA with a 2048 to 4096-bit modulus and public exponent of at least 65537";
 const SEC1_SUPPORT: &str = "invalid SEC1 EC private key: supported are the P-256 (prime256v1) and P-384 (secp384r1) curves, with the public key present";
-const RAW_PUBLIC_SUPPORT: &str = "invalid public key: Base64 of 32 Ed25519 bytes, of an uncompressed P-256 (65 bytes) or P-384 (97 bytes) point, or of a DER RSAPublicKey with a 2048 to 8192-bit modulus; or a BEGIN PUBLIC KEY PEM";
-const SPKI_SUPPORT: &str = "unsupported or malformed public key PEM: supported are Ed25519, ECDSA P-256 or P-384 (uncompressed points), and rsaEncryption with a 2048 to 8192-bit modulus";
+const RAW_PUBLIC_SUPPORT: &str = "invalid public key: Base64 of 32 Ed25519 bytes, of an uncompressed P-256 (65 bytes) or P-384 (97 bytes) point, or of a DER RSAPublicKey with a 2048 to 4096-bit modulus; or a BEGIN PUBLIC KEY PEM";
+const SPKI_SUPPORT: &str = "unsupported or malformed public key PEM: supported are Ed25519, ECDSA P-256 or P-384 (uncompressed points), and rsaEncryption with a 2048 to 4096-bit modulus";
+const RSA_SIZE_SUPPORT: &str = "RSA key size must be 2048, 3072 or 4096 bits";
 
 const TAG_INTEGER: u8 = 0x02;
 const TAG_BIT_STRING: u8 = 0x03;
@@ -46,6 +67,12 @@ const OID_P256: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07];
 const OID_P384: &[u8] = &[0x2b, 0x81, 0x04, 0x00, 0x22];
 const OID_ED25519: &[u8] = &[0x2b, 0x65, 0x70];
 
+/// PKCS#8 (version 1, with public key) header for Ed25519, up to the seed. The
+/// 32-byte seed and the `[1]` public key follow. Same layout the previous backend produced.
+const ED25519_PKCS8_HEAD: [u8; 16] = [
+    0x30, 0x53, 0x02, 0x01, 0x01, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+];
+
 fn bad(name: &str, message: &str) -> anyhow::Error {
     safety::arg_err(format!("{name}: {message}"))
 }
@@ -58,11 +85,43 @@ fn sign_failed(name: &str) -> anyhow::Error {
     )
 }
 
+fn generation_failed(name: &str) -> anyhow::Error {
+    safety::bad_state(
+        name,
+        "secure key generation failed",
+        "check operating-system randomness availability",
+    )
+}
+
+fn verify_failed(name: &str) -> anyhow::Error {
+    safety::bad_state(
+        name,
+        "signature check could not run",
+        "check the cryptographic module's self-test status",
+    )
+}
+
+/// Turns a verification result into an answer. A signature or key that does
+/// not check out is `false`, as it always was. A failure of the module itself
+/// is an error, not a `false` that would hide it.
+fn verdict(name: &str, result: ironcrypto::core_types::Result<()>) -> Result<bool> {
+    match result {
+        Ok(()) => Ok(true),
+        Err(error) => match error.kind() {
+            ErrorKind::AuthenticationFailed
+            | ErrorKind::MalformedEncoding
+            | ErrorKind::InvalidParameter
+            | ErrorKind::InvalidLength => Ok(false),
+            _ => Err(verify_failed(name)),
+        },
+    }
+}
+
 fn policy(name: &str) -> Result<()> {
     if safety::fips_enabled() {
         return Err(safety::policy_deny(
             name,
-            "native ring signature backend (Ed25519, ECDSA, RSA) is not FIPS validated",
+            "native IronCrypto signature backend (Ed25519, ECDSA, RSA) is not FIPS validated",
             "use an independently validated signing provider",
         ));
     }
@@ -166,12 +225,52 @@ enum Curve {
     P384,
 }
 
+impl Curve {
+    /// The private scalar's length.
+    fn private_len(self) -> usize {
+        match self {
+            Curve::P256 => 32,
+            Curve::P384 => 48,
+        }
+    }
+
+    /// The uncompressed SEC1 point's length.
+    fn public_len(self) -> usize {
+        match self {
+            Curve::P256 => 65,
+            Curve::P384 => 97,
+        }
+    }
+
+    /// The fixed-width `r || s` length that IronCrypto signs in.
+    fn raw_signature_len(self) -> usize {
+        match self {
+            Curve::P256 => 64,
+            Curve::P384 => 96,
+        }
+    }
+
+    /// The algorithm name crypto_sign reports.
+    fn algorithm(self) -> &'static str {
+        match self {
+            Curve::P256 => "ecdsa-p256-sha256",
+            Curve::P384 => "ecdsa-p384-sha384",
+        }
+    }
+}
+
 /// A parsed signing key. The variant fixes the algorithm name and the output.
 enum Signer {
-    Ed25519(Ed25519KeyPair),
-    EcdsaP256(Box<EcdsaKeyPair>),
-    EcdsaP384(Box<EcdsaKeyPair>),
-    Rsa(Box<RsaKeyPair>),
+    Ed25519(Box<Ed25519Key>),
+    Ec(EcKey),
+    Rsa(Box<RsaPrivateKey>),
+}
+
+/// An ECDSA private key, with its public point derived once when it is read.
+struct EcKey {
+    curve: Curve,
+    scalar: Zeroizing<Vec<u8>>,
+    public: Vec<u8>,
 }
 
 fn private_key(name: &str, value: &Value) -> Result<Signer> {
@@ -192,51 +291,137 @@ fn private_key(name: &str, value: &Value) -> Result<Signer> {
     let der = pem_der(body).ok_or_else(|| bad(name, "invalid private key encoding"))?;
     match kind {
         Envelope::Pkcs8 => pkcs8_signer(name, &der),
-        Envelope::Pkcs1 => RsaKeyPair::from_der(&der)
-            .map(|pair| Signer::Rsa(Box::new(pair)))
-            .map_err(|_| bad(name, PKCS1_SUPPORT)),
+        Envelope::Pkcs1 => {
+            let info = parse_rsa_private_key(&der).map_err(|_| bad(name, PKCS1_SUPPORT))?;
+            rsa_signer(name, info, PKCS1_SUPPORT)
+        }
         Envelope::Sec1 => sec1_signer(name, &der),
     }
 }
 
-/// Tries Ed25519, then ECDSA P-256, P-384 and RSA, in that order.
+/// Tries Ed25519 (PKCS#8 version 1, with its public key), then the general
+/// PKCS#8 parser for ECDSA P-256 or P-384 and RSA. An Ed25519 key without its
+/// public key is refused, as it always was.
 fn pkcs8_signer(name: &str, der: &[u8]) -> Result<Signer> {
-    if let Ok(pair) = Ed25519KeyPair::from_pkcs8(der) {
-        return Ok(Signer::Ed25519(pair));
+    if let Some((seed, public)) = ed25519_pkcs8(der) {
+        let key = Ed25519Key::from_seed(seed).map_err(|_| bad(name, PKCS8_SUPPORT))?;
+        if key.public_key().as_slice() != public {
+            return Err(bad(name, PKCS8_SUPPORT));
+        }
+        return Ok(Signer::Ed25519(Box::new(key)));
     }
-    let rng = ring::rand::SystemRandom::new();
-    if let Ok(pair) = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, der, &rng) {
-        return Ok(Signer::EcdsaP256(Box::new(pair)));
+    let info = PrivateKeyInfo::from_der(der).map_err(|_| bad(name, PKCS8_SUPPORT))?;
+    match info {
+        PrivateKeyInfo::Rsa { .. } => rsa_signer(name, info, PKCS8_SUPPORT),
+        PrivateKeyInfo::Ec {
+            algorithm,
+            private_key,
+            public_key,
+        } => {
+            let curve = match algorithm {
+                KeyAlgorithm::EcP256 => Curve::P256,
+                KeyAlgorithm::EcP384 => Curve::P384,
+                _ => return Err(bad(name, PKCS8_SUPPORT)),
+            };
+            ec_signer(name, curve, private_key, public_key, PKCS8_SUPPORT)
+        }
+        _ => Err(bad(name, PKCS8_SUPPORT)),
     }
-    if let Ok(pair) = EcdsaKeyPair::from_pkcs8(&ECDSA_P384_SHA384_ASN1_SIGNING, der, &rng) {
-        return Ok(Signer::EcdsaP384(Box::new(pair)));
+}
+
+/// The Ed25519 PKCS#8 form this module accepts: version 1, with the public key
+/// present. Returns the seed and the public key, which the caller checks.
+fn ed25519_pkcs8(der: &[u8]) -> Option<(&[u8], &[u8])> {
+    let body = whole(der, TAG_SEQUENCE)?;
+    let (version, rest) = take(body, TAG_INTEGER)?;
+    if version != [1u8].as_slice() {
+        return None;
     }
-    RsaKeyPair::from_pkcs8(der)
-        .map(|pair| Signer::Rsa(Box::new(pair)))
-        .map_err(|_| bad(name, PKCS8_SUPPORT))
+    let (algorithm, rest) = take(rest, TAG_SEQUENCE)?;
+    if whole(algorithm, TAG_OID)? != OID_ED25519 {
+        return None;
+    }
+    let (private, rest) = take(rest, TAG_OCTET_STRING)?;
+    let seed = whole(private, TAG_OCTET_STRING)?;
+    let (public, rest) = take(rest, TAG_CONTEXT_1)?;
+    if !rest.is_empty() {
+        return None;
+    }
+    let key = bit_string(whole(public, TAG_BIT_STRING)?)?;
+    (seed.len() == 32 && key.len() == 32).then_some((seed, key))
 }
 
 fn sec1_signer(name: &str, der: &[u8]) -> Result<Signer> {
     let (scalar, curve, point) = sec1_parts(der).ok_or_else(|| bad(name, SEC1_SUPPORT))?;
-    let rng = ring::rand::SystemRandom::new();
-    match curve {
-        Curve::P256 => EcdsaKeyPair::from_private_key_and_public_key(
-            &ECDSA_P256_SHA256_ASN1_SIGNING,
-            scalar,
-            point,
-            &rng,
-        )
-        .map(|pair| Signer::EcdsaP256(Box::new(pair)))
-        .map_err(|_| bad(name, SEC1_SUPPORT)),
-        Curve::P384 => EcdsaKeyPair::from_private_key_and_public_key(
-            &ECDSA_P384_SHA384_ASN1_SIGNING,
-            scalar,
-            point,
-            &rng,
-        )
-        .map(|pair| Signer::EcdsaP384(Box::new(pair)))
-        .map_err(|_| bad(name, SEC1_SUPPORT)),
+    ec_signer(name, curve, scalar, Some(point), SEC1_SUPPORT)
+}
+
+/// Builds an ECDSA signer from a private scalar. A public point, when the
+/// encoding carried one, must be the one the scalar derives.
+fn ec_signer(
+    name: &str,
+    curve: Curve,
+    scalar: &[u8],
+    public: Option<&[u8]>,
+    support: &str,
+) -> Result<Signer> {
+    if scalar.len() != curve.private_len() {
+        return Err(bad(name, support));
     }
+    let mut derived = vec![0u8; curve.public_len()];
+    let computed = match curve {
+        Curve::P256 => EcdsaP256Sha256::public_key(scalar, &mut derived),
+        Curve::P384 => EcdsaP384Sha384::public_key(scalar, &mut derived),
+    };
+    computed.map_err(|_| bad(name, support))?;
+    if public.is_some_and(|point| point != derived.as_slice()) {
+        return Err(bad(name, support));
+    }
+    Ok(Signer::Ec(EcKey {
+        curve,
+        scalar: Zeroizing::new(scalar.to_vec()),
+        public: derived,
+    }))
+}
+
+/// Builds an RSA signer from a parsed key. The primes and the public exponent
+/// are used, and the modulus they give must be the one the encoding states; the
+/// private exponent and CRT values in the input are recomputed, not trusted.
+fn rsa_signer(name: &str, info: PrivateKeyInfo<'_>, support: &str) -> Result<Signer> {
+    let PrivateKeyInfo::Rsa {
+        modulus,
+        public_exponent,
+        prime1,
+        prime2,
+        ..
+    } = info
+    else {
+        return Err(bad(name, support));
+    };
+    let stated = strip_leading_zeros(modulus);
+    if !(MIN_RSA_MODULUS..=MAX_RSA_MODULUS).contains(&stated.len())
+        || public_exponent < MIN_RSA_EXPONENT
+    {
+        return Err(bad(name, support));
+    }
+    let key = RsaPrivateKey::from_primes(prime1, prime2, public_exponent)
+        .map_err(|_| bad(name, support))?;
+    let mut derived = vec![0u8; key.size()];
+    key.public_key()
+        .modulus_bytes(&mut derived)
+        .map_err(|_| bad(name, support))?;
+    if derived.as_slice() != stated {
+        return Err(bad(name, support));
+    }
+    Ok(Signer::Rsa(Box::new(key)))
+}
+
+fn strip_leading_zeros(bytes: &[u8]) -> &[u8] {
+    let first = bytes
+        .iter()
+        .position(|byte| *byte != 0)
+        .unwrap_or(bytes.len());
+    &bytes[first..]
 }
 
 /// Reads one definite-length TLV from the front of `input`. Returns the tag,
@@ -334,7 +519,7 @@ fn sec1_parts(der: &[u8]) -> Option<(&[u8], Curve, &[u8])> {
 }
 
 /// RFC 8017 RSAPublicKey: SEQUENCE { INTEGER n, INTEGER e }, with a modulus of
-/// 256 to 1024 bytes (2048 to 8192 bits).
+/// 256 to 512 bytes (2048 to 4096 bits).
 fn valid_rsa_public_key(der: &[u8]) -> bool {
     let Some(body) = whole(der, TAG_SEQUENCE) else {
         return false;
@@ -355,7 +540,7 @@ fn valid_rsa_public_key(der: &[u8]) -> bool {
         Some(0) => modulus.len() - 1,
         _ => modulus.len(),
     };
-    (256..=MAX_RSA_SIGNATURE).contains(&length)
+    (MIN_RSA_MODULUS..=MAX_RSA_MODULUS).contains(&length)
 }
 
 fn uncompressed_point(point: &[u8], length: usize) -> bool {
@@ -367,6 +552,7 @@ enum Verifier {
     Ed25519(Vec<u8>),
     EcdsaP256(Vec<u8>),
     EcdsaP384(Vec<u8>),
+    /// The DER RSAPublicKey, checked for shape when it is read.
     Rsa(Vec<u8>),
 }
 
@@ -456,25 +642,72 @@ fn signature_bytes(name: &str, value: &Value, key: &Verifier) -> Result<Vec<u8>>
     if !fits {
         return Err(bad(
             name,
-            "signature length does not fit the key's algorithm: Ed25519 is 64 bytes, ECDSA P-256 DER is at most 72 bytes, ECDSA P-384 DER is at most 104 bytes, RSA is at most 1024 bytes",
+            "signature length does not fit the key's algorithm: Ed25519 is 64 bytes, ECDSA P-256 DER is at most 72 bytes, ECDSA P-384 DER is at most 104 bytes, RSA is at most 512 bytes",
         ));
     }
     Ok(bytes)
 }
 
-fn ecdsa_sign(name: &str, pair: &EcdsaKeyPair, message: &[u8]) -> Result<Vec<u8>> {
-    let rng = ring::rand::SystemRandom::new();
-    pair.sign(&rng, message)
-        .map(|signature| signature.as_ref().to_vec())
-        .map_err(|_| sign_failed(name))
+/// Signs with RFC 6979 nonces and returns the DER `Ecdsa-Sig-Value`.
+fn ec_sign(name: &str, key: &EcKey, message: &[u8]) -> Result<Vec<u8>> {
+    let mut raw = vec![0u8; key.curve.raw_signature_len()];
+    let signed = match key.curve {
+        Curve::P256 => EcdsaP256Sha256::sign(&key.scalar, message, &mut raw),
+        Curve::P384 => EcdsaP384Sha384::sign(&key.scalar, message, &mut raw),
+    };
+    signed.map_err(|_| sign_failed(name))?;
+    let mut der = vec![0u8; DER_SIGNATURE_BUFFER];
+    let written = ecdsa_signature::to_der(&raw, &mut der).map_err(|_| sign_failed(name))?;
+    der.truncate(written);
+    Ok(der)
 }
 
-fn rsa_sign(name: &str, pair: &RsaKeyPair, message: &[u8]) -> Result<Vec<u8>> {
-    let rng = ring::rand::SystemRandom::new();
-    let mut signature = vec![0u8; pair.public().modulus_len()];
-    pair.sign(&RSA_PKCS1_SHA256, &rng, message, &mut signature)
-        .map_err(|_| sign_failed(name))?;
+/// Verifies a DER `Ecdsa-Sig-Value`. A malformed signature is `false`.
+fn ec_verify(name: &str, curve: Curve, public: &[u8], message: &[u8], der: &[u8]) -> Result<bool> {
+    let mut raw = vec![0u8; curve.raw_signature_len()];
+    if ecdsa_signature::from_der(der, &mut raw).is_err() {
+        return Ok(false);
+    }
+    let checked = match curve {
+        Curve::P256 => EcdsaP256Sha256::verify(public, message, &raw),
+        Curve::P384 => EcdsaP384Sha384::verify(public, message, &raw),
+    };
+    verdict(name, checked)
+}
+
+fn rsa_sign(name: &str, key: &RsaPrivateKey, message: &[u8]) -> Result<Vec<u8>> {
+    let mut signature = vec![0u8; key.size()];
+    Pkcs1Sha256::sign(key, message, &mut signature).map_err(|_| sign_failed(name))?;
     Ok(signature)
+}
+
+/// The DER RSAPublicKey of a signing key, as crypto_sign returns it.
+fn rsa_public_der(name: &str, key: &RsaPrivateKey) -> Result<Vec<u8>> {
+    let public = key.public_key();
+    let mut modulus = vec![0u8; public.size()];
+    public
+        .modulus_bytes(&mut modulus)
+        .map_err(|_| sign_failed(name))?;
+    let mut der = vec![0u8; modulus.len() + 16];
+    let written = write_rsa_public_key(&modulus, public.exponent(), &mut der)
+        .map_err(|_| sign_failed(name))?;
+    der.truncate(written);
+    Ok(der)
+}
+
+/// RSASSA-PKCS1-v1_5 over SHA-256 with a DER RSAPublicKey. A key or signature
+/// that does not check out is `false`.
+fn rsa_verify(name: &str, der: &[u8], message: &[u8], signature: &[u8]) -> Result<bool> {
+    let Ok((modulus, exponent)) = parse_rsa_public_key(der) else {
+        return Ok(false);
+    };
+    if !(MIN_RSA_EXPONENT..=MAX_RSA_EXPONENT).contains(&exponent) {
+        return Ok(false);
+    }
+    let Ok(key) = RsaPublicKey::from_components(modulus, exponent) else {
+        return Ok(false);
+    };
+    verdict(name, Pkcs1Sha256::verify(&key, message, signature))
 }
 
 pub(super) fn sign(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -484,24 +717,20 @@ pub(super) fn sign(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let message = message(NAME, &args[1])?;
     let key = private_key(NAME, &args[0])?;
     let (algorithm, public_key, signature) = match &key {
-        Signer::Ed25519(pair) => (
-            "ed25519",
-            pair.public_key().as_ref().to_vec(),
-            pair.sign(&message).as_ref().to_vec(),
-        ),
-        Signer::EcdsaP256(pair) => (
-            "ecdsa-p256-sha256",
-            pair.public_key().as_ref().to_vec(),
-            ecdsa_sign(NAME, pair, &message)?,
-        ),
-        Signer::EcdsaP384(pair) => (
-            "ecdsa-p384-sha384",
-            pair.public_key().as_ref().to_vec(),
-            ecdsa_sign(NAME, pair, &message)?,
+        Signer::Ed25519(pair) => {
+            let mut signature = [0u8; 64];
+            pair.sign(&message, &mut signature)
+                .map_err(|_| sign_failed(NAME))?;
+            ("ed25519", pair.public_key().to_vec(), signature.to_vec())
+        }
+        Signer::Ec(ec) => (
+            ec.curve.algorithm(),
+            ec.public.clone(),
+            ec_sign(NAME, ec, &message)?,
         ),
         Signer::Rsa(pair) => (
             "rsa-pkcs1-sha256",
-            pair.public().as_ref().to_vec(),
+            rsa_public_der(NAME, pair)?,
             rsa_sign(NAME, pair, &message)?,
         ),
     };
@@ -520,47 +749,122 @@ pub(super) fn verify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let signature = signature_bytes(NAME, &args[2], &key)?;
     let message = message(NAME, &args[1])?;
     let valid = match &key {
-        Verifier::Ed25519(bytes) => UnparsedPublicKey::new(&ED25519, bytes.as_slice())
-            .verify(&message, &signature)
-            .is_ok(),
-        Verifier::EcdsaP256(bytes) => {
-            UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, bytes.as_slice())
-                .verify(&message, &signature)
-                .is_ok()
-        }
-        Verifier::EcdsaP384(bytes) => {
-            UnparsedPublicKey::new(&ECDSA_P384_SHA384_ASN1, bytes.as_slice())
-                .verify(&message, &signature)
-                .is_ok()
-        }
-        Verifier::Rsa(bytes) => {
-            UnparsedPublicKey::new(&RSA_PKCS1_2048_8192_SHA256, bytes.as_slice())
-                .verify(&message, &signature)
-                .is_ok()
-        }
+        Verifier::Ed25519(bytes) => verdict(NAME, Ed25519::verify(bytes, &message, &signature))?,
+        Verifier::EcdsaP256(bytes) => ec_verify(NAME, Curve::P256, bytes, &message, &signature)?,
+        Verifier::EcdsaP384(bytes) => ec_verify(NAME, Curve::P384, bytes, &message, &signature)?,
+        Verifier::Rsa(bytes) => rsa_verify(NAME, bytes, &message, &signature)?,
     };
     Ok(Value::Bool(valid))
 }
 
-pub(super) fn generate_key() -> Result<Value> {
+fn rng(name: &str) -> Result<Rng> {
+    Rng::from_os().map_err(|_| generation_failed(name))
+}
+
+/// Encodes a private key as an unencrypted PKCS#8 document.
+fn pkcs8_der(name: &str, info: &PrivateKeyInfo<'_>) -> Result<Zeroizing<Vec<u8>>> {
+    let mut der = Zeroizing::new(vec![0u8; PKCS8_BUFFER]);
+    let written = info
+        .to_der(&mut der[..])
+        .map_err(|_| generation_failed(name))?;
+    der.truncate(written);
+    Ok(der)
+}
+
+fn ed25519_generate(name: &str) -> Result<Zeroizing<Vec<u8>>> {
+    let mut rng = rng(name)?;
+    let mut seed = Zeroizing::new([0u8; 32]);
+    rng.fill(&mut seed[..])
+        .map_err(|_| generation_failed(name))?;
+    let key = Ed25519Key::from_seed(&seed[..]).map_err(|_| generation_failed(name))?;
+    let mut der = Zeroizing::new(Vec::with_capacity(ED25519_PKCS8_HEAD.len() + 37));
+    der.extend_from_slice(&ED25519_PKCS8_HEAD);
+    der.extend_from_slice(&seed[..]);
+    der.extend_from_slice(&[0xa1, 0x23, 0x03, 0x21, 0x00]);
+    der.extend_from_slice(&key.public_key()[..]);
+    Ok(der)
+}
+
+/// Draws scalars until one is a valid P-256 private key; the chance of a
+/// refusal is about 2^-32, so the bound is never the limit in practice.
+fn ec_generate(name: &str) -> Result<Zeroizing<Vec<u8>>> {
+    let mut rng = rng(name)?;
+    for _ in 0..32 {
+        let mut scalar = Zeroizing::new([0u8; 32]);
+        rng.fill(&mut scalar[..])
+            .map_err(|_| generation_failed(name))?;
+        let mut public = [0u8; 65];
+        if EcdsaP256Sha256::public_key(&scalar[..], &mut public).is_err() {
+            continue;
+        }
+        let info = PrivateKeyInfo::Ec {
+            algorithm: KeyAlgorithm::EcP256,
+            private_key: &scalar[..],
+            public_key: Some(&public[..]),
+        };
+        return pkcs8_der(name, &info);
+    }
+    Err(generation_failed(name))
+}
+
+fn rsa_generate(name: &str, bits: i64) -> Result<Zeroizing<Vec<u8>>> {
+    let bits = usize::try_from(bits)
+        .ok()
+        .filter(|bits| matches!(*bits, 2048 | 3072 | 4096))
+        .ok_or_else(|| bad(name, RSA_SIZE_SUPPORT))?;
+    let mut rng = rng(name)?;
+    let key = generate_rsa(bits, &mut rng).map_err(|_| generation_failed(name))?;
+    let public = key.public_key();
+    let size = key.size();
+    let half = size / 2;
+    let mut modulus = vec![0u8; size];
+    public
+        .modulus_bytes(&mut modulus)
+        .map_err(|_| generation_failed(name))?;
+    let mut private_exponent = Zeroizing::new(vec![0u8; size]);
+    key.exponent_bytes(&mut private_exponent[..])
+        .map_err(|_| generation_failed(name))?;
+    let mut prime1 = Zeroizing::new(vec![0u8; half]);
+    let mut prime2 = Zeroizing::new(vec![0u8; half]);
+    key.prime_bytes(&mut prime1[..], &mut prime2[..])
+        .map_err(|_| generation_failed(name))?;
+    let mut exponent1 = Zeroizing::new(vec![0u8; half]);
+    let mut exponent2 = Zeroizing::new(vec![0u8; half]);
+    let mut coefficient = Zeroizing::new(vec![0u8; half]);
+    key.crt_exponent_bytes(&mut exponent1[..], &mut exponent2[..], &mut coefficient[..])
+        .map_err(|_| generation_failed(name))?;
+    let info = PrivateKeyInfo::Rsa {
+        modulus: &modulus,
+        public_exponent: public.exponent(),
+        private_exponent: &private_exponent[..],
+        prime1: &prime1[..],
+        prime2: &prime2[..],
+        exponent1: &exponent1[..],
+        exponent2: &exponent2[..],
+        coefficient: &coefficient[..],
+    };
+    pkcs8_der(name, &info)
+}
+
+/// Generates a private key and returns it as an unencrypted PKCS#8
+/// `PRIVATE KEY` PEM. `key_type` is `rsa` (with `bits` of 2048, 3072 or 4096),
+/// `ec` or `ecdsa` (P-256), or `ed25519`; the caller has checked the names.
+pub(super) fn generate_key(key_type: &str, bits: i64) -> Result<Value> {
     const NAME: &str = "crypto_generate_key";
     policy(NAME)?;
-    let document =
-        Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).map_err(|_| {
-            safety::bad_state(
-                NAME,
-                "secure key generation failed",
-                "check operating-system randomness availability",
-            )
-        })?;
-    let encoded = Zeroizing::new(STANDARD.encode(document.as_ref()));
-    let mut pem = String::from("-----BEGIN PRIVATE KEY-----\n");
-    for chunk in encoded.as_bytes().chunks(64) {
-        pem.push_str(std::str::from_utf8(chunk).expect("Base64 is ASCII"));
-        pem.push('\n');
-    }
-    pem.push_str("-----END PRIVATE KEY-----\n");
-    Ok(Value::Str(pem))
+    let der = match key_type {
+        "ed25519" => ed25519_generate(NAME)?,
+        "ec" | "ecdsa" => ec_generate(NAME)?,
+        "rsa" => rsa_generate(NAME, bits)?,
+        _ => return Err(bad(NAME, "key type rsa, ec, ecdsa or ed25519")),
+    };
+    let mut pem_text = Zeroizing::new(vec![0u8; pem::encoded_len("PRIVATE KEY", der.len())]);
+    let written =
+        pem::encode("PRIVATE KEY", &der, &mut pem_text[..]).map_err(|_| generation_failed(NAME))?;
+    let text = std::str::from_utf8(&pem_text[..written])
+        .map_err(|_| generation_failed(NAME))?
+        .to_owned();
+    Ok(Value::Str(text))
 }
 
 #[cfg(test)]
@@ -779,7 +1083,7 @@ oUQDQgAECEeTcZaVbpT7gw6+9t7F7FfNS1RDboY21RDpP8VNguNPYmCR2v7aCmhd
             assert!(verifies(&public, "round trip", &signature), "{algorithm}");
             assert!(!verifies(&public, "round tripX", &signature), "{algorithm}");
         }
-        let generated = generate_key().expect("Ed25519 generation");
+        let generated = generate_key("ed25519", 0).expect("Ed25519 generation");
         let generated = text_of(&generated);
         let (returned, public, signature) = signed(&generated, "round trip");
         assert_eq!(returned, "ed25519");
@@ -844,7 +1148,7 @@ oUQDQgAECEeTcZaVbpT7gw6+9t7F7FfNS1RDboY21RDpP8VNguNPYmCR2v7aCmhd
         let (_, rsa_public, _) = signed(RSA_PKCS8_PEM, "cross");
         let (_, p256_public, p256_signature) = signed(P256_SEC1_PEM, "cross");
         let (_, _, rsa_signature) = signed(RSA_PKCS8_PEM, "cross");
-        // A DER P-256 signature (about 70 bytes) fits the RSA length rule, so ring
+        // A DER P-256 signature (about 70 bytes) fits the RSA length rule, so IronCrypto
         // runs RSA verification on it and reports a plain false.
         assert_eq!(
             verify_with(&rsa_public, "cross", &p256_signature)
@@ -877,9 +1181,9 @@ oUQDQgAECEeTcZaVbpT7gw6+9t7F7FfNS1RDboY21RDpP8VNguNPYmCR2v7aCmhd
         assert_bad_arg(verify_with(
             &rsa_public,
             "long",
-            &STANDARD.encode(vec![0u8; 1025]),
+            &STANDARD.encode(vec![0u8; 513]),
         ));
-        let (_, ed_public, _) = signed(&text_of(&generate_key().expect("key")), "long");
+        let (_, ed_public, _) = signed(&text_of(&generate_key("ed25519", 0).expect("key")), "long");
         assert_bad_arg(verify_with(
             &ed_public,
             "long",
@@ -977,7 +1281,7 @@ oUQDQgAECEeTcZaVbpT7gw6+9t7F7FfNS1RDboY21RDpP8VNguNPYmCR2v7aCmhd
 
     #[test]
     fn ed25519_behavior_is_unchanged() {
-        let key = text_of(&generate_key().expect("key"));
+        let key = text_of(&generate_key("ed25519", 0).expect("key"));
         let (algorithm, public, signature) = signed(&key, "ed");
         assert_eq!(algorithm, "ed25519");
         assert_eq!(STANDARD.decode(&public).expect("Base64").len(), 32);
@@ -1004,5 +1308,40 @@ oUQDQgAECEeTcZaVbpT7gw6+9t7F7FfNS1RDboY21RDpP8VNguNPYmCR2v7aCmhd
         );
         let error = sign(vec![s(&oversized), s("x")], None).expect_err("oversized key");
         assert_eq!(code(&error), Some("E_BUDGET_EXCEEDED"), "{error}");
+    }
+
+    #[test]
+    fn generated_keys_are_64_column_pkcs8_pem_that_sign_and_verify() {
+        for (kind, algorithm) in [("ec", "ecdsa-p256-sha256"), ("ed25519", "ed25519")] {
+            let pem = text_of(&generate_key(kind, 0).expect("key generation"));
+            let lines: Vec<&str> = pem.lines().collect();
+            assert_eq!(lines.first(), Some(&"-----BEGIN PRIVATE KEY-----"));
+            assert_eq!(lines.last(), Some(&"-----END PRIVATE KEY-----"));
+            assert!(
+                lines[1..lines.len() - 1]
+                    .iter()
+                    .all(|line| line.len() <= 64),
+                "{kind}: body lines are wider than 64 columns"
+            );
+            let (returned, public, signature) = signed(&pem, "generated");
+            assert_eq!(returned, algorithm);
+            assert!(verifies(&public, "generated", &signature), "{kind}");
+        }
+    }
+
+    #[test]
+    fn ecdsa_signatures_are_deterministic_rfc6979() {
+        let first = signed(P256_PKCS8_PEM, "same message");
+        let second = signed(P256_PKCS8_PEM, "same message");
+        assert_eq!(first, second);
+        let (_, _, other) = signed(P256_PKCS8_PEM, "other message");
+        assert_ne!(first.2, other);
+    }
+
+    #[test]
+    fn rsa_generation_sizes_are_restricted() {
+        for bits in [2047, 4097, 8192, 16384] {
+            assert_bad_arg(generate_key("rsa", bits).map(|_| Value::Null));
+        }
     }
 }

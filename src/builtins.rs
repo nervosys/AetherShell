@@ -42932,131 +42932,19 @@ fn bi_crypto_key_generate(args: Vec<Value>, input: Option<Value>) -> Result<Valu
     }
     let bits = match args.get(1) {
         None => 2048,
-        Some(Value::Int(n)) if key_type == "rsa" && (2048..=16384).contains(n) => *n,
+        Some(Value::Int(n)) if key_type == "rsa" && matches!(*n, 2048 | 3072 | 4096) => *n,
         Some(_) => {
             return Err(crate::safety::bad_arg(
                 name,
-                "RSA-only integer size from 2048 to 16384 bits",
+                "RSA-only integer size of 2048, 3072 or 4096 bits",
                 "invalid or inapplicable size",
             ))
         }
     };
-    if key_type == "ed25519" {
-        return digital_signatures::generate_key();
-    }
-    // The key is returned as PEM text and no file is written, so there is no
-    // file mode to set here. A caller that saves the key owns that file's
-    // protection: on Unix it should chmod 0600; on Windows the file inherits
-    // the ACL of the directory it is written into.
-    let mut command = std::process::Command::new("openssl");
-    if key_type == "rsa" {
-        command.args(["genrsa", &bits.to_string()]);
-    } else {
-        command.args(["ecparam", "-genkey", "-noout", "-name", "prime256v1"]);
-    }
-    command.stdin(std::process::Stdio::null());
-    // Generating an RSA key can be slow; the long deadline covers it.
-    let output = bounded_cmd_output(name, "openssl", command, TOOL_LONG_DEADLINE_SECS)?;
-    crypto_key_output(output)
-}
-
-fn crypto_key_output(output: std::process::Output) -> Result<Value> {
-    let name = "crypto_generate_key";
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            name,
-            "openssl",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
-    let text = String::from_utf8(output.stdout).map_err(|_| {
-        crate::safety::bad_state(name, "non-UTF-8 key output", "PEM private-key output")
-    })?;
-    use base64::Engine;
-    let valid = text.len() <= 65536
-        && ["PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY"]
-            .iter()
-            .any(|label| {
-                let begin = format!("-----BEGIN {label}-----");
-                let end = format!("-----END {label}-----");
-                let Some(body) = text
-                    .trim()
-                    .strip_prefix(&begin)
-                    .and_then(|s| s.strip_suffix(&end))
-                else {
-                    return false;
-                };
-                let body: String = body.chars().filter(|c| !c.is_ascii_whitespace()).collect();
-                base64::engine::general_purpose::STANDARD
-                    .decode(body)
-                    .is_ok_and(|bytes| !bytes.is_empty())
-            });
-    if !valid {
-        return Err(crate::safety::bad_state(
-            name,
-            "unexpected successful tool output",
-            "PEM private-key envelope",
-        ));
-    }
-    Ok(Value::Str(text))
-}
-
-#[cfg(all(test, any(unix, windows)))]
-mod crypto_key_output_tests {
-    use super::*;
-    fn output(success: bool, stdout: &[u8]) -> std::process::Output {
-        #[cfg(unix)]
-        let status = {
-            use std::os::unix::process::ExitStatusExt;
-            std::process::ExitStatus::from_raw(if success { 0 } else { 256 })
-        };
-        #[cfg(windows)]
-        let status = {
-            use std::os::windows::process::ExitStatusExt;
-            std::process::ExitStatus::from_raw(if success { 0 } else { 1 })
-        };
-        std::process::Output {
-            status,
-            stdout: stdout.to_vec(),
-            stderr: b"test tool failure".to_vec(),
-        }
-    }
-    #[test]
-    fn pem_envelopes_are_preserved_and_bad_success_is_coded() {
-        for label in ["PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY"] {
-            let pem = format!("-----BEGIN {label}-----\nZml4dHVyZQ==\n-----END {label}-----\n");
-            assert!(
-                matches!(crypto_key_output(output(true, pem.as_bytes())).unwrap(), Value::Str(s) if s == pem)
-            );
-        }
-        for invalid in [
-            b"".as_slice(),
-            b"Key generation requires OpenSSL",
-            b"\xff",
-            b"-----BEGIN PRIVATE KEY-----\ntruncated",
-            b"-----BEGIN PRIVATE KEY-----\n-----END PRIVATE KEY-----",
-            b"-----BEGIN PRIVATE KEY-----\nnot base64!\n-----END PRIVATE KEY-----",
-        ] {
-            let err = crypto_key_output(output(true, invalid)).unwrap_err();
-            assert!(err.to_string().contains("E_BAD_STATE"), "{err}");
-        }
-    }
-    #[test]
-    fn failed_exit_trumps_success_shaped_or_non_utf8_stdout() {
-        for stdout in [
-            b"-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----".as_slice(),
-            b"\xff",
-        ] {
-            let err = crypto_key_output(output(false, stdout))
-                .unwrap_err()
-                .to_string();
-            assert!(
-                err.contains("E_TOOL_FAILED") && err.contains("test tool failure"),
-                "{err}"
-            );
-        }
-    }
+    // Generated natively by IronCrypto and returned as unencrypted PKCS#8 PEM.
+    // No file is written, so there is no file mode to set here; a caller that
+    // saves the key owns that file's protection.
+    digital_signatures::generate_key(&key_type, bits)
 }
 
 fn password_arguments<'a>(

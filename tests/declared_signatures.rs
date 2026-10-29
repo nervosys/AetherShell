@@ -185,7 +185,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "crypto_cert_verify",
         "openssl (openssl.exe on Windows) and OpenSSL's default trust store; E_TOOL_MISSING when openssl is not on PATH",
     ),
-    ("crypto_generate_key", "native Ed25519; RSA/EC use the openssl CLI (E_TOOL_MISSING when absent)"),
+    ("crypto_generate_key", "native IronCrypto keygen (Ed25519, ECDSA P-256, RSA 2048/3072/4096); no external tool"),
     ("crypto_cert_info", "the openssl CLI and the host certificate file; E_TOOL_MISSING or E_NOT_FOUND on hosts without them"),
     ("at_list", "Unix atq and this user's queue; E_UNIMPLEMENTED on non-Unix"),
     ("cron_list", "host scheduler query: Windows PowerShell task module or Unix crontab"),

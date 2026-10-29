@@ -92,7 +92,7 @@ native = [
     "dep:jsonschema",
     "dep:syn",
     "dep:quote",
-    "dep:ring",
+    "dep:ironcrypto",
 ]
 candle = [
     "dep:candle-core",
@@ -288,7 +288,8 @@ reqwest = { version = "0.12", default-features = false, features = [
 # Parse and traverse Rust source for pure documentation/refactoring; native only.
 syn = { version = "2", optional = true, features = ["full", "visit", "visit-mut"] }
 quote = { version = "1", optional = true }
-ring = { version = "=0.17.14", optional = true, default-features = false, features = ["std"] }
+# Pure-Rust Ed25519, ECDSA, RSA signatures and key generation; zero dependencies.
+ironcrypto = { version = "0.3.2", optional = true }
 
 # WASM-only dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]

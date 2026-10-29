@@ -72,7 +72,7 @@ fn signature(body: &str) -> &str {
 
 /// Functions that take a finished `Output` and read its status: handing the
 /// output to one of these is checking it. `parse_at_queue`,
-/// `crypto_key_output`, `parse_cron_listing` and the gui answer helpers are
+/// `parse_cron_listing` and the gui answer helpers are
 /// such helpers, and their callers were counted as unchecked because the
 /// check was one call away.
 fn status_checkers(fns: &[(String, String)]) -> Vec<String> {
@@ -174,7 +174,7 @@ fn the_scanner_sees_an_unchecked_body() {
         "the scan found almost no builtin that runs a command"
     );
     let checkers = status_checkers(&fns);
-    for helper in ["parse_at_queue", "crypto_key_output", "parse_cron_listing"] {
+    for helper in ["parse_at_queue", "parse_cron_listing"] {
         assert!(
             checkers.iter().any(|c| c == helper),
             "{helper} reads the status of the Output it is given"

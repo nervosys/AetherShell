@@ -1,7 +1,9 @@
 //! The openssl-backed crypto builtins, checked against a real OpenSSL.
 //!
-//! `crypto_cert_info`, `crypto_cert_verify`, `crypto_generate_key` (RSA and EC)
-//! and the legacy path of `crypto_decrypt` run the `openssl` CLI on every OS.
+//! `crypto_cert_info`, `crypto_cert_verify` and the legacy path of
+//! `crypto_decrypt` run the `openssl` CLI on every OS. `crypto_generate_key`
+//! no longer does: it generates natively, so its output is checked here by
+//! openssl, but it needs no openssl on PATH.
 //! On Windows that is `openssl.exe`, which Git for Windows ships. Every effect
 //! is set up here (a key, a certificate, a legacy ciphertext) and checked with
 //! openssl itself rather than by trusting the builtin's own answer.
@@ -302,7 +304,6 @@ fn openssl_backed_crypto_builtins_on_this_host() {
     let missing = [
         ("crypto_cert_info", vec![text(s(&cert))]),
         ("crypto_cert_verify", vec![text(s(&cert))]),
-        ("crypto_generate_key", vec![text("rsa")]),
         (
             "crypto_decrypt",
             vec![text(&ciphertext), text("legacy-pass")],
