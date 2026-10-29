@@ -288,21 +288,62 @@ fn verdict(builtin: &str, id: &str) -> anyhow::Result<bool> {
     }
 }
 
-/// The system trust store. A missing one is `E_NOT_FOUND`, with a hint that
-/// names the override.
+/// The largest `SSL_CERT_FILE` read; system bundles are a few hundred KiB.
+const MAX_TRUST_FILE: u64 = 16 * 1024 * 1024;
+
+/// The trust store. When `SSL_CERT_FILE` is set it is the whole store, and a
+/// file that cannot be read or holds no usable certificate is `E_NOT_FOUND`:
+/// IronPKI's `from_system` would go on to the system bundle, so a mistyped
+/// private-CA bundle would quietly trust every public CA instead. Unset, the
+/// system bundle is used, and none is `E_NOT_FOUND` too.
 fn trust_store(builtin: &str) -> anyhow::Result<RootStore> {
-    RootStore::from_system().map_err(|_| {
-        anyhow::Error::new(SafetyError {
-            code: ErrorCode::NotFound,
-            message: format!("{builtin}: no usable trust store was found"),
-            builtin: builtin.to_string(),
-            hint: "set SSL_CERT_FILE to a PEM bundle of trusted CA certificates, then retry"
-                .to_string(),
-            approval: None,
-            did_you_mean: Vec::new(),
-            expected: "a PEM trust store".to_string(),
-            got: "none".to_string(),
-        })
+    let Some(path) = std::env::var_os("SSL_CERT_FILE").filter(|p| !p.is_empty()) else {
+        return RootStore::from_system().map_err(|_| {
+            no_store(
+                builtin,
+                format!("{builtin}: no usable trust store was found"),
+                "none".to_string(),
+            )
+        });
+    };
+    let shown = std::path::Path::new(&path).display().to_string();
+    let unusable = |why: String| {
+        no_store(
+            builtin,
+            format!("{builtin}: SSL_CERT_FILE names {shown}, which {why}"),
+            shown.clone(),
+        )
+    };
+    let len = std::fs::metadata(&path)
+        .map_err(|e| unusable(format!("cannot be read ({e})")))?
+        .len();
+    if len > MAX_TRUST_FILE {
+        return Err(safety::budget_exceeded(
+            builtin,
+            format!("{builtin}: SSL_CERT_FILE {shown} is {len} bytes, over {MAX_TRUST_FILE}"),
+            "point SSL_CERT_FILE at a smaller PEM bundle",
+        ));
+    }
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| unusable(format!("cannot be read ({e})")))?;
+    let mut store = RootStore::new();
+    store
+        .add_pem_bundle(&text)
+        .map_err(|_| unusable("holds no usable PEM certificate".to_string()))?;
+    Ok(store)
+}
+
+fn no_store(builtin: &str, message: String, got: String) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::NotFound,
+        message,
+        builtin: builtin.to_string(),
+        hint: "set SSL_CERT_FILE to a PEM bundle of trusted CA certificates, then retry"
+            .to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "a PEM trust store".to_string(),
+        got,
     })
 }
 

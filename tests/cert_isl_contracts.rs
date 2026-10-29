@@ -370,13 +370,18 @@ fn cert_verify_never_answers_true_without_a_usable_trust_store() {
     let dir = Scratch::new("verify-empty");
     let empty = dir.write("empty.pem", "");
     let leaf = dir.write("leaf.pem", LEAF_PEM);
-    // SSL_CERT_FILE is unusable, so the system bundle is tried. Where none is
-    // installed the answer is E_NOT_FOUND; where one is, the leaf chains to
-    // no anchor in it, so false. Either way it is never true.
-    match verify_under(&empty, &leaf) {
-        Ok(Value::Bool(false)) => {}
-        Err(e) if code_of(&e) == "E_NOT_FOUND" => {}
-        other => panic!("without a usable trust store: {other:?}"),
+    // A set SSL_CERT_FILE is the whole store: an empty, garbage or missing
+    // one is E_NOT_FOUND, never a fall back to the system bundle, which would
+    // trust public CAs the caller meant to leave out.
+    let garbage = dir.write("garbage.pem", "not a bundle");
+    let missing = dir.0.join("absent.pem").to_string_lossy().into_owned();
+    for trust in [&empty, &garbage, &missing] {
+        match verify_under(trust, &leaf) {
+            Err(e) if code_of(&e) == "E_NOT_FOUND" => {
+                assert!(e.to_string().contains("SSL_CERT_FILE"), "{e}")
+            }
+            other => panic!("with SSL_CERT_FILE={trust}: {other:?}"),
+        }
     }
 }
 
