@@ -36430,18 +36430,45 @@ ObjC.import('CoreGraphics');
 function denied(e) {
     return /-1719|-25211|assistive access/.test(String(e));
 }
+// The owner pids of on-screen ordinary windows titled exactly `title`.
+function ownersOf(title) {
+    var all = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(17, 0))) || [];
+    var pids = [];
+    for (var k = 0; k < all.length; k++) {
+        if (all[k].kCGWindowLayer === 0 && all[k].kCGWindowName === title) {
+            pids.push(all[k].kCGWindowOwnerPID);
+        }
+    }
+    return pids;
+}
 // The first System Events window whose name is exactly `title`, as
-// {proc, win}; null when no window has that name.
+// {proc, win}; null when no window has that name. The processes that own a
+// window of that title in CGWindowList are asked first; every process is the
+// fallback. Errors other than an Accessibility refusal skip a process, and
+// are logged to stderr so a miss can be told from a refusal.
 function findWindow(se, title) {
-    var procs = se.processes();
+    var procs = [];
+    var owners = ownersOf(title);
+    for (var o = 0; o < owners.length; o++) {
+        try {
+            procs = procs.concat(se.processes.whose({unixId: owners[o]})());
+        } catch (e) {
+            if (denied(e)) throw e;
+            console.log('pid ' + owners[o] + ': ' + e);
+        }
+    }
+    var asked = procs.length;
+    procs = procs.concat(se.processes());
     for (var i = 0; i < procs.length; i++) {
         var wins = [];
         try {
             wins = procs[i].windows();
         } catch (e) {
             if (denied(e)) throw e;
+            if (i < asked) console.log('windows of owner: ' + e);
             continue;
         }
+        if (i < asked) console.log('owner has ' + wins.length + ' System Events windows');
         for (var j = 0; j < wins.length; j++) {
             var name;
             try {
@@ -53617,6 +53644,9 @@ fn msvcp140_version() -> Result<String> {
 /// that does not load or a header without LC_ID_DYLIB is a coded error; no
 /// version is guessed.
 #[cfg(target_os = "macos")]
+// libc marks the dyld image accessors deprecated in favour of the mach2
+// crate; they are still libSystem's public API.
+#[allow(deprecated)]
 fn libcxx_version_macos() -> Result<String> {
     const LIBCXX: &str = "/usr/lib/libc++.1.dylib";
     const LC_ID_DYLIB: u32 = 0xd;
