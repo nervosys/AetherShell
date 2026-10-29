@@ -162,6 +162,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   macOS (`clipboard info`), and `gui_screenshot_window` (user32 PrintWindow;
   `screencapture -l`, with no Screen Recording permission `E_OS_DENIED`).
   These are tested only on disposable GitHub runners.
+  macOS: `user_add`/`del`/`mod`/`passwd`/`lock`/`unlock` and
+  `group_add`/`del`/`mod` through `dscl`, `dseditgroup` and `pwpolicy`
+  (accounts created disabled; uid and gid below 501, `_` names, the running
+  user and `SUDO_USER` are `E_POLICY_DENY`; not root is `E_OS_DENIED`);
+  `svc_create`/`svc_delete` as `/Library/LaunchDaemons/com.aethershell.<name>.plist`
+  with `launchctl bootstrap`/`bootout`, deleting only daemons it created
+  (`start` without `enable` is `E_BAD_ARG`); `platform_libcpp` reads libc++'s
+  version with `otool -L`.
   Windows: `pkg_list` from the Add/Remove Programs registry entries.
   Windows: `journalctl` reads the System event log ({time, provider, level,
   id, message}; `unit` is an event provider), `pkg_history` the Windows

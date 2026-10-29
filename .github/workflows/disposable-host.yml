@@ -1,11 +1,11 @@
 name: Disposable host
 
 # Contract tests for builtins that change the machine they run on: Windows
-# services, local accounts and groups, scheduled tasks and winget packages,
-# the clipboard's images and window screenshots on Windows and macOS, and window
-# operations on Windows. Each
-# test is #[ignore] and also returns early unless AE_DISPOSABLE_HOST=1, so it
-# never runs on a developer's machine by accident. A GitHub-hosted runner is
+# services, local accounts and groups, scheduled tasks and winget packages;
+# clipboard images and screenshots on Windows and macOS; window operations on
+# Windows; launchd services and local accounts on macOS. Each test is #[ignore]
+# and also returns early unless AE_DISPOSABLE_HOST=1, so it never runs on a
+# developer's machine by accident. A GitHub-hosted runner is
 # discarded after the job, which is what makes it the right place for them.
 # Each test step runs even when an earlier one failed, so one failure does not
 # hide the others. A run is a decision, not a side effect of ordinary work: it
@@ -82,7 +82,7 @@ jobs:
               run: cargo test --test windows_window_admin -- --include-ignored --test-threads=1
 
     macos-mutations:
-        name: macOS clipboard and screenshots
+        name: macOS system changes
         runs-on: macos-latest
         timeout-minutes: 60
         env:
@@ -95,7 +95,7 @@ jobs:
             - uses: Swatinem/rust-cache@v2
 
             - name: Build the gated tests
-              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin
+              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin --test macos_service_admin --test macos_account_admin --test libcpp_contracts
 
             - name: Clipboard images
               if: ${{ !cancelled() }}
@@ -104,3 +104,21 @@ jobs:
             - name: Window screenshots
               if: ${{ !cancelled() }}
               run: cargo test --test screenshot_window_admin -- --include-ignored --test-threads=1
+
+            - name: libc++ version
+              if: ${{ !cancelled() }}
+              run: cargo test --test libcpp_contracts -- --test-threads=1
+
+            # Built as the runner user above; only the test binary runs as root,
+            # since launchd daemons and local accounts need it.
+            - name: Services (root)
+              if: ${{ !cancelled() }}
+              run: |
+                  exe=$(cargo test --no-run --test macos_service_admin --message-format=json | jq -r 'select(.target.name == "macos_service_admin" and .executable != null) | .executable' | head -n 1)
+                  sudo -E env AE_DISPOSABLE_HOST=1 "$exe" --include-ignored --test-threads=1
+
+            - name: Accounts and groups (root)
+              if: ${{ !cancelled() }}
+              run: |
+                  exe=$(cargo test --no-run --test macos_account_admin --message-format=json | jq -r 'select(.target.name == "macos_account_admin" and .executable != null) | .executable' | head -n 1)
+                  sudo -E env AE_DISPOSABLE_HOST=1 "$exe" --include-ignored --test-threads=1
