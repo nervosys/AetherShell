@@ -127,18 +127,22 @@ fn oracle(question: &str, title: &str) -> String {
 /// What System Events reports for one pid: the process, its flags and its
 /// windows' names, or the error it raised. Printed for the log only.
 fn system_events_view(pid: i64) -> String {
-    const VIEW: &str = r#"function run(argv) {
+    const VIEW: &str = r#"ObjC.import('ApplicationServices');
+function run(argv) {
     var se = Application('System Events');
+    var trusted = 'AXIsProcessTrusted=' + $.AXIsProcessTrusted();
+    try { trusted += ' finderWindows=' + se.processes.byName('Finder').windows().length; }
+    catch (e) { trusted += ' finder: ' + e; }
     try {
         var ps = se.processes.whose({unixId: Number(argv[0])})();
-        if (ps.length === 0) return 'no System Events process';
+        if (ps.length === 0) return trusted + ' no System Events process';
         var p = ps[0];
         var names = [];
         try { names = p.windows().map(function (w) { return w.name(); }); }
         catch (e) { names = ['windows() failed: ' + e]; }
-        return 'name=' + p.name() + ' backgroundOnly=' + p.backgroundOnly() +
+        return trusted + ' name=' + p.name() + ' backgroundOnly=' + p.backgroundOnly() +
             ' visible=' + p.visible() + ' windows=' + JSON.stringify(names);
-    } catch (e) { return 'error: ' + e; }
+    } catch (e) { return trusted + ' error: ' + e; }
 }"#;
     let out = Command::new(OSASCRIPT)
         .args(["-l", "JavaScript", "-e", VIEW, &pid.to_string()])

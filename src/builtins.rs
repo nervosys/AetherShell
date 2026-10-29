@@ -36427,6 +36427,7 @@ fn clipboard_answer(name: &str, bytes: &[u8]) -> Result<Value> {
 const MACOS_WINDOW_ADMIN_JXA: &str = r#"ObjC.import('stdlib');
 ObjC.import('AppKit');
 ObjC.import('CoreGraphics');
+ObjC.import('ApplicationServices');
 function denied(e) {
     return /-1719|-25211|assistive access/.test(String(e));
 }
@@ -36498,6 +36499,11 @@ function run(argv) {
         return JSON.stringify(out);
     }
     var title = argv[1];
+    // Without Accessibility trust System Events answers every process with
+    // no windows rather than an error, which would read as "no such window".
+    if (!$.AXIsProcessTrusted()) {
+        throw new Error('-25211 not allowed assistive access (AXIsProcessTrusted is false)');
+    }
     var found = findWindow(Application('System Events'), title);
     if (found === null) {
         $.exit(3);
