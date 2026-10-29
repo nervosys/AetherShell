@@ -49,9 +49,9 @@ fn bad_calls_are_refused_before_anything_is_captured() {
     assert!(msg.contains("E_BAD_ARG"), "piped input: {msg}");
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 #[test]
-fn it_refuses_off_linux_and_writes_nothing() {
+fn it_refuses_off_platform_and_writes_nothing() {
     let path = std::env::temp_dir().join(format!("ae_shot_window_{}.png", std::process::id()));
     let msg = refusal(vec![s("Some Window"), s(&path.to_string_lossy())], None);
     assert!(msg.contains("E_UNIMPLEMENTED"), "{msg}");

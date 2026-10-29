@@ -309,9 +309,9 @@ fn a_clipboard_set_with_neither_text_nor_a_string_is_refused() {
 
 #[test]
 fn a_capture_checks_its_argument_before_anything_else() {
-    // gui_screenshot_window and the clipboard image calls are implemented on
-    // Linux only. Their argument is checked first on every OS, so a bad call
-    // says so.
+    // gui_screenshot_window is implemented on Linux, Windows and macOS, and the
+    // clipboard image calls on Linux. Their argument is checked first on every
+    // OS, so a bad call says so.
     let msg = refusal("gui_screenshot_window", vec![Value::Int(1)], None);
     assert!(msg.contains("E_BAD_ARG"), "{msg}");
     let msg = refusal("clipboard_set_image", vec![Value::Int(1)], None);

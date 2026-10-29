@@ -36944,12 +36944,133 @@ $bitmap.Dispose()
     }
 }
 
+/// The PowerShell that captures one window on Windows. It is a constant: the
+/// title and the output path arrive in the AE_SHOT_TITLE and AE_SHOT_PATH
+/// environment variables, never in the script text. The exit codes are the
+/// contract: 3 no window has the title (E_NOT_FOUND), 4 the window is minimized
+/// or has no size, 5 PrintWindow drew nothing, 6 the PNG could not be saved.
+/// The process is per-monitor-DPI-unaware by default, which would measure the
+/// window in scaled pixels and draw it smaller, so it declares itself aware
+/// first and the rectangle and the bitmap are both in physical pixels.
+#[cfg(target_os = "windows")]
+const WINDOW_SHOT_SCRIPT: &str = r#"$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class WindowShot {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+}
+"@
+[void][WindowShot]::SetProcessDPIAware()
+$title = [Environment]::GetEnvironmentVariable('AE_SHOT_TITLE')
+$out = [Environment]::GetEnvironmentVariable('AE_SHOT_PATH')
+$hwnd = [WindowShot]::FindWindow($null, $title)
+if ($hwnd -eq [IntPtr]::Zero) { exit 3 }
+if ([WindowShot]::IsIconic($hwnd)) {
+    [Console]::Error.WriteLine('the window is minimized, so it has no picture to capture')
+    exit 4
+}
+$rect = New-Object 'WindowShot+RECT'
+if (-not [WindowShot]::GetWindowRect($hwnd, [ref]$rect)) {
+    [Console]::Error.WriteLine('GetWindowRect did not measure the window')
+    exit 4
+}
+$width = $rect.Right - $rect.Left
+$height = $rect.Bottom - $rect.Top
+if ($width -lt 1 -or $height -lt 1) {
+    [Console]::Error.WriteLine("the window measures ${width}x${height}")
+    exit 4
+}
+try {
+    $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+    try {
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        try {
+            $hdc = $graphics.GetHdc()
+            try {
+                $drawn = [WindowShot]::PrintWindow($hwnd, $hdc, 2)
+            } finally {
+                $graphics.ReleaseHdc($hdc)
+            }
+        } finally {
+            $graphics.Dispose()
+        }
+        if (-not $drawn) {
+            [Console]::Error.WriteLine('PrintWindow did not draw the window')
+            exit 5
+        }
+        $bitmap.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        $bitmap.Dispose()
+    }
+} catch {
+    [Console]::Error.WriteLine($_.Exception.Message)
+    exit 6
+}
+exit 0
+"#;
+
+/// The JavaScript for osascript that finds a window's CGWindowID by its exact
+/// title. The title arrives in AE_SHOT_TITLE. It answers `denied` when Screen
+/// Recording is not granted (macOS then withholds other apps' window titles,
+/// so a missing title would be a false E_NOT_FOUND), `missing` when no window
+/// has the title, and `id <n>` otherwise.
+#[cfg(target_os = "macos")]
+const MACOS_WINDOW_ID_JXA: &str = r#"ObjC.import('CoreGraphics');
+ObjC.import('Foundation');
+function run() {
+    var title = ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey('AE_SHOT_TITLE'));
+    if (!$.CGPreflightScreenCaptureAccess()) { return 'denied'; }
+    // Option 0 is kCGWindowListOptionAll; relative 0 is kCGNullWindowID.
+    var windows = ObjC.deepUnwrap($.CGWindowListCopyWindowInfo(0, 0));
+    for (var i = 0; i < windows.length; i++) {
+        if (windows[i].kCGWindowName === title) { return 'id ' + windows[i].kCGWindowNumber; }
+    }
+    return 'missing';
+}
+"#;
+
+/// The answer of a capture tool that wrote `path`: the file must exist and
+/// begin with the PNG signature, or the capture is a coded failure. A tool that
+/// exits 0 having written nothing is not a capture.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn gui_png_answer(name: &str, tool: &str, path: String) -> Result<Value> {
+    let bytes = fs::read(&path).map_err(|e| {
+        crate::safety::tool_failed(
+            name,
+            tool,
+            Some(0),
+            &format!("it wrote no readable file at {path}: {e}"),
+        )
+    })?;
+    if image_mime_of(&bytes) != Some("image/png") {
+        return Err(crate::safety::tool_failed(
+            name,
+            tool,
+            Some(0),
+            "its output was not a PNG image",
+        ));
+    }
+    Ok(Value::Str(path))
+}
+
 /// `gui_screenshot_window(title, path?)`: capture the window whose title is
 /// exactly `title` as a PNG at `path` (default `window_<seconds>.png`) and
-/// answer the path. The path is checked like any other write. Linux X11 only:
+/// answer the path. The path is checked like any other write. Linux X11:
 /// xwininfo finds the window, ImageMagick's `import` captures it to stdout,
 /// and this shell writes the file itself, so `import` never interprets the
-/// path (it would run a name that begins with `|` as a command).
+/// path (it would run a name that begins with `|` as a command). Windows:
+/// user32 FindWindow matches the exact title and PrintWindow draws it (see
+/// `WINDOW_SHOT_SCRIPT`). macOS: the title is resolved to a CGWindowID and
+/// `screencapture -l` captures that window; no Screen Recording permission is
+/// E_OS_DENIED, never a blank PNG.
 fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const NAME: &str = "gui_screenshot_window";
     refuse_piped_input(NAME, &input)?;
@@ -37049,12 +37170,87 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
         fs::write(&path, &shot.stdout).map_err(|e| crate::safety::fs_error(NAME, &path, &e))?;
         Ok(Value::Str(path))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        let path = guard_local_write(NAME, &path)?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            WINDOW_SHOT_SCRIPT,
+        ]);
+        cmd.env("AE_SHOT_TITLE", &title).env("AE_SHOT_PATH", &path);
+        crate::tx::snapshot(&path); // record pre-capture state if a transaction is active
+        let shot = bounded_cmd_output(NAME, "powershell", cmd, TOOL_DEADLINE_SECS)?;
+        match shot.status.code() {
+            Some(0) => gui_png_answer(NAME, "powershell", path),
+            Some(3) => Err(crate::safety::not_found(NAME, "window titled", &title)),
+            code => Err(crate::safety::tool_failed(
+                NAME,
+                "powershell",
+                code,
+                &gui_stderr_tail(&shot),
+            )),
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let path = guard_local_write(NAME, &path)?;
+        let mut find = std::process::Command::new("osascript");
+        find.args(["-l", "JavaScript", "-e", MACOS_WINDOW_ID_JXA]);
+        find.env("AE_SHOT_TITLE", &title);
+        let found = bounded_cmd_output(NAME, "osascript", find, PROBE_DEADLINE_SECS)?;
+        if !found.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "osascript",
+                found.status.code(),
+                &gui_stderr_tail(&found),
+            ));
+        }
+        let answer = String::from_utf8_lossy(&found.stdout).trim().to_string();
+        let id: u64 = match answer.as_str() {
+            "denied" => {
+                return Err(crate::safety::os_denied(
+                    NAME,
+                    "Screen Recording permission is not granted to the process running ae, so window titles and pixels are withheld",
+                    "grant Screen Recording to the terminal or app that runs ae in System Settings > Privacy & Security, then retry",
+                ))
+            }
+            "missing" => return Err(crate::safety::not_found(NAME, "window titled", &title)),
+            other => other
+                .strip_prefix("id ")
+                .and_then(|n| n.parse().ok())
+                .ok_or_else(|| {
+                    crate::safety::tool_failed(
+                        NAME,
+                        "osascript",
+                        Some(0),
+                        "its output named no window id",
+                    )
+                })?,
+        };
+        crate::tx::snapshot(&path); // record pre-capture state if a transaction is active
+        let mut capture = std::process::Command::new("screencapture");
+        capture.args(["-x", "-o", "-l", &id.to_string(), &path]);
+        let shot = bounded_cmd_output(NAME, "screencapture", capture, TOOL_DEADLINE_SECS)?;
+        if !shot.status.success() {
+            return Err(crate::safety::tool_failed(
+                NAME,
+                "screencapture",
+                shot.status.code(),
+                &gui_stderr_tail(&shot),
+            ));
+        }
+        gui_png_answer(NAME, "screencapture", path)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         let _ = (title, path);
         Err(crate::safety::unimplemented(
             NAME,
-            "capturing a window by title is implemented on Linux (X11) only; NOTHING WAS CAPTURED",
+            "capturing a window by title is implemented on Linux (X11), Windows and macOS only; NOTHING WAS CAPTURED",
             "gui_screenshot(path) captures the whole screen",
         ))
     }
