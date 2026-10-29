@@ -1664,6 +1664,21 @@ pub fn bad_state(builtin: &str, state: &str, needs: &str) -> anyhow::Error {
     })
 }
 
+/// Build an `E_IO` error for a fault in the environment the call depends on,
+/// such as the system clock or an attached client, rather than in the call.
+pub fn io_fault(builtin: &str, what: &str, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::Io,
+        message: format!("{builtin}: {what}"),
+        builtin: builtin.to_string(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "a working environment".to_string(),
+        got: what.to_string(),
+    })
+}
+
 /// Build the error for a lock that an earlier call left poisoned (`E_BAD_STATE`).
 ///
 /// A poisoned lock means an earlier call in this process panicked while it

@@ -19,11 +19,13 @@
 //! the coded-errors pass (the container runtime, provider default, save_json
 //! and ls sites), then 86 once apply passed tx::begin's coded error through,
 //! then 8 once the lock-poisoning sites moved to
-//! `crate::safety::lock_poisoned` (E_BAD_STATE). The ceiling may only fall:
+//! `crate::safety::lock_poisoned` (E_BAD_STATE), then 0 once the reserved
+//! slots, the clock, JSON serialization, the two A2UI protocol faults and the
+//! marketplace lock were coded. The ceiling may only fall:
 //! lower `UNCODED_MAX` whenever a site is coded, and do not raise it to admit
 //! a new uncoded error; code the error instead.
 
-const UNCODED_MAX: usize = 8;
+const UNCODED_MAX: usize = 0;
 
 fn count_uncoded(src: &str) -> usize {
     src.lines()
@@ -39,7 +41,8 @@ fn uncoded_errors_only_fall() {
     let src = std::fs::read_to_string(path).unwrap();
     let found = count_uncoded(&src);
     assert!(
-        found <= UNCODED_MAX,
+        // The ceiling is 0, so "only falls" is "stays at none".
+        found == UNCODED_MAX,
         "src/builtins.rs has {found} uncoded anyhow!/bail! errors, ceiling is {UNCODED_MAX}: \
          code the new error with crate::safety::arg_err (or bad_arg / budget_exceeded) \
          instead of anyhow!, which reaches callers as E_UNKNOWN"

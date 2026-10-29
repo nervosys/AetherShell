@@ -1,6 +1,6 @@
 // src/builtins.rs
 #![allow(dead_code, unreachable_code, unused_variables)]
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use serde_json;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -2770,21 +2770,9 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_archive_test(args, input),
     // 347-349: reserved slots. No name is registered at these indices, so
     // dispatch never reaches them; they keep the numbering of the entries after.
-    |_, _, _| {
-        Err(anyhow!(
-            "reserved builtin slot: no builtin is registered at this index"
-        ))
-    },
-    |_, _, _| {
-        Err(anyhow!(
-            "reserved builtin slot: no builtin is registered at this index"
-        ))
-    },
-    |_, _, _| {
-        Err(anyhow!(
-            "reserved builtin slot: no builtin is registered at this index"
-        ))
-    },
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
     // 350-369: User & Permission Management
     |args, input, _| bi_user_list(args, input),
     |args, input, _| bi_user_add(args, input),
@@ -3020,9 +3008,9 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_nanda_quorum(args, input),
     // 556: tmux_kill (a reserved slot). Reserved (557-559)
     |args, input, _| bi_tmux_kill(args, input), // 556
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
     // AI Coding Assistant - Git (560-586)
     |args, input, _| bi_git_status(args, input),
     |args, input, _| bi_git_diff(args, input),
@@ -3052,9 +3040,9 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_git_ignore(args, input),
     |args, input, _| bi_git_clean(args, input),
     // Reserved (587-589)
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
     // AI Coding Assistant - Code (590-606)
     |args, input, _| bi_code_parse(args, input),
     |args, input, _| bi_code_symbols(args, input),
@@ -3074,9 +3062,9 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_code_comments(args, input),
     |args, input, _| bi_code_todos(args, input),
     // Reserved (607-609)
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
     // AI Coding Assistant - Project (610-626)
     |args, input, _| bi_project_type(args, input),
     |args, input, _| bi_project_root(args, input),
@@ -3096,9 +3084,9 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_project_loc(args, input),
     |args, input, _| bi_project_size(args, input),
     // Reserved (627-629)
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
     // AI Coding Assistant - Search (630-643)
     |args, input, _| bi_search_code(args, input),
     |args, input, _| bi_search_grep(args, input),
@@ -3115,12 +3103,12 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_search_semantic(args, input),
     |args, input, _| bi_search_similar(args, input),
     // Reserved (644-649)
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
     // AI Coding Assistant - Test (650-661)
     |args, input, _| bi_test_run(args, input),
     |args, input, _| bi_test_run_file(args, input),
@@ -3135,14 +3123,14 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_test_snapshot(args, input),
     |args, input, _| bi_test_generate(args, input),
     // Reserved (662-669)
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
     // AI Coding Assistant - Diagnostics (670-678)
     |args, input, _| bi_diag_check(args, input),
     |args, input, _| bi_diag_lint(args, input),
@@ -3154,7 +3142,7 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_diag_suppress(args, input),
     |args, input, _| bi_diag_config(args, input),
     // Reserved (679)
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(reserved_slot()),
     // AI Coding Assistant - Refactor (680-691)
     |args, input, _| bi_refactor_rename(args, input),
     |args, input, _| bi_refactor_rename_file(args, input),
@@ -3169,14 +3157,14 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_refactor_organize_imports(args, input),
     |args, input, _| bi_refactor_remove_unused(args, input),
     // Reserved (692-699)
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
     // AI Coding Assistant - Session (700-712)
     |args, input, _| bi_session_start(args, input),
     |args, input, _| bi_session_end(args, input),
@@ -3192,13 +3180,13 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_session_rollback(args, input),
     |args, input, _| bi_session_export(args, input),
     // Reserved (713-719)
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
     // AI Coding Assistant - Docs (720-727)
     |args, input, _| bi_docs_generate(args, input),
     |args, input, _| bi_docs_search(args, input),
@@ -3209,8 +3197,8 @@ static BUILTIN_DISPATCH: &[fn(Vec<Value>, Option<Value>, &mut Env) -> Result<Val
     |args, input, _| bi_docs_types(args, input),
     |args, input, _| bi_docs_signatures(args, input),
     // Reserved (728-729)
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
-    |_, _, _| Err(anyhow::anyhow!("reserved builtin slot")),
+    |_, _, _| Err(reserved_slot()),
+    |_, _, _| Err(reserved_slot()),
     // AI Coding Assistant - Environment (730-747)
     |args, input, _| bi_env_detect(args, input),
     |args, input, _| bi_env_python(args, input),
@@ -22220,9 +22208,13 @@ fn bi_audit_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// now() - Get current Unix timestamp in seconds
 fn bi_now(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| anyhow!("now: system time error: {}", e))?;
+    let duration = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| {
+        crate::safety::io_fault(
+            "now",
+            "the system clock reads earlier than 1970",
+            "set the system clock, then retry",
+        )
+    })?;
     Ok(Value::Int(duration.as_secs() as i64))
 }
 
@@ -22369,8 +22361,11 @@ fn bi_save_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     // Convert Value to JSON using existing function
     let json = value_to_json(value);
-    let json_str = serde_json::to_string_pretty(&json)
-        .map_err(|e| anyhow!("save_json: JSON serialization failed: {}", e))?;
+    let json_str = serde_json::to_string_pretty(&json).map_err(|e| {
+        crate::safety::arg_err(format!(
+            "save_json: the value cannot be written as JSON: {e}"
+        ))
+    })?;
 
     // An existing file is replaced, and the record says so: a save that quietly
     // destroyed an earlier file is the surprise to avoid.
@@ -23847,6 +23842,51 @@ fn bi_a2ui_notify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// a2ui_prompt(message) - Request text input from user (blocking)
 ///
 /// Refused with `E_NO_UI` when no UI is attached. A user who cancels gets null.
+/// Dispatch never reaches a reserved slot, since no name is registered at its
+/// index; the entry only keeps the numbering of the ones after it.
+fn reserved_slot() -> anyhow::Error {
+    crate::safety::unimplemented(
+        "reserved builtin slot",
+        "no builtin is registered at this index",
+        "call a registered builtin",
+    )
+}
+
+/// The attached UI answered a prompt with a different kind of response, which
+/// is a fault in the UI, not in the call: `E_IO`, naming what came back.
+fn a2ui_wrong_answer(builtin: &str, asked: &str, got: &PromptResponse) -> anyhow::Error {
+    let kind = match got {
+        PromptResponse::Text(_) => "text",
+        PromptResponse::Confirm(_) => "confirm",
+        PromptResponse::Select(_) => "select",
+        PromptResponse::MultiSelect(_) => "multi-select",
+        PromptResponse::Cancelled => "cancelled",
+    };
+    crate::safety::io_fault(
+        builtin,
+        &format!("the attached UI answered a {asked} prompt with a {kind} response"),
+        "check the UI client attached to the A2UI channel, then retry",
+    )
+}
+
+#[cfg(test)]
+mod coded_fault_tests {
+    use super::*;
+    use crate::safety::{ErrorCode, SafetyError};
+
+    fn code(e: &anyhow::Error) -> ErrorCode {
+        e.downcast_ref::<SafetyError>().expect("coded").code
+    }
+
+    #[test]
+    fn reserved_slots_and_ui_protocol_faults_carry_codes() {
+        assert_eq!(code(&reserved_slot()), ErrorCode::Unimplemented);
+        let e = a2ui_wrong_answer("a2ui_prompt", "text", &PromptResponse::Confirm(true));
+        assert_eq!(code(&e), ErrorCode::Io);
+        assert!(e.to_string().contains("a confirm response"), "{e}");
+    }
+}
+
 fn bi_a2ui_prompt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let (subject, _) = a2ui_subject_and_rest(&args, &input);
     let message = subject
@@ -23857,7 +23897,7 @@ fn bi_a2ui_prompt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     match A2UI_CHANNEL.prompt_text("builtin", &message)? {
         PromptResponse::Text(s) => Ok(Value::Str(s)),
         PromptResponse::Cancelled => Ok(Value::Null),
-        _ => Err(anyhow!("Unexpected response type")),
+        other => Err(a2ui_wrong_answer("a2ui_prompt", "text", &other)),
     }
 }
 
@@ -23925,7 +23965,7 @@ fn bi_a2ui_select(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             )),
         },
         PromptResponse::Cancelled => Ok(Value::Null),
-        _ => Err(anyhow!("Unexpected response type")),
+        other => Err(a2ui_wrong_answer("a2ui_select", "select", &other)),
     }
 }
 
@@ -66388,9 +66428,12 @@ fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     // report "installed"; the download is on disk, so the error names it.
     {
         let mut packages = MARKETPLACE_PACKAGES.write().map_err(|_| {
-            anyhow!(
-                "marketplace_install: `{}` was downloaded, but the package catalogue lock is poisoned, so it was not recorded",
-                install_path.display()
+            crate::safety::lock_poisoned(
+                "marketplace_install",
+                &format!(
+                    "the package catalogue (`{}` was downloaded but not recorded)",
+                    install_path.display()
+                ),
             )
         })?;
         let existing = packages
