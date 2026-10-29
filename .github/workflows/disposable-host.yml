@@ -103,7 +103,7 @@ jobs:
             - uses: Swatinem/rust-cache@v2
 
             - name: Build the gated tests
-              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin --test macos_window_admin --test macos_service_admin --test macos_account_admin --test libcpp_contracts --test proc_env_macos --test macos_acl_admin --test macos_mount_admin
+              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin --test macos_window_admin --test macos_service_admin --test macos_account_admin --test libcpp_contracts --test proc_env_macos --test macos_acl_admin --test macos_mount_admin --test macos_task_admin
 
             - name: Clipboard images
               if: ${{ !cancelled() }}
@@ -130,6 +130,10 @@ jobs:
             - name: sudo_exec
               if: ${{ !cancelled() }}
               run: cargo test --test services_contracts -- --include-ignored --test-threads=1 macos_sudo_exec
+
+            - name: Crontab
+              if: ${{ !cancelled() }}
+              run: cargo test --test macos_task_admin -- --include-ignored --test-threads=1
 
             - name: File ACLs
               if: ${{ !cancelled() }}
