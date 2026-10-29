@@ -24,7 +24,7 @@
 //! - A current-thread runtime already running: there is no safe move. Blocking
 //!   it would deadlock, so this reports rather than hangs.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::sync::OnceLock;
@@ -59,17 +59,24 @@ fn fallback_runtime() -> Result<&'static Runtime> {
             .ok()
     })
     .as_ref()
-    .ok_or_else(|| anyhow!("workflow: could not start an async runtime"))
+    .ok_or_else(|| {
+        crate::safety::io_fault(
+            "workflow",
+            "could not start an async runtime",
+            "retry; if it keeps failing, restart the shell",
+        )
+    })
 }
 
 /// Run an engine future to completion from synchronous builtin code.
 fn block_on<F: Future<Output = Result<Value>>>(fut: F) -> Result<Value> {
     match Handle::try_current() {
         Ok(handle) => match handle.runtime_flavor() {
-            RuntimeFlavor::CurrentThread => Err(anyhow!(
-                "workflow builtins cannot run inside a single-threaded async \
-                 context: blocking it would deadlock. Use a SubWorkflow step to \
-                 nest a workflow inside another one."
+            RuntimeFlavor::CurrentThread => Err(crate::safety::unimplemented(
+                "workflow",
+                "workflow builtins cannot run inside a single-threaded async context: \
+                 blocking it would deadlock",
+                "use a SubWorkflow step to nest a workflow inside another one",
             )),
             _ => tokio::task::block_in_place(|| handle.block_on(fut)),
         },
@@ -313,7 +320,7 @@ async fn instance_status(id: &str) -> Result<&'static str> {
         .get_instance(&id.to_string())
         .await
         .map(|info| status_str(&info.status))
-        .ok_or_else(|| anyhow!("Workflow instance not found: {id}"))
+        .ok_or_else(|| crate::safety::not_found("workflow", "workflow", id))
 }
 
 /// Start a run without waiting for it: `workflow_execute(id, {wait: false})`.
@@ -598,7 +605,7 @@ pub(crate) fn dispatch(name: &str, args: Vec<Value>, input: Option<Value>) -> Re
                 let info = engine()
                     .get_instance(&id)
                     .await
-                    .ok_or_else(|| anyhow!("no such workflow: {id}"))?;
+                    .ok_or_else(|| crate::safety::not_found("workflow", "workflow", &id))?;
                 Ok(Value::Record(BTreeMap::from([
                     ("id".to_string(), Value::Str(info.id)),
                     ("template".to_string(), Value::Str(info.template_id)),
@@ -683,7 +690,9 @@ pub(crate) fn dispatch(name: &str, args: Vec<Value>, input: Option<Value>) -> Re
                 let state = engine()
                     .get_circuit_breaker_status(&breaker)
                     .await
-                    .ok_or_else(|| anyhow!("no such circuit breaker: {breaker}"))?;
+                    .ok_or_else(|| {
+                        crate::safety::not_found("workflow", "circuit breaker", &breaker)
+                    })?;
                 Ok(Value::Str(
                     match state {
                         CircuitState::Closed => "closed",
@@ -695,7 +704,11 @@ pub(crate) fn dispatch(name: &str, args: Vec<Value>, input: Option<Value>) -> Re
             })
         }
 
-        other => Err(anyhow!("workflow builtin not implemented: {other}")),
+        other => Err(crate::safety::unimplemented(
+            other,
+            "this workflow builtin is not implemented",
+            "use one of the workflow_* builtins `ae agent schema` lists",
+        )),
     }
 }
 

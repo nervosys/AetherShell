@@ -1104,14 +1104,29 @@ async fn call_builtin_off_runtime(
 // Cancellation and waits
 // -----------------------------------------------------------------------------
 
-/// A run that was cancelled before it finished (`E_BAD_STATE`). The cure is a
-/// new run, so the hint names `workflow_create`.
+/// A run that was cancelled before it finished (`E_BAD_STATE`). Retrying the
+/// same run cannot help; a new one can.
 fn cancelled_error(workflow_id: &WorkflowId) -> anyhow::Error {
-    crate::safety::bad_state(
-        "workflow",
-        &format!("workflow `{workflow_id}` was cancelled"),
-        "workflow_create",
+    ended_run(
+        format!("workflow `{workflow_id}` was cancelled"),
+        "start a new run with workflow_execute",
     )
+}
+
+/// `E_BAD_STATE` for a run that has ended, with a hint of its own:
+/// `bad_state`'s "call X first, then retry this unchanged" does not fit, since
+/// no call brings an ended run back.
+fn ended_run(message: String, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code: crate::safety::ErrorCode::BadState,
+        message: format!("workflow: {message}"),
+        builtin: "workflow".to_string(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "a run that has not ended".to_string(),
+        got: message,
+    })
 }
 
 /// Put `prefix` in front of an error without losing its code. A `SafetyError`
@@ -2053,9 +2068,8 @@ impl WorkflowEngine {
             ));
         };
         match instance.status {
-            WorkflowStatus::Completed | WorkflowStatus::Failed => Err(crate::safety::bad_state(
-                "workflow",
-                &format!(
+            WorkflowStatus::Completed | WorkflowStatus::Failed => Err(ended_run(
+                format!(
                     "workflow `{workflow_id}` already {}; there is nothing to cancel",
                     if instance.status == WorkflowStatus::Completed {
                         "completed"
@@ -2063,7 +2077,7 @@ impl WorkflowEngine {
                         "failed"
                     }
                 ),
-                "workflow_create",
+                "the run has ended; nothing was changed",
             )),
             WorkflowStatus::Cancelled => Ok(()),
             _ => {

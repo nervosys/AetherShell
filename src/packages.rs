@@ -24,21 +24,18 @@ const BUILTIN: &str = "pkg";
 const REGISTRY_HINT: &str =
     "the registry refused the request or could not be reached; check the network and AETHER_REGISTRY_TOKEN, then retry";
 
-/// An upstream registry failure, coded `E_POLICY_DENY`.
-///
-/// No `ErrorCode` names a remote service. `builtins.rs` already files every
-/// registry failure under `policy_deny` (`registry_failure`), so this matches it.
+/// An upstream registry failure (`E_IO`): the registry, not the shell's
+/// policy, failed the request.
 #[cfg(not(target_arch = "wasm32"))]
 fn registry_refused(message: String) -> anyhow::Error {
-    crate::safety::policy_deny(BUILTIN, message, REGISTRY_HINT)
+    crate::safety::io_fault(BUILTIN, &message, REGISTRY_HINT)
 }
 
 /// The registry's answer that a package does not exist (`E_NOT_FOUND`).
 ///
-/// The message must keep "not found in registry". `builtins.rs`
-/// (`registry_says_absent`) tells an absent package from an unreachable registry
-/// by that text, so changing it changes `marketplace_install` and
-/// `marketplace_info`.
+/// `builtins.rs` (`registry_says_absent`) tells an absent package from an
+/// unreachable registry by this code, so `marketplace_install` and
+/// `marketplace_info` depend on it being `E_NOT_FOUND`.
 #[cfg(not(target_arch = "wasm32"))]
 fn registry_absent(name: &str) -> anyhow::Error {
     use crate::safety::{ErrorCode, SafetyError};
@@ -55,14 +52,22 @@ fn registry_absent(name: &str) -> anyhow::Error {
     })
 }
 
-/// Publishing or yanking without a registry token (`E_POLICY_DENY`).
+/// Publishing or yanking without a registry token (`E_BAD_STATE`): no policy
+/// refused it, the environment lacks the credential.
 #[cfg(not(target_arch = "wasm32"))]
 fn auth_required() -> anyhow::Error {
-    crate::safety::policy_deny(
-        BUILTIN,
-        "authentication required. Set AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN env var.",
-        "set AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN in the environment, then retry",
-    )
+    use crate::safety::{ErrorCode, SafetyError};
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::BadState,
+        message: format!("{BUILTIN}: authentication required; no registry token is set"),
+        builtin: BUILTIN.to_string(),
+        hint: "set AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN in the environment, then retry"
+            .to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN".to_string(),
+        got: "neither set".to_string(),
+    })
 }
 
 /// The wasm build has no HTTP client (`E_UNIMPLEMENTED`).
@@ -337,7 +342,7 @@ fn read_body_limited(resp: reqwest::blocking::Response, max: u64) -> Result<Vec<
         .read_to_end(&mut buf)
         .context("failed to read registry response")?;
     if buf.len() as u64 > max {
-        return Err(crate::safety::policy_deny(
+        return Err(crate::safety::budget_exceeded(
             BUILTIN,
             format!("registry response is larger than {max} bytes; refusing it"),
             "the registry sent more than this client accepts; the response was not buffered",

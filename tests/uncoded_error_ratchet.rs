@@ -69,8 +69,22 @@ fn uncoded_errors_only_fall() {
 /// - `prefixed_error`'s fallback for a non-`SafetyError` inner error, which
 ///   cannot be coded without knowing what it is.
 ///
+/// `src/mcp.rs` (5): the HTTP MCP server's replies to a remote client
+/// (unknown resource, tool or prompt, a missing prompt argument), which go back
+/// over the protocol, not to a builtin's caller.
+///
+/// `src/workflow_builtins.rs`, `src/plugins.rs` and `src/marketplace.rs` have
+/// none left.
+///
 /// The ceilings may only fall. Code a new error instead of raising one.
-const MODULE_CEILINGS: &[(&str, usize)] = &[("src/packages.rs", 5), ("src/workflows.rs", 5)];
+const MODULE_CEILINGS: &[(&str, usize)] = &[
+    ("src/packages.rs", 5),
+    ("src/workflows.rs", 5),
+    ("src/workflow_builtins.rs", 0),
+    ("src/mcp.rs", 5),
+    ("src/plugins.rs", 0),
+    ("src/marketplace.rs", 0),
+];
 
 #[test]
 fn module_uncoded_errors_only_fall() {

@@ -5295,8 +5295,10 @@ pub fn check_deadline() -> anyhow::Result<()> {
         return Ok(());
     }
     DEADLINE.with(|d| match d.get() {
-        Some(at) if std::time::Instant::now() >= at => Err(anyhow::anyhow!(
-            "evaluation exceeded its time limit and was cancelled"
+        Some(at) if std::time::Instant::now() >= at => Err(budget_exceeded(
+            "eval",
+            "evaluation exceeded its time limit and was cancelled".to_string(),
+            "make the evaluation shorter, or give it a longer time limit",
         )),
         _ => Ok(()),
     })

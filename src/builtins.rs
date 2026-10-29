@@ -66040,17 +66040,27 @@ fn str_arg<'a>(builtin: &str, v: Option<&'a Value>, what: &str) -> Result<&'a st
 /// A registry request that did not complete. Nothing local has changed when
 /// this is returned, so the call can be repeated as it stands.
 fn registry_failure(builtin: &str, e: &anyhow::Error) -> anyhow::Error {
-    crate::safety::policy_deny(
+    // A coded error from the client (a refused path, a hostile archive, a
+    // missing token) keeps its code; it used to become E_POLICY_DENY here,
+    // which told the caller the shell's policy had refused when it had not.
+    if let Some(coded) = e.downcast_ref::<crate::safety::SafetyError>() {
+        let mut coded = coded.clone();
+        coded.builtin = builtin.to_string();
+        coded.message = format!("{builtin}: {}", coded.message);
+        return anyhow::Error::new(coded);
+    }
+    crate::safety::io_fault(
         builtin,
-        format!("{builtin}: the package registry did not complete the request: {e:#}"),
-        "the registry refused the request or could not be reached; check the network and AETHER_REGISTRY_TOKEN, then retry",
+        &format!("the package registry did not complete the request: {e:#}"),
+        "the registry could not be reached or answered badly; check the network, then retry",
     )
 }
 
 /// Whether a registry error says the package does not exist, as opposed to
 /// the registry being unreachable or refusing the request.
 fn registry_says_absent(e: &anyhow::Error) -> bool {
-    e.to_string().contains("not found in registry")
+    e.downcast_ref::<crate::safety::SafetyError>()
+        .is_some_and(|s| s.code == crate::safety::ErrorCode::NotFound)
 }
 
 /// Mark a record with where it came from, so a caller never mistakes a local
