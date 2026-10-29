@@ -36871,13 +36871,21 @@ function run(argv) {
 }
 "#;
 
-/// Runs `MACOS_WINDOW_ADMIN_JXA` with `/usr/bin/osascript`: `op`, then the
-/// operands as argv. Accessibility refusals are E_OS_DENIED with a hint.
+/// Runs a JavaScript body with `/usr/bin/osascript -l JavaScript -e`, with
+/// `argv` as its arguments. The arguments are never script text. An
+/// Accessibility refusal (-1719, -25211) is E_OS_DENIED with `reason` and
+/// `hint`; any other failure is left to the caller to report.
 #[cfg(target_os = "macos")]
-fn gui_macos_window_admin(name: &str, op: &str, operands: &[&str]) -> Result<std::process::Output> {
+fn gui_macos_jxa(
+    name: &str,
+    script: &str,
+    argv: &[&str],
+    reason: &str,
+    hint: &str,
+) -> Result<std::process::Output> {
     let mut cmd = std::process::Command::new("/usr/bin/osascript");
-    cmd.args(["-l", "JavaScript", "-e", MACOS_WINDOW_ADMIN_JXA, op]);
-    cmd.args(operands);
+    cmd.args(["-l", "JavaScript", "-e", script]);
+    cmd.args(argv);
     let output = bounded_cmd_output(name, "osascript", cmd, TOOL_DEADLINE_SECS)?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success()
@@ -36885,13 +36893,307 @@ fn gui_macos_window_admin(name: &str, op: &str, operands: &[&str]) -> Result<std
             .iter()
             .any(|marker| stderr.contains(marker))
     {
-        return Err(crate::safety::os_denied(
-            name,
-            "System Events is not allowed to control windows: Accessibility access is not granted to the process running ae",
-            "grant Accessibility in System Settings > Privacy & Security > Accessibility to the terminal or app that runs ae, then retry",
-        ));
+        return Err(crate::safety::os_denied(name, reason, hint));
     }
     Ok(output)
+}
+
+/// Runs `MACOS_WINDOW_ADMIN_JXA` with `/usr/bin/osascript`: `op`, then the
+/// operands as argv. Accessibility refusals are E_OS_DENIED with a hint.
+#[cfg(target_os = "macos")]
+fn gui_macos_window_admin(name: &str, op: &str, operands: &[&str]) -> Result<std::process::Output> {
+    let mut argv: Vec<&str> = vec![op];
+    argv.extend_from_slice(operands);
+    gui_macos_jxa(
+        name,
+        MACOS_WINDOW_ADMIN_JXA,
+        &argv,
+        "System Events is not allowed to control windows: Accessibility access is not granted to the process running ae",
+        "grant Accessibility in System Settings > Privacy & Security > Accessibility to the terminal or app that runs ae, then retry",
+    )
+}
+
+/// The osascript (JavaScript) behind the macOS input builtins. `argv[0]` picks
+/// the operation: `move x y`, `click button`, `drag x1 y1 x2 y2`, `scroll
+/// notches`, `pos`, `key code flags`, `combo code flags`, `type text`, `active`
+/// or `screen`. Every number and name is validated in Rust before this runs,
+/// and the text is only ever an argument. Each event goes through the HID event
+/// tap. Posting events needs Accessibility, so the operations that post are
+/// refused first, with the -25211 marker that maps to E_OS_DENIED, and nothing
+/// is sent.
+#[cfg(target_os = "macos")]
+const MACOS_INPUT_ADMIN_JXA: &str = r#"ObjC.import('stdlib');
+ObjC.import('AppKit');
+ObjC.import('CoreGraphics');
+ObjC.import('ApplicationServices');
+// CGEventCreateScrollWheelEvent is variadic, so JXA does not expose it; it is
+// bound with its fixed prefix: source, units (1 = kCGScrollEventUnitLine),
+// wheel count, then the wheel-1 delta.
+ObjC.bindFunction('CGEventCreateScrollWheelEvent', ['id', ['void *', 'uint32', 'uint32', 'int32']]);
+// The UniChar count and buffer are bound explicitly; the buffer is the UTF-16
+// bytes of a chunk of at most 20 units.
+ObjC.bindFunction('CGEventKeyboardSetUnicodeString', ['void', ['id', 'ulong', 'void *']]);
+var TRUST_NEEDED = {move: 1, click: 1, drag: 1, scroll: 1, key: 1, combo: 1, type: 1};
+function post(ev) {
+    $.CGEventPost($.kCGHIDEventTap, ev);
+}
+function here() {
+    var p = $.CGEventGetLocation($.CGEventCreate(null));
+    return {x: p.x, y: p.y};
+}
+function mouse(type, x, y, button) {
+    post($.CGEventCreateMouseEvent(null, type, {x: x, y: y}, button));
+}
+function clickAt(button) {
+    var p = here();
+    if (button === 'right') {
+        mouse($.kCGEventRightMouseDown, p.x, p.y, $.kCGMouseButtonRight);
+        mouse($.kCGEventRightMouseUp, p.x, p.y, $.kCGMouseButtonRight);
+    } else if (button === 'middle') {
+        mouse($.kCGEventOtherMouseDown, p.x, p.y, $.kCGMouseButtonCenter);
+        mouse($.kCGEventOtherMouseUp, p.x, p.y, $.kCGMouseButtonCenter);
+    } else {
+        mouse($.kCGEventLeftMouseDown, p.x, p.y, $.kCGMouseButtonLeft);
+        mouse($.kCGEventLeftMouseUp, p.x, p.y, $.kCGMouseButtonLeft);
+    }
+}
+// A virtual key with its modifier flags set on the event, pressed or released.
+function keyEvent(code, flags, down) {
+    var ev = $.CGEventCreateKeyboardEvent(null, code, down);
+    $.CGEventSetFlags(ev, flags);
+    post(ev);
+}
+// Types a chunk of at most 20 UTF-16 units as one keyboard event pair.
+function typeChunk(s) {
+    if (s.length === 0) return;
+    var units = $(s).dataUsingEncoding($.NSUTF16LittleEndianStringEncoding);
+    var down = $.CGEventCreateKeyboardEvent(null, 0, true);
+    $.CGEventKeyboardSetUnicodeString(down, s.length, units.bytes);
+    post(down);
+    var up = $.CGEventCreateKeyboardEvent(null, 0, false);
+    $.CGEventKeyboardSetUnicodeString(up, s.length, units.bytes);
+    post(up);
+}
+// The text split into code points, so a surrogate pair is never cut.
+function codePoints(text) {
+    var out = [];
+    for (var i = 0; i < text.length; i++) {
+        var c = text.charCodeAt(i);
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < text.length) {
+            out.push(text.substr(i, 2));
+            i++;
+        } else {
+            out.push(text.charAt(i));
+        }
+    }
+    return out;
+}
+function typeText(text) {
+    var chunk = '';
+    var units = 0;
+    var cps = codePoints(text);
+    for (var k = 0; k < cps.length; k++) {
+        var cp = cps[k];
+        // Newline and tab are sent as the Return and Tab keys, as the other
+        // platforms do, not as characters.
+        if (cp === '\n' || cp === '\t') {
+            typeChunk(chunk);
+            chunk = '';
+            units = 0;
+            var code = cp === '\n' ? 36 : 48;
+            keyEvent(code, 0, true);
+            keyEvent(code, 0, false);
+            continue;
+        }
+        if (units + cp.length > 20) {
+            typeChunk(chunk);
+            chunk = '';
+            units = 0;
+        }
+        chunk += cp;
+        units += cp.length;
+    }
+    typeChunk(chunk);
+}
+// The frontmost application, and the title of its first System Events window
+// when Accessibility is granted (null otherwise).
+function activeWindow() {
+    var app = $.NSWorkspace.sharedWorkspace.frontmostApplication;
+    if (!app) return {app: null, pid: null, title: null};
+    var name = ObjC.unwrap(app.localizedName);
+    var pid = app.processIdentifier;
+    var title = null;
+    if ($.AXIsProcessTrusted()) {
+        try {
+            var procs = Application('System Events').processes.whose({unixId: pid})();
+            if (procs.length > 0) {
+                var wins = procs[0].windows();
+                if (wins.length > 0) title = wins[0].name();
+            }
+        } catch (e) {
+            if (/-1719|-25211|assistive access/.test(String(e))) throw e;
+        }
+    }
+    return {app: name, pid: pid, title: title};
+}
+function run(argv) {
+    var op = argv[0];
+    if (TRUST_NEEDED[op] && !$.AXIsProcessTrusted()) {
+        throw new Error('-25211 not allowed assistive access (AXIsProcessTrusted is false)');
+    }
+    switch (op) {
+        case 'move':
+            mouse($.kCGEventMouseMoved, Number(argv[1]), Number(argv[2]), $.kCGMouseButtonLeft);
+            return 'ok';
+        case 'click':
+            clickAt(argv[1]);
+            return 'ok';
+        case 'drag':
+            var x1 = Number(argv[1]), y1 = Number(argv[2]);
+            var x2 = Number(argv[3]), y2 = Number(argv[4]);
+            mouse($.kCGEventMouseMoved, x1, y1, $.kCGMouseButtonLeft);
+            mouse($.kCGEventLeftMouseDown, x1, y1, $.kCGMouseButtonLeft);
+            mouse($.kCGEventLeftMouseDragged, x2, y2, $.kCGMouseButtonLeft);
+            mouse($.kCGEventLeftMouseUp, x2, y2, $.kCGMouseButtonLeft);
+            return 'ok';
+        case 'scroll':
+            // Positive notches scroll up, as on the other platforms.
+            post($.CGEventCreateScrollWheelEvent(null, 1, 1, Number(argv[1])));
+            return 'ok';
+        case 'pos':
+            var p = here();
+            return JSON.stringify({x: Math.round(p.x), y: Math.round(p.y)});
+        case 'key':
+        case 'combo':
+            var code = Number(argv[1]);
+            var flags = Number(argv[2]);
+            keyEvent(code, flags, true);
+            keyEvent(code, flags, false);
+            return 'ok';
+        case 'type':
+            typeText(argv[1]);
+            return 'ok';
+        case 'active':
+            return JSON.stringify(activeWindow());
+        case 'screen':
+            var screen = $.NSScreen.mainScreen || $.NSScreen.screens.objectAtIndex(0);
+            var frame = screen.frame;
+            return JSON.stringify({
+                width: Math.round(frame.size.width),
+                height: Math.round(frame.size.height)
+            });
+        default:
+            throw new Error('unknown input operation ' + op);
+    }
+}
+"#;
+
+/// The macOS virtual keycode of a key name that `parse_gui_key` accepted. The
+/// codes are the ANSI key positions of Carbon's HIToolbox `kVK_*` constants
+/// (Events.h), which is the US layout, so a letter or digit names its key in
+/// that layout. `delete` is the forward-delete key, as on Windows and Linux;
+/// `backspace` is the key labelled delete on Mac keyboards.
+#[cfg(target_os = "macos")]
+fn macos_key_code(name: &str, key: &str) -> Result<u16> {
+    Ok(match key {
+        "a" => 0,
+        "s" => 1,
+        "d" => 2,
+        "f" => 3,
+        "h" => 4,
+        "g" => 5,
+        "z" => 6,
+        "x" => 7,
+        "c" => 8,
+        "v" => 9,
+        "b" => 11,
+        "q" => 12,
+        "w" => 13,
+        "e" => 14,
+        "r" => 15,
+        "y" => 16,
+        "t" => 17,
+        "1" => 18,
+        "2" => 19,
+        "3" => 20,
+        "4" => 21,
+        "6" => 22,
+        "5" => 23,
+        "9" => 25,
+        "7" => 26,
+        "8" => 28,
+        "0" => 29,
+        "o" => 31,
+        "u" => 32,
+        "i" => 34,
+        "p" => 35,
+        "l" => 37,
+        "j" => 38,
+        "k" => 40,
+        "n" => 45,
+        "m" => 46,
+        "enter" => 36,
+        "tab" => 48,
+        "space" => 49,
+        "backspace" => 51,
+        "esc" => 53,
+        "delete" => 117,
+        "home" => 115,
+        "end" => 119,
+        "pageup" => 116,
+        "pagedown" => 121,
+        "left" => 123,
+        "right" => 124,
+        "down" => 125,
+        "up" => 126,
+        "f1" => 122,
+        "f2" => 120,
+        "f3" => 99,
+        "f4" => 118,
+        "f5" => 96,
+        "f6" => 97,
+        "f7" => 98,
+        "f8" => 100,
+        "f9" => 101,
+        "f10" => 109,
+        "f11" => 103,
+        "f12" => 111,
+        _ => {
+            return Err(crate::safety::bad_arg(
+                name,
+                "a key such as enter, a, f5 or ctrl+shift+t",
+                key,
+            ))
+        }
+    })
+}
+
+/// The CGEventFlags mask of a key's modifiers: Shift, Control and Option.
+#[cfg(target_os = "macos")]
+fn macos_key_flags(mods: &[GuiMod]) -> u64 {
+    mods.iter().fold(0, |flags, m| {
+        flags
+            | match m {
+                GuiMod::Shift => 0x0002_0000,
+                GuiMod::Ctrl => 0x0004_0000,
+                GuiMod::Alt => 0x0008_0000,
+            }
+    })
+}
+
+/// Runs `MACOS_INPUT_ADMIN_JXA`: `op`, then the operands as argv. Without
+/// Accessibility the operations that post events are E_OS_DENIED.
+#[cfg(target_os = "macos")]
+fn gui_macos_input(name: &str, op: &str, operands: &[String]) -> Result<std::process::Output> {
+    let mut argv: Vec<&str> = vec![op];
+    argv.extend(operands.iter().map(String::as_str));
+    gui_macos_jxa(
+        name,
+        MACOS_INPUT_ADMIN_JXA,
+        &argv,
+        "Accessibility access is not granted to the process running ae, so mouse and keyboard events are not sent",
+        "grant Accessibility in System Settings > Privacy & Security > Accessibility to the terminal or app that runs ae, then retry",
+    )
 }
 
 #[allow(unused_variables)]
@@ -37819,12 +38121,17 @@ if (-not [MouseMove]::SetCursorPos({}, {})) {{ exit 4 }}
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_input(NAME, "move", &[x.to_string(), y.to_string()])?;
+        gui_action(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
             "desktop automation is not implemented on this platform; NOTHING WAS DONE",
-            "run this on Windows or Linux",
+            "run this on Windows, Linux or macOS",
         ))
     }
 }
@@ -37867,12 +38174,17 @@ public class MouseClick {{
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_input(NAME, "click", &[button.to_string()])?;
+        gui_action(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
             "desktop automation is not implemented on this platform; NOTHING WAS DONE",
-            "run this on Windows or Linux",
+            "run this on Windows, Linux or macOS",
         ))
     }
 }
@@ -37938,12 +38250,26 @@ if (-not [MouseDrag]::SetCursorPos({}, {})) {{ exit 4 }}
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_input(
+            NAME,
+            "drag",
+            &[
+                x1.to_string(),
+                y1.to_string(),
+                x2.to_string(),
+                y2.to_string(),
+            ],
+        )?;
+        gui_action(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
             "desktop automation is not implemented on this platform; NOTHING WAS DONE",
-            "run this on Windows or Linux",
+            "run this on Windows, Linux or macOS",
         ))
     }
 }
@@ -37993,12 +38319,17 @@ public class MouseScroll {{
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_input(NAME, "scroll", &[amount.to_string()])?;
+        gui_action(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
             "desktop automation is not implemented on this platform; NOTHING WAS DONE",
-            "run this on Windows or Linux",
+            "run this on Windows, Linux or macOS",
         ))
     }
 }
@@ -38065,12 +38396,17 @@ if (-not [MousePos]::GetCursorPos([ref]$point)) { exit 4 }
         }
         Ok(Value::Record(rec))
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_input(NAME, "pos", &[])?;
+        gui_json_answer(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
-            "reading the pointer is implemented on Windows and Linux; NOTHING WAS READ",
-            "run this on Windows or Linux",
+            "reading the pointer is implemented on Windows, Linux and macOS; NOTHING WAS READ",
+            "run this on Windows, Linux or macOS",
         ))
     }
 }
@@ -38107,12 +38443,19 @@ Add-Type -AssemblyName System.Windows.Forms
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let code = macos_key_code(NAME, &key.key)?;
+        let flags = macos_key_flags(&key.mods);
+        let output = gui_macos_input(NAME, "key", &[code.to_string(), flags.to_string()])?;
+        gui_action(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
             "desktop automation is not implemented on this platform; NOTHING WAS DONE",
-            "run this on Windows or Linux",
+            "run this on Windows, Linux or macOS",
         ))
     }
 }
@@ -38156,12 +38499,19 @@ Add-Type -AssemblyName System.Windows.Forms
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let code = macos_key_code(NAME, &key.key)?;
+        let flags = macos_key_flags(&key.mods);
+        let output = gui_macos_input(NAME, "combo", &[code.to_string(), flags.to_string()])?;
+        gui_action(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
             "desktop automation is not implemented on this platform; NOTHING WAS DONE",
-            "run this on Windows or Linux",
+            "run this on Windows, Linux or macOS",
         ))
     }
 }
@@ -38197,12 +38547,17 @@ Add-Type -AssemblyName System.Windows.Forms
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_input(NAME, "type", &[text])?;
+        gui_action(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
             "desktop automation is not implemented on this platform; NOTHING WAS DONE",
-            "run this on Windows or Linux",
+            "run this on Windows, Linux or macOS",
         ))
     }
 }
@@ -38248,12 +38603,17 @@ $title = New-Object System.Text.StringBuilder 256
         rec.insert("title".to_string(), Value::Str(title));
         Ok(Value::Record(rec))
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_input(NAME, "active", &[])?;
+        gui_json_answer(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
-            "reading the active window is implemented on Windows and Linux; NOTHING WAS READ",
-            "run this on Windows or Linux",
+            "reading the active window is implemented on Windows, Linux and macOS; NOTHING WAS READ",
+            "run this on Windows, Linux or macOS",
         ))
     }
 }
@@ -38308,12 +38668,17 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
             "its answer had no dimensions line",
         ))
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let output = gui_macos_input(NAME, "screen", &[])?;
+        gui_json_answer(NAME, "osascript", &output)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
-            "reading the screen size is implemented on Windows and Linux; NOTHING WAS READ",
-            "run this on Windows or Linux",
+            "reading the screen size is implemented on Windows, Linux and macOS; NOTHING WAS READ",
+            "run this on Windows, Linux or macOS",
         ))
     }
 }
