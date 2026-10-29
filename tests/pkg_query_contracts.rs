@@ -115,10 +115,15 @@ fn reg_display_names() -> std::collections::BTreeSet<String> {
             .output()
             .expect("reg.exe runs");
         for line in String::from_utf8_lossy(&out.stdout).lines() {
+            // A value line is `    DisplayName    <TYPE>    <data>`. The type is
+            // REG_SZ or REG_EXPAND_SZ (an installer may store a %VAR% path
+            // there); PowerShell expands both, so both are accepted.
             let value = line
                 .trim_start()
                 .strip_prefix("DisplayName")
-                .and_then(|rest| rest.split_once("REG_SZ"))
+                .map(str::trim_start)
+                .and_then(|rest| rest.split_once(char::is_whitespace))
+                .filter(|(kind, _)| kind.starts_with("REG_"))
                 .map(|(_, value)| value);
             if let Some(value) = value {
                 names.insert(value.replace(['\t', '\r', '\n'], " ").trim().to_string());
