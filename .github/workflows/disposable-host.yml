@@ -95,7 +95,7 @@ jobs:
             - uses: Swatinem/rust-cache@v2
 
             - name: Build the gated tests
-              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin --test macos_service_admin --test macos_account_admin --test libcpp_contracts
+              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin --test macos_service_admin --test macos_account_admin --test libcpp_contracts --test proc_env_macos
 
             - name: Clipboard images
               if: ${{ !cancelled() }}
@@ -108,6 +108,10 @@ jobs:
             - name: libc++ version
               if: ${{ !cancelled() }}
               run: cargo test --test libcpp_contracts -- --test-threads=1
+
+            - name: Process environment
+              if: ${{ !cancelled() }}
+              run: cargo test --test proc_env_macos -- --test-threads=1
 
             # Built as the runner user above; only the test binary runs as root,
             # since launchd daemons and local accounts need it.

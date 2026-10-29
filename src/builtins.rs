@@ -25904,10 +25904,11 @@ fn proc_env_of(pid: i64) -> Result<BTreeMap<String, Value>> {
 }
 
 /// A process's `sysinfo` record with its environment and working directory
-/// refreshed, for one pid. Windows reads both through the process handle, so
-/// a protected or another user's process comes back with an empty environment
-/// and no directory; the readers turn that into E_POLICY_DENY.
-#[cfg(windows)]
+/// refreshed, for one pid. Windows reads both through the process handle and
+/// macOS through sysctl KERN_PROCARGS2, so a protected or another user's
+/// process comes back with an empty environment (and, on Windows, no
+/// directory); the readers turn that into E_OS_DENIED.
+#[cfg(any(windows, target_os = "macos"))]
 fn proc_sys_env_cwd(pid: i64) -> System {
     let spid = sysinfo::Pid::from_u32(pid as u32);
     let mut sys = System::new();
@@ -25918,9 +25919,9 @@ fn proc_sys_env_cwd(pid: i64) -> System {
     sys
 }
 
-/// E_OS_DENIED for a live process whose environment or directory Windows
+/// E_OS_DENIED for a live process whose environment or directory the OS
 /// would not give us.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn proc_access_denied(builtin: &str, what: &str, pid: i64) -> anyhow::Error {
     crate::safety::os_denied(
         builtin,
@@ -25929,7 +25930,7 @@ fn proc_access_denied(builtin: &str, what: &str, pid: i64) -> anyhow::Error {
     )
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn proc_env_of(pid: i64) -> Result<BTreeMap<String, Value>> {
     let sys = proc_sys_env_cwd(pid);
     let process = sys
@@ -25953,12 +25954,12 @@ fn proc_env_of(pid: i64) -> Result<BTreeMap<String, Value>> {
         .collect())
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn proc_env_of(pid: i64) -> Result<BTreeMap<String, Value>> {
     Err(crate::safety::unimplemented(
         "proc_env",
         &format!("reading the environment of process {pid} on this OS"),
-        "this shell's own environment is available from env() and sys_env_all(); other processes' environments are readable on Linux and Windows",
+        "this shell's own environment is available from env() and sys_env_all(); other processes' environments are readable on Linux, macOS and Windows",
     ))
 }
 
