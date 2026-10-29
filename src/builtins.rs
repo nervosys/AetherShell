@@ -43392,8 +43392,9 @@ fn windows_clipboard_set_image(name: &str, bytes: Vec<u8>) -> Result<()> {
 
 /// The AppleScript `clipboard_get_image` runs on macOS, with the output path as
 /// its one argument. A clipboard with no PNG class (error -1700) answers NONE;
-/// any other error is reported as the failure it is. OVER is answered before the
-/// file is written. OK means the PNG is in the file.
+/// any other error is reported as the failure it is. OK means the PNG is in the
+/// file. AppleScript cannot measure PNG data (`length of` it is error -1728), so
+/// the size is checked from the file before it is read.
 #[cfg(target_os = "macos")]
 const MACOS_IMAGE_GET_SCRIPT: &str = r#"on run argv
 	set outPath to item 1 of argv
@@ -43403,7 +43404,6 @@ const MACOS_IMAGE_GET_SCRIPT: &str = r#"on run argv
 		if errNum = -1700 then return "NONE"
 		error errMsg number errNum
 	end try
-	if (length of pngData) > 33554432 then return "OVER"
 	set fh to open for access (POSIX file outPath) with write permission
 	try
 		set eof of fh to 0
@@ -43468,12 +43468,17 @@ fn macos_clipboard_image_to(name: &str, path: &std::path::Path) -> Result<Value>
     }
     match String::from_utf8_lossy(&output.stdout).trim() {
         "NONE" => Err(no_clipboard_image(name)),
-        "OVER" => Err(crate::safety::budget_exceeded(
-            name,
-            format!("the clipboard image is over the {CLIPBOARD_IMAGE_MAX}-byte limit"),
-            "copy a smaller image; this shell returns no truncated image",
-        )),
         "OK" => {
+            let size = std::fs::metadata(path)
+                .map_err(|e| crate::safety::fs_error(name, path, &e))?
+                .len();
+            if size > CLIPBOARD_IMAGE_MAX as u64 {
+                return Err(crate::safety::budget_exceeded(
+                    name,
+                    format!("the clipboard image is over the {CLIPBOARD_IMAGE_MAX}-byte limit"),
+                    "copy a smaller image; this shell returns no truncated image",
+                ));
+            }
             let bytes = std::fs::read(path).map_err(|e| crate::safety::fs_error(name, path, &e))?;
             clipboard_image_answer(name, "image/png", &bytes)
         }
