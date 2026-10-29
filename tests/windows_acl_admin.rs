@@ -104,6 +104,10 @@ fn flag(v: &Value, key: &str) -> bool {
 fn powershell(script: &str, path: Option<&Path>) -> String {
     let mut cmd = Command::new("powershell.exe");
     cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+    // A PSModulePath inherited from PowerShell 7 (the runner's step shell)
+    // keeps Windows PowerShell from loading Microsoft.PowerShell.Security,
+    // where Get-Acl lives (run 40825519001); 5.1 rebuilds its own without it.
+    cmd.env_remove("PSModulePath");
     if let Some(path) = path {
         cmd.env("AE_ACL_PATH", path);
     }

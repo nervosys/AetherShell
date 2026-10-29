@@ -213,10 +213,15 @@ fn a_file_acl_is_set_listed_and_removed_one_entry_at_a_time() {
     let got = call("acl_get", vec![s(&path)], &mut env).unwrap();
     let aces = entries(&got);
     assert_eq!(aces.len(), 2, "{aces:?}");
-    assert_eq!(text(&aces[1], "tag"), "group");
-    assert_eq!(text(&aces[1], "name"), "staff");
-    assert_eq!(text(&aces[1], "kind"), "deny");
-    assert_eq!(words(&aces[1], "perms"), vec!["delete"]);
+    // macOS keeps deny entries ahead of allow entries (canonical order), so
+    // the new entry is found by its tag, not by where it was added.
+    let deny = aces
+        .iter()
+        .find(|ace| text(ace, "tag") == "group")
+        .unwrap_or_else(|| panic!("no group entry in {aces:?}"));
+    assert_eq!(text(deny, "name"), "staff");
+    assert_eq!(text(deny, "kind"), "deny");
+    assert_eq!(words(deny, "perms"), vec!["delete"]);
 
     // Removing the user entry leaves the group entry alone.
     let removed = call(

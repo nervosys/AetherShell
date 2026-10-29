@@ -1324,12 +1324,12 @@ mod sys {
             CHMOD,
             &[flag, spec.arg.as_str(), target.as_str()],
         )?;
-        // chmod -a with no entry to remove says so on stderr.
+        // chmod -a with no entry to remove says so on stderr: "No ACL
+        // present" when the file has no ACL at all, "No matching" otherwise.
+        let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
         if spec.remove
             && !output.status.success()
-            && String::from_utf8_lossy(&output.stderr)
-                .to_lowercase()
-                .contains("no matching")
+            && (stderr.contains("no matching") || stderr.contains("no acl present"))
         {
             return Err(safety::not_found("acl_set", "ACL entry", &spec.arg));
         }
