@@ -111,13 +111,13 @@ pub mod value;
 pub mod yaml;
 
 // Core modules available in both native and WASM builds
+/// Certificates — X.509 inspection and chain verification on IronSocketLayer's IronPKI.
+#[cfg(feature = "native")]
+pub mod certificates;
 /// Shell feature flags — runtime capability detection.
 pub mod shell_features;
 /// Type checker — Hindley-Milner type inference engine.
 pub mod typecheck;
-/// Certificates — X.509 inspection and chain verification on IronSocketLayer's IronPKI.
-#[cfg(feature = "native")]
-pub mod certificates;
 
 // Native-only modules (including eval which depends on builtins)
 /// Autonomous agent framework — single agents and swarm coordination.
@@ -138,11 +138,11 @@ pub mod auth;
 /// Built-in functions — 1,100+ typed builtins across 108 modules.
 #[cfg(feature = "native")]
 pub mod builtins;
-#[cfg(feature = "native")]
-pub(crate) mod crypto_phc;
 /// Configuration — XDG-compliant config, themes, and settings.
 #[cfg(feature = "native")]
 pub mod config;
+#[cfg(feature = "native")]
+pub(crate) mod crypto_phc;
 #[cfg(feature = "native")]
 mod dqn_training;
 /// Evaluator — expression evaluation and runtime semantics.
@@ -250,15 +250,15 @@ pub mod sql;
 /// Syntax knowledge base — command documentation and help system.
 #[cfg(feature = "native")]
 pub mod syntax_kb;
+/// TLS — installs IronCrypto's rustls provider before any reqwest or tungstenite TLS use.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod tls;
 /// Transpiler — AetherShell ↔ Bash compatibility layer.
 #[cfg(feature = "native")]
 pub mod transpile;
 /// Terminal UI — rich TUI with chat, agent dashboard, and media viewer.
 #[cfg(feature = "native")]
 pub mod tui;
-/// TLS — installs IronCrypto's rustls provider before any reqwest or tungstenite TLS use.
-#[cfg(not(target_arch = "wasm32"))]
-pub mod tls;
 /// Transactions — filesystem checkpoint/rollback journal for undoable actions.
 #[cfg(feature = "native")]
 pub mod tx;
