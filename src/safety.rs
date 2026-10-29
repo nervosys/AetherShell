@@ -4312,12 +4312,14 @@ pub fn egress_permitted(targets: &[String], allow: &str) -> Result<(), String> {
     // A URL states its destination outright, so when one is present the other
     // arguments are payload (an output file, a body) and are not read as hosts
     // -- `web_download(url, "out.json")` must not be refused for `out.json`.
-    // Without a URL, a string that exists on disk is a path, not a host.
+    // Without a URL, a string that exists on disk is a path, not a host. A
+    // remote share is never asked about: probing `\\host\x` is itself traffic
+    // to `host`, which is what this check decides about.
     let urls: Vec<&String> = targets.iter().filter(|t| t.contains("://")).collect();
     let hosts: Vec<String> = if urls.is_empty() {
         targets
             .iter()
-            .filter(|t| !std::path::Path::new(t.as_str()).exists())
+            .filter(|t| names_a_remote_share(t) || !std::path::Path::new(t.as_str()).exists())
             .filter_map(|t| destination_host(t))
             .collect()
     } else {
@@ -4776,10 +4778,23 @@ pub fn existing_paths(args: &[String]) -> Vec<String> {
             !s.is_empty()
                 && s.len() <= 4096
                 && !s.contains('\n')
+                && !names_a_remote_share(s)
                 && std::path::Path::new(s).exists()
         })
         .cloned()
         .collect()
+}
+
+/// Whether asking if `s` exists would reach another machine. On Windows a
+/// string that begins with two separators is a UNC or device path, and
+/// `exists()` on `\\host\share` opens an SMB session to `host`: a 48 s stall
+/// for an XPath such as `//p/text()`, and for `\\attacker\x` an NTLM
+/// handshake offered to whoever runs `attacker`, before any policy decision.
+/// Such a string is not evidence of a local path, so it is never probed; the
+/// call sites that know an argument is a path still jail it.
+pub(crate) fn names_a_remote_share(s: &str) -> bool {
+    let b = s.as_bytes();
+    cfg!(windows) && b.len() >= 2 && matches!(b[0], b'/' | b'\\') && matches!(b[1], b'/' | b'\\')
 }
 /// Declared parameter names whose argument is a credential.
 const CREDENTIAL_PARAMS: &[&str] = &["password", "private_key", "token"];
@@ -5480,6 +5495,45 @@ mod deadline_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn existing_paths_never_probes_a_remote_share() {
+        // Each of these, probed, opens an SMB session on Windows (about 48 s to
+        // time out for a host that does not answer); none is a local path.
+        let args: Vec<String> = [
+            "//p/text()",
+            "\\\\ae-no-such-host.invalid\\share",
+            "/\\ae-no-such-host.invalid/share",
+            "\\\\?\\UNC\\ae-no-such-host.invalid\\share",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        for a in &args {
+            assert_eq!(names_a_remote_share(a), cfg!(windows), "{a}");
+        }
+        let started = std::time::Instant::now();
+        let found = existing_paths(&args);
+        if cfg!(windows) {
+            assert!(found.is_empty(), "{found:?}");
+            assert!(
+                started.elapsed().as_secs() < 5,
+                "probed: {:?}",
+                started.elapsed()
+            );
+        }
+        // Under an allowlist, a share is judged as a destination, not probed.
+        let started = std::time::Instant::now();
+        assert!(egress_permitted(&args[1..2], "example.com").is_err());
+        if cfg!(windows) {
+            assert!(started.elapsed().as_secs() < 5, "probed: {:?}", started.elapsed());
+        }
+        // A local path is still found, and a single leading slash is not a share.
+        let here = std::env::current_dir().unwrap().display().to_string();
+        assert_eq!(existing_paths(&[here.clone()]), [here]);
+        assert!(!names_a_remote_share("/tmp"));
+        assert!(!names_a_remote_share("C:\\x"));
+    }
+
     use super::*;
 
     // Env mutation in these tests is process-global; serialize them via the

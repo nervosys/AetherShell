@@ -275,6 +275,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On Windows, the central guard reached other machines before deciding
+  anything. For an effect it enforces centrally (Network among them), it asked
+  whether each string argument existed on disk, and the journal and the egress
+  allowlist asked the same; a string beginning with two slashes or backslashes
+  is a UNC path there, so `exists()` opened an SMB session to the named host.
+  `web_xpath("...", "//p/text()")` stalled 48 s, and an argument such as
+  `\\attacker\x` offered the machine's NTLM credentials to that host, even
+  under an egress allowlist that excluded it. Remote shares and device paths are
+  no longer probed: the guard and the journal treat them as not a local path,
+  and the egress check judges them as destinations.
 - On Windows, `gui_focus_window`, `gui_minimize_window`, `gui_maximize_window`,
   `gui_close_window`, `gui_move_window` and `gui_resize_window` never found a
   window by its title. PowerShell passes `$null` to a .NET string parameter as

@@ -349,6 +349,11 @@ fn candidate_paths(args: &[Value]) -> Vec<String> {
             if s.is_empty() || s.len() > 4096 || s.contains('\n') || s.contains('\0') {
                 continue;
             }
+            // Asking whether a remote share exists opens a session to its host,
+            // before the call site's jail has refused it; a share is not captured.
+            if crate::safety::names_a_remote_share(s) {
+                continue;
+            }
             let p = Path::new(s);
             let plausible = p.is_file()
                 || p.parent()
