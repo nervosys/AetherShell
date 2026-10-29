@@ -36971,12 +36971,13 @@ function keyEvent(code, flags, down) {
 // fail silently: a JavaScript array was accepted and carried no text, so each
 // chunk typed keycode 0, "a" (run 40854789936). So each way builds its events
 // and they are posted only if NSEvent reads back exactly the chunk from them.
-function carries(ev, s) {
+function readBack(ev) {
     try {
         var back = $.NSEvent.eventWithCGEvent(ev);
-        return !!back && ObjC.unwrap(back.characters) === s;
+        if (!back) return 'no NSEvent';
+        return JSON.stringify(ObjC.unwrap(back.characters));
     } catch (e) {
-        return false;
+        return 'unreadable (' + e + ')';
     }
 }
 function withText(codes, buf) {
@@ -37006,18 +37007,24 @@ function typeChunk(s) {
             for (var j = 0; j < codes.length; j++) buf[j] = codes[j];
             return withText(codes, buf);
         }],
+        ['Uint16Array', function () { return withText(codes, new Uint16Array(codes)); }],
         ['array', function () { return withText(codes, codes); }]
     ];
     var tried = [];
     for (var w = 0; w < ways.length; w++) {
         try {
             var evs = ways[w][1]();
-            if (evs[0] && evs[1] && carries(evs[0], s)) {
+            if (!evs[0] || !evs[1]) {
+                tried.push(ways[w][0] + ': no event was made');
+                continue;
+            }
+            var got = readBack(evs[0]);
+            if (got === JSON.stringify(s)) {
                 post(evs[0]);
                 post(evs[1]);
                 return;
             }
-            tried.push(ways[w][0] + ': the event did not carry the text');
+            tried.push(ways[w][0] + ': the event read back as ' + got);
         } catch (e) {
             tried.push(ways[w][0] + ': ' + e);
         }
