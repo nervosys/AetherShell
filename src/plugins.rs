@@ -21,6 +21,24 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Instant, SystemTime};
 
 use crate::value::Value;
+
+/// A coded error for the plugin registry (`builtin` = "plugin").
+fn plugin_coded(code: crate::safety::ErrorCode, message: String, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code,
+        message,
+        builtin: "plugin".to_string(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
+    })
+}
+
+/// Hint for a native plugin that breaks the plugin ABI.
+const PLUGIN_ABI_HINT: &str =
+    "the native plugin does not follow the plugin ABI; rebuild it against the current interface or replace it";
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 // ===================== Plugin Metadata =====================
@@ -108,7 +126,11 @@ pub trait AIBackendPlugin: Send + Sync {
 
     /// Generate embeddings (optional)
     fn embeddings(&self, _model: &str, _input: &str) -> Result<Vec<f32>> {
-        Err(anyhow::anyhow!("Embeddings not supported by this backend"))
+        Err(crate::safety::unimplemented(
+            "plugin",
+            "embeddings not supported by this backend",
+            "call chat_completion instead, or use a backend that implements embeddings",
+        ))
     }
 
     /// Get streaming support
@@ -299,15 +321,23 @@ impl DynamicPlugin {
         if Self::is_load_permitted(&canon, plugins_off, &allow_roots, agent_mode) {
             Ok(())
         } else if plugins_off {
-            Err(anyhow::anyhow!(
-                "native plugin loading is disabled (AETHER_PLUGINS=off): {}",
-                path.display()
+            Err(crate::safety::policy_deny(
+                "plugin",
+                format!(
+                    "native plugin loading is disabled (AETHER_PLUGINS=off): {}",
+                    path.display()
+                ),
+                "unset AETHER_PLUGINS=off to allow native plugin loading",
             ))
         } else {
-            Err(anyhow::anyhow!(
-                "refusing to load native plugin in agent mode (arbitrary code execution): {} — \
-                 allow an audited directory via AETHER_PLUGIN_ALLOW=<dir>",
-                path.display()
+            Err(crate::safety::policy_deny(
+                "plugin",
+                format!(
+                    "refusing to load native plugin in agent mode (arbitrary code execution): {} — \
+                     allow an audited directory via AETHER_PLUGIN_ALLOW=<dir>",
+                    path.display()
+                ),
+                "run outside agent mode, or allow the directory with AETHER_PLUGIN_ALLOW",
             ))
         }
     }
@@ -336,14 +366,22 @@ impl DynamicPlugin {
         // Initialize the plugin
         let vtable = unsafe { init_fn() };
         if vtable.is_null() {
-            return Err(anyhow::anyhow!("Plugin initialization returned null"));
+            return Err(plugin_coded(
+                crate::safety::ErrorCode::ToolFailed,
+                "Plugin initialization returned null".to_string(),
+                PLUGIN_ABI_HINT,
+            ));
         }
 
         // Get metadata
         let metadata_json = unsafe {
             let ptr = ((*vtable).get_metadata)();
             if ptr.is_null() {
-                return Err(anyhow::anyhow!("Plugin returned null metadata"));
+                return Err(plugin_coded(
+                    crate::safety::ErrorCode::ToolFailed,
+                    "Plugin returned null metadata".to_string(),
+                    PLUGIN_ABI_HINT,
+                ));
             }
             let s = std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned();
             ((*vtable).free_string)(ptr);
@@ -402,7 +440,11 @@ impl DynamicPlugin {
             );
 
             if result_ptr.is_null() {
-                return Err(anyhow::anyhow!("Plugin returned null result"));
+                return Err(plugin_coded(
+                    crate::safety::ErrorCode::ToolFailed,
+                    "Plugin returned null result".to_string(),
+                    PLUGIN_ABI_HINT,
+                ));
             }
 
             let result_str = std::ffi::CStr::from_ptr(result_ptr)
@@ -413,9 +455,10 @@ impl DynamicPlugin {
             // Parse result - could be Value or error
             if result_str.starts_with("{\"error\":") {
                 let err: serde_json::Value = serde_json::from_str(&result_str)?;
-                Err(anyhow::anyhow!(
-                    "{}",
-                    err["error"].as_str().unwrap_or("Unknown error")
+                Err(plugin_coded(
+                    crate::safety::ErrorCode::ToolFailed,
+                    err["error"].as_str().unwrap_or("Unknown error").to_string(),
+                    "the plugin rejected this call; the message says why, so change the arguments",
                 ))
             } else {
                 serde_json::from_str(&result_str).context("Failed to parse plugin result")
@@ -869,7 +912,11 @@ impl PluginRegistry {
 
         // Check for duplicates
         if self.plugins.contains_key(&plugin_id) {
-            return Err(anyhow::anyhow!("Plugin {} is already loaded", plugin_id));
+            return Err(crate::safety::bad_state(
+                "plugin",
+                &format!("plugin {} is already loaded", plugin_id),
+                "plugin_unload",
+            ));
         }
 
         // Register the plugin
@@ -907,7 +954,11 @@ impl PluginRegistry {
 
         // Check for duplicates
         if self.plugins.contains_key(&plugin_id) {
-            return Err(anyhow::anyhow!("Plugin {} is already loaded", plugin_id));
+            return Err(crate::safety::bad_state(
+                "plugin",
+                &format!("plugin {} is already loaded", plugin_id),
+                "plugin_unload",
+            ));
         }
 
         // Register the plugin
@@ -1016,10 +1067,18 @@ impl PluginRegistry {
                 load_plugin_from_manifest(path.to_str().unwrap_or(""))?;
             }
             PluginSource::Builtin => {
-                return Err(anyhow::anyhow!("Cannot reload built-in plugins"));
+                return Err(crate::safety::policy_deny(
+                    "plugin",
+                    "Cannot reload built-in plugins",
+                    "built-in plugins are part of the shell and are not reloaded at runtime",
+                ));
             }
             PluginSource::Marketplace { .. } => {
-                return Err(anyhow::anyhow!("Use marketplace update to reload"));
+                return Err(crate::safety::policy_deny(
+                    "plugin",
+                    "Use marketplace update to reload",
+                    "a marketplace plugin is reloaded by updating it from its marketplace",
+                ));
             }
         }
 
@@ -1035,7 +1094,11 @@ impl PluginRegistry {
 
         // Check if it's a builtin
         if matches!(entry.source, PluginSource::Builtin) {
-            return Err(anyhow::anyhow!("Cannot unload built-in plugins"));
+            return Err(crate::safety::policy_deny(
+                "plugin",
+                "Cannot unload built-in plugins",
+                "built-in plugins are part of the shell and are never removed at runtime",
+            ));
         }
 
         // Remove from various registries
@@ -1260,7 +1323,11 @@ impl PluginRegistry {
             }
         }
 
-        Err(anyhow::anyhow!("Plugin not found in any marketplace"))
+        Err(plugin_coded(
+            crate::safety::ErrorCode::NotFound,
+            "Plugin not found in any marketplace".to_string(),
+            "no configured marketplace lists this plugin id; search the marketplaces for what is available",
+        ))
     }
 
     /// Add a custom marketplace registry

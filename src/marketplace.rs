@@ -3,7 +3,23 @@
 //! This module provides a registry for sharing and discovering AetherShell agents.
 //! Agents can be published, searched, installed, and versioned.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
+
+/// A coded error for the registry client (`builtin` = "marketplace"), so a caller
+/// of `marketplace install` through the agent API can tell a missing agent from
+/// a failed download.
+fn registry_coded(code: crate::safety::ErrorCode, message: String, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code,
+        message,
+        builtin: "marketplace".to_string(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
+    })
+}
 
 /// A registry client that cannot hang: 10 s to connect, and `total_secs` for
 /// the whole request, the body included.
@@ -13,7 +29,13 @@ fn registry_client(total_secs: u64) -> Result<reqwest::Client> {
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(total_secs))
         .build()
-        .map_err(|e| anyhow!("registry HTTP client could not be built: {}", e))
+        .map_err(|e| {
+            registry_coded(
+                crate::safety::ErrorCode::Io,
+                format!("registry HTTP client could not be built: {}", e),
+                "the local HTTP stack could not start; a TLS or network configuration problem on this host",
+            )
+        })
 }
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -167,7 +189,13 @@ impl RegistryClient {
             registry_url.unwrap_or_else(|| "https://registry.aethershell.dev".to_string());
 
         let cache_dir = dirs::cache_dir()
-            .ok_or_else(|| anyhow!("Could not determine cache directory"))?
+            .ok_or_else(|| {
+                registry_coded(
+                    crate::safety::ErrorCode::Io,
+                    "Could not determine cache directory".to_string(),
+                    "this host reports no cache directory; set HOME (or XDG_CACHE_HOME on Linux) and retry",
+                )
+            })?
             .join("aethershell")
             .join("agents");
 
@@ -233,7 +261,11 @@ impl RegistryClient {
 
         let response = client.get(&url).send().await?;
         if !response.status().is_success() {
-            return Err(anyhow!("Agent not found: {}", name));
+            return Err(registry_coded(
+                crate::safety::ErrorCode::NotFound,
+                format!("Agent not found: {}", name),
+                "list the registry's agents with marketplace search, then use one of their names",
+            ));
         }
 
         let agent: PublishedAgent =
@@ -299,7 +331,11 @@ impl RegistryClient {
                 _ => false,
             };
             if !checksum_ok {
-                return Err(anyhow!("Checksum mismatch for agent {}", name));
+                return Err(registry_coded(
+                    crate::safety::ErrorCode::Io,
+                    format!("Checksum mismatch for agent {}", name),
+                    "the downloaded package does not match its published digest; retry the install, and report the agent if it keeps failing",
+                ));
             }
 
             // Save to local cache
@@ -337,7 +373,11 @@ impl RegistryClient {
             self.save_installed()?;
             Ok(())
         } else {
-            Err(anyhow!("Agent not installed: {}", name))
+            Err(registry_coded(
+                crate::safety::ErrorCode::NotFound,
+                format!("Agent not installed: {}", name),
+                "list installed agents with marketplace list; nothing was removed",
+            ))
         }
     }
 
@@ -370,7 +410,11 @@ impl RegistryClient {
         if !response.status().is_success() {
             let error: serde_json::Value =
                 crate::http_body::body_json_capped(response, crate::http_body::AI_BODY_MAX).await?;
-            return Err(anyhow!("Failed to publish: {}", error));
+            return Err(registry_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to publish: {}", error),
+                "the registry rejected the publish; the message it sent says why",
+            ));
         }
 
         let published: PublishedAgent =
@@ -404,9 +448,13 @@ impl RegistryClient {
 
     /// Load agent code
     pub fn load_agent_code(&self, name: &str) -> Result<String> {
-        let installed = self
-            .get_installed(name)
-            .ok_or_else(|| anyhow!("Agent not installed: {}", name))?;
+        let installed = self.get_installed(name).ok_or_else(|| {
+            registry_coded(
+                crate::safety::ErrorCode::NotFound,
+                format!("Agent not installed: {}", name),
+                "list installed agents with marketplace list, then use one of their names",
+            )
+        })?;
 
         let code_path = installed.path.join("agent.ae");
         Ok(std::fs::read_to_string(&code_path)?)
@@ -520,18 +568,31 @@ pub async fn process_command(command: MarketplaceCommand) -> Result<String> {
             let code_path = path.join("agent.ae");
 
             if !manifest_path.exists() {
-                return Err(anyhow!("manifest.json not found in {}", path.display()));
+                return Err(registry_coded(
+                    crate::safety::ErrorCode::NotFound,
+                    format!("manifest.json not found in {}", path.display()),
+                    "point the publish at a directory that holds manifest.json and agent.ae",
+                ));
             }
             if !code_path.exists() {
-                return Err(anyhow!("agent.ae not found in {}", path.display()));
+                return Err(registry_coded(
+                    crate::safety::ErrorCode::NotFound,
+                    format!("agent.ae not found in {}", path.display()),
+                    "point the publish at a directory that holds manifest.json and agent.ae",
+                ));
             }
 
             let manifest: AgentManifest =
                 serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)?;
             let code = std::fs::read_to_string(&code_path)?;
 
-            let api_key = std::env::var("AETHERSHELL_API_KEY")
-                .map_err(|_| anyhow!("AETHERSHELL_API_KEY environment variable not set"))?;
+            let api_key = std::env::var("AETHERSHELL_API_KEY").map_err(|_| {
+                registry_coded(
+                    crate::safety::ErrorCode::BadState,
+                    "AETHERSHELL_API_KEY environment variable not set".to_string(),
+                    "set AETHERSHELL_API_KEY to your registry API key, then retry",
+                )
+            })?;
 
             let published = client.publish(&manifest, &code, &api_key).await?;
             Ok(format!(
@@ -596,6 +657,23 @@ impl Default for SearchQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uninstalling_a_missing_agent_carries_not_found() {
+        let mut client = RegistryClient {
+            registry_url: String::new(),
+            cache_dir: std::env::temp_dir(),
+            installed: HashMap::new(),
+        };
+        let err = client
+            .uninstall("no-such-agent")
+            .expect_err("nothing is installed, so uninstall must refuse");
+        let coded = err
+            .downcast_ref::<crate::safety::SafetyError>()
+            .expect("the refusal carries a SafetyError");
+        assert!(matches!(coded.code, crate::safety::ErrorCode::NotFound));
+        assert!(err.to_string().contains("no-such-agent"));
+    }
 
     #[test]
     fn test_agent_manifest_serialization() {

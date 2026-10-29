@@ -19,6 +19,29 @@ use std::sync::Arc;
 
 use crate::os_tools::{OSTool, OSToolsDatabase, OperatingSystem, SafetyLevel, ToolCategory};
 
+/// A coded error for the MCP module (`builtin` = "mcp"). The remote client and
+/// the serve command build these so a caller can tell a failed remote call (`Io`)
+/// from a bad address (`BadArg`) or a policy refusal (`PolicyDeny`).
+fn mcp_coded(code: crate::safety::ErrorCode, message: String, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::safety::SafetyError {
+        code,
+        message,
+        builtin: "mcp".to_string(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
+    })
+}
+
+const MCP_REMOTE_UNREACHABLE: &str =
+    "the remote MCP server could not be reached; check the endpoint URL and that the server is running";
+const MCP_REMOTE_STATUS: &str =
+    "the remote MCP server answered with an error status; check the endpoint and the server's logs";
+const MCP_REMOTE_BODY: &str =
+    "the remote MCP server sent a body this client cannot parse; check that it speaks MCP over this endpoint";
+
 /// How long a catalogue tool may run for one `mcp_call` before it is killed.
 const MCP_TOOL_TIMEOUT_SECS: u64 = 60;
 /// The most output of one stream a tool result carries back to the caller.
@@ -673,7 +696,7 @@ impl McpServer {
         let output =
             crate::safety::output_with_timeout(cmd, MCP_TOOL_TIMEOUT_SECS).map_err(|e| {
                 crate::safety::io_budget_error(&e)
-                    .unwrap_or_else(|| anyhow!("Failed to execute command '{}': {}", cmd_name, e))
+                    .unwrap_or_else(|| crate::safety::spawn_error("mcp_call", &cmd_name, &e))
             })?;
 
         // Output is capped as well: a tool that printed without limit filled the
@@ -698,7 +721,12 @@ impl McpServer {
             if stderr.is_empty() {
                 Ok(stdout)
             } else {
-                Err(anyhow!("Command failed: {}", stderr))
+                Err(crate::safety::tool_failed(
+                    "mcp_call",
+                    &cmd_name,
+                    output.status.code(),
+                    &stderr,
+                ))
             }
         }
     }
@@ -926,28 +954,48 @@ impl McpClient {
                 }
             }))
             .send()
-            .map_err(|e| anyhow!("Failed to connect to MCP server: {}", e))?;
+            .map_err(|e| {
+                mcp_coded(
+                    crate::safety::ErrorCode::Io,
+                    format!("Failed to connect to MCP server: {}", e),
+                    MCP_REMOTE_UNREACHABLE,
+                )
+            })?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("MCP server returned error: {}", response.status()));
+            return Err(mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("MCP server returned error: {}", response.status()),
+                MCP_REMOTE_STATUS,
+            ));
         }
 
-        response
-            .json()
-            .map_err(|e| anyhow!("Failed to parse response: {}", e))
+        response.json().map_err(|e| {
+            mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to parse response: {}", e),
+                MCP_REMOTE_BODY,
+            )
+        })
     }
 
     /// List tools from remote MCP server
     pub fn list_tools(&self) -> Result<Vec<McpTool>> {
         let url = format!("{}/mcp/v1/tools/list", self.endpoint);
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .map_err(|e| anyhow!("Failed to list tools: {}", e))?;
+        let response = self.client.get(&url).send().map_err(|e| {
+            mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to list tools: {}", e),
+                MCP_REMOTE_UNREACHABLE,
+            )
+        })?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("Failed to list tools: {}", response.status()));
+            return Err(mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to list tools: {}", response.status()),
+                MCP_REMOTE_STATUS,
+            ));
         }
 
         #[derive(Deserialize)]
@@ -955,9 +1003,13 @@ impl McpClient {
             tools: Vec<McpTool>,
         }
 
-        let result: ToolsResponse = response
-            .json()
-            .map_err(|e| anyhow!("Failed to parse tools: {}", e))?;
+        let result: ToolsResponse = response.json().map_err(|e| {
+            mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to parse tools: {}", e),
+                MCP_REMOTE_BODY,
+            )
+        })?;
 
         Ok(result.tools)
     }
@@ -977,28 +1029,48 @@ impl McpClient {
                 "arguments": arguments
             }))
             .send()
-            .map_err(|e| anyhow!("Failed to call tool: {}", e))?;
+            .map_err(|e| {
+                mcp_coded(
+                    crate::safety::ErrorCode::Io,
+                    format!("Failed to call tool: {}", e),
+                    MCP_REMOTE_UNREACHABLE,
+                )
+            })?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("Tool call failed: {}", response.status()));
+            return Err(mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Tool call failed: {}", response.status()),
+                MCP_REMOTE_STATUS,
+            ));
         }
 
-        response
-            .json()
-            .map_err(|e| anyhow!("Failed to parse result: {}", e))
+        response.json().map_err(|e| {
+            mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to parse result: {}", e),
+                MCP_REMOTE_BODY,
+            )
+        })
     }
 
     /// List resources from remote MCP server
     pub fn list_resources(&self) -> Result<Vec<McpResource>> {
         let url = format!("{}/mcp/v1/resources/list", self.endpoint);
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .map_err(|e| anyhow!("Failed to list resources: {}", e))?;
+        let response = self.client.get(&url).send().map_err(|e| {
+            mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to list resources: {}", e),
+                MCP_REMOTE_UNREACHABLE,
+            )
+        })?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("Failed to list resources: {}", response.status()));
+            return Err(mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to list resources: {}", response.status()),
+                MCP_REMOTE_STATUS,
+            ));
         }
 
         #[derive(Deserialize)]
@@ -1006,9 +1078,13 @@ impl McpClient {
             resources: Vec<McpResource>,
         }
 
-        let result: ResourcesResponse = response
-            .json()
-            .map_err(|e| anyhow!("Failed to parse resources: {}", e))?;
+        let result: ResourcesResponse = response.json().map_err(|e| {
+            mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to parse resources: {}", e),
+                MCP_REMOTE_BODY,
+            )
+        })?;
 
         Ok(result.resources)
     }
@@ -1021,10 +1097,20 @@ impl McpClient {
             .post(&url)
             .json(&json!({ "uri": uri }))
             .send()
-            .map_err(|e| anyhow!("Failed to read resource: {}", e))?;
+            .map_err(|e| {
+                mcp_coded(
+                    crate::safety::ErrorCode::Io,
+                    format!("Failed to read resource: {}", e),
+                    MCP_REMOTE_UNREACHABLE,
+                )
+            })?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("Failed to read resource: {}", response.status()));
+            return Err(mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to read resource: {}", response.status()),
+                MCP_REMOTE_STATUS,
+            ));
         }
 
         #[derive(Deserialize)]
@@ -1032,9 +1118,13 @@ impl McpClient {
             contents: Vec<McpContent>,
         }
 
-        let result: ReadResponse = response
-            .json()
-            .map_err(|e| anyhow!("Failed to parse resource: {}", e))?;
+        let result: ReadResponse = response.json().map_err(|e| {
+            mcp_coded(
+                crate::safety::ErrorCode::Io,
+                format!("Failed to parse resource: {}", e),
+                MCP_REMOTE_BODY,
+            )
+        })?;
 
         Ok(result.contents)
     }
@@ -1162,7 +1252,13 @@ pub mod server {
         // that is not going to start.
         let addr: SocketAddr = format!("{}:{}", config.host, config.port)
             .parse()
-            .map_err(|e| anyhow!("Invalid address: {}", e))?;
+            .map_err(|e| {
+                mcp_coded(
+                    crate::safety::ErrorCode::BadArg,
+                    format!("Invalid address: {}", e),
+                    "pass a host and port that form a socket address, such as 127.0.0.1:3002",
+                )
+            })?;
 
         // A non-loopback bind is now opt-in rather than merely warned about.
         // Warning is the right response to a risk the operator chose; this one
@@ -1177,8 +1273,10 @@ pub mod server {
                 Ok("1") | Ok("true")
             )
         {
-            return Err(anyhow!(
-                concat!(
+            return Err(crate::safety::policy_deny(
+                "mcp",
+                format!(
+                    concat!(
                     "refusing to bind {} - this server executes builtins over ",
                     "plaintext HTTP, so binding beyond loopback exposes both the ",
                     "operations and the bearer token to anything that can route ",
@@ -1186,7 +1284,9 @@ pub mod server {
                     "AETHER_ALLOW_REMOTE_BIND=true; prefer an SSH tunnel or a ",
                     "reverse proxy terminating TLS."
                 ),
-                addr.ip()
+                    addr.ip()
+                ),
+                "bind to 127.0.0.1, or set AETHER_ALLOW_REMOTE_BIND=true if this exposure is intended",
             ));
         }
 
