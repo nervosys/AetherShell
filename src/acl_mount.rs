@@ -1587,8 +1587,20 @@ if ($image) { Dismount-DiskImage -ImagePath $image.ImagePath | Out-Null }
                 "fs_unmount: lazy is a Linux umount option and Windows has no lazy unmount; NOTHING WAS UNMOUNTED",
             ));
         }
-        let canonical_path = std::fs::canonicalize(target)
-            .map_err(|e| safety::fs_error("fs_unmount", target, &e))?;
+        // A folder with a volume mounted on it is a mount-point reparse point,
+        // and canonicalize follows it to \\?\Volume{GUID}\ (run 40828954402),
+        // so the parent is canonicalized and the folder's own name put back.
+        let path = std::path::Path::new(target);
+        std::fs::symlink_metadata(path).map_err(|e| safety::fs_error("fs_unmount", target, &e))?;
+        let canonical_path = match (path.parent(), path.file_name()) {
+            (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => {
+                std::fs::canonicalize(parent)
+                    .map_err(|e| safety::fs_error("fs_unmount", target, &e))?
+                    .join(name)
+            }
+            _ => std::fs::canonicalize(path)
+                .map_err(|e| safety::fs_error("fs_unmount", target, &e))?,
+        };
         let canonical = drive_path("fs_unmount", canonical_path)?;
         check_protected("fs_unmount", &canonical, "UNMOUNTED")?;
         if mounted_at("fs_unmount", &canonical)?.is_none() {

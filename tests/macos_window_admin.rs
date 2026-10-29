@@ -242,11 +242,11 @@ fn start_window(title: &str) -> Owned {
     Owned(child)
 }
 
-/// One window, driven through every window builtin in turn. The order matters:
-/// a minimised window cannot be moved, so it is minimised last, before close.
+/// One window, driven through every window builtin but minimise (see
+/// zz_a_window_is_minimised) in turn, then closed.
 #[test]
 #[ignore = "moves, resizes and closes a real window: disposable macOS runner only (AE_DISPOSABLE_HOST=1)"]
-fn a_window_is_listed_moved_resized_focused_maximised_minimised_and_closed() {
+fn a_window_is_listed_moved_resized_focused_maximised_and_closed() {
     if !disposable() {
         return;
     }
@@ -315,20 +315,40 @@ fn a_window_is_listed_moved_resized_focused_maximised_minimised_and_closed() {
         },
     );
 
-    // Minimise: System Events' AXMinimized reads true (checked by the oracle).
-    let answer =
-        call("gui_minimize_window", vec![s(&title)]).expect("gui_minimize_window minimises it");
-    assert_eq!(answer, Value::Bool(true));
-    wait_until("the window is minimised", Duration::from_secs(5), || {
-        oracle("minimized", &title) == "true"
-    });
-
     // Close: the close button is pressed, and the window server drops it.
     let answer =
         call("gui_close_window", vec![s(&title)]).expect("gui_close_window closes the window");
     assert_eq!(answer, Value::Bool(true));
     wait_until("the window is closed", Duration::from_secs(5), || {
         frame_of(&title).is_none()
+    });
+    drop(window);
+}
+
+/// Minimise, in a window of its own and in the test that sorts last. On the
+/// GitHub macOS runner Accessibility was withdrawn right after a minimise in
+/// two of four runs (40825519001, 40828954402): AXIsProcessTrusted was true
+/// before it, and every later osascript call was refused with -25211. With
+/// one test thread and name order, a withdrawal here cannot fail the others.
+#[test]
+#[ignore = "drives window builtins: disposable macOS runner only (AE_DISPOSABLE_HOST=1)"]
+fn zz_a_window_is_minimised() {
+    if !disposable() {
+        return;
+    }
+    let title = format!("ae winmin {}", std::process::id());
+    let window = start_window(&title);
+    wait_until(
+        "the window is listed by gui_list_windows",
+        Duration::from_secs(10),
+        || listed(&title).is_some(),
+    );
+    // Minimise: System Events' AXMinimized reads true (checked by the oracle).
+    let answer =
+        call("gui_minimize_window", vec![s(&title)]).expect("gui_minimize_window minimises it");
+    assert_eq!(answer, Value::Bool(true));
+    wait_until("the window is minimised", Duration::from_secs(5), || {
+        oracle("minimized", &title) == "true"
     });
     drop(window);
 }

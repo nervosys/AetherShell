@@ -221,7 +221,7 @@ fn aemnt_mount_round_trip_matches_powershell() {
     if !disposable() {
         return;
     }
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let fx = Fixture::new();
 
     // Read-write mount: the record matches the system, and the folder is a mount.
@@ -267,7 +267,7 @@ fn aemnt_refusals_change_nothing() {
     if !disposable() {
         return;
     }
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let fx = Fixture::new();
 
     // A target that is not empty.
