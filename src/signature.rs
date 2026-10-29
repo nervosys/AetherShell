@@ -10520,7 +10520,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt("path", Ty::Str, "an existing file; lists the processes that hold it open")],
         returns: "Array",
-        doc: "Without a path: this machine's network connections as lsof -i reports them. With a path: the processes holding that file open (an empty array when none). One record per line. Linux and macOS read both forms; on Windows the no-path form lists TCP sockets and a path is E_UNIMPLEMENTED, as no shipped Windows source lists open files.",
+        doc: "Without a path: this machine's network connections as lsof -i reports them. With a path: the processes holding that file open (an empty array when none). One record per line. Linux and macOS read both forms. On Windows the no-path form lists TCP sockets; the path form asks the Restart Manager (RmGetList) for the processes holding the file, one record per process with command (the image name without .exe, as in the socket form), pid (String), and name (the file's canonical path); user, fd, type, device, size/off and node are Null, as the Restart Manager does not report them. A path that does not exist is E_NOT_FOUND. A directory is E_BAD_ARG, because the Restart Manager lists files only. A UNC or device path, or a drive that resolves to a network share, is E_BAD_ARG and is never probed. More than 1024 holders is E_BUDGET_EXCEEDED.",
         examples: &[
             (r#"lsof()"#, r#"[{command: sshd, pid: "812", ...}, ...]"#),
             (r#"lsof("/etc/hosts")"#, r#"[] (no process holds it open)"#),

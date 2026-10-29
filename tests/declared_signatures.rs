@@ -179,7 +179,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
         "svc_logs",
         "the system journal / event log and what it holds",
     ),
-    ("lsof", "lsof (Unix); on Windows the no-path form lists sockets and a path is E_UNIMPLEMENTED"),
+    ("lsof", "lsof (Unix); on Windows the no-path form lists sockets and a path asks the Restart Manager"),
     ("blkid", "the block devices present: blkid on Linux, a drive's volume on Windows"),
     (
         "crypto_cert_verify",

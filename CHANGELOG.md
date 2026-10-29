@@ -153,6 +153,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added (platform backends)
 
+- Windows: `lsof(path)` lists the processes holding a file open, through the Restart Manager (RmStartSession, RmRegisterResources, RmGetList, RmEndSession), in lsof's record shape with `command`, `pid` and `name` filled and the other columns Null. A missing path is E_NOT_FOUND, a directory is E_BAD_ARG (the Restart Manager lists files only), and more than 1024 holders is E_BUDGET_EXCEEDED. Tested in `tests/windows_lsof_path.rs`, which is read-only and runs on any Windows host; it was E_UNIMPLEMENTED before.
 - Windows: `fs_mount` attaches a VHD or VHDX file to an empty folder on an NTFS volume and `fs_unmount` detaches it (Mount-DiskImage, partition access paths; elevation needed, E_OS_DENIED otherwise; bind, fstype, options other than readonly and lazy are E_BAD_ARG). Tested only on disposable GitHub runners.
 - Windows: `proc_env` and `proc_cwd` for another process, `proc_suspend` and
   `proc_resume`, and the openssl-backed `crypto_cert_info`, `crypto_cert_verify`,
@@ -197,8 +198,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partition ids, and `monitor_ethtool` an adapter's speed, duplex, link and
   driver. `dd_copy` copies in-process with the same `bs` and `count`, and
   refuses a copy onto its own source. `lsof()` lists the TCP sockets each
-  process holds, in lsof's `-i` form; `lsof(path)` stays `E_UNIMPLEMENTED`,
-  since no shipped Windows tool lists open files. `acl_get` reads a file's
+  process holds, in lsof's `-i` form; `lsof(path)` on Windows is
+  answered by the Restart Manager (see the first entry in this section). `acl_get` reads a file's
   ACL through `icacls` as {path, entries: [{principal, perms, inherited,
   flags, deny}]}, in any display language, and `acl_set` grants
   (`"BUILTIN\\Users:RX"`) or removes (`{remove: true}`) a principal's entry.

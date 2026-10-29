@@ -28852,6 +28852,310 @@ fn lsof_endpoint(addr: &str, port: i64) -> String {
     format!("{host}:{port}")
 }
 
+// Restart Manager, as `rstrtmgr.dll` exports it. The session is a list of
+// resources (files) that the Restart Manager maps to the processes holding
+// them open. Declared by hand, as the other Windows backends are, so no crate
+// is added for four functions.
+#[cfg(windows)]
+#[link(name = "rstrtmgr")]
+extern "system" {
+    fn RmStartSession(session: *mut u32, flags: u32, key: *mut u16) -> u32;
+    fn RmRegisterResources(
+        session: u32,
+        files: u32,
+        file_names: *const *const u16,
+        applications: u32,
+        application_list: *const std::ffi::c_void,
+        services: u32,
+        service_names: *const *const u16,
+    ) -> u32;
+    fn RmGetList(
+        session: u32,
+        needed: *mut u32,
+        count: *mut u32,
+        affected: *mut RmProcessInfo,
+        reboot_reasons: *mut u32,
+    ) -> u32;
+    fn RmEndSession(session: u32) -> u32;
+}
+
+/// RM_PROCESS_INFO from `rmnoti.h`, laid out as C does: a RM_UNIQUE_PROCESS
+/// (pid and FILETIME start time), then the application name (CCH_RM_MAX_APP_NAME
+/// + 1 = 256 wide characters), the service short name (CCH_RM_MAX_SVC_NAME + 1 =
+/// 64), and four 32-bit fields.
+#[cfg(windows)]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct RmProcessInfo {
+    process_id: u32,
+    start_low: u32,
+    start_high: u32,
+    app_name: [u16; 256],
+    service_name: [u16; 64],
+    app_type: i32,
+    app_status: u32,
+    ts_session_id: u32,
+    restartable: i32,
+}
+
+/// The Restart Manager session, ended on every path out of the lookup, including
+/// an early error return or a panic.
+#[cfg(windows)]
+struct RmSession(u32);
+
+#[cfg(windows)]
+impl Drop for RmSession {
+    fn drop(&mut self) {
+        // SAFETY: the handle came from a successful RmStartSession and is ended
+        // here and nowhere else; the return code has no recovery to act on.
+        unsafe { RmEndSession(self.0) };
+    }
+}
+
+/// The most processes `lsof PATH` reports on Windows; more is refused.
+#[cfg(windows)]
+const RM_MAX_HOLDERS: u32 = 1024;
+
+/// lsof with a path on Windows: the processes holding that file open, from the
+/// Restart Manager (RmStartSession, RmRegisterResources, RmGetList, RmEndSession).
+/// A directory is refused with E_BAD_ARG, because the Restart Manager takes files
+/// only. A path that does not exist is E_NOT_FOUND. A UNC or device path, and a
+/// drive that resolves to a network share, are refused and never probed.
+///
+/// Row shape matches the Linux and macOS `lsof -P -n` rows: a record with the
+/// same lowercase keys. Only `command`, `pid` and `name` have a value here. `command`
+/// is the image name without `.exe`, as on the socket arm (the Restart Manager's
+/// application name only when the process is not visible to this user); `pid`
+/// is the process id as a String, as on the other arms; `name` is the file's
+/// canonical path. `user`, `fd`, `type`, `device`, `size/off` and `node` are Null,
+/// because the Restart Manager does not report them.
+#[cfg(windows)]
+fn lsof_windows_path(path: &str) -> Result<Value> {
+    const NAME: &str = "lsof";
+    use std::os::windows::ffi::OsStrExt;
+    // exists() on a UNC or device string opens an SMB session, so the string is
+    // refused before the filesystem is asked anything.
+    if crate::safety::names_a_remote_share(path) {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "a local file path, not a UNC or device path",
+            "a path that begins with a drive letter",
+        ));
+    }
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(crate::safety::not_found(NAME, "file", path));
+        }
+        Err(e) => {
+            return Err(crate::safety::bad_state(
+                NAME,
+                &format!("cannot read '{path}': {e}"),
+                "a file this user can read",
+            ));
+        }
+    };
+    if meta.is_dir() {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "a file, not a directory: the Restart Manager lists the holders of files only",
+            "a file path",
+        ));
+    }
+    let canonical = std::fs::canonicalize(path).map_err(|e| {
+        crate::safety::bad_state(
+            NAME,
+            &format!("cannot resolve '{path}': {e}"),
+            "a file this user can read",
+        )
+    })?;
+    // canonicalize returns the verbatim form (\\?\C:\...). The Restart Manager is
+    // given the plain drive path, so the four-character prefix is dropped without
+    // a lossy conversion. A verbatim UNC form means a share, which is refused.
+    let mut wide: Vec<u16> = canonical.as_os_str().encode_wide().collect();
+    let verbatim: [u16; 4] = [b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16];
+    if wide.starts_with(&verbatim) {
+        wide.drain(..verbatim.len());
+    }
+    let unc: Vec<u16> = "UNC"
+        .encode_utf16()
+        .chain(std::iter::once(b'\\' as u16))
+        .collect();
+    if wide.starts_with(&unc) {
+        return Err(crate::safety::bad_arg(
+            NAME,
+            "a file on a network share, which the Restart Manager does not list",
+            "a file on a local drive",
+        ));
+    }
+    wide.push(0);
+    let holders = lsof_rm_holders(NAME, &wide)?;
+    let file = String::from_utf16_lossy(&wide[..wide.len() - 1]);
+    // lsof names the command, as the socket arm above does: the image name
+    // without `.exe`. The Restart Manager's application name is a description
+    // ("Windows Command Processor"), used only for a process sysinfo cannot see.
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let rows: Vec<Value> = holders
+        .iter()
+        .map(|p| {
+            let image = sys
+                .process(sysinfo::Pid::from_u32(p.process_id))
+                .map(|proc_| proc_.name().to_string_lossy().into_owned())
+                .map(|raw| {
+                    if raw.to_ascii_lowercase().ends_with(".exe") {
+                        raw[..raw.len() - 4].to_string()
+                    } else {
+                        raw
+                    }
+                })
+                .filter(|n| !n.is_empty());
+            let app_len = p
+                .app_name
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(p.app_name.len());
+            let app = String::from_utf16_lossy(&p.app_name[..app_len]);
+            let command = image.or_else(|| (!app.is_empty()).then_some(app));
+            let mut rec = BTreeMap::new();
+            rec.insert(
+                "command".to_string(),
+                command.map_or(Value::Null, Value::Str),
+            );
+            rec.insert("pid".to_string(), Value::Str(p.process_id.to_string()));
+            for key in ["user", "fd", "type", "device", "size/off", "node"] {
+                rec.insert(key.to_string(), Value::Null);
+            }
+            rec.insert("name".to_string(), Value::Str(file.clone()));
+            Value::Record(rec)
+        })
+        .collect();
+    Ok(Value::Array(rows))
+}
+
+/// The processes holding one file open, by the Restart Manager. `path` is a
+/// NUL-terminated wide string. The count is read first, then the list is read
+/// into an array of that size; if the process set grew between the two calls
+/// (ERROR_MORE_DATA), the count is read again, a bounded number of times.
+#[cfg(windows)]
+fn lsof_rm_holders(name: &str, path: &[u16]) -> Result<Vec<RmProcessInfo>> {
+    const ERROR_SUCCESS: u32 = 0;
+    const ERROR_ACCESS_DENIED: u32 = 5;
+    const ERROR_MORE_DATA: u32 = 234;
+    const ATTEMPTS: usize = 3;
+    let rm_error = |call: &str, code: u32| -> anyhow::Error {
+        let err = std::io::Error::from_raw_os_error(code as i32);
+        let detail = format!("{call} failed: {err} (Win32 {code})");
+        if code == ERROR_ACCESS_DENIED {
+            crate::safety::os_denied(
+                name,
+                format!("{name}: {detail}"),
+                "the file is not visible to this user; read a file this user owns",
+            )
+        } else {
+            crate::safety::bad_state(
+                name,
+                &detail,
+                "a file this user can read, and the Restart Manager service running",
+            )
+        }
+    };
+    let mut session = 0u32;
+    let mut key = [0u16; 33];
+    // SAFETY: the out-pointer and the 33-element key buffer (CCH_RM_SESSION_KEY + 1)
+    // are valid for the duration of the call.
+    let rc = unsafe { RmStartSession(&mut session, 0, key.as_mut_ptr()) };
+    if rc != ERROR_SUCCESS {
+        return Err(rm_error("RmStartSession", rc));
+    }
+    let session = RmSession(session);
+    let files = [path.as_ptr()];
+    // SAFETY: one resource, a NUL-terminated wide path that outlives the call; no
+    // applications or services are registered, so their pointers are not read.
+    let rc = unsafe {
+        RmRegisterResources(
+            session.0,
+            1,
+            files.as_ptr(),
+            0,
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+        )
+    };
+    if rc != ERROR_SUCCESS {
+        return Err(rm_error("RmRegisterResources", rc));
+    }
+    for _ in 0..ATTEMPTS {
+        // First call: no buffer, so the answer is the count alone.
+        let mut needed = 0u32;
+        let mut written = 0u32;
+        let mut reasons = 0u32;
+        // SAFETY: a null buffer with a zero capacity is the documented count query.
+        let rc = unsafe {
+            RmGetList(
+                session.0,
+                &mut needed,
+                &mut written,
+                std::ptr::null_mut(),
+                &mut reasons,
+            )
+        };
+        if rc == ERROR_SUCCESS && needed == 0 {
+            return Ok(Vec::new());
+        }
+        if rc != ERROR_MORE_DATA {
+            return Err(rm_error("RmGetList", rc));
+        }
+        if needed > RM_MAX_HOLDERS {
+            return Err(crate::safety::budget_exceeded(
+                name,
+                format!("{needed} processes hold this file open; the limit is {RM_MAX_HOLDERS}"),
+                "a file fewer processes hold open",
+            ));
+        }
+        // Second call: the buffer holds the count just read.
+        let mut infos = vec![
+            // SAFETY: RmProcessInfo is plain integers and u16 arrays, all valid as zero.
+            unsafe { std::mem::zeroed::<RmProcessInfo>() }; needed as usize
+        ];
+        let mut capacity = needed;
+        let mut needed_now = needed;
+        // SAFETY: `infos` has `capacity` elements, which the call is told; the
+        // out-counts are valid locals.
+        let rc = unsafe {
+            RmGetList(
+                session.0,
+                &mut needed_now,
+                &mut capacity,
+                infos.as_mut_ptr(),
+                &mut reasons,
+            )
+        };
+        if rc == ERROR_SUCCESS {
+            infos.truncate(capacity as usize);
+            return Ok(infos);
+        }
+        if rc != ERROR_MORE_DATA {
+            return Err(rm_error("RmGetList", rc));
+        }
+        if needed_now > RM_MAX_HOLDERS {
+            return Err(crate::safety::budget_exceeded(
+                name,
+                format!(
+                    "{needed_now} processes hold this file open; the limit is {RM_MAX_HOLDERS}"
+                ),
+                "a file fewer processes hold open",
+            ));
+        }
+    }
+    Err(crate::safety::bad_state(
+        name,
+        "the processes holding this file kept changing while they were listed",
+        "a file whose holders are stable; try again",
+    ))
+}
+
 #[cfg(target_os = "linux")]
 fn net_socket_rows(name: &str) -> Result<Vec<Value>> {
     // All TCP and UDP sockets, numeric; `ss` prints one header line first.
@@ -59528,11 +59832,7 @@ fn bi_lsof(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     {
         match path {
             None => lsof_windows_sockets(),
-            Some(_) => Err(crate::safety::unimplemented(
-                "lsof",
-                "the processes holding a file open are not read on Windows: no shipped source lists open files (handle.exe is Sysinternals, not shipped); NOTHING WAS LISTED",
-                "net_connections() lists sockets",
-            )),
+            Some(p) => lsof_windows_path(&p),
         }
     }
     #[cfg(not(any(unix, windows)))]
