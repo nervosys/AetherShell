@@ -101,7 +101,7 @@ fn changed(v: &Value) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Oracles: dscl, id, dseditgroup and pwpolicy, never the builtins
+// Oracles: dscl, id and dseditgroup, never the builtins
 // ---------------------------------------------------------------------------
 
 fn output(program: &str, args: &[&str]) -> std::process::Output {
@@ -142,11 +142,7 @@ fn groups_of(user: &str) -> Vec<String> {
         .collect()
 }
 
-/// True when AuthenticationAuthority carries the DisabledUser marker that
-/// pwpolicy -disableuser writes.
-/// `pwpolicy -disableuser` sets isDisabled in the account's policy on current
-/// macOS; older releases wrote ;DisabledUser; into AuthenticationAuthority.
-/// Either one counts.
+/// True when AuthenticationAuthority carries the ;DisabledUser; tag.
 fn user_disabled(name: &str) -> bool {
     let authority = stdout_of(
         "dscl",
@@ -157,12 +153,8 @@ fn user_disabled(name: &str) -> bool {
             "AuthenticationAuthority",
         ],
     );
-    let policy = stdout_of("pwpolicy", &["-u", name, "-getpolicy"]);
-    eprintln!("{name}: authority {authority:?} policy {policy:?}");
-    authority.contains("DisabledUser")
-        || policy
-            .split_whitespace()
-            .any(|kv| kv == "isDisabled=1" || kv == "isDisabled=true")
+    eprintln!("{name}: AuthenticationAuthority {authority:?}");
+    authority.split_whitespace().any(|v| v == ";DisabledUser;")
 }
 
 /// True when the directory checks this password for this user.

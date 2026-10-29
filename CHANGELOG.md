@@ -163,7 +163,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `screencapture -l`, with no Screen Recording permission `E_OS_DENIED`).
   These are tested only on disposable GitHub runners.
   macOS: `user_add`/`del`/`mod`/`passwd`/`lock`/`unlock` and
-  `group_add`/`del`/`mod` through `dscl`, `dseditgroup` and `pwpolicy`
+  `group_add`/`del`/`mod` through `dscl` and `dseditgroup`
   (accounts created disabled; uid and gid below 501, `_` names, the running
   user and `SUDO_USER` are `E_POLICY_DENY`; not root is `E_OS_DENIED`);
   `svc_create`/`svc_delete` as `/Library/LaunchDaemons/com.aethershell.<name>.plist`

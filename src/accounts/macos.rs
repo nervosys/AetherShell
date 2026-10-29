@@ -1,6 +1,7 @@
 //! macOS account and group administration: the `user_*` and `group_*`
 //! builtins through Directory Service. Records are written with `dscl .`,
-//! group membership with `dseditgroup`, and the disabled flag with `pwpolicy`.
+//! group membership with `dseditgroup`, and the disabled flag as the
+//! `;DisabledUser;` value of AuthenticationAuthority, written with `dscl`.
 //!
 //! The entry points take the arguments the Linux backend takes, run the same
 //! validation (the parse structs and option helpers in the parent module),
@@ -14,7 +15,7 @@
 //!
 //! New accounts take the first free uid from 501, the primary group staff (20)
 //! and a login shell of /bin/zsh unless one is given. They are created with
-//! Password "*" and then disabled with pwpolicy, so they cannot log on until
+//! Password "*" and then disabled, so they cannot log on until
 //! user_passwd sets a password and user_unlock enables them, as on Windows.
 //! The home folder is /Users/<name>; macOS makes that folder at first login.
 //! New groups take the first free gid from 501.
@@ -48,7 +49,7 @@ const HUMAN_ID_MIN: i64 = 501;
 const DEFAULT_GID: i64 = 20;
 const DEFAULT_SHELL: &str = "/bin/zsh";
 const HOME_ROOT: &str = "/Users";
-/// Deadline for one dscl, pwpolicy or dseditgroup call.
+/// Deadline for one dscl or dseditgroup call.
 const TOOL_DEADLINE_SECS: u64 = 60;
 
 /// What a user_add has written so far, so a failure can take it back.
@@ -287,12 +288,18 @@ pub fn user_passwd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     guard_user(B, &plan.name, account.uid)?;
     let path = user_path(&plan.name);
+    // `dscl -passwd` rewrites AuthenticationAuthority, so a disabled account
+    // is disabled again afterwards: a new password does not enable it.
+    let was_disabled = is_disabled(B, &plan.name)?;
     run(
         B,
         "dscl",
         &[".", "-passwd", path.as_str(), plan.password.as_str()],
         Some(plan.password.as_str()),
     )?;
+    if was_disabled {
+        set_disabled(B, &plan.name, true)?;
+    }
     Ok(record(vec![
         ("name", Value::Str(plan.name)),
         ("changed", Value::Bool(true)),
@@ -489,8 +496,7 @@ fn set_lock(builtin: &str, args: Vec<Value>, input: Option<Value>, lock: bool) -
         return Err(not_found(builtin, "user", &name));
     };
     guard_user(builtin, &name, account.uid)?;
-    let verb = if lock { "-disableuser" } else { "-enableuser" };
-    run(builtin, "pwpolicy", &["-u", name.as_str(), verb], None)?;
+    set_disabled(builtin, &name, lock)?;
     Ok(record(vec![
         ("name", Value::Str(name)),
         ("locked", Value::Bool(lock)),
@@ -525,15 +531,68 @@ fn create_user(plan: &UserAdd, uid: i64, home: &str, shell: &str, made: &mut Mad
             None,
         )?;
     }
-    run(
-        B,
-        "pwpolicy",
-        &["-u", plan.name.as_str(), "-disableuser"],
-        None,
-    )?;
+    set_disabled(B, &plan.name, true)?;
     for group in &plan.groups {
         add_member(B, group, &plan.name)?;
         made.groups.push(group.clone());
+    }
+    Ok(())
+}
+
+/// The tag Directory Service reads as "this account may not authenticate".
+/// `pwpolicy -disableuser` exits 0 on current macOS without writing it or any
+/// policy for an account with no password hash, so it is written directly.
+const DISABLED_TAG: &str = ";DisabledUser;";
+
+/// True when AuthenticationAuthority carries the disabled tag.
+fn is_disabled(builtin: &str, name: &str) -> Result<bool> {
+    let path = user_path(name);
+    let out = spawn(
+        builtin,
+        "dscl",
+        &[".", "-read", path.as_str(), "AuthenticationAuthority"],
+    )?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    if text.split_whitespace().any(|v| v == DISABLED_TAG) {
+        return Ok(true);
+    }
+    // An account without the attribute exits nonzero with "No such key";
+    // that is an enabled account, any other failure is not.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if out.status.success() || stderr.contains("No such key") {
+        return Ok(false);
+    }
+    Err(tool_failed(builtin, "dscl", out.status.code(), &stderr))
+}
+
+/// Adds or removes the disabled tag, then reads it back: a write the
+/// directory did not keep is E_BAD_STATE, not a success.
+fn set_disabled(builtin: &str, name: &str, disable: bool) -> Result<()> {
+    if is_disabled(builtin, name)? != disable {
+        let path = user_path(name);
+        let verb = if disable { "-append" } else { "-delete" };
+        run(
+            builtin,
+            "dscl",
+            &[
+                ".",
+                verb,
+                path.as_str(),
+                "AuthenticationAuthority",
+                DISABLED_TAG,
+            ],
+            None,
+        )?;
+    }
+    if is_disabled(builtin, name)? != disable {
+        return Err(bad_state(
+            builtin,
+            &format!(
+                "dscl reported success but {name} is still {}",
+                if disable { "enabled" } else { "disabled" }
+            ),
+            "check the account's AuthenticationAuthority with dscl . -read",
+        ));
     }
     Ok(())
 }
