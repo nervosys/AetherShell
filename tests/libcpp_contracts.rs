@@ -32,7 +32,7 @@ fn record(v: Value) -> std::collections::BTreeMap<String, Value> {
 }
 
 /// True for a dotted run of decimal numbers such as `3.4.33`.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn is_dotted_version(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
     parts.len() >= 2
@@ -116,13 +116,31 @@ fn linux_reports_libstdcxx_with_a_numeric_glibcxx_version_or_libcpp_with_none() 
     }
 }
 
+/// On macOS the libc++ version is read with `otool -L` on its install name.
+/// The read is read-only, so this runs in the ordinary suite. Where otool is
+/// missing or cannot read the library, the answer is a coded refusal, and
+/// that refusal is accepted here too.
 #[cfg(target_os = "macos")]
 #[test]
-fn macos_reports_libcpp_without_a_version() {
-    let rec = record(libcpp().expect("libc++ is in the dyld shared cache"));
+fn macos_reports_a_dotted_libcpp_version_with_no_abi() {
+    let v = match libcpp() {
+        Ok(v) => v,
+        Err(e) => {
+            let code = code_of(&e);
+            assert!(
+                ["E_BAD_STATE", "E_TOOL_MISSING", "E_TOOL_FAILED"].contains(&code.as_str()),
+                "{e}"
+            );
+            return;
+        }
+    };
+    let rec = record(v);
     assert_eq!(rec.get("name"), Some(&Value::Str("libc++".to_string())));
-    assert_eq!(rec.get("version"), Some(&Value::Null));
     assert_eq!(rec.get("abi"), Some(&Value::Null));
+    match rec.get("version") {
+        Some(Value::Str(v)) => assert!(is_dotted_version(v), "version {v:?}"),
+        other => panic!("libc++ should report a version String, got {other:?}"),
+    }
 }
 
 /// The version the builtin reports is the one PowerShell reads from the same

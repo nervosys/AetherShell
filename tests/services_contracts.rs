@@ -185,9 +185,9 @@ fn every_effect_is_refused_inside_a_transaction() {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 #[test]
-fn valid_calls_refuse_with_unimplemented_and_change_nothing_on_macos() {
+fn valid_calls_refuse_with_unimplemented_and_change_nothing_off_every_service_backend() {
     let _lock = LOCK.lock().unwrap();
     let mut env = Env::default();
     for result in [
@@ -208,6 +208,20 @@ fn valid_calls_refuse_with_unimplemented_and_change_nothing_on_macos() {
         assert!(text.contains("E_UNIMPLEMENTED"), "{text}");
         assert!(text.contains("NOTHING WAS CHANGED"), "{text}");
     }
+}
+
+/// On macOS the service calls are real (tests/macos_service_admin.rs), but
+/// sudo_exec is still unimplemented there and must change nothing.
+#[cfg(target_os = "macos")]
+#[test]
+fn sudo_exec_refuses_with_unimplemented_and_changes_nothing_on_macos() {
+    let _lock = LOCK.lock().unwrap();
+    let mut env = Env::default();
+    let error = call("sudo_exec", vec![argv(&["/usr/bin/id", "-u"])], &mut env)
+        .expect_err("sudo_exec is refused off Linux");
+    let text = error.to_string();
+    assert!(text.contains("E_UNIMPLEMENTED"), "{text}");
+    assert!(text.contains("NOTHING WAS CHANGED"), "{text}");
 }
 
 #[cfg(target_os = "linux")]

@@ -53434,13 +53434,55 @@ fn msvcp140_version() -> Result<String> {
     })
 }
 
+/// The version of the system libc++ on macOS, from `otool -L` on its install
+/// name. The library lives in the dyld shared cache, and `otool` reads it from
+/// there: the first entry it prints for a dylib is the dylib's own identity,
+/// whose `current version` is the one its load commands carry. A missing
+/// `otool` (Command Line Tools not installed), a failed read, or an output
+/// without a dotted version is a coded error; no version is guessed.
+#[cfg(target_os = "macos")]
+fn libcxx_version_macos() -> Result<String> {
+    const LIBCXX: &str = "/usr/lib/libc++.1.dylib";
+    let mut cmd = std::process::Command::new("/usr/bin/otool");
+    cmd.args(["-L", LIBCXX]);
+    let out = bounded_cmd_output("platform_libcpp", "otool", cmd, PROBE_DEADLINE_SECS)?;
+    if !out.status.success() {
+        return Err(crate::safety::tool_failed(
+            "platform_libcpp",
+            &format!("otool -L {LIBCXX}"),
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
+        ));
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let version = text.lines().find_map(|line| {
+        let rest = line.split_once("current version ")?.1;
+        let end = rest.find(|c: char| c == ',' || c == ')')?;
+        Some(rest[..end].trim().to_string())
+    });
+    match version {
+        Some(v)
+            if v.split('.').count() >= 2
+                && v.split('.')
+                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) =>
+        {
+            Ok(v)
+        }
+        _ => Err(crate::safety::bad_state(
+            "platform_libcpp",
+            "the version of the system libc++ could not be read from otool's output",
+            "install the Xcode Command Line Tools, then retry",
+        )),
+    }
+}
+
 /// The C++ standard library: {name, version, abi}. The version and abi are
 /// null where the platform does not report them.
 ///
 /// On Windows the MSVC STL version comes from msvcp140.dll's version resource.
 /// On Linux the libstdc++ symbol versions are read from the library, and an
-/// unreadable candidate is a coded error. On macOS the library lives in the
-/// dyld shared cache and is reported without a version.
+/// unreadable candidate is a coded error. On macOS the libc++ version is read
+/// with `otool` (see `libcxx_version_macos`); the abi stays null.
 fn bi_platform_libcpp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     no_args_or_input("platform_libcpp", &args, &input)?;
     // One shape everywhere: {name, version, abi}. It was a Record of symbol
@@ -53511,9 +53553,8 @@ fn bi_platform_libcpp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        // On macOS the library lives in the dyld shared cache and is reported
-        // without a version. This branch is unchanged and has not been run here.
-        return Ok(lib("libc++", None, None));
+        let version = libcxx_version_macos()?;
+        return Ok(lib("libc++", Some(version), None));
     }
     #[cfg(target_os = "windows")]
     {

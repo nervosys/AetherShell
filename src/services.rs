@@ -1,10 +1,10 @@
 //! systemd service creation and deletion, and non-interactive sudo.
 //!
-//! Linux and Windows. Argument validation runs on every platform, so a malformed
-//! call is refused the same way everywhere. `svc_create` and `svc_delete` act on
-//! systemd units on Linux and on Service Control Manager services on Windows.
-//! On macOS, and for `sudo_exec` everywhere but Linux, a valid call refuses with
-//! E_UNIMPLEMENTED and changes nothing.
+//! Linux, Windows and macOS. Argument validation runs on every platform, so a
+//! malformed call is refused the same way everywhere. `svc_create` and
+//! `svc_delete` act on systemd units on Linux, Service Control Manager services
+//! on Windows, and launchd LaunchDaemons on macOS. For `sudo_exec` everywhere
+//! but Linux, a valid call refuses with E_UNIMPLEMENTED and changes nothing.
 //!
 //! `svc_create` writes `/etc/systemd/system/ae-<name>.service`, tagged with a
 //! marker line on its first line. `svc_delete` removes only units that carry
@@ -169,7 +169,7 @@ fn refuse_in_transaction(builtin: &str) -> Result<()> {
 fn not_linux(builtin: &str) -> anyhow::Error {
     crate::safety::unimplemented(
         builtin,
-        "systemd services and sudo are implemented on Linux only in 13.0.0, and service creation and deletion also on Windows; NOTHING WAS CHANGED",
+        "sudo is implemented on Linux only in 13.0.0, and service creation and deletion also on Windows and macOS; NOTHING WAS CHANGED",
         "use the platform's own service manager or `sudo` directly",
     )
 }
@@ -337,7 +337,14 @@ pub(crate) fn svc_create(args: Vec<Value>, input: Option<Value>) -> Result<Value
     scm::create(spec)
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+pub(crate) fn svc_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let spec = parse_create(&args, &input)?;
+    refuse_in_transaction("svc_create")?;
+    launchd::create(spec)
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 pub(crate) fn svc_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     parse_create(&args, &input)?;
     refuse_in_transaction("svc_create")?;
@@ -367,7 +374,14 @@ pub(crate) fn svc_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value
     scm::delete(name)
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+pub(crate) fn svc_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    let name = parse_delete(&args, &input)?;
+    refuse_in_transaction("svc_delete")?;
+    launchd::delete(name)
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 pub(crate) fn svc_delete(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     parse_delete(&args, &input)?;
     refuse_in_transaction("svc_delete")?;
@@ -1494,5 +1508,356 @@ mod linux {
             ));
             assert!(!sudo_password_required(""));
         }
+    }
+}
+
+// ── macOS backend ───────────────────────────────────────────────────────────
+
+/// launchd, through `launchctl` and a LaunchDaemon property list. A service is
+/// `/Library/LaunchDaemons/com.aethershell.<name>.plist`, loaded into the system
+/// domain. launchd loads every LaunchDaemon at boot, so `enable` is the
+/// plist's `Disabled` key, and `start` is its `RunAtLoad`.
+///
+/// Options that have no launchd form are refused rather than approximated:
+/// `start` without `enable`, since a loaded LaunchDaemon is loaded at every boot.
+#[cfg(target_os = "macos")]
+mod launchd {
+    use super::*;
+    use crate::builtins::bounded_cmd_output;
+    use crate::safety::{bad_state, fs_error, not_found, os_denied, policy_deny, tool_failed};
+    use std::io::{ErrorKind, Write};
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    const LAUNCHCTL: &str = "/bin/launchctl";
+    const PLUTIL: &str = "/usr/bin/plutil";
+    const ID: &str = "/usr/bin/id";
+    const DAEMON_DIR: &str = "/Library/LaunchDaemons";
+    const LABEL_PREFIX: &str = "com.aethershell.";
+    /// Bound on each launchctl, plutil and id call, so a stuck tool cannot hang the shell.
+    const TOOL_TIMEOUT_SECS: u64 = 60;
+    /// Written as an XML comment in every plist this module creates.
+    const PLIST_MARKER: &str = "<!-- Created by AetherShell svc_create; svc_delete removes only plists carrying this line -->";
+
+    fn label_of(name: &str) -> String {
+        format!("{LABEL_PREFIX}{name}")
+    }
+
+    fn plist_path(label: &str) -> PathBuf {
+        Path::new(DAEMON_DIR).join(format!("{label}.plist"))
+    }
+
+    fn require_root(builtin: &str) -> Result<()> {
+        // SAFETY: geteuid takes no arguments and has no memory effects.
+        if unsafe { libc::geteuid() } == 0 {
+            return Ok(());
+        }
+        Err(os_denied(
+            builtin,
+            format!("{builtin}: writing {DAEMON_DIR} and loading the system domain need root; the shell did not refuse this"),
+            "run it as root, for example with sudo",
+        ))
+    }
+
+    fn check_executable(argv0: &str) -> Result<()> {
+        let refuse = |why: &str| {
+            crate::safety::bad_arg(
+                "svc_create",
+                "an existing executable file as argv[0]",
+                &format!("{argv0:?} ({why})"),
+            )
+        };
+        let meta = std::fs::metadata(argv0).map_err(|_| refuse("does not exist"))?;
+        if !meta.is_file() {
+            return Err(refuse("not a regular file"));
+        }
+        if meta.permissions().mode() & 0o111 == 0 {
+            return Err(refuse("not executable"));
+        }
+        Ok(())
+    }
+
+    fn launchctl(builtin: &str, args: &[&str]) -> Result<std::process::Output> {
+        let mut cmd = Command::new(LAUNCHCTL);
+        cmd.args(args);
+        bounded_cmd_output(builtin, "launchctl", cmd, TOOL_TIMEOUT_SECS)
+    }
+
+    fn launchctl_checked(builtin: &str, args: &[&str]) -> Result<()> {
+        let out = launchctl(builtin, args)?;
+        if out.status.success() {
+            return Ok(());
+        }
+        Err(tool_failed(
+            builtin,
+            &format!("launchctl {}", args.join(" ")),
+            out.status.code(),
+            &String::from_utf8_lossy(&out.stderr),
+        ))
+    }
+
+    /// The `launchctl print` text when the label is loaded in the system
+    /// domain, or None when `print` finds nothing for it.
+    fn loaded_print(builtin: &str, label: &str) -> Result<Option<String>> {
+        let target = format!("system/{label}");
+        let out = launchctl(builtin, &["print", target.as_str()])?;
+        if out.status.success() {
+            Ok(Some(String::from_utf8_lossy(&out.stdout).into_owned()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn account_exists(user: &str) -> Result<()> {
+        let mut cmd = Command::new(ID);
+        cmd.args(["-u", user]);
+        let out = bounded_cmd_output("svc_create", "id", cmd, TOOL_TIMEOUT_SECS)?;
+        match out.status.code() {
+            Some(0) => Ok(()),
+            Some(1) => Err(not_found("svc_create", "account", user)),
+            code => Err(tool_failed(
+                "svc_create",
+                &format!("id -u {user}"),
+                code,
+                &String::from_utf8_lossy(&out.stderr),
+            )),
+        }
+    }
+
+    fn xml_escape(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        for c in text.chars() {
+            match c {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' => out.push_str("&quot;"),
+                '\'' => out.push_str("&apos;"),
+                other => out.push(other),
+            }
+        }
+        out
+    }
+
+    fn key_string(text: &mut String, key: &str, value: &str) {
+        text.push_str(&format!(
+            "\t<key>{key}</key>\n\t<string>{}</string>\n",
+            xml_escape(value)
+        ));
+    }
+
+    pub(super) fn render_plist(spec: &CreateSpec, label: &str) -> String {
+        let mut text = String::new();
+        text.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        text.push_str("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
+        text.push_str("<plist version=\"1.0\">\n");
+        text.push_str(PLIST_MARKER);
+        text.push('\n');
+        text.push_str("<dict>\n");
+        key_string(&mut text, "Label", label);
+        key_string(&mut text, "AetherShellDescription", &spec.description);
+        text.push_str("\t<key>ProgramArguments</key>\n\t<array>\n");
+        for arg in &spec.argv {
+            text.push_str(&format!("\t\t<string>{}</string>\n", xml_escape(arg)));
+        }
+        text.push_str("\t</array>\n");
+        let run_at_load = if spec.start { "true" } else { "false" };
+        text.push_str(&format!("\t<key>RunAtLoad</key>\n\t<{run_at_load}/>\n"));
+        match spec.restart {
+            "always" => text.push_str("\t<key>KeepAlive</key>\n\t<true/>\n"),
+            "on-failure" => text.push_str(
+                "\t<key>KeepAlive</key>\n\t<dict>\n\t\t<key>SuccessfulExit</key>\n\t\t<false/>\n\t</dict>\n",
+            ),
+            _ => {}
+        }
+        if let Some(user) = &spec.user {
+            key_string(&mut text, "UserName", user);
+        }
+        if !spec.enable {
+            text.push_str("\t<key>Disabled</key>\n\t<true/>\n");
+        }
+        text.push_str("</dict>\n</plist>\n");
+        text
+    }
+
+    /// Create the plist without ever replacing one. The text goes to a
+    /// temporary file in the same directory, which `plutil -lint` must accept
+    /// before it is hard-linked into place. The link fails with AlreadyExists
+    /// if a plist appeared meanwhile, which a rename would silently overwrite.
+    /// The file is root:wheel, mode 0644, as launchd requires for a daemon.
+    fn write_plist(path: &Path, text: &str) -> Result<()> {
+        const BUILTIN: &str = "svc_create";
+        let file = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let tmp = path.with_file_name(format!(".{file}.tmp-{}", std::process::id()));
+        let result = (|| -> Result<()> {
+            let mut handle = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o644)
+                .open(&tmp)
+                .map_err(|e| fs_error(BUILTIN, &tmp, &e))?;
+            handle
+                .write_all(text.as_bytes())
+                .map_err(|e| fs_error(BUILTIN, &tmp, &e))?;
+            handle.sync_all().map_err(|e| fs_error(BUILTIN, &tmp, &e))?;
+            drop(handle);
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644))
+                .map_err(|e| fs_error(BUILTIN, &tmp, &e))?;
+            std::os::unix::fs::chown(&tmp, Some(0), Some(0))
+                .map_err(|e| fs_error(BUILTIN, &tmp, &e))?;
+
+            let mut lint = Command::new(PLUTIL);
+            lint.arg("-lint").arg(&tmp);
+            let out = bounded_cmd_output(BUILTIN, "plutil", lint, TOOL_TIMEOUT_SECS)?;
+            if !out.status.success() {
+                return Err(tool_failed(
+                    BUILTIN,
+                    "plutil -lint",
+                    out.status.code(),
+                    &String::from_utf8_lossy(&out.stderr),
+                ));
+            }
+
+            std::fs::hard_link(&tmp, path).map_err(|e| {
+                if e.kind() == ErrorKind::AlreadyExists {
+                    policy_deny(
+                        BUILTIN,
+                        format!("{BUILTIN}: {path:?} appeared while writing; a plist is never overwritten"),
+                        "choose another name",
+                    )
+                } else {
+                    fs_error(BUILTIN, path, &e)
+                }
+            })
+        })();
+        let _ = std::fs::remove_file(&tmp);
+        result
+    }
+
+    pub(super) fn create(spec: CreateSpec) -> Result<Value> {
+        const BUILTIN: &str = "svc_create";
+        if spec.start && !spec.enable {
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                "enable true when start is true: a LaunchDaemon that is loaded is loaded at every boot",
+                "enable false with start true",
+            ));
+        }
+        require_root(BUILTIN)?;
+
+        let label = label_of(&spec.name);
+        let path = plist_path(&label);
+        check_executable(&spec.argv[0])?;
+        if let Some(user) = &spec.user {
+            account_exists(user)?;
+        }
+        match path.symlink_metadata() {
+            Ok(_) => {
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                if text.lines().any(|line| line == PLIST_MARKER) {
+                    return Err(bad_state(
+                        BUILTIN,
+                        &format!("{label} already exists; a service is never overwritten"),
+                        "choose another name, or svc_delete the existing one first",
+                    ));
+                }
+                return Err(policy_deny(
+                    BUILTIN,
+                    format!("{BUILTIN}: {path:?} exists and was not created by AetherShell; refusing to replace it"),
+                    "choose another name",
+                ));
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(fs_error(BUILTIN, &path, &e)),
+        }
+        if loaded_print(BUILTIN, &label)?.is_some() {
+            return Err(bad_state(
+                BUILTIN,
+                &format!("{label} is already loaded in the system domain; a service is never overwritten"),
+                "choose another name, or svc_delete it first",
+            ));
+        }
+
+        write_plist(&path, &render_plist(&spec, &label))?;
+        if spec.enable {
+            let plist = path.display().to_string();
+            if let Err(e) = launchctl_checked(BUILTIN, &["bootstrap", "system", plist.as_str()]) {
+                // Undo the file, so no half-created service stays.
+                let _ = std::fs::remove_file(&path);
+                return Err(e);
+            }
+        }
+
+        let mut record = BTreeMap::new();
+        record.insert("name".to_string(), Value::Str(label));
+        record.insert(
+            "unit_path".to_string(),
+            Value::Str(path.display().to_string()),
+        );
+        record.insert("enabled".to_string(), Value::Bool(spec.enable));
+        record.insert("started".to_string(), Value::Bool(spec.start));
+        Ok(Value::Record(record))
+    }
+
+    pub(super) fn delete(name: String) -> Result<Value> {
+        const BUILTIN: &str = "svc_delete";
+        require_root(BUILTIN)?;
+        let label = label_of(&name);
+        let path = plist_path(&label);
+
+        let meta = match path.symlink_metadata() {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                if loaded_print(BUILTIN, &label)?.is_some() {
+                    return Err(policy_deny(
+                        BUILTIN,
+                        format!("{BUILTIN}: {label} is loaded but has no plist in {DAEMON_DIR}; it was not created by AetherShell"),
+                        "remove it with launchctl by hand",
+                    ));
+                }
+                return Err(not_found(BUILTIN, "service", &label));
+            }
+            Err(e) => return Err(fs_error(BUILTIN, &path, &e)),
+        };
+        if !meta.is_file() {
+            return Err(policy_deny(
+                BUILTIN,
+                format!("{BUILTIN}: {path:?} is not a regular file; refusing to remove it"),
+                "only plists svc_create made can be deleted here",
+            ));
+        }
+        let text = std::fs::read_to_string(&path).map_err(|e| fs_error(BUILTIN, &path, &e))?;
+        if !text.lines().any(|line| line == PLIST_MARKER) {
+            return Err(policy_deny(
+                BUILTIN,
+                format!("{BUILTIN}: {path:?} has no AetherShell marker line; refusing to remove it"),
+                "only services svc_create created can be deleted; remove hand-written daemons by hand",
+            ));
+        }
+        // A plist without a `Disabled` key is loaded at boot, which is what `enable` means.
+        let disabled = !text.contains("<key>Disabled</key>");
+
+        let stopped = match loaded_print(BUILTIN, &label)? {
+            Some(print) => {
+                let running = print.contains("state = running");
+                let target = format!("system/{label}");
+                launchctl_checked(BUILTIN, &["bootout", target.as_str()])?;
+                running
+            }
+            None => false,
+        };
+        std::fs::remove_file(&path).map_err(|e| fs_error(BUILTIN, &path, &e))?;
+
+        let mut record = BTreeMap::new();
+        record.insert("name".to_string(), Value::Str(label));
+        record.insert("stopped".to_string(), Value::Bool(stopped));
+        record.insert("disabled".to_string(), Value::Bool(disabled));
+        record.insert("removed".to_string(), Value::Bool(true));
+        Ok(Value::Record(record))
     }
 }
