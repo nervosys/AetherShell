@@ -1,8 +1,9 @@
 use crate::ai_api::models::*;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use ironcrypto::core_types::traits::Digest;
+use ironcrypto::hash::Sha256;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -199,9 +200,7 @@ impl ModelStorage {
         fs::write(&file_path, model_data)?;
 
         // Calculate and verify checksum
-        let mut hasher = Sha256::new();
-        hasher.update(model_data);
-        let calculated_hash = format!("{:x}", hasher.finalize());
+        let calculated_hash = hex::encode(Sha256::digest(model_data)?);
 
         if calculated_hash != metadata.sha256 {
             fs::remove_file(&file_path)?;

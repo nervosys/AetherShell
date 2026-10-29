@@ -1,8 +1,9 @@
 use crate::ai_api::{models::*, storage::ModelStorage};
 use anyhow::Result;
+use ironcrypto::core_types::traits::Digest;
+use ironcrypto::hash::Sha256;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -152,9 +153,7 @@ impl ModelDownloader {
         let model_data = fs::read(&main_path)?;
 
         // Calculate checksum
-        let mut hasher = Sha256::new();
-        hasher.update(&model_data);
-        let checksum = format!("{:x}", hasher.finalize());
+        let checksum = hex::encode(Sha256::digest(&model_data)?);
 
         // Create metadata
         let metadata = LocalModelMetadata {
@@ -215,9 +214,7 @@ impl ModelDownloader {
         let model_data = fs::read(&temp_path)?;
 
         // Calculate checksum
-        let mut hasher = Sha256::new();
-        hasher.update(&model_data);
-        let checksum = format!("{:x}", hasher.finalize());
+        let checksum = hex::encode(Sha256::digest(&model_data)?);
 
         // Infer format from URL or filename
         let format = self.infer_format_from_url(&url)?;

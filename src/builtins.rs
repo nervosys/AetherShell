@@ -2,7 +2,6 @@
 #![allow(dead_code, unreachable_code, unused_variables)]
 use anyhow::{anyhow, Context, Result};
 use serde_json;
-use sha2::{Digest as Sha2Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::process::Command;
@@ -20493,16 +20492,14 @@ fn render_budget_envelope(env: &Value) -> String {
 
 /// A content-bound token for a plan (`apl_<16 hex of sha256(canonical(ops))>`),
 /// so approving one plan cannot authorize a different set of operations.
-fn plan_token(ops: &Value) -> String {
-    let mut h = Sha256::new();
-    h.update(canonical_render(ops).as_bytes());
-    let digest = h.finalize();
+fn plan_token(ops: &Value) -> Result<String> {
+    let digest = ic_sha256("plan/apply", canonical_render(ops).as_bytes())?;
     let hex: String = digest
         .iter()
         .take(8)
         .map(|b| format!("{:02x}", b))
         .collect();
-    format!("apl_{}", hex)
+    Ok(format!("apl_{}", hex))
 }
 
 /// Validate and normalize plan ops into `(op, path, content?)` tuples.
@@ -20604,7 +20601,7 @@ fn bi_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             _ => {}
         }
     }
-    let token = plan_token(&ops);
+    let token = plan_token(&ops)?;
     let mut summary = BTreeMap::new();
     summary.insert("writes".to_string(), Value::Int(writes));
     summary.insert("appends".to_string(), Value::Int(appends));
@@ -20778,7 +20775,7 @@ fn bi_plan_diff(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     out.insert("added".to_string(), Value::Int(total_added));
     out.insert("removed".to_string(), Value::Int(total_removed));
     out.insert("diff".to_string(), Value::Array(entries));
-    out.insert("token".to_string(), Value::Str(plan_token(&ops)));
+    out.insert("token".to_string(), Value::Str(plan_token(&ops)?));
     Ok(Value::Record(out))
 }
 
@@ -20861,7 +20858,7 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     }
     let parsed = parse_plan_ops(&ops)?;
-    let token = plan_token(&ops);
+    let token = plan_token(&ops)?;
     let agent = matches!(crate::safety::current_mode(), crate::safety::Mode::Agent);
 
     if agent && !crate::safety::is_approved(&token) {
@@ -42216,6 +42213,32 @@ fn bi_input_autocomplete(args: Vec<Value>, input: Option<Value>) -> Result<Value
 // 480-499: Security & Crypto
 // ============================================================================
 
+/// One-shot digest through IronCrypto, as lowercase hex. A refusal is the
+/// coded `E_CRYPTO_FAILED` naming `builtin`.
+fn ic_digest_hex<D: ironcrypto::core_types::traits::Digest>(
+    builtin: &str,
+    bytes: &[u8],
+) -> Result<String> {
+    let out = D::digest(bytes).map_err(|e| crate::safety::ic_failed(builtin, e))?;
+    Ok(hex::encode(out))
+}
+
+/// One-shot MAC through IronCrypto, as lowercase hex.
+fn ic_mac_hex<M: ironcrypto::core_types::traits::Mac>(
+    builtin: &str,
+    key: &[u8],
+    data: &[u8],
+) -> Result<String> {
+    let tag = M::mac(key, data).map_err(|e| crate::safety::ic_failed(builtin, e))?;
+    Ok(hex::encode(tag))
+}
+
+/// SHA-256 of `bytes` through IronCrypto, as raw bytes.
+fn ic_sha256(builtin: &str, bytes: &[u8]) -> Result<[u8; 32]> {
+    <ironcrypto::hash::Sha256 as ironcrypto::core_types::traits::Digest>::digest(bytes)
+        .map_err(|e| crate::safety::ic_failed(builtin, e))
+}
+
 /// Hex digest of `bytes`, in-process.
 ///
 /// These builtins shelled out -- `sha256sum`/`md5sum` on Unix, PowerShell on
@@ -42227,10 +42250,12 @@ fn digest_hex(builtin: &str, algo: &str, bytes: &[u8]) -> Result<String> {
     let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
     Ok(match algo.to_ascii_lowercase().as_str() {
         "md5" => format!("{:x}", md5::compute(bytes)),
-        "sha1" | "sha-1" => hex(&sha1::Sha1::digest(bytes)),
-        "sha256" | "sha-256" => hex(&Sha256::digest(bytes)),
-        "sha384" | "sha-384" => hex(&sha2::Sha384::digest(bytes)),
-        "sha512" | "sha-512" => hex(&sha2::Sha512::digest(bytes)),
+        // SHA-1 is not in IronCrypto, which implements no MD5 or SHA-1; it stays
+        // on the sha1 crate.
+        "sha1" | "sha-1" => hex(&<sha1::Sha1 as sha1::Digest>::digest(bytes)),
+        "sha256" | "sha-256" => ic_digest_hex::<ironcrypto::hash::Sha256>(builtin, bytes)?,
+        "sha384" | "sha-384" => ic_digest_hex::<ironcrypto::hash::Sha384>(builtin, bytes)?,
+        "sha512" | "sha-512" => ic_digest_hex::<ironcrypto::hash::Sha512>(builtin, bytes)?,
         other => {
             return Err(crate::safety::bad_arg(
                 builtin,
@@ -42343,11 +42368,24 @@ fn bi_crypto_hmac(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 .collect::<String>()
         }};
     }
+    // HMAC-SHA-1 stays on the hmac crate: IronCrypto implements no SHA-1.
     let result = match algo.as_str() {
         "sha1" | "sha-1" => authenticate!(sha1::Sha1),
-        "sha256" | "sha-256" => authenticate!(sha2::Sha256),
-        "sha384" | "sha-384" => authenticate!(sha2::Sha384),
-        "sha512" | "sha-512" => authenticate!(sha2::Sha512),
+        "sha256" | "sha-256" => ic_mac_hex::<ironcrypto::mac::HmacSha256>(
+            "crypto_hmac",
+            key.as_bytes(),
+            data.as_bytes(),
+        )?,
+        "sha384" | "sha-384" => ic_mac_hex::<ironcrypto::mac::HmacSha384>(
+            "crypto_hmac",
+            key.as_bytes(),
+            data.as_bytes(),
+        )?,
+        "sha512" | "sha-512" => ic_mac_hex::<ironcrypto::mac::HmacSha512>(
+            "crypto_hmac",
+            key.as_bytes(),
+            data.as_bytes(),
+        )?,
         "md5" => {
             // RFC 2104 compatibility: md5 0.7 predates the Digest trait.
             let shortened;
@@ -42387,7 +42425,6 @@ fn bi_crypto_uuid(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_crypto_random_bytes(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    use rand::RngCore;
     let count = args
         .first()
         .map(|v| expect_int("crypto_random_bytes", v))
@@ -42399,14 +42436,52 @@ fn bi_crypto_random_bytes(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         ));
     }
     let mut bytes = vec![0u8; count as usize];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    crate::safety::ic_fill_random("crypto_random_bytes", &mut bytes)?;
     Ok(Value::Str(
         bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
     ))
 }
 
+/// `length` characters drawn uniformly from `chars`.
+///
+/// `fill` supplies random bytes. Each character takes one 32-bit draw, and a
+/// draw at or above the largest multiple of `chars.len()` that fits in 2^32 is
+/// rejected, so no character is favoured by the modulo (a plain `% len` over a
+/// 32-bit draw favours the first `2^32 % len` characters).
+fn random_chars(
+    chars: &[char],
+    length: usize,
+    mut fill: impl FnMut(&mut [u8]) -> Result<()>,
+) -> Result<String> {
+    let n = chars.len() as u64;
+    if n == 0 || n > 1 << 32 {
+        return Err(crate::safety::arg_err(
+            "crypto_random_string: charset must hold between 1 and 2^32 characters",
+        ));
+    }
+    let limit = (1u64 << 32) / n * n;
+    let mut out = String::with_capacity(length);
+    let mut produced = 0usize;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut at = 0usize;
+    while produced < length {
+        if at + 4 > buf.len() {
+            // Enough for every character still owed, even if none is rejected.
+            buf = vec![0u8; 4 * (length - produced)];
+            fill(&mut buf)?;
+            at = 0;
+        }
+        let draw = u32::from_le_bytes([buf[at], buf[at + 1], buf[at + 2], buf[at + 3]]) as u64;
+        at += 4;
+        if draw < limit {
+            out.push(chars[(draw % n) as usize]);
+            produced += 1;
+        }
+    }
+    Ok(out)
+}
+
 fn bi_crypto_random_string(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    use rand::Rng;
     let length = args
         .first()
         .map(|v| expect_int("crypto_random_string", v))
@@ -42428,11 +42503,124 @@ fn bi_crypto_random_string(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             "crypto_random_string: charset must not be empty",
         ));
     }
-    let mut rng = rand::thread_rng();
-    let result = (0..length)
-        .map(|_| chars[rng.gen_range(0..chars.len())])
-        .collect();
+    let result = random_chars(&chars, length as usize, |buf| {
+        crate::safety::ic_fill_random("crypto_random_string", buf)
+    })?;
     Ok(Value::Str(result))
+}
+
+#[cfg(test)]
+mod hash_rng_vector_tests {
+    use super::*;
+
+    fn text(v: Result<Value>) -> String {
+        match v {
+            Ok(Value::Str(s)) => s,
+            other => panic!("expected a String result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sha2_digests_match_fips_180_4() {
+        // FIPS 180-4 example vectors, and the empty-message digests.
+        let abc = b"abc";
+        assert_eq!(
+            digest_hex("t", "sha256", abc).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            digest_hex("t", "sha384", abc).unwrap(),
+            "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7"
+        );
+        assert_eq!(
+            digest_hex("t", "sha512", abc).unwrap(),
+            "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+        );
+        assert_eq!(
+            digest_hex("t", "sha256", b"").unwrap(),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            digest_hex("t", "sha384", b"").unwrap(),
+            "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b"
+        );
+        assert_eq!(
+            digest_hex("t", "sha512", b"").unwrap(),
+            "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+        );
+    }
+
+    #[test]
+    fn hmac_sha2_matches_rfc_4231_cases_1_and_2() {
+        let case1_key = "\u{0b}".repeat(20);
+        let hmac = |data: &str, key: &str, algo: &str| {
+            text(bi_crypto_hmac(
+                vec![
+                    Value::Str(data.to_string()),
+                    Value::Str(key.to_string()),
+                    Value::Str(algo.to_string()),
+                ],
+                None,
+            ))
+        };
+        assert_eq!(
+            hmac("Hi There", &case1_key, "sha256"),
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+        );
+        assert_eq!(
+            hmac("Hi There", &case1_key, "sha384"),
+            "afd03944d84895626b0825f4ab46907f15f9dadbe4101ec682aa034c7cebc59cfaea9ea9076ede7f4af152e8b2fa9cb6"
+        );
+        assert_eq!(
+            hmac("Hi There", &case1_key, "sha512"),
+            "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854"
+        );
+        assert_eq!(
+            hmac("what do ya want for nothing?", "Jefe", "sha256"),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+        assert_eq!(
+            hmac("what do ya want for nothing?", "Jefe", "sha384"),
+            "af45d2e376484031617f78d2b58a6b1b9c7ef464f5a01b47e42ec3736322445e8e2240ca5e69e2c78b3239ecfab21649"
+        );
+        assert_eq!(
+            hmac("what do ya want for nothing?", "Jefe", "sha512"),
+            "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737"
+        );
+    }
+
+    #[test]
+    fn random_chars_rejects_draws_that_modulo_would_bias() {
+        // Three characters: 2^32 is not a multiple of 3, so the draw 0xFFFFFFFF
+        // (which is 0 modulo 3, i.e. 'a') must be rejected, not mapped to 'a'.
+        let mut stream = vec![0xff, 0xff, 0xff, 0xff, 4, 0, 0, 0, 5, 0, 0, 0].into_iter();
+        let chars: Vec<char> = "abc".chars().collect();
+        let out = random_chars(&chars, 2, |buf| {
+            for b in buf.iter_mut() {
+                *b = stream.next().unwrap_or(0);
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(out, "bc");
+    }
+
+    #[test]
+    fn random_string_uses_only_the_alphabet_at_the_requested_length() {
+        let alphabet = "ABC";
+        let out = text(bi_crypto_random_string(
+            vec![Value::Int(3000), Value::Str(alphabet.to_string())],
+            None,
+        ));
+        assert_eq!(out.chars().count(), 3000);
+        assert!(out.chars().all(|c| alphabet.contains(c)), "{out}");
+        // Each of three symbols should appear roughly 1000 times; a missing or
+        // dominant symbol would mean the sampler is broken.
+        for c in alphabet.chars() {
+            let n = out.chars().filter(|&x| x == c).count();
+            assert!((800..=1200).contains(&n), "{c} appeared {n} times");
+        }
+    }
 }
 
 fn bi_crypto_base64_encode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -42649,8 +42837,10 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     // Fresh salt per message, so the derived key is unique per ciphertext and a
     // random nonce carries no birthday-bound risk across messages.
-    let salt: [u8; 16] = rand::random();
-    let nonce_bytes: [u8; 12] = rand::random();
+    let mut salt = [0u8; 16];
+    let mut nonce_bytes = [0u8; 12];
+    crate::safety::ic_fill_random("crypto_encrypt", &mut salt)?;
+    crate::safety::ic_fill_random("crypto_encrypt", &mut nonce_bytes)?;
     let kdf = CryptoKdf::for_new_ciphertext();
     let key = crypto_derive_key(&password, &salt, kdf)?;
 
@@ -42979,16 +43169,9 @@ fn password_arguments<'a>(
 
 fn bi_crypto_password_hash(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     use argon2::password_hash::{PasswordHasher, SaltString};
-    use rand::RngCore;
     let values = password_arguments("crypto_password_hash", &args, &input, 1)?;
     let mut salt = [0u8; 16];
-    rand::rngs::OsRng.try_fill_bytes(&mut salt).map_err(|_| {
-        crate::safety::bad_state(
-            "crypto_password_hash",
-            "randomness unavailable",
-            "operating-system entropy",
-        )
-    })?;
+    crate::safety::ic_fill_random("crypto_password_hash", &mut salt)?;
     let salt = SaltString::encode_b64(&salt).map_err(|_| {
         crate::safety::bad_state("crypto_password_hash", "salt encoding failed", "valid salt")
     })?;
@@ -43029,14 +43212,13 @@ fn bi_crypto_password_verify(args: Vec<Value>, input: Option<Value>) -> Result<V
                 "rehash with crypto_password_hash",
             ));
         }
-        use argon2::password_hash::Output;
-        use sha2::{Digest, Sha256};
+        // 64 hex digits decode to exactly 32 bytes, the SHA-256 length, so the
+        // stored and computed digests are compared as the same kind of value.
         let expected = hex::decode(values[1]).map_err(|_| malformed())?;
-        let actual = Sha256::digest(values[0].as_bytes());
-        return Ok(Value::Bool(
-            Output::new(&expected).map_err(|_| malformed())?
-                == Output::new(&actual).map_err(|_| malformed())?,
-        ));
+        let actual = ic_sha256(name, values[0].as_bytes())?;
+        return Ok(Value::Bool(ironcrypto::core_types::ct::verify(
+            &expected, &actual,
+        )));
     }
     // SHA-crypt ($5$ / $6$) is verify-only. It is built from SHA-2, but it is not
     // an approved password-hashing construction; under AETHER_FIPS only PBKDF2 is,

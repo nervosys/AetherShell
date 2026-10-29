@@ -33,9 +33,10 @@
 //! `AETHER_POLICY=permissive` makes agent mode behave like human mode (allow
 //! all) for trusted automation; `AETHER_POLICY=strict` is the default.
 
+use ironcrypto::core_types::traits::Digest as _;
+use ironcrypto::hash::Sha256;
 use lazy_static::lazy_static;
 use serde_json::{json, Value as Json};
-use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -1861,6 +1862,35 @@ pub fn decrypt_failed(
     })
 }
 
+/// The structured error for a hash, MAC or random-number call that IronCrypto
+/// refused. The refusal comes from its self-test or an error state; the same
+/// call fails the same way, so the hint says not to retry it unchanged.
+pub fn ic_refusal(builtin: &str, e: ironcrypto::core_types::Error) -> SafetyError {
+    SafetyError {
+        code: ErrorCode::CryptoFailed,
+        message: format!("IronCrypto refused the operation ({e})"),
+        builtin: builtin.to_string(),
+        hint: "nothing was computed; do not retry this call unchanged, because the cryptographic module refused it".to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: String::new(),
+        got: String::new(),
+    }
+}
+
+/// [`ic_refusal`] as an `anyhow` error, for the builtins that return one.
+pub fn ic_failed(builtin: &str, e: ironcrypto::core_types::Error) -> anyhow::Error {
+    anyhow::Error::new(ic_refusal(builtin, e))
+}
+
+/// Fill `out` with bytes from IronCrypto's HMAC-DRBG, seeded from the operating
+/// system. Every secret in AetherShell (salts, nonces, tokens, keys) is drawn
+/// through here; `rand::thread_rng` is not used for them.
+pub fn ic_fill_random(builtin: &str, out: &mut [u8]) -> anyhow::Result<()> {
+    let mut rng = ironcrypto::drbg::Rng::from_os().map_err(|e| ic_failed(builtin, e))?;
+    rng.fill(out).map_err(|e| ic_failed(builtin, e))
+}
+
 /// Build a structured in-process cryptography failure (`E_CRYPTO_FAILED`).
 ///
 /// `message` states what failed and must not repeat the code name; `hint` says
@@ -2141,7 +2171,7 @@ impl ApprovalDescriptor {
         targets: Vec<String>,
         blast_radius: Json,
         reversible: bool,
-    ) -> Self {
+    ) -> Result<Self, ironcrypto::core_types::Error> {
         // token = apv_<first 16 hex of sha256 over the action content>
         let content = json!({
             "what": what,
@@ -2152,16 +2182,16 @@ impl ApprovalDescriptor {
         });
         let mut hasher = Sha256::new();
         hasher.update(content.to_string().as_bytes());
-        let digest = hasher.finalize();
+        let digest = hasher.finalize()?;
         let token = format!("apv_{}", &hex(&digest)[..16]);
-        Self {
+        Ok(Self {
             what: what.to_string(),
             builtin: builtin.to_string(),
             targets,
             blast_radius,
             reversible,
             token,
-        }
+        })
     }
 }
 
@@ -2748,10 +2778,8 @@ fn hex(bytes: &[u8]) -> String {
     s
 }
 
-fn sha256_hex(s: &str) -> String {
-    let mut h = Sha256::new();
-    h.update(s.as_bytes());
-    hex(&h.finalize())
+fn sha256_hex(s: &str) -> Result<String, ironcrypto::core_types::Error> {
+    Ok(hex(&Sha256::digest(s.as_bytes())?))
 }
 
 // ── Chain keying (AS-2026-02) ────────────────────────────────────────────
@@ -2845,23 +2873,21 @@ pub fn audit_key() -> Option<&'static [u8]> {
 /// A short, non-secret label for the key in use, so a verifier can tell "wrong
 /// key" from "tampered" and so rotation shows up in the log rather than looking
 /// like corruption.
-fn audit_key_id(key: &[u8]) -> String {
+fn audit_key_id(key: &[u8]) -> Result<String, ironcrypto::core_types::Error> {
     let mut h = Sha256::new();
     h.update(b"AetherShell-audit-key-id\x00");
     h.update(key);
-    hex(&h.finalize())[..16].to_string()
+    Ok(hex(&h.finalize()?)[..16].to_string())
 }
 
 /// The chain tag over an entry's canonical core: HMAC-SHA256 when a key is
 /// configured, plain SHA-256 otherwise.
-fn chain_tag(key: Option<&[u8]>, s: &str) -> String {
+fn chain_tag(key: Option<&[u8]>, s: &str) -> Result<String, ironcrypto::core_types::Error> {
     match key {
         Some(k) => {
-            use hmac::Mac as _;
-            let mut mac = <hmac::Hmac<Sha256> as hmac::Mac>::new_from_slice(k)
-                .expect("HMAC accepts keys of any length");
-            mac.update(s.as_bytes());
-            hex(&mac.finalize().into_bytes())
+            use ironcrypto::core_types::traits::Mac as _;
+            let tag = ironcrypto::mac::HmacSha256::mac(k, s.as_bytes())?;
+            Ok(hex(&tag))
         }
         None => sha256_hex(s),
     }
@@ -3049,7 +3075,7 @@ fn build_entry(
     decision: &str,
     resource: &str,
     detail: Json,
-) -> (u64, String, String) {
+) -> Result<(u64, String, String), String> {
     let seq = state.seq + 1;
     let ts = chrono::Utc::now().to_rfc3339();
     let principal = std::env::var("USER")
@@ -3088,13 +3114,14 @@ fn build_entry(
     // too, by requiring a tag on every entry once a key is configured.
     if let Some(k) = key {
         core["mac"] = json!("hmac-sha256");
-        core["key_id"] = json!(audit_key_id(k));
+        core["key_id"] = json!(audit_key_id(k).map_err(|e| format!("audit chain: {e}"))?);
     }
-    let entry_hash = chain_tag(key, &core.to_string());
+    let entry_hash =
+        chain_tag(key, &core.to_string()).map_err(|e| format!("audit chain tag refused: {e}"))?;
 
     let mut full = core;
     full["entry_hash"] = json!(entry_hash);
-    (seq, entry_hash, full.to_string())
+    Ok((seq, entry_hash, full.to_string()))
 }
 
 /// Append one already-built line to the log, creating the directory if needed.
@@ -3209,7 +3236,7 @@ pub fn audit(
                 "expected_prev_hash": broken_from,
                 "entries_written_by_this_process": broken_seq,
             }),
-        );
+        )?;
         // Best-effort: if this write fails, the tracing::error above is still
         // the record, and the caller's own entry is attempted regardless.
         if append_line(&path, &mline).is_ok() {
@@ -3218,7 +3245,7 @@ pub fn audit(
         }
     }
 
-    let (seq, entry_hash, line) = build_entry(&state, builtin, effect, decision, resource, detail);
+    let (seq, entry_hash, line) = build_entry(&state, builtin, effect, decision, resource, detail)?;
 
     match append_line(&path, &line) {
         Ok(()) => {
@@ -3328,8 +3355,9 @@ pub fn verify_audit_with(path: &PathBuf, key: Option<&[u8]>) -> Result<u64, Stri
             _ => {}
         }
 
-        let recomputed = chain_tag(key, &obj.to_string());
-        if recomputed != stored {
+        let recomputed = chain_tag(key, &obj.to_string())
+            .map_err(|e| format!("line {}: chain tag refused: {e}", lineno + 1))?;
+        if !ironcrypto::core_types::ct::verify(stored.as_bytes(), recomputed.as_bytes()) {
             return Err(format!(
                 "line {}: entry_hash mismatch (tampered)",
                 lineno + 1
@@ -4536,7 +4564,8 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                 ctx.targets.clone(),
                 ctx.blast_radius.clone(),
                 ctx.reversible,
-            );
+            )
+            .map_err(|e| ic_refusal(ctx.builtin, e))?;
             if is_token_approved(&descriptor.token) {
                 let _ = audit(
                     ctx.builtin,
@@ -5689,19 +5718,60 @@ mod tests {
             vec!["/x/a".into()],
             json!({"files":1}),
             false,
-        );
+        )
+        .unwrap();
         let b = ApprovalDescriptor::new(
             "delete",
             "rm",
             vec!["/x/b".into()],
             json!({"files":1}),
             false,
-        );
+        )
+        .unwrap();
         assert_ne!(
             a.token, b.token,
             "different targets must yield different tokens"
         );
         assert!(a.token.starts_with("apv_"));
+    }
+
+    #[test]
+    fn chain_tag_is_hmac_sha256_over_the_canonical_core() {
+        // Reference values computed outside this code (HMAC-SHA256 and SHA-256
+        // over the same bytes). They pin the layout: the tag covers the exact
+        // UTF-8 bytes of the core string and nothing else.
+        let key = b"audit-test-key-0123456789";
+        let core = r#"{"builtin":"rm","decision":"allow","mac":"hmac-sha256","seq":7,"ts":"2026-10-29T00:00:00Z"}"#;
+        assert_eq!(
+            chain_tag(Some(key), core).unwrap(),
+            "2863021df08b3835ed91e3978034891196c7467116155ce7eb55d032443480fc"
+        );
+        assert_eq!(
+            chain_tag(None, core).unwrap(),
+            "43af3b9ad29795952251109b222ce66c9222f573a776b09c0a9e2724f799fe73"
+        );
+        // A different tag layout (say, the key appended, or a trailing newline)
+        // would change these values, so an old audit log would stop verifying.
+        assert_ne!(
+            chain_tag(Some(key), &format!("{core}\n")).unwrap(),
+            "2863021df08b3835ed91e3978034891196c7467116155ce7eb55d032443480fc"
+        );
+    }
+
+    #[test]
+    fn audit_key_id_is_the_first_16_hex_of_domain_separated_sha256() {
+        let key = b"audit-test-key-0123456789";
+        assert_eq!(audit_key_id(key).unwrap(), "e8fca1b737b081c3");
+    }
+
+    #[test]
+    fn ic_fill_random_fills_and_is_not_constant() {
+        let mut a = [0u8; 64];
+        let mut b = [0u8; 64];
+        ic_fill_random("test", &mut a).unwrap();
+        ic_fill_random("test", &mut b).unwrap();
+        assert!(a.iter().any(|&x| x != 0), "64 zero bytes from the DRBG");
+        assert_ne!(a, b, "two draws must differ");
     }
 
     #[test]

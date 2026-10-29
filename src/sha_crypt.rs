@@ -11,7 +11,8 @@
 //! password is `Ok(false)`, not an error.
 
 use anyhow::Result;
-use sha2::{Digest, Sha256, Sha512};
+use ironcrypto::core_types::traits::Digest;
+use ironcrypto::hash::{Sha256, Sha512};
 
 /// The crypt alphabet, `./0-9A-Za-z`, in the order the encoding indexes it.
 const ALPHABET: &[u8; 64] = b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -160,13 +161,17 @@ fn repeat_to(source: &[u8], len: usize) -> Vec<u8> {
 }
 
 /// The specification's SHA-crypt core, generic over SHA-256 or SHA-512.
-fn sha_crypt_digest<D: Digest>(key: &[u8], salt: &[u8], rounds: u64) -> Vec<u8> {
+fn sha_crypt_digest<D: Digest>(
+    key: &[u8],
+    salt: &[u8],
+    rounds: u64,
+) -> Result<Vec<u8>, ironcrypto::core_types::Error> {
     // Step 1: B = H(key || salt || key).
     let mut h = D::new();
     h.update(key);
     h.update(salt);
     h.update(key);
-    let b = h.finalize().to_vec();
+    let b = h.finalize()?.as_ref().to_vec();
     let ds = b.len();
 
     // Step 2: A = H(key || salt || B-bytes for len(key), then bits of len(key)).
@@ -188,21 +193,21 @@ fn sha_crypt_digest<D: Digest>(key: &[u8], salt: &[u8], rounds: u64) -> Vec<u8> 
         }
         cnt >>= 1;
     }
-    let a = a.finalize().to_vec();
+    let a = a.finalize()?.as_ref().to_vec();
 
     // Step 3: P = repeat(H(key repeated len(key) times), len(key)).
     let mut h = D::new();
     for _ in 0..key.len() {
         h.update(key);
     }
-    let p = repeat_to(&h.finalize(), key.len());
+    let p = repeat_to(h.finalize()?.as_ref(), key.len());
 
     // Step 4: S = repeat(H(salt repeated 16 + A[0] times), len(salt)).
     let mut h = D::new();
     for _ in 0..(16 + usize::from(a[0])) {
         h.update(salt);
     }
-    let s = repeat_to(&h.finalize(), salt.len());
+    let s = repeat_to(h.finalize()?.as_ref(), salt.len());
 
     // Step 5: the rounds.
     let mut c = a;
@@ -224,9 +229,9 @@ fn sha_crypt_digest<D: Digest>(key: &[u8], salt: &[u8], rounds: u64) -> Vec<u8> 
         } else {
             h.update(&p);
         }
-        c = h.finalize().to_vec();
+        c = h.finalize()?.as_ref().to_vec();
     }
-    c
+    Ok(c)
 }
 
 /// Encodes a digest with the specification's per-variant byte permutation.
@@ -249,11 +254,6 @@ fn encode(bytes: &[u8], order: &[(usize, usize, usize, usize)]) -> String {
     out
 }
 
-/// Compares two byte strings without an early exit on the first difference.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
 /// Verifies `password` against a `$5$` or `$6$` SHA-crypt `hash`. `name` is the
 /// calling builtin, used in coded errors. Returns `Ok(false)` on a mismatch and
 /// `E_BAD_ARG` for malformed hashes or `E_BUDGET_EXCEEDED` for `rounds=` above
@@ -261,20 +261,38 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 pub(super) fn verify(name: &str, password: &str, hash: &str) -> Result<bool> {
     let parsed = parse(name, hash)?;
     let key = password.as_bytes();
+    let refused = |e| crate::safety::ic_failed(name, e);
     let (bytes, order): (Vec<u8>, &[(usize, usize, usize, usize)]) = match parsed.variant {
         Variant::Sha256 => (
-            sha_crypt_digest::<Sha256>(key, parsed.salt, parsed.rounds),
+            sha_crypt_digest::<Sha256>(key, parsed.salt, parsed.rounds).map_err(refused)?,
             &SHA256_ORDER,
         ),
         Variant::Sha512 => (
-            sha_crypt_digest::<Sha512>(key, parsed.salt, parsed.rounds),
+            sha_crypt_digest::<Sha512>(key, parsed.salt, parsed.rounds).map_err(refused)?,
             &SHA512_ORDER,
         ),
     };
     debug_assert_eq!(bytes.len(), parsed.variant.digest_len());
     let encoded = encode(&bytes, order);
-    Ok(constant_time_eq(
+    Ok(ironcrypto::core_types::ct::verify(
         encoded.as_bytes(),
         parsed.digest.as_bytes(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::verify;
+
+    #[test]
+    fn drepper_reference_vectors_verify() {
+        // Drepper's specification example ("Hello world!", salt "saltstring"),
+        // which `openssl passwd -5` and `-6` produce as well.
+        let sha256 = "$5$saltstring$5B8vYYiY.CVt1RlTTf8KbXBH3hsxY/GNooZaBBGWEc5";
+        let sha512 = "$6$saltstring$svn8UoSVapNtMuq1ukKS4tPQd8iKwSMHWjl/O817G3uBnIFNjnQJuesI68u4OTLiBFdcbYEdFCoEOfaS35inz1";
+        assert!(verify("t", "Hello world!", sha256).unwrap());
+        assert!(verify("t", "Hello world!", sha512).unwrap());
+        assert!(!verify("t", "Hello world?", sha256).unwrap());
+        assert!(!verify("t", "Hello world?", sha512).unwrap());
+    }
 }

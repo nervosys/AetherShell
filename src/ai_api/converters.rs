@@ -1,7 +1,8 @@
 use crate::ai_api::models::*;
 use anyhow::Result;
+use ironcrypto::core_types::traits::Digest;
+use ironcrypto::hash::Sha256;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -368,9 +369,7 @@ impl ModelConverter {
     /// Calculate SHA256 checksum of a file
     fn calculate_checksum(&self, file_path: &str) -> Result<String> {
         let contents = fs::read(file_path)?;
-        let mut hasher = Sha256::new();
-        hasher.update(&contents);
-        Ok(format!("{:x}", hasher.finalize()))
+        Ok(hex::encode(Sha256::digest(&contents)?))
     }
 
     /// Extract metadata from a model file

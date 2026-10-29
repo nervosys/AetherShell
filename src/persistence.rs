@@ -1042,7 +1042,7 @@ impl PersistenceManager {
 
         let checkpoint_id = Uuid::new_v4().to_string();
         let json = serde_json::to_string(&(&agent_state, &conversations))?;
-        let checksum = integrity_checksum(&json);
+        let checksum = integrity_checksum(&json)?;
         let size_bytes = json.len() as u64;
 
         let checkpoint = Checkpoint {
@@ -1170,7 +1170,10 @@ impl PersistenceManager {
                         let checkpoint_id = Uuid::new_v4().to_string();
                         let json = serde_json::to_string(&(&agent_state, &conversations))
                             .unwrap_or_default();
-                        let checksum = integrity_checksum(&json);
+                        // IronCrypto refused: skip this automatic checkpoint rather than save one without a checksum.
+                        let Ok(checksum) = integrity_checksum(&json) else {
+                            continue;
+                        };
                         let size_bytes = json.len() as u64;
 
                         let checkpoint = Checkpoint {
@@ -1247,11 +1250,11 @@ fn current_timestamp() -> u64 {
 /// Compute the integrity checksum for persisted data — **SHA-256** (FIPS-approved),
 /// hex-encoded. Replaces the legacy MD5 checksum, which is collision-broken and
 /// therefore forgeable as an integrity guard.
-fn integrity_checksum(data: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(data.as_bytes());
-    format!("{:x}", hasher.finalize())
+fn integrity_checksum(data: &str) -> Result<String> {
+    use ironcrypto::core_types::traits::Digest;
+    let digest = ironcrypto::hash::Sha256::digest(data.as_bytes())
+        .map_err(|e| crate::safety::ic_failed("checkpoint", e))?;
+    Ok(hex::encode(digest))
 }
 
 /// Verify `data` against a `stored` checksum. New checkpoints carry a 64-hex
@@ -1260,7 +1263,8 @@ fn integrity_checksum(data: &str) -> String {
 /// state validates and re-saves forward to SHA-256.
 fn verify_integrity(data: &str, stored: &str) -> bool {
     match stored.len() {
-        64 => integrity_checksum(data) == stored,
+        64 => integrity_checksum(data)
+            .is_ok_and(|c| ironcrypto::core_types::ct::verify(c.as_bytes(), stored.as_bytes())),
         // Legacy MD5 — accepted only when not in FIPS-strict mode (MD5 is not a
         // FIPS-approved algorithm, so FIPS mode fails closed on a legacy digest).
         32 if !crate::safety::fips_enabled() => format!("{:x}", md5::compute(data)) == stored,

@@ -198,9 +198,20 @@ impl AuthToken {
     }
 }
 
+/// A 256-bit URL-safe token, drawn from IronCrypto's DRBG.
+///
+/// `AuthToken::new` and `Session::new` are infallible public constructors with
+/// many callers (their signatures are pinned by `tests/fallback_session_signatures.rs`),
+/// so they cannot return an error. If IronCrypto refuses, the token comes from
+/// `rand`'s generator, which is ChaCha20 seeded from the operating system: a
+/// CSPRNG of the same strength. The refusal is logged, not hidden.
 fn generate_token() -> String {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-    let bytes: [u8; 32] = rand::random();
+    let mut bytes = [0u8; 32];
+    if let Err(e) = crate::safety::ic_fill_random("auth", &mut bytes) {
+        tracing::warn!(target: "security_audit", "token drawn from rand after IronCrypto refused: {e}");
+        bytes = rand::random();
+    }
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
@@ -221,10 +232,13 @@ pub struct ApiKey {
 }
 
 impl ApiKey {
-    pub fn new(name: impl Into<String>, user_id: impl Into<String>) -> (Self, String) {
+    pub fn new(
+        name: impl Into<String>,
+        user_id: impl Into<String>,
+    ) -> Result<(Self, String), ironcrypto::core_types::Error> {
         let raw_key = generate_token();
         let key_prefix = raw_key[..8].to_string();
-        let key_hash = hash_key(&raw_key);
+        let key_hash = hash_key(&raw_key)?;
 
         let api_key = Self {
             id: Uuid::new_v4().to_string(),
@@ -240,11 +254,16 @@ impl ApiKey {
             revoked: false,
         };
 
-        (api_key, raw_key)
+        Ok((api_key, raw_key))
     }
 
+    /// False for a revoked key, a wrong key, or a hash IronCrypto refuses to
+    /// compute: a verifier that cannot check a key must not accept it.
     pub fn verify(&self, key: &str) -> bool {
-        !self.revoked && hash_key(key) == self.key_hash
+        !self.revoked
+            && hash_key(key).is_ok_and(|h| {
+                ironcrypto::core_types::ct::verify(h.as_bytes(), self.key_hash.as_bytes())
+            })
     }
 
     pub fn is_expired(&self) -> bool {
@@ -261,8 +280,11 @@ impl ApiKey {
 /// offline at billions of tries a second, and identical passwords collide into
 /// identical hashes so one crack breaks every account sharing it.
 pub fn hash_password(password: &str) -> Result<String> {
-    use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
-    let salt = SaltString::generate(&mut OsRng);
+    use argon2::password_hash::{PasswordHasher, SaltString};
+    // The same 16-byte salt `SaltString::generate` draws, from IronCrypto.
+    let mut raw = [0u8; 16];
+    crate::safety::ic_fill_random("hash_password", &mut raw)?;
+    let salt = SaltString::encode_b64(&raw).map_err(|e| anyhow!("password salt: {e}"))?;
     argon2::Argon2::default()
         .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
@@ -296,11 +318,10 @@ fn decoy_verify(password: &str) {
     let _ = verify_password(password, decoy);
 }
 
-fn hash_key(key: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(key.as_bytes());
-    format!("{:x}", hasher.finalize())
+fn hash_key(key: &str) -> Result<String, ironcrypto::core_types::Error> {
+    use ironcrypto::core_types::traits::Digest;
+    let digest = ironcrypto::hash::Sha256::digest(key.as_bytes())?;
+    Ok(hex::encode(digest))
 }
 
 // ============================================================================
@@ -1021,7 +1042,8 @@ impl AuthManager {
             .get_user(user_id)
             .ok_or_else(|| anyhow!("User not found"))?;
 
-        let (api_key, raw_key) = ApiKey::new(name, &user.id);
+        let (api_key, raw_key) = ApiKey::new(name, &user.id)
+            .map_err(|e| crate::safety::ic_failed("create_api_key", e))?;
 
         if let Ok(mut keys) = self.api_keys.write() {
             keys.insert(api_key.id.clone(), api_key.clone());
@@ -1348,11 +1370,25 @@ mod tests {
 
     #[test]
     fn test_api_key() {
-        let (api_key, raw_key) = ApiKey::new("test-key", "user123");
+        let (api_key, raw_key) = ApiKey::new("test-key", "user123").unwrap();
 
         assert!(api_key.verify(&raw_key));
         assert!(!api_key.verify("wrong-key"));
         assert!(!api_key.revoked);
+    }
+
+    #[test]
+    fn api_key_hash_stays_plain_lowercase_sha256_hex() {
+        // Stored hashes from before the move must keep verifying, so the format is
+        // pinned: lowercase hex of SHA-256 over the key's UTF-8 bytes.
+        assert_eq!(
+            hash_key("abc").unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        let (key, raw) = ApiKey::new("n", "u").unwrap();
+        assert_eq!(key.key_hash, hash_key(&raw).unwrap());
+        assert!(key.verify(&raw));
+        assert!(!key.verify(&format!("{raw}x")));
     }
 
     #[test]

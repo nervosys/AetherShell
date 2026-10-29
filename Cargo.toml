@@ -92,7 +92,6 @@ native = [
     "dep:jsonschema",
     "dep:syn",
     "dep:quote",
-    "dep:ironcrypto",
 ]
 candle = [
     "dep:candle-core",
@@ -145,6 +144,12 @@ futures = "0.3"
 futures-util = "0.3"
 async-stream = "0.3"
 rand = "0.8"
+# SHA-2 hashing, HMAC-SHA2, constant-time comparison, random numbers, and
+# Ed25519/ECDSA/RSA signatures and key generation come from
+# IronCrypto (pure Rust, no dependencies). sha2 stays only for the PBKDF2 path,
+# whose `pbkdf2` crate takes a RustCrypto digest type, and for the integration
+# tests that use it as an independent oracle; hmac stays for HMAC-SHA-1.
+ironcrypto = { version = "0.3.2" }
 sha2 = "0.10"
 sha1 = "0.10"  # already locked as a transitive dependency; hashing is in-process
 # Password hashing. Deliberately not sha2: `hash_key` (unsalted SHA-256) is
@@ -288,8 +293,6 @@ reqwest = { version = "0.12", default-features = false, features = [
 # Parse and traverse Rust source for pure documentation/refactoring; native only.
 syn = { version = "2", optional = true, features = ["full", "visit", "visit-mut"] }
 quote = { version = "1", optional = true }
-# Pure-Rust Ed25519, ECDSA, RSA signatures and key generation; zero dependencies.
-ironcrypto = { version = "0.3.2", optional = true }
 
 # WASM-only dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]

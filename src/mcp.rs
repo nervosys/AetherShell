@@ -1134,10 +1134,11 @@ pub mod server {
 
     /// Start the MCP HTTP server
     /// Mint a bearer token, matching `agent_api`'s construction.
-    fn generate_mcp_token() -> String {
+    fn generate_mcp_token() -> Result<String> {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-        let bytes: [u8; 32] = rand::random();
-        URL_SAFE_NO_PAD.encode(bytes)
+        let mut bytes = [0u8; 32];
+        crate::safety::ic_fill_random("mcp", &mut bytes)?;
+        Ok(URL_SAFE_NO_PAD.encode(bytes))
     }
 
     /// Constant-time comparison, so a token cannot be recovered a byte at a
@@ -1262,7 +1263,7 @@ pub mod server {
         let token = Arc::new(match config.auth_token.clone() {
             Some(t) if !t.trim().is_empty() => t,
             _ => {
-                let t = generate_mcp_token();
+                let t = generate_mcp_token()?;
                 println!("MCP bearer token: {t}");
                 println!(
                     "Send it as `Authorization: Bearer <token>` on every route except /health."

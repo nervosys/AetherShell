@@ -3990,10 +3990,11 @@ pub mod server {
     }
 
     /// Mint a bearer token, matching `auth::generate_token`'s construction.
-    fn generate_api_token() -> String {
+    fn generate_api_token() -> Result<String> {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-        let bytes: [u8; 32] = rand::random();
-        URL_SAFE_NO_PAD.encode(bytes)
+        let mut bytes = [0u8; 32];
+        crate::safety::ic_fill_random("agent_api", &mut bytes)?;
+        Ok(URL_SAFE_NO_PAD.encode(bytes))
     }
 
     /// Constant-time comparison, so a token cannot be recovered a byte at a time
@@ -4205,7 +4206,7 @@ pub mod server {
         // keep working without a credential.
         let token = Arc::new(match config.auth_token.clone() {
             Some(t) if !t.trim().is_empty() => t,
-            _ => generate_api_token(),
+            _ => generate_api_token()?,
         });
         let auth_token = Arc::clone(&token);
         app = app.layer(axum::middleware::from_fn(

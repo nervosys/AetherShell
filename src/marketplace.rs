@@ -283,10 +283,13 @@ impl RegistryClient {
             // MD5 is collision-broken, so registries should migrate to SHA-256.
             let checksum_ok = match agent.checksum.len() {
                 64 => {
-                    use sha2::{Digest, Sha256};
-                    let mut hasher = Sha256::new();
-                    hasher.update(&bytes);
-                    format!("{:x}", hasher.finalize()) == agent.checksum
+                    use ironcrypto::core_types::traits::Digest;
+                    let digest = ironcrypto::hash::Sha256::digest(&bytes)
+                        .map_err(|e| crate::safety::ic_failed("marketplace install", e))?;
+                    ironcrypto::core_types::ct::verify(
+                        hex::encode(digest).as_bytes(),
+                        agent.checksum.as_bytes(),
+                    )
                 }
                 // Legacy MD5 — not accepted under FIPS-strict mode (non-approved).
                 32 if !crate::safety::fips_enabled() => {
