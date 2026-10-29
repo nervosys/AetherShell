@@ -124,7 +124,7 @@ fn users_name() -> String {
     let name = powershell(&script, None).trim().to_string();
     assert!(!name.is_empty(), "the Users SID has no account name here");
     assert!(
-        !name.contains(|c| matches!(c, ':' | '(' | ')')),
+        !name.contains([':', '(', ')']),
         "the Users account name {name:?} would not parse as a principal"
     );
     name
