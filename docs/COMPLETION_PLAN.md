@@ -85,7 +85,7 @@ removing their guards.
   - [x] Implement cron_remove, cron_enable and cron_disable using native Windows task operations and exact-entry Unix crontab updates. Injected backend tests cover successful changes, duplicate refusal, preserved unrelated text, native failures and Windows wildcard refusal.
   - [x] Implement cron_add, at_schedule and at_remove; add Windows one-time task listing. Fixed registration code accepts UTF-8 JSON data on stdin and uses a limited interactive-user principal. Eight isolated tests passed, including all Windows trigger branches through process-local cmdlet stubs.
   - [x] Verify actual mutations in disposable Windows and Unix environments; backend injection is not a native-platform mutation witness. 2026-10-28: tests/windows_task_admin.rs passed 5/5 on a disposable GitHub windows-latest runner (run 40800454007): cron_add/disable/enable/remove and at_schedule/at_remove against the real Task Scheduler, each step checked with schtasks.exe /Query, plus missing names (E_TOOL_FAILED, nothing created), malformed calls and transaction refusals. tests/linux_task_admin.rs passed 3/3 as root in the ae-disposable distro (Debian cron and at installed there): the crontab is compared byte for byte with a seeded unrelated entry through add, disable, enable and remove, duplicates and missing entries are E_BAD_STATE with the table unchanged, and an at job is checked with atq and at -c through at_schedule and at_remove; root's crontab and the at queue were empty afterwards. macOS crontab has not been run.
-- [ ] Implement services, users/groups, permissions/ACLs, mounting and watching with tested platform backends. (Linux; Windows/macOS open) 2026-10-28, Windows: svc_create/svc_delete (SCM), user_*/group_* (NetAPI) and pkg_install/remove/update/upgrade (winget) verified with real changes on a disposable GitHub windows-latest runner (run 40797023135, elevated runneradmin, winget 1.11.510): windows_service_admin 8/8, windows_account_admin 6/6, windows_winget_admin 7/7, each checked against an oracle other than the builtin (sc/NetUserGetInfo/LogonUser/net/winget list). The run first exposed a renamed built-in Administrator (the refusal test now finds accounts by SID) and winget list asking the unaccepted msstore source (list and uninstall now pass --source winget). Windows ACLs, mounting and watching, and every macOS backend, remain open.
+- [ ] Implement services, users/groups, permissions/ACLs, mounting and watching with tested platform backends. (Linux; Windows/macOS open) 2026-10-28, Windows: svc_create/svc_delete (SCM), user_*/group_* (NetAPI) and pkg_install/remove/update/upgrade (winget) verified with real changes on a disposable GitHub windows-latest runner (run 40797023135, elevated runneradmin, winget 1.11.510): windows_service_admin 8/8, windows_account_admin 6/6, windows_winget_admin 7/7, each checked against an oracle other than the builtin (sc/NetUserGetInfo/LogonUser/net/winget list). The run first exposed a renamed built-in Administrator (the refusal test now finds accounts by SID) and winget list asking the unaccepted msstore source (list and uninstall now pass --source winget). 2026-10-28, macOS: svc_create/svc_delete (launchd daemons in /Library/LaunchDaemons) and user_*/group_* (dscl, dseditgroup) verified as root on a disposable GitHub macos-latest runner (run 40817808017): macos_service_admin and macos_account_admin pass, each step checked with launchctl print, dscl -read and -list, id -u and -Gn, and dscl -authonly. The runs before it found two backend defects: pwpolicy -disableuser exits 0 without disabling a new account (accounts are now disabled with the ;DisabledUser; tag, read back after each write), and dscl -passwd refuses a disabled account (user_passwd lifts the tag for the write and restores it). Windows ACLs, mounting and watching, and macOS ACLs, mounting and watching, remain open.
 - [x] Implement bounded native TCP connect/listen/send/recv/close with strict contracts and actual loopback transfers; Linux/macOS native validation remains open.
 - [ ] Implement missing web/clipboard/UI/input operations.
 - [ ] Implement missing package-manager operations with checked tool adapters. (pkg_list: apt, pacman and Windows Add/Remove Programs; dnf/yum (rpm) and brew are implemented with parser tests. On 2026-10-23, RPM 4.20.1 in the disposable distro answered list_rpm's exact query with `aeprobe-plain<TAB>1.2.3-4` and `aeprobe-epoch<TAB>7:2.0-1`, for two built packages, one with an epoch; that is the shape parse_rpm_rows reads. Not yet run end to end on a dnf/yum host, since detection picks apt there, and brew is untested outside the parser)
@@ -300,8 +300,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_sys_cpu_freq
 - [x] bi_whoami
 - [x] bi_svc_status
-- [x] bi_svc_create — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
-- [x] bi_svc_delete — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_svc_create — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
+- [x] bi_svc_delete — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
 - [x] bi_cron_list
 - [x] bi_cron_add — working implementation added; final platform/release validation remains open.
 - [x] bi_cron_remove — native lifecycle backend implemented; disposable-platform verification remains open.
@@ -312,15 +312,15 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_at_remove — working implementation added; final platform/release validation remains open.
 - [x] bi_startup_list
 - [x] bi_archive_test
-- [x] bi_user_add — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
-- [x] bi_user_del — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
-- [x] bi_user_mod — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
-- [x] bi_user_passwd — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
-- [x] bi_user_lock — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
-- [x] bi_user_unlock — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
-- [x] bi_group_add — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
-- [x] bi_group_del — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
-- [x] bi_group_mod — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
+- [x] bi_user_add — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
+- [x] bi_user_del — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
+- [x] bi_user_mod — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
+- [x] bi_user_passwd — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
+- [x] bi_user_lock — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
+- [x] bi_user_unlock — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
+- [x] bi_group_add — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
+- [x] bi_group_del — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
+- [x] bi_group_mod — Linux backend verified as root in the disposable distro; Windows and macOS backends verified on disposable GitHub runners (runs 40797023135, 40817808017)
 - [x] bi_perm_check
 - [x] bi_acl_get — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_acl_set — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
@@ -393,7 +393,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_session_undo
 - [x] bi_session_redo
 - [x] bi_docs_api
-- [ ] bi_platform_libcpp — Windows reads msvcp140.dll's version and Linux codes unreadable libraries (40389de); macOS still answers libc++ without a version, untested here.
+- [x] bi_platform_libcpp — Windows reads msvcp140.dll's version and Linux codes unreadable libraries (40389de); macOS reads current_version from the LC_ID_DYLIB command of /usr/lib/libc++.1.dylib as dyld maps it from the shared cache (otool -L exits 1 there, since the file is not on disk). libcpp_contracts passed on macos-latest, runs 40816090734 and 40817808017.
 - [x] bi_blkid
 - [x] bi_lsof
 - [x] bi_tcpdump_capture
