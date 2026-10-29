@@ -36987,6 +36987,7 @@ function withText(codes, buf) {
     $.CGEventKeyboardSetUnicodeString(up, codes.length, buf);
     return [down, up];
 }
+var boundSetText = false;
 function typeChunk(s) {
     if (s.length === 0) return;
     var codes = [];
@@ -37008,7 +37009,19 @@ function typeChunk(s) {
             return withText(codes, buf);
         }],
         ['Uint16Array', function () { return withText(codes, new Uint16Array(codes)); }],
-        ['array', function () { return withText(codes, codes); }]
+        ['array', function () { return withText(codes, codes); }],
+        // Last, as binding replaces the bridged function the ways above use.
+        // Bound inside the try: a signature the bridge rejects raises at the
+        // bind, which at the top level killed the whole script (4fe8a17).
+        ['bound', function () {
+            if (!boundSetText) {
+                ObjC.bindFunction('CGEventKeyboardSetUnicodeString',
+                    ['void', ['void *', 'unsigned long', 'void *']]);
+                boundSetText = true;
+            }
+            var data = $(s).dataUsingEncoding($.NSUTF16LittleEndianStringEncoding);
+            return withText(codes, data.bytes);
+        }]
     ];
     var tried = [];
     for (var w = 0; w < ways.length; w++) {
