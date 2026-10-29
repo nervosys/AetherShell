@@ -4536,7 +4536,7 @@ fn ed25519_rejects_bad_encodings_arguments_and_inconsistent_keys() {
         "E_BUDGET_EXCEEDED",
     );
     code(
-        call("crypto_sign", vec![s(&"x".repeat(4097)), s("")], &mut env),
+        call("crypto_sign", vec![s(&"x".repeat(16385)), s("")], &mut env),
         "E_BUDGET_EXCEEDED",
     );
 }
