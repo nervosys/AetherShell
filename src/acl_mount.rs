@@ -1,12 +1,15 @@
-//! Linux POSIX ACLs and mounts: `acl_get`, `acl_set`, `fs_mount` and
-//! `fs_unmount`.
+//! ACLs and mounts: `acl_get`, `acl_set`, `fs_mount` and `fs_unmount`.
 //!
 //! Every builtin checks its arguments before it touches the system, then runs
-//! one tool (`getfacl`, `setfacl`, `icacls`, `mount` or `umount`) with an argv vector.
-//! No shell is involved and no caller string is interpolated into a command
-//! line. Off Linux, the mount builtins are refused with E_UNIMPLEMENTED after
-//! their arguments are checked. On Windows, `acl_get` and `acl_set` run `icacls`,
-//! and the mount builtins are refused the same way. A refusal changes nothing.
+//! one tool (`getfacl`, `setfacl`, `icacls`, `ls`, `chmod`, `mount` or `umount`)
+//! with an argv vector. No shell is involved and no caller string is
+//! interpolated into a command line. On Linux, `acl_get` and `acl_set` run
+//! `getfacl` and `setfacl`, and the mount builtins run `mount` and `umount`. On
+//! Windows, `acl_get` and `acl_set` run `icacls`. On macOS, `acl_get` runs
+//! `ls -led` and `acl_set` runs `chmod +a` or `chmod -a`, with the entry in the
+//! `user:NAME allow|deny PERMS` form. Off Linux and macOS, the mount builtins
+//! are refused with E_UNIMPLEMENTED after their arguments are checked, and on
+//! Windows the same refusal covers them. A refusal changes nothing.
 //!
 //! ACL changes are not recorded by the undo journal. A call inside a
 //! filesystem transaction is refused, because a rollback cannot restore the
@@ -200,6 +203,7 @@ fn flag(builtin: &str, options: &BTreeMap<String, Value>, key: &str) -> Result<b
     }
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn is_name(text: &str) -> bool {
     let mut chars = text.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_lowercase() || c == '_')
@@ -213,7 +217,7 @@ fn is_name(text: &str) -> bool {
 /// `tag:qualifier` with no permissions, and names a user or group entry only.
 /// Tags are `u`, `g`, `m` or `o`, or the spelled-out `user`, `group`, `mask`
 /// or `other`. A mask or other entry has no qualifier. Numeric IDs are refused.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn acl_entry(entry: &str, remove: bool, _default: bool) -> Result<String> {
     const SET: &str = "an entry like u:name:r--, u::rw- or o::r-- (tag, qualifier, perms)";
     const REMOVE: &str = "an entry like u:name or g:name (tag and qualifier, no perms)";
@@ -247,6 +251,86 @@ fn acl_entry(entry: &str, remove: bool, _default: bool) -> Result<String> {
             &format!("{entry:?}"),
         )),
     }
+}
+
+/// The permission names `ls -le` prints and `chmod +a` takes, on macOS.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+const MAC_PERMS: &[&str] = &[
+    "read",
+    "write",
+    "execute",
+    "delete",
+    "append",
+    "readattr",
+    "writeattr",
+    "readextattr",
+    "writeextattr",
+    "readsecurity",
+    "writesecurity",
+    "chown",
+    "list",
+    "search",
+    "add_file",
+    "add_subdirectory",
+    "delete_child",
+];
+
+/// The inheritance flags `ls -le` prints on an inherited or inheriting entry.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+const MAC_FLAGS: &[&str] = &[
+    "file_inherit",
+    "directory_inherit",
+    "limit_inherit",
+    "only_inherit",
+];
+
+/// A macOS account or group name: letters, digits, `_`, `-` and `.`, and no
+/// leading `-`, so it cannot be read as an option.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+fn macos_name(text: &str) -> bool {
+    !text.is_empty()
+        && !text.starts_with('-')
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
+/// Validate an `acl_set` entry on macOS and return the normalized form that
+/// `chmod +a` takes.
+///
+/// An entry is `tag:name allow|deny perms`, such as `user:nobody allow
+/// read,write` or `group:staff deny delete`. The tag is `user` or `group`. The
+/// name is a macOS name. The perms are a comma-separated list, each word one of
+/// the names `ls -le` prints. The words are joined with single spaces. A
+/// removal takes the same entry, because `chmod -a` matches the entry given. The
+/// Linux `u::rw-` form does not parse, so it is refused. `default` is refused,
+/// because inheritance flags are not taken.
+#[cfg(target_os = "macos")]
+fn acl_entry(entry: &str, _remove: bool, default: bool) -> Result<String> {
+    const FORM: &str = "an entry like user:nobody allow read,write or group:staff deny delete (user or group, then allow or deny, then comma-separated perms; the Linux u::rw- form is not accepted)";
+    if default {
+        return Err(safety::bad_arg(
+            "acl_set",
+            "no default option on macOS, because inheritance flags are not taken",
+            "default: true",
+        ));
+    }
+    let refuse = || safety::bad_arg("acl_set", FORM, &format!("{entry:?}"));
+    let words: Vec<&str> = entry.split_whitespace().collect();
+    let [who, verb, perms] = words.as_slice() else {
+        return Err(refuse());
+    };
+    let Some((tag, name)) = who.split_once(':') else {
+        return Err(refuse());
+    };
+    let well_formed = matches!(tag, "user" | "group")
+        && matches!(*verb, "allow" | "deny")
+        && macos_name(name)
+        && perms.split(',').all(|p| MAC_PERMS.contains(&p));
+    if !well_formed {
+        return Err(refuse());
+    }
+    Ok(format!("{tag}:{name} {verb} {perms}"))
 }
 
 /// Validate an `acl_set` entry on Windows and return the icacls argument.
@@ -585,6 +669,104 @@ fn parse_icacls(path: &str, text: &str) -> Result<Value> {
     }
     Ok(record(vec![
         ("path", Value::Str(path.to_string())),
+        ("entries", Value::Array(entries)),
+    ]))
+}
+
+/// Parse the output of `ls -led <path>` into the record `acl_get` returns on
+/// macOS: `{path, owner, group, entries}`. The first line is the long listing,
+/// and its third and fourth fields are the owner and group. Each further line
+/// is an entry, ` N: tag:name allow|deny perms`, where N is the index and the
+/// perms are comma-separated. A word `inherited`, and the inheritance flags in
+/// `MAC_FLAGS`, may also appear among the comma-separated words. They are
+/// reported apart from the perms. A blank line is skipped. Any other line, word
+/// or empty perms list is a coded tool failure, never dropped.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+fn parse_ls_acl(path: &str, text: &str) -> Result<Value> {
+    let unknown = |line: &str| {
+        safety::tool_failed(
+            "acl_get",
+            "ls",
+            Some(0),
+            &format!("unrecognised output line {line:?}"),
+        )
+    };
+    let mut lines = text.lines();
+    let listing = lines.next().unwrap_or("");
+    let fields: Vec<&str> = listing.split_whitespace().collect();
+    if listing.trim().is_empty() {
+        return Err(safety::tool_failed(
+            "acl_get",
+            "ls",
+            Some(0),
+            "its output had no listing line",
+        ));
+    }
+    let mode_ok = fields
+        .first()
+        .is_some_and(|mode| mode.len() >= 10 && mode.is_ascii());
+    if fields.len() < 4 || !mode_ok {
+        return Err(unknown(listing));
+    }
+    let mut entries = Vec::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Some((index, entry)) = line.trim_start().split_once(": ") else {
+            return Err(unknown(line));
+        };
+        if index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(unknown(line));
+        }
+        let index: i64 = index.parse().map_err(|_| unknown(line))?;
+        let words: Vec<&str> = entry.split_whitespace().collect();
+        let [who, verb, perms] = words.as_slice() else {
+            return Err(unknown(line));
+        };
+        let Some((tag, name)) = who.split_once(':') else {
+            return Err(unknown(line));
+        };
+        if !matches!(tag, "user" | "group")
+            || !matches!(*verb, "allow" | "deny")
+            || !macos_name(name)
+        {
+            return Err(unknown(line));
+        }
+        let mut perm_words = Vec::new();
+        let mut flags = Vec::new();
+        let mut inherited = false;
+        for token in perms.split(',') {
+            match token {
+                "inherited" => inherited = true,
+                t if MAC_FLAGS.contains(&t) => flags.push(t.to_string()),
+                t if MAC_PERMS.contains(&t) => perm_words.push(t.to_string()),
+                _ => return Err(unknown(line)),
+            }
+        }
+        if perm_words.is_empty() {
+            return Err(unknown(line));
+        }
+        entries.push(record(vec![
+            ("index", Value::Int(index)),
+            ("tag", Value::Str(tag.to_string())),
+            ("name", Value::Str(name.to_string())),
+            ("kind", Value::Str(verb.to_string())),
+            (
+                "perms",
+                Value::Array(perm_words.into_iter().map(Value::Str).collect()),
+            ),
+            ("inherited", Value::Bool(inherited)),
+            (
+                "flags",
+                Value::Array(flags.into_iter().map(Value::Str).collect()),
+            ),
+        ]));
+    }
+    Ok(record(vec![
+        ("path", Value::Str(path.to_string())),
+        ("owner", Value::Str(fields[2].to_string())),
+        ("group", Value::Str(fields[3].to_string())),
         ("entries", Value::Array(entries)),
     ]))
 }
@@ -1056,7 +1238,119 @@ mod sys {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+mod sys {
+    use super::{guard, off_linux, parse_ls_acl, record, AclSpec, MountSpec};
+    use crate::{safety, value::Value};
+    use anyhow::Result;
+
+    const LS: &str = "/bin/ls";
+    const CHMOD: &str = "/bin/chmod";
+
+    /// Run `program` with `args` and return the finished output, whatever its
+    /// exit status. A run that does not finish in 30s is stopped and refused as
+    /// a budget error; a program that cannot start is a spawn error.
+    fn execute(builtin: &str, program: &str, args: &[&str]) -> Result<std::process::Output> {
+        let name = program.rsplit('/').next().unwrap_or(program);
+        let mut cmd = std::process::Command::new(program);
+        cmd.args(args).env("LC_ALL", "C");
+        safety::output_with_timeout(cmd, 30).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::TimedOut {
+                safety::budget_exceeded(
+                    builtin,
+                    format!("`{name}` did not finish within 30s and was stopped"),
+                    "the file system or the tool is wedged; retry, or inspect the ACL with ls directly",
+                )
+            } else {
+                safety::spawn_error(builtin, name, &e)
+            }
+        })
+    }
+
+    /// The stdout of a finished run. A refusal by the operating system is
+    /// E_OS_DENIED. Any other non-zero exit is a coded tool failure carrying stderr.
+    fn finished(builtin: &str, tool: &str, output: &std::process::Output) -> Result<String> {
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        if stderr.contains("Permission denied") || stderr.contains("Operation not permitted") {
+            return Err(safety::os_denied(
+                builtin,
+                format!("{builtin}: the operating system denied access to the ACL"),
+                "check the file's owner and permissions; the shell did not refuse this",
+            ));
+        }
+        Err(safety::tool_failed(
+            builtin,
+            tool,
+            output.status.code(),
+            &stderr,
+        ))
+    }
+
+    pub(super) fn acl_get(path: &str) -> Result<Value> {
+        std::fs::metadata(path).map_err(|e| safety::fs_error("acl_get", path, &e))?;
+        guard(
+            "acl_get",
+            safety::Effect::ReadLocal,
+            "read the ACL of",
+            &[path.to_string()],
+        )?;
+        // -L follows a symbolic link, as the metadata check and chmod do.
+        let output = execute("acl_get", LS, &["-ledL", "--", path])?;
+        let text = finished("acl_get", "ls", &output)?;
+        parse_ls_acl(path, &text)
+    }
+
+    pub(super) fn acl_set(path: &str, spec: &AclSpec) -> Result<Value> {
+        std::fs::metadata(path).map_err(|e| safety::fs_error("acl_set", path, &e))?;
+        guard(
+            "acl_set",
+            safety::Effect::Privileged,
+            "change the ACL of",
+            &[path.to_string()],
+        )?;
+        // chmod reads a numeric word after the entry as an ACL index, so the
+        // path it is given is absolute, which never is one.
+        let target = std::fs::canonicalize(path)
+            .map_err(|e| safety::fs_error("acl_set", path, &e))?
+            .into_os_string()
+            .into_string()
+            .map_err(|_| safety::arg_err("acl_set: the path is not valid UTF-8"))?;
+        let flag = if spec.remove { "-a" } else { "+a" };
+        let output = execute(
+            "acl_set",
+            CHMOD,
+            &[flag, spec.arg.as_str(), target.as_str()],
+        )?;
+        // chmod -a with no entry to remove says so on stderr.
+        if spec.remove
+            && !output.status.success()
+            && String::from_utf8_lossy(&output.stderr)
+                .to_lowercase()
+                .contains("no matching")
+        {
+            return Err(safety::not_found("acl_set", "ACL entry", &spec.arg));
+        }
+        finished("acl_set", "chmod", &output)?;
+        Ok(record(vec![
+            ("path", Value::Str(path.to_string())),
+            ("entry", Value::Str(spec.arg.clone())),
+            ("applied", Value::Bool(true)),
+        ]))
+    }
+
+    pub(super) fn fs_mount(_source: &str, _target: &str, _spec: &MountSpec) -> Result<Value> {
+        Err(off_linux("fs_mount"))
+    }
+
+    pub(super) fn fs_unmount(_target: &str, _lazy: bool) -> Result<Value> {
+        Err(off_linux("fs_unmount"))
+    }
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 mod sys {
     use super::{off_linux, AclSpec, MountSpec};
     use crate::value::Value;
@@ -1081,7 +1375,7 @@ mod sys {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_icacls;
+    use super::{parse_icacls, parse_ls_acl};
     use crate::value::Value;
 
     /// `icacls` on a file, as captured on Windows 11. The local account name is
@@ -1206,6 +1500,99 @@ Successfully processed 1 files; Failed processing 0 files
         for case in cases {
             assert!(
                 parse_icacls("target-scratch", &case).is_err(),
+                "accepted {case:?}"
+            );
+        }
+    }
+
+    /// `ls -led` output for a file with two ACL entries. Written from the
+    /// documented `ls -le` form, not captured on macOS: the macos_acl_admin test
+    /// on the runner checks the real output.
+    const LS_FILE: &str = "-rw-r--r--+ 1 adam  staff  0 Oct 28 10:00 target-scratch/file\n 0: user:nobody allow read,write\n 1: group:staff deny delete\n";
+
+    /// `ls -led` output for a directory whose entry is inherited.
+    const LS_DIR: &str = "drwxr-xr-x+ 3 adam  staff  96 Oct 28 10:00 target-scratch/dir\n 0: user:nobody allow list,search,file_inherit,directory_inherit,inherited\n";
+
+    fn words(value: &Value, key: &str) -> Vec<String> {
+        match field(value, key) {
+            Value::Array(items) => items
+                .iter()
+                .map(|item| match item {
+                    Value::Str(s) => s.clone(),
+                    _ => panic!("{key} holds a non-string"),
+                })
+                .collect(),
+            _ => panic!("{key} is not an array"),
+        }
+    }
+
+    #[test]
+    fn ls_output_gives_owner_group_and_each_entry() {
+        let value = parse_ls_acl("target-scratch/file", LS_FILE).unwrap();
+        assert_eq!(text(&value, "path"), "target-scratch/file");
+        assert_eq!(text(&value, "owner"), "adam");
+        assert_eq!(text(&value, "group"), "staff");
+        let aces = entries(&value);
+        assert_eq!(aces.len(), 2);
+        assert!(matches!(field(&aces[0], "index"), Value::Int(0)));
+        assert_eq!(text(&aces[0], "tag"), "user");
+        assert_eq!(text(&aces[0], "name"), "nobody");
+        assert_eq!(text(&aces[0], "kind"), "allow");
+        assert_eq!(words(&aces[0], "perms"), vec!["read", "write"]);
+        assert!(!flag(&aces[0], "inherited"));
+        assert!(flags(&aces[0]).is_empty());
+        assert!(matches!(field(&aces[1], "index"), Value::Int(1)));
+        assert_eq!(text(&aces[1], "tag"), "group");
+        assert_eq!(text(&aces[1], "name"), "staff");
+        assert_eq!(text(&aces[1], "kind"), "deny");
+        assert_eq!(words(&aces[1], "perms"), vec!["delete"]);
+    }
+
+    #[test]
+    fn ls_inherited_entry_has_flags_apart_from_perms() {
+        let value = parse_ls_acl("target-scratch/dir", LS_DIR).unwrap();
+        let aces = entries(&value);
+        assert_eq!(aces.len(), 1);
+        assert!(flag(&aces[0], "inherited"));
+        assert_eq!(words(&aces[0], "perms"), vec!["list", "search"]);
+        assert_eq!(flags(&aces[0]), vec!["file_inherit", "directory_inherit"]);
+    }
+
+    #[test]
+    fn ls_listing_without_entries_gives_an_empty_list() {
+        let plain = "-rw-r--r--  1 adam  staff  0 Oct 28 10:00 target-scratch/file\n";
+        let value = parse_ls_acl("target-scratch/file", plain).unwrap();
+        assert!(entries(&value).is_empty());
+    }
+
+    #[test]
+    fn ls_unrecognised_lines_are_errors_not_skipped() {
+        let head = "-rw-r--r--+ 1 adam  staff  0 Oct 28 10:00 target-scratch/file\n";
+        let cases = [
+            // No listing at all.
+            String::new(),
+            // A permission word the grammar does not know.
+            format!("{head} 0: user:nobody allow fly\n"),
+            // A verb other than allow or deny.
+            format!("{head} 0: user:nobody maybe read\n"),
+            // A tag other than user or group.
+            format!("{head} 0: everyone:x allow read\n"),
+            // The Linux tag:qualifier:perms form.
+            format!("{head} 0: u:nobody:rw-\n"),
+            // No index, or a non-numeric index.
+            format!("{head} user:nobody allow read\n"),
+            format!("{head}  x: user:nobody allow read\n"),
+            // No perms at all, and an extra word.
+            format!("{head} 0: user:nobody allow\n"),
+            format!("{head} 0: user:nobody allow read extra\n"),
+            // A name with a character a macOS name does not have.
+            format!("{head} 0: user:no+body allow read\n"),
+            // An entry whose only word is an inheritance flag.
+            format!("{head} 0: user:nobody allow inherited\n"),
+        ];
+        for case in cases {
+            assert!(
+                parse_ls_acl("target-scratch/file", &case).is_err(),
                 "accepted {case:?}"
             );
         }

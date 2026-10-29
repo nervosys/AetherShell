@@ -2,7 +2,8 @@
 //!
 //! The ordinary tests here run everywhere: they check argument refusals,
 //! pipeline-input refusals, transaction refusals, and the coded E_UNIMPLEMENTED
-//! refusal off Linux (on Windows, for the mount builtins only). Linux also runs a read-only ACL test on a file this
+//! refusal of the mount builtins off Linux (and of the ACL builtins off Linux,
+//! Windows and macOS). Linux also runs a read-only ACL test on a file this
 //! test owns. The tests that change the system (ACLs on owned files, loop and
 //! bind mounts, unmount refusals) are `#[ignore]`d and run only as root in the
 //! disposable distro: scripts/disposable_linux_tests.sh.
@@ -284,6 +285,17 @@ fn pipeline_input_is_refused_for_every_builtin() {
     }
 }
 
+/// A well-formed entry for this platform's acl_set grammar.
+fn acl_entry_for_this_os() -> &'static str {
+    if cfg!(windows) {
+        "Users:F"
+    } else if cfg!(target_os = "macos") {
+        "user:nobody allow read"
+    } else {
+        "u::rw-"
+    }
+}
+
 #[test]
 fn every_builtin_refuses_inside_a_transaction_without_touching_anything() {
     let _lock = LOCK.lock().unwrap();
@@ -294,7 +306,7 @@ fn every_builtin_refuses_inside_a_transaction_without_touching_anything() {
     code(
         call(
             "acl_set",
-            vec![s("/"), s(if cfg!(windows) { "Users:F" } else { "u::rw-" })],
+            vec![s("/"), s(acl_entry_for_this_os())],
             &mut env,
         ),
         "E_POLICY_DENY",
@@ -322,6 +334,9 @@ fn declared_examples_are_refusals() {
     }
 }
 
+/// Off Linux, Windows and macOS, the ACL builtins are unimplemented. On macOS
+/// they run ls and chmod, which macos_acl_admin covers, so only the mount
+/// builtins are asserted here.
 #[cfg(not(any(target_os = "linux", windows)))]
 #[test]
 fn off_linux_every_valid_call_is_unimplemented_and_changes_nothing() {
@@ -331,11 +346,13 @@ fn off_linux_every_valid_call_is_unimplemented_and_changes_nothing() {
     let file = sandbox.root.join("owned");
     std::fs::write(&file, "unchanged").unwrap();
     let file = file.to_string_lossy().into_owned();
-    code(call("acl_get", vec![s(&file)], &mut env), "E_UNIMPLEMENTED");
-    code(
-        call("acl_set", vec![s(&file), s("u:nobody:r--")], &mut env),
-        "E_UNIMPLEMENTED",
-    );
+    if !cfg!(target_os = "macos") {
+        code(call("acl_get", vec![s(&file)], &mut env), "E_UNIMPLEMENTED");
+        code(
+            call("acl_set", vec![s(&file), s("u:nobody:r--")], &mut env),
+            "E_UNIMPLEMENTED",
+        );
+    }
     code(
         call("fs_mount", vec![s("/dev/null"), s("/mnt/aeaclm")], &mut env),
         "E_UNIMPLEMENTED",

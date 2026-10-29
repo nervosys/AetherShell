@@ -176,6 +176,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `gui_resize_window` builtins through osascript and System Events (the title
   is an argument, never script text; no Accessibility permission `E_OS_DENIED`;
   focusing by a CGWindow number is `E_UNIMPLEMENTED`). Tested only on disposable runners.
+  macOS: `acl_get` (`ls -led`) and `acl_set` (`chmod +a`, or `chmod -a` with remove)
+  for `user:NAME allow|deny PERMS` and `group:NAME` entries; default ACLs are
+  `E_BAD_ARG`, and removing an entry that is not there is `E_NOT_FOUND`.
   Windows: `pkg_list` from the Add/Remove Programs registry entries.
   Windows: `journalctl` reads the System event log ({time, provider, level,
   id, message}; `unit` is an event provider), `pkg_history` the Windows
