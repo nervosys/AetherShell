@@ -51,7 +51,7 @@ jobs:
                   winget --version
 
             - name: Build the gated tests
-              run: cargo test --no-run --test windows_service_admin --test windows_account_admin --test windows_task_admin --test windows_winget_admin --test clipboard_image_admin --test screenshot_window_admin --test windows_window_admin --test windows_acl_admin
+              run: cargo test --no-run --test windows_service_admin --test windows_account_admin --test windows_task_admin --test windows_winget_admin --test clipboard_image_admin --test screenshot_window_admin --test windows_window_admin --test windows_acl_admin --test windows_mount_admin
 
             - name: Services
               if: ${{ !cancelled() }}
@@ -84,6 +84,10 @@ jobs:
             - name: File ACLs
               if: ${{ !cancelled() }}
               run: cargo test --test windows_acl_admin -- --include-ignored --test-threads=1
+
+            - name: Mounts
+              if: ${{ !cancelled() }}
+              run: cargo test --test windows_mount_admin -- --include-ignored --test-threads=1
 
     macos-mutations:
         name: macOS system changes

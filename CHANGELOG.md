@@ -151,6 +151,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added (platform backends)
 
+- Windows: `fs_mount` attaches a VHD or VHDX file to an empty folder on an NTFS volume and `fs_unmount` detaches it (Mount-DiskImage, partition access paths; elevation needed, E_OS_DENIED otherwise; bind, fstype, options other than readonly and lazy are E_BAD_ARG). Tested only on disposable GitHub runners.
 - Windows: `proc_env` and `proc_cwd` for another process, `proc_suspend` and
   `proc_resume`, and the openssl-backed `crypto_cert_info`, `crypto_cert_verify`,
   RSA/EC `crypto_generate_key` and opt-in legacy decrypt (E_TOOL_MISSING without

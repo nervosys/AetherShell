@@ -5,14 +5,16 @@
 //! `hdiutil`) with an argv vector. No shell is involved and no caller string is
 //! interpolated into a command line. On Linux, `acl_get` and `acl_set` run
 //! `getfacl` and `setfacl`, and the mount builtins run `mount` and `umount`. On
-//! Windows, `acl_get` and `acl_set` run `icacls`. On macOS, `acl_get` runs
-//! `ls -led` and `acl_set` runs `chmod +a` or `chmod -a`, with the entry in the
-//! `user:NAME allow|deny PERMS` form. On macOS, `fs_mount` attaches a disk-image
-//! file with `hdiutil attach` and reads the mount back with statfs, and
-//! `fs_unmount` detaches a disk image with `hdiutil detach` or unmounts any other
-//! mount with `umount`. Off Linux, macOS and Windows, the mount builtins are
-//! refused with E_UNIMPLEMENTED after their arguments are checked, and on Windows
-//! the same refusal covers them. A refusal changes nothing.
+//! Windows, `acl_get` and `acl_set` run `icacls`, and the mount builtins run
+//! Windows PowerShell's storage cmdlets on a VHD or VHDX file, with every path
+//! passed in an environment variable and none in the script text. On macOS,
+//! `acl_get` runs `ls -led` and `acl_set` runs `chmod +a` or `chmod -a`, with
+//! the entry in the `user:NAME allow|deny PERMS` form; `fs_mount` attaches a
+//! disk-image file with `hdiutil attach` and reads the mount back with statfs,
+//! and `fs_unmount` detaches a disk image with `hdiutil detach` or unmounts any
+//! other mount with `umount`. Elsewhere the mount and ACL builtins are refused
+//! with E_UNIMPLEMENTED after their arguments are checked. A refusal changes
+//! nothing.
 //!
 //! ACL changes are not recorded by the undo journal. A call inside a
 //! filesystem transaction is refused, because a rollback cannot restore the
@@ -20,7 +22,9 @@
 //!
 //! `fs_unmount` refuses the mount points `/`, `/proc`, `/sys`, `/dev`, `/run`,
 //! `/boot`, `/usr`, `/etc`, `/var` and `/home` by exact path, after the path
-//! is canonicalized. `fs_mount` refuses the same paths as a target. macOS has
+//! is canonicalized. `fs_mount` refuses the same paths as a target. On Windows
+//! the protected targets are the drive roots, the Windows folder and everything
+//! under it, Program Files (both), ProgramData and the Users folder. macOS has
 //! its own list, in its `sys` module, and refuses the same calls by exact path.
 use crate::safety::reject_option_like;
 use crate::{safety, value::Value};
@@ -158,14 +162,34 @@ fn text_arg(builtin: &str, value: &Value, role: &str) -> Result<String> {
     }
 }
 
-/// A path that must begin with `/`. The check is textual, so the same call is
-/// refused with E_BAD_ARG on every platform.
+/// What an absolute path begins with, as the error message names it.
+#[cfg(windows)]
+const ABSOLUTE_FORM: &str = r"beginning with a drive letter, such as C:\";
+#[cfg(not(windows))]
+const ABSOLUTE_FORM: &str = "beginning with /";
+
+/// Whether the text begins as an absolute path: `/` off Windows, and a drive
+/// letter then a separator (`C:\` or `C:/`) on Windows. A `/` path on Windows
+/// names the current drive, so it is refused there.
+#[cfg(windows)]
+fn is_absolute(text: &str) -> bool {
+    let b = text.as_bytes();
+    b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && matches!(b[2], b'\\' | b'/')
+}
+
+#[cfg(not(windows))]
+fn is_absolute(text: &str) -> bool {
+    text.starts_with('/')
+}
+
+/// A path that must be absolute (see [`is_absolute`]). The check is textual, so
+/// the same call is refused with E_BAD_ARG before any system access.
 fn absolute_arg(builtin: &str, value: &Value, role: &str) -> Result<String> {
     let text = text_arg(builtin, value, role)?;
-    if !text.starts_with('/') {
+    if !is_absolute(&text) {
         return Err(safety::bad_arg(
             builtin,
-            &format!("absolute {role} path beginning with /"),
+            &format!("absolute {role} path {ABSOLUTE_FORM}"),
             &format!("{text:?}"),
         ));
     }
@@ -515,7 +539,10 @@ fn record(fields: Vec<(&str, Value)>) -> Value {
 }
 
 /// Refusal for a builtin with no implementation on this platform. Nothing has been touched.
-#[cfg_attr(any(target_os = "linux", target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    any(target_os = "linux", target_os = "macos", windows),
+    allow(dead_code)
+)]
 fn off_linux(builtin: &str) -> anyhow::Error {
     safety::unimplemented(
         builtin,
@@ -1136,9 +1163,10 @@ mod sys {
 
 #[cfg(windows)]
 mod sys {
-    use super::{guard, off_linux, parse_icacls, record, AclSpec, MountSpec};
+    use super::{guard, parse_icacls, record, AclSpec, MountSpec};
     use crate::{safety, value::Value};
     use anyhow::Result;
+    use std::path::{Path, PathBuf};
 
     /// The icacls program in the system directory, by absolute path, so that a
     /// program of the same name in the working directory is never run.
@@ -1233,12 +1261,362 @@ mod sys {
         ]))
     }
 
-    pub(super) fn fs_mount(_source: &str, _target: &str, _spec: &MountSpec) -> Result<Value> {
-        Err(off_linux("fs_mount"))
+    /// Run Windows PowerShell with `script` and the given environment variables,
+    /// which carry every path: the script text holds no caller data. The module
+    /// is removed from the child's PSModulePath, which an inherited PowerShell 7
+    /// value would break (Windows PowerShell then cannot load the storage
+    /// module). A run that does not finish in 60s is stopped.
+    fn powershell(
+        builtin: &str,
+        script: &str,
+        env: &[(&str, &str)],
+    ) -> Result<std::process::Output> {
+        let full = format!("$ErrorActionPreference = 'Stop'\n{script}");
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &full]);
+        cmd.env_remove("PSModulePath");
+        for (name, value) in env {
+            cmd.env(name, value);
+        }
+        safety::output_with_timeout(cmd, 60).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::TimedOut {
+                safety::budget_exceeded(
+                    builtin,
+                    "`powershell` did not finish within 60s and was stopped".to_string(),
+                    "the storage service or the image is wedged; retry, or inspect the image with Get-DiskImage directly",
+                )
+            } else {
+                safety::spawn_error(builtin, "powershell", &e)
+            }
+        })
     }
 
-    pub(super) fn fs_unmount(_target: &str, _lazy: bool) -> Result<Value> {
-        Err(off_linux("fs_unmount"))
+    /// The stdout of a PowerShell run that exited 0. A refusal for lack of
+    /// elevation, which is what an unelevated shell gets from the storage
+    /// cmdlets, is E_OS_DENIED. Any other failure is a coded tool failure with
+    /// stderr. Callers read the exit codes their scripts set before this.
+    fn checked(builtin: &str, output: &std::process::Output) -> Result<String> {
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let lower = stderr.to_lowercase();
+        if lower.contains("access is denied")
+            || lower.contains("0x80070005")
+            || lower.contains("requires elevation")
+        {
+            return Err(safety::os_denied(
+                builtin,
+                format!("{builtin}: the operating system denied the storage operation"),
+                "run it from an elevated (Administrator) shell; the shell did not refuse this",
+            ));
+        }
+        Err(safety::tool_failed(
+            builtin,
+            "powershell",
+            output.status.code(),
+            &stderr,
+        ))
+    }
+
+    /// Parse the single JSON line a script prints.
+    fn json(builtin: &str, text: &str) -> Result<serde_json::Value> {
+        serde_json::from_str(text.trim()).map_err(|e| {
+            safety::tool_failed(
+                builtin,
+                "powershell",
+                Some(0),
+                &format!("its output was not JSON ({e}): {:?}", text.trim()),
+            )
+        })
+    }
+
+    /// Read-only: how many partitions list `target` as an access path, and
+    /// whether the disk holding the first is read-only. None when no partition
+    /// lists it.
+    const MOUNTED_SCRIPT: &str = r#"
+$parts = @(Get-Partition | Where-Object { $_.AccessPaths -contains ($env:AE_DST + '\') })
+$readonly = $false
+if ($parts.Count -gt 0) { $readonly = [bool](Get-Disk -Number $parts[0].DiskNumber).IsReadOnly }
+ConvertTo-Json ([ordered]@{ count = $parts.Count; readonly = $readonly }) -Compress
+"#;
+
+    /// Attach the image in AE_SRC (read-only when AE_RO is 1), give its first
+    /// non-reserved partition the folder AE_DST, and print {device, fstype}.
+    /// Exit 6: the folder is not on an NTFS volume. Exit 5: the image has no
+    /// partition. Any failure after the attach detaches the image again.
+    const MOUNT_SCRIPT: &str = r#"
+$vol = Get-Volume -FilePath $env:AE_DST
+if ($vol.FileSystem -ne 'NTFS') { exit 6 }
+$attach = @{ ImagePath = $env:AE_SRC; NoDriveLetter = $true }
+if ($env:AE_RO -eq '1') { $attach['Access'] = 'ReadOnly' }
+Mount-DiskImage @attach | Out-Null
+$code = 0
+try {
+    $part = Get-DiskImage -ImagePath $env:AE_SRC | Get-Disk | Get-Partition | Where-Object { $_.Type -ne 'Reserved' } | Select-Object -First 1
+    if (-not $part) { $code = 5 } else {
+        $part | Add-PartitionAccessPath -AccessPath ($env:AE_DST + '\')
+        $fs = ($part | Get-Volume).FileSystem
+        $result = [ordered]@{ device = (Get-DiskImage -ImagePath $env:AE_SRC).DevicePath; fstype = $fs }
+    }
+} catch {
+    [Console]::Error.WriteLine($_.Exception.Message)
+    $code = 1
+}
+if ($code -ne 0) {
+    Dismount-DiskImage -ImagePath $env:AE_SRC -ErrorAction SilentlyContinue | Out-Null
+    exit $code
+}
+ConvertTo-Json $result -Compress
+"#;
+
+    /// Remove the access path AE_DST from its partition, then detach the image
+    /// behind that disk if one is attached. Exit 4: no partition lists the path.
+    /// If the detach fails, the folder is already unmounted and the image stays
+    /// attached.
+    const UNMOUNT_SCRIPT: &str = r#"
+$want = $env:AE_DST + '\'
+$part = Get-Partition | Where-Object { $_.AccessPaths -contains $want } | Select-Object -First 1
+if (-not $part) { exit 4 }
+$disk = Get-Disk -Number $part.DiskNumber
+$part | Remove-PartitionAccessPath -AccessPath $want
+$device = '\\.\PhysicalDrive' + $disk.Number
+$image = Get-DiskImage | Where-Object { $_.Attached -and $_.DevicePath -eq $device } | Select-Object -First 1
+if ($image) { Dismount-DiskImage -ImagePath $image.ImagePath | Out-Null }
+"#;
+
+    /// Detach the image in AE_SRC. Used only to undo a failed mount, so its
+    /// own failure is ignored.
+    const DETACH_SCRIPT: &str = "Dismount-DiskImage -ImagePath $env:AE_SRC | Out-Null\n";
+
+    /// The access-path state of `target`: None when no partition lists it, else
+    /// Some(whether the disk holding it is read-only).
+    fn mounted_at(builtin: &str, target: &str) -> Result<Option<bool>> {
+        let output = powershell(builtin, MOUNTED_SCRIPT, &[("AE_DST", target)])?;
+        let state = json(builtin, &checked(builtin, &output)?)?;
+        let count = state["count"].as_u64().unwrap_or(0);
+        Ok((count > 0).then(|| state["readonly"].as_bool().unwrap_or(false)))
+    }
+
+    fn detach_image(builtin: &str, source: &str) {
+        let _ = powershell(builtin, DETACH_SCRIPT, &[("AE_SRC", source)]);
+    }
+
+    /// An environment variable naming a folder, or the fallback when unset.
+    fn env_dir(name: &str, fallback: &str) -> String {
+        std::env::var(name)
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| fallback.to_string())
+    }
+
+    /// The folders a mount may not use: a drive root, the Windows folder and
+    /// everything under it, Program Files (both), ProgramData and the Users
+    /// folder. The folders come from the environment, with the usual defaults.
+    /// Compared case-insensitively, without a trailing separator.
+    fn is_protected(canonical: &str) -> bool {
+        let norm = canonical.trim_end_matches('\\').to_ascii_lowercase();
+        let b = norm.as_bytes();
+        if b.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+            return true;
+        }
+        let root = env_dir("SystemRoot", r"C:\Windows");
+        let root = root.trim_end_matches('\\').to_ascii_lowercase();
+        if norm == root || norm.starts_with(&format!("{root}\\")) {
+            return true;
+        }
+        let drive = env_dir("SystemDrive", "C:");
+        [
+            env_dir("ProgramFiles", r"C:\Program Files"),
+            env_dir("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+            env_dir("ProgramData", r"C:\ProgramData"),
+            format!(r"{drive}\Users"),
+        ]
+        .iter()
+        .any(|p| p.trim_end_matches('\\').eq_ignore_ascii_case(&norm))
+    }
+
+    fn check_protected(builtin: &str, canonical: &str, verb: &str) -> Result<()> {
+        if is_protected(canonical) {
+            return Err(safety::policy_deny(
+                builtin,
+                format!("{builtin}: {canonical} is a protected system path; NOTHING WAS {verb}"),
+                "choose a folder outside the system folders: drive roots, the Windows folder and its contents, Program Files, ProgramData and Users are refused",
+            ));
+        }
+        Ok(())
+    }
+
+    /// canonicalize returns a `\\?\` path. A drive path loses that prefix, for
+    /// the messages and for PowerShell. A network share has no drive letter, so
+    /// it is refused rather than passed on.
+    fn drive_path(builtin: &str, path: PathBuf) -> Result<String> {
+        let text = path
+            .into_os_string()
+            .into_string()
+            .map_err(|_| safety::arg_err(format!("{builtin}: the path is not valid UTF-8")))?;
+        match text.strip_prefix(r"\\?\") {
+            Some(rest) if rest.as_bytes().get(1) == Some(&b':') => Ok(rest.to_string()),
+            _ => Err(safety::arg_err(format!(
+                "{builtin}: {text} is not on a drive letter; use a local path such as C:\\mnt\\disk"
+            ))),
+        }
+    }
+
+    pub(super) fn fs_mount(source: &str, target: &str, spec: &MountSpec) -> Result<Value> {
+        if spec.bind {
+            return Err(safety::arg_err(
+                "fs_mount: bind mounts do not exist on Windows; mount a VHD or VHDX file on an empty folder instead",
+            ));
+        }
+        if spec.fstype.is_some() {
+            return Err(safety::arg_err(
+                "fs_mount: fstype does not apply on Windows, because the file system is read from the image",
+            ));
+        }
+        if !spec.options.is_empty() {
+            return Err(safety::arg_err(
+                "fs_mount: on Windows the only option is readonly; the options Array is refused",
+            ));
+        }
+        let target_path =
+            std::fs::canonicalize(target).map_err(|e| safety::fs_error("fs_mount", target, &e))?;
+        let target = drive_path("fs_mount", target_path)?;
+        check_protected("fs_mount", &target, "MOUNTED")?;
+        let target_meta =
+            std::fs::metadata(&target).map_err(|e| safety::fs_error("fs_mount", &target, &e))?;
+        if !target_meta.is_dir() {
+            return Err(safety::arg_err(format!(
+                "fs_mount: the target {target} is not a directory"
+            )));
+        }
+        let occupied = std::fs::read_dir(&target)
+            .map_err(|e| safety::fs_error("fs_mount", &target, &e))?
+            .next()
+            .is_some();
+        if occupied {
+            return Err(safety::arg_err(format!(
+                "fs_mount: the target {target} is not empty; mount on an empty directory"
+            )));
+        }
+
+        let source_path =
+            std::fs::canonicalize(source).map_err(|e| safety::fs_error("fs_mount", source, &e))?;
+        let source = drive_path("fs_mount", source_path)?;
+        let source_meta =
+            std::fs::metadata(&source).map_err(|e| safety::fs_error("fs_mount", &source, &e))?;
+        let image = Path::new(&source)
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("vhd") || e.eq_ignore_ascii_case("vhdx"));
+        if !image || !source_meta.is_file() {
+            return Err(safety::arg_err(format!(
+                "fs_mount: on Windows fs_mount takes a VHD or VHDX file, and {source} is not one"
+            )));
+        }
+
+        guard(
+            "fs_mount",
+            safety::Effect::Privileged,
+            "mount",
+            &[source.clone(), target.clone()],
+        )?;
+        let readonly_flag = if spec.readonly { "1" } else { "0" };
+        let output = powershell(
+            "fs_mount",
+            MOUNT_SCRIPT,
+            &[
+                ("AE_SRC", &source),
+                ("AE_DST", &target),
+                ("AE_RO", readonly_flag),
+            ],
+        )?;
+        match output.status.code() {
+            Some(5) => {
+                return Err(safety::arg_err(
+                    "fs_mount: the image has no partition to mount; NOTHING WAS MOUNTED",
+                ))
+            }
+            Some(6) => {
+                return Err(safety::arg_err(format!(
+                    "fs_mount: {target} is not on an NTFS volume; NOTHING WAS MOUNTED"
+                )))
+            }
+            _ => {}
+        }
+        let made = json("fs_mount", &checked("fs_mount", &output)?)?;
+        let Some(fstype) = made["fstype"].as_str() else {
+            detach_image("fs_mount", &source);
+            return Err(safety::tool_failed(
+                "fs_mount",
+                "powershell",
+                Some(0),
+                "its output named no file system; the image was detached",
+            ));
+        };
+
+        // Read the mount back from the system, not from what was asked.
+        let readonly = match mounted_at("fs_mount", &target) {
+            Ok(Some(readonly)) => readonly,
+            other => {
+                detach_image("fs_mount", &source);
+                return Err(match other {
+                    Err(e) => e,
+                    _ => safety::tool_failed(
+                        "fs_mount",
+                        "Add-PartitionAccessPath",
+                        Some(0),
+                        &format!(
+                            "{target} is not listed as an access path after mounting; the image was detached"
+                        ),
+                    ),
+                });
+            }
+        };
+        Ok(record(vec![
+            ("source", Value::Str(source)),
+            ("target", Value::Str(target)),
+            ("fstype", Value::Str(fstype.to_string())),
+            ("readonly", Value::Bool(readonly)),
+        ]))
+    }
+
+    pub(super) fn fs_unmount(target: &str, lazy: bool) -> Result<Value> {
+        if lazy {
+            return Err(safety::arg_err(
+                "fs_unmount: lazy is a Linux umount option and Windows has no lazy unmount; NOTHING WAS UNMOUNTED",
+            ));
+        }
+        let canonical_path = std::fs::canonicalize(target)
+            .map_err(|e| safety::fs_error("fs_unmount", target, &e))?;
+        let canonical = drive_path("fs_unmount", canonical_path)?;
+        check_protected("fs_unmount", &canonical, "UNMOUNTED")?;
+        if mounted_at("fs_unmount", &canonical)?.is_none() {
+            return Err(safety::not_found("fs_unmount", "mount point", target));
+        }
+        guard(
+            "fs_unmount",
+            safety::Effect::Privileged,
+            "unmount",
+            &[canonical.clone()],
+        )?;
+        let output = powershell("fs_unmount", UNMOUNT_SCRIPT, &[("AE_DST", &canonical)])?;
+        if output.status.code() == Some(4) {
+            return Err(safety::not_found("fs_unmount", "mount point", target));
+        }
+        checked("fs_unmount", &output)?;
+        if mounted_at("fs_unmount", &canonical)?.is_some() {
+            return Err(safety::tool_failed(
+                "fs_unmount",
+                "Remove-PartitionAccessPath",
+                Some(0),
+                &format!("{target} is still an access path after unmounting"),
+            ));
+        }
+        Ok(record(vec![
+            ("target", Value::Str(target.to_string())),
+            ("unmounted", Value::Bool(true)),
+        ]))
     }
 }
 

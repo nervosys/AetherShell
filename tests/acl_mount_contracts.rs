@@ -3,7 +3,8 @@
 //! The ordinary tests here run everywhere: they check argument refusals,
 //! pipeline-input refusals, transaction refusals, and the coded E_UNIMPLEMENTED
 //! refusal of the mount builtins off Linux and Windows (and of the ACL builtins
-//! off Linux, Windows and macOS). Linux also runs a read-only ACL test on a file this
+//! off Linux, Windows and macOS). Windows runs the mount builtins' refusals that
+//! change nothing. Linux also runs a read-only ACL test on a file this
 //! test owns. The tests that change the system (ACLs on owned files, loop and
 //! bind mounts, unmount refusals) are `#[ignore]`d and run only as root in the
 //! disposable distro: scripts/disposable_linux_tests.sh.
@@ -71,6 +72,16 @@ fn s(text: &str) -> Value {
     Value::Str(text.into())
 }
 
+/// An absolute path for this platform, named `name`. The mount refusals below
+/// are decided after the path check, so their paths must pass it.
+fn abs(name: &str) -> String {
+    if cfg!(windows) {
+        format!(r"C:\{name}")
+    } else {
+        format!("/{name}")
+    }
+}
+
 fn rec(fields: Vec<(&str, Value)>) -> Value {
     Value::Record(fields.into_iter().map(|(k, v)| (k.into(), v)).collect())
 }
@@ -94,29 +105,49 @@ fn bad_arguments_are_refused_before_any_effect() {
         ("acl_get", vec![s("")], "E_BAD_ARG"),
         ("acl_get", vec![s("-rf")], "E_BAD_ARG"),
         ("acl_set", vec![], "E_BAD_ARG"),
-        ("acl_set", vec![s("/x")], "E_BAD_ARG"),
-        ("acl_set", vec![s("/x"), s("bogus")], "E_BAD_ARG"),
-        ("acl_set", vec![s("/x"), s("u:r--")], "E_BAD_ARG"),
-        ("acl_set", vec![s("/x"), s("u:nobody:rw")], "E_BAD_ARG"),
-        ("acl_set", vec![s("/x"), s("u:nobody:rwz")], "E_BAD_ARG"),
-        ("acl_set", vec![s("/x"), s("u:Nobody:r--")], "E_BAD_ARG"),
-        ("acl_set", vec![s("/x"), s("u:1000:r--")], "E_BAD_ARG"),
-        ("acl_set", vec![s("/x"), s("m:someone:rw-")], "E_BAD_ARG"),
-        ("acl_set", vec![s("/x"), s("o:someone:r--")], "E_BAD_ARG"),
+        ("acl_set", vec![s(&abs("x"))], "E_BAD_ARG"),
+        ("acl_set", vec![s(&abs("x")), s("bogus")], "E_BAD_ARG"),
+        ("acl_set", vec![s(&abs("x")), s("u:r--")], "E_BAD_ARG"),
+        ("acl_set", vec![s(&abs("x")), s("u:nobody:rw")], "E_BAD_ARG"),
         (
             "acl_set",
-            vec![s("/x"), s("u::rw-"), Value::Int(1)],
+            vec![s(&abs("x")), s("u:nobody:rwz")],
             "E_BAD_ARG",
         ),
         (
             "acl_set",
-            vec![s("/x"), s("u::rw-"), rec(vec![("default", Value::Int(1))])],
+            vec![s(&abs("x")), s("u:Nobody:r--")],
+            "E_BAD_ARG",
+        ),
+        ("acl_set", vec![s(&abs("x")), s("u:1000:r--")], "E_BAD_ARG"),
+        (
+            "acl_set",
+            vec![s(&abs("x")), s("m:someone:rw-")],
+            "E_BAD_ARG",
+        ),
+        (
+            "acl_set",
+            vec![s(&abs("x")), s("o:someone:r--")],
+            "E_BAD_ARG",
+        ),
+        (
+            "acl_set",
+            vec![s(&abs("x")), s("u::rw-"), Value::Int(1)],
             "E_BAD_ARG",
         ),
         (
             "acl_set",
             vec![
-                s("/x"),
+                s(&abs("x")),
+                s("u::rw-"),
+                rec(vec![("default", Value::Int(1))]),
+            ],
+            "E_BAD_ARG",
+        ),
+        (
+            "acl_set",
+            vec![
+                s(&abs("x")),
                 s("u::rw-"),
                 rec(vec![("bogus", Value::Bool(true))]),
             ],
@@ -125,7 +156,7 @@ fn bad_arguments_are_refused_before_any_effect() {
         (
             "acl_set",
             vec![
-                s("/x"),
+                s(&abs("x")),
                 s("u:nobody:r--"),
                 rec(vec![("remove", Value::Bool(true))]),
             ],
@@ -133,44 +164,60 @@ fn bad_arguments_are_refused_before_any_effect() {
         ),
         (
             "acl_set",
-            vec![s("/x"), s("m:x"), rec(vec![("remove", Value::Bool(true))])],
+            vec![
+                s(&abs("x")),
+                s("m:x"),
+                rec(vec![("remove", Value::Bool(true))]),
+            ],
             "E_BAD_ARG",
         ),
         (
             "acl_set",
-            vec![s("/x"), s("o:"), rec(vec![("remove", Value::Bool(true))])],
+            vec![
+                s(&abs("x")),
+                s("o:"),
+                rec(vec![("remove", Value::Bool(true))]),
+            ],
             "E_BAD_ARG",
         ),
         (
             "acl_set",
-            vec![s("/x"), s("u:"), rec(vec![("remove", Value::Bool(true))])],
+            vec![
+                s(&abs("x")),
+                s("u:"),
+                rec(vec![("remove", Value::Bool(true))]),
+            ],
             "E_BAD_ARG",
         ),
         ("acl_set", vec![s("-x"), s("u::rw-")], "E_BAD_ARG"),
         ("fs_mount", vec![], "E_BAD_ARG"),
-        ("fs_mount", vec![s("/a")], "E_BAD_ARG"),
-        ("fs_mount", vec![s("relative"), s("/b")], "E_BAD_ARG"),
-        ("fs_mount", vec![s("/a"), s("relative")], "E_BAD_ARG"),
+        ("fs_mount", vec![s(&abs("a"))], "E_BAD_ARG"),
+        ("fs_mount", vec![s("relative"), s(&abs("b"))], "E_BAD_ARG"),
+        ("fs_mount", vec![s(&abs("a")), s("relative")], "E_BAD_ARG"),
         (
             "fs_mount",
-            vec![s("/a"), s("/b"), Value::Int(1)],
+            vec![s(&abs("a")), s(&abs("b")), Value::Int(1)],
             "E_BAD_ARG",
         ),
         (
             "fs_mount",
-            vec![s("/a"), s("/b"), rec(vec![("fstype", s("EXT4"))])],
-            "E_BAD_ARG",
-        ),
-        (
-            "fs_mount",
-            vec![s("/a"), s("/b"), rec(vec![("readonly", s("yes"))])],
+            vec![s(&abs("a")), s(&abs("b")), rec(vec![("fstype", s("EXT4"))])],
             "E_BAD_ARG",
         ),
         (
             "fs_mount",
             vec![
-                s("/a"),
-                s("/b"),
+                s(&abs("a")),
+                s(&abs("b")),
+                rec(vec![("readonly", s("yes"))]),
+            ],
+            "E_BAD_ARG",
+        ),
+        (
+            "fs_mount",
+            vec![
+                s(&abs("a")),
+                s(&abs("b")),
                 rec(vec![("options", Value::Array(vec![Value::Int(1)]))]),
             ],
             "E_BAD_ARG",
@@ -178,8 +225,8 @@ fn bad_arguments_are_refused_before_any_effect() {
         (
             "fs_mount",
             vec![
-                s("/a"),
-                s("/b"),
+                s(&abs("a")),
+                s(&abs("b")),
                 rec(vec![("options", Value::Array(vec![s("a b")]))]),
             ],
             "E_BAD_ARG",
@@ -187,8 +234,8 @@ fn bad_arguments_are_refused_before_any_effect() {
         (
             "fs_mount",
             vec![
-                s("/a"),
-                s("/b"),
+                s(&abs("a")),
+                s(&abs("b")),
                 rec(vec![("options", Value::Array(vec![s("a,,b")]))]),
             ],
             "E_BAD_ARG",
@@ -196,8 +243,8 @@ fn bad_arguments_are_refused_before_any_effect() {
         (
             "fs_mount",
             vec![
-                s("/a"),
-                s("/b"),
+                s(&abs("a")),
+                s(&abs("b")),
                 rec(vec![("options", Value::Array(vec![s("remount")]))]),
             ],
             "E_POLICY_DENY",
@@ -205,8 +252,8 @@ fn bad_arguments_are_refused_before_any_effect() {
         (
             "fs_mount",
             vec![
-                s("/a"),
-                s("/b"),
+                s(&abs("a")),
+                s(&abs("b")),
                 rec(vec![("options", Value::Array(vec![s("ro,remount=ro")]))]),
             ],
             "E_POLICY_DENY",
@@ -214,8 +261,8 @@ fn bad_arguments_are_refused_before_any_effect() {
         (
             "fs_mount",
             vec![
-                s("/a"),
-                s("/b"),
+                s(&abs("a")),
+                s(&abs("b")),
                 rec(vec![("options", Value::Array(vec![s("bind")]))]),
             ],
             "E_POLICY_DENY",
@@ -223,8 +270,8 @@ fn bad_arguments_are_refused_before_any_effect() {
         (
             "fs_mount",
             vec![
-                s("/a"),
-                s("/b"),
+                s(&abs("a")),
+                s(&abs("b")),
                 rec(vec![
                     ("bind", Value::Bool(true)),
                     ("readonly", Value::Bool(true)),
@@ -235,29 +282,33 @@ fn bad_arguments_are_refused_before_any_effect() {
         (
             "fs_mount",
             vec![
-                s("/a"),
-                s("/b"),
+                s(&abs("a")),
+                s(&abs("b")),
                 rec(vec![("bind", Value::Bool(true)), ("fstype", s("ext4"))]),
             ],
             "E_BAD_ARG",
         ),
         (
             "fs_mount",
-            vec![s("/a"), s("/b"), rec(vec![("device", s("/dev/sda"))])],
+            vec![
+                s(&abs("a")),
+                s(&abs("b")),
+                rec(vec![("device", s("/dev/sda"))]),
+            ],
             "E_BAD_ARG",
         ),
         ("fs_unmount", vec![], "E_BAD_ARG"),
         ("fs_unmount", vec![s("relative")], "E_BAD_ARG"),
         ("fs_unmount", vec![Value::Int(1)], "E_BAD_ARG"),
-        ("fs_unmount", vec![s("/x"), Value::Int(1)], "E_BAD_ARG"),
+        ("fs_unmount", vec![s(&abs("x")), Value::Int(1)], "E_BAD_ARG"),
         (
             "fs_unmount",
-            vec![s("/x"), rec(vec![("lazy", Value::Int(1))])],
+            vec![s(&abs("x")), rec(vec![("lazy", Value::Int(1))])],
             "E_BAD_ARG",
         ),
         (
             "fs_unmount",
-            vec![s("/x"), rec(vec![("force", Value::Bool(true))])],
+            vec![s(&abs("x")), rec(vec![("force", Value::Bool(true))])],
             "E_BAD_ARG",
         ),
     ];
@@ -272,10 +323,10 @@ fn pipeline_input_is_refused_for_every_builtin() {
     let _sandbox = Sandbox::new();
     let mut env = Env::default();
     let cases: Vec<(&str, Vec<Value>)> = vec![
-        ("acl_get", vec![s("/x")]),
-        ("acl_set", vec![s("/x"), s("u::rw-")]),
-        ("fs_mount", vec![s("/a"), s("/b")]),
-        ("fs_unmount", vec![s("/a")]),
+        ("acl_get", vec![s(&abs("x"))]),
+        ("acl_set", vec![s(&abs("x")), s("u::rw-")]),
+        ("fs_mount", vec![s(&abs("a")), s(&abs("b"))]),
+        ("fs_unmount", vec![s(&abs("a"))]),
     ];
     for (name, args) in cases {
         code(
@@ -312,10 +363,13 @@ fn every_builtin_refuses_inside_a_transaction_without_touching_anything() {
         "E_POLICY_DENY",
     );
     code(
-        call("fs_mount", vec![s("/a"), s("/b")], &mut env),
+        call("fs_mount", vec![s(&abs("a")), s(&abs("b"))], &mut env),
         "E_POLICY_DENY",
     );
-    code(call("fs_unmount", vec![s("/a")], &mut env), "E_POLICY_DENY");
+    code(
+        call("fs_unmount", vec![s(&abs("a"))], &mut env),
+        "E_POLICY_DENY",
+    );
     aethershell::tx::rollback().unwrap();
 }
 
@@ -364,26 +418,48 @@ fn off_linux_every_valid_call_is_unimplemented_and_changes_nothing() {
 
 #[cfg(windows)]
 #[test]
-fn windows_mount_builtins_stay_unimplemented_and_linux_entries_are_refused() {
+fn windows_mount_builtins_refuse_before_any_change() {
     let _lock = LOCK.lock().unwrap();
     let sandbox = Sandbox::new();
     let mut env = Env::default();
     let file = sandbox.root.join("owned");
     std::fs::write(&file, "unchanged").unwrap();
+    let empty = sandbox.root.join("empty");
+    std::fs::create_dir(&empty).unwrap();
     let file = file.to_string_lossy().into_owned();
+    let empty = empty.to_string_lossy().into_owned();
+    let system = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
     code(
         call("acl_set", vec![s(&file), s("u:nobody:r--")], &mut env),
         "E_BAD_ARG",
     );
+    // A Linux path names no drive on Windows, so it is not absolute here.
     code(
         call("fs_mount", vec![s("/dev/null"), s("/mnt/aeaclm")], &mut env),
-        "E_UNIMPLEMENTED",
+        "E_BAD_ARG",
     );
+    code(call("fs_unmount", vec![s("/")], &mut env), "E_BAD_ARG");
+    // A protected target is refused before the source is looked at.
     code(
-        call("fs_unmount", vec![s("/")], &mut env),
-        "E_UNIMPLEMENTED",
+        call("fs_mount", vec![s(&file), s(&system)], &mut env),
+        "E_POLICY_DENY",
+    );
+    // The source must be a VHD or VHDX file.
+    code(
+        call("fs_mount", vec![s(&file), s(&empty)], &mut env),
+        "E_BAD_ARG",
+    );
+    // There is no lazy unmount on Windows.
+    code(
+        call(
+            "fs_unmount",
+            vec![s(&empty), rec(vec![("lazy", Value::Bool(true))])],
+            &mut env,
+        ),
+        "E_BAD_ARG",
     );
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "unchanged");
+    assert_eq!(std::fs::read_dir(&empty).unwrap().count(), 0);
 }
 
 #[cfg(target_os = "linux")]
