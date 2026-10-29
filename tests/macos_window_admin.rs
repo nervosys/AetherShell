@@ -272,13 +272,17 @@ fn a_window_is_listed_moved_resized_focused_maximised_minimised_and_closed() {
     );
 
     // Move: the frame's origin lands at (100, 120), and its size is unchanged.
+    // The window was made with a 300x200 content rect; its frame adds the
+    // title bar, whose height differs between macOS releases, so the size is
+    // read before the move.
+    let before = frame_of(&title).expect("the oracle sees the window");
     let answer = call(
         "gui_move_window",
         vec![s(&title), Value::Int(100), Value::Int(120)],
     )
     .expect("gui_move_window moves the window");
     assert_eq!(answer, Value::Bool(true));
-    expect_frame(&title, [100.0, 120.0, 300.0, 200.0]);
+    expect_frame(&title, [100.0, 120.0, before[2], before[3]]);
 
     // Resize: 400 by 300 points, and the origin stays at (100, 120).
     let answer = call(
