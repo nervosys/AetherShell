@@ -1,4 +1,4 @@
 {
-  "_discarded_args_max": "Measured on the CI runner (ubuntu-latest): 0 of 103 comparable builtins discard extra arguments, on four runs of four commits (CI 40849757169 a744a66, 40860920288 800c204, 40867327832 3be901a, 40870708455 b304184). It was 5 of 126 at fc7c599; the comparable count fell from 126 to 103 and why has not been checked. The ceiling is the measurement itself and may only fall.",
+  "_discarded_args_max": "Measured on the CI runner (ubuntu-latest): 0 of 103 comparable builtins discard extra arguments, on four runs of four commits (CI 40849757169 a744a66, 40860920288 800c204, 40867327832 3be901a, 40870708455 b304184). It was 5 of 126 at fc7c599 (CI 36497747658: audit_verify, clipboard_history, platform_db_import, platform_db_init, platform_db_store); all five were declared after fc7c599 (cab37fe, 6dce017, 2785df2), and a declared builtin refuses surplus arguments. The comparable count fell from 126 to 103 with 5e6b03d, which starts each builtin from an empty jail instead of one a previous builtin had written into. The ceiling is the measurement itself and may only fall.",
   "discarded_args_max": 0
 }
