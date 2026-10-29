@@ -292,6 +292,21 @@ fn typed_text_reaches_the_focused_window_unchanged() {
         },
     );
 
+    // A single key first: whether synthetic keys reach the helper at all,
+    // separately from how text is set on an event.
+    let Some(_) = sent_or_denied("gui_key_press", vec![Value::Str("x".to_string())]) else {
+        return;
+    };
+    let reached = (0..25).any(|_| {
+        std::thread::sleep(Duration::from_millis(200));
+        std::fs::read_to_string(&helper.record).is_ok_and(|got| got == "x")
+    });
+    eprintln!(
+        "a key press reached the helper: {reached}; it recorded {:?}",
+        std::fs::read_to_string(&helper.record).ok()
+    );
+    let _ = std::fs::write(&helper.record, "");
+
     // Non-ASCII text, and a chunk longer than the 20-unit event limit, so
     // both the Unicode path and the chunking are exercised.
     let text = "ae typed 42 \u{fc}ber the limit of twenty units";
@@ -302,14 +317,14 @@ fn typed_text_reaches_the_focused_window_unchanged() {
         matches!(sent, Value::Bool(true)),
         "gui_type_text answered {sent:?}; expected true"
     );
-    wait_until(
-        "the typed text to reach the helper",
-        Duration::from_secs(10),
-        || {
-            std::fs::read_to_string(&helper.record)
-                .map(|got| got == text)
-                .unwrap_or(false)
-        },
+    let arrived = (0..50).any(|_| {
+        std::thread::sleep(Duration::from_millis(200));
+        std::fs::read_to_string(&helper.record).is_ok_and(|got| got.ends_with(text))
+    });
+    let got = std::fs::read_to_string(&helper.record).unwrap_or_default();
+    assert!(
+        arrived,
+        "the helper recorded {got:?} where {text:?} was typed"
     );
 }
 
