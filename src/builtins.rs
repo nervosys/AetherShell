@@ -36966,17 +36966,55 @@ function keyEvent(code, flags, down) {
     $.CGEventSetFlags(ev, flags);
     post(ev);
 }
-// Types a chunk of at most 20 UTF-16 units as one keyboard event pair.
+// Types a chunk of at most 20 UTF-16 units as one keyboard event pair. The
+// bridge rejects NSData.bytes for the UniChar buffer ("Ref has incompatible
+// type", run 40849745373), so the ways it may accept one are tried in order:
+// a JavaScript array of code units, an indexed Ref, then an NSEvent built with
+// the characters, whose CGEvent carries them. Each failure is a JavaScript
+// error, so the next is tried; all failing is one named error.
 function typeChunk(s) {
     if (s.length === 0) return;
-    var setText = need('CGEventKeyboardSetUnicodeString');
-    var units = $(s).dataUsingEncoding($.NSUTF16LittleEndianStringEncoding);
-    var down = $.CGEventCreateKeyboardEvent(null, 0, true);
-    setText(down, s.length, units.bytes);
-    post(down);
-    var up = $.CGEventCreateKeyboardEvent(null, 0, false);
-    setText(up, s.length, units.bytes);
-    post(up);
+    var codes = [];
+    for (var i = 0; i < s.length; i++) codes.push(s.charCodeAt(i));
+    var tried = [];
+    try {
+        var setText = need('CGEventKeyboardSetUnicodeString');
+        var down = $.CGEventCreateKeyboardEvent(null, 0, true);
+        setText(down, codes.length, codes);
+        var up = $.CGEventCreateKeyboardEvent(null, 0, false);
+        setText(up, codes.length, codes);
+        post(down);
+        post(up);
+        return;
+    } catch (e) {
+        tried.push('array: ' + e);
+    }
+    try {
+        var buf = Ref();
+        for (var j = 0; j < codes.length; j++) buf[j] = codes[j];
+        var down2 = $.CGEventCreateKeyboardEvent(null, 0, true);
+        $.CGEventKeyboardSetUnicodeString(down2, codes.length, buf);
+        var up2 = $.CGEventCreateKeyboardEvent(null, 0, false);
+        $.CGEventKeyboardSetUnicodeString(up2, codes.length, buf);
+        post(down2);
+        post(up2);
+        return;
+    } catch (e) {
+        tried.push('Ref: ' + e);
+    }
+    try {
+        var types = [$.NSEventTypeKeyDown, $.NSEventTypeKeyUp];
+        for (var k = 0; k < 2; k++) {
+            var ev = $.NSEvent.keyEventWithTypeLocationModifierFlagsTimestampWindowNumberContextCharactersCharactersIgnoringModifiersIsARepeatKeyCode(
+                types[k], {x: 0, y: 0}, 0, 0, 0, null, $(s), $(s), false, 0);
+            if (!ev || !ev.CGEvent) throw new Error('NSEvent gave no CGEvent');
+            post(ev.CGEvent);
+        }
+        return;
+    } catch (e) {
+        tried.push('NSEvent: ' + e);
+    }
+    throw new Error('-1 no way to set the text of an event worked: ' + tried.join('; '));
 }
 // The text split into code points, so a surrogate pair is never cut.
 function codePoints(text) {
