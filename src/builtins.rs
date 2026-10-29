@@ -36966,53 +36966,61 @@ function keyEvent(code, flags, down) {
     $.CGEventSetFlags(ev, flags);
     post(ev);
 }
-// Types a chunk of at most 20 UTF-16 units as one keyboard event pair. The
-// bridge rejects NSData.bytes for the UniChar buffer ("Ref has incompatible
-// type", run 40849745373), so the ways it may accept one are tried in order:
-// a JavaScript array of code units, an indexed Ref, then an NSEvent built with
-// the characters, whose CGEvent carries them. Each failure is a JavaScript
-// error, so the next is tried; all failing is one named error.
+// Types a chunk of at most 20 UTF-16 units as one keyboard event pair. How
+// the bridge takes the UniChar buffer is not documented, and a wrong way can
+// fail silently: a JavaScript array was accepted and carried no text, so each
+// chunk typed keycode 0, "a" (run 40854789936). So each way builds its events
+// and they are posted only if NSEvent reads back exactly the chunk from them.
+function carries(ev, s) {
+    try {
+        var back = $.NSEvent.eventWithCGEvent(ev);
+        return !!back && ObjC.unwrap(back.characters) === s;
+    } catch (e) {
+        return false;
+    }
+}
+function withText(codes, buf) {
+    var down = $.CGEventCreateKeyboardEvent(null, 0, true);
+    var up = $.CGEventCreateKeyboardEvent(null, 0, false);
+    $.CGEventKeyboardSetUnicodeString(down, codes.length, buf);
+    $.CGEventKeyboardSetUnicodeString(up, codes.length, buf);
+    return [down, up];
+}
 function typeChunk(s) {
     if (s.length === 0) return;
     var codes = [];
     for (var i = 0; i < s.length; i++) codes.push(s.charCodeAt(i));
+    var ways = [
+        ['NSEvent', function () {
+            var made = [];
+            var types = [$.NSEventTypeKeyDown, $.NSEventTypeKeyUp];
+            for (var k = 0; k < 2; k++) {
+                var ev = $.NSEvent.keyEventWithTypeLocationModifierFlagsTimestampWindowNumberContextCharactersCharactersIgnoringModifiersIsARepeatKeyCode(
+                    types[k], {x: 0, y: 0}, 0, 0, 0, null, $(s), $(s), false, 0);
+                made.push(ev ? ev.CGEvent : null);
+            }
+            return made;
+        }],
+        ['Ref', function () {
+            var buf = Ref();
+            for (var j = 0; j < codes.length; j++) buf[j] = codes[j];
+            return withText(codes, buf);
+        }],
+        ['array', function () { return withText(codes, codes); }]
+    ];
     var tried = [];
-    try {
-        var setText = need('CGEventKeyboardSetUnicodeString');
-        var down = $.CGEventCreateKeyboardEvent(null, 0, true);
-        setText(down, codes.length, codes);
-        var up = $.CGEventCreateKeyboardEvent(null, 0, false);
-        setText(up, codes.length, codes);
-        post(down);
-        post(up);
-        return;
-    } catch (e) {
-        tried.push('array: ' + e);
-    }
-    try {
-        var buf = Ref();
-        for (var j = 0; j < codes.length; j++) buf[j] = codes[j];
-        var down2 = $.CGEventCreateKeyboardEvent(null, 0, true);
-        $.CGEventKeyboardSetUnicodeString(down2, codes.length, buf);
-        var up2 = $.CGEventCreateKeyboardEvent(null, 0, false);
-        $.CGEventKeyboardSetUnicodeString(up2, codes.length, buf);
-        post(down2);
-        post(up2);
-        return;
-    } catch (e) {
-        tried.push('Ref: ' + e);
-    }
-    try {
-        var types = [$.NSEventTypeKeyDown, $.NSEventTypeKeyUp];
-        for (var k = 0; k < 2; k++) {
-            var ev = $.NSEvent.keyEventWithTypeLocationModifierFlagsTimestampWindowNumberContextCharactersCharactersIgnoringModifiersIsARepeatKeyCode(
-                types[k], {x: 0, y: 0}, 0, 0, 0, null, $(s), $(s), false, 0);
-            if (!ev || !ev.CGEvent) throw new Error('NSEvent gave no CGEvent');
-            post(ev.CGEvent);
+    for (var w = 0; w < ways.length; w++) {
+        try {
+            var evs = ways[w][1]();
+            if (evs[0] && evs[1] && carries(evs[0], s)) {
+                post(evs[0]);
+                post(evs[1]);
+                return;
+            }
+            tried.push(ways[w][0] + ': the event did not carry the text');
+        } catch (e) {
+            tried.push(ways[w][0] + ': ' + e);
         }
-        return;
-    } catch (e) {
-        tried.push('NSEvent: ' + e);
     }
     throw new Error('-1 no way to set the text of an event worked: ' + tried.join('; '));
 }
