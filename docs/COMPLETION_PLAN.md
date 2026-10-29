@@ -339,11 +339,11 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_pkg_autoremove — Linux backend verified as root in the disposable distro; Windows/macOS refuse explicitly
 - [x] bi_pkg_history
 - [ ] bi_gui_screenshot
-- [ ] bi_gui_screenshot_window — Linux X11 implemented (xwininfo + ImageMagick import); Windows/macOS open
+- [x] bi_gui_screenshot_window — Linux X11 implemented (xwininfo + ImageMagick import); Windows (FindWindow + PrintWindow) and macOS (CGWindowList + screencapture -l) implemented. 2026-10-28, disposable-host run 40807253389 on windows-latest and macos-26-arm64: tests/screenshot_window_admin.rs passed on both (a WinForms form checked by PNG size, a TextEdit window by PNG header; an unknown title is E_NOT_FOUND). The first run found FindWindow($null, …) never matched, which also broke the six gui_*_window operations on Windows; after the fix, tests/windows_window_admin.rs passed 2/2 on the runner (run 40807474184): move, resize, minimize, maximize and close each checked with user32, focus answered true, and an unknown title is E_NOT_FOUND for all six.
 - [x] bi_gui_find_image
 - [x] bi_web_websocket — one bounded exchange through tungstenite (already built for axum): ws and wss, 8 MiB, 1000 messages, 120 s
 - [ ] bi_web_xpath
-- [ ] bi_clipboard_types — Linux implemented (X11 via xclip/xsel, Wayland via wl-paste); Windows implemented; macOS implemented (osascript `clipboard info`), not yet run on a Mac.
+- [x] bi_clipboard_types — Linux implemented (X11 via xclip/xsel, Wayland via wl-paste); Windows implemented; macOS implemented (osascript `clipboard info`). 2026-10-28, disposable-host run 40807253389 on windows-latest and macos-26-arm64: reports `image` after clipboard_set_image on both.
 - [x] bi_input_timeout
 - [x] bi_input_autocomplete
 - [x] bi_crypto_decrypt — authenticated AE1 everywhere; the opt-in legacy CBC path runs wherever `openssl` is on PATH, Windows included (35aefa5)
@@ -351,8 +351,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_crypto_key_generate — native Ed25519; RSA/EC through `openssl` on every OS, E_TOOL_MISSING without it (35aefa5)
 - [x] bi_crypto_password_verify
 - [x] bi_crypto_cert_info — `openssl x509` on every OS, E_TOOL_MISSING without it (35aefa5)
-- [ ] bi_clipboard_get_image — Linux implemented (X11 xclip, Wayland wl-clipboard); Windows (PowerShell) and macOS (osascript) implemented, tested only on the disposable runners (tests/clipboard_image_admin.rs)
-- [ ] bi_clipboard_set_image — Linux implemented (X11 xclip, Wayland wl-clipboard); Windows (PowerShell) and macOS (osascript) implemented, except WEBP on macOS; tested only on the disposable runners (tests/clipboard_image_admin.rs)
+- [x] bi_clipboard_get_image — Linux implemented (X11 xclip, Wayland wl-clipboard); Windows (PowerShell) and macOS (osascript) implemented. 2026-10-28, disposable-host run 40807253389 on windows-latest and macos-26-arm64: tests/clipboard_image_admin.rs passed 4/4 on both; a set-then-get round trip keeps the decoded pixels, and text on the clipboard is E_NOT_FOUND.
+- [x] bi_clipboard_set_image — Linux implemented (X11 xclip, Wayland wl-clipboard); Windows (PowerShell) and macOS (osascript) implemented; WEBP on macOS is E_UNIMPLEMENTED (no clipboard class). 2026-10-28, disposable-host run 40807253389 on windows-latest and macos-26-arm64: verified by the same round trip; only PNG was set on the runners.
 - [x] bi_input_read_char
 - [x] bi_input_spinner
 - [x] bi_input_progress

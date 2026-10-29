@@ -1,4 +1,5 @@
-//! Contracts for `gui_screenshot_window` on Windows and macOS.
+//! Contracts for `gui_screenshot_window` and `gui_screenshot` on Windows and
+//! macOS.
 //!
 //! Every test here captures the real desktop, so each is `#[ignore]`d and also
 //! returns early unless AE_DISPOSABLE_HOST=1, which only the disposable CI
@@ -261,4 +262,30 @@ fn a_textedit_window_is_captured_by_its_exact_title() {
         &dir.join("none.png"),
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// --------------------------------------------------------------- full screen
+
+/// `gui_screenshot(path)` captures the whole primary screen: the answer is the
+/// path, and the file is a PNG at least as large as any runner's display.
+#[test]
+#[ignore = "captures the real desktop: disposable runner only (AE_DISPOSABLE_HOST=1)"]
+fn the_whole_screen_is_captured_as_a_png() {
+    if !disposable() {
+        return;
+    }
+    let path = scratch_dir().join(format!("ae-screen-{}.png", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let path_text = path.to_string_lossy().into_owned();
+    let answer = call("gui_screenshot", vec![s(&path_text)]).expect("the screen is captured");
+    // The answer is the path written, possibly in its checked (canonical) form.
+    let Value::Str(written) = answer else {
+        panic!("gui_screenshot answered {answer:?}, not a path");
+    };
+    let (w, h) = png_size(&std::fs::read(&written).expect("the screenshot was written"));
+    assert!(
+        w >= 640 && h >= 480,
+        "a {w}x{h} capture is not a whole screen"
+    );
+    let _ = std::fs::remove_file(&path);
 }
