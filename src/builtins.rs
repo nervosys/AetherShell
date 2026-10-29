@@ -27648,7 +27648,7 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "macos")]
     {
         // macOS: use mount command (no /proc/mounts)
-        let mut cmd = std::process::Command::new("mount");
+        let cmd = std::process::Command::new("mount");
         let output = bounded_cmd_output("fs_mounts", "mount", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
@@ -40216,7 +40216,7 @@ fn bi_clipboard_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("pbpaste");
+        let cmd = std::process::Command::new("pbpaste");
         let output = bounded_cmd_output(NAME, "pbpaste", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(

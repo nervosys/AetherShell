@@ -1016,8 +1016,24 @@ pub(super) fn spawn(
 ) -> Result<Output> {
     Err(crate::safety::unimplemented(
         builtin,
-        "account and group administration is implemented on Linux and Windows in 13.0.0; NOTHING WAS CHANGED",
-        "run it on Linux or Windows, or use this platform's own account tool",
+        "account and group administration is implemented on Linux, Windows and macOS in 13.0.0; NOTHING WAS CHANGED",
+        "run it on Linux, Windows or macOS, or use this platform's own account tool",
+    ))
+}
+
+/// The Linux tool runner, which the stdin test hook reaches. macOS runs its own
+/// tools through `accounts/macos.rs`, so this refuses as on Windows.
+#[cfg(target_os = "macos")]
+pub(super) fn spawn(
+    builtin: &str,
+    _tool: &str,
+    _args: &[&str],
+    _stdin: Option<&str>,
+) -> Result<std::process::Output> {
+    Err(crate::safety::unimplemented(
+        builtin,
+        "the Linux account tool runner is not used on macOS, where dscl, dseditgroup and pwpolicy run instead; NOTHING WAS CHANGED",
+        "use the account builtins, which run the macOS tools directly",
     ))
 }
 
