@@ -169,7 +169,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `svc_create`/`svc_delete` as `/Library/LaunchDaemons/com.aethershell.<name>.plist`
   with `launchctl bootstrap`/`bootout`, deleting only daemons it created
   (`start` without `enable` is `E_BAD_ARG`); `platform_libcpp` reads libc++'s
-  version with `otool -L`.
+  version from the LC_ID_DYLIB command of the copy dyld maps from the shared
+  cache (there is no file on disk for `otool -L` to read).
   Windows: `pkg_list` from the Add/Remove Programs registry entries.
   Windows: `journalctl` reads the System event log ({time, provider, level,
   id, message}; `unit` is an event provider), `pkg_history` the Windows

@@ -53434,46 +53434,76 @@ fn msvcp140_version() -> Result<String> {
     })
 }
 
-/// The version of the system libc++ on macOS, from `otool -L` on its install
-/// name. The library lives in the dyld shared cache, and `otool` reads it from
-/// there: the first entry it prints for a dylib is the dylib's own identity,
-/// whose `current version` is the one its load commands carry. A missing
-/// `otool` (Command Line Tools not installed), a failed read, or an output
-/// without a dotted version is a coded error; no version is guessed.
+/// The version of the system libc++ on macOS: the `current version` in the
+/// LC_ID_DYLIB load command of /usr/lib/libc++.1.dylib, as dyld mapped it.
+/// The library exists only in the dyld shared cache, so there is no file for
+/// `otool -L` to read (it exits 1 on the runner); dlopen maps it from the
+/// cache, and its in-memory header carries the same load commands. A library
+/// that does not load or a header without LC_ID_DYLIB is a coded error; no
+/// version is guessed.
 #[cfg(target_os = "macos")]
 fn libcxx_version_macos() -> Result<String> {
     const LIBCXX: &str = "/usr/lib/libc++.1.dylib";
-    let mut cmd = std::process::Command::new("/usr/bin/otool");
-    cmd.args(["-L", LIBCXX]);
-    let out = bounded_cmd_output("platform_libcpp", "otool", cmd, PROBE_DEADLINE_SECS)?;
-    if !out.status.success() {
-        return Err(crate::safety::tool_failed(
+    const LC_ID_DYLIB: u32 = 0xd;
+    let unreadable = |why: &str| {
+        crate::safety::bad_state(
             "platform_libcpp",
-            &format!("otool -L {LIBCXX}"),
-            out.status.code(),
-            &String::from_utf8_lossy(&out.stderr),
-        ));
+            &format!("the version of the system libc++ could not be read: {why}"),
+            "check that /usr/lib/libc++.1.dylib is present in the dyld shared cache",
+        )
+    };
+    let path = std::ffi::CString::new(LIBCXX).expect("no NUL in a constant");
+    // SAFETY: a NUL-terminated path; the handle is kept, so the image stays
+    // mapped while its header is read below.
+    let handle = unsafe { libc::dlopen(path.as_ptr(), libc::RTLD_LAZY | libc::RTLD_LOCAL) };
+    if handle.is_null() {
+        return Err(unreadable("dlopen did not load it"));
     }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let version = text.lines().find_map(|line| {
-        let rest = line.split_once("current version ")?.1;
-        let end = rest.find(|c: char| c == ',' || c == ')')?;
-        Some(rest[..end].trim().to_string())
-    });
-    match version {
-        Some(v)
-            if v.split('.').count() >= 2
-                && v.split('.')
-                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) =>
-        {
-            Ok(v)
+    // SAFETY: dyld's image list is read with its own accessors; an index below
+    // _dyld_image_count names a mapped image, and a mapped image's header is
+    // followed by `sizeofcmds` bytes of load commands.
+    let current = unsafe {
+        let mut found = None;
+        for i in 0..libc::_dyld_image_count() {
+            let name = libc::_dyld_get_image_name(i);
+            if name.is_null() || std::ffi::CStr::from_ptr(name).to_bytes() != LIBCXX.as_bytes() {
+                continue;
+            }
+            let header = libc::_dyld_get_image_header(i);
+            if header.is_null() {
+                continue;
+            }
+            let ncmds = (*header).ncmds;
+            let sizeofcmds = (*header).sizeofcmds as usize;
+            let start = (header as *const u8).add(std::mem::size_of::<libc::mach_header_64>());
+            let mut offset = 0usize;
+            for _ in 0..ncmds {
+                if offset + 24 > sizeofcmds {
+                    break;
+                }
+                let at = start.add(offset);
+                let cmd = std::ptr::read_unaligned(at as *const u32);
+                let cmdsize = std::ptr::read_unaligned(at.add(4) as *const u32) as usize;
+                if cmd == LC_ID_DYLIB {
+                    // dylib_command: cmd, cmdsize, name offset, timestamp,
+                    // current_version, compatibility_version.
+                    found = Some(std::ptr::read_unaligned(at.add(16) as *const u32));
+                    break;
+                }
+                if cmdsize < 8 {
+                    break;
+                }
+                offset += cmdsize;
+            }
+            break;
         }
-        _ => Err(crate::safety::bad_state(
-            "platform_libcpp",
-            "the version of the system libc++ could not be read from otool's output",
-            "install the Xcode Command Line Tools, then retry",
-        )),
-    }
+        found
+    };
+    let Some(v) = current else {
+        return Err(unreadable("no LC_ID_DYLIB in its mapped header"));
+    };
+    // X.Y.Z packed as xxxx.yy.zz.
+    Ok(format!("{}.{}.{}", v >> 16, (v >> 8) & 0xff, v & 0xff))
 }
 
 /// The C++ standard library: {name, version, abi}. The version and abi are
@@ -53482,7 +53512,8 @@ fn libcxx_version_macos() -> Result<String> {
 /// On Windows the MSVC STL version comes from msvcp140.dll's version resource.
 /// On Linux the libstdc++ symbol versions are read from the library, and an
 /// unreadable candidate is a coded error. On macOS the libc++ version is read
-/// with `otool` (see `libcxx_version_macos`); the abi stays null.
+/// from dyld's mapping of the library (see `libcxx_version_macos`); the abi
+/// stays null.
 fn bi_platform_libcpp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     no_args_or_input("platform_libcpp", &args, &input)?;
     // One shape everywhere: {name, version, abi}. It was a Record of symbol

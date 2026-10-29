@@ -144,8 +144,11 @@ fn groups_of(user: &str) -> Vec<String> {
 
 /// True when AuthenticationAuthority carries the DisabledUser marker that
 /// pwpolicy -disableuser writes.
+/// `pwpolicy -disableuser` sets isDisabled in the account's policy on current
+/// macOS; older releases wrote ;DisabledUser; into AuthenticationAuthority.
+/// Either one counts.
 fn user_disabled(name: &str) -> bool {
-    stdout_of(
+    let authority = stdout_of(
         "dscl",
         &[
             ".",
@@ -153,8 +156,13 @@ fn user_disabled(name: &str) -> bool {
             &format!("/Users/{name}"),
             "AuthenticationAuthority",
         ],
-    )
-    .contains("DisabledUser")
+    );
+    let policy = stdout_of("pwpolicy", &["-u", name, "-getpolicy"]);
+    eprintln!("{name}: authority {authority:?} policy {policy:?}");
+    authority.contains("DisabledUser")
+        || policy
+            .split_whitespace()
+            .any(|kv| kv == "isDisabled=1" || kv == "isDisabled=true")
 }
 
 /// True when the directory checks this password for this user.
