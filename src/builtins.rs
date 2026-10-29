@@ -43330,35 +43330,10 @@ fn bi_crypto_cert_info(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
             "inspect a smaller file",
         ));
     }
-    // The same `openssl` on every OS: the Command resolves it through PATH
-    // (openssl.exe on Windows), and an absent tool is E_TOOL_MISSING.
-    let mut cmd = std::process::Command::new("openssl");
-    cmd.args(["x509", "-in", &path, "-text", "-noout"])
-        .stdin(std::process::Stdio::null());
-    let output = bounded_cmd_output(name, "openssl", cmd, TOOL_DEADLINE_SECS)?;
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            name,
-            "openssl",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
-    let text = String::from_utf8(output.stdout).map_err(|_| {
-        crate::safety::bad_state(
-            name,
-            "non-UTF-8 certificate output",
-            "textual certificate details",
-        )
-    })?;
-    if text.trim().is_empty() {
-        return Err(crate::safety::bad_state(
-            name,
-            "empty successful tool output",
-            "textual certificate details",
-        ));
-    }
-    Ok(Value::Str(text))
+    // IronSocketLayer's X.509 (IronPKI) parses the certificates in-process; no
+    // openssl process is started. See src/certificates.rs.
+    let bytes = std::fs::read(&path).map_err(|e| crate::safety::fs_error(name, &path, &e))?;
+    Ok(Value::Array(crate::certificates::inspect(name, &bytes)?))
 }
 
 // ============================================================================
@@ -45497,22 +45472,27 @@ fn bi_crypto_cert_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Valu
             &cert_path,
         ));
     }
-    // A file that exists but cannot be opened makes openssl exit non-zero,
-    // which answered false: an unreadable certificate read as an invalid one.
-    if let Err(e) = std::fs::File::open(&cert_path) {
-        return Err(crate::safety::fs_error(
+    // The same size limit as crypto_cert_info, checked before the file is read.
+    let metadata = std::fs::metadata(&cert_path)
+        .map_err(|e| crate::safety::fs_error("crypto_cert_verify", &cert_path, &e))?;
+    if metadata.len() > 64 * 1024 * 1024 {
+        return Err(crate::safety::budget_exceeded(
             "crypto_cert_verify",
-            &cert_path,
-            &e,
+            "certificate input exceeds 64 MiB".into(),
+            "verify a smaller file",
         ));
     }
-    // `openssl verify` against its default trust store on every OS. A missing
-    // or empty trust store makes openssl exit non-zero, which reads as false;
-    // that is the documented limitation and it is deliberately unchanged.
-    let mut cmd = std::process::Command::new("openssl");
-    cmd.args(["verify", &cert_path]);
-    let output = bounded_cmd_output("crypto_cert_verify", "openssl", cmd, TOOL_DEADLINE_SECS)?;
-    Ok(Value::Bool(output.status.success()))
+    // A file that exists but cannot be read is a coded error, never false.
+    let bytes = std::fs::read(&cert_path)
+        .map_err(|e| crate::safety::fs_error("crypto_cert_verify", &cert_path, &e))?;
+    // IronSocketLayer's X.509 chain validation against the system trust store.
+    // Only a chain that does not validate is false; a missing trust store,
+    // an unsupported key, or exceeded bounds are coded errors. See
+    // src/certificates.rs.
+    Ok(Value::Bool(crate::certificates::verify_file(
+        "crypto_cert_verify",
+        &bytes,
+    )?))
 }
 
 fn bi_crypto_generate_key(args: Vec<Value>, input: Option<Value>) -> Result<Value> {

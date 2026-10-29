@@ -466,14 +466,12 @@ fn crypto_cert_verify_reports_a_missing_file_as_not_found() {
 }
 
 #[test]
-fn crypto_cert_verify_answers_false_for_a_readable_file_that_is_not_a_certificate() {
+fn crypto_cert_verify_refuses_a_readable_file_that_is_not_a_certificate() {
+    // Not a verdict: the file is refused before any trust store is consulted.
     let path = std::env::temp_dir().join(format!("ae_osbranch_cert_{}.pem", std::process::id()));
     std::fs::write(&path, "not a certificate\n").expect("write scratch file");
     let result = run("crypto_cert_verify", vec![s(&path.to_string_lossy())]);
     let _ = std::fs::remove_file(&path);
-    match answered_or_coded("crypto_cert_verify", result, &["E_TOOL_MISSING"]) {
-        Some(Value::Bool(verified)) => assert!(!verified, "garbage verified as a certificate"),
-        Some(other) => panic!("crypto_cert_verify should return a Bool, got {other:?}"),
-        None => {}
-    }
+    let err = result.expect_err("garbage must not be answered as a verdict");
+    assert_eq!(code_of(&err), "E_BAD_ARG");
 }

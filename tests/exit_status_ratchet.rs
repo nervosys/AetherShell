@@ -33,11 +33,9 @@
 //! The second ceiling stood at 64 long after the sites it counted were fixed;
 //! read again on 2026-10-25 it found two. `proc_exists` answered `kill -0`,
 //! whose EPERM made every other user's process "gone", and now asks in
-//! process. `crypto_cert_verify` is left: openssl's non-zero exit for a
-//! certificate that does not verify is the answer, and a missing or
-//! unreadable file is refused before it runs.
-
-const BOOL_SUCCESS_MAX: usize = 1;
+//! process. `crypto_cert_verify` was the last one: it answered openssl's
+//! non-zero exit, and now validates the chain in-process with IronPKI, so
+//! its false answers are IronPKI's verdicts and nothing reads an exit status.
 
 fn source() -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/builtins.rs");
@@ -131,8 +129,8 @@ fn no_builtin_ignores_the_exit_status() {
 fn failures_reported_as_false_only_decrease() {
     let n = bool_success(&source());
     assert!(
-        n <= BOOL_SUCCESS_MAX,
-        "{n} sites return Bool(status.success()) (ceiling {BOOL_SUCCESS_MAX}); \
+        n == 0,
+        "{n} sites return Bool(status.success()) (ceiling 0); \
          report the failure with its stderr instead"
     );
 }

@@ -3343,13 +3343,38 @@ fn certificate_inspection_validates_owned_files_before_platform_or_tool_checks()
         call("crypto_cert_info", vec![s(&oversized)], &mut env),
         "E_BUDGET_EXCEEDED",
     );
-    let err = call("crypto_cert_info", vec![s(&path)], &mut env)
-        .unwrap_err()
-        .to_string();
-    // openssl refuses the garbage (E_TOOL_FAILED), or is not on PATH.
-    assert!(
-        err.contains("E_TOOL_FAILED") || err.contains("E_TOOL_MISSING"),
-        "{err}"
+    // The same path checks guard crypto_cert_verify, and the garbage that
+    // passes them is refused as a bad argument: no tool is run, and no
+    // record or verdict is returned for a file that is not a certificate.
+    code(
+        call("crypto_cert_info", vec![s(&path)], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call("crypto_cert_verify", vec![s(&path)], &mut env),
+        "E_BAD_ARG",
+    );
+    code(
+        call(
+            "crypto_cert_verify",
+            vec![s(&fixture.path("absent.pem"))],
+            &mut env,
+        ),
+        "E_NOT_FOUND",
+    );
+    code(
+        call("crypto_cert_verify", vec![s(&oversized)], &mut env),
+        "E_BUDGET_EXCEEDED",
+    );
+    code(
+        call(
+            "crypto_cert_verify",
+            vec![s(fixture.root.to_str().unwrap())],
+            &mut env,
+        ),
+        // crypto_cert_verify tests is_file() before anything else, so a
+        // directory reads as "no certificate file here" (E_NOT_FOUND).
+        "E_NOT_FOUND",
     );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "not a certificate");
 }

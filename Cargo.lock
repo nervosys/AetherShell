@@ -74,6 +74,7 @@ dependencies = [
  "hmac",
  "image",
  "ironcrypto",
+ "ironsocketlayer",
  "js-sys",
  "jsonschema",
  "keyring",
@@ -2821,6 +2822,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironpki"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0217648176043f5156f75bcba02ca74a2627e3fe03d3d204f11c14b0630c9c52"
+dependencies = [
+ "ic-core",
+ "ic-hash",
+ "ic-pkix",
+ "ic-sig",
+]
+
+[[package]]
+name = "ironsocketlayer"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3591585486f2ce1bc4ca333d4e34a7032fa348093451d3afe9d2cb8c9b2cd077"
+dependencies = [
+ "ic-cipher",
+ "ic-core",
+ "ic-drbg",
+ "ic-ec",
+ "ic-fips",
+ "ic-hash",
+ "ic-hpke",
+ "ic-kdf",
+ "ic-mac",
+ "ic-mldsa",
+ "ic-mlkem",
+ "ic-ontology",
+ "ic-pkix",
+ "ic-rsa",
+ "ironpki",
+ "isl-ontology",
+]
+
+[[package]]
 name = "is-terminal"
 version = "0.4.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2836,6 +2873,12 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
+
+[[package]]
+name = "isl-ontology"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3237d8c2c229ad881631164285449b864d3c2f4df7e0b3e3455c79664cb5d02c"
 
 [[package]]
 name = "iso8601"

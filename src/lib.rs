@@ -115,6 +115,9 @@ pub mod yaml;
 pub mod shell_features;
 /// Type checker — Hindley-Milner type inference engine.
 pub mod typecheck;
+/// Certificates — X.509 inspection and chain verification on IronSocketLayer's IronPKI.
+#[cfg(feature = "native")]
+pub mod certificates;
 
 // Native-only modules (including eval which depends on builtins)
 /// Autonomous agent framework — single agents and swarm coordination.

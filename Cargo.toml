@@ -150,6 +150,10 @@ rand = "0.8"
 # whose `pbkdf2` crate takes a RustCrypto digest type, and for the integration
 # tests that use it as an independent oracle; hmac stays for HMAC-SHA-1.
 ironcrypto = { version = "0.3.2" }
+# X.509 certificate parsing, chain validation and trust stores for
+# crypto_cert_info and crypto_cert_verify, from IronSocketLayer's re-export of
+# IronPKI (pure Rust, over IronCrypto). No openssl process.
+ironsocketlayer = "0.7.1"
 sha2 = "0.10"
 sha1 = "0.10"  # already locked as a transitive dependency; hashing is in-process
 # Password hashing. Deliberately not sha2: `hash_key` (unsalted SHA-256) is

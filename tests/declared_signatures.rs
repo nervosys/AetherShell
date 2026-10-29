@@ -183,10 +183,10 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("blkid", "the block devices present: blkid on Linux, a drive's volume on Windows"),
     (
         "crypto_cert_verify",
-        "openssl (openssl.exe on Windows) and OpenSSL's default trust store; E_TOOL_MISSING when openssl is not on PATH",
+        "the system trust store (SSL_CERT_FILE, then the usual bundle paths, then Git for Windows' bundle); E_NOT_FOUND when none is found",
     ),
     ("crypto_generate_key", "native IronCrypto keygen (Ed25519, ECDSA P-256, RSA 2048/3072/4096); no external tool"),
-    ("crypto_cert_info", "the openssl CLI and the host certificate file; E_TOOL_MISSING or E_NOT_FOUND on hosts without them"),
+    ("crypto_cert_info", "the host certificate file the example names; E_NOT_FOUND on hosts without it"),
     ("at_list", "Unix atq and this user's queue; E_UNIMPLEMENTED on non-Unix"),
     ("cron_list", "host scheduler query: Windows PowerShell task module or Unix crontab"),
     ("ssh_config", "the user's ~/.ssh/config"),

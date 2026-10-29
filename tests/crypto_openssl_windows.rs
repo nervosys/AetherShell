@@ -1,8 +1,10 @@
 //! The openssl-backed crypto builtins, checked against a real OpenSSL.
 //!
-//! `crypto_cert_info`, `crypto_cert_verify` and the legacy path of
-//! `crypto_decrypt` run the `openssl` CLI on every OS. `crypto_generate_key`
-//! no longer does: it generates natively, so its output is checked here by
+//! `crypto_cert_info` and `crypto_cert_verify` no longer run openssl: they
+//! parse and validate in-process with IronSocketLayer's X.509, and their
+//! answers are checked here against openssl's own output. The legacy path of
+//! `crypto_decrypt` still runs the `openssl` CLI on every OS.
+//! `crypto_generate_key` generates natively, so its output is checked here by
 //! openssl, but it needs no openssl on PATH.
 //! On Windows that is `openssl.exe`, which Git for Windows ships. Every effect
 //! is set up here (a key, a certificate, a legacy ciphertext) and checked with
@@ -172,29 +174,44 @@ fn openssl_backed_crypto_builtins_on_this_host() {
         );
     }
 
-    // cert_info returns openssl's text for the certificate: subject and expiry.
+    // cert_info: one record for the certificate. Its subject and self-issued
+    // flag are read from the certificate, and its SHA-256 fingerprint is
+    // checked against openssl's.
     let cert = self_signed(&dir, "leaf", "ae-leaf.invalid");
-    let info = match call("crypto_cert_info", vec![text(s(&cert))], &mut env) {
-        Ok(Value::Str(info)) => info,
+    let records = match call("crypto_cert_info", vec![text(s(&cert))], &mut env) {
+        Ok(Value::Array(records)) => records,
         other => panic!("crypto_cert_info returned {other:?}"),
     };
-    assert!(
-        info.lines()
-            .any(|l| l.trim_start().starts_with("Subject:") && l.contains("ae-leaf.invalid")),
-        "no subject field in:\n{info}"
-    );
-    assert!(info.contains("Not After"), "no expiry field in:\n{info}");
-
-    // cert_verify: a certificate trusts itself; an unrelated CA does not
-    // verify it; and a missing trust store reads as false (the known
-    // limitation, unchanged).
-    let other = self_signed(&dir, "other-ca", "ae-other-ca.invalid");
-    assert_eq!(verify_with_trust(&cert, &cert), Value::Bool(true));
-    assert_eq!(verify_with_trust(&other, &cert), Value::Bool(false));
+    let [Value::Record(info)] = records.as_slice() else {
+        panic!("expected one certificate record, got {records:?}");
+    };
     assert_eq!(
-        verify_with_trust(&dir.path("no-such-trust-store.pem"), &cert),
-        Value::Bool(false)
+        info.get("subject"),
+        Some(&Value::Str("CN=ae-leaf.invalid".into())),
+        "subject in {info:?}"
     );
+    assert_eq!(info.get("self_issued"), Some(&Value::Bool(true)));
+    let fp = openssl(&["x509", "-in", s(&cert), "-noout", "-fingerprint", "-sha256"]);
+    assert_openssl_ok(&fp, "openssl x509 -fingerprint");
+    let expected_fp: String = String::from_utf8_lossy(&fp.stdout)
+        .split('=')
+        .nth(1)
+        .unwrap_or_default()
+        .trim()
+        .replace(':', "")
+        .to_lowercase();
+    assert_eq!(
+        info.get("sha256_fingerprint"),
+        Some(&Value::Str(expected_fp))
+    );
+
+    // cert_verify: a self-signed certificate is a CA (openssl's req -x509
+    // default), so it is not a valid end entity even against itself; an
+    // unrelated CA does not verify it. Chains that validate are covered in
+    // tests/cert_isl_contracts.rs.
+    let other = self_signed(&dir, "other-ca", "ae-other-ca.invalid");
+    assert_eq!(verify_with_trust(&cert, &cert), Value::Bool(false));
+    assert_eq!(verify_with_trust(&other, &cert), Value::Bool(false));
     let absent = dir.path("absent-cert.pem");
     let e = call("crypto_cert_verify", vec![text(s(&absent))], &mut env)
         .expect_err("a missing certificate must not be a verdict");
@@ -295,20 +312,24 @@ fn openssl_backed_crypto_builtins_on_this_host() {
         assert!(e.to_string().contains("UTF-8"), "{e}");
     }
 
-    // With no openssl on PATH, every openssl-backed builtin is E_TOOL_MISSING.
+    // With no openssl on PATH: cert_info still answers, since it needs no
+    // tool; the legacy decrypt path is still E_TOOL_MISSING.
     let empty = ScratchDir::new("no-openssl");
     let _restore = RestorePath(std::env::var_os("PATH"));
     std::env::set_var("PATH", empty.0.as_os_str());
     let _opt_in = UnsetOnDrop("AETHER_CRYPTO_LEGACY_DECRYPT");
     std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
-    let missing = [
-        ("crypto_cert_info", vec![text(s(&cert))]),
-        ("crypto_cert_verify", vec![text(s(&cert))]),
-        (
-            "crypto_decrypt",
-            vec![text(&ciphertext), text("legacy-pass")],
+    assert!(
+        matches!(
+            call("crypto_cert_info", vec![text(s(&cert))], &mut env),
+            Ok(Value::Array(ref a)) if a.len() == 1
         ),
-    ];
+        "crypto_cert_info needs no openssl on PATH"
+    );
+    let missing = [(
+        "crypto_decrypt",
+        vec![text(&ciphertext), text("legacy-pass")],
+    )];
     for (name, args) in missing {
         let e =
             call(name, args, &mut env).expect_err(&format!("{name} ran without openssl on PATH"));
@@ -341,10 +362,12 @@ fn ensure_openssl_on_path() -> bool {
     true
 }
 
-/// `ae -c` with no openssl on its PATH reports E_TOOL_MISSING for a real file.
+/// `ae -c` with no openssl on its PATH inspects a file that is not a
+/// certificate and refuses it as E_BAD_ARG: the path needs no tool, and a file
+/// that is not a certificate is a refusal, never an empty success.
 /// It runs everywhere, and never touches this test process's environment.
 #[test]
-fn ae_cert_info_without_openssl_on_path_is_tool_missing() {
+fn ae_cert_info_without_openssl_on_path_is_bad_arg() {
     let dir = ScratchDir::new("child");
     let cert = dir.path("cert.pem");
     std::fs::write(&cert, "not really a certificate\n").expect("write cert placeholder");
@@ -376,8 +399,8 @@ fn ae_cert_info_without_openssl_on_path_is_tool_missing() {
     let stderr = std::fs::read_to_string(&stderr_path).unwrap_or_default();
     let combined = format!("{stdout}{stderr}");
     assert!(
-        combined.contains("E_TOOL_MISSING"),
-        "expected E_TOOL_MISSING (status {status}), got:\n{combined}"
+        combined.contains("E_BAD_ARG"),
+        "expected E_BAD_ARG (status {status}), got:\n{combined}"
     );
     assert!(!status.success(), "a refused call exited 0: {combined}");
 }
