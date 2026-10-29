@@ -186,7 +186,9 @@ fn a_journal_read_refuses_its_arguments_on_every_os_and_is_unimplemented_off_lin
         code_of(&call("journalctl", vec![Value::Int(0)])),
         "E_BAD_ARG"
     );
-    #[cfg(not(target_os = "linux"))]
+    // Windows is a deliberate second backend: the call reads the System event
+    // log (signature.rs, journalctl), so it is not unimplemented there.
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         assert_eq!(
             code_of(&call(

@@ -463,8 +463,36 @@ fn every_container_call_fails_coded_when_the_engine_is_unreachable() {
     }
 }
 
+/// On Windows a program is searched for in the application's own directory and
+/// in the system directories before the PATH it is given, so an empty PATH does
+/// not hide a `docker.exe` installed there (CI runners have one). Returns such a
+/// copy, if there is one.
+#[cfg(windows)]
+fn docker_outside_path_override() -> Option<PathBuf> {
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+    let mut dirs = vec![PathBuf::from(&root).join("System32"), PathBuf::from(&root)];
+    if let Some(dir) = PathBuf::from(env!("CARGO_BIN_EXE_ae")).parent() {
+        dirs.push(dir.to_path_buf());
+    }
+    dirs.into_iter()
+        .map(|dir| dir.join("docker.exe"))
+        .find(|path| path.is_file())
+}
+
 #[test]
 fn an_absent_cli_is_coded_as_tool_missing() {
+    // The premise is an absent docker CLI. Where one sits in a directory that
+    // no PATH override reaches, that premise is false and the test cannot hide it.
+    #[cfg(windows)]
+    {
+        if let Some(copy) = docker_outside_path_override() {
+            eprintln!(
+                "skipped: {} is outside the PATH override, so docker cannot be hidden here",
+                copy.display()
+            );
+            return;
+        }
+    }
     let fixture = Fixture::new("absent");
     let empty = fixture.root.join("empty-path");
     std::fs::create_dir_all(&empty).expect("create empty PATH directory");
