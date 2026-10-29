@@ -3,7 +3,7 @@
 > Current release status, 2026-10-19: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
 > The [completion plan](docs/COMPLETION_PLAN.md) contains the current scope,
-> owners, evidence and release gates. Every one of the 1,318
+> owners, evidence and release gates. Every one of the 1,319
 > names in the dispatch table has a declared signature.
 > Measured evaluator improvements are recorded in the linked performance
 > report; final-tree cross-platform measurements remain pending.
