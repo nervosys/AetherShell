@@ -157,6 +157,7 @@ impl AIModelAPI {
 
         let mut detected = Vec::new();
         // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        crate::tls::install_provider();
         let client = crate::security::create_secure_async_client()
             .unwrap_or_else(|_| reqwest::Client::new());
 

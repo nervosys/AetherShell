@@ -40581,6 +40581,7 @@ fn bi_web_websocket(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         matches!(e, tungstenite::Error::Io(io)
             if matches!(io.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
     };
+    crate::tls::install_provider();
     let (mut socket, _response) =
         tungstenite::client_tls_with_config(plan.url.as_str(), tcp, Some(config), None).map_err(
             |e| match e {
@@ -59828,6 +59829,7 @@ fn net_io_error(builtin: &str, what: &str, detail: impl std::fmt::Display) -> an
 /// every redirect target passes the same SSRF and scheme rules as the first URL
 /// before it is followed. A refused hop ends the request with the refusal.
 fn http_redirect_client() -> Result<reqwest::blocking::Client> {
+    crate::tls::install_provider();
     reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .connect_timeout(std::time::Duration::from_secs(10))

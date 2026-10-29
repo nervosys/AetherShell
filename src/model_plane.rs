@@ -94,6 +94,7 @@ pub struct GateHealth {
 }
 
 fn probe_client(timeout: Duration) -> Result<reqwest::blocking::Client> {
+    crate::tls::install_provider();
     reqwest::blocking::Client::builder()
         .timeout(timeout)
         .build()

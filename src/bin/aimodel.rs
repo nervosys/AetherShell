@@ -382,6 +382,7 @@ pub enum KeysAction {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    aethershell::tls::install_provider();
     // Print deprecation notice
     eprintln!("⚠️  DEPRECATION NOTICE:");
     eprintln!("⚠️  The 'aimodel' command is deprecated.");
@@ -931,6 +932,7 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                 "openai" => {
                     if std::env::var("OPENAI_API_KEY").is_ok() {
                         // Try to list models to verify API key works
+                        aethershell::tls::install_provider();
                         let client = aethershell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -959,6 +961,7 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                 }
                 "anthropic" => {
                     if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+                        aethershell::tls::install_provider();
                         let client = aethershell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -1186,6 +1189,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
                         );
 
                         // Try health endpoint
+                        aethershell::tls::install_provider();
                         let client = aethershell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -1252,6 +1256,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
             });
 
             // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+            aethershell::tls::install_provider();
             let client = aethershell::security::create_secure_async_client()
                 .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -1291,6 +1296,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
             ];
 
             // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+            aethershell::tls::install_provider();
             let client = aethershell::security::create_secure_async_client()
                 .unwrap_or_else(|_| reqwest::Client::new());
 

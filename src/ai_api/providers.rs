@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 // SECURITY FIX (LOW-002): Helper to create secure HTTP clients with timeouts
 fn create_secure_client() -> Client {
+    crate::tls::install_provider();
     crate::security::create_secure_async_client().unwrap_or_else(|_| Client::new())
 }
 
@@ -872,6 +873,7 @@ impl LocalProvider {
             Some("http://127.0.0.1:8080".to_string())
         });
 
+        crate::tls::install_provider();
         Self {
             client: Client::new(),
             model_dirs,

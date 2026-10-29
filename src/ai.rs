@@ -918,6 +918,7 @@ fn complete_via_compat(
 
     // A completion may take as long as the providers allow one (120 s), but an
     // endpoint that never answers must not hang the shell.
+    crate::tls::install_provider();
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(120))
@@ -1667,6 +1668,7 @@ fn detect_ollama() -> Result<BackendInfo> {
     charge_probe(&url)?;
 
     // Use a simple blocking client with short timeout for detection
+    crate::tls::install_provider();
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()?;
@@ -1705,6 +1707,7 @@ fn detect_vllm() -> Result<BackendInfo> {
     charge_probe(&url)?;
 
     // Use a simple blocking client with short timeout for detection
+    crate::tls::install_provider();
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()?;
@@ -1744,6 +1747,7 @@ fn detect_llamacpp() -> Result<BackendInfo> {
     charge_probe(&url)?;
 
     // Use a simple blocking client with short timeout for detection
+    crate::tls::install_provider();
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()?;
@@ -1782,6 +1786,7 @@ fn detect_tgi() -> Result<BackendInfo> {
     charge_probe(&url)?;
 
     // Use a simple blocking client with short timeout for detection
+    crate::tls::install_provider();
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()?;
@@ -1830,6 +1835,7 @@ fn detect_openai() -> Result<BackendInfo> {
 
 fn detect_lmstudio() -> Result<BackendInfo> {
     charge_probe("http://localhost:1234/v1/models")?;
+    crate::tls::install_provider();
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()?;
@@ -1913,6 +1919,7 @@ impl McpDetectionCache {
 lazy_static::lazy_static! {
     pub static ref MCP_CACHE: Arc<Mutex<Option<McpDetectionCache>>> = Arc::new(Mutex::new(None));
     static ref HTTP_CLIENT: reqwest::blocking::Client = {
+        crate::tls::install_provider();
         reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(2))
             .pool_max_idle_per_host(10)
@@ -2946,6 +2953,7 @@ pub mod mcp {
     impl McpClient {
         pub fn new(endpoint: &str) -> Self {
             // SECURITY FIX (LOW-002): Use secure HTTP client with proper error handling
+            crate::tls::install_provider();
             let client = crate::security::create_secure_http_client().unwrap_or_else(|_| {
                 // Fallback to default client if secure client creation fails
                 reqwest::blocking::Client::new()

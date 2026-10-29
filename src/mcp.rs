@@ -901,6 +901,7 @@ pub struct McpClient {
 impl McpClient {
     /// Create a new MCP client
     pub fn new(endpoint: &str) -> Self {
+        crate::tls::install_provider();
         Self {
             endpoint: endpoint.trim_end_matches('/').to_string(),
             client: reqwest::blocking::Client::builder()

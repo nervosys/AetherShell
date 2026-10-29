@@ -284,15 +284,24 @@ openssl = { version = "0.10", features = ["vendored"], optional = true }
 # For anyone who needs the system trust store instead, the `vendored-tls`
 # feature switches back to native-tls with OpenSSL built from source, which
 # also cross-compiles.
+#
+# `rustls-tls-webpki-roots-no-provider` leaves the crypto provider out, so ring is
+# not linked. The provider is IronCrypto's (`ic-rustls` below), installed as the
+# process default by `crate::tls::install_provider()` before any client is built.
 reqwest = { version = "0.12", default-features = false, features = [
     "blocking",
     "json",
-    "rustls-tls",
+    "rustls-tls-webpki-roots-no-provider",
     "stream",
     "charset",
     "http2",
     "macos-system-configuration",
 ] }
+# TLS crypto provider for reqwest and tungstenite: IronCrypto as a rustls
+# CryptoProvider, in place of ring. rustls is named here only to install the
+# process default provider (`crate::tls`).
+ic-rustls = "0.3.2"
+rustls = { version = "0.23.46", default-features = false, features = ["std"] }
 
 # Parse and traverse Rust source for pure documentation/refactoring; native only.
 syn = { version = "2", optional = true, features = ["full", "visit", "visit-mut"] }

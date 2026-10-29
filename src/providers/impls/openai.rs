@@ -22,6 +22,7 @@ pub struct OpenAIProvider {
 
 impl OpenAIProvider {
     pub fn new(config: ProviderConfig) -> Self {
+        crate::tls::install_provider();
         Self {
             config,
             client: Client::new(),

@@ -275,6 +275,7 @@ enum AgentApiCommands {
 }
 
 fn main() -> Result<()> {
+    aethershell::tls::install_provider();
     // Everything runs on a thread with a large stack (finding 13). The
     // interpreter recurses through `eval_expr` for nested calls, and on the
     // default main-thread stack — 1 MB on Windows — that overflowed and aborted

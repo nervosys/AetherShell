@@ -1171,6 +1171,7 @@ fn is_internal_ip(ip: &IpAddr) -> bool {
 /// - CWE-295: Improper Certificate Validation
 /// - OWASP ASVS v4.0 Section 9.1
 pub fn create_secure_http_client() -> Result<Client> {
+    crate::tls::install_provider();
     Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
@@ -1187,6 +1188,7 @@ pub fn create_secure_http_client() -> Result<Client> {
 
 /// Create an HTTPS-only client (rejects HTTP)
 pub fn create_https_only_client() -> Result<Client> {
+    crate::tls::install_provider();
     Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
@@ -1208,6 +1210,7 @@ pub fn create_https_only_client() -> Result<Client> {
 /// A configured `reqwest::Client` (async) with security best practices
 #[cfg(feature = "native")]
 pub fn create_secure_async_client() -> Result<reqwest::Client> {
+    crate::tls::install_provider();
     reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
@@ -1221,6 +1224,7 @@ pub fn create_secure_async_client() -> Result<reqwest::Client> {
 /// Create an HTTPS-only async client with timeouts (rejects HTTP)
 #[cfg(feature = "native")]
 pub fn create_https_only_async_client() -> Result<reqwest::Client> {
+    crate::tls::install_provider();
     reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))

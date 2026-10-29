@@ -303,6 +303,7 @@ impl RegistryClient {
             url.push_str(&format!("&category={}", urlencoding::encode(cat)));
         }
 
+        crate::tls::install_provider();
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()?;
@@ -330,6 +331,7 @@ impl RegistryClient {
     pub fn list_remote(&self) -> Result<Vec<RegistryPackage>> {
         let url = self.api_url("/packages");
 
+        crate::tls::install_provider();
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()?;
@@ -355,6 +357,7 @@ impl RegistryClient {
     pub fn get_package(&self, name: &str) -> Result<RegistryPackage> {
         let url = self.api_url(&format!("/packages/{}", urlencoding::encode(name)));
 
+        crate::tls::install_provider();
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()?;
@@ -391,6 +394,7 @@ impl RegistryClient {
             urlencoding::encode(version)
         ));
 
+        crate::tls::install_provider();
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .build()?;
@@ -497,6 +501,7 @@ impl RegistryClient {
             "data": encoded,
         });
 
+        crate::tls::install_provider();
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .build()?;
@@ -533,6 +538,7 @@ impl RegistryClient {
             urlencoding::encode(version)
         ));
 
+        crate::tls::install_provider();
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()?;

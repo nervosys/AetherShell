@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 /// A registry client that cannot hang: 10 s to connect, and `total_secs` for
 /// the whole request, the body included.
 fn registry_client(total_secs: u64) -> Result<reqwest::Client> {
+    crate::tls::install_provider();
     reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(total_secs))

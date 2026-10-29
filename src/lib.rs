@@ -254,6 +254,9 @@ pub mod transpile;
 /// Terminal UI — rich TUI with chat, agent dashboard, and media viewer.
 #[cfg(feature = "native")]
 pub mod tui;
+/// TLS — installs IronCrypto's rustls provider before any reqwest or tungstenite TLS use.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod tls;
 /// Transactions — filesystem checkpoint/rollback journal for undoable actions.
 #[cfg(feature = "native")]
 pub mod tx;

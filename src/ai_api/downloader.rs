@@ -75,6 +75,7 @@ impl ModelDownloader {
         fs::create_dir_all(&cache_dir)?;
 
         // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
+        crate::tls::install_provider();
         let client =
             crate::security::create_secure_async_client().unwrap_or_else(|_| Client::new());
 
