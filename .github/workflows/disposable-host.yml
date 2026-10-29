@@ -6,13 +6,14 @@ name: Disposable host
 # runs on a developer's machine by accident. A GitHub-hosted runner is
 # discarded after the job, which is what makes it the right place for them.
 # A run is a decision, not a side effect of ordinary work: it starts only by
-# hand, or by pushing to the one branch named for it. (workflow_dispatch alone
-# cannot start a workflow that is not yet on the default branch.)
+# hand, or by pushing a branch named for it, ci/disposable or ci/disposable-*
+# (a new name per run, so no branch is ever force-pushed). workflow_dispatch
+# alone cannot start a workflow that is not yet on the default branch.
 
 on:
     workflow_dispatch:
     push:
-        branches: [ci/disposable]
+        branches: [ci/disposable, 'ci/disposable-*']
 
 permissions:
     contents: read
