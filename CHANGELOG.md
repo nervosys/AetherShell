@@ -228,6 +228,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listening socket: the TCP table gives a listener's remote port as 0, which
   was refused as unreadable. It is now `*:*`, and a bound socket's state is
   `BOUND` instead of `UNKNOWN`.
+- The Windows `acl_get` and `acl_set` backends (icacls) gained a disposable-runner test that checks each change with Get-Acl.
 - Windows system administration, each tested only on a disposable runner
   (`.github/workflows/disposable-host.yml`, manual):
   `svc_create` and `svc_delete` use the Service Control Manager. The service
