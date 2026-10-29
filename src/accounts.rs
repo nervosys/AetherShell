@@ -20,13 +20,17 @@
 //!
 //! On Windows the same builtins run through the NetAPI in `accounts/windows.rs`,
 //! with the same validation, guards and records; an option with no Windows
-//! meaning is E_BAD_ARG. On other platforms every call validates its arguments,
-//! then refuses with E_UNIMPLEMENTED before any tool is started.
+//! meaning is E_BAD_ARG. On macOS they run through Directory Service (`dscl`,
+//! `dseditgroup`, `pwpolicy`) in `accounts/macos.rs`, with the same validation,
+//! the same records, and a 501 floor in place of 1000 (see that file). On other
+//! platforms every call validates its arguments, then refuses with
+//! E_UNIMPLEMENTED before any tool is started.
 
 use anyhow::Result;
 use std::collections::BTreeMap;
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 use std::path::{Component, Path};
+#[cfg(not(target_os = "macos"))]
 use std::process::Output;
 
 #[cfg(windows)]
@@ -38,13 +42,22 @@ pub use windows::{
     user_unlock,
 };
 
+#[cfg(target_os = "macos")]
+#[path = "accounts/macos.rs"]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::{
+    group_add, group_del, group_mod, user_add, user_del, user_lock, user_mod, user_passwd,
+    user_unlock,
+};
+
 use crate::safety::{arg_err, bad_arg, policy_deny};
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 use crate::safety::{bad_state, not_found, tool_failed};
 use crate::value::Value;
 
 /// uids and gids below this are system accounts and groups.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 const SYSTEM_LIMIT: i64 = 1000;
 const GID_MIN: i64 = 1000;
 const GID_MAX: i64 = 60000;
@@ -56,7 +69,7 @@ const PATH_MAX: usize = 4096;
 // Public entry points
 // ---------------------------------------------------------------------------
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn user_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let plan = UserAdd::parse(&args, &input)?;
     refuse_in_transaction("user_add")?;
@@ -119,7 +132,7 @@ pub fn user_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ]))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn user_del(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let plan = UserDel::parse(&args, &input)?;
     refuse_in_transaction("user_del")?;
@@ -150,7 +163,7 @@ pub fn user_del(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ]))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn user_mod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let plan = UserMod::parse(&args, &input)?;
     refuse_in_transaction("user_mod")?;
@@ -211,7 +224,7 @@ pub fn user_mod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ]))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn user_passwd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let plan = UserPasswd::parse(&args, &input)?;
     refuse_in_transaction("user_passwd")?;
@@ -234,17 +247,17 @@ pub fn user_passwd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ]))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn user_lock(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     set_lock("user_lock", args, input, true)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn user_unlock(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     set_lock("user_unlock", args, input, false)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn group_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let plan = GroupAdd::parse(&args, &input)?;
     refuse_in_transaction("group_add")?;
@@ -279,7 +292,7 @@ pub fn group_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ]))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn group_del(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let plan = GroupDel::parse(&args, &input)?;
     refuse_in_transaction("group_del")?;
@@ -291,7 +304,7 @@ pub fn group_del(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(record(vec![("name", Value::Str(plan.name))]))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn group_mod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let plan = GroupMod::parse(&args, &input)?;
     refuse_in_transaction("group_mod")?;
@@ -328,7 +341,7 @@ pub fn group_mod(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ]))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn set_lock(builtin: &str, args: Vec<Value>, input: Option<Value>, lock: bool) -> Result<Value> {
     let name = UserOnly::parse(builtin, &args, &input)?.name;
     refuse_in_transaction(builtin)?;
@@ -356,7 +369,7 @@ fn set_lock(builtin: &str, args: Vec<Value>, input: Option<Value>, lock: bool) -
 struct UserAdd {
     name: String,
     /// Windows reads only whether `home` was given; see windows.rs.
-    #[cfg_attr(windows, allow(dead_code))]
+    #[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
     home: bool,
     system: bool,
     shell: Option<String>,
@@ -768,7 +781,7 @@ fn path_text(builtin: &str, what: &str, value: &str) -> Result<()> {
     plain_text(builtin, what, value, PATH_MAX)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn as_refs(argv: &[String]) -> Vec<&str> {
     argv.iter().map(String::as_str).collect()
 }
@@ -803,7 +816,7 @@ fn refuse_in_transaction(builtin: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn current_uid() -> i64 {
     // SAFETY: getuid cannot fail and takes no arguments.
     i64::from(unsafe { libc::getuid() })
@@ -814,7 +827,7 @@ fn current_uid() -> i64 {
     -1
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn guard_user(builtin: &str, name: &str, pw: &Passwd) -> Result<()> {
     if pw.uid < SYSTEM_LIMIT {
         return Err(policy_deny(
@@ -836,7 +849,7 @@ fn guard_user(builtin: &str, name: &str, pw: &Passwd) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn guard_group(builtin: &str, name: &str, gid: i64) -> Result<()> {
     if gid < SYSTEM_LIMIT {
         return Err(policy_deny(
@@ -852,7 +865,7 @@ fn guard_group(builtin: &str, name: &str, gid: i64) -> Result<()> {
 
 /// A home directory is removable only when it is at least two components
 /// deep. `/`, `/home` and `/root` are never removed recursively.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn home_is_removable(home: &str) -> bool {
     let path = Path::new(home);
     path.is_absolute()
@@ -867,7 +880,7 @@ fn home_is_removable(home: &str) -> bool {
 // Tools and lookups
 // ---------------------------------------------------------------------------
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 struct Passwd {
     uid: i64,
     gid: i64,
@@ -875,12 +888,12 @@ struct Passwd {
     shell: String,
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 struct Group {
     gid: i64,
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn lookup_user(builtin: &str, name: &str) -> Result<Option<Passwd>> {
     let out = spawn(builtin, "getent", &["passwd", name], None)?;
     let text = match out.status.code() {
@@ -909,7 +922,7 @@ fn lookup_user(builtin: &str, name: &str) -> Result<Option<Passwd>> {
     }))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn lookup_group(builtin: &str, name: &str) -> Result<Option<Group>> {
     let out = spawn(builtin, "getent", &["group", name], None)?;
     let text = match out.status.code() {
@@ -936,7 +949,7 @@ fn lookup_group(builtin: &str, name: &str) -> Result<Option<Group>> {
 
 /// Runs a mutating tool; a nonzero exit becomes a coded failure. `secret` is
 /// blanked out of stderr before it can reach an error.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn run(
     builtin: &str,
     tool: &str,
@@ -994,7 +1007,7 @@ const ACCOUNT_TOOL_DEADLINE_SECS: u64 = 60;
 #[cfg(target_os = "linux")]
 const ACCOUNT_TOOL_MAX_OUTPUT: usize = crate::builtins::TOOL_MAX_JSON;
 
-#[cfg(all(not(target_os = "linux"), not(windows)))]
+#[cfg(all(not(target_os = "linux"), not(any(windows, target_os = "macos"))))]
 pub(super) fn spawn(
     builtin: &str,
     _tool: &str,
