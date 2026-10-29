@@ -26847,6 +26847,12 @@ mod win_chown_tests {
 
     #[test]
     fn fs_chown_sets_the_owner_to_the_current_account() {
+        // The workspace jail and the mode are process-wide, and other tests in
+        // this binary set them; without the shared lock a jail set elsewhere
+        // refuses these temp files.
+        let _env = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let path = temp_file("chown-self");
         let result = bi_fs_chown(
             vec![Value::Str(path.clone()), Value::Str(current_account())],
@@ -26861,6 +26867,12 @@ mod win_chown_tests {
 
     #[test]
     fn fs_chown_refuses_a_numeric_owner_as_bad_arg() {
+        // The workspace jail and the mode are process-wide, and other tests in
+        // this binary set them; without the shared lock a jail set elsewhere
+        // refuses these temp files.
+        let _env = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let path = temp_file("chown-num");
         let result = bi_fs_chown(vec![Value::Str(path.clone()), Value::Int(0)], None);
         let _ = std::fs::remove_file(&path);
@@ -26870,6 +26882,12 @@ mod win_chown_tests {
 
     #[test]
     fn fs_chown_reports_an_unknown_account_as_not_found() {
+        // The workspace jail and the mode are process-wide, and other tests in
+        // this binary set them; without the shared lock a jail set elsewhere
+        // refuses these temp files.
+        let _env = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let path = temp_file("chown-unknown");
         let result = bi_fs_chown(
             vec![
