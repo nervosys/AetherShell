@@ -13425,7 +13425,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "The formats on the clipboard: text, image, files, audio, in that order, each once; an empty clipboard answers []. Windows asks the clipboard itself. Linux asks xclip under X11 (xsel can only say whether there is text) and wl-paste under Wayland, and with neither display set it is refused as E_NO_UI. macOS is not implemented and is refused as E_UNIMPLEMENTED.",
+        doc: "The formats on the clipboard: text, image, files, audio, in that order, each once; an empty clipboard answers []. Windows asks the clipboard itself. Linux asks xclip under X11 (xsel can only say whether there is text) and wl-paste under Wayland, and with neither display set it is refused as E_NO_UI. macOS asks the pasteboard with osascript `clipboard info` and maps the classes: text (utf8, ut16, TEXT; text/html alone is not text), image (PNGf, TIFF, JPEG, GIFf, BMPf), files (furl, alis), audio (mp3, M4A, WAVE, AIFF); other classes are ignored.",
         examples: &[
             (r#"(try { clipboard_types(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { 1 | clipboard_types() } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -13851,14 +13851,14 @@ pub static SIGNATURES: &[Signature] = &[
         name: "clipboard_get_image", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[],
         returns: "Record",
-        doc: "Read the image on the clipboard as {mime, bytes, base64}. Linux only: X11 through xclip, Wayland through wl-paste; PNG is preferred, then JPEG, GIF, BMP and WEBP. No image on the clipboard (including an empty clipboard) is E_NOT_FOUND, never Null. Over 32 MiB is E_BUDGET_EXCEEDED. No DISPLAY and no WAYLAND_DISPLAY is E_NO_UI; xclip or wl-paste absent is E_TOOL_MISSING (xsel cannot carry images). Windows and macOS refuse with E_UNIMPLEMENTED. In agent mode it is E_POLICY_DENY, with nothing read, unless AETHER_SECRETS=allow or AETHER_POLICY=permissive is set. Pipeline input and any argument are refused with E_BAD_ARG first.",
+        doc: "Read the image on the clipboard as {mime, bytes, base64}. Windows reads the clipboard through PowerShell and answers PNG. macOS reads the PNG class through osascript and answers PNG. Linux uses X11 through xclip or Wayland through wl-paste, preferring PNG, then JPEG, GIF, BMP and WEBP. No image on the clipboard (including an empty clipboard) is E_NOT_FOUND, never Null. Over 32 MiB is E_BUDGET_EXCEEDED. No DISPLAY and no WAYLAND_DISPLAY is E_NO_UI; xclip or wl-paste absent is E_TOOL_MISSING (xsel cannot carry images). In agent mode it is E_POLICY_DENY, with nothing read, unless AETHER_SECRETS=allow or AETHER_POLICY=permissive is set. Pipeline input and any argument are refused with E_BAD_ARG first.",
         examples: &[(r#"(try { clipboard_get_image(1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { 1 | clipboard_get_image() } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
         name: "clipboard_set_image", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("path", Ty::Str, "the image file to copy")],
         returns: "Bool",
-        doc: "Copy an image file to the clipboard and answer true. The path is read through the same read guard as cat; a missing file is E_NOT_FOUND, a file over 32 MiB E_BUDGET_EXCEEDED, and a file that is not PNG, JPEG, GIF, BMP or WEBP (by its first bytes) E_BAD_ARG, all before the clipboard is touched. Linux only: X11 through xclip, Wayland through wl-copy; the tool's holder process keeps the image on the clipboard after the call returns. No display is E_NO_UI. Windows and macOS refuse with E_UNIMPLEMENTED after those checks. Pipeline input and surplus arguments are E_BAD_ARG.",
+        doc: "Copy an image file to the clipboard and answer true. The path is read through the same read guard as cat; a missing file is E_NOT_FOUND, a file over 32 MiB E_BUDGET_EXCEEDED, and a file that is not PNG, JPEG, GIF, BMP or WEBP (by its first bytes) E_BAD_ARG, all before the clipboard is touched. Linux: X11 through xclip, Wayland through wl-copy; the tool's holder process keeps the image on the clipboard after the call returns. No display is E_NO_UI. Windows copies the image through PowerShell as a bitmap and as PNG, flushed so it outlives the call. macOS copies it through osascript as PNG, JPEG, GIF or BMP; WEBP has no macOS clipboard class, so it is E_UNIMPLEMENTED with nothing copied. Pipeline input and surplus arguments are E_BAD_ARG.",
         examples: &[(r#"(try { clipboard_set_image(1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { clipboard_set_image("a", "b") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {

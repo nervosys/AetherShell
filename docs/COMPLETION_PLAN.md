@@ -343,7 +343,7 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_gui_find_image
 - [x] bi_web_websocket — one bounded exchange through tungstenite (already built for axum): ws and wss, 8 MiB, 1000 messages, 120 s
 - [ ] bi_web_xpath
-- [ ] bi_clipboard_types — Linux implemented (X11 via xclip/xsel, Wayland via wl-paste); macOS open.
+- [ ] bi_clipboard_types — Linux implemented (X11 via xclip/xsel, Wayland via wl-paste); Windows implemented; macOS implemented (osascript `clipboard info`), not yet run on a Mac.
 - [x] bi_input_timeout
 - [x] bi_input_autocomplete
 - [x] bi_crypto_decrypt — authenticated AE1 everywhere; the opt-in legacy CBC path runs wherever `openssl` is on PATH, Windows included (35aefa5)
@@ -351,8 +351,8 @@ explicit refusal calls, without executing builtins or generating their contracts
 - [x] bi_crypto_key_generate — native Ed25519; RSA/EC through `openssl` on every OS, E_TOOL_MISSING without it (35aefa5)
 - [x] bi_crypto_password_verify
 - [x] bi_crypto_cert_info — `openssl x509` on every OS, E_TOOL_MISSING without it (35aefa5)
-- [ ] bi_clipboard_get_image — Linux implemented (X11 xclip, Wayland wl-clipboard); Windows/macOS open
-- [ ] bi_clipboard_set_image — Linux implemented (X11 xclip, Wayland wl-clipboard); Windows/macOS open
+- [ ] bi_clipboard_get_image — Linux implemented (X11 xclip, Wayland wl-clipboard); Windows (PowerShell) and macOS (osascript) implemented, tested only on the disposable runners (tests/clipboard_image_admin.rs)
+- [ ] bi_clipboard_set_image — Linux implemented (X11 xclip, Wayland wl-clipboard); Windows (PowerShell) and macOS (osascript) implemented, except WEBP on macOS; tested only on the disposable runners (tests/clipboard_image_admin.rs)
 - [x] bi_input_read_char
 - [x] bi_input_spinner
 - [x] bi_input_progress

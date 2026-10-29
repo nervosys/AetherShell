@@ -40104,7 +40104,7 @@ fn linux_clipboard_tool(
 }
 
 /// The formats `clipboard_types` names, in the order it answers them.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const CLIPBOARD_FORMATS: [&str; 4] = ["text", "image", "files", "audio"];
 
 /// Which of `CLIPBOARD_FORMATS` a clipboard target or MIME type stands for, if
@@ -40133,6 +40133,49 @@ fn clipboard_formats_of(listing: &[u8]) -> Value {
     let mut seen = [false; 4];
     for line in String::from_utf8_lossy(listing).lines() {
         if let Some(i) = clipboard_format_index(line) {
+            seen[i] = true;
+        }
+    }
+    Value::Array(
+        CLIPBOARD_FORMATS
+            .iter()
+            .zip(seen)
+            .filter(|(_, present)| *present)
+            .map(|(name, _)| Value::Str(name.to_string()))
+            .collect(),
+    )
+}
+
+/// The AppleScript class codes `clipboard info` names, mapped to the formats
+/// `clipboard_types` answers. Text is the plain-text classes only (utf8, ut16,
+/// TEXT), as on Linux, where text/html alone does not count as text. Images are
+/// PNG, TIFF, JPEG, GIF and BMP. Files are file URLs (furl) and aliases (alis).
+/// Audio is mp3, M4A, WAVE and AIFF. Any other class is ignored.
+#[cfg(target_os = "macos")]
+fn macos_format_index(code: &str) -> Option<usize> {
+    match code {
+        "utf8" | "ut16" | "TEXT" => Some(0),
+        "PNGf" | "TIFF" | "JPEG" | "GIFf" | "BMPf" => Some(1),
+        "furl" | "alis" => Some(2),
+        "mp3 " | "M4A " | "WAVE" | "AIFF" => Some(3),
+        _ => None,
+    }
+}
+
+/// The answer for an osascript `clipboard info` listing, which prints the flat
+/// list of class and size pairs, e.g. `«class utf8», 5, «class PNGf», 1234`. An
+/// empty clipboard prints nothing and answers []. Each format once, in
+/// CLIPBOARD_FORMATS order.
+#[cfg(target_os = "macos")]
+fn macos_clipboard_formats_of(listing: &str) -> Value {
+    let mut seen = [false; 4];
+    let inner = listing.trim().trim_start_matches('{').trim_end_matches('}');
+    for token in inner.split(", ") {
+        let code = token
+            .trim()
+            .strip_prefix("«class ")
+            .and_then(|t| t.strip_suffix('»'));
+        if let Some(i) = code.and_then(macos_format_index) {
             seen[i] = true;
         }
     }
@@ -40467,11 +40510,30 @@ fn bi_clipboard_types(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             Value::Array(vec![Value::Str("text".to_string())])
         })
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        // `clipboard info` lists the classes on the pasteboard. Nothing is read
+        // beyond their names and sizes.
+        let mut cmd = std::process::Command::new("osascript");
+        cmd.args(["-e", "clipboard info"]);
+        let output = bounded_cmd_output("clipboard_types", "osascript", cmd, TOOL_DEADLINE_SECS)?;
+        if !output.status.success() {
+            return Err(crate::safety::tool_failed(
+                "clipboard_types",
+                "osascript",
+                output.status.code(),
+                &gui_stderr_tail(&output),
+            ));
+        }
+        Ok(macos_clipboard_formats_of(&String::from_utf8_lossy(
+            &output.stdout,
+        )))
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         Err(crate::safety::unimplemented(
             "clipboard_types",
-            "listing clipboard formats is implemented on Windows and Linux only; NOTHING WAS INSPECTED",
+            "listing clipboard formats is implemented on Windows, macOS and Linux only; NOTHING WAS INSPECTED",
             "clipboard() reads the text on the clipboard",
         ))
     }
@@ -43150,10 +43212,326 @@ fn linux_clipboard_offers(name: &str) -> Result<Vec<String>> {
     ))
 }
 
+/// The Record `clipboard_get_image` answers with, from the image bytes a
+/// platform clipboard gave. The refusals are the same on every OS: over
+/// `CLIPBOARD_IMAGE_MAX` is E_BUDGET_EXCEEDED, and no data is E_NOT_FOUND.
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+fn clipboard_image_answer(name: &str, mime: &str, bytes: &[u8]) -> Result<Value> {
+    if bytes.len() > CLIPBOARD_IMAGE_MAX {
+        return Err(crate::safety::budget_exceeded(
+            name,
+            format!(
+                "the clipboard image is {} bytes, over the {CLIPBOARD_IMAGE_MAX}-byte limit",
+                bytes.len()
+            ),
+            "copy a smaller image; this shell returns no truncated image",
+        ));
+    }
+    if bytes.is_empty() {
+        return Err(crate::safety::not_found(
+            name,
+            "image on the clipboard",
+            "the clipboard offered an image but gave no data; copy it again",
+        ));
+    }
+    use base64::Engine;
+    let mut rec = BTreeMap::new();
+    rec.insert("mime".to_string(), Value::Str(mime.to_string()));
+    rec.insert("bytes".to_string(), Value::Int(bytes.len() as i64));
+    rec.insert(
+        "base64".to_string(),
+        Value::Str(base64::engine::general_purpose::STANDARD.encode(bytes)),
+    );
+    Ok(Value::Record(rec))
+}
+
+/// The image `clipboard_get_image` refuses with E_NOT_FOUND when the clipboard
+/// holds none. Shared by every platform so the code and text match.
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+fn no_clipboard_image(name: &str) -> anyhow::Error {
+    crate::safety::not_found(
+        name,
+        "image on the clipboard",
+        "the clipboard holds no PNG, JPEG, GIF, BMP or WEBP image",
+    )
+}
+
+/// The PowerShell script `clipboard_get_image` runs on Windows, under -STA (the
+/// Clipboard class needs a single-threaded apartment). It writes `NONE` when
+/// the clipboard holds no image, `OVER` when the PNG is past the cap (checked
+/// before it is turned into text, so a huge image is never encoded), and
+/// otherwise the PNG as base64 on stdout. Nothing is interpolated: the script
+/// is fixed, and LIMIT is replaced by the number of CLIPBOARD_IMAGE_MAX.
+#[cfg(target_os = "windows")]
+const WINDOWS_IMAGE_GET_SCRIPT: &str = r#"$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+$img = $null
+$done = $false
+for ($try = 0; $try -lt 10 -and -not $done; $try++) {
+    try {
+        if ([System.Windows.Forms.Clipboard]::ContainsImage()) { $img = [System.Windows.Forms.Clipboard]::GetImage() }
+        $done = $true
+    } catch { Start-Sleep -Milliseconds 100 }
+}
+if (-not $done) { throw 'the clipboard stayed busy' }
+if ($null -eq $img) {
+    'NONE'
+} else {
+    $png = New-Object System.IO.MemoryStream
+    $img.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
+    if ($png.Length -gt LIMIT) { 'OVER' } else { [Convert]::ToBase64String($png.ToArray()) }
+}"#;
+
+/// The PowerShell script `clipboard_set_image` runs on Windows, under -STA. The
+/// image arrives on stdin, never in the script text. It is copied as a bitmap
+/// and as PNG, and flushed with copy=true so it outlives this process.
+#[cfg(target_os = "windows")]
+const WINDOWS_IMAGE_SET_SCRIPT: &str = r#"$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+$in = New-Object System.IO.MemoryStream
+[Console]::OpenStandardInput().CopyTo($in)
+$in.Position = 0
+$src = [System.Drawing.Image]::FromStream($in)
+$bmp = New-Object System.Drawing.Bitmap $src
+$src.Dispose()
+$png = New-Object System.IO.MemoryStream
+$bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
+$pngBytes = $png.ToArray()
+$data = New-Object System.Windows.Forms.DataObject
+$data.SetData([System.Windows.Forms.DataFormats]::Bitmap, $bmp)
+$data.SetData('PNG', $false, [System.IO.MemoryStream]::new($pngBytes))
+$done = $false
+for ($try = 0; $try -lt 10 -and -not $done; $try++) {
+    try { [System.Windows.Forms.Clipboard]::SetDataObject($data, $true); $done = $true }
+    catch { Start-Sleep -Milliseconds 100 }
+}
+if (-not $done) { throw 'the clipboard stayed busy' }"#;
+
+/// `clipboard_get_image` on Windows: the PNG the script copies out of the
+/// clipboard, through the shared answer.
+#[cfg(target_os = "windows")]
+fn windows_clipboard_image(name: &str) -> Result<Value> {
+    use base64::Engine;
+    let script = WINDOWS_IMAGE_GET_SCRIPT.replace("LIMIT", &CLIPBOARD_IMAGE_MAX.to_string());
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-STA",
+        "-Command",
+        script.as_str(),
+    ]);
+    let output = bounded_cmd_output(name, "powershell", cmd, TOOL_DEADLINE_SECS)?;
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            name,
+            "powershell",
+            output.status.code(),
+            &gui_stderr_tail(&output),
+        ));
+    }
+    let answer = String::from_utf8_lossy(&output.stdout);
+    match answer.trim() {
+        "NONE" => Err(no_clipboard_image(name)),
+        "OVER" => Err(crate::safety::budget_exceeded(
+            name,
+            format!("the clipboard image is over the {CLIPBOARD_IMAGE_MAX}-byte limit"),
+            "copy a smaller image; this shell returns no truncated image",
+        )),
+        encoded => {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|e| {
+                    crate::safety::tool_failed(
+                        name,
+                        "powershell",
+                        Some(0),
+                        &format!("its answer was not base64: {e}"),
+                    )
+                })?;
+            clipboard_image_answer(name, "image/png", &bytes)
+        }
+    }
+}
+
+/// `clipboard_set_image` on Windows: the validated image bytes go to the script
+/// on stdin. The script's own failure is the tool's failure.
+#[cfg(target_os = "windows")]
+fn windows_clipboard_set_image(name: &str, bytes: Vec<u8>) -> Result<()> {
+    let args = [
+        "-NoProfile",
+        "-NonInteractive",
+        "-STA",
+        "-Command",
+        WINDOWS_IMAGE_SET_SCRIPT,
+    ];
+    let output = run_output(
+        name,
+        "powershell",
+        "powershell",
+        &args,
+        |_| {},
+        Some(bytes),
+        TOOL_DEADLINE_SECS,
+        64 * 1024,
+    )?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(crate::safety::tool_failed(
+        name,
+        "powershell",
+        output.status.code(),
+        &gui_stderr_tail(&output),
+    ))
+}
+
+/// The AppleScript `clipboard_get_image` runs on macOS, with the output path as
+/// its one argument. A clipboard with no PNG class (error -1700) answers NONE;
+/// any other error is reported as the failure it is. OVER is answered before the
+/// file is written. OK means the PNG is in the file.
+#[cfg(target_os = "macos")]
+const MACOS_IMAGE_GET_SCRIPT: &str = r#"on run argv
+	set outPath to item 1 of argv
+	try
+		set pngData to the clipboard as «class PNGf»
+	on error errMsg number errNum
+		if errNum = -1700 then return "NONE"
+		error errMsg number errNum
+	end try
+	if (length of pngData) > 33554432 then return "OVER"
+	set fh to open for access (POSIX file outPath) with write permission
+	try
+		set eof of fh to 0
+		write pngData to fh
+		close access fh
+	on error errMsg number errNum
+		try
+			close access fh
+		end try
+		error errMsg number errNum
+	end try
+	return "OK"
+end run"#;
+
+/// The AppleScript `clipboard_set_image` runs on macOS. Arguments: the absolute
+/// image path, then its kind (png, jpeg, gif or bmp), which picks the AppleScript
+/// class the file is read as.
+#[cfg(target_os = "macos")]
+const MACOS_IMAGE_SET_SCRIPT: &str = r#"on run argv
+	set inPath to item 1 of argv
+	set kind to item 2 of argv
+	if kind = "png" then
+		set imageData to read (POSIX file inPath) as «class PNGf»
+	else if kind = "jpeg" then
+		set imageData to read (POSIX file inPath) as «class JPEG»
+	else if kind = "gif" then
+		set imageData to read (POSIX file inPath) as «class GIFf»
+	else
+		set imageData to read (POSIX file inPath) as «class BMPf»
+	end if
+	set the clipboard to imageData
+	return "OK"
+end run"#;
+
+/// `clipboard_get_image` on macOS: osascript writes the clipboard's PNG to a
+/// fresh file under the temp dir, which is read back and removed on every path.
+#[cfg(target_os = "macos")]
+fn macos_clipboard_image(name: &str) -> Result<Value> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let path =
+        std::env::temp_dir().join(format!("ae-clip-image-{}-{nanos}.png", std::process::id()));
+    let outcome = macos_clipboard_image_to(name, &path);
+    let _ = std::fs::remove_file(&path);
+    outcome
+}
+
+#[cfg(target_os = "macos")]
+fn macos_clipboard_image_to(name: &str, path: &std::path::Path) -> Result<Value> {
+    let mut cmd = std::process::Command::new("osascript");
+    cmd.arg("-e").arg(MACOS_IMAGE_GET_SCRIPT).arg(path);
+    let output = bounded_cmd_output(name, "osascript", cmd, TOOL_DEADLINE_SECS)?;
+    if !output.status.success() {
+        return Err(crate::safety::tool_failed(
+            name,
+            "osascript",
+            output.status.code(),
+            &gui_stderr_tail(&output),
+        ));
+    }
+    match String::from_utf8_lossy(&output.stdout).trim() {
+        "NONE" => Err(no_clipboard_image(name)),
+        "OVER" => Err(crate::safety::budget_exceeded(
+            name,
+            format!("the clipboard image is over the {CLIPBOARD_IMAGE_MAX}-byte limit"),
+            "copy a smaller image; this shell returns no truncated image",
+        )),
+        "OK" => {
+            let bytes = std::fs::read(path).map_err(|e| crate::safety::fs_error(name, path, &e))?;
+            clipboard_image_answer(name, "image/png", &bytes)
+        }
+        other => Err(crate::safety::tool_failed(
+            name,
+            "osascript",
+            Some(0),
+            &format!("it answered {other:?}, not a clipboard image"),
+        )),
+    }
+}
+
+/// `clipboard_set_image` on macOS. WEBP has no AppleScript class on macOS, so
+/// it is refused before the clipboard is touched.
+#[cfg(target_os = "macos")]
+fn macos_clipboard_set_image(name: &str, mime: &str, path: &std::path::Path) -> Result<()> {
+    let kind = match mime {
+        "image/png" => "png",
+        "image/jpeg" => "jpeg",
+        "image/gif" => "gif",
+        "image/bmp" => "bmp",
+        _ => {
+            return Err(crate::safety::unimplemented(
+                name,
+                "the macOS clipboard has no WEBP class, so this image was NOT COPIED",
+                "convert the image to PNG, JPEG, GIF or BMP",
+            ))
+        }
+    };
+    // osascript takes the path as an argument; an absolute one never starts
+    // with "-", so it cannot be read as an option.
+    let absolute =
+        std::fs::canonicalize(path).map_err(|e| crate::safety::fs_error(name, path, &e))?;
+    let mut cmd = std::process::Command::new("osascript");
+    cmd.arg("-e")
+        .arg(MACOS_IMAGE_SET_SCRIPT)
+        .arg(&absolute)
+        .arg(kind);
+    let output = bounded_cmd_output(name, "osascript", cmd, TOOL_DEADLINE_SECS)?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(crate::safety::tool_failed(
+        name,
+        "osascript",
+        output.status.code(),
+        &gui_stderr_tail(&output),
+    ))
+}
+
 fn bi_clipboard_get_image(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const NAME: &str = "clipboard_get_image";
     no_args_or_input(NAME, &args, &input)?;
     crate::safety::clipboard_read_gate(NAME)?;
+    #[cfg(target_os = "windows")]
+    {
+        windows_clipboard_image(NAME)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_clipboard_image(NAME)
+    }
     #[cfg(target_os = "linux")]
     {
         let offers = linux_clipboard_offers(NAME)?;
@@ -43161,11 +43539,7 @@ fn bi_clipboard_get_image(args: Vec<Value>, input: Option<Value>) -> Result<Valu
             .iter()
             .find(|t| offers.iter().any(|o| o.eq_ignore_ascii_case(t)))
         else {
-            return Err(crate::safety::not_found(
-                NAME,
-                "image on the clipboard",
-                "the clipboard holds no PNG, JPEG, GIF, BMP or WEBP image",
-            ));
+            return Err(no_clipboard_image(NAME));
         };
         let (tool, read_args): (&str, Vec<&str>) = if display_env_set("WAYLAND_DISPLAY") {
             ("wl-paste", vec!["--no-newline", "--type", mime])
@@ -43183,38 +43557,13 @@ fn bi_clipboard_get_image(args: Vec<Value>, input: Option<Value>) -> Result<Valu
                 &gui_stderr_tail(&out),
             ));
         }
-        if out.stdout.len() > CLIPBOARD_IMAGE_MAX {
-            return Err(crate::safety::budget_exceeded(
-                NAME,
-                format!(
-                    "the clipboard image is {} bytes, over the {CLIPBOARD_IMAGE_MAX}-byte limit",
-                    out.stdout.len()
-                ),
-                "copy a smaller image; this shell returns no truncated image",
-            ));
-        }
-        if out.stdout.is_empty() {
-            return Err(crate::safety::not_found(
-                NAME,
-                "image on the clipboard",
-                "the clipboard offered an image but gave no data; copy it again",
-            ));
-        }
-        use base64::Engine;
-        let mut rec = BTreeMap::new();
-        rec.insert("mime".to_string(), Value::Str(mime.to_string()));
-        rec.insert("bytes".to_string(), Value::Int(out.stdout.len() as i64));
-        rec.insert(
-            "base64".to_string(),
-            Value::Str(base64::engine::general_purpose::STANDARD.encode(&out.stdout)),
-        );
-        Ok(Value::Record(rec))
+        clipboard_image_answer(NAME, mime, &out.stdout)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         Err(crate::safety::unimplemented(
             NAME,
-            "reading an image from the clipboard is implemented on Linux only; NOTHING WAS READ",
+            "reading an image from the clipboard is implemented on Windows, macOS and Linux only; NOTHING WAS READ",
             "use a platform clipboard tool",
         ))
     }
@@ -43267,12 +43616,23 @@ fn bi_clipboard_set_image(args: Vec<Value>, input: Option<Value>) -> Result<Valu
         linux_clipboard_set_image(NAME, mime, bytes)?;
         Ok(Value::Bool(true))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
-        let _ = (mime, bytes);
+        let _ = mime;
+        windows_clipboard_set_image(NAME, bytes)?;
+        Ok(Value::Bool(true))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_clipboard_set_image(NAME, mime, &validated)?;
+        Ok(Value::Bool(true))
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (mime, bytes, validated);
         Err(crate::safety::unimplemented(
             NAME,
-            "writing an image to the clipboard is implemented on Linux only; NOTHING WAS COPIED",
+            "writing an image to the clipboard is implemented on Windows, macOS and Linux only; NOTHING WAS COPIED",
             "use a platform clipboard tool",
         ))
     }
