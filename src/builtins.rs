@@ -37028,8 +37028,10 @@ ObjC.import('Foundation');
 function run() {
     var title = ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey('AE_SHOT_TITLE'));
     if (!$.CGPreflightScreenCaptureAccess()) { return 'denied'; }
-    // Option 0 is kCGWindowListOptionAll; relative 0 is kCGNullWindowID.
-    var windows = ObjC.deepUnwrap($.CGWindowListCopyWindowInfo(0, 0));
+    // Option 0 is kCGWindowListOptionAll; relative 0 is kCGNullWindowID. The
+    // answer is a CFArrayRef, which deepUnwrap reads only once it is cast to
+    // an object.
+    var windows = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(0, 0))) || [];
     for (var i = 0; i < windows.length; i++) {
         if (windows[i].kCGWindowName === title) { return 'id ' + windows[i].kCGWindowNumber; }
     }
