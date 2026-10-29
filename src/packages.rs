@@ -14,6 +14,67 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// The builtin name on errors from this module. `RegistryClient` serves several
+/// builtins (the `marketplace_*` family), so the errors name the module instead.
+const BUILTIN: &str = "pkg";
+
+/// The hint for an upstream registry failure. The shell's own policy refusals
+/// have their own hints; a registry that answers badly gets this one.
+#[cfg(not(target_arch = "wasm32"))]
+const REGISTRY_HINT: &str =
+    "the registry refused the request or could not be reached; check the network and AETHER_REGISTRY_TOKEN, then retry";
+
+/// An upstream registry failure, coded `E_POLICY_DENY`.
+///
+/// No `ErrorCode` names a remote service. `builtins.rs` already files every
+/// registry failure under `policy_deny` (`registry_failure`), so this matches it.
+#[cfg(not(target_arch = "wasm32"))]
+fn registry_refused(message: String) -> anyhow::Error {
+    crate::safety::policy_deny(BUILTIN, message, REGISTRY_HINT)
+}
+
+/// The registry's answer that a package does not exist (`E_NOT_FOUND`).
+///
+/// The message must keep "not found in registry". `builtins.rs`
+/// (`registry_says_absent`) tells an absent package from an unreachable registry
+/// by that text, so changing it changes `marketplace_install` and
+/// `marketplace_info`.
+#[cfg(not(target_arch = "wasm32"))]
+fn registry_absent(name: &str) -> anyhow::Error {
+    use crate::safety::{ErrorCode, SafetyError};
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::NotFound,
+        message: format!("package '{name}' not found in registry"),
+        builtin: BUILTIN.to_string(),
+        hint: "list the registry's packages with marketplace.search and use a name from it"
+            .to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "an existing package".to_string(),
+        got: name.to_string(),
+    })
+}
+
+/// Publishing or yanking without a registry token (`E_POLICY_DENY`).
+#[cfg(not(target_arch = "wasm32"))]
+fn auth_required() -> anyhow::Error {
+    crate::safety::policy_deny(
+        BUILTIN,
+        "authentication required. Set AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN env var.",
+        "set AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN in the environment, then retry",
+    )
+}
+
+/// The wasm build has no HTTP client (`E_UNIMPLEMENTED`).
+#[cfg(target_arch = "wasm32")]
+fn wasm_unavailable() -> anyhow::Error {
+    crate::safety::unimplemented(
+        BUILTIN,
+        "the package registry is not available in a wasm build",
+        "use a native build of ae to reach the package registry",
+    )
+}
+
 /// Package manifest (aether.toml)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageManifest {
@@ -258,8 +319,10 @@ fn check_segment(s: &str, what: &str) -> Result<()> {
     if ok {
         Ok(())
     } else {
-        Err(anyhow!(
-            "refusing {what} {s:?}: not a single safe path segment"
+        Err(crate::safety::bad_arg(
+            BUILTIN,
+            &format!("a {what} that is one safe path segment"),
+            &format!("{s:?}"),
         ))
     }
 }
@@ -274,8 +337,10 @@ fn read_body_limited(resp: reqwest::blocking::Response, max: u64) -> Result<Vec<
         .read_to_end(&mut buf)
         .context("failed to read registry response")?;
     if buf.len() as u64 > max {
-        return Err(anyhow!(
-            "registry response is larger than {max} bytes; refusing it"
+        return Err(crate::safety::policy_deny(
+            BUILTIN,
+            format!("registry response is larger than {max} bytes; refusing it"),
+            "the registry sent more than this client accepts; the response was not buffered",
         ));
     }
     Ok(buf)
@@ -322,7 +387,10 @@ impl RegistryClient {
         } else if resp.status().as_u16() == 404 {
             Ok(vec![])
         } else {
-            Err(anyhow!("registry search failed: HTTP {}", resp.status()))
+            Err(registry_refused(format!(
+                "registry search failed: HTTP {}",
+                resp.status()
+            )))
         }
     }
 
@@ -348,7 +416,10 @@ impl RegistryClient {
                     .context("failed to parse registry list response")?;
             Ok(body.packages)
         } else {
-            Err(anyhow!("registry list failed: HTTP {}", resp.status()))
+            Err(registry_refused(format!(
+                "registry list failed: HTTP {}",
+                resp.status()
+            )))
         }
     }
 
@@ -374,9 +445,12 @@ impl RegistryClient {
                     .context("failed to parse registry package response")?;
             Ok(pkg)
         } else if resp.status().as_u16() == 404 {
-            Err(anyhow!("package '{}' not found in registry", name))
+            Err(registry_absent(name))
         } else {
-            Err(anyhow!("registry get failed: HTTP {}", resp.status()))
+            Err(registry_refused(format!(
+                "registry get failed: HTTP {}",
+                resp.status()
+            )))
         }
     }
 
@@ -406,12 +480,12 @@ impl RegistryClient {
             .context("failed to download package from registry")?;
 
         if !resp.status().is_success() {
-            return Err(anyhow!(
+            return Err(registry_refused(format!(
                 "download failed for {}@{}: HTTP {}",
                 name,
                 version,
                 resp.status()
-            ));
+            )));
         }
 
         let bytes = read_body_limited(resp, MAX_ARCHIVE_BYTES)?;
@@ -447,12 +521,16 @@ impl RegistryClient {
             let mut entry = entry.context("failed to read package archive entry")?;
             let kind = entry.header().entry_type();
             if kind.is_symlink() || kind.is_hard_link() {
-                return Err(anyhow!(
-                    "package archive contains a link entry ({}); refusing to unpack it",
-                    entry
-                        .path()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_default()
+                return Err(crate::safety::policy_deny(
+                    BUILTIN,
+                    format!(
+                        "package archive contains a link entry ({}); refusing to unpack it",
+                        entry
+                            .path()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default()
+                    ),
+                    "a link in a package archive can point outside the cache; the archive was not unpacked",
                 ));
             }
             // `Ok(false)` is the library declining an entry that would leave
@@ -461,8 +539,10 @@ impl RegistryClient {
                 .unpack_in(dest)
                 .context("failed to extract package archive")?;
             if !written {
-                return Err(anyhow!(
-                    "package archive has an entry that would leave the cache directory; refusing it"
+                return Err(crate::safety::policy_deny(
+                    BUILTIN,
+                    "package archive has an entry that would leave the cache directory; refusing it",
+                    "the archive names a path outside its own directory; it was not unpacked",
                 ));
             }
         }
@@ -472,19 +552,17 @@ impl RegistryClient {
     /// Publish a package to the registry (requires auth token)
     #[cfg(not(target_arch = "wasm32"))]
     pub fn publish(&self, tarball_path: &Path, manifest: &PackageManifest) -> Result<()> {
-        let token = Self::auth_token().ok_or_else(|| {
-            anyhow!(
-                "authentication required. Set AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN env var."
-            )
-        })?;
+        let token = Self::auth_token().ok_or_else(auth_required)?;
 
         let url = self.api_url("/packages");
         let size = fs::metadata(tarball_path)
             .context("failed to read package tarball")?
             .len();
         if size > MAX_ARCHIVE_BYTES {
-            return Err(anyhow!(
-                "package archive is {size} bytes; the registry takes at most {MAX_ARCHIVE_BYTES}"
+            return Err(crate::safety::bad_arg(
+                BUILTIN,
+                &format!("a package archive of at most {MAX_ARCHIVE_BYTES} bytes"),
+                &format!("{size} bytes"),
             ));
         }
         let tarball_bytes = fs::read(tarball_path).context("failed to read package tarball")?;
@@ -519,18 +597,17 @@ impl RegistryClient {
         } else {
             let status = resp.status();
             let err_body = resp.text().unwrap_or_default();
-            Err(anyhow!("publish failed: HTTP {} — {}", status, err_body))
+            Err(registry_refused(format!(
+                "publish failed: HTTP {} — {}",
+                status, err_body
+            )))
         }
     }
 
     /// Yank (remove) a package version from the registry (requires auth token)
     #[cfg(not(target_arch = "wasm32"))]
     pub fn yank(&self, name: &str, version: &str) -> Result<()> {
-        let token = Self::auth_token().ok_or_else(|| {
-            anyhow!(
-                "authentication required. Set AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN env var."
-            )
-        })?;
+        let token = Self::auth_token().ok_or_else(auth_required)?;
 
         let url = self.api_url(&format!(
             "/packages/{}/{}",
@@ -555,7 +632,10 @@ impl RegistryClient {
         } else {
             let status = resp.status();
             let err_body = resp.text().unwrap_or_default();
-            Err(anyhow!("yank failed: HTTP {} — {}", status, err_body))
+            Err(registry_refused(format!(
+                "yank failed: HTTP {} — {}",
+                status, err_body
+            )))
         }
     }
 
@@ -614,22 +694,22 @@ impl RegistryClient {
 #[cfg(target_arch = "wasm32")]
 impl RegistryClient {
     pub fn search(&self, _query: &str, _category: Option<&str>) -> Result<Vec<RegistryPackage>> {
-        Err(anyhow!("package registry not available in wasm"))
+        Err(wasm_unavailable())
     }
     pub fn list_remote(&self) -> Result<Vec<RegistryPackage>> {
-        Err(anyhow!("package registry not available in wasm"))
+        Err(wasm_unavailable())
     }
     pub fn get_package(&self, _name: &str) -> Result<RegistryPackage> {
-        Err(anyhow!("package registry not available in wasm"))
+        Err(wasm_unavailable())
     }
     pub fn download_package(&self, _name: &str, _version: &str) -> Result<PathBuf> {
-        Err(anyhow!("package registry not available in wasm"))
+        Err(wasm_unavailable())
     }
     pub fn publish(&self, _tarball_path: &Path, _manifest: &PackageManifest) -> Result<()> {
-        Err(anyhow!("package registry not available in wasm"))
+        Err(wasm_unavailable())
     }
     pub fn yank(&self, _name: &str, _version: &str) -> Result<()> {
-        Err(anyhow!("package registry not available in wasm"))
+        Err(wasm_unavailable())
     }
 }
 
@@ -769,6 +849,21 @@ mod tests {
         assert!(!version_satisfies("2.0.0", "^1.0").unwrap());
         assert!(version_satisfies("1.0.0", ">=1.0.0").unwrap());
         assert!(version_satisfies("1.0.0", "1.0.0").unwrap());
+    }
+
+    /// A refused path segment is coded `E_BAD_ARG`, not `E_UNKNOWN`. The check
+    /// runs before any request is made, so this touches no network and no cache.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn refused_segment_carries_its_code() {
+        let err = RegistryClient::default()
+            .download_package("../escape", "1.0.0")
+            .unwrap_err();
+        let se = err
+            .downcast_ref::<crate::safety::SafetyError>()
+            .expect("a coded error");
+        assert!(matches!(se.code, crate::safety::ErrorCode::BadArg));
+        assert_eq!(se.builtin, "pkg");
     }
 
     #[test]

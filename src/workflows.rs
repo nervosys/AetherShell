@@ -1032,7 +1032,11 @@ async fn http_step(method: String, url: String, body: Option<Value>) -> Result<V
             "PATCH" => client.patch(&url),
             "DELETE" => client.delete(&url),
             "HEAD" => client.head(&url),
-            other => return Err(anyhow!("workflow http step: unsupported method `{other}`")),
+            other => {
+                return Err(crate::safety::arg_err(format!(
+                    "workflow http step: unsupported method `{other}`"
+                )))
+            }
         };
         if let Some(body) = body {
             req = match body {
@@ -1100,8 +1104,27 @@ async fn call_builtin_off_runtime(
 // Cancellation and waits
 // -----------------------------------------------------------------------------
 
+/// A run that was cancelled before it finished (`E_BAD_STATE`). The cure is a
+/// new run, so the hint names `workflow_create`.
 fn cancelled_error(workflow_id: &WorkflowId) -> anyhow::Error {
-    anyhow!("workflow `{workflow_id}` was cancelled")
+    crate::safety::bad_state(
+        "workflow",
+        &format!("workflow `{workflow_id}` was cancelled"),
+        "workflow_create",
+    )
+}
+
+/// Put `prefix` in front of an error without losing its code. A `SafetyError`
+/// keeps its code and gets the prefix in its message. Any other error is folded
+/// into a plain message, as it always was.
+fn prefixed_error(prefix: String, e: anyhow::Error) -> anyhow::Error {
+    match e.downcast::<crate::safety::SafetyError>() {
+        Ok(mut se) => {
+            se.message = format!("{prefix}: {}", se.message);
+            anyhow::Error::new(se)
+        }
+        Err(e) => anyhow!("{prefix}: {e}"),
+    }
 }
 
 /// Refuse to go on if the run was cancelled or its evaluation deadline passed.
@@ -1119,8 +1142,13 @@ fn next_slice(until: Instant) -> Result<Duration> {
     let slice = until
         .saturating_duration_since(Instant::now())
         .min(WAIT_SLICE);
-    crate::safety::bounded_io_timeout("workflow_wait", slice)
-        .map_err(|_| anyhow!("evaluation exceeded its time limit and was cancelled"))
+    crate::safety::bounded_io_timeout("workflow_wait", slice).map_err(|_| {
+        crate::safety::budget_exceeded(
+            "workflow",
+            "evaluation exceeded its time limit and was cancelled".to_string(),
+            "the evaluation time limit ended the run; shorten its waits or split it into smaller workflows",
+        )
+    })
 }
 
 /// Sleep for `total` in slices, so a cancel or the deadline is seen within one.
@@ -1252,12 +1280,16 @@ impl WorkflowEngine {
             .await
             .get(template_id)
             .cloned()
-            .ok_or_else(|| anyhow!("Template not found: {}", template_id))?;
+            .ok_or_else(|| crate::safety::not_found("workflow", "template", template_id))?;
 
         // Validate required inputs
         for param in &template.inputs {
             if param.required && !inputs.contains_key(&param.name) {
-                return Err(anyhow!("Missing required input: {}", param.name));
+                return Err(crate::safety::bad_arg(
+                    "workflow",
+                    &format!("required input `{}`", param.name),
+                    "no value",
+                ));
             }
         }
 
@@ -1294,14 +1326,16 @@ impl WorkflowEngine {
             let instances = self.instances.read().await;
             let instance = instances
                 .get(workflow_id)
-                .ok_or_else(|| anyhow!("Workflow instance not found: {}", workflow_id))?
+                .ok_or_else(|| crate::safety::not_found("workflow", "workflow", workflow_id))?
                 .clone_minimal();
 
             let templates = self.templates.read().await;
             let template = templates
                 .get(&instance.template_id)
                 .cloned()
-                .ok_or_else(|| anyhow!("Template not found"))?;
+                .ok_or_else(|| {
+                    crate::safety::not_found("workflow", "template", &instance.template_id)
+                })?;
 
             (template, instance)
         };
@@ -1580,7 +1614,11 @@ impl WorkflowEngine {
     ) -> Result<Value> {
         // Map-reduce expects at least 2 steps: map and reduce
         if steps.len() < 2 {
-            return Err(anyhow!("Map-reduce requires at least 2 steps"));
+            return Err(crate::safety::bad_arg(
+                "workflow",
+                "a map-reduce template with at least 2 steps (map, then reduce)",
+                &format!("{} step(s)", steps.len()),
+            ));
         }
 
         // Execute map phase (parallel)
@@ -1648,7 +1686,10 @@ impl WorkflowEngine {
                         }
                     }
 
-                    return Err(anyhow!("Saga failed at step {}: {}", step.id, e));
+                    return Err(prefixed_error(
+                        format!("Saga failed at step {}", step.id),
+                        e,
+                    ));
                 }
             }
         }
@@ -1715,9 +1756,11 @@ impl WorkflowEngine {
                     Some(ms) => {
                         match tokio::time::timeout(Duration::from_millis(ms), attempt).await {
                             Ok(r) => r,
-                            Err(_) => {
-                                Err(anyhow!("step `{}` exceeded its {}ms timeout", step.id, ms))
-                            }
+                            Err(_) => Err(crate::safety::budget_exceeded(
+                                "workflow",
+                                format!("step `{}` exceeded its {}ms timeout", step.id, ms),
+                                "raise this step's timeout_ms, or make the step faster",
+                            )),
                         }
                     }
                     None => attempt.await,
@@ -1842,10 +1885,14 @@ impl WorkflowEngine {
                     loop {
                         check_run(context)?;
                         if Instant::now() >= until {
-                            return Err(anyhow!(
-                                "timed out after {}ms waiting for event `{}`",
-                                limit.as_millis(),
-                                wanted
+                            return Err(crate::safety::budget_exceeded(
+                                "workflow",
+                                format!(
+                                    "timed out after {}ms waiting for event `{}`",
+                                    limit.as_millis(),
+                                    wanted
+                                ),
+                                "emit the event before this wait, or raise its timeout_ms",
                             ));
                         }
                         match tokio::time::timeout(next_slice(until)?, rx.recv()).await {
@@ -1889,11 +1936,14 @@ impl WorkflowEngine {
                     inputs,
                 } => {
                     if context.depth >= MAX_SUBWORKFLOW_DEPTH {
-                        return Err(anyhow!(
-                            "sub-workflow nesting exceeded {} levels at template `{}`; that is \
-                             almost always a cycle",
-                            MAX_SUBWORKFLOW_DEPTH,
-                            template_id
+                        return Err(crate::safety::budget_exceeded(
+                            "workflow",
+                            format!(
+                                "sub-workflow nesting exceeded {} levels at template `{}`; that is \
+                                 almost always a cycle",
+                                MAX_SUBWORKFLOW_DEPTH, template_id
+                            ),
+                            "break the cycle: a template must not run itself as a sub-workflow",
                         ));
                     }
 
@@ -1996,16 +2046,24 @@ impl WorkflowEngine {
     pub async fn cancel(&self, workflow_id: &WorkflowId) -> Result<()> {
         let mut instances = self.instances.write().await;
         let Some(instance) = instances.get_mut(workflow_id) else {
-            return Err(anyhow!("Workflow not found"));
+            return Err(crate::safety::not_found(
+                "workflow",
+                "workflow",
+                workflow_id,
+            ));
         };
         match instance.status {
-            WorkflowStatus::Completed | WorkflowStatus::Failed => Err(anyhow!(
-                "workflow `{workflow_id}` already {}; there is nothing to cancel",
-                if instance.status == WorkflowStatus::Completed {
-                    "completed"
-                } else {
-                    "failed"
-                }
+            WorkflowStatus::Completed | WorkflowStatus::Failed => Err(crate::safety::bad_state(
+                "workflow",
+                &format!(
+                    "workflow `{workflow_id}` already {}; there is nothing to cancel",
+                    if instance.status == WorkflowStatus::Completed {
+                        "completed"
+                    } else {
+                        "failed"
+                    }
+                ),
+                "workflow_create",
             )),
             WorkflowStatus::Cancelled => Ok(()),
             _ => {
@@ -2038,7 +2096,11 @@ impl WorkflowEngine {
             }
             Ok(())
         } else {
-            Err(anyhow!("Workflow not found"))
+            Err(crate::safety::not_found(
+                "workflow",
+                "workflow",
+                workflow_id,
+            ))
         }
     }
 
@@ -2056,7 +2118,11 @@ impl WorkflowEngine {
             }
             Ok(())
         } else {
-            Err(anyhow!("Workflow not found"))
+            Err(crate::safety::not_found(
+                "workflow",
+                "workflow",
+                workflow_id,
+            ))
         }
     }
 
@@ -2168,6 +2234,34 @@ fn current_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Lookups that miss, and cancelling a finished run, answer with their codes
+    /// rather than `E_UNKNOWN`. Only refusals are triggered: no step runs.
+    #[tokio::test]
+    async fn engine_refusals_carry_their_codes() {
+        use crate::safety::{ErrorCode, SafetyError};
+        fn code_of(err: &anyhow::Error) -> ErrorCode {
+            err.downcast_ref::<SafetyError>()
+                .expect("a coded error")
+                .code
+        }
+
+        let engine = WorkflowEngine::new();
+        let missing = "no-such-run".to_string();
+
+        let err = engine.cancel(&missing).await.unwrap_err();
+        assert!(matches!(code_of(&err), ErrorCode::NotFound));
+        let err = engine.pause(&missing).await.unwrap_err();
+        assert!(matches!(code_of(&err), ErrorCode::NotFound));
+        let err = engine.resume(&missing).await.unwrap_err();
+        assert!(matches!(code_of(&err), ErrorCode::NotFound));
+
+        let err = engine
+            .create_instance("no-such-template", HashMap::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(code_of(&err), ErrorCode::NotFound));
+    }
 
     #[test]
     fn test_workflow_context_default() {

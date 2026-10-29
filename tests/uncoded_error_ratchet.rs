@@ -49,6 +49,45 @@ fn uncoded_errors_only_fall() {
     );
 }
 
+/// Per-module ceilings, counted by the same `count_uncoded` over the whole file,
+/// `#[cfg(test)]` module included (neither file has an `anyhow!(` in its tests,
+/// so nothing is excluded). Each ceiling is the exact count after the coding pass.
+///
+/// What remains uncoded, and why:
+///
+/// `src/packages.rs` (5):
+/// - `PackageRegistry::resolve` and the `pkg_info` pair in `packages::builtins`
+///   are not called from any builtin (`builtins.rs` has its own `bi_pkg_info`).
+///   They reach only Rust callers.
+/// - `parse_version_req` and `version_satisfies` are likewise called by no
+///   builtin.
+///
+/// `src/workflows.rs` (5), all engine faults that no caller can repair:
+/// - two `workflow ... panicked` join errors and the `parallel branch panicked`
+///   error, where a spawned task panicked;
+/// - `event stream closed`, where the engine's own broadcast channel errored;
+/// - `prefixed_error`'s fallback for a non-`SafetyError` inner error, which
+///   cannot be coded without knowing what it is.
+///
+/// The ceilings may only fall. Code a new error instead of raising one.
+const MODULE_CEILINGS: &[(&str, usize)] = &[("src/packages.rs", 5), ("src/workflows.rs", 5)];
+
+#[test]
+fn module_uncoded_errors_only_fall() {
+    for (path, ceiling) in MODULE_CEILINGS {
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
+        let src = std::fs::read_to_string(&file).unwrap();
+        let found = count_uncoded(&src);
+        assert!(
+            found <= *ceiling,
+            "{path} has {found} uncoded anyhow!/bail! errors, ceiling is {ceiling}: \
+             code the new error with crate::safety (arg_err, bad_arg, not_found, \
+             bad_state, policy_deny, budget_exceeded) instead of anyhow!, which \
+             reaches callers as E_UNKNOWN"
+        );
+    }
+}
+
 #[test]
 fn counter_finds_a_sample() {
     let sample =
