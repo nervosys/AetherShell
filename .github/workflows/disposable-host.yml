@@ -1,15 +1,17 @@
 name: Disposable host
 
 # Contract tests for builtins that change the machine they run on: Windows
-# services, local accounts and groups, winget packages, and the clipboard's
-# images on Windows and macOS. Each test is
-# #[ignore] and also returns early unless AE_DISPOSABLE_HOST=1, so it never
-# runs on a developer's machine by accident. A GitHub-hosted runner is
+# services, local accounts and groups, scheduled tasks and winget packages,
+# and the clipboard's images and window screenshots on Windows and macOS. Each
+# test is #[ignore] and also returns early unless AE_DISPOSABLE_HOST=1, so it
+# never runs on a developer's machine by accident. A GitHub-hosted runner is
 # discarded after the job, which is what makes it the right place for them.
-# A run is a decision, not a side effect of ordinary work: it starts only by
-# hand, or by pushing a branch named for it, ci/disposable or ci/disposable-*
-# (a new name per run, so no branch is ever force-pushed). workflow_dispatch
-# alone cannot start a workflow that is not yet on the default branch.
+# Each test step runs even when an earlier one failed, so one failure does not
+# hide the others. A run is a decision, not a side effect of ordinary work: it
+# starts only by hand, or by pushing a branch named for it, ci/disposable or
+# ci/disposable-* (a new name per run, so no branch is ever force-pushed).
+# workflow_dispatch alone cannot start a workflow that is not yet on the
+# default branch.
 
 on:
     workflow_dispatch:
@@ -48,25 +50,34 @@ jobs:
                   winget --version
 
             - name: Build the gated tests
-              run: cargo test --no-run --test windows_service_admin --test windows_account_admin --test windows_task_admin --test windows_winget_admin --test clipboard_image_admin
+              run: cargo test --no-run --test windows_service_admin --test windows_account_admin --test windows_task_admin --test windows_winget_admin --test clipboard_image_admin --test screenshot_window_admin
 
             - name: Services
+              if: ${{ !cancelled() }}
               run: cargo test --test windows_service_admin -- --include-ignored --test-threads=1
 
             - name: Accounts and groups
+              if: ${{ !cancelled() }}
               run: cargo test --test windows_account_admin -- --include-ignored --test-threads=1
 
             - name: Scheduled tasks
+              if: ${{ !cancelled() }}
               run: cargo test --test windows_task_admin -- --include-ignored --test-threads=1
 
             - name: winget packages
+              if: ${{ !cancelled() }}
               run: cargo test --test windows_winget_admin -- --include-ignored --test-threads=1
 
             - name: Clipboard images
+              if: ${{ !cancelled() }}
               run: cargo test --test clipboard_image_admin -- --include-ignored --test-threads=1
 
+            - name: Window screenshots
+              if: ${{ !cancelled() }}
+              run: cargo test --test screenshot_window_admin -- --include-ignored --test-threads=1
+
     macos-mutations:
-        name: macOS clipboard images
+        name: macOS clipboard and screenshots
         runs-on: macos-latest
         timeout-minutes: 60
         env:
@@ -79,7 +90,12 @@ jobs:
             - uses: Swatinem/rust-cache@v2
 
             - name: Build the gated tests
-              run: cargo test --no-run --test clipboard_image_admin
+              run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin
 
             - name: Clipboard images
+              if: ${{ !cancelled() }}
               run: cargo test --test clipboard_image_admin -- --include-ignored --test-threads=1
+
+            - name: Window screenshots
+              if: ${{ !cancelled() }}
+              run: cargo test --test screenshot_window_admin -- --include-ignored --test-threads=1

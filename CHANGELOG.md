@@ -156,6 +156,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   RSA/EC `crypto_generate_key` and opt-in legacy decrypt (E_TOOL_MISSING without
   `openssl`). Linux: `clipboard_types`, `clipboard_get_image` and
   `clipboard_set_image` (X11 and Wayland), and `gui_screenshot_window` (X11).
+  Windows and macOS: `clipboard_get_image` and `clipboard_set_image`
+  (PowerShell -STA and osascript; PNG; no image is `E_NOT_FOUND`, over 32 MiB
+  `E_BUDGET_EXCEEDED`; WEBP cannot be set on macOS), `clipboard_types` on
+  macOS (`clipboard info`), and `gui_screenshot_window` (user32 PrintWindow;
+  `screencapture -l`, with no Screen Recording permission `E_OS_DENIED`).
+  These are tested only on disposable GitHub runners.
   Windows: `pkg_list` from the Add/Remove Programs registry entries.
   Windows: `journalctl` reads the System event log ({time, provider, level,
   id, message}; `unit` is an event provider), `pkg_history` the Windows
