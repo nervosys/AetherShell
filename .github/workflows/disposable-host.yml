@@ -2,7 +2,8 @@ name: Disposable host
 
 # Contract tests for builtins that change the machine they run on: Windows
 # services, local accounts and groups, scheduled tasks and winget packages,
-# and the clipboard's images and window screenshots on Windows and macOS. Each
+# the clipboard's images and window screenshots on Windows and macOS, and window
+# operations on Windows. Each
 # test is #[ignore] and also returns early unless AE_DISPOSABLE_HOST=1, so it
 # never runs on a developer's machine by accident. A GitHub-hosted runner is
 # discarded after the job, which is what makes it the right place for them.
@@ -50,7 +51,7 @@ jobs:
                   winget --version
 
             - name: Build the gated tests
-              run: cargo test --no-run --test windows_service_admin --test windows_account_admin --test windows_task_admin --test windows_winget_admin --test clipboard_image_admin --test screenshot_window_admin
+              run: cargo test --no-run --test windows_service_admin --test windows_account_admin --test windows_task_admin --test windows_winget_admin --test clipboard_image_admin --test screenshot_window_admin --test windows_window_admin
 
             - name: Services
               if: ${{ !cancelled() }}
@@ -75,6 +76,10 @@ jobs:
             - name: Window screenshots
               if: ${{ !cancelled() }}
               run: cargo test --test screenshot_window_admin -- --include-ignored --test-threads=1
+
+            - name: Window operations
+              if: ${{ !cancelled() }}
+              run: cargo test --test windows_window_admin -- --include-ignored --test-threads=1
 
     macos-mutations:
         name: macOS clipboard and screenshots
