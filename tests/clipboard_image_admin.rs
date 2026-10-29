@@ -113,7 +113,7 @@ fn set_then_get_round_trips_the_pixels() {
     if !disposable() {
         return;
     }
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let ws = Workspace::new("round_trip");
     let mut env = Env::default();
     set_test_image(&ws, &mut env);
@@ -150,7 +150,7 @@ fn types_reports_an_image_after_the_set() {
     if !disposable() {
         return;
     }
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let ws = Workspace::new("types_image");
     let mut env = Env::default();
     set_test_image(&ws, &mut env);
@@ -173,7 +173,7 @@ fn text_on_the_clipboard_is_not_found_as_an_image() {
     if !disposable() {
         return;
     }
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut env = Env::default();
     let copied =
         call("clipboard_set", vec![s("ae-no-image-here")], &mut env).expect("the text is copied");
@@ -206,7 +206,7 @@ fn oversize_image_file_is_refused_before_the_clipboard() {
     if !disposable() {
         return;
     }
-    let _lock = LOCK.lock().unwrap();
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let ws = Workspace::new("oversize");
     let mut env = Env::default();
     // A PNG signature, then zeros: one byte past the 32 MiB cap.

@@ -36550,7 +36550,7 @@ public class WindowFocus {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = if ({} -eq 1) {{ [IntPtr]::new([int64]{}) }} else {{ [WindowFocus]::FindWindow($null, {}) }}
+$hwnd = if ({} -eq 1) {{ [IntPtr]::new([int64]{}) }} else {{ [WindowFocus]::FindWindow([NullString]::Value, {}) }}
 if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
 if (-not [WindowFocus]::SetForegroundWindow($hwnd)) {{ exit 4 }}
 "#,
@@ -36608,7 +36608,7 @@ public class WindowMin {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowMin]::FindWindow($null, {})
+$hwnd = [WindowMin]::FindWindow([NullString]::Value, {})
 if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
 [WindowMin]::ShowWindow($hwnd, 6) | Out-Null
 "#,
@@ -36666,7 +36666,7 @@ public class WindowMax {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowMax]::FindWindow($null, {})
+$hwnd = [WindowMax]::FindWindow([NullString]::Value, {})
 if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
 [WindowMax]::ShowWindow($hwnd, 3) | Out-Null
 "#,
@@ -36716,7 +36716,7 @@ public class WindowClose {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowClose]::FindWindow($null, {})
+$hwnd = [WindowClose]::FindWindow([NullString]::Value, {})
 if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
 [WindowClose]::SendMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 "#,
@@ -36768,7 +36768,7 @@ public class WindowMove {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowMove]::FindWindow($null, {})
+$hwnd = [WindowMove]::FindWindow([NullString]::Value, {})
 if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
 if (-not [WindowMove]::SetWindowPos($hwnd, [IntPtr]::Zero, {}, {}, 0, 0, 0x0001)) {{ exit 4 }}
 "#,
@@ -36826,7 +36826,7 @@ public class WindowResize {{
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 }}
 "@
-$hwnd = [WindowResize]::FindWindow($null, {})
+$hwnd = [WindowResize]::FindWindow([NullString]::Value, {})
 if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
 if (-not [WindowResize]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, {}, {}, 0x0002)) {{ exit 4 }}
 "#,
@@ -36971,7 +36971,7 @@ public class WindowShot {
 [void][WindowShot]::SetProcessDPIAware()
 $title = [Environment]::GetEnvironmentVariable('AE_SHOT_TITLE')
 $out = [Environment]::GetEnvironmentVariable('AE_SHOT_PATH')
-$hwnd = [WindowShot]::FindWindow($null, $title)
+$hwnd = [WindowShot]::FindWindow([NullString]::Value, $title)
 if ($hwnd -eq [IntPtr]::Zero) { exit 3 }
 if ([WindowShot]::IsIconic($hwnd)) {
     [Console]::Error.WriteLine('the window is minimized, so it has no picture to capture')
@@ -37018,24 +37018,28 @@ exit 0
 "#;
 
 /// The JavaScript for osascript that finds a window's CGWindowID by its exact
-/// title. The title arrives in AE_SHOT_TITLE. It answers `denied` when Screen
-/// Recording is not granted (macOS then withholds other apps' window titles,
-/// so a missing title would be a false E_NOT_FOUND), `missing` when no window
-/// has the title, and `id <n>` otherwise.
+/// title. The title arrives in AE_SHOT_TITLE. Without Screen Recording
+/// permission macOS withholds every other process's window titles, so a title
+/// that is not found while no other process's window has a title answers
+/// `denied`, not a false `missing`. (CGPreflightScreenCaptureAccess is not
+/// reachable from JXA.) Otherwise it answers `missing`, or `id <n>`.
 #[cfg(target_os = "macos")]
 const MACOS_WINDOW_ID_JXA: &str = r#"ObjC.import('CoreGraphics');
 ObjC.import('Foundation');
 function run() {
     var title = ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey('AE_SHOT_TITLE'));
-    if (!$.CGPreflightScreenCaptureAccess()) { return 'denied'; }
+    var me = $.NSProcessInfo.processInfo.processIdentifier;
     // Option 0 is kCGWindowListOptionAll; relative 0 is kCGNullWindowID. The
     // answer is a CFArrayRef, which deepUnwrap reads only once it is cast to
     // an object.
     var windows = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(0, 0))) || [];
+    var named = 0;
     for (var i = 0; i < windows.length; i++) {
-        if (windows[i].kCGWindowName === title) { return 'id ' + windows[i].kCGWindowNumber; }
+        var w = windows[i];
+        if (w.kCGWindowName === title) { return 'id ' + w.kCGWindowNumber; }
+        if (w.kCGWindowName !== undefined && w.kCGWindowOwnerPID !== me) { named++; }
     }
-    return 'missing';
+    return named === 0 ? 'denied' : 'missing';
 }
 "#;
 
@@ -37120,7 +37124,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
         let stderr = String::from_utf8_lossy(&found.stderr);
         if !found.status.success() {
             if stderr.contains("No window with name") {
-                return Err(crate::safety::not_found(NAME, "window titled", &title));
+                return Err(crate::safety::not_found(NAME, "window", &title));
             }
             return Err(crate::safety::tool_failed(
                 NAME,
@@ -37187,7 +37191,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
         let shot = bounded_cmd_output(NAME, "powershell", cmd, TOOL_DEADLINE_SECS)?;
         match shot.status.code() {
             Some(0) => gui_png_answer(NAME, "powershell", path),
-            Some(3) => Err(crate::safety::not_found(NAME, "window titled", &title)),
+            Some(3) => Err(crate::safety::not_found(NAME, "window", &title)),
             code => Err(crate::safety::tool_failed(
                 NAME,
                 "powershell",
@@ -37220,7 +37224,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
                     "grant Screen Recording to the terminal or app that runs ae in System Settings > Privacy & Security, then retry",
                 ))
             }
-            "missing" => return Err(crate::safety::not_found(NAME, "window titled", &title)),
+            "missing" => return Err(crate::safety::not_found(NAME, "window", &title)),
             other => other
                 .strip_prefix("id ")
                 .and_then(|n| n.parse().ok())
@@ -43420,12 +43424,12 @@ end run"#;
 #[cfg(target_os = "macos")]
 const MACOS_IMAGE_SET_SCRIPT: &str = r#"on run argv
 	set inPath to item 1 of argv
-	set kind to item 2 of argv
-	if kind = "png" then
+	set imageKind to item 2 of argv
+	if imageKind = "png" then
 		set imageData to read (POSIX file inPath) as «class PNGf»
-	else if kind = "jpeg" then
+	else if imageKind = "jpeg" then
 		set imageData to read (POSIX file inPath) as «class JPEG»
-	else if kind = "gif" then
+	else if imageKind = "gif" then
 		set imageData to read (POSIX file inPath) as «class GIFf»
 	else
 		set imageData to read (POSIX file inPath) as «class BMPf»

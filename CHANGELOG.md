@@ -246,6 +246,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On Windows, `gui_focus_window`, `gui_minimize_window`, `gui_maximize_window`,
+  `gui_close_window`, `gui_move_window` and `gui_resize_window` never found a
+  window by its title. PowerShell passes `$null` to a .NET string parameter as
+  `""`, so `FindWindow` looked for a window class named "" and answered no
+  window; every call by title was `E_NOT_FOUND`. They now pass
+  `[NullString]::Value`. A disposable-runner run of `gui_screenshot_window`,
+  which shared the pattern, found it.
 - Dependencies with advisories published 2026-10: quinn-proto 0.11.19,
   rustls 0.23.46, rustls-webpki 0.103.16, webpki-roots and webpki-root-certs
   1.0.11, tokio 1.51.6, event-listener 5.4.2, memmap2 0.9.12, and zip 9.1.3
