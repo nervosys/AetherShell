@@ -132,7 +132,13 @@ for (const name of [...names].sort()) {
 
 // Non-vacuity: if nothing answered, this measured nothing. If EVERYTHING
 // answered, the probe is not being rejected anywhere and says nothing either.
-if (answered.length < 50 || answered.length > names.size - 50) {
+// The floor was 50. Once every builtin carried a declaration, a Record where a
+// typed parameter is declared is refused before the body runs, and on
+// 2026-10-29 (master 3508ebe, ae-disposable, unprivileged) 37 of 1172 still
+// answered -- the ones that take any value, such as typeof and len -- so 50
+// could no longer be met and the probe refused to report. 20 still tells a
+// sweep that answered almost nothing from one that is working.
+if (answered.length < 20 || answered.length > names.size - 50) {
     console.error(
         `! ${answered.length} of ${names.size} answered; that is not a usable split`,
     );
