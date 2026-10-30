@@ -1,7 +1,7 @@
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use iron_shell::builtins::call_with_input;
 use iron_shell::env::Env;
 use iron_shell::value::Value;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::BTreeMap;
 
 fn create_test_array(size: usize) -> Value {

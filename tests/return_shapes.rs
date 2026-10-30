@@ -435,7 +435,7 @@ fn the_path_example_resolves_on_every_runner_layout() {
         "/home/runner/work/IronShell/IronShell/src/agent.rs", // ubuntu
         "/Users/runner/work/IronShell/IronShell/src/agent.rs", // macos
         "\\\\?\\D:\\a\\IronShell\\IronShell\\src\\agent.rs",  // windows
-        "src/agent.rs",                                           // relative
+        "src/agent.rs",                                       // relative
     ] {
         assert_eq!(
             final_component(row),

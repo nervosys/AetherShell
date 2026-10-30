@@ -130,9 +130,8 @@ fn governor_file_budget_blocks_second_rm_in_agent_mode() {
     assert!(!f1.exists());
 
     // Second delete exceeds IRONSHELL_MAX_FILES → E_BUDGET_EXCEEDED, file untouched.
-    let err =
-        iron_shell::builtins::bi_rm(vec![Value::Str(f2.to_string_lossy().to_string())], None)
-            .unwrap_err();
+    let err = iron_shell::builtins::bi_rm(vec![Value::Str(f2.to_string_lossy().to_string())], None)
+        .unwrap_err();
     let rendered = format!("{}", err);
     assert!(rendered.contains("E_BUDGET_EXCEEDED"), "got: {rendered}");
     assert!(
@@ -200,8 +199,7 @@ fn rm_outside_workspace_is_blocked_in_agent_mode() {
     } else {
         "/etc/hosts"
     };
-    let err =
-        iron_shell::builtins::bi_rm(vec![Value::Str(outside.to_string())], None).unwrap_err();
+    let err = iron_shell::builtins::bi_rm(vec![Value::Str(outside.to_string())], None).unwrap_err();
     let rendered = format!("{}", err);
     assert!(rendered.contains("E_OUTSIDE_WORKSPACE"), "got: {rendered}");
 

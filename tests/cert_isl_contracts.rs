@@ -10,10 +10,10 @@
 //! verify reads the trust store from SSL_CERT_FILE, which is process-wide, so
 //! every test that sets it holds ENV_LOCK and restores it.
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use iron_shell::builtins::call;
 use iron_shell::env::Env;
 use iron_shell::value::Value;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;

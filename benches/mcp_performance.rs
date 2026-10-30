@@ -1,5 +1,5 @@
-use iron_shell::ai::{clear_mcp_cache, detect_mcp_servers, detect_mcp_servers_uncached};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use iron_shell::ai::{clear_mcp_cache, detect_mcp_servers, detect_mcp_servers_uncached};
 use std::time::Duration;
 
 fn benchmark_mcp_detection_cached(c: &mut Criterion) {

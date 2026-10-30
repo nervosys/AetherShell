@@ -52,14 +52,7 @@ struct Task {
     variants: &'static [Variant],
 }
 
-const SHELLS: &[&str] = &[
-    "ironshell",
-    "bash",
-    "zsh",
-    "fish",
-    "nushell",
-    "powershell",
-];
+const SHELLS: &[&str] = &["ironshell", "bash", "zsh", "fish", "nushell", "powershell"];
 
 // Representative agent tasks (same idioms as examples/shell_bench.rs): the command
 // the agent writes and the output it must read back, per shell.

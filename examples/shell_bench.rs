@@ -49,14 +49,7 @@ struct Task {
 }
 
 /// Display order for the per-shell summary.
-const SHELLS: &[&str] = &[
-    "ironshell",
-    "bash",
-    "zsh",
-    "fish",
-    "nushell",
-    "powershell",
-];
+const SHELLS: &[&str] = &["ironshell", "bash", "zsh", "fish", "nushell", "powershell"];
 
 const CORPUS: &[Task] = &[
     // ── List source files with their sizes (3 rows: name, size) ──────────

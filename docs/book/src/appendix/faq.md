@@ -100,7 +100,7 @@ swarm {
 ### How do I launch the TUI?
 
 ```bash
-ish --tui
+ish tui
 ```
 
 ### What are the TUI tabs?

@@ -826,7 +826,7 @@ fn map_zsh_builtin(name: &str) -> Option<&'static str> {
         "print" => Some("echo"),
         "whence" => Some("sys.which"),
         "vared" => Some("input.readline"),
-        "rehash" => Some("noop"),  // cache rebuild — no IronShell equivalent
+        "rehash" => Some("noop"), // cache rebuild — no IronShell equivalent
         "emulate" => Some("noop"), // shell emulation mode — no IronShell equivalent
 
         _ => None,

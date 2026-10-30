@@ -1,6 +1,6 @@
-use iron_shell::ai_api::*;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+use iron_shell::ai_api::*;
 
 #[derive(Parser)]
 #[command(name = "aimodel")]

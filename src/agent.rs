@@ -395,9 +395,9 @@ fn execute_step_within(tool: &str, args: &[String], timeout_secs: u64) -> Result
         Keep::Tail(MAX_STEP_STDERR_BYTES),
     )
     .map_err(|e| match e {
-        TreeError::Spawn(e) => {
-            anyhow::Error::from(e).context(format!("Failed to spawn command: {}", tool))
-        }
+        // A program that is not installed is E_TOOL_MISSING with an install
+        // hint, not the file-oriented E_NOT_FOUND an uncoded NotFound becomes.
+        TreeError::Spawn(e) => crate::safety::spawn_error("agent", tool, &e),
         TreeError::Wait(e) => anyhow::Error::from(e).context("Failed to read command output"),
     })?;
 

@@ -9,7 +9,7 @@ Get up and running with IronShell in 5 minutes.
 ish
 
 # TUI mode (rich terminal interface)
-ish --tui
+ish tui
 
 # Execute a file
 ish script.ish

@@ -3,8 +3,8 @@
 //! Tests the JSON-based API for AI agent integration.
 
 use iron_shell::agent_api::{
-    build_language_ontology, generate_schema, process_json_request, process_request, AgentRequest,
-    AgentResponse, SchemaFormat,
+    build_language_ontology, generate_schema, parse_schema_format, process_json_request,
+    process_request, AgentRequest, AgentResponse, SchemaFormat,
 };
 use serde_json::json;
 
@@ -136,6 +136,39 @@ fn test_describe_builtin_not_found() {
     let response = process_request(&request);
     assert!(!response.success);
     assert!(response.error.is_some());
+}
+
+/// The listing and describe endpoints serve the catalogue the schema serves.
+/// They read a 16-entry hand-written list, so `count > 10` passed while
+/// `describe("ontology_manifest")` answered "not found".
+#[test]
+fn builtin_listing_is_the_whole_catalogue() {
+    let response = process_request(&AgentRequest::ListBuiltins { category: None });
+    let result = response.result.expect("listing");
+    let count = result.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+    assert!(count >= 1000, "the listing has {count} builtins");
+    for name in ["ontology_manifest", "ontology_describe", "sql", "open"] {
+        let r = process_request(&AgentRequest::Describe {
+            builtin: name.to_string(),
+        });
+        assert!(r.success, "describe({name}) failed: {:?}", r.error);
+    }
+}
+
+#[test]
+fn describing_a_misspelt_builtin_suggests_the_real_one() {
+    let r = process_request(&AgentRequest::Describe {
+        builtin: "ontology_manifst".to_string(),
+    });
+    assert!(!r.success);
+    let meta = r.metadata.expect("metadata on a miss");
+    assert_eq!(meta["code"], "E_UNKNOWN_BUILTIN");
+    let dym = meta["did_you_mean"].as_array().expect("did_you_mean");
+    assert!(
+        dym.iter().any(|v| v == "ontology_manifest"),
+        "suggestions: {dym:?}"
+    );
+    assert!(r.error.unwrap().contains("ontology_manifest"));
 }
 
 #[test]
@@ -1095,4 +1128,26 @@ fn test_generate_schema_aliases() {
             canonical
         );
     }
+}
+
+/// A misspelt format used to come back over HTTP as the ontology, with 200,
+/// so a client could not tell it had asked for something that does not
+/// exist. And `lmstudio`, listed in AGENTS.md, was one of those names.
+#[test]
+fn an_unknown_schema_format_is_an_error_and_lmstudio_is_known() {
+    assert!(matches!(
+        parse_schema_format("lmstudio"),
+        Some(SchemaFormat::OpenAI)
+    ));
+    assert!(generate_schema("LMStudio").is_ok());
+    assert!(parse_schema_format("ontology").is_some());
+    assert!(parse_schema_format("compact").is_some());
+
+    assert!(parse_schema_format("opnai").is_none());
+    let err = generate_schema("opnai").expect_err("an unknown format must fail");
+    let text = err.to_string();
+    assert!(
+        text.contains("'opnai'") && text.contains("openai"),
+        "{text}"
+    );
 }

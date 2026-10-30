@@ -184,7 +184,8 @@ fn test_example_12_multi_agent_orchestration() {
 
 #[test]
 fn test_example_13_multimodal_ai() {
-    run_example("13_multimodal_ai.ish").expect("13_multimodal_ai.ish should work with multimodal AI");
+    run_example("13_multimodal_ai.ish")
+        .expect("13_multimodal_ai.ish should work with multimodal AI");
 }
 
 #[test]

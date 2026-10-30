@@ -35,7 +35,7 @@ IronShell is a shell built for AI agents. Traditional shells (Bash, PowerShell, 
 ```bash
 cargo build --bins              # Builds both `ish` and `aimodel` binaries
 cargo test                      # Comprehensive test suite including AI features
-cargo run -- --tui             # Launch TUI mode for development testing
+cargo run -- tui             # Launch TUI mode for development testing
 cargo run --bin aimodel        # AI model management CLI
 ```
 

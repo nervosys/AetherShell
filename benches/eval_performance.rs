@@ -1,10 +1,10 @@
 // benches/eval_performance.rs
 // Benchmarks for the IronShell evaluator
 
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use iron_shell::env::Env;
 use iron_shell::eval::eval_program;
 use iron_shell::parser::parse_program;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 fn create_test_env() -> Env {
     Env::new()

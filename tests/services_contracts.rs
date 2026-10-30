@@ -406,7 +406,10 @@ mod linux_disposable {
         );
         assert!(flag(&created, "started"));
         assert!(!flag(&created, "enabled"));
-        assert_eq!(systemctl(&["is-active", "ironshell-aesvc-run.service"]), "active");
+        assert_eq!(
+            systemctl(&["is-active", "ironshell-aesvc-run.service"]),
+            "active"
+        );
 
         let body = std::fs::read_to_string(unit_path("aesvc-run")).unwrap();
         assert_eq!(body.lines().next(), Some(MARKER));
@@ -419,7 +422,10 @@ mod linux_disposable {
         assert!(flag(&deleted, "stopped"));
         assert!(!flag(&deleted, "disabled"));
         assert!(flag(&deleted, "removed"));
-        assert_ne!(systemctl(&["is-active", "ironshell-aesvc-run.service"]), "active");
+        assert_ne!(
+            systemctl(&["is-active", "ironshell-aesvc-run.service"]),
+            "active"
+        );
         assert!(!Path::new(&unit_path("aesvc-run")).exists());
     }
 

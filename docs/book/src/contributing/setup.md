@@ -54,7 +54,7 @@ cargo test pipeline           # Tests matching "pipeline"
 cargo run
 
 # TUI mode
-cargo run -- --tui
+cargo run -- tui
 
 # Execute a script
 cargo run -- examples/00_hello.ish

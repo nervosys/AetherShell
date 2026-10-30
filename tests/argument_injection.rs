@@ -88,7 +88,8 @@ fn applescript_quote_escapes_backslash_before_quote() {
 }
 
 /// The escaping rule itself. PowerShell closes a single-quoted string on `'`
-/// and escapes one by doubling it; nothing else is special in that context.
+/// and escapes one by doubling it. (Four typographic quotes close it too; see
+/// `ps_quote_neutralizes_typographic_quotes`.)
 #[test]
 fn ps_quote_neutralizes_the_quote_that_ends_the_string() {
     assert_eq!(ps_quote("plain").to_string(), "'plain'");
@@ -108,6 +109,53 @@ fn ps_quote_neutralizes_the_quote_that_ends_the_string() {
             run.len() % 2 == 0,
             "an odd run of quotes escapes the literal: {run:?}"
         );
+    }
+}
+
+/// PowerShell also ends a single-quoted string at U+2018, U+2019, U+201A and
+/// U+201B. `ps_quote` doubled only `'`, so `svc_status("svc’; …; ’")` ran the
+/// text after the quote as a command, with no approval, since svc_status is
+/// ReadLocal. Demonstrated with `Write-Output INJECTED`.
+#[test]
+fn ps_quote_neutralizes_typographic_quotes() {
+    for q in ['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'] {
+        let payload = format!("svc{q}; Write-Output INJECTED; {q}");
+        let quoted = ps_quote(&payload).to_string();
+        let chars: Vec<char> = quoted.chars().collect();
+        let interior = &chars[1..chars.len() - 1];
+        let mut i = 0;
+        while i < interior.len() {
+            if interior[i] == q {
+                assert_eq!(
+                    interior.get(i + 1),
+                    Some(&q),
+                    "a lone {q:?} ends the literal: {quoted}"
+                );
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+
+        // PowerShell itself is the oracle: the literal must come back as the
+        // one string it encodes, with nothing run.
+        #[cfg(windows)]
+        {
+            let out = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command"])
+                .arg(format!(
+                    "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Write-Output {quoted}"
+                ))
+                .output()
+                .expect("run powershell");
+            let text = String::from_utf8_lossy(&out.stdout);
+            let lines: Vec<&str> = text.lines().collect();
+            assert_eq!(
+                lines,
+                vec![payload.as_str()],
+                "PowerShell ran or split {quoted}"
+            );
+        }
     }
 }
 

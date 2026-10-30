@@ -103,8 +103,14 @@ fn the_default_rbac_config_and_its_directory_cannot_be_written() {
     assert_eq!(std::fs::read_to_string(&config).unwrap(), "seed\n");
 
     // The directory too, so it cannot be moved aside and recreated.
-    assert_refused("file_write", vec![s(&ws.path(".ironshell/other.toml")), s("x")]);
-    assert_refused("file_move", vec![s(&ws.path(".ironshell")), s(&ws.path("moved"))]);
+    assert_refused(
+        "file_write",
+        vec![s(&ws.path(".ironshell/other.toml")), s("x")],
+    );
+    assert_refused(
+        "file_move",
+        vec![s(&ws.path(".ironshell")), s(&ws.path("moved"))],
+    );
     assert!(Path::new(&config).exists());
 
     // The rest of the workspace is still writable.
@@ -123,7 +129,11 @@ fn an_explicit_rbac_config_is_protected_and_only_it() {
     assert!(!Path::new(&config).exists());
 
     // With the config named elsewhere and the log outside, `.ironshell` is ordinary.
-    assert!(call("file_write", vec![s(&ws.path(".ironshell/notes.txt")), s("ok")]).is_ok());
+    assert!(call(
+        "file_write",
+        vec![s(&ws.path(".ironshell/notes.txt")), s("ok")]
+    )
+    .is_ok());
     assert!(call("file_write", vec![s(&ws.path("policy/other.txt")), s("ok")]).is_ok());
 }
 

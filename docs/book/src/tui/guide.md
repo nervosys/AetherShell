@@ -6,7 +6,7 @@ IronShell's Terminal User Interface (TUI) provides a rich, interactive environme
 
 ```bash
 # Start in TUI mode
-ish --tui
+ish tui
 
 # Or from the REPL
 tui()

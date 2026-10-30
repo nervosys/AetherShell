@@ -144,8 +144,8 @@ fn agentic_eval_policy_stays_in_sync_with_ironshell() {
     // depend on ironshell). The applied safety score is only faithful if that copy
     // matches IronShell's real policy — so assert they agree for every
     // (effect, mode) pair. This fails loudly if the two ever drift.
-    use iron_shell::safety as ae;
     use agentic_eval::safety as ag;
+    use iron_shell::safety as ae;
 
     // Ensure the default (non-permissive) policy table is in effect.
     std::env::remove_var("IRONSHELL_POLICY");

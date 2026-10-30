@@ -309,6 +309,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- PowerShell also ends a single-quoted string at the typographic quotes
+  U+2018 to U+201B, and `ps_quote` doubled only `'`. A service name such as
+  `svc’; Write-Output INJECTED; ’` passed to `svc_status`, which needs no
+  approval, ran the text after the quote. All five quote characters are now
+  doubled.
+- An agent could write `core.fsmonitor` into `.git/config` and then call
+  `git_status` or `git_diff`, which need no approval and ran the program it
+  named. In agent mode, writes inside any `.git` directory are now refused.
+  Every git builtin also runs with `core.fsmonitor=false`, and the diff
+  builtins pass `--no-ext-diff`, so a repository that arrives already planted
+  is covered too.
+- `ish --agent --deterministic` printed secrets that `ish --agent` redacted.
+  Deterministic output is now redacted in agent mode as well.
+- The Agent API's `/api/v1/builtins` and `/api/v1/builtins/:name` knew only
+  16 builtins. They now cover the whole catalogue, and a misspelled name
+  returns `E_UNKNOWN_BUILTIN` with `did_you_mean`.
+- `GET /api/v1/schema/:format` answered an unknown format with the ontology
+  and status 200. It now returns 400 with the list of supported formats.
+  `lmstudio`, which the documentation listed, is now accepted.
+- An agent step whose program is not installed now fails with
+  `E_TOOL_MISSING`, as other tool runners do.
+
 - On Windows, the central guard reached other machines before deciding
   anything. For an effect it enforces centrally (Network among them), it asked
   whether each string argument existed on disk, and the journal and the egress

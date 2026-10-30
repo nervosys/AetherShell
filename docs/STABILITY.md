@@ -43,7 +43,7 @@ IronShell is in **pre-release** (v0.x). The language, builtins, and APIs are pro
 
 3. **Pipeline semantics are stable.** `|`, `map`, `where`, `reduce`, `select` will behave the same way.
 
-4. **CLI interface is stable.** `ish -c 'expr'`, `ish --tui`, `ish script.ish` will continue to work.
+4. **CLI interface is stable.** `ish -c 'expr'`, `ish tui`, `ish script.ish` will continue to work.
 
 5. **Agent API is additive.** New endpoints and response fields may be added; existing ones won’t be removed or renamed without a deprecation period.
 

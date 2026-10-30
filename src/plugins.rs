@@ -488,9 +488,10 @@ impl DynamicPlugin {
 impl Drop for DynamicPlugin {
     fn drop(&mut self) {
         // Try to call deinit if available
-        if let Ok(deinit_fn) =
-            unsafe { self.library.get::<PluginDeinitFn>(b"ironshell_plugin_deinit") }
-        {
+        if let Ok(deinit_fn) = unsafe {
+            self.library
+                .get::<PluginDeinitFn>(b"ironshell_plugin_deinit")
+        } {
             unsafe {
                 deinit_fn(self.vtable);
             }

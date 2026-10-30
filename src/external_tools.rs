@@ -822,9 +822,7 @@ impl ExternalToolRegistry {
             stderr_keep,
         )
         .map_err(|e| match e {
-            TreeError::Spawn(e) => {
-                anyhow::Error::from(e).context(format!("Failed to spawn {}", tool_name))
-            }
+            TreeError::Spawn(e) => crate::safety::spawn_error(tool_name, tool_name, &e),
             TreeError::Wait(e) => {
                 anyhow::Error::from(e).context(format!("Failed to execute {}", tool_name))
             }

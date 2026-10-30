@@ -2,13 +2,13 @@
 
 #[cfg(test)]
 mod tui_chat_tests {
+    use chrono::Utc;
     use iron_shell::tui::agents::MultiModalAgent;
     use iron_shell::tui::app::{AgentInfo, AgentStatus, ChatMessage, MessageRole};
     use iron_shell::tui::chat::{
         ChatManager, ChatSession, ChatSettings, Participant, ParticipantType,
     };
     use iron_shell::tui::media::{MediaFile, MediaType};
-    use chrono::Utc;
     use uuid::Uuid;
 
     #[test]

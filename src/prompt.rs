@@ -1013,12 +1013,7 @@ mod tests {
     #[test]
     fn abbreviates_like_fish() {
         assert_eq!(
-            abbreviate_path(
-                "/home/ada/dev/nervosys/cli/IronShell",
-                "/home/ada",
-                true,
-                0
-            ),
+            abbreviate_path("/home/ada/dev/nervosys/cli/IronShell", "/home/ada", true, 0),
             "~/d/n/c/IronShell"
         );
     }

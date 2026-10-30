@@ -118,10 +118,10 @@ ls("./src")
 ### 4.4 Pattern Matching
 
 ```ish
-grade = fn(score) => match {
-    90..100 => "A",
-    80..89 => "B",
-    70..79 => "C",
+grade = fn(score) => match score {
+    s if s >= 90 => "A",
+    s if s >= 80 => "B",
+    s if s >= 70 => "C",
     _ => "F"
 }
 ```

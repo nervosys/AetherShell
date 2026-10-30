@@ -6,7 +6,6 @@ IronShell's Terminal User Interface (TUI) provides a rich, multi-pane interface 
 
 ```bash
 ish tui              # standard launch
-ish --tui            # alternative flag
 RUST_LOG=debug ish tui   # with debug logging
 ```
 

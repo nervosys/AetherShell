@@ -22705,7 +22705,8 @@ fn bi_agent_with_mcp(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> R
         },
     )?;
 
-    let model = std::env::var("IRONSHELL_AGENT_MODEL_URI").unwrap_or_else(|_| "default".to_string());
+    let model =
+        std::env::var("IRONSHELL_AGENT_MODEL_URI").unwrap_or_else(|_| "default".to_string());
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "agent_with_mcp",
         effect: crate::safety::Effect::Network,
@@ -45216,7 +45217,7 @@ fn read_key_native(builtin: &str, timeout: Option<std::time::Duration>) -> Resul
     Err(crate::safety::unimplemented(
         builtin,
         "reading a keypress needs the `native` feature (crossterm); NOTHING WAS READ",
-        "build with default features, or use `ish --tui`",
+        "build with default features, or use `ish tui`",
     ))
 }
 
@@ -48602,6 +48603,16 @@ fn bi_nanda_quorum(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // error: E_BAD_STATE outside a repository, E_TOOL_FAILED with the tail of
 // what git printed otherwise. None answers a failure with false, "" or [].
 
+/// `git`, with the repository's fsmonitor hook switched off. `core.fsmonitor`
+/// names a program that `git status` and `git diff` run, so a repository's
+/// own config could otherwise make a ReadLocal builtin execute code. It is a
+/// speed-up only; git answers the same without it.
+fn git_command() -> std::process::Command {
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["-c", "core.fsmonitor=false"]);
+    cmd
+}
+
 /// Refuse pipeline input: a git builtin acts on the repository, and what was
 /// piped in would otherwise be dropped without a word.
 fn git_refuse_input(builtin: &str, input: &Option<Value>) -> Result<()> {
@@ -48647,7 +48658,7 @@ fn git_succeeded(builtin: &str, output: &std::process::Output, dir: &str) -> Res
     // says "not a git repository", `git diff` says "Not a git repository" and
     // prints usage, `git diff --staged` says only "unknown option", and all
     // of it is translated under a non-English locale.
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["rev-parse", "--is-inside-work-tree"]);
     cmd.current_dir(dir);
     let in_repo = bounded_cmd_output("git_succeeded", "git", cmd, TOOL_DEADLINE_SECS)
@@ -48699,7 +48710,7 @@ fn bi_git_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => ".".to_string(),
     };
     let path = git_dir_arg("git_status", &path)?;
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["status", "--porcelain", "-b"]);
     cmd.current_dir(&path);
     let output = bounded_cmd_output("git_status", "git", cmd, TOOL_DEADLINE_SECS)?;
@@ -48716,8 +48727,8 @@ fn bi_git_diff(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => ".".to_string(),
     };
     let path = git_dir_arg("git_diff", &path)?;
-    let mut cmd = std::process::Command::new("git");
-    cmd.args(["diff"]);
+    let mut cmd = git_command();
+    cmd.args(["diff", "--no-ext-diff"]);
     cmd.current_dir(&path);
     let output = bounded_cmd_output("git_diff", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_diff", &output, &path)?;
@@ -48733,8 +48744,8 @@ fn bi_git_diff_staged(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => ".".to_string(),
     };
     let path = git_dir_arg("git_diff_staged", &path)?;
-    let mut cmd = std::process::Command::new("git");
-    cmd.args(["diff", "--staged"]);
+    let mut cmd = git_command();
+    cmd.args(["diff", "--no-ext-diff", "--staged"]);
     cmd.current_dir(&path);
     let output = bounded_cmd_output("git_diff_staged", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_diff_staged", &output, &path)?;
@@ -48758,7 +48769,7 @@ fn bi_git_log(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             &format!("{count}"),
         ));
     }
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["log", &format!("-{}", count), "--oneline"]);
     let output = bounded_cmd_output("git_log", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_log", &output, ".")?;
@@ -48773,7 +48784,7 @@ fn bi_git_blame(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_blame", &input)?;
     let file = git_ref_arg("git_blame", &args, "a file path")?;
     crate::safety::reject_option_like("git_blame", std::slice::from_ref(&file))?;
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["blame", "--", &file]);
     let output = bounded_cmd_output("git_blame", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_blame", &output, ".")?;
@@ -48783,7 +48794,7 @@ fn bi_git_blame(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_branch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["branch", "--show-current"]);
     let output = bounded_cmd_output("git_branch", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_branch", &output, ".")?;
@@ -48793,7 +48804,7 @@ fn bi_git_branch(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_branches(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["branch", "-a"]);
     let output = bounded_cmd_output("git_branches", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_branches", &output, ".")?;
@@ -48811,7 +48822,7 @@ fn bi_git_checkout(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // The `--` makes git resolve the name as a revision only. Without it,
     // `git checkout README.md` restores that file from the index and silently
     // discards its uncommitted edits. With it, a path is "invalid reference".
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["checkout", &branch, "--"]);
     let output = bounded_cmd_output("git_checkout", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_checkout", &output, ".")?;
@@ -48833,7 +48844,7 @@ fn bi_git_commit(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     // The message is the argument of `-m`, which consumes it, so a message
     // beginning with '-' is text, not an option.
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["commit", "-m", &msg]);
     let output = bounded_cmd_output("git_commit", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_commit", &output, ".")?;
@@ -48859,7 +48870,7 @@ fn bi_git_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             &format!("{bad:?}"),
         ));
     }
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.arg("add");
     cmd.arg("--");
     cmd.args(&files);
@@ -48899,7 +48910,7 @@ fn bi_git_reset(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if !target.starts_with('-') {
         argv.push("--");
     }
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(&argv);
     let output = bounded_cmd_output("git_reset", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_reset", &output, ".")?;
@@ -48908,7 +48919,7 @@ fn bi_git_reset(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 fn bi_git_stash(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_stash", &input)?;
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["stash"]);
     let output = bounded_cmd_output("git_stash", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_stash", &output, ".")?;
@@ -48917,7 +48928,7 @@ fn bi_git_stash(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 fn bi_git_stash_pop(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_stash_pop", &input)?;
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["stash", "pop"]);
     let output = bounded_cmd_output("git_stash_pop", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_stash_pop", &output, ".")?;
@@ -48925,7 +48936,7 @@ fn bi_git_stash_pop(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_stash_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["stash", "list"]);
     let output = bounded_cmd_output("git_stash_list", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_stash_list", &output, ".")?;
@@ -48937,7 +48948,7 @@ fn bi_git_stash_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 }
 
 fn bi_git_remote(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["remote", "-v"]);
     let output = bounded_cmd_output("git_remote", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_remote", &output, ".")?;
@@ -48948,7 +48959,7 @@ fn bi_git_remote(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_git_fetch(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_fetch", &input)?;
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["fetch"]);
     let output = bounded_cmd_output("git_fetch", "git", cmd, NETWORK_DEADLINE_SECS)?;
     git_succeeded("git_fetch", &output, ".")?;
@@ -48957,7 +48968,7 @@ fn bi_git_fetch(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 fn bi_git_pull(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_pull", &input)?;
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["pull"]);
     let output = bounded_cmd_output("git_pull", "git", cmd, NETWORK_DEADLINE_SECS)?;
     git_succeeded("git_pull", &output, ".")?;
@@ -48966,7 +48977,7 @@ fn bi_git_pull(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 fn bi_git_push(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_push", &input)?;
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["push"]);
     let output = bounded_cmd_output("git_push", "git", cmd, NETWORK_DEADLINE_SECS)?;
     git_succeeded("git_push", &output, ".")?;
@@ -48978,7 +48989,7 @@ fn bi_git_merge(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let branch = git_ref_arg("git_merge", &args, "a branch name")?;
     crate::safety::reject_option_like("git_merge", std::slice::from_ref(&branch))?;
     // --no-edit: never open an editor for the merge message.
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["merge", "--no-edit", &branch]);
     let output = bounded_cmd_output("git_merge", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_merge", &output, ".")?;
@@ -48989,7 +49000,7 @@ fn bi_git_rebase(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_rebase", &input)?;
     let branch = git_ref_arg("git_rebase", &args, "a branch name")?;
     crate::safety::reject_option_like("git_rebase", std::slice::from_ref(&branch))?;
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["rebase", &branch]);
     let output = bounded_cmd_output("git_rebase", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_rebase", &output, ".")?;
@@ -49000,7 +49011,7 @@ fn bi_git_cherry_pick(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_cherry_pick", &input)?;
     let commit = git_ref_arg("git_cherry_pick", &args, "a commit")?;
     crate::safety::reject_option_like("git_cherry_pick", std::slice::from_ref(&commit))?;
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["cherry-pick", &commit]);
     let output = bounded_cmd_output("git_cherry_pick", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_cherry_pick", &output, ".")?;
@@ -49008,7 +49019,7 @@ fn bi_git_cherry_pick(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_tags(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["tag", "-l"]);
     let output = bounded_cmd_output("git_tags", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_tags", &output, ".")?;
@@ -49028,8 +49039,8 @@ fn bi_git_show(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         crate::safety::reject_option_like("git_show", std::slice::from_ref(&value))?;
         value
     };
-    let mut cmd = std::process::Command::new("git");
-    cmd.args(["show", &commit]);
+    let mut cmd = git_command();
+    cmd.args(["show", "--no-ext-diff", &commit]);
     let output = bounded_cmd_output("git_show", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_show", &output, ".")?;
     Ok(Value::Str(
@@ -49046,7 +49057,7 @@ fn bi_git_rev_parse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         crate::safety::reject_option_like("git_rev_parse", std::slice::from_ref(&value))?;
         value
     };
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["rev-parse", &rev]);
     let output = bounded_cmd_output("git_rev_parse", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_rev_parse", &output, ".")?;
@@ -49056,7 +49067,7 @@ fn bi_git_rev_parse(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_git_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["rev-parse", "--show-toplevel"]);
     let output = bounded_cmd_output("git_root", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_root", &output, ".")?;
@@ -49081,7 +49092,7 @@ fn bi_git_ignore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     // A .gitignore written outside a repository is a file nobody asked for,
     // so the refusal is the same one the other git builtins give.
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["rev-parse", "--is-inside-work-tree"]);
     let inside = bounded_cmd_output("git_ignore", "git", cmd, TOOL_DEADLINE_SECS)?;
     if !(inside.status.success() && inside.stdout.starts_with(b"true")) {
@@ -49136,7 +49147,7 @@ fn bi_git_clean(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         None => true,
     };
     let flag = if dry_run { "-n" } else { "-f" };
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["clean", "-d", flag]);
     let output = bounded_cmd_output("git_clean", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_clean", &output, ".")?;
@@ -49419,7 +49430,7 @@ fn bi_project_type(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_project_root(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["rev-parse", "--show-toplevel"]);
     // The doc promises no fallback, so a directory that is not a repository
     // (or no git at all) is not reported as the root. It used to answer the
@@ -50870,7 +50881,7 @@ fn bi_session_checkpoint(args: Vec<Value>, input: Option<Value>) -> Result<Value
     // touching the tree; `stash store` keeps that record in the stash list.
     // Both git calls are checked the same way: outside a repository these
     // are E_BAD_STATE, a failed git is E_TOOL_FAILED with its stderr tail.
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["stash", "create"]);
     let output = bounded_cmd_output("session_checkpoint", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_checkpoint", &output, ".")?;
@@ -50879,7 +50890,7 @@ fn bi_session_checkpoint(args: Vec<Value>, input: Option<Value>) -> Result<Value
         // Not an error: the tree has no changes, so there is nothing to keep.
         return Ok(Value::Bool(false));
     }
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["stash", "store", "-m", &name, &sha]);
     let output = bounded_cmd_output("session_checkpoint", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_checkpoint", &output, ".")?;
@@ -50893,7 +50904,7 @@ fn bi_session_restore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .map(|v| expect_int("session_restore", v))
         .transpose()?
         .unwrap_or(0);
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args([
         "rev-parse",
         "--verify",
@@ -50904,7 +50915,7 @@ fn bi_session_restore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     if !check.status.success() {
         // A missing checkpoint is not a git failure: git's own answer for it
         // is exit 1 with no text, which the generic path reported as E_TOOL_FAILED.
-        let mut cmd = std::process::Command::new("git");
+        let mut cmd = git_command();
         cmd.args(["rev-parse", "--is-inside-work-tree"]);
         let in_repo = bounded_cmd_output("session_restore", "git", cmd, TOOL_DEADLINE_SECS)
             .is_ok_and(|o| o.status.success());
@@ -50917,7 +50928,7 @@ fn bi_session_restore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
         git_succeeded("session_restore", &check, ".")?;
     }
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["stash", "apply", &format!("stash@{{{}}}", index)]);
     let output = bounded_cmd_output("session_restore", "git", cmd, TOOL_DEADLINE_SECS)?;
     // `false` said "not restored" and dropped why: no repository, no such
@@ -50939,8 +50950,8 @@ fn bi_session_diff_since(args: Vec<Value>, input: Option<Value>) -> Result<Value
         .transpose()?
         .unwrap_or("HEAD~1".to_string());
     crate::safety::reject_option_like("session_diff_since", std::slice::from_ref(&commit))?;
-    let mut cmd = std::process::Command::new("git");
-    cmd.args(["diff", &commit]);
+    let mut cmd = git_command();
+    cmd.args(["diff", "--no-ext-diff", &commit]);
     let output = bounded_cmd_output("session_diff_since", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_diff_since", &output, ".")?;
     Ok(Value::Str(
@@ -50961,7 +50972,7 @@ fn bi_session_rollback(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         None => "HEAD".to_string(),
     };
     crate::safety::reject_option_like("session_rollback", std::slice::from_ref(&commit))?;
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = git_command();
     cmd.args(["reset", "--hard", &commit]);
     let output = bounded_cmd_output("session_rollback", "git", cmd, TOOL_DEADLINE_SECS)?;
     // Was `Bool(success)`: a failed reset answered false with no reason.
@@ -50978,8 +50989,8 @@ fn bi_session_export(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .unwrap_or("session.patch".to_string());
     // Same again: labelled `ReadLocal`, writes an arbitrary path.
     let file = guard_local_write("session_export", &file)?;
-    let mut cmd = std::process::Command::new("git");
-    cmd.args(["diff"]);
+    let mut cmd = git_command();
+    cmd.args(["diff", "--no-ext-diff"]);
     let output = bounded_cmd_output("session_export", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_export", &output, ".")?;
     crate::tx::snapshot(&file); // record pre-export state if a transaction is active

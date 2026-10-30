@@ -213,7 +213,10 @@ fn test_platform_module_strips_ish_extension() {
     let result = run(r#"platform_module("utils.ish")"#);
     if let Value::Str(m) = result {
         // Should not have double .ish
-        assert!(!m.contains(".ish_"), "Should strip .ish before adding suffix");
+        assert!(
+            !m.contains(".ish_"),
+            "Should strip .ish before adding suffix"
+        );
     }
 }
 

@@ -136,7 +136,9 @@ pub fn require_fips_hash(algo: &str) -> anyhow::Result<()> {
         // boundary, as it does for `arg_err`.
         return Err(anyhow::Error::new(SafetyError {
             code: ErrorCode::FipsDisallowed,
-            message: format!("hash algorithm '{algo}' is not FIPS-approved (IRONSHELL_FIPS active)"),
+            message: format!(
+                "hash algorithm '{algo}' is not FIPS-approved (IRONSHELL_FIPS active)"
+            ),
             builtin: String::new(),
             hint: "use sha256, sha384 or sha512; MD5 and SHA-1 are refused in FIPS mode"
                 .to_string(),
@@ -1546,7 +1548,7 @@ pub fn no_ui(builtin: &str) -> anyhow::Error {
         code: ErrorCode::NoUi,
         message: format!("{builtin}: no UI is attached to answer this prompt"),
         builtin: builtin.to_string(),
-        hint: "attach a UI (`ish --tui`) or avoid interactive builtins in agent mode".to_string(),
+        hint: "attach a UI (`ish tui`) or avoid interactive builtins in agent mode".to_string(),
         approval: None,
         did_you_mean: Vec::new(),
         expected: "a UI listening for prompts".to_string(),
@@ -2471,6 +2473,20 @@ pub fn is_governance_file(path: &str) -> bool {
         }
     }
     files.iter().any(|f| names(f))
+}
+
+/// Whether `path` is a `.git` entry or lies under one, symlinks resolved.
+///
+/// Git runs commands named in a repository's own files: `core.fsmonitor` in
+/// `.git/config` runs on `git status` and `git diff`, and `.git/hooks/*` run on
+/// checkout, commit and merge. Those git builtins are ReadLocal or approved by
+/// their git verb, so an agent that could write `.git/config` and then call
+/// `git_status` would run a program nobody approved. A `.git` *file* is covered
+/// too, since its `gitdir:` line chooses which config is read.
+pub fn is_git_control_path(path: &str) -> bool {
+    audit_forms(Path::new(path))
+        .iter()
+        .any(|form| form.split('/').any(|part| part == ".git"))
 }
 
 /// Whether two existing paths are the same file, hard links included.
@@ -3851,8 +3867,25 @@ pub fn reject_unsafe_url(builtin: &str, url: &str) -> anyhow::Result<()> {
 /// This is for single-quoted context only. A double-quoted PowerShell string
 /// also expands `$` and backtick, and must not use this.
 pub fn ps_quote(value: &str) -> PsLiteral {
-    PsLiteral(format!("'{}'", value.replace('\'', "''")))
+    // PowerShell ends a single-quoted string at any of five quote characters,
+    // not only ASCII `'`: U+2018, U+2019, U+201A and U+201B close it too. With
+    // only `'` doubled, a service name containing `’` closed the literal and
+    // the rest ran as a command, under a ReadLocal builtin that asks for no
+    // approval. Each is escaped the same way, by doubling.
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('\'');
+    for c in value.chars() {
+        if PS_SINGLE_QUOTES.contains(&c) {
+            out.push(c);
+        }
+        out.push(c);
+    }
+    out.push('\'');
+    PsLiteral(out)
 }
+
+/// The characters PowerShell accepts as a single-quote delimiter.
+const PS_SINGLE_QUOTES: [char; 5] = ['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'];
 
 /// A PowerShell string literal, quoted and escaped, that only [`ps_quote`] can
 /// build.
@@ -4528,6 +4561,31 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                            later calls, so the session may not edit them; set \
                            IRONSHELL_RBAC_CONFIG or IRONSHELL_AUDIT_KEY_FILE to a path outside the \
                            workspace"
+                        .to_string(),
+                    approval: None,
+                    did_you_mean: Vec::new(),
+                    expected: String::new(),
+                    got: String::new(),
+                });
+            }
+            if mode == Mode::Agent && is_git_control_path(t) {
+                let _ = audit(
+                    ctx.builtin,
+                    ctx.effect,
+                    "deny_git_control",
+                    &resource,
+                    json!({ "target": t }),
+                );
+                return Err(SafetyError {
+                    code: ErrorCode::OutsideWorkspace,
+                    message: format!(
+                        "{}: '{}' is inside a .git directory and cannot be written by an agent",
+                        ctx.builtin, t
+                    ),
+                    builtin: ctx.builtin.to_string(),
+                    hint: "git runs programs named in .git/config and .git/hooks, so a write \
+                           there would run code on the next git call; use the git_* builtins \
+                           to change a repository"
                         .to_string(),
                     approval: None,
                     did_you_mean: Vec::new(),

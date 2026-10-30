@@ -78,8 +78,7 @@ fn code_of(err: &anyhow::Error) -> String {
 
 /// A fresh directory for the pid file of one test.
 fn scratch_dir(tag: &str) -> PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("ironshell-bounded-{}-{tag}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ironshell-bounded-{}-{tag}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a scratch directory");
     dir
 }

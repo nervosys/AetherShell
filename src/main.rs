@@ -3,8 +3,8 @@ use std::env;
 use std::fs;
 use std::io::{self, Read};
 
-use iron_shell::{env::Env, modules, transpile};
 use clap::{Parser, Subcommand};
+use iron_shell::{env::Env, modules, transpile};
 
 /// Create an environment with all builtin modules pre-registered
 fn create_env_with_modules() -> Env {
@@ -977,7 +977,8 @@ RULES:\n\
 2. Use pipelines for data transformation chains.\n\
 3. Prefer module builtins (file.read, sys.hostname) over raw shell commands.\n\
 4. One complete program per response.\n\
-5. Use the most appropriate module for each task.".to_string()
+5. Use the most appropriate module for each task."
+        .to_string()
 }
 /// Gather system context for context-aware suggestions
 fn gather_system_context() -> String {
@@ -1141,8 +1142,9 @@ fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
         code = match m {
             TranspileMode::Bash => {
                 run_posix_or_fall_back(&code);
-                transpile::bash::transpile_bash_to_ae(&code)
-                    .with_context(|| format!("bash\u{2192}ironshell transpile failed for {}", path))?
+                transpile::bash::transpile_bash_to_ae(&code).with_context(|| {
+                    format!("bash\u{2192}ironshell transpile failed for {}", path)
+                })?
             }
             TranspileMode::Zsh => transpile::zsh::transpile_zsh_to_ae(&code)
                 .with_context(|| format!("zsh\u{2192}ironshell transpile failed for {}", path))?,
@@ -1151,7 +1153,9 @@ fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
                 format!("powershell\u{2192}ironshell transpile failed for {}", path)
             })?,
             TranspileMode::Agentic => transpile::agentic::transpile_agentic_to_ae(&code)
-                .with_context(|| format!("agentic\u{2192}ironshell transpile failed for {}", path))?,
+                .with_context(|| {
+                    format!("agentic\u{2192}ironshell transpile failed for {}", path)
+                })?,
         };
     }
 

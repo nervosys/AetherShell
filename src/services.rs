@@ -1575,7 +1575,9 @@ mod linux {
         if !text.lines().any(|line| line == MARKER) {
             return Err(policy_deny(
                 BUILTIN,
-                format!("{BUILTIN}: {unit_path:?} has no IronShell marker line; refusing to remove it"),
+                format!(
+                    "{BUILTIN}: {unit_path:?} has no IronShell marker line; refusing to remove it"
+                ),
                 "only units svc_create created can be deleted; remove hand-written units by hand",
             ));
         }

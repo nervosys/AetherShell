@@ -626,7 +626,10 @@ fn plugin_builtin_response(name: &str) -> AgentResponse {
 
 /// Get information about a specific builtin
 fn describe_builtin(name: &str) -> AgentResponse {
-    let builtins = get_builtin_definitions();
+    // The whole catalogue, as the ontology serves it. This read the 16
+    // hand-written entries, so `/api/v1/builtins/ontology_manifest` answered
+    // "not found" for a builtin the schema lists.
+    let builtins = get_all_builtin_definitions();
 
     if let Some(builtin) = builtins.iter().find(|b| b.name == name) {
         AgentResponse {
@@ -656,12 +659,19 @@ fn describe_builtin(name: &str) -> AgentResponse {
                 ),
             }
         } else {
+            let did_you_mean =
+                crate::builtins::nearest_names(name, builtins.iter().map(|b| b.name.as_str()));
+            let hint = if did_you_mean.is_empty() {
+                "search by keyword with suggest(\"<words>\"), or list a category with ontology_manifest()".to_string()
+            } else {
+                format!("did you mean {}?", did_you_mean.join(", "))
+            };
             AgentResponse {
                 success: false,
                 result: None,
-                error: Some(format!("Builtin '{}' not found", name)),
+                error: Some(format!("Builtin '{}' not found; {}", name, hint)),
                 result_type: None,
-                metadata: None,
+                metadata: Some(json!({"code": "E_UNKNOWN_BUILTIN", "did_you_mean": did_you_mean})),
             }
         }
     }
@@ -669,7 +679,7 @@ fn describe_builtin(name: &str) -> AgentResponse {
 
 /// List all available builtins
 fn list_builtins(category: Option<&str>) -> AgentResponse {
-    let builtins = get_builtin_definitions();
+    let builtins = get_all_builtin_definitions();
 
     let filtered: Vec<_> = if let Some(cat) = category {
         builtins
@@ -4723,68 +4733,21 @@ pub mod server {
     async fn handle_schema_format(
         axum::extract::Path(format): axum::extract::Path<String>,
     ) -> impl IntoResponse {
-        let schema_format = match format.to_lowercase().as_str() {
-            // OpenAI family
-            "openai" | "gpt" | "chatgpt" => SchemaFormat::OpenAI,
-            "azure" | "azure_openai" | "azureopenai" => SchemaFormat::AzureOpenAI,
-
-            // Anthropic
-            "claude" | "anthropic" => SchemaFormat::Claude,
-
-            // Google
-            "gemini" | "google" => SchemaFormat::Gemini,
-
-            // Meta
-            "llama" | "meta" | "llama3" => SchemaFormat::Llama,
-
-            // Mistral
-            "mistral" | "codestral" | "pixtral" => SchemaFormat::Mistral,
-
-            // Cohere
-            "cohere" | "command" | "command-r" => SchemaFormat::Cohere,
-
-            // xAI
-            "grok" | "xai" => SchemaFormat::Grok,
-
-            // DeepSeek
-            "deepseek" | "deepseek-r1" => SchemaFormat::DeepSeek,
-
-            // AWS
-            "bedrock" | "aws" | "amazon" => SchemaFormat::Bedrock,
-
-            // Alibaba
-            "qwen" | "alibaba" | "dashscope" => SchemaFormat::Qwen,
-
-            // Local/Self-hosted
-            "ollama" => SchemaFormat::Ollama,
-            "vllm" => SchemaFormat::VLLM,
-
-            // Platforms
-            "huggingface" | "hf" | "tgi" => SchemaFormat::HuggingFace,
-            "openrouter" => SchemaFormat::OpenRouter,
-
-            // Chinese AI providers
-            "kimi" | "moonshot" => SchemaFormat::Kimi,
-            "yi" | "01ai" | "lingyiwanwu" => SchemaFormat::Yi,
-            "glm" | "chatglm" | "zhipu" => SchemaFormat::GLM,
-
-            // Additional SOTA providers
-            "reka" => SchemaFormat::Reka,
-            "ai21" | "jamba" | "jurassic" => SchemaFormat::AI21,
-            "perplexity" | "sonar" => SchemaFormat::Perplexity,
-            "together" | "together-ai" => SchemaFormat::Together,
-            "groq" => SchemaFormat::Groq,
-            "fireworks" | "fireworks-ai" => SchemaFormat::Fireworks,
-
-            // Standard formats
-            "json" | "jsonschema" => SchemaFormat::JsonSchema,
-            _ => SchemaFormat::Ontology,
+        let Some(schema_format) = parse_schema_format(&format) else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "success": false,
+                    "error": format!("Unknown schema format: '{format}'. Supported: {SCHEMA_FORMATS_HINT}"),
+                    "metadata": { "code": "E_BAD_ARG" },
+                })),
+            );
         };
 
         let request = AgentRequest::Schema {
             format: schema_format,
         };
-        Json(process_request(&request))
+        (StatusCode::OK, Json(json!(process_request(&request))))
     }
 
     async fn handle_list_builtins(
@@ -4842,7 +4805,7 @@ pub mod server {
                 "chinese_ai": ["kimi", "moonshot", "yi", "01ai", "glm", "chatglm", "zhipu"],
                 "inference_platforms": ["together", "together-ai", "groq", "fireworks", "fireworks-ai"],
                 "additional_sota": ["reka", "ai21", "jamba", "perplexity", "sonar"],
-                "local": ["ollama", "vllm"],
+                "local": ["ollama", "lmstudio", "vllm"],
                 "platforms": ["huggingface", "hf", "tgi", "openrouter"],
                 "standard": ["json", "jsonschema", "ontology", "compact"]
             }
@@ -5832,73 +5795,88 @@ pub fn process_json_request(json_str: &str) -> Result<String> {
     Ok(serde_json::to_string_pretty(&response)?)
 }
 
-/// Generate schema in the specified format
-pub fn generate_schema(format: &str) -> Result<String> {
-    let schema_format = match format.to_lowercase().as_str() {
+/// The names `ish agent schema <format>` and `GET /api/v1/schema/:format`
+/// accept, matched case-insensitively. None for a name neither knows, so
+/// that a typo is reported rather than answered with some other format.
+pub fn parse_schema_format(format: &str) -> Option<SchemaFormat> {
+    match format.to_lowercase().as_str() {
         // OpenAI family
-        "openai" | "gpt" | "chatgpt" => SchemaFormat::OpenAI,
-        "azure" | "azure_openai" | "azureopenai" => SchemaFormat::AzureOpenAI,
+        "openai" | "gpt" | "chatgpt" => Some(SchemaFormat::OpenAI),
+        "azure" | "azure_openai" | "azureopenai" => Some(SchemaFormat::AzureOpenAI),
 
         // Anthropic
-        "claude" | "anthropic" => SchemaFormat::Claude,
+        "claude" | "anthropic" => Some(SchemaFormat::Claude),
 
         // Google
-        "gemini" | "google" => SchemaFormat::Gemini,
+        "gemini" | "google" => Some(SchemaFormat::Gemini),
 
         // Meta
-        "llama" | "meta" | "llama3" => SchemaFormat::Llama,
+        "llama" | "meta" | "llama3" => Some(SchemaFormat::Llama),
 
         // Mistral
-        "mistral" | "codestral" | "pixtral" => SchemaFormat::Mistral,
+        "mistral" | "codestral" | "pixtral" => Some(SchemaFormat::Mistral),
 
         // Cohere
-        "cohere" | "command" | "command-r" => SchemaFormat::Cohere,
+        "cohere" | "command" | "command-r" => Some(SchemaFormat::Cohere),
 
         // xAI
-        "grok" | "xai" => SchemaFormat::Grok,
+        "grok" | "xai" => Some(SchemaFormat::Grok),
 
         // DeepSeek
-        "deepseek" | "deepseek-r1" => SchemaFormat::DeepSeek,
+        "deepseek" | "deepseek-r1" => Some(SchemaFormat::DeepSeek),
 
         // AWS
-        "bedrock" | "aws" | "amazon" => SchemaFormat::Bedrock,
+        "bedrock" | "aws" | "amazon" => Some(SchemaFormat::Bedrock),
 
         // Alibaba
-        "qwen" | "alibaba" | "dashscope" => SchemaFormat::Qwen,
+        "qwen" | "alibaba" | "dashscope" => Some(SchemaFormat::Qwen),
 
         // Local/Self-hosted
-        "ollama" => SchemaFormat::Ollama,
-        "vllm" => SchemaFormat::VLLM,
+        "ollama" => Some(SchemaFormat::Ollama),
+        // LM Studio serves the OpenAI chat-completions API.
+        "lmstudio" | "lm-studio" | "lm_studio" => Some(SchemaFormat::OpenAI),
+        "vllm" => Some(SchemaFormat::VLLM),
 
         // Platforms
-        "huggingface" | "hf" | "tgi" => SchemaFormat::HuggingFace,
-        "openrouter" => SchemaFormat::OpenRouter,
+        "huggingface" | "hf" | "tgi" => Some(SchemaFormat::HuggingFace),
+        "openrouter" => Some(SchemaFormat::OpenRouter),
 
         // Chinese AI providers
-        "kimi" | "moonshot" => SchemaFormat::Kimi,
-        "yi" | "01ai" | "lingyiwanwu" => SchemaFormat::Yi,
-        "glm" | "chatglm" | "zhipu" => SchemaFormat::GLM,
+        "kimi" | "moonshot" => Some(SchemaFormat::Kimi),
+        "yi" | "01ai" | "lingyiwanwu" => Some(SchemaFormat::Yi),
+        "glm" | "chatglm" | "zhipu" => Some(SchemaFormat::GLM),
 
         // Additional SOTA providers
-        "reka" => SchemaFormat::Reka,
-        "ai21" | "jamba" | "jurassic" => SchemaFormat::AI21,
-        "perplexity" | "sonar" => SchemaFormat::Perplexity,
-        "together" | "together-ai" => SchemaFormat::Together,
-        "groq" => SchemaFormat::Groq,
-        "fireworks" | "fireworks-ai" => SchemaFormat::Fireworks,
+        "reka" => Some(SchemaFormat::Reka),
+        "ai21" | "jamba" | "jurassic" => Some(SchemaFormat::AI21),
+        "perplexity" | "sonar" => Some(SchemaFormat::Perplexity),
+        "together" | "together-ai" => Some(SchemaFormat::Together),
+        "groq" => Some(SchemaFormat::Groq),
+        "fireworks" | "fireworks-ai" => Some(SchemaFormat::Fireworks),
 
         // Standard formats
-        "json" | "jsonschema" | "full" => SchemaFormat::JsonSchema,
-        "compact" | "ontology" => SchemaFormat::Ontology,
-        "jsonld" | "json-ld" | "linked_data" => SchemaFormat::JsonLD,
-        "owl" | "rdf" | "turtle" | "owl_turtle" => SchemaFormat::OwlTurtle,
-        "shacl" | "shapes" => SchemaFormat::SHACL,
+        "json" | "jsonschema" | "full" => Some(SchemaFormat::JsonSchema),
+        "compact" | "ontology" => Some(SchemaFormat::Ontology),
+        "jsonld" | "json-ld" | "linked_data" => Some(SchemaFormat::JsonLD),
+        "owl" | "rdf" | "turtle" | "owl_turtle" => Some(SchemaFormat::OwlTurtle),
+        "shacl" | "shapes" => Some(SchemaFormat::SHACL),
 
-        _ => return Err(anyhow!(
-            "Unknown schema format: '{}'. Supported: openai, claude, gemini, llama, mistral, cohere, grok, deepseek, bedrock, azure, qwen, ollama, vllm, huggingface, openrouter, kimi, yi, glm, reka, ai21, perplexity, together, groq, fireworks, json, ontology",
-            format
-        )),
-    };
+        _ => None,
+    }
+}
+
+/// The format names the error for an unknown one lists.
+pub const SCHEMA_FORMATS_HINT: &str = "openai, claude, gemini, llama, mistral, cohere, grok, deepseek, bedrock, azure, qwen, ollama, lmstudio, vllm, huggingface, openrouter, kimi, yi, glm, reka, ai21, perplexity, together, groq, fireworks, json, ontology, jsonld, owl, shacl";
+
+/// Generate schema in the specified format
+pub fn generate_schema(format: &str) -> Result<String> {
+    let schema_format = parse_schema_format(format).ok_or_else(|| {
+        anyhow!(
+            "Unknown schema format: '{}'. Supported: {}",
+            format,
+            SCHEMA_FORMATS_HINT
+        )
+    })?;
 
     let request = AgentRequest::Schema {
         format: schema_format,

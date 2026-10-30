@@ -198,6 +198,16 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
                 .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
                 .unwrap_or(false);
             if deterministic {
+                // Byte-stable output must not become the way around redaction:
+                // in agent mode the canonical JSON is scrubbed as the agent
+                // renderer's output is.
+                let v = if crate::safety::current_mode() == crate::safety::Mode::Agent
+                    && crate::safety::redaction_enabled()
+                {
+                    crate::builtins::redact_value(&v)
+                } else {
+                    v
+                };
                 if let Some(out) = crate::builtins::render_canonical(&v) {
                     println!("{out}");
                 }

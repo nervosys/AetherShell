@@ -19,7 +19,7 @@ fn ae() -> std::path::PathBuf {
     if p.ends_with("deps") {
         p.pop();
     }
-    p.join(format!("ae{}", std::env::consts::EXE_SUFFIX))
+    p.join(format!("ish{}", std::env::consts::EXE_SUFFIX))
 }
 
 struct Workspace {

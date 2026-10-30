@@ -775,7 +775,10 @@ impl OSOperationRegistry {
         // Domain instances
         for domain in CapabilityDomain::all() {
             let id = format!("{:?}", domain);
-            lines.push(format!("ironshell:domain:{} a ironshell:CapabilityDomain ;", id));
+            lines.push(format!(
+                "ironshell:domain:{} a ironshell:CapabilityDomain ;",
+                id
+            ));
             lines.push(format!("    rdfs:label \"{}\" ;", id));
             lines.push(format!("    rdfs:comment \"{}\" .", domain.description()));
             lines.push(String::new());

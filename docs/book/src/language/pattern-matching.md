@@ -203,15 +203,15 @@ When `match` is used inside a lambda body, the scrutinee can be omitted — it d
 ```ish
 # Explicit scrutinee (always works)
 let grade = fn(score) => match score {
-    90..100 => "A",
-    80..89  => "B",
+    s if s >= 90 => "A",
+    s if s >= 80 => "B",
     _       => "C"
 }
 
 # Implicit scrutinee (same result, cleaner)
 let grade = fn(score) => match {
-    90..100 => "A",
-    80..89  => "B",
+    s if s >= 90 => "A",
+    s if s >= 80 => "B",
     _       => "C"
 }
 

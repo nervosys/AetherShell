@@ -57,9 +57,7 @@ fn classify_value_kind(expr: &iron_shell::ast::Expr) -> SymbolKind {
         iron_shell::ast::Expr::Array(_) => SymbolKind::ARRAY,
         iron_shell::ast::Expr::Record(_) => SymbolKind::STRUCT,
         iron_shell::ast::Expr::LitStr(_) => SymbolKind::STRING,
-        iron_shell::ast::Expr::LitInt(_) | iron_shell::ast::Expr::LitFloat(_) => {
-            SymbolKind::NUMBER
-        }
+        iron_shell::ast::Expr::LitInt(_) | iron_shell::ast::Expr::LitFloat(_) => SymbolKind::NUMBER,
         iron_shell::ast::Expr::LitBool(_) => SymbolKind::BOOLEAN,
         _ => SymbolKind::VARIABLE,
     }

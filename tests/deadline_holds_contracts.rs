@@ -217,6 +217,20 @@ fn output_with_timeout_refuses_output_past_its_cap() {
 // agent step runner
 // ─────────────────────────────────────────────────────────────────────────
 
+/// A step whose program is not installed says so, with the code that carries
+/// an install hint. It was uncoded, and the dispatcher then filed the OS's
+/// NotFound as E_NOT_FOUND, which reads as a missing file.
+#[test]
+fn an_agent_step_whose_program_is_absent_is_tool_missing() {
+    let err = iron_shell::agent::__test_execute_step("ironshell-no-such-program-7f3a", &[], 2)
+        .expect_err("an absent program cannot run");
+    assert_eq!(
+        code_of(&format!("{err:#}")),
+        "E_TOOL_MISSING",
+        "message: {err:#}"
+    );
+}
+
 #[test]
 fn an_agent_step_that_stays_silent_is_killed_with_a_budget_error() {
     let stand = silent_child();

@@ -814,7 +814,10 @@ fn parse_upgraded(text: &str) -> Option<i64> {
 /// hidden temporary name in the same directory and hard-linked into place;
 /// `link` fails when the destination exists, and apt ignores hidden files.
 fn install_file(builtin: &str, path: &str, content: &str) -> Result<()> {
-    let tmp = format!("{SOURCES_DIR}/.ironshell-pending-{}.tmp", std::process::id());
+    let tmp = format!(
+        "{SOURCES_DIR}/.ironshell-pending-{}.tmp",
+        std::process::id()
+    );
     let result = write_then_link(&tmp, path, content);
     let _ = std::fs::remove_file(&tmp);
     match result {

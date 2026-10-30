@@ -34,18 +34,12 @@ fn print_equivalence() {
     let b = eval_code(r#"print "hi""#);
     let c = eval_code(r#""hi" | print"#);
 
-    let pretty_a = iron_shell::value::pretty::display_inline(
-        &a,
-        &iron_shell::value::pretty::Theme::default(),
-    );
-    let pretty_b = iron_shell::value::pretty::display_inline(
-        &b,
-        &iron_shell::value::pretty::Theme::default(),
-    );
-    let pretty_c = iron_shell::value::pretty::display_inline(
-        &c,
-        &iron_shell::value::pretty::Theme::default(),
-    );
+    let pretty_a =
+        iron_shell::value::pretty::display_inline(&a, &iron_shell::value::pretty::Theme::default());
+    let pretty_b =
+        iron_shell::value::pretty::display_inline(&b, &iron_shell::value::pretty::Theme::default());
+    let pretty_c =
+        iron_shell::value::pretty::display_inline(&c, &iron_shell::value::pretty::Theme::default());
 
     assert_eq!(strip_ansi(&pretty_a), strip_ansi(&pretty_b));
     assert_eq!(strip_ansi(&pretty_b), strip_ansi(&pretty_c));

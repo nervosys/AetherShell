@@ -147,7 +147,7 @@ sql_value("issues.json", "select count(*) from issues where state = 'open'")
 explain_effects("rm(\"x\")")            # or: ish --explain -c '...'
 
 # Pattern matching
-match score { 90..100 => "A", 80..89 => "B", _ => "F" }
+match score { s if s >= 90 => "A", s if s >= 80 => "B", _ => "F" }
 
 # Error handling
 result = try { risky() } catch e { "fallback" }
@@ -265,7 +265,7 @@ Schema formats: `openai`, `claude`, `gemini`, `llama`, `mistral`, `cohere`, `gro
 ```bash
 cargo build --bins          # Build ish + aimodel
 cargo test --workspace      # Run workspace tests
-cargo run -- --tui          # TUI mode
+cargo run -- tui          # TUI mode
 cargo run -- -c 'expr'      # Quick eval
 ```
 

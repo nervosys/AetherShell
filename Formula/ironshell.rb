@@ -36,7 +36,7 @@ class Ironshell < Formula
       To get started:
         ish                   # Start interactive REPL
         ish script.ish        # Run a script
-        ish --tui             # Launch TUI mode
+        ish tui               # Launch TUI mode
 
       For AI features, set your API key:
         export OPENAI_API_KEY=your-key-here

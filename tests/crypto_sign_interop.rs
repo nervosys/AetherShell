@@ -3,10 +3,10 @@
 //! message, signature and SPKI public key are verified by `openssl dgst`.
 //! Skipped with a printed line when openssl is not on PATH.
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use iron_shell::builtins::call;
 use iron_shell::env::Env;
 use iron_shell::value::Value;
-use base64::{engine::general_purpose::STANDARD, Engine};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};

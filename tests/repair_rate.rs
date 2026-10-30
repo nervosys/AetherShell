@@ -12,8 +12,8 @@
 //! model-driven strategy should do better; if it does not, the errors are the
 //! problem.
 
-use iron_shell::value::Value;
 use agentic_eval::repair::{assess_repair, Attempt, ErrorFacts};
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
 static LOCK: Mutex<()> = Mutex::new(());
