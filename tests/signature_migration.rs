@@ -1,5 +1,9 @@
 use aethershell::{
-    builtins::call, env::Env, eval::eval_program, parser::parse_program, value::Value,
+    builtins::{call, call_with_input},
+    env::Env,
+    eval::eval_program,
+    parser::parse_program,
+    value::Value,
 };
 
 struct FileFixture {
@@ -1386,4 +1390,18 @@ fn authenticated_crypto_refuses_discarded_options_before_running() {
             assert!(error.to_string().contains("E_BAD_ARG"), "{name}: {error}");
         }
     }
+}
+
+#[test]
+fn malformed_csv_text_is_a_coded_bad_argument() {
+    // A row with more fields than the header was a bare csv::Error, so it
+    // reached the caller uncoded, as E_UNKNOWN.
+    let error = call_with_input(
+        "from-csv",
+        vec![],
+        Some(Value::Str("a,b\n1,2,3\n".into())),
+        &mut Env::new(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
 }

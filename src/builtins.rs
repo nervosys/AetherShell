@@ -9575,11 +9575,19 @@ fn bi_from_csv(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
 
     let mut reader = csv::Reader::from_reader(csv_str.as_bytes());
-    let headers: Vec<String> = reader.headers()?.iter().map(|h| h.to_string()).collect();
+    let headers: Vec<String> = reader
+        .headers()
+        .map_err(|e| crate::safety::bad_arg("from-csv", "CSV text", &e.to_string()))?
+        .iter()
+        .map(|h| h.to_string())
+        .collect();
 
     let mut results = Vec::new();
     for record in reader.records() {
-        let record = record?;
+        // A malformed row (unequal field counts, bad quoting) is the caller's
+        // text, so E_BAD_ARG; it was an uncoded csv::Error, E_UNKNOWN.
+        let record =
+            record.map_err(|e| crate::safety::bad_arg("from-csv", "CSV text", &e.to_string()))?;
         let mut row = BTreeMap::new();
 
         for (i, field) in record.iter().enumerate() {
@@ -43497,6 +43505,45 @@ fn sqlite_db_exists(path: &str) -> bool {
     path == ":memory:" || std::path::Path::new(path).exists()
 }
 
+/// Refuses a database path that names an existing file which is not an SQLite
+/// database. sqlite3 3.53 reads such a file as a SQL script: given
+/// `sqlite3 notes.txt "VACUUM"` it ran notes.txt as SQL, opened a database
+/// named `VACUUM` in the working directory, and exited 0, so a builtin handed
+/// the wrong file executed it and answered true. An absent path (sqlite3
+/// creates it), `:memory:`, an empty file (an empty database) and a file that
+/// starts with the SQLite header pass.
+fn sqlite_db_file(builtin: &str, path: &str) -> Result<()> {
+    if path == ":memory:" {
+        return Ok(());
+    }
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        // A directory, or one sqlite3 cannot open either: its own error says so.
+        Err(_) => return Ok(()),
+    };
+    if std::fs::metadata(path).map(|m| m.is_dir()).unwrap_or(false) {
+        return Ok(());
+    }
+    let mut head = [0u8; 16];
+    let mut got = 0;
+    while got < head.len() {
+        match std::io::Read::read(&mut file, &mut head[got..]) {
+            Ok(0) => break,
+            Ok(n) => got += n,
+            Err(e) => return Err(crate::safety::fs_error(builtin, path, &e)),
+        }
+    }
+    if got == 0 || (got == head.len() && &head == b"SQLite format 3\0") {
+        return Ok(());
+    }
+    Err(crate::safety::bad_arg(
+        builtin,
+        "an SQLite database file, or a path that does not exist yet",
+        &format!("{path}, which is not an SQLite database"),
+    ))
+}
+
 fn bi_db_sqlite_query(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // In-process and read-only since this commit; see src/sql.rs. It spawned
     // the sqlite3 CLI, so it was classed Exec, gated in agent mode, and absent
@@ -43568,6 +43615,7 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     crate::tx::snapshot(&db_path);
 
+    sqlite_db_file("db_sqlite_exec", &db_path)?;
     let mut cmd = std::process::Command::new("sqlite3");
     cmd.args([&db_path, &sql]);
     let output = bounded_cmd_output("db_sqlite_exec", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
@@ -43651,6 +43699,7 @@ fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     // Opening creates the file, so it is jailed as a write.
     let db_path = guard_local_write("db_sqlite_create", &db_path)?;
     // Just touch the file to create empty database
+    sqlite_db_file("db_sqlite_create", &db_path)?;
     let mut cmd = std::process::Command::new("sqlite3");
     cmd.args([&db_path, "SELECT 1"]);
     let output = bounded_cmd_output("db_sqlite_create", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
@@ -43708,6 +43757,7 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     // The backup is the file written; the database is only read.
     let backup_path = guard_local_write("db_sqlite_backup", &backup_path)?;
     crate::tx::snapshot(&backup_path);
+    sqlite_db_file("db_sqlite_backup", &db_path)?;
     let mut cmd = std::process::Command::new("sqlite3");
     cmd.args([&db_path, &format!(".backup '{}'", backup_path)]);
     let output = bounded_cmd_output("db_sqlite_backup", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
@@ -43939,6 +43989,7 @@ fn bi_db_sqlite_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     crate::safety::reject_sqlite_dot_command("db_sqlite_to_csv", &query)?;
     crate::safety::reject_option_like("db_sqlite_to_csv", std::slice::from_ref(&db_path))?;
+    sqlite_db_file("db_sqlite_to_csv", &db_path)?;
     let mut cmd = std::process::Command::new("sqlite3");
     cmd.args(["-header", "-csv", &db_path, &query]);
     let output = bounded_cmd_output("db_sqlite_to_csv", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
@@ -46159,6 +46210,7 @@ fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             &db_path,
         ));
     }
+    sqlite_db_file("db_sqlite_dump", &db_path)?;
     let mut cmd = std::process::Command::new("sqlite3");
     cmd.args([&db_path, ".dump"]);
     let output = bounded_cmd_output("db_sqlite_dump", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
@@ -72884,7 +72936,16 @@ mod declaration_narrowness {
                         let bare = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             call_with_input_inner(sig.name, Vec::new(), None, &mut bare_env)
                         }));
-                        let ignored = matches!(bare, Ok(Ok(ref b)) if *b == out);
+                        // A piped value to a TAKES_NO_INPUT builtin is ignored
+                        // by construction: tests/pipe_input_refused.rs derives
+                        // that list from bodies that never read their input.
+                        // Comparing outputs instead misread tool_schema and
+                        // telemetry_report, whose answers change between calls.
+                        let ignored = matches!(bare, Ok(Ok(ref b)) if *b == out)
+                            || (piped
+                                && crate::signature::TAKES_NO_INPUT
+                                    .binary_search(&sig.name)
+                                    .is_ok());
                         // A parameterless builtin whose own answer changes
                         // between identical calls (mount_info reads the live
                         // mount table) cannot be compared this way: the noise

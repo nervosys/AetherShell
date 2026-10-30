@@ -509,3 +509,42 @@ fn a_quoted_default_cannot_end_early() {
     // What must not be accepted is the same text *unquoted*, where it is syntax.
     assert!(sql_column_type("b", "TEXT DEFAULT );DROP").is_err());
 }
+
+#[test]
+fn a_file_that_is_not_a_database_is_refused_not_run_as_sql() {
+    // sqlite3 3.53 reads an existing non-database file named as the database
+    // as a SQL script, then opens the next argument as the database: given
+    // notes.txt, `db_sqlite_vacuum` ran the notes as SQL, made a database named
+    // `VACUUM` in the working directory, and answered true.
+    let _g = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let ws = std::env::temp_dir().join("ae_sqli");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("AETHER_WORKSPACE", &ws);
+    let notes = ws.join("notes.txt");
+    std::fs::write(&notes, "select 1;\n").unwrap();
+    let n = notes.to_string_lossy().into_owned();
+    let out = ws.join("notes.csv").to_string_lossy().into_owned();
+    let mut row = std::collections::BTreeMap::new();
+    row.insert("a".to_string(), Value::Int(1));
+    let cases: Vec<(&str, Vec<Value>)> = vec![
+        ("db_sqlite_insert", vec![s(&n), s("t"), Value::Record(row)]),
+        ("db_sqlite_vacuum", vec![s(&n)]),
+        ("db_sqlite_open", vec![s(&n)]),
+        ("db_sqlite_dump", vec![s(&n)]),
+        ("db_sqlite_backup", vec![s(&n)]),
+        ("db_sqlite_to_csv", vec![s(&n), s("t"), s(&out)]),
+    ];
+    let mut ran = Vec::new();
+    for (name, args) in cases {
+        match call(name, args) {
+            Err(e) if e.contains("E_BAD_ARG") && e.contains("not an SQLite database") => {}
+            other => ran.push(format!("{name}: {other:?}")),
+        }
+    }
+    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("AETHER_WORKSPACE");
+    assert_eq!(std::fs::read_to_string(&notes).unwrap(), "select 1;\n");
+    let _ = std::fs::remove_file(&notes);
+    assert!(ran.is_empty(), "not refused:\n{}", ran.join("\n"));
+}
