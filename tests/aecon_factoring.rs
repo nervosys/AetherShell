@@ -494,3 +494,40 @@ fn the_new_passes_compose_with_the_existing_ones() {
     assert!(out.contains("@suffix path: _impl.rs"), "got: {out}");
     assert_eq!(roundtrip(&arr), arr, "all passes together must round-trip");
 }
+
+/// A `@delta` cell that is not an integer was read as 0, and every later row
+/// of the column carried the error on as an ordinary-looking number.
+#[test]
+fn a_malformed_delta_cell_is_refused_not_read_as_zero() {
+    let good = call(
+        "aecon_decode",
+        vec![Value::Str(
+            "id\tname\n@delta: id\n100\ta\n1\tb\n1\tc".into(),
+        )],
+    );
+    let ids: Vec<Value> = match good {
+        Value::Array(rows) => rows
+            .into_iter()
+            .map(|r| match r {
+                Value::Record(m) => m["id"].clone(),
+                other => panic!("expected a record, got {other:?}"),
+            })
+            .collect(),
+        other => panic!("expected rows, got {other:?}"),
+    };
+    assert_eq!(ids, vec![Value::Int(100), Value::Int(101), Value::Int(102)]);
+
+    let mut env = aethershell::env::Env::new();
+    let err = aethershell::builtins::call(
+        "aecon_decode",
+        vec![Value::Str(
+            "id\tname\n@delta: id\n100\ta\nx\tb\n1\tc".into(),
+        )],
+        &mut env,
+    )
+    .expect_err("a non-integer delta cell must be refused");
+    let se = err
+        .downcast_ref::<aethershell::safety::SafetyError>()
+        .expect("a coded error");
+    assert_eq!(se.code.as_str(), "E_BAD_ARG", "{err:#}");
+}

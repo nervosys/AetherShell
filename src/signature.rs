@@ -3491,7 +3491,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "String",
-        doc: "The system's time zone: the IANA name on Unix (`Europe/Berlin`), the Windows zone ID on Windows (`W. Europe Standard Time`). UTC when none is set.",
+        doc: "The system's time zone: the IANA name on Unix (`Europe/Berlin`), the Windows zone ID on Windows (`W. Europe Standard Time`). UTC when none is configured (no TZ and no /etc/localtime); a zone it cannot read or name is refused, never reported as UTC.",
         examples: &[("typeof(sys_timezone())", "String")],
     },
     Signature {

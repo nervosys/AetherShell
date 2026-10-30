@@ -19482,16 +19482,17 @@ fn aecon_unflatten(
 /// the compact form would otherwise infer wrongly (numeric-looking strings,
 /// integral floats) — making the round-trip lossless. Returns the parsed array;
 /// non-tabular input (a single `{k=v}` record, a scalar array, or a bare scalar)
-/// is returned as a best-effort single value.
-fn aecon_decode(s: &str) -> Value {
+/// is returned as a best-effort single value. A `@delta` cell that is not an
+/// integer is refused: read as 0, it shifted every later row of its column.
+fn aecon_decode(s: &str) -> Result<Value> {
     let lines: Vec<&str> = s.split('\n').collect();
     if lines.is_empty() {
-        return Value::Null;
+        return Ok(Value::Null);
     }
     let header = lines[0];
     // Non-tabular fallbacks: a single record / scalar array / bare scalar.
     if !header.contains('\t') && (header.starts_with('{') || header.starts_with('[')) {
-        return aecon_decode_atom(header);
+        return Ok(aecon_decode_atom(header));
     }
     let var_keys: Vec<String> = header.split('\t').map(|s| s.to_string()).collect();
 
@@ -19583,13 +19584,26 @@ fn aecon_decode(s: &str) -> Value {
             let val = if same_set.contains(k) && cell.is_empty() && prev_same.contains_key(k) {
                 prev_same[k].clone()
             } else if delta_set.contains(k) {
-                let n: i128 = cell.parse().unwrap_or(0);
+                let n: i128 = cell.parse().map_err(|_| {
+                    crate::safety::bad_arg(
+                        "aecon_decode",
+                        &format!("an integer in @delta column {k}"),
+                        cell,
+                    )
+                })?;
                 let abs = match delta_run.get(k) {
                     Some(prev) => prev + n, // later rows carry the difference
                     None => n,              // row 0 carries the absolute value
                 };
                 delta_run.insert(k.clone(), abs);
-                Value::Int(abs as i64)
+                let abs = i64::try_from(abs).map_err(|_| {
+                    crate::safety::bad_arg(
+                        "aecon_decode",
+                        &format!("@delta column {k} to stay within Int"),
+                        &abs.to_string(),
+                    )
+                })?;
+                Value::Int(abs)
             } else if let Some(values) = dicts.get(k) {
                 match cell.parse::<usize>().ok().and_then(|i| values.get(i)) {
                     Some(s) => Value::Str(s.clone()),
@@ -19616,7 +19630,7 @@ fn aecon_decode(s: &str) -> Value {
             aecon_unflatten(m, &nest_set)
         }));
     }
-    Value::Array(out_rows)
+    Ok(Value::Array(out_rows))
 }
 
 /// Token count used by the token-economy builtins (`tokens`/`budget`/`digest`)
@@ -19689,7 +19703,7 @@ fn bi_aecon_decode(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-    Ok(aecon_decode(&s))
+    aecon_decode(&s)
 }
 
 /// tokens(value?) - Estimate the token count of a value's rendered form (its
@@ -29892,22 +29906,25 @@ fn bi_sys_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let mut ver_cmd = std::process::Command::new("sw_vers");
         ver_cmd.args(["-productVersion"]);
         let version = bounded_cmd_output("sys_info", "sw_vers", ver_cmd, PROBE_DEADLINE_SECS);
+        // As on Windows and Linux, os_name is left out when the probe
+        // fails; it had been filled with a literal "macOS".
         let name = output
             .as_ref()
             .ok()
             .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_else(|| "macOS".to_string());
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
         let ver = version
             .as_ref()
             .ok()
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_default();
-        rec.insert(
-            "os_name".to_string(),
-            Value::Str(format!("{} {}", name, ver).trim().to_string()),
-        );
+        if let Some(name) = name.filter(|n| !n.is_empty()) {
+            rec.insert(
+                "os_name".to_string(),
+                Value::Str(format!("{} {}", name, ver).trim().to_string()),
+            );
+        }
     }
 
     Ok(Value::Record(rec))
@@ -31155,15 +31172,24 @@ fn bi_sys_timezone(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         // The zone ID `(Get-TimeZone).Id` gave (`Pacific Standard Time`),
-        // read from where Windows keeps it instead of from PowerShell.
-        if let Ok(Some(zone)) = windows_hklm_string(
+        // read from where Windows keeps it instead of from PowerShell. A
+        // failed read used to fall through to "UTC".
+        return match windows_hklm_string(
             r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation",
             "TimeZoneKeyName",
         ) {
-            if !zone.is_empty() {
-                return Ok(Value::Str(zone));
-            }
-        }
+            Ok(Some(zone)) if !zone.is_empty() => Ok(Value::Str(zone)),
+            Ok(_) => Err(crate::safety::not_found(
+                "sys_timezone",
+                "registry value",
+                r"HKLM\SYSTEM\CurrentControlSet\Control\TimeZoneInformation\TimeZoneKeyName",
+            )),
+            Err(code) => Err(crate::safety::io_fault(
+                "sys_timezone",
+                &format!("reading the time zone from the registry failed (error {code})"),
+                "the zone is unknown, not UTC; retry, or read Get-TimeZone",
+            )),
+        };
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -31187,8 +31213,18 @@ fn bi_sys_timezone(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 }
             }
         }
+        // With no /etc/localtime, glibc and musl use UTC, so UTC is the
+        // answer. One that exists but names no zone (a copied tzfile, as in
+        // many containers) was reported as UTC whatever it held.
+        match std::fs::symlink_metadata("/etc/localtime") {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Value::Str("UTC".to_string())),
+            _ => Err(crate::safety::unimplemented(
+                "sys_timezone",
+                "naming the zone when TZ is unset and /etc/localtime is not a link into zoneinfo",
+                "set TZ to the zone name",
+            )),
+        }
     }
-    Ok(Value::Str("UTC".to_string()))
 }
 
 // ============================================================================
