@@ -2344,10 +2344,27 @@ fn utility(name: &str, args: &[String], stdin: &mut Input, sink: &mut Sink) -> U
                 Some([f, s, l]) if *s != 0 => (*f, *s, *l),
                 _ => return Util::Decline,
             };
+            // The whole output is gathered before it is written, so `seq 1
+            // 9999999999` grew without limit; and `i += step` overflowed
+            // near i64::MAX.
+            let count = if (step > 0 && first > last) || (step < 0 && first < last) {
+                0
+            } else {
+                (last as i128 - first as i128) / step as i128 + 1
+            };
+            if count > SEQ_MAX as i128 {
+                sink.eline(&format!(
+                    "seq: {count} numbers is more than {SEQ_MAX}; nothing was printed"
+                ));
+                return Util::Done(1);
+            }
             let mut i = first;
-            while (step > 0 && i <= last) || (step < 0 && i >= last) {
+            for _ in 0..count {
                 sink.out.extend_from_slice(format!("{i}\n").as_bytes());
-                i += step;
+                match i.checked_add(step) {
+                    Some(n) => i = n,
+                    None => break,
+                }
             }
             Util::Done(0)
         }
@@ -2431,6 +2448,12 @@ fn echo(args: &[String], sink: &mut Sink) -> Util {
     Util::Done(0)
 }
 
+/// The most numbers `seq` prints: its output is gathered whole before it is
+/// written.
+const SEQ_MAX: usize = 10_000_000;
+/// The widest `printf` field, as awk's printf allows.
+const PRINTF_WIDTH_MAX: usize = 4096;
+
 fn printf(args: &[String], sink: &mut Sink) -> Util {
     let Some(fmt) = args.first() else {
         sink.eline("printf: usage: printf format [arguments]");
@@ -2478,12 +2501,26 @@ fn printf(args: &[String], sink: &mut Sink) -> Util {
             let arg = arg.cloned().unwrap_or_default();
             let left = spec.starts_with('-');
             let zero = spec.trim_start_matches('-').starts_with('0');
-            let width: usize = spec
+            // A width is padding allocated up front: `%999999999999s` asked
+            // for a terabyte, and a width too long to parse was read as 0.
+            let digits = spec
                 .trim_start_matches(['-', '0'])
                 .split('.')
                 .next()
-                .and_then(|w| w.parse().ok())
-                .unwrap_or(0);
+                .unwrap_or("");
+            let width: usize = if digits.is_empty() {
+                0
+            } else {
+                match digits.parse::<usize>() {
+                    Ok(w) if w <= PRINTF_WIDTH_MAX => w,
+                    _ => {
+                        sink.eline(&format!(
+                            "printf: field width {digits} is more than {PRINTF_WIDTH_MAX}"
+                        ));
+                        return Util::Done(1);
+                    }
+                }
+            };
             let body = match conv {
                 's' | 'b' => {
                     if conv == 'b' {
@@ -4045,6 +4082,23 @@ mod tests {
             _ => 0,
         };
         (String::from_utf8_lossy(&sink.out).into_owned(), c)
+    }
+
+    /// seq gathers its whole output and printf allocates its padding before
+    /// writing, so both refuse sizes past their caps instead of growing.
+    #[test]
+    fn seq_and_printf_refuse_sizes_past_their_caps() {
+        assert_eq!(sh("seq 3"), ("1\n2\n3\n".into(), 0));
+        assert_eq!(sh("seq 5 -2 1"), ("5\n3\n1\n".into(), 0));
+        assert_eq!(sh("seq 3 1"), ("".into(), 0));
+        assert_eq!(sh("seq 1 99999999999"), ("".into(), 1));
+        assert_eq!(
+            sh("seq 9223372036854775806 9223372036854775807"),
+            ("9223372036854775806\n9223372036854775807\n".into(), 0)
+        );
+        assert_eq!(sh("printf '%5s|' ab"), ("   ab|".into(), 0));
+        assert_eq!(sh("printf '%99999999s' x"), ("".into(), 1));
+        assert_eq!(sh("printf '%999999999999999999999999s' x"), ("".into(), 1));
     }
 
     #[test]

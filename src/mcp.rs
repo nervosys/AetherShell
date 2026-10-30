@@ -46,6 +46,9 @@ const MCP_REMOTE_BODY: &str =
 const MCP_TOOL_TIMEOUT_SECS: u64 = 60;
 /// The most output of one stream a tool result carries back to the caller.
 const MCP_TOOL_OUTPUT_CAP: usize = 256 * 1024;
+/// The longest JSON-RPC request line `ae mcp stdio` reads. A client line was
+/// read whole, so one with no newline could exhaust memory.
+const MCP_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 
 // ============================================================================
 // MCP Protocol Types
@@ -504,12 +507,35 @@ impl McpServer {
         let stdout = std::io::stdout();
         let mut out = stdout.lock();
         let mut handle = stdin.lock();
-        let mut buf = String::new();
+        let mut raw = Vec::new();
         loop {
-            buf.clear();
-            if handle.read_line(&mut buf)? == 0 {
+            raw.clear();
+            let limit = MCP_MAX_REQUEST_BYTES as u64 + 1;
+            if std::io::Read::take(&mut handle, limit).read_until(b'\n', &mut raw)? == 0 {
                 break; // EOF
             }
+            if raw.len() > MCP_MAX_REQUEST_BYTES && !raw.ends_with(b"\n") {
+                // Discard the rest of the over-long line, then refuse it.
+                let mut rest = Vec::new();
+                loop {
+                    rest.clear();
+                    let n =
+                        std::io::Read::take(&mut handle, 1 << 20).read_until(b'\n', &mut rest)?;
+                    if n == 0 || rest.ends_with(b"\n") {
+                        break;
+                    }
+                }
+                Self::write_message(
+                    &mut out,
+                    &Self::rpc_error(
+                        JsonValue::Null,
+                        -32600,
+                        &format!("request longer than {MCP_MAX_REQUEST_BYTES} bytes"),
+                    ),
+                )?;
+                continue;
+            }
+            let buf = String::from_utf8_lossy(&raw);
             let line = buf.trim();
             if line.is_empty() {
                 continue;

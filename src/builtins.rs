@@ -53431,13 +53431,26 @@ fn bi_platform_db_store(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     // An unreadable store used to read as empty and be written back with only
     // the new key: every other entry was destroyed. The read error is now the
     // answer.
-    let content = std::fs::read_to_string(&db_path)
-        .map_err(|e| crate::safety::fs_error("platform_db_store", &db_path, &e))?;
+    let content = read_text_capped("platform_db_store", &db_path)?;
     let mut db = platform_store_parse("platform_db_store", &db_path, &content)?;
 
     db.insert(key, value_to_json(snapshot));
 
-    std::fs::write(&db_path, serde_json::to_string_pretty(&db)?)
+    // The store had no size limit and was read whole on every call; a store
+    // past the file limit could no longer be read back.
+    let text = serde_json::to_string_pretty(&db)?;
+    let max = crate::security::max_file_size_bytes()?;
+    if text.len() as u64 > max {
+        return Err(crate::safety::budget_exceeded(
+            "platform_db_store",
+            format!(
+                "the platform store would be {} bytes, more than the file limit of {max}",
+                text.len()
+            ),
+            "remove entries from the store, or raise max_file_size_mb",
+        ));
+    }
+    std::fs::write(&db_path, text)
         .map_err(|e| crate::safety::fs_error("platform_db_store", &db_path, &e))?;
     Ok(Value::Bool(true))
 }
@@ -53453,8 +53466,7 @@ fn bi_platform_db_load(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         return Ok(Value::Null);
     }
 
-    let content = std::fs::read_to_string(&db_path)
-        .map_err(|e| crate::safety::fs_error("platform_db_load", &db_path, &e))?;
+    let content = read_text_capped("platform_db_load", &db_path)?;
     // A corrupt store read as empty, so every key answered null.
     let db: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&content).map_err(|e| {
