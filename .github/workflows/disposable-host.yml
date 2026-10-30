@@ -119,19 +119,31 @@ jobs:
 
             - name: Window operations
               if: ${{ !cancelled() }}
-              # One process per test: the runner's Accessibility grant was withdrawn
-              # part-way through this binary in 40981909242 and 40997731140, and
-              # every later call in that process was E_OS_DENIED, while the next
-              # step (Input operations, a new process) still had it.
+              # One process per test, and one retry in a new process when the only
+              # failure is the runner withdrawing Accessibility. On the GitHub macOS
+              # runner the grant was withdrawn part-way through a test process in
+              # 40981909242, 40997731140 and 40999395803 (every later call
+              # E_OS_DENIED), while a new process (the next step) still had it. The
+              # retry is announced as a warning; any other failure, or a second
+              # withdrawal, fails the step.
               run: |
-                  set -eo pipefail
+                  set -o pipefail
                   for t in a_window_is_listed_moved_resized_focused_maximised_and_closed \
                            bad_arguments_and_focus_by_handle_are_refused \
                            each_window_builtin_says_not_found_for_a_title_no_window_has \
                            zz_a_window_is_minimised; do
-                      cargo test --test macos_window_admin -- --include-ignored --exact "$t" 2>&1 | tee window-test.log
-                      # A misspelt name runs nothing and would pass.
-                      grep -q "test result: ok. 1 passed" window-test.log
+                      for attempt in 1 2; do
+                          cargo test --test macos_window_admin -- --include-ignored --exact "$t" 2>&1 | tee window-test.log
+                          # A misspelt name runs nothing and would pass.
+                          if grep -q "test result: ok. 1 passed" window-test.log; then
+                              break
+                          fi
+                          if [ "$attempt" = 1 ] && grep -qE "Accessibility access is not granted|not allowed assistive access" window-test.log; then
+                              echo "::warning::$t: the runner withdrew Accessibility mid-test; retrying once in a new process"
+                              continue
+                          fi
+                          exit 1
+                      done
                   done
 
             - name: Input operations
