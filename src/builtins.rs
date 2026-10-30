@@ -33816,6 +33816,12 @@ fn bi_bzip2_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     // The file goes to bzip2 positionally; a leading `-` would be an option.
     crate::safety::reject_option_like("bzip2_compress", std::slice::from_ref(&file))?;
+    // bzip2 writes `<file>.bz2` beside its input. That output is jailed as
+    // gzip_compress's is; the input is resolved the same way, so the file
+    // bzip2 writes is the one the jail judged.
+    let file = crate::safety::resolve_path_str(&file);
+    let out = guard_local_write("bzip2_compress", &format!("{file}.bz2"))?;
+    crate::tx::snapshot(&out); // absent until written: bzip2 will not replace it
     let mut cmd = std::process::Command::new("bzip2");
     cmd.args(["-k", &file]);
     // Compressing a large file can outlast the short deadlines.
@@ -43516,6 +43522,20 @@ fn bi_sql_value(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     crate::sql::sql_value(args, input)
 }
 
+/// The workspace jail for the database every sqlite writer changes, applied in
+/// `db_sqlite_exec`, which they all reach. Those writers are WriteLocal, which
+/// the dispatcher does not jail, and none guarded its database: in agent mode
+/// `db_sqlite_insert` wrote a database outside the workspace that `file_write`
+/// was refused for.
+///
+/// A helper rather than a guard call in the body, on purpose: a body that
+/// guards is listed in SELF_GUARDED and skipped by the dispatcher, and
+/// `db_sqlite_exec` called directly is Exec, which must keep the dispatcher's
+/// approval. The dispatcher does not jail Exec, so the two checks do not overlap.
+fn sqlite_db_in_workspace(db_path: &str) -> Result<String> {
+    guard_local_write("db_sqlite_exec", db_path)
+}
+
 fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
@@ -43544,6 +43564,7 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // transaction is active.
     crate::safety::reject_sqlite_dot_command("db_sqlite_exec", &sql)?;
     crate::safety::reject_option_like("db_sqlite_exec", std::slice::from_ref(&db_path))?;
+    let db_path = sqlite_db_in_workspace(&db_path)?;
 
     crate::tx::snapshot(&db_path);
 
@@ -43627,6 +43648,8 @@ fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     };
 
     crate::safety::reject_option_like("db_sqlite_create", std::slice::from_ref(&db_path))?;
+    // Opening creates the file, so it is jailed as a write.
+    let db_path = guard_local_write("db_sqlite_create", &db_path)?;
     // Just touch the file to create empty database
     let mut cmd = std::process::Command::new("sqlite3");
     cmd.args([&db_path, "SELECT 1"]);
@@ -43682,6 +43705,9 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             &backup_path,
         ));
     }
+    // The backup is the file written; the database is only read.
+    let backup_path = guard_local_write("db_sqlite_backup", &backup_path)?;
+    crate::tx::snapshot(&backup_path);
     let mut cmd = std::process::Command::new("sqlite3");
     cmd.args([&db_path, &format!(".backup '{}'", backup_path)]);
     let output = bounded_cmd_output("db_sqlite_backup", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
@@ -48969,12 +48995,19 @@ fn bi_git_ignore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "cd into a repository",
         ));
     }
+    // The repository is the working directory's, so the file is
+    // `<cwd>/.gitignore`, named absolutely: the jail judges that file (a
+    // relative name would be judged in the workspace while the write landed in
+    // the working directory), and the journal is given the same path.
+    let cwd =
+        std::env::current_dir().map_err(|e| crate::safety::fs_error("git_ignore", ".", &e))?;
+    let path = guard_local_write("git_ignore", &cwd.join(".gitignore").to_string_lossy())?;
     // A .gitignore that exists but cannot be read is an error, not an empty
     // file: treating it as empty and writing would replace its contents.
-    let existing = match std::fs::read_to_string(".gitignore") {
+    let existing = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(crate::safety::fs_error("git_ignore", ".gitignore", &e)),
+        Err(e) => return Err(crate::safety::fs_error("git_ignore", &path, &e)),
     };
     // Idempotent: the same pattern was appended again on every call.
     if existing.lines().any(|l| l.trim() == pattern.trim()) {
@@ -48986,13 +49019,8 @@ fn bi_git_ignore(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     text.push_str(pattern.trim());
     text.push('\n');
-    // `.gitignore` is written relative to the working directory, so the journal
-    // is given that absolute path (a relative one resolves to the workspace root).
-    if let Ok(cwd) = std::env::current_dir() {
-        crate::tx::snapshot(&cwd.join(".gitignore").to_string_lossy());
-    }
-    std::fs::write(".gitignore", text)
-        .map_err(|e| crate::safety::fs_error("git_ignore", ".gitignore", &e))?;
+    crate::tx::snapshot(&path);
+    std::fs::write(&path, text).map_err(|e| crate::safety::fs_error("git_ignore", &path, &e))?;
     Ok(Value::Bool(true))
 }
 
@@ -49157,6 +49185,9 @@ fn bi_code_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .unwrap_or("");
     // The path goes to the formatter positionally.
     crate::safety::reject_option_like("code_format", std::slice::from_ref(&file))?;
+    // Each formatter rewrites the file in place, and none was jailed.
+    let file = guard_local_write("code_format", &file)?;
+    crate::tx::snapshot(&file);
     let (program, cmd) = match ext {
         "rs" => {
             let mut cmd = std::process::Command::new("rustfmt");
@@ -70357,14 +70388,16 @@ fn bi_chgrp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 #[cfg(not(windows))]
 fn chgrp_unix(group: String, path: String) -> Result<Value> {
-    if std::fs::symlink_metadata(&path).is_err() {
+    // Jailed as the Windows branch is; this one had no guard.
+    let target = guard_local_write("chgrp", &path)?;
+    if std::fs::symlink_metadata(&target).is_err() {
         return Err(crate::safety::not_found("chgrp", "file", &path));
     }
     let run = tool_run(
         "chgrp",
         "chgrp",
         None,
-        &["--", &group, &path],
+        &["--", &group, &target],
         Keep::Tail(TOOL_STDERR_TAIL),
         TOOL_DEADLINE_SECS,
     )?;

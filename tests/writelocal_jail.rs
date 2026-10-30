@@ -31,24 +31,17 @@
 //! which is true and beside the point, because containment is not a policy
 //! decision. It is a separate check that happens to live behind the same call.
 //!
-//! ## What the fix does and does not do
+//! ## Where the jail lives
 //!
-//! The central check judges only arguments that name a path **which already
-//! exists**, and that restriction is deliberate and load-bearing: a string that
-//! resolves to a real file is a path by observation, while a string that does not
-//! might be a container name, a subcommand or a SQL fragment, and refusing those
-//! would break legitimate calls with no workaround.
-//!
-//! That has a consequence worth stating plainly rather than papering over:
-//! **writing to a path outside the workspace that does not yet exist is still not
-//! caught centrally.** `cp inside.txt C:\somewhere\new.txt` creates a new file
-//! and no existing path is named. What the central jail does catch is
-//! *overwriting something that is already there* — which is the destructive half
-//! of a write, and the half that can damage a system rather than litter it.
-//!
-//! The rest stays where the design puts it: at call sites that know which of
-//! their arguments is a destination. The count of builtins relying on that is
-//! asserted below so it is a measured number rather than an assumption.
+//! A central check over every existing path a `WriteLocal` call names was
+//! written, and reverted: it refused copying a file *into* the workspace from
+//! outside, because the source exists outside, and from the dispatcher that is
+//! indistinguishable from overwriting something outside. (The comment in
+//! `guard_dispatch` keeps the reasoning.) So the jail is at call sites, which
+//! know which argument is the destination, and a `WriteLocal` builtin whose body
+//! does not guard its destination is not jailed at all. The tests below hold the
+//! known ones to it, and the count of names relying on their bodies is asserted
+//! so it is a measured number rather than an assumption.
 
 use aethershell::builtins::{self, BUILTIN_LOOKUP, FALLBACK_BUILTINS};
 use aethershell::env::Env;
@@ -210,13 +203,18 @@ fn writing_inside_the_workspace_is_untouched() {
 #[test]
 fn the_number_of_writelocal_builtins_relying_on_call_sites_is_measured() {
     // Not a pass/fail about correctness — a number, so that "the call sites cover
-    // it" stays a claim someone can check rather than an assumption. The central
-    // jail catches overwrites of existing paths; a *new* file outside the
-    // workspace is still the call site's job.
+    // it" stays a claim someone can check rather than an assumption.
     //
-    // This may only shrink. It went from 111 to whatever it reads now by moving
-    // the check into `guard_dispatch`; the remainder are builtins where the
-    // destination need not exist beforehand.
+    // There is no central jail for WriteLocal: one was tried in `guard_dispatch`
+    // and reverted (see the comment there), so every write is jailed at its call
+    // site or not at all. The name list overstates the gap, because many of
+    // these guard in their bodies without being listed in SELF_GUARDED (file_copy,
+    // file_mkdir, the gzip pair), and many write no caller-named path (in-memory
+    // registries, the fixed config and platform stores). A 2026-10-29 read of
+    // all 102 found eight that wrote a caller's path unjailed: the sqlite
+    // writers, db_sqlite_open, db_sqlite_backup, bzip2_compress, code_format and
+    // chgrp on Unix. They are jailed now, and
+    // `the_database_compression_and_format_writers_are_jailed` holds them to it.
     // Both halves of the dispatcher, the same enumeration `effect_snapshot`
     // uses — a name in the fallback `match` is as callable as any other.
     let mut names: Vec<&str> = BUILTIN_LOOKUP.keys().copied().collect();
@@ -241,11 +239,10 @@ fn the_number_of_writelocal_builtins_relying_on_call_sites_is_measured() {
     );
     assert!(
         unguarded.len() <= 115,
-        "{} of {} WriteLocal builtins do not guard their own destination, up from \
-         the measured 111. Each relies on the central check in `guard_dispatch`, \
-         which catches overwriting an existing path but not creating a new one \
-         outside the workspace. Adding another is allowed; letting the number \
-         grow silently is not.",
+        "{} of {} WriteLocal builtins are not in SELF_GUARDED, up from the \
+         measured 111. Nothing in `guard_dispatch` jails them, so a new one that \
+         writes a caller's path must guard it in its body. Adding another is \
+         allowed; letting the number grow silently is not.",
         unguarded.len(),
         write_local.len()
     );
@@ -347,4 +344,56 @@ fn file_move_finds_a_relative_source_in_the_workspace() {
         Some(aethershell::safety::ErrorCode::NotFound),
         "{result:?}"
     );
+}
+
+#[test]
+fn the_database_compression_and_format_writers_are_jailed() {
+    // WriteLocal builtins the dispatcher does not jail, which wrote a file
+    // outside the workspace that file_write is refused for. The jail refuses
+    // before any tool runs, so this holds whether or not sqlite3, bzip2 or a
+    // formatter is installed.
+    let _g = lock();
+    let jail = Jail::new("writers");
+    let victim = jail.victim.to_string_lossy().into_owned();
+    let s = |v: &str| Value::Str(v.to_string());
+    let fresh = |ext: &str| jail.victim.with_extension(ext);
+    let cases: Vec<(&str, Vec<Value>, Option<std::path::PathBuf>)> = vec![
+        (
+            "db_sqlite_insert",
+            vec![
+                s(&victim),
+                s("t"),
+                Value::Record([("a".to_string(), Value::Int(1))].into_iter().collect()),
+            ],
+            None,
+        ),
+        (
+            "db_sqlite_create_table",
+            vec![s(&victim), s("t"), s("a integer")],
+            None,
+        ),
+        ("db_sqlite_vacuum", vec![s(&victim)], None),
+        ("db_kv_set", vec![s(&victim), s("k"), s("v")], None),
+        (
+            "db_sqlite_open",
+            vec![s(&fresh("open.db").to_string_lossy())],
+            Some(fresh("open.db")),
+        ),
+        (
+            "db_sqlite_backup",
+            vec![s(&victim), s(&fresh("bak.db").to_string_lossy())],
+            Some(fresh("bak.db")),
+        ),
+        ("bzip2_compress", vec![s(&victim)], Some(fresh("txt.bz2"))),
+        ("code_format", vec![s(&victim)], None),
+    ];
+    let mut escaped = Vec::new();
+    for (name, args, created) in cases {
+        let r = call(name, args);
+        let made = created.filter(|p| p.exists());
+        if !refused_by_the_jail(&r) || !jail.victim_intact() || made.is_some() {
+            escaped.push(format!("{name}: {r:?} (created: {made:?})"));
+        }
+    }
+    assert!(escaped.is_empty(), "not jailed:\n{}", escaped.join("\n"));
 }
