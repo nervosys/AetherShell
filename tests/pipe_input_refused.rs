@@ -72,16 +72,13 @@ fn rows_dropping_input(src: &str) -> Vec<bool> {
             continue;
         };
         let second = params.split(',').nth(1).map(str::trim).unwrap_or("_");
-        let drops = if second.starts_with('_') {
-            true
-        } else if !mentions_input(body) {
-            true
-        } else {
-            body.split_once("bi_")
+        // The row ignores its input, or passes it to a function that does.
+        let drops = second.starts_with('_')
+            || !mentions_input(body)
+            || body
+                .split_once("bi_")
                 .and_then(|(_, rest)| rest.split_once('('))
-                .map(|(f, _)| function_drops_input(src, &format!("bi_{f}")))
-                .unwrap_or(false)
-        };
+                .is_some_and(|(f, _)| function_drops_input(src, &format!("bi_{f}")));
         rows.push(drops);
     }
     rows
@@ -150,7 +147,10 @@ fn every_listed_builtin_refuses_a_piped_value_before_it_runs() {
         }
     }
     assert!(accepted.is_empty(), "not refused:\n{}", accepted.join("\n"));
-    assert!(called > 100, "only {called} were called; the filter has eaten the check");
+    assert!(
+        called > 100,
+        "only {called} were called; the filter has eaten the check"
+    );
 }
 
 #[test]
