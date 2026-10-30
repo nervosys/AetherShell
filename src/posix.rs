@@ -1808,6 +1808,13 @@ impl Shell {
 }
 
 /// Write a redirection's output through the same guard as `file.write`.
+///
+/// The write goes to the path the guard checked. It went to `path` as given,
+/// which the OS resolved against the working directory while the guard, in
+/// agent mode, had resolved it against the workspace: with the two apart,
+/// `echo x > f` was approved as `<workspace>/f` and wrote `<cwd>/f`, outside
+/// the jail. The prior contents are journalled first, as the dispatcher does
+/// for `file.write`, so the `reversible` the guard is told is true.
 fn write_file(path: &str, data: &[u8], append: bool) -> Result<(), String> {
     let resolved = crate::safety::resolve_path_str(path);
     crate::safety::guard(crate::safety::GuardCtx {
@@ -1820,15 +1827,24 @@ fn write_file(path: &str, data: &[u8], append: bool) -> Result<(), String> {
         fs_paths: true,
     })
     .map_err(|e| e.to_string())?;
+    let mark = crate::journal::mark();
+    crate::journal::record_before(
+        "posix",
+        crate::safety::Effect::WriteLocal,
+        &[crate::value::Value::Str(resolved.clone())],
+    );
     let res = if append {
         std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(path)
+            .open(&resolved)
             .and_then(|mut f| f.write_all(data))
     } else {
-        std::fs::write(path, data)
+        std::fs::write(&resolved, data)
     };
+    if res.is_err() {
+        crate::journal::rollback_to(mark);
+    }
     res.map_err(|e| format!("{SHELL_NAME}: {path}: {}", io_reason(&e)))
 }
 
