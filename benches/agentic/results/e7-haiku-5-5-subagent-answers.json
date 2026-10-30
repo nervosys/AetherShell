@@ -1,0 +1,62 @@
+{
+"sql": {
+"q1": "```sql\nSELECT COUNT(*) FROM issues WHERE state = 'open' AND (title LIKE '%security%' OR body LIKE '%security%');\n```",
+"q2": "```sql\nSELECT COUNT(*) FROM issues WHERE is_pr = 1;\n```",
+"q3": "```sql\nSELECT SUM(comments) FROM issues WHERE state = 'closed';\n```",
+"q4": "```sql\nSELECT user, COUNT(*) AS n FROM issues WHERE is_pr = 1 GROUP BY user ORDER BY n DESC LIMIT 1;\n```",
+"q5": "```sql\nSELECT number FROM issues WHERE state = 'open' AND is_pr = 0 AND comments > 5 ORDER BY number;\n```",
+"q6": "```sql\nSELECT COUNT(DISTINCT j.value) FROM issues, json_each(issues.labels) AS j;\n```",
+"q7": "```sql\nSELECT MAX(comments) FROM issues;\n```",
+"q8": "```sql\nSELECT COUNT(*) FROM (SELECT user FROM issues WHERE is_pr = 1 INTERSECT SELECT user FROM issues WHERE is_pr = 0);\n```",
+"q9": "```sql\nSELECT printf('%.2f', AVG(comments)) FROM issues WHERE state = 'open' AND is_pr = 0;\n```",
+"q10": "```sql\nSELECT COUNT(*) FROM issues WHERE state = 'open' AND EXISTS (SELECT 1 FROM json_each(issues.labels) AS j WHERE j.value = 'bug');\n```"
+},
+"jq": {
+"q1": "```bash\njq '[.[] | select(.state == \"open\" and (((.title // \"\") + \" \" + (.body // \"\")) | test(\"security\"; \"i\")))] | length' issues.json\n```",
+"q2": "```bash\njq '[.[] | select(.is_pr)] | length' issues.json\n```",
+"q3": "```bash\njq '[.[] | select(.state == \"closed\") | .comments] | add' issues.json\n```",
+"q4": "```bash\njq -r '[.[] | select(.is_pr)] | group_by(.user) | map({user: .[0].user, n: length}) | max_by(.n) | [.user, (.n | tostring)] | join(\" \")' issues.json\n```",
+"q5": "```bash\njq -c '[.[] | select(.state == \"open\" and (.is_pr | not) and .comments > 5) | .number] | sort' issues.json\n```",
+"q6": "```bash\njq '[.[].labels[]] | unique | length' issues.json\n```",
+"q7": "```bash\njq '[.[].comments] | max' issues.json\n```",
+"q8": "```bash\njq '([.[] | select(.is_pr) | .user] | unique) as $p | ([.[] | select(.is_pr | not) | .user] | unique) as $i | [$p[] | select(. as $u | $i | index([$u]) != null)] | length' issues.json\n```",
+"q9": "```bash\nprintf '%.2f\\n' \"$(jq '[.[] | select(.state == \"open\" and (.is_pr | not)) | .comments] | add / length' issues.json)\"\n```",
+"q10": "```bash\njq '[.[] | select(.state == \"open\" and (.labels | any(. == \"bug\")))] | length' issues.json\n```"
+},
+"aethershell": {
+"q1": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.state == \"open\" && ((r.title + \" \" + r.body) | lower() | contains(\"security\"))) | len()\n```",
+"q2": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.is_pr) | len()\n```",
+"q3": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.state == \"closed\") | map(fn(r) => r.comments) | sum()\n```",
+"q4": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.is_pr) | group(\"user\") | sort_by(\"Count\", \"desc\") | first | fn(g) => \"${g.Name} ${g.Count}\"\n```",
+"q5": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.state == \"open\" && r.is_pr == false && r.comments > 5) | map(fn(r) => r.number) | sort()\n```",
+"q6": "```sh\ncat(\"issues.json\") | from_json() | map(fn(r) => r.labels) | flatten() | unique() | len()\n```",
+"q7": "```sh\ncat(\"issues.json\") | from_json() | map(fn(r) => r.comments) | max()\n```",
+"q8": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.is_pr) | map(fn(r) => r.user) | unique() | where(fn(u) => (cat(\"issues.json\") | from_json() | where(fn(r) => r.is_pr == false && r.user == u) | len()) > 0) | len()\n```",
+"q9": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.state == \"open\" && r.is_pr == false) | map(fn(r) => r.comments) | avg() | round(2)\n```",
+"q10": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.state == \"open\" && (r.labels | any(fn(l) => l == \"bug\"))) | len()\n```"
+},
+"agentic": {
+"q1": "```sh\ncat(\"issues.json\") | from_json() | w~(.state==\"open\" && (lower(.title + \" \" + .body) | contains(\"security\"))) | len()\n```",
+"q2": "```sh\ncat(\"issues.json\") | from_json() | w~.is_pr | len()\n```",
+"q3": "```sh\ncat(\"issues.json\") | from_json() | w~.state==\"closed\" |.comments | sum()\n```",
+"q4": "```sh\ncat(\"issues.json\") | from_json() | w~.is_pr | group(\"user\") | sort_by(\"Count\", \"desc\") | first | fn(g) => \"${g.Name} ${g.Count}\"\n```",
+"q5": "```sh\ncat(\"issues.json\") | from_json() | w~(.state==\"open\" && .is_pr==false && .comments>5) |.number | sort()\n```",
+"q6": "```sh\ncat(\"issues.json\") | from_json() |.labels | flatten() | unique() | len()\n```",
+"q7": "```sh\ncat(\"issues.json\") | from_json() |.comments | max()\n```",
+"q8": "```sh\ncat(\"issues.json\") | from_json() | w~.is_pr |.user | unique() | w~(fn(u) => (cat(\"issues.json\") | from_json() | w~(.is_pr==false && .user==u) | len()) > 0) | len()\n```",
+"q9": "```sh\ncat(\"issues.json\") | from_json() | w~(.state==\"open\" && .is_pr==false) |.comments | avg() | round(2)\n```",
+"q10": "```sh\ncat(\"issues.json\") | from_json() | w~(.state==\"open\" && (.labels | any(fn(l) => l==\"bug\"))) | len()\n```"
+},
+"agentic-nocheat": {
+"q1": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.state == \"open\" && ((r.title + \" \" + r.body) | lower() | contains(\"security\"))) | len()\n```",
+"q2": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.is_pr) | len()\n```",
+"q3": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.state == \"closed\") | map(fn(r) => r.comments) | sum()\n```",
+"q4": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.is_pr) | group(\"user\") | sort_by(\"Count\", \"desc\") | first | fn(g) => \"${g.Name} ${g.Count}\"\n```",
+"q5": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.state == \"open\" && r.is_pr == false && r.comments > 5) | map(fn(r) => r.number) | sort()\n```",
+"q6": "```sh\ncat(\"issues.json\") | from_json() | map(fn(r) => r.labels) | flatten() | unique() | len()\n```",
+"q7": "```sh\ncat(\"issues.json\") | from_json() | map(fn(r) => r.comments) | max()\n```",
+"q8": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.is_pr) | map(fn(r) => r.user) | unique() | where(fn(u) => (cat(\"issues.json\") | from_json() | where(fn(r) => r.is_pr == false && r.user == u) | len()) > 0) | len()\n```",
+"q9": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.state == \"open\" && r.is_pr == false) | map(fn(r) => r.comments) | avg() | round(2)\n```",
+"q10": "```sh\ncat(\"issues.json\") | from_json() | where(fn(r) => r.state == \"open\" && (r.labels | any(fn(l) => l == \"bug\"))) | len()\n```"
+}
+}
