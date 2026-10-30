@@ -8,6 +8,11 @@ use std::path::Path;
 use tokio::io::AsyncWriteExt;
 use url::Url;
 
+/// The largest single file the downloader writes. Model weights run to
+/// hundreds of gigabytes, so this is not a size policy; it is the bound on a
+/// server that never ends its stream, which would otherwise fill the disk.
+pub const MODEL_FILE_MAX: u64 = 512 * 1024 * 1024 * 1024;
+
 /// Model downloader for Hugging Face and other sources
 pub struct ModelDownloader {
     client: Client,
@@ -277,39 +282,9 @@ impl ModelDownloader {
         Ok(model_info)
     }
 
-    /// Download a single file with progress tracking
+    /// Download a single file, at most MODEL_FILE_MAX bytes of it
     async fn download_file(&self, url: &str, local_path: &Path) -> Result<u64> {
-        let response = self
-            .client
-            .get(url)
-            .header("User-Agent", "ai-model-api/1.0")
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Failed to download file: HTTP {}",
-                response.status()
-            ));
-        }
-
-        let _total_size = response.content_length();
-        let mut file = tokio::fs::File::create(local_path).await?;
-        let mut downloaded = 0u64;
-
-        let mut stream = response.bytes_stream();
-        use futures_util::StreamExt;
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            file.write_all(&chunk).await?;
-            downloaded += chunk.len() as u64;
-
-            // TODO: Report progress
-        }
-
-        file.flush().await?;
-        Ok(downloaded)
+        download_capped(&self.client, url, local_path, MODEL_FILE_MAX).await
     }
 
     /// Select which files to download based on preferences
@@ -579,6 +554,141 @@ impl ModelDownloader {
             .collect();
 
         Ok(results)
+    }
+}
+
+/// Streams `url` into `local_path`, refusing a declared or actual length over
+/// `max`. On any failure the partial file is removed, since a truncated file
+/// would be taken for a model on the next run.
+async fn download_capped(client: &Client, url: &str, local_path: &Path, max: u64) -> Result<u64> {
+    let response = client
+        .get(url)
+        .header("User-Agent", "ai-model-api/1.0")
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!(
+            "Failed to download file: HTTP {}",
+            response.status()
+        ));
+    }
+
+    if let Some(declared) = response.content_length() {
+        if declared > max {
+            return Err(too_large(url, max));
+        }
+    }
+    let mut file = tokio::fs::File::create(local_path).await?;
+    let written = copy_capped(response, &mut file, url, max).await;
+    drop(file);
+    if written.is_err() {
+        let _ = tokio::fs::remove_file(local_path).await;
+    }
+    written
+}
+
+async fn copy_capped(
+    response: reqwest::Response,
+    file: &mut tokio::fs::File,
+    url: &str,
+    max: u64,
+) -> Result<u64> {
+    let mut downloaded = 0u64;
+    let mut stream = response.bytes_stream();
+    use futures_util::StreamExt;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        downloaded += chunk.len() as u64;
+        if downloaded > max {
+            return Err(too_large(url, max));
+        }
+        file.write_all(&chunk).await?;
+    }
+
+    file.flush().await?;
+    Ok(downloaded)
+}
+
+fn too_large(url: &str, max: u64) -> anyhow::Error {
+    crate::safety::budget_exceeded(
+        "model_download",
+        format!("{url} is larger than {max} bytes"),
+        "download the file by other means if it really is this large",
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+
+    /// Serves one HTTP response on a local port and returns its URL.
+    fn serve_once(head: String, body: Vec<u8>) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut conn, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = conn.read(&mut buf);
+                let _ = conn.write_all(head.as_bytes());
+                let _ = conn.write_all(&body);
+            }
+        });
+        format!("http://{addr}/model.bin")
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("ae-dlcap-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d.join(name)
+    }
+
+    fn is_budget(e: &anyhow::Error) -> bool {
+        e.downcast_ref::<crate::safety::SafetyError>()
+            .map(|s| s.code == crate::safety::ErrorCode::BudgetExceeded)
+            .unwrap_or(false)
+    }
+
+    #[tokio::test]
+    async fn a_file_past_the_cap_is_refused_and_leaves_nothing() {
+        crate::tls::install_provider();
+        let client = Client::new();
+
+        // Declared too large: refused before a file is made.
+        let url = serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Length: 64\r\nConnection: close\r\n\r\n".into(),
+            vec![b'x'; 64],
+        );
+        let declared = scratch("declared.bin");
+        let err = download_capped(&client, &url, &declared, 16)
+            .await
+            .unwrap_err();
+        assert!(is_budget(&err), "{err:#}");
+        assert!(!declared.exists());
+
+        // No length declared: refused mid-stream, and the partial file removed.
+        let url = serve_once(
+            "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".into(),
+            vec![b'x'; 64],
+        );
+        let streamed = scratch("streamed.bin");
+        let err = download_capped(&client, &url, &streamed, 16)
+            .await
+            .unwrap_err();
+        assert!(is_budget(&err), "{err:#}");
+        assert!(!streamed.exists());
+
+        // Within the cap: written whole.
+        let url = serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n".into(),
+            vec![b'y'; 8],
+        );
+        let fits = scratch("fits.bin");
+        assert_eq!(download_capped(&client, &url, &fits, 16).await.unwrap(), 8);
+        assert_eq!(std::fs::read(&fits).unwrap(), vec![b'y'; 8]);
+        let _ = std::fs::remove_file(&fits);
     }
 }
 
