@@ -278,15 +278,23 @@ fn parent_with_child() -> Owned {
 }
 
 /// The pid of a process whose parent is `parent`, polled for up to five seconds.
+///
+/// A process that started before `parent` is not its child, whatever parent
+/// pid it records: an older process can still name a parent pid that has
+/// since been reused for `parent`. proc_kill applies the same rule, so a test
+/// that took such a process (at once, before the real child existed) would
+/// find it missing from `killed`; a windows-latest run failed that way once.
 fn child_of(parent: u32) -> Option<u32> {
     let deadline = Instant::now() + Duration::from_secs(5);
+    let ppid = Pid::from_u32(parent);
     loop {
         let mut sys = System::new();
         sys.refresh_processes(ProcessesToUpdate::All, true);
+        let born = sys.process(ppid).map(|p| p.start_time());
         let found = sys
             .processes()
             .iter()
-            .find(|(_, p)| p.parent() == Some(Pid::from_u32(parent)))
+            .find(|(_, p)| p.parent() == Some(ppid) && born.is_some_and(|b| p.start_time() >= b))
             .map(|(pid, _)| pid.as_u32());
         if found.is_some() || Instant::now() >= deadline {
             return found;
