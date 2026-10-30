@@ -173,8 +173,50 @@ fn documented_paths() -> Vec<String> {
 /// registration. It reported nine real endpoints as phantom and I deleted
 /// their documentation on the strength of it. A source scan that is wrong
 /// about what it cannot see is worse than no scan: it is confident.
+/// `src` without its `#[cfg(test)] mod … { … }` blocks. A router a unit test
+/// builds is not served, and its `.route("/slow")` read as an undocumented
+/// endpoint. The modules hold no string or char literal with an unbalanced
+/// brace, so counting braces finds their end.
+fn without_test_modules(src: &str) -> String {
+    let mut out = String::new();
+    let mut rest = src;
+    while let Some(i) = rest.find("#[cfg(test)]") {
+        let after = &rest[i + "#[cfg(test)]".len()..];
+        let trimmed = after.trim_start();
+        if !trimmed.starts_with("mod ") {
+            out.push_str(&rest[..i + "#[cfg(test)]".len()]);
+            rest = after;
+            continue;
+        }
+        out.push_str(&rest[..i]);
+        let Some(open) = after.find('{') else {
+            rest = "";
+            break;
+        };
+        let mut depth = 0usize;
+        let mut end = after.len();
+        for (k, c) in after[open..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = open + k + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn served_routes() -> Vec<String> {
     let src = fs::read_to_string(repo("src/agent_api.rs")).expect("read agent_api.rs");
+    let src = without_test_modules(&src);
     let mut out = Vec::new();
     let mut rest = src.as_str();
     while let Some(i) = rest.find(".route(") {

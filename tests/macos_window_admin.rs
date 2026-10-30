@@ -97,11 +97,25 @@ function run(argv) {
         return 'none';
     }
     if (op === 'minimized') {
+        // A process that refuses scripting is skipped: one such process on
+        // the runner failed this scan for every title (41015333092), as it had
+        // the window builtins' own search.
         var procs = Application('System Events').processes();
         for (var p = 0; p < procs.length; p++) {
-            var wins = procs[p].windows();
+            var wins = [];
+            try {
+                wins = procs[p].windows();
+            } catch (e) {
+                continue;
+            }
             for (var w = 0; w < wins.length; w++) {
-                if (wins[w].name() === title) {
+                var name;
+                try {
+                    name = wins[w].name();
+                } catch (e) {
+                    continue;
+                }
+                if (name === title) {
                     return String(wins[w].attributes.byName('AXMinimized').value());
                 }
             }
