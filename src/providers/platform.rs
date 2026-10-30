@@ -98,7 +98,10 @@ impl PlatformCapabilities {
         Self::for_os(&OperatingSystem::current())
     }
 
-    /// Get capabilities for a specific OS
+    /// Get capabilities for a specific OS: what that OS usually offers. Only
+    /// the container runtime and the Linux package manager are probed; the
+    /// rest (GUI, elevation, service management, the macOS, Windows and BSD
+    /// package managers) is a fixed profile of the OS, not a check of this host.
     pub fn for_os(os: &OperatingSystem) -> Self {
         match os {
             OperatingSystem::Linux => Self {
@@ -208,12 +211,15 @@ fn detect_linux_package_manager() -> PackageManagerType {
     }
 }
 
-/// Does `tool --version` start and finish within 10s? A probe that hangs is
-/// treated as a tool that is not there.
+/// Does `tool --version` start, finish within 10s and exit 0? A probe that
+/// hangs is treated as a tool that is not there, and so is one that fails:
+/// a docker that cannot answer `--version` was counted as installed.
 fn probe_runs(tool: &str) -> bool {
     let mut cmd = std::process::Command::new(tool);
     cmd.arg("--version");
-    crate::safety::output_with_timeout(cmd, 10).is_ok()
+    crate::safety::output_with_timeout(cmd, 10)
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 fn detect_container_runtime() -> Option<ContainerType> {
@@ -237,8 +243,12 @@ fn detect_windows_container() -> Option<ContainerType> {
         // Check for WSL
         let mut cmd = std::process::Command::new("wsl");
         cmd.arg("--version");
-        // A hung `wsl --version` probe, bounded at 10s, means WSL is not usable.
-        if crate::safety::output_with_timeout(cmd, 10).is_ok() {
+        // A hung `wsl --version` probe, bounded at 10s, means WSL is not usable;
+        // so does one that exits non-zero (no WSL, or one too old to answer).
+        if crate::safety::output_with_timeout(cmd, 10)
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
             return Some(ContainerType::WSL);
         }
     }
@@ -891,23 +901,30 @@ impl PlatformExecutor {
                     .get("name")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'name' parameter"))?;
-                let value = std::env::var(name).unwrap_or_default();
-                Ok(ExecutionResult {
-                    success: true,
-                    stdout: value,
-                    stderr: String::new(),
-                    exit_code: Some(0),
+                // An unset variable had been a success with empty output, the
+                // same answer as one set to "".
+                Ok(match std::env::var(name) {
+                    Ok(value) => ExecutionResult {
+                        success: true,
+                        stdout: value,
+                        stderr: String::new(),
+                        exit_code: Some(0),
+                    },
+                    Err(e) => ExecutionResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: format!("{name}: {e}"),
+                        exit_code: None,
+                    },
                 })
             }
-            "network.http_request" => {
-                // Use synchronous HTTP for now
-                Ok(ExecutionResult {
-                    success: true,
-                    stdout: "HTTP request requires async runtime".to_string(),
-                    stderr: String::new(),
-                    exit_code: Some(0),
-                })
-            }
+            // This answered success with the text "HTTP request requires async
+            // runtime" and made no request.
+            "network.http_request" => Err(crate::safety::unimplemented(
+                "network.http_request",
+                "an HTTP request through the platform executor",
+                "use the http_get, web_get or web_post builtins",
+            )),
             _ => Err(anyhow!("No native implementation for {}", operation_id)),
         }
     }
@@ -1022,5 +1039,30 @@ mod tests {
         assert!(executor.is_supported("fs.read_file"));
         assert!(executor.is_supported("fs.write_file"));
         assert!(executor.is_supported("env.get"));
+    }
+
+    /// An unset variable was a success with empty output, and the HTTP
+    /// operation answered success without making a request.
+    #[test]
+    fn native_operations_report_failure_as_failure() {
+        let executor = PlatformExecutor::new();
+        let mut params = HashMap::new();
+        params.insert(
+            "name".to_string(),
+            serde_json::Value::String("AE_PLATFORM_TEST_SURELY_UNSET_VAR".to_string()),
+        );
+        let unset = executor
+            .execute_native("env.get", &params)
+            .expect("env.get answers");
+        assert!(!unset.success, "an unset variable is not a success");
+        assert!(unset.stderr.contains("AE_PLATFORM_TEST_SURELY_UNSET_VAR"));
+
+        let err = executor
+            .execute_native("network.http_request", &HashMap::new())
+            .expect_err("the HTTP stub must not report success");
+        let se = err
+            .downcast_ref::<crate::safety::SafetyError>()
+            .expect("a coded error");
+        assert_eq!(se.code.as_str(), "E_UNIMPLEMENTED");
     }
 }
