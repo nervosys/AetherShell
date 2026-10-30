@@ -3881,6 +3881,9 @@ pub fn call_with_input(
     input: Option<Value>,
     env: &mut Env,
 ) -> Result<Value> {
+    refuse_irreversible_in_transaction(name)
+        .map_err(|e| crate::safety::ensure_structured(name, e))?;
+
     // A builtin with a declared signature is checked before its body runs, so
     // it cannot answer a call it could not honour. Undeclared builtins are
     // unaffected — see `crate::signature` for why this exists and why the
@@ -3890,6 +3893,33 @@ pub fn call_with_input(
 
     call_with_input_inner(name, args, input, env)
         .map_err(|e| crate::safety::ensure_structured(name, e))
+}
+
+lazy_static::lazy_static! {
+    /// The dispatch indices of `tx::IRREVERSIBLE`, so every spelling of a
+    /// listed implementation is refused, not only the listed one.
+    static ref TX_IRREVERSIBLE_INDICES: rustc_hash::FxHashSet<usize> = crate::tx::IRREVERSIBLE
+        .iter()
+        .filter_map(|name| BUILTIN_LOOKUP.get(name).copied())
+        .collect();
+}
+
+/// Refuse a builtin a rollback cannot undo while a transaction is active
+/// (`E_POLICY_DENY`), before anything runs.
+fn refuse_irreversible_in_transaction(name: &str) -> Result<()> {
+    let listed = BUILTIN_LOOKUP
+        .get(name)
+        .is_some_and(|idx| TX_IRREVERSIBLE_INDICES.contains(idx));
+    if listed && crate::tx::is_active() {
+        return Err(crate::safety::policy_deny(
+            name,
+            format!(
+                "{name}: cannot run inside a filesystem transaction: a rollback cannot undo what it does; NOTHING WAS CHANGED"
+            ),
+            "commit or roll back the open transaction (tx_commit or tx_rollback), then run it outside",
+        ));
+    }
+    Ok(())
 }
 
 /// Every name served by the fallback `match` in [`call_with_input_inner`],
@@ -47838,6 +47868,19 @@ fn bi_file_mkdir(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     let already_exists = std::path::Path::new(&path).exists();
 
+    // Inside a transaction, record the highest directory this call creates as
+    // absent, so a rollback removes everything it made, parents included.
+    if !already_exists {
+        let mut top = std::path::Path::new(&path);
+        while let Some(parent) = top.parent() {
+            if parent.as_os_str().is_empty() || parent.exists() {
+                break;
+            }
+            top = parent;
+        }
+        crate::tx::snapshot(&top.to_string_lossy());
+    }
+
     fs::create_dir_all(&path)
         .map_err(|error| crate::safety::fs_error("file_mkdir", &path, &error))?;
 
@@ -60952,6 +60995,8 @@ fn bi_dd_copy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(windows))]
     {
+        // dd writes the destination in place, as the in-process copy does.
+        crate::tx::snapshot(&dst);
         let argv: Vec<&str> = operands.iter().map(String::as_str).collect();
         let run = tool_run(
             "dd_copy",
