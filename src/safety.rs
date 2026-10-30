@@ -2109,6 +2109,40 @@ pub fn unknown_field(field: &str, candidates: Vec<String>) -> anyhow::Error {
     })
 }
 
+/// A code for an uncoded error whose cause is an I/O or HTTP error: one passed
+/// up with a bare `?` or `.context()`, which no call site coded. The cause
+/// says whose fault it is as well as a call site would: a missing file is
+/// `E_NOT_FOUND`, the operating system refusing is `E_OS_DENIED`, any other
+/// I/O or HTTP failure is `E_IO`. `None` leaves the error `E_UNKNOWN`.
+fn classify_uncoded(e: &anyhow::Error) -> Option<(ErrorCode, &'static str)> {
+    for cause in e.chain() {
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            return Some(match io.kind() {
+                std::io::ErrorKind::NotFound => (
+                    ErrorCode::NotFound,
+                    "a file or directory the call needs does not exist; the message names it",
+                ),
+                std::io::ErrorKind::PermissionDenied => (
+                    ErrorCode::OsDenied,
+                    "the operating system denied access; the shell did not refuse this",
+                ),
+                _ => (
+                    ErrorCode::Io,
+                    "an I/O failure that is neither absence nor a permission refusal; the message names the condition",
+                ),
+            });
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if cause.downcast_ref::<reqwest::Error>().is_some() {
+            return Some((
+                ErrorCode::Io,
+                "an HTTP request failed; check the address and the network, then retry",
+            ));
+        }
+    }
+    None
+}
+
 /// Give an otherwise-uncoded failure a stable code (`E_UNKNOWN`).
 ///
 /// This is the boundary net that makes "every failure is branchable" true
@@ -2130,6 +2164,18 @@ pub fn ensure_structured(builtin: &str, e: anyhow::Error) -> anyhow::Error {
         return e;
     }
     let message = e.to_string();
+    if let Some((code, hint)) = classify_uncoded(&e) {
+        return anyhow::Error::new(SafetyError {
+            code,
+            message: format!("{e:#}"),
+            builtin: builtin.to_string(),
+            hint: hint.to_string(),
+            approval: None,
+            did_you_mean: Vec::new(),
+            expected: String::new(),
+            got: String::new(),
+        });
+    }
     anyhow::Error::new(SafetyError {
         code: ErrorCode::Unknown,
         message,

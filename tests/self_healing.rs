@@ -62,6 +62,29 @@ fn reset() {
 /// the caller with a stable code. Before this, ~879 `bail!`/`anyhow!` sites in
 /// `builtins.rs` produced unbranchable strings.
 #[test]
+fn an_uncoded_io_failure_is_coded_by_its_cause() {
+    use anyhow::Context as _;
+    let code_of = |e: anyhow::Error| {
+        let netted = aethershell::safety::ensure_structured("some_builtin", e);
+        let se = netted
+            .downcast_ref::<aethershell::safety::SafetyError>()
+            .expect("coded");
+        se.code.as_str().to_string()
+    };
+    let io = |kind| -> anyhow::Error {
+        Err::<(), _>(std::io::Error::new(kind, "x"))
+            .context("reading the thing")
+            .unwrap_err()
+    };
+    assert_eq!(code_of(io(std::io::ErrorKind::NotFound)), "E_NOT_FOUND");
+    assert_eq!(
+        code_of(io(std::io::ErrorKind::PermissionDenied)),
+        "E_OS_DENIED"
+    );
+    assert_eq!(code_of(io(std::io::ErrorKind::UnexpectedEof)), "E_IO");
+}
+
+#[test]
 fn an_uncoded_failure_still_arrives_with_a_code() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset();
