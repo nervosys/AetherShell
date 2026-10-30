@@ -314,6 +314,44 @@ fn cert_info_refuses_what_is_not_a_certificate_with_its_index() {
     assert_eq!(code_of(&e), "E_BAD_ARG", "{e}");
 }
 
+/// "Trustwave Global ECC P256 Certification Authority", a public root shipped
+/// in Debian 13's ca-certificates (20250419). Its keyUsage BIT STRING is
+/// `03 03 07 06 00`, keeping a trailing zero byte that DER forbids, so IronPKI
+/// refuses it where OpenSSL reads it.
+const TRUSTWAVE_P256_PEM: &str = r#"-----BEGIN CERTIFICATE-----
+MIICYDCCAgegAwIBAgIMDWpfCD8oXD5Rld9dMAoGCCqGSM49BAMCMIGRMQswCQYD
+VQQGEwJVUzERMA8GA1UECBMISWxsaW5vaXMxEDAOBgNVBAcTB0NoaWNhZ28xITAf
+BgNVBAoTGFRydXN0d2F2ZSBIb2xkaW5ncywgSW5jLjE6MDgGA1UEAxMxVHJ1c3R3
+YXZlIEdsb2JhbCBFQ0MgUDI1NiBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTAeFw0x
+NzA4MjMxOTM1MTBaFw00MjA4MjMxOTM1MTBaMIGRMQswCQYDVQQGEwJVUzERMA8G
+A1UECBMISWxsaW5vaXMxEDAOBgNVBAcTB0NoaWNhZ28xITAfBgNVBAoTGFRydXN0
+d2F2ZSBIb2xkaW5ncywgSW5jLjE6MDgGA1UEAxMxVHJ1c3R3YXZlIEdsb2JhbCBF
+Q0MgUDI1NiBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTBZMBMGByqGSM49AgEGCCqG
+SM49AwEHA0IABH77bOYj43MyCMpg5lOcunSNGLB4kFKA3TjASh3RqMyTpJcGOMoN
+FWLGjgEqZZ2q3zSRLoHB5DOSMcT9CTqmP62jQzBBMA8GA1UdEwEB/wQFMAMBAf8w
+DwYDVR0PAQH/BAUDAwcGADAdBgNVHQ4EFgQUo0EGrJBt0UrrdaVKEJmzsaGLSvcw
+CgYIKoZIzj0EAwIDRwAwRAIgB+ZU2g6gWrKuEZ+Hxbb/ad4lvvigtwjzRM4q3wgh
+DDcCIC0mA6AFvWvR9lz4ZcyGbbOcNEhjhAnFjXca4syc4XR7
+-----END CERTIFICATE-----
+"#;
+
+#[test]
+fn a_certificate_iron_pki_refuses_is_named_with_its_reason() {
+    let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = Scratch::new("nonder");
+    let mut env = isolated_env();
+    let path = dir.write("bundle.pem", &format!("{CA_PEM}{TRUSTWAVE_P256_PEM}"));
+    for builtin in ["crypto_cert_info", "crypto_cert_verify"] {
+        let e = call(builtin, vec![text(&path)], &mut env).expect_err(builtin);
+        let msg = e.to_string();
+        assert_eq!(code_of(&e), "E_BAD_ARG", "{msg}");
+        assert!(
+            msg.contains("#2") && msg.contains("trailing zero named bits"),
+            "{builtin} must name the certificate and IronPKI's reason: {msg}"
+        );
+    }
+}
+
 #[test]
 fn cert_info_skips_other_pem_labels() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());

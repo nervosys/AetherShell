@@ -42,14 +42,23 @@ pub fn certificates_in(builtin: &str, bytes: &[u8]) -> anyhow::Result<Vec<Vec<u8
     };
     for (i, der) in ders.iter().enumerate() {
         if let Err(e) = Certificate::parse(der) {
-            return Err(safety::arg_err(format!(
-                "{builtin}: certificate #{} is not a valid X.509 certificate ({})",
-                i + 1,
-                e.id()
-            )));
+            return Err(unreadable(builtin, i + 1, &e));
         }
     }
     Ok(ders)
+}
+
+/// A certificate IronPKI will not read, with its reason. IronPKI reads strict
+/// DER only, as RFC 5280 requires, so a certificate other tools accept can be
+/// refused: Debian 13's bundle holds two Trustwave Global ECC roots whose
+/// keyUsage keeps a trailing zero byte ("keyUsage has trailing zero named
+/// bits"). The trust store skips such a root; a file named here is refused.
+fn unreadable(builtin: &str, index: usize, e: &impl std::fmt::Display) -> anyhow::Error {
+    safety::bad_arg(
+        builtin,
+        "PEM or DER X.509 certificates in strict DER (RFC 5280)",
+        &format!("certificate #{index}, which IronPKI refuses ({e})"),
+    )
 }
 
 fn pem_certificates(builtin: &str, bytes: &[u8]) -> anyhow::Result<Vec<Vec<u8>>> {
@@ -118,13 +127,7 @@ pub fn inspect(builtin: &str, bytes: &[u8]) -> anyhow::Result<Vec<Value>> {
     let ders = certificates_in(builtin, bytes)?;
     let mut out = Vec::with_capacity(ders.len());
     for (i, der) in ders.iter().enumerate() {
-        let cert = Certificate::parse(der).map_err(|e| {
-            safety::arg_err(format!(
-                "{builtin}: certificate #{} is not a valid X.509 certificate ({})",
-                i + 1,
-                e.id()
-            ))
-        })?;
+        let cert = Certificate::parse(der).map_err(|e| unreadable(builtin, i + 1, &e))?;
         out.push(record(builtin, i + 1, der, &cert)?);
     }
     Ok(out)
