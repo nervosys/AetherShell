@@ -898,6 +898,9 @@ struct Input {
     eof: bool,
 }
 
+/// The longest line `read` takes from real stdin.
+const READ_LINE_MAX: usize = 16 * 1024 * 1024;
+
 impl Input {
     fn buf(data: Vec<u8>) -> Self {
         Input {
@@ -927,28 +930,45 @@ impl Input {
         self.pos = self.data.len();
         out
     }
-    /// One line without its newline, or `None` at end of input.
-    fn read_line(&mut self) -> Option<Vec<u8>> {
+    /// One line without its newline, `Ok(None)` at end of input, or `Err` for
+    /// a line from the terminal or a pipe longer than [`READ_LINE_MAX`]. A
+    /// line was read whole however long, and one that was not UTF-8 read as
+    /// the end of input; consumed lines are now dropped, not kept.
+    fn read_line(&mut self) -> Result<Option<Vec<u8>>, String> {
+        use std::io::BufRead;
         loop {
             if let Some(nl) = self.data[self.pos..].iter().position(|&b| b == b'\n') {
                 let line = self.data[self.pos..self.pos + nl].to_vec();
                 self.pos += nl + 1;
-                return Some(line);
+                if self.real {
+                    self.data.drain(..self.pos);
+                    self.pos = 0;
+                }
+                return Ok(Some(line));
             }
             if self.real && !self.eof {
-                let mut chunk = String::new();
-                match std::io::stdin().read_line(&mut chunk) {
+                let mut chunk = Vec::new();
+                let limit = (READ_LINE_MAX + 1) as u64;
+                match std::io::stdin()
+                    .lock()
+                    .take(limit)
+                    .read_until(b'\n', &mut chunk)
+                {
                     Ok(0) | Err(_) => self.eof = true,
-                    Ok(_) => self.data.extend_from_slice(chunk.as_bytes()),
+                    Ok(_) if chunk.len() > READ_LINE_MAX && !chunk.ends_with(b"\n") => {
+                        self.eof = true;
+                        return Err(format!("a line longer than {READ_LINE_MAX} bytes"));
+                    }
+                    Ok(_) => self.data.extend_from_slice(&chunk),
                 }
                 continue;
             }
             if self.pos < self.data.len() {
                 let line = self.data[self.pos..].to_vec();
                 self.pos = self.data.len();
-                return Some(line);
+                return Ok(Some(line));
             }
-            return None;
+            return Ok(None);
         }
     }
     fn is_buffered(&self) -> bool {
@@ -1641,7 +1661,14 @@ impl Shell {
         if names.is_empty() {
             names.push("REPLY".into());
         }
-        let Some(line) = stdin.read_line() else {
+        let line = match stdin.read_line() {
+            Ok(line) => line,
+            Err(why) => {
+                let _ = writeln!(std::io::stderr(), "{SHELL_NAME}: read: {why}");
+                return 2;
+            }
+        };
+        let Some(line) = line else {
             for n in &names {
                 self.set_var(n, String::new());
             }
