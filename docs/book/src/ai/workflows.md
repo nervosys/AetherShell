@@ -135,8 +135,11 @@ workflow_templates()
   already completed or failed is refused, and cancelling a cancelled run is a
   no-op. A cancelled saga does not run its compensations: cancel stops the run,
   it does not roll it back.
-- `workflow_pause` holds a running workflow at its next step boundary. A step
-  that is already running, including a `delay_ms` or a `wait`, finishes first.
+- `workflow_pause` holds a running workflow at its next step boundary. A
+  `delay_ms`, a retry backoff or a `wait` already running is held too: it does
+  not end while the run is paused, and the paused time does not count toward
+  it, so an event wait does not time out during a pause. Any other step already
+  running finishes first.
 - `workflow_resume` lets a paused workflow continue.
 
 No wait may last longer than one hour (3600000 ms). A template with a longer

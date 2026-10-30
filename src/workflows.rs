@@ -45,7 +45,8 @@
 //!
 //! Lifecycle: `workflow_cancel` stops a run at the next step boundary or wait
 //! slice and leaves it `Cancelled`; `workflow_pause` holds it at the next step
-//! boundary (a step already running finishes first); `workflow_resume` lets it
+//! boundary, and holds a wait already running with its clock stopped (any other
+//! step already running finishes first); `workflow_resume` lets it
 //! continue. No wait may last longer than [`MAX_WAIT_MS`]; a template that asks
 //! for one is refused by `execute` before any of its steps run.
 
@@ -1167,10 +1168,13 @@ fn next_slice(until: Instant) -> Result<Duration> {
 }
 
 /// Sleep for `total` in slices, so a cancel or the deadline is seen within one.
+/// A pause holds the wait: it does not end while the run is paused, and the
+/// time spent paused does not count toward it.
 async fn wait_for(context: &WorkflowContext, total: Duration) -> Result<()> {
-    let until = Instant::now() + total;
+    let mut until = Instant::now() + total;
     loop {
         check_run(context)?;
+        until += hold_while_paused(context).await?;
         if Instant::now() >= until {
             return Ok(());
         }
@@ -1178,12 +1182,20 @@ async fn wait_for(context: &WorkflowContext, total: Duration) -> Result<()> {
     }
 }
 
-/// Hold while the run is paused. A cancel still ends the hold.
+/// Hold while the run is paused. A cancel or the deadline still ends the hold.
 async fn wait_while_paused(context: &WorkflowContext) -> Result<()> {
+    hold_while_paused(context).await.map(|_| ())
+}
+
+/// Hold while the run is paused, answering how long it held, so a wait that
+/// was running can push its own end back by that much.
+async fn hold_while_paused(context: &WorkflowContext) -> Result<Duration> {
+    let held = Instant::now();
     while context.control.is_paused() {
-        wait_for(context, WAIT_SLICE).await?;
+        check_run(context)?;
+        tokio::time::sleep(next_slice(Instant::now() + WAIT_SLICE)?).await;
     }
-    Ok(())
+    Ok(held.elapsed())
 }
 
 /// Refuse any wait over `MAX_WAIT_MS` anywhere in a template, so nothing runs.
@@ -1895,10 +1907,13 @@ impl WorkflowEngine {
                     // to run forever. Each pass is one slice, so a cancel lands
                     // within WAIT_SLICE.
                     let limit = Duration::from_millis(timeout_ms.unwrap_or(MAX_WAIT_MS));
-                    let until = Instant::now() + limit;
+                    let mut until = Instant::now() + limit;
                     let mut rx = self.event_tx.subscribe();
                     loop {
                         check_run(context)?;
+                        // A pause holds the wait and stops its clock. Events
+                        // sent meanwhile stay in the receiver for after it.
+                        until += hold_while_paused(context).await?;
                         if Instant::now() >= until {
                             return Err(crate::safety::budget_exceeded(
                                 "workflow",
@@ -2094,9 +2109,10 @@ impl WorkflowEngine {
 
     /// Pause a workflow instance.
     ///
-    /// The pause takes effect at the next step boundary: a step already
-    /// running, including a `Delay` or a wait, finishes first. Pausing a run
-    /// that is not running does nothing.
+    /// The pause takes effect at the next step boundary, and holds a `Delay`,
+    /// retry backoff or event wait already running: it does not end while
+    /// paused, and the paused time does not count toward it. Other running
+    /// steps finish first. Pausing a run that is not running does nothing.
     pub async fn pause(&self, workflow_id: &WorkflowId) -> Result<()> {
         let mut instances = self.instances.write().await;
         if let Some(instance) = instances.get_mut(workflow_id) {
@@ -3340,6 +3356,97 @@ mod tests {
 
         let info = engine.get_instance(&workflow_id).await.unwrap();
         assert_eq!(info.status, WorkflowStatus::Cancelled);
+    }
+
+    /// Pause `workflow_id` after `at` and resume it `held` later.
+    fn pause_then_resume(engine: &WorkflowEngine, workflow_id: &WorkflowId, at: u64, held: u64) {
+        let engine = engine.clone();
+        let target = workflow_id.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(at)).await;
+            engine.pause(&target).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(held)).await;
+            engine.resume(&target).await.unwrap();
+        });
+    }
+
+    #[tokio::test]
+    async fn a_pause_holds_a_running_delay_and_stops_its_clock() {
+        let engine = WorkflowEngine::new();
+        let template = WorkflowTemplateFactory::pipeline("Held", "", vec![delay_step("wait", 300)]);
+        let workflow_id = instance_of(&engine, template).await;
+        // Paused 50 ms into the 300 ms delay for 600 ms: 250 ms are still owed
+        // after the resume, so the run ends near 900 ms, not at 300 ms.
+        pause_then_resume(&engine, &workflow_id, 50, 600);
+
+        let started = Instant::now();
+        engine.execute(&workflow_id).await.unwrap();
+        let took = started.elapsed();
+        assert!(
+            took >= Duration::from_millis(820) && took < Duration::from_secs(3),
+            "a 300 ms delay paused for 600 ms ended after {took:?}"
+        );
+        let info = engine.get_instance(&workflow_id).await.unwrap();
+        assert_eq!(info.status, WorkflowStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn a_pause_holds_an_event_wait_without_losing_the_event() {
+        let engine = WorkflowEngine::new();
+        let mut wait = exec_step("wait", "upper", vec![]);
+        wait.step_type = StepType::WaitForEvent {
+            event_type: "go".to_string(),
+            timeout_ms: Some(300),
+        };
+        let template = WorkflowTemplateFactory::pipeline("Held", "", vec![wait]);
+        let workflow_id = instance_of(&engine, template).await;
+        // Paused 50 ms in for 600 ms; the event arrives 400 ms in, during the
+        // pause and past the 300 ms timeout. It is answered after the resume.
+        pause_then_resume(&engine, &workflow_id, 50, 600);
+        let sender = engine.event_tx.clone();
+        let target = workflow_id.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            let _ = sender.send(WorkflowEvent::Custom {
+                workflow_id: target,
+                event_type: "go".to_string(),
+                payload: Value::Str("sent".into()),
+            });
+        });
+
+        let started = Instant::now();
+        let got = engine
+            .execute(&workflow_id)
+            .await
+            .expect("the paused time must not count toward the event timeout");
+        assert!(
+            started.elapsed() >= Duration::from_millis(600),
+            "the wait ended during the pause, after {:?}",
+            started.elapsed()
+        );
+        assert!(format!("{got:?}").contains("sent"), "got: {got:?}");
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_paused_delay_still_stops_it() {
+        let engine = WorkflowEngine::new();
+        let template = WorkflowTemplateFactory::pipeline("Held", "", vec![delay_step("wait", 300)]);
+        let workflow_id = instance_of(&engine, template).await;
+        pause_then_resume(&engine, &workflow_id, 50, 10_000);
+        let canceller = engine.clone();
+        let target = workflow_id.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            canceller.cancel(&target).await.unwrap();
+        });
+
+        let started = Instant::now();
+        let err = engine
+            .execute(&workflow_id)
+            .await
+            .expect_err("a cancelled run must not succeed");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(err.to_string().contains("cancelled"), "got: {err}");
     }
 
     #[tokio::test]
