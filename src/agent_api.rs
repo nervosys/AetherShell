@@ -3549,7 +3549,6 @@ pub mod server {
     use std::time::Duration;
     use tokio::sync::{broadcast, mpsc, RwLock};
     use tokio::task::JoinHandle;
-    use tower::limit::GlobalConcurrencyLimitLayer;
     use tower_http::cors::{Any, CorsLayer};
     use tower_http::timeout::TimeoutLayer;
 
@@ -3559,6 +3558,44 @@ pub mod server {
     /// Streaming and WebSocket responses release their permit as soon as the
     /// response head is produced, so long-lived connections do not hold slots.
     const MAX_CONCURRENT_REQUESTS: usize = 64;
+
+    /// How long a request waits for one of those slots before it is answered
+    /// 503. The queue had no bound in time: with every slot held by a slow
+    /// evaluation, a client waited as long as the slowest of them, and learned
+    /// nothing about why.
+    const MAX_QUEUE_WAIT: Duration = Duration::from_secs(30);
+
+    /// Admits a request once one of the `max` slots in `permits` is free,
+    /// holding it until the response head is produced, or answers 503 after
+    /// `wait`. One semaphore is shared by every route.
+    async fn admit(
+        permits: Arc<tokio::sync::Semaphore>,
+        max: usize,
+        wait: Duration,
+        req: axum::extract::Request,
+        next: axum::middleware::Next,
+    ) -> axum::response::Response {
+        match tokio::time::timeout(wait, permits.acquire_owned()).await {
+            Ok(Ok(permit)) => {
+                let res = next.run(req).await;
+                drop(permit);
+                res
+            }
+            _ => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                [(header::RETRY_AFTER, "5")],
+                Json(serde_json::json!({
+                    "error": "busy",
+                    "code": "E_BUDGET_EXCEEDED",
+                    "detail": format!(
+                        "all {max} request slots stayed busy for {} ms; retry later",
+                        wait.as_millis()
+                    ),
+                })),
+            )
+                .into_response(),
+        }
+    }
 
     // ========================================================================
     // WebSocket Types
@@ -4169,7 +4206,16 @@ pub mod server {
         // merge so it covers the streaming and WebSocket routes too; it sits
         // inside the auth layer below, so unauthenticated requests never wait
         // for a permit.
-        app = app.layer(GlobalConcurrencyLimitLayer::new(MAX_CONCURRENT_REQUESTS));
+        let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_REQUESTS));
+        app = app.layer(axum::middleware::from_fn(move |req, next| {
+            admit(
+                permits.clone(),
+                MAX_CONCURRENT_REQUESTS,
+                MAX_QUEUE_WAIT,
+                req,
+                next,
+            )
+        }));
 
         // Security headers. These servers return JSON, never a page, so the
         // policy is simply "this is not a document": no sniffing, no framing,
@@ -5582,6 +5628,57 @@ pub mod server {
     mod lifecycle_tests {
         use super::*;
         use std::time::Duration;
+
+        /// With its one slot held past the wait, a second request is answered
+        /// 503 with a code instead of queueing without end; once the slot is
+        /// free, requests are admitted again.
+        #[tokio::test]
+        async fn a_request_that_cannot_get_a_slot_in_time_is_answered_busy() {
+            crate::tls::install_provider();
+            let permits = Arc::new(tokio::sync::Semaphore::new(1));
+            let app = Router::new()
+                .route(
+                    "/slow",
+                    get(|| async {
+                        tokio::time::sleep(Duration::from_millis(1500)).await;
+                        "slow"
+                    }),
+                )
+                .route("/fast", get(|| async { "fast" }))
+                .layer(axum::middleware::from_fn(move |req, next| {
+                    admit(permits.clone(), 1, Duration::from_millis(200), req, next)
+                }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let _ = axum::serve(listener, app).await;
+            });
+            let client = reqwest::Client::new();
+
+            let slow = tokio::spawn({
+                let client = client.clone();
+                async move { client.get(format!("http://{addr}/slow")).send().await }
+            });
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let busy = client
+                .get(format!("http://{addr}/fast"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(busy.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(busy.headers()["retry-after"], "5");
+            let body: serde_json::Value = busy.json().await.unwrap();
+            assert_eq!(body["code"], "E_BUDGET_EXCEEDED", "{body}");
+
+            assert_eq!(slow.await.unwrap().unwrap().text().await.unwrap(), "slow");
+            let fast = client
+                .get(format!("http://{addr}/fast"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(fast.status(), reqwest::StatusCode::OK);
+            server.abort();
+        }
 
         fn test_state() -> OrchestratorState {
             OrchestratorState {
