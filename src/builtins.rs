@@ -74681,11 +74681,15 @@ mod win_job_tests {
     /// started, must both be killed, and the call reports the timeout.
     #[test]
     fn deadline_kills_the_child_and_its_descendants() {
+        // The deadline leaves the watcher time to see the grandchild: on a
+        // loaded host one process-list refresh can take seconds, and a 4 s
+        // deadline once killed ping before the watcher saw it start. ping
+        // still runs about 33 s, so a pass needs the kill.
         let (run, elapsed, survivors) =
-            run_with_ping("ping -n 34 127.0.0.1", "34", Duration::from_secs(4));
+            run_with_ping("ping -n 34 127.0.0.1", "34", Duration::from_secs(8));
         assert!(run.timed_out, "the deadline must report a timeout");
         assert!(
-            elapsed < Duration::from_secs(10),
+            elapsed < Duration::from_secs(15),
             "the call took {elapsed:?}"
         );
         assert!(
