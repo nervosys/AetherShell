@@ -330,6 +330,9 @@ fn a_window_is_listed_moved_resized_focused_maximised_and_closed() {
 /// two of four runs (40825519001, 40828954402): AXIsProcessTrusted was true
 /// before it, and every later osascript call was refused with -25211. With
 /// one test thread and name order, a withdrawal here cannot fail the others.
+/// So the not-found minimise is here too, as the run's last call: in
+/// 40981909242 it ran in the not-found test, and every call after it was
+/// refused (E_OS_DENIED), including this test's oracle.
 #[test]
 #[ignore = "drives window builtins: disposable macOS runner only (AE_DISPOSABLE_HOST=1)"]
 fn zz_a_window_is_minimised() {
@@ -351,9 +354,19 @@ fn zz_a_window_is_minimised() {
         oracle("minimized", &title) == "true"
     });
     drop(window);
+
+    let missing = format!("no window has this title {}", std::process::id());
+    match call("gui_minimize_window", vec![s(&missing)]) {
+        Ok(v) => panic!("gui_minimize_window answered {v:?} for a title that names no window"),
+        Err(e) => assert!(
+            e.to_string().contains("E_NOT_FOUND"),
+            "gui_minimize_window: {e}"
+        ),
+    }
 }
 
-/// Every window builtin, given a title no window has, answers E_NOT_FOUND.
+/// Every window builtin, given a title no window has, answers E_NOT_FOUND
+/// (gui_minimize_window is checked last of all, in zz_a_window_is_minimised).
 #[test]
 #[ignore = "drives window builtins: disposable macOS runner only (AE_DISPOSABLE_HOST=1)"]
 fn each_window_builtin_says_not_found_for_a_title_no_window_has() {
@@ -369,7 +382,6 @@ fn each_window_builtin_says_not_found_for_a_title_no_window_has() {
 
     let cases = [
         ("gui_focus_window", vec![s(&title)]),
-        ("gui_minimize_window", vec![s(&title)]),
         ("gui_maximize_window", vec![s(&title)]),
         (
             "gui_move_window",
