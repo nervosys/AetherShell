@@ -75,10 +75,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "scratch_file",
         "writes a fresh file in a new temporary directory that the call removes; no caller path is touched",
     ),
-    (
-        "bi_db_sqlite_export_csv",
-        "unregistered (§5 item 3); tests/sql_injection.rs fires if it is dispatched",
-    ),
 ];
 
 /// Builtins whose coverage is pinned by name: each must contain a coverage

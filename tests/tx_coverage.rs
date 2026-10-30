@@ -1,5 +1,5 @@
-//! A rollback undoes file_patch, file_insert, file_move, save_json and
-//! platform_db_export, and an archive extraction, which it could not undo, is
+//! A rollback undoes file_patch, file_insert, file_move, save_json,
+//! platform_db_export and db_sqlite_to_csv, and an archive extraction, which it could not undo, is
 //! refused inside a transaction. These run in their own process because a transaction is
 //! process-wide state: in the library's unit tests, an open one would have
 //! journaled, and rolled back, the writes of tests running beside it.
@@ -168,6 +168,47 @@ fn platform_db_export_over_a_file_is_undone_by_rollback() {
     assert_eq!(std::fs::read_to_string(&existing).unwrap(), "before");
     let _ = std::fs::remove_file(&existing);
     let _ = std::fs::remove_dir_all(&home);
+}
+
+/// db_sqlite_to_csv wrote its output with a bare fs::write: a transaction
+/// could not restore the file it replaced.
+#[test]
+fn db_sqlite_to_csv_over_a_file_is_undone_by_rollback() {
+    let have_sqlite3 = std::process::Command::new("sqlite3")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !have_sqlite3 {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _lock = TX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _cleanup = TxCleanup;
+    let db = scratch_path("csv-export.db");
+    let _ = std::fs::remove_file(&db);
+    let made = std::process::Command::new("sqlite3")
+        .arg(&db)
+        .arg("create table t(a integer); insert into t values (7);")
+        .output()
+        .unwrap();
+    assert!(made.status.success(), "{made:?}");
+    let existing = scratch_path("csv-existing.csv");
+    std::fs::write(&existing, "before").unwrap();
+
+    aethershell::tx::begin().unwrap();
+    let written = call(
+        "db_sqlite_to_csv",
+        vec![path_arg(&db), text("t"), path_arg(&existing)],
+    );
+    let replaced = std::fs::read_to_string(&existing).unwrap();
+    aethershell::tx::rollback().unwrap();
+    written.unwrap();
+    let rows: Vec<&str> = replaced.lines().map(|l| l.trim_end_matches('\r')).collect();
+    assert_eq!(rows, ["a", "7"], "{replaced:?}");
+    assert_eq!(std::fs::read_to_string(&existing).unwrap(), "before");
+    let _ = std::fs::remove_file(&existing);
+    let _ = std::fs::remove_file(&db);
 }
 
 #[test]

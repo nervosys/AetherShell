@@ -39996,13 +39996,46 @@ fn bi_web_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // A download writes a local file as well as fetching, so the path goes
     // through the same write jail `file_write` uses.
     let path = guard_local_write("web_download", &path)?;
+    // curl wrote straight into the destination, so a dropped connection left a
+    // truncated file where the old one had been, and a transaction could not
+    // restore it. The download now lands in a temporary file beside the
+    // destination (beside a symlink's target, as write_file_atomically does)
+    // and is renamed over it only once curl succeeds.
+    let requested = std::path::Path::new(&path);
+    let target = match fs::symlink_metadata(requested) {
+        Ok(meta) if meta.file_type().is_symlink() => fs::canonicalize(requested)
+            .map_err(|e| crate::safety::fs_error("web_download", &path, &e))?,
+        _ => requested.to_path_buf(),
+    };
+    let parent = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let temporary = parent.join(format!(".aether_dl_{}", uuid::Uuid::new_v4()));
+    let temporary_arg = temporary.to_string_lossy().to_string();
     let max = WEB_DOWNLOAD_MAX.to_string();
     let run = web_curl(
         "web_download",
-        &["-L", "--fail", "--max-filesize", &max, "-o", &path, &url],
-    )?;
+        &[
+            "-L",
+            "--fail",
+            "--max-filesize",
+            &max,
+            "-o",
+            &temporary_arg,
+            &url,
+        ],
+    );
+    let run = match run {
+        Ok(run) => run,
+        Err(e) => {
+            let _ = fs::remove_file(&temporary);
+            return Err(e);
+        }
+    };
     // curl's exit status 63 is "maximum file size exceeded".
     if run.status.code() == Some(63) {
+        let _ = fs::remove_file(&temporary);
         return Err(crate::safety::budget_exceeded(
             "web_download",
             format!("the file is larger than {WEB_DOWNLOAD_MAX} bytes"),
@@ -40010,7 +40043,13 @@ fn bi_web_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         ));
     }
     if !run.status.success() {
+        let _ = fs::remove_file(&temporary);
         return Err(web_tool_failed("web_download", &run));
+    }
+    crate::tx::snapshot(&path);
+    if let Err(e) = fs::rename(&temporary, &target) {
+        let _ = fs::remove_file(&temporary);
+        return Err(crate::safety::fs_error("web_download", &path, &e));
     }
     Ok(Value::Bool(true))
 }
@@ -43816,12 +43855,12 @@ fn bi_db_csv_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     Ok(Value::Bool(true))
 }
 
-fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+fn bi_db_sqlite_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
             return Err(crate::safety::bad_arg(
-                "db_sqlite_export_csv",
+                "db_sqlite_to_csv",
                 "String",
                 other.map(|v| v.type_name()).unwrap_or("nothing"),
             ))
@@ -43831,15 +43870,21 @@ fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         Some(Value::Str(s)) => s.clone(),
         other => {
             return Err(crate::safety::bad_arg(
-                "db_sqlite_export_csv",
+                "db_sqlite_to_csv",
                 "String",
                 other.map(|v| v.type_name()).unwrap_or("nothing"),
             ))
         }
     };
+    // The output was written with a bare fs::write: unjailed, not
+    // journalled, and truncated in place before the new text landed. It is
+    // now refused before sqlite3 runs if the jail forbids it, snapshotted for
+    // a transaction, and published atomically, as session_export does.
     let output_path = args
         .get(2)
         .map(|v| expect_string("db_sqlite_to_csv", v))
+        .transpose()?
+        .map(|p| guard_local_write("db_sqlite_to_csv", p))
         .transpose()?;
 
     // A leading SELECT means the caller passed a query and owns it, the same
@@ -43852,22 +43897,22 @@ fn bi_db_sqlite_export_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Va
     } else {
         format!(
             "SELECT * FROM {}",
-            crate::safety::sql_identifier("db_sqlite_export_csv", &table_or_query)?
+            crate::safety::sql_identifier("db_sqlite_to_csv", &table_or_query)?
         )
     };
 
-    crate::safety::reject_sqlite_dot_command("db_sqlite_export_csv", &query)?;
-    crate::safety::reject_option_like("db_sqlite_export_csv", std::slice::from_ref(&db_path))?;
+    crate::safety::reject_sqlite_dot_command("db_sqlite_to_csv", &query)?;
+    crate::safety::reject_option_like("db_sqlite_to_csv", std::slice::from_ref(&db_path))?;
     let mut cmd = std::process::Command::new("sqlite3");
     cmd.args(["-header", "-csv", &db_path, &query]);
-    let output = bounded_cmd_output("db_sqlite_export_csv", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
+    let output = bounded_cmd_output("db_sqlite_to_csv", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
 
     if output.status.success() {
         let csv = String::from_utf8_lossy(&output.stdout).to_string();
         if let Some(path) = output_path {
-            std::fs::write(path, &csv)
-                .map_err(|e| crate::safety::fs_error("db_sqlite_to_csv", path, &e))?;
-            return Ok(Value::Str(path.to_string()));
+            crate::tx::snapshot(&path);
+            write_file_atomically("db_sqlite_to_csv", &path, csv.as_bytes())?;
+            return Ok(Value::Str(path));
         }
         return Ok(Value::Str(csv));
     }
@@ -46120,10 +46165,6 @@ fn bi_db_sqlite_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     let sql = read_text_capped("db_sqlite_import", &sql_file)?;
     bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
-}
-
-fn bi_db_sqlite_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    bi_db_sqlite_export_csv(args, None)
 }
 
 fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

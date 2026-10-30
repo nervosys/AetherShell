@@ -8,7 +8,7 @@
 //! statement handed to the `sqlite3` CLI — which runs every statement in the
 //! string, separated by `;`.
 //!
-//! Two of them, `db_sqlite_export_csv` and `db_sqlite_create`, are not named in
+//! When this was written, `db_sqlite_export_csv` and `db_sqlite_create` were not named in
 //! `safety::classified_effect` at all, so `effect_of` returns `Pure` and
 //! `guard_dispatch` lets them through without a decision or an audit line. A
 //! "read-only export" that can drop a table is the same shape as the `rm` bug
@@ -78,8 +78,9 @@ fn victim_survives(db: &PathBuf) -> bool {
     String::from_utf8_lossy(&out.stdout).contains("victim")
 }
 
-/// `db_sqlite_create` and `db_sqlite_export_csv` are **not dispatched** — they
-/// are part of the unregistered set (§5 item 3 of docs/HANDOFF.md).
+/// `db_sqlite_create` is **not dispatched** — it is part of the unregistered
+/// set (§5 item 3 of docs/HANDOFF.md). `db_sqlite_export_csv` was listed with
+/// it, but its body was dispatched all along as `db_sqlite_to_csv`.
 ///
 /// An injection test against an unreachable name passes because nothing ran,
 /// which is a blind check. The first draft of this file did exactly that and
@@ -91,18 +92,18 @@ fn dispatched(name: &str) -> bool {
 
 #[test]
 fn the_unreachable_cases_are_still_unreachable() {
-    // If either becomes registered, its injection surface ships with it —
+    // If it becomes registered, its injection surface ships with it —
     // `db_sqlite_create` still interpolates the column *type* as written. This
     // failing is the reminder to validate before exposing.
-    for name in ["db_sqlite_create", "db_sqlite_export_csv"] {
-        assert!(
-            !dispatched(name),
-            "`{name}` is now reachable. Before shipping it, check that every \
-             identifier it interpolates goes through `safety::sql_identifier`; \
-             `db_sqlite_create` still passes the column type through unchecked, \
-             which is noted at the call site."
-        );
-    }
+    // `db_sqlite_export_csv` was listed here, but its body was reachable all
+    // along as `db_sqlite_to_csv`; that is the name the export test now calls.
+    assert!(
+        !dispatched("db_sqlite_create"),
+        "`db_sqlite_create` is now reachable. Before shipping it, check that every \
+         identifier it interpolates goes through `safety::sql_identifier`; \
+         it still passes the column type through unchecked, which is noted at \
+         the call site."
+    );
 }
 
 #[test]
@@ -115,6 +116,7 @@ fn the_injectable_builtin_is_actually_reachable() {
     );
     assert!(dispatched("db_sqlite_update"));
     assert!(dispatched("db_sqlite_drop_table"));
+    assert!(dispatched("db_sqlite_to_csv"));
 }
 
 #[test]
@@ -123,9 +125,8 @@ fn export_csv_does_not_execute_a_second_statement() {
         eprintln!("skipping: sqlite3 not on PATH");
         return;
     }
-    // Unreachable today; the assertion below documents the shape rather than
-    // proving a live path. `the_unreachable_cases_are_still_unreachable` is what
-    // makes that explicit instead of silently vacuous.
+    // Dispatched as `db_sqlite_to_csv` (asserted in
+    // `the_injectable_builtin_is_actually_reachable`), so this is a live path.
     let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
     let db = fixture("export");
     assert!(
@@ -137,13 +138,13 @@ fn export_csv_does_not_execute_a_second_statement() {
     // not begin with SELECT. The sqlite3 CLI runs every statement in the string.
     let injected = "victim; DROP TABLE victim; --";
     let _ = call(
-        "db_sqlite_export_csv",
+        "db_sqlite_to_csv",
         vec![s(&db.to_string_lossy()), s(injected)],
     );
 
     assert!(
         victim_survives(&db),
-        "`db_sqlite_export_csv` executed an injected `DROP TABLE`. The second \
+        "`db_sqlite_to_csv` executed an injected `DROP TABLE`. The second \
          argument is interpolated into `SELECT * FROM {{}}` without \
          `safety::sql_identifier`, and the sqlite3 CLI runs every `;`-separated \
          statement it is given. The builtin is also absent from \

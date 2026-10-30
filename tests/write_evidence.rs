@@ -68,16 +68,17 @@ const WRITE_EVIDENCE: &[(&str, &str)] = &[
 /// each with the reason. This list may only shrink.
 const ALLOWED: &[(&str, &str)] = &[
     (
+        "web_download",
+        "Network — in SELF_GUARDED: guard_local_write checks the path before curl \
+         starts, then the finished download is renamed over it",
+    ),
+    (
         "apply",
         "Exec — runs a whole plan and gates it on a plan-derived approval token",
     ),
     (
         "input_editor",
         "Exec — spawns the user's editor; the temp file is an implementation detail",
-    ),
-    (
-        "db_sqlite_export_csv",
-        "unregistered (§5 item 3); tests/sql_injection.rs fires if it is dispatched",
     ),
     (
         "nodemon_run",

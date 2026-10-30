@@ -4718,6 +4718,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "db_kv_delete",
     "db_sqlite_delete",
     "db_sqlite_drop_table",
+    "db_sqlite_to_csv",
     "docker_compose_down",
     "docker_exec",
     "docker_rm",
