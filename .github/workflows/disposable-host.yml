@@ -133,7 +133,9 @@ jobs:
                            each_window_builtin_says_not_found_for_a_title_no_window_has \
                            zz_a_window_is_minimised; do
                       for attempt in 1 2; do
-                          cargo test --test macos_window_admin -- --include-ignored --exact "$t" 2>&1 | tee window-test.log
+                          # The step shell is `bash -e`: without `|| true` a failing test ended
+                          # the step here, before the retry check (40999395803 never retried).
+                          cargo test --test macos_window_admin -- --include-ignored --exact "$t" 2>&1 | tee window-test.log || true
                           # A misspelt name runs nothing and would pass.
                           if grep -q "test result: ok. 1 passed" window-test.log; then
                               break
