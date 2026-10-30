@@ -47675,7 +47675,10 @@ fn bi_file_move(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
-    if !std::path::Path::new(&source).exists() {
+    // Probed where the move will look: in agent mode a relative source is in
+    // the workspace, and probing the bare name asked about the working
+    // directory instead, so a file the move would have found was not found.
+    if !std::path::Path::new(&crate::safety::resolve_path_str(&source)).exists() {
         return Err(crate::safety::not_found("file_move", "source", &source));
     }
 

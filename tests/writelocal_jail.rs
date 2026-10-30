@@ -315,3 +315,36 @@ fn mkdir_actually_makes_a_directory() {
     assert!(r.is_ok(), "mkdir inside the workspace must succeed: {r:?}");
     assert!(target.is_dir(), "mkdir returned {r:?} and created nothing");
 }
+
+#[test]
+fn file_move_finds_a_relative_source_in_the_workspace() {
+    // The existence probe looked at the bare name, which the OS resolves
+    // against the working directory, while the move itself resolves it against
+    // the workspace. With the two apart, a file the move would have moved was
+    // reported missing.
+    let _g = lock();
+    let jail = Jail::new("move_probe");
+    let name = format!("ae_wlj_move_src_{}.txt", std::process::id());
+    std::fs::write(jail.workspace.join(&name), "x").unwrap();
+    assert!(
+        !std::path::Path::new(&name).exists(),
+        "the cwd must not hold it"
+    );
+    let result = call(
+        "file_move",
+        vec![
+            Value::Str(name.clone()),
+            Value::Str(format!("{name}.moved")),
+        ],
+    );
+    let code = result
+        .as_ref()
+        .err()
+        .and_then(|e| e.downcast_ref::<aethershell::safety::SafetyError>())
+        .map(|s| s.code);
+    assert_ne!(
+        code,
+        Some(aethershell::safety::ErrorCode::NotFound),
+        "{result:?}"
+    );
+}
