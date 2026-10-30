@@ -51244,7 +51244,8 @@ fn env_read(
 }
 
 fn bi_env_path(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let path = std::env::var("PATH").unwrap_or_default();
+    // A PATH that is not valid UTF-8 read as an empty one.
+    let path = env_read("env_path", "PATH", std::env::var("PATH"))?.unwrap_or_default();
     let parts: Vec<Value> = path
         .split(if cfg!(windows) { ";" } else { ":" })
         // An empty entry ("a::b", or PATH unset) is no directory.
@@ -53977,7 +53978,19 @@ fn bi_platform_lib_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
             String::from_utf8_lossy(&out.stdout).trim().to_string(),
         ));
     }
-    Ok(Value::Null)
+    // pkg-config and pkgconf say the module was not found ("Package 'x' was
+    // not found", "No package 'x' found"); any other failure, such as a
+    // broken .pc file, had also read as an unknown library.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("not found") || stderr.contains("No package") {
+        return Ok(Value::Null);
+    }
+    Err(crate::safety::tool_failed(
+        "platform_lib_version",
+        "pkg-config --modversion",
+        out.status.code(),
+        &stderr,
+    ))
 }
 
 /// Where a Linux libstdc++ is installed, read in this order. A host with none
