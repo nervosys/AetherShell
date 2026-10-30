@@ -36862,12 +36862,21 @@ function findWindow(se, title) {
     }
     var asked = procs.length;
     procs = procs.concat(se.processes());
+    // Trust was checked before this ran, so a refusal here is one process
+    // refusing, not ae being untrusted. From an owner of a window with this
+    // title it is fatal, since the window is there; from any other process it
+    // only skips that process. Treating every refusal as fatal made a title
+    // no window has unanswerable whenever one such process was running: the
+    // scan for a missing title is the one that reaches every process. The
+    // log line avoids the refusal markers, which the caller reads as E_OS_DENIED.
+    var skipped = 0;
     for (var i = 0; i < procs.length; i++) {
         var wins = [];
         try {
             wins = procs[i].windows();
         } catch (e) {
-            if (denied(e)) throw e;
+            if (denied(e) && i < asked) throw e;
+            if (denied(e)) skipped++;
             if (i < asked) console.log('windows of owner: ' + e);
             continue;
         }
@@ -36877,12 +36886,13 @@ function findWindow(se, title) {
             try {
                 name = wins[j].name();
             } catch (e) {
-                if (denied(e)) throw e;
+                if (denied(e) && i < asked) throw e;
                 continue;
             }
             if (name === title) return {proc: procs[i], win: wins[j]};
         }
     }
+    if (skipped > 0) console.log(skipped + ' processes without the window title refused scripting; skipped');
     return null;
 }
 function run(argv) {
