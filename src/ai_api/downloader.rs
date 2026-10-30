@@ -1,7 +1,5 @@
 use crate::ai_api::{models::*, storage::ModelStorage};
 use anyhow::Result;
-use ironcrypto::core_types::traits::Digest;
-use ironcrypto::hash::Sha256;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -150,11 +148,8 @@ impl ModelDownloader {
         // Determine the main model file and format
         let (_main_file, main_path, format) = self.identify_main_model_file(&downloaded_files)?;
 
-        // Read the main model file
-        let model_data = fs::read(&main_path)?;
-
-        // Calculate checksum
-        let checksum = hex::encode(Sha256::digest(&model_data)?);
+        // Hash the main model file in chunks; it was read whole into memory.
+        let checksum = crate::ai_api::storage::sha256_file(&main_path)?;
 
         // Create metadata
         let metadata = LocalModelMetadata {
@@ -184,7 +179,7 @@ impl ModelDownloader {
 
         // Store the model
         self.storage
-            .store_model(&model_data, metadata.clone())
+            .store_model_file(&main_path, metadata.clone())
             .await?;
 
         // Copy additional files to storage if needed
@@ -212,10 +207,7 @@ impl ModelDownloader {
             .join(format!("temp_{}", uuid::Uuid::new_v4()));
         let downloaded_size = self.download_file(&url, &temp_path).await?;
 
-        let model_data = fs::read(&temp_path)?;
-
-        // Calculate checksum
-        let checksum = hex::encode(Sha256::digest(&model_data)?);
+        let checksum = crate::ai_api::storage::sha256_file(&temp_path)?;
 
         // Infer format from URL or filename
         let format = self.infer_format_from_url(&url)?;
@@ -251,7 +243,7 @@ impl ModelDownloader {
         };
 
         self.storage
-            .store_model(&model_data, metadata.clone())
+            .store_model_file(&temp_path, metadata.clone())
             .await?;
 
         // Clean up temporary file

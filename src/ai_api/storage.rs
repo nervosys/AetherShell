@@ -8,6 +8,22 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// The SHA-256 of a file, read in 1 MiB chunks so its size does not matter.
+pub fn sha256_file(path: &Path) -> Result<String> {
+    use std::io::Read;
+    let mut file = fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()?))
+}
+
 /// XDG Base Directory compliant storage for AI models
 ///
 /// Directory structure:
@@ -201,7 +217,50 @@ impl ModelStorage {
 
         // Calculate and verify checksum
         let calculated_hash = hex::encode(Sha256::digest(model_data)?);
+        self.finish_store(
+            file_path,
+            calculated_hash,
+            model_data.len() as u64,
+            metadata,
+        )
+    }
 
+    /// [`Self::store_model`] for a model already on disk at `src`: it is copied
+    /// and hashed in chunks, never held in memory. A downloaded model was read
+    /// whole to be hashed and stored, and model files run to many gigabytes.
+    pub async fn store_model_file(
+        &mut self,
+        src: &Path,
+        metadata: LocalModelMetadata,
+    ) -> Result<()> {
+        let format_dir = match metadata.format {
+            ModelFormat::GGUF => "gguf",
+            ModelFormat::SafeTensors => "safetensors",
+            ModelFormat::PyTorch => "pytorch",
+            ModelFormat::ONNX => "onnx",
+            _ => "other",
+        };
+        let model_dir = self.data_dir.join("models").join(format_dir);
+        fs::create_dir_all(&model_dir)?;
+        let filename = format!(
+            "{}.{}",
+            metadata.id.replace('/', "_"),
+            self.get_file_extension(&metadata.format)
+        );
+        let file_path = model_dir.join(&filename);
+        let size = fs::copy(src, &file_path)?;
+        let calculated_hash = sha256_file(&file_path)?;
+        self.finish_store(file_path, calculated_hash, size, metadata)
+    }
+
+    /// Verify a stored model's checksum, then record its metadata and index it.
+    fn finish_store(
+        &mut self,
+        file_path: PathBuf,
+        calculated_hash: String,
+        size_bytes: u64,
+        metadata: LocalModelMetadata,
+    ) -> Result<()> {
         if calculated_hash != metadata.sha256 {
             fs::remove_file(&file_path)?;
             return Err(anyhow::anyhow!(
@@ -214,7 +273,7 @@ impl ModelStorage {
         // Update metadata with actual file path
         let mut updated_metadata = metadata;
         updated_metadata.file_path = file_path.to_string_lossy().to_string();
-        updated_metadata.size_bytes = model_data.len() as u64;
+        updated_metadata.size_bytes = size_bytes;
 
         // Store metadata file
         let metadata_path = self
@@ -443,5 +502,22 @@ fn human_bytes(bytes: u64) -> String {
         format!("{} {}", bytes, UNITS[unit_index])
     } else {
         format!("{:.2} {}", size, UNITS[unit_index])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The chunked hash of a file that spans a chunk boundary matches the
+    /// one-shot digest of its bytes.
+    #[test]
+    fn sha256_file_matches_the_one_shot_digest() {
+        let path = std::env::temp_dir().join(format!("ae-sha256-file-{}", std::process::id()));
+        let bytes: Vec<u8> = (0..(1usize << 20) + 3).map(|i| (i % 251) as u8).collect();
+        fs::write(&path, &bytes).unwrap();
+        let chunked = sha256_file(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert_eq!(chunked, hex::encode(Sha256::digest(&bytes).unwrap()));
     }
 }
