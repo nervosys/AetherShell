@@ -43,7 +43,7 @@ const MAX_STDERR_TAIL: usize = 64 * 1024;
 /// Where `pkg_add_source` writes; apt reads every `*.list` file here.
 const SOURCES_DIR: &str = "/etc/apt/sources.list.d";
 /// The mark every file written by `pkg_add_source` carries.
-const SOURCE_HEADER: &str = "# Created by AetherShell pkg_add_source";
+const SOURCE_HEADER: &str = "# Created by IronShell pkg_add_source";
 
 fn name_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -373,8 +373,8 @@ pub(super) fn unhold(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 }
 
 /// `pkg_add_source(name, line, options?)`. Writes `line` to
-/// `/etc/apt/sources.list.d/ae-<name>.list`, after a `# Created by
-/// AetherShell pkg_add_source` header line. Options: `update` Bool, default
+/// `/etc/apt/sources.list.d/ironshell-<name>.list`, after a `# Created by
+/// IronShell pkg_add_source` header line. Options: `update` Bool, default
 /// false, which runs `apt-get update` afterwards; if that fails the new file
 /// is removed and the error returned. An existing file is never overwritten.
 pub(super) fn add_source(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -412,11 +412,11 @@ pub(super) fn add_source(args: Vec<Value>, input: Option<Value>) -> Result<Value
     refuse_in_transaction(B)?;
     require_manager(B)?;
 
-    let path = format!("{SOURCES_DIR}/ae-{name}.list");
+    let path = format!("{SOURCES_DIR}/ironshell-{name}.list");
     if std::fs::symlink_metadata(&path).is_ok() {
         return Err(safety::bad_arg(
             B,
-            "a source name whose ae-<name>.list file does not exist yet",
+            "a source name whose ironshell-<name>.list file does not exist yet",
             &format!("{name:?}, and {path} already exists"),
         ));
     }
@@ -814,7 +814,7 @@ fn parse_upgraded(text: &str) -> Option<i64> {
 /// hidden temporary name in the same directory and hard-linked into place;
 /// `link` fails when the destination exists, and apt ignores hidden files.
 fn install_file(builtin: &str, path: &str, content: &str) -> Result<()> {
-    let tmp = format!("{SOURCES_DIR}/.ae-pending-{}.tmp", std::process::id());
+    let tmp = format!("{SOURCES_DIR}/.ironshell-pending-{}.tmp", std::process::id());
     let result = write_then_link(&tmp, path, content);
     let _ = std::fs::remove_file(&tmp);
     match result {

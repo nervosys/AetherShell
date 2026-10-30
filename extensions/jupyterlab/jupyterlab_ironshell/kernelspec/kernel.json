@@ -1,0 +1,14 @@
+{
+    "argv": [
+        "python",
+        "-m",
+        "jupyterlab_ironshell.kernel",
+        "-f",
+        "{connection_file}"
+    ],
+    "display_name": "IronShell",
+    "language": "ironshell",
+    "metadata": {
+        "debugger": false
+    }
+}

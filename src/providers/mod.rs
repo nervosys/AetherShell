@@ -1,6 +1,6 @@
 //! Universal LLM Provider Interface
 //!
-//! AetherShell's provider-agnostic abstraction layer that enables any AI model
+//! IronShell's provider-agnostic abstraction layer that enables any AI model
 //! to interact with the operating system through a standardized interface.
 //!
 //! ## Supported Providers
@@ -46,7 +46,7 @@ pub use platform::{
 };
 pub use registry::*;
 pub use schema::*;
-pub use tools::{AetherTool, AetherToolRegistry, ToolResult, AETHER_TOOLS};
+pub use tools::{IronShellTool, IronShellToolRegistry, ToolResult, IRONSHELL_TOOLS};
 pub use traits::*;
 
 use anyhow::{anyhow, Result};

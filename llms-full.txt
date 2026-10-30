@@ -1,19 +1,19 @@
-# AetherShell - Complete AI Context
+# IronShell - Complete AI Context
 
 > One language, every platform, deterministic typed output — the shell built for AI agents.
 > Version: 12.0.2 (13.0.0 in preparation) | License: AGPL-3.0-or-later | Language: Rust
 > Repository: https://github.com/nervosys/AetherShell
-> Crate: https://crates.io/crates/aethershell (733 KiB compressed)
+> Crate: https://crates.io/crates/iron-shell (733 KiB compressed)
 
-This file contains everything an AI model needs to understand, use, and generate AetherShell code.
+This file contains everything an AI model needs to understand, use, and generate IronShell code.
 
 ---
 
-## 1. What Is AetherShell?
+## 1. What Is IronShell?
 
 AI agents today are forced to interact with shells designed decades ago for humans — Bash on Linux, PowerShell on Windows, Zsh on macOS. Their output is unstructured text that varies across OS versions, locales, and tool installations, creating non-deterministic results that make agent workflows fundamentally brittle. An agent that parses `df -h` on Ubuntu will break on Alpine. A script that scrapes `Get-Process` output will fail when column widths change.
 
-AetherShell (`ae`) eliminates this entire class of failure. It provides a single cross-platform shell language where every command returns deterministic, typed output. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable without documentation scraping or prompt engineering. Written in Rust with Hindley-Milner type inference, it provides 1,100+ builtins across 108 modules, native AI agent support, and the MCP/A2A/A2UI/NANDA agentic protocols.
+IronShell (`ish`) eliminates this entire class of failure. It provides a single cross-platform shell language where every command returns deterministic, typed output. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable without documentation scraping or prompt engineering. Written in Rust with Hindley-Milner type inference, it provides 1,100+ builtins across 108 modules, native AI agent support, and the MCP/A2A/A2UI/NANDA agentic protocols.
 
 **Key differentiators from bash/zsh/PowerShell:**
 - Deterministic: same command produces the same typed structure on every OS, locale, and version
@@ -30,38 +30,38 @@ AetherShell (`ae`) eliminates this entire class of failure. It provides a single
 
 ```bash
 # From crates.io
-cargo install aethershell
+cargo install iron-shell
 
 # From source
 git clone https://github.com/nervosys/AetherShell && cd AetherShell
-cargo install --path . --bin ae
+cargo install --path . --bin ish
 
 # Verify
-ae --version
+ish --version
 ```
 
-Binaries: `ae` (shell) and `aimodel` (AI model management CLI).
+Binaries: `ish` (shell) and `aimodel` (AI model management CLI).
 
 ---
 
 ## 3. CLI Usage
 
 ```bash
-ae                             # Interactive REPL
-ae tui                         # Terminal UI with tabs, chat, agents
-ae script.ae                   # Execute a script file
-ae -c 'expression'             # Evaluate inline expression
-ae -e 'expression' --json      # Evaluate and output JSON
-ae assist "query"              # AI assistant (natural language to AetherShell)
-ae assist -i                   # Interactive AI assistant mode
-ae assist -x "query"           # Generate and execute AI suggestion
-ae --bash script.sh            # Transpile Bash → AetherShell and run
-ae --zsh  script.zsh           # Transpile Zsh  → AetherShell and run
-ae --pwsh script.ps1           # Transpile PowerShell → AetherShell and run
-ae script.sh                   # Auto-detect transpile mode by extension
-ae ai "prompt"                 # Direct AI query
-ae agent serve                 # Start Agent API server (port 3002)
-ae agent serve --port 8080     # Custom port
+ish                             # Interactive REPL
+ish tui                         # Terminal UI with tabs, chat, agents
+ish script.ish                   # Execute a script file
+ish -c 'expression'             # Evaluate inline expression
+ish -e 'expression' --json      # Evaluate and output JSON
+ish assist "query"              # AI assistant (natural language to IronShell)
+ish assist -i                   # Interactive AI assistant mode
+ish assist -x "query"           # Generate and execute AI suggestion
+ish --bash script.sh            # Transpile Bash → IronShell and run
+ish --zsh  script.zsh           # Transpile Zsh  → IronShell and run
+ish --pwsh script.ps1           # Transpile PowerShell → IronShell and run
+ish script.sh                   # Auto-detect transpile mode by extension
+ish ai "prompt"                 # Direct AI query
+ish agent serve                 # Start Agent API server (port 3002)
+ish agent serve --port 8080     # Custom port
 ```
 
 ---
@@ -70,9 +70,9 @@ ae agent serve --port 8080     # Custom port
 
 ### 4.1 Variables and Types
 
-```ae
+```ish
 # Type inference (preferred)
-name = "AetherShell"           # String
+name = "IronShell"           # String
 count = 42                     # Int
 pi = 3.14159                   # Float
 active = true                  # Bool
@@ -89,7 +89,7 @@ counter = counter + 1
 
 ### 4.2 Lambdas and Functions
 
-```ae
+```ish
 # Lambda syntax
 double = fn(x) => x * 2
 add = fn(a, b) => a + b
@@ -101,7 +101,7 @@ transform = fn(x, y, z) => x * y + z
 
 ### 4.3 Pipelines
 
-```ae
+```ish
 # Typed pipeline operations
 [1, 2, 3, 4, 5]
   | where(fn(x) => x > 2)
@@ -117,7 +117,7 @@ ls("./src")
 
 ### 4.4 Pattern Matching
 
-```ae
+```ish
 grade = fn(score) => match {
     90..100 => "A",
     80..89 => "B",
@@ -128,19 +128,19 @@ grade = fn(score) => match {
 
 ### 4.5 Error Handling
 
-```ae
+```ish
 result = try { risky_operation() } catch e { "fallback" }
 ```
 
 ### 4.6 String Interpolation
 
-```ae
+```ish
 greeting = "Hello, ${name}! You have ${count} items."
 ```
 
 ### 4.7 Async/Await
 
-```ae
+```ish
 data = await http.get("https://api.example.com/data")
 ```
 
@@ -151,7 +151,7 @@ data = await http.get("https://api.example.com/data")
 All builtins return structured `Value` types, not raw text.
 
 ### 5.1 File Operations (`file`)
-```ae
+```ish
 file.read("config.toml")                    # => String
 file.write("out.txt", "hello")              # => {success: true, bytes: 5}
 file.exists("path")                         # => {exists: bool, is_file: bool, is_dir: bool}
@@ -165,7 +165,7 @@ file.mkdir("path/to/dir")                   # Create directories
 ```
 
 ### 5.2 System (`sys`, `proc`, `platform`)
-```ae
+```ish
 sys.hostname()          # => "my-machine"
 sys.uptime()            # => {days: 5, hours: 3, minutes: 42}
 sys.cpu_info()          # => {cores: 8, model: "...", ...}
@@ -179,7 +179,7 @@ platform.hardware_summary()  # Full system info
 ```
 
 ### 5.3 Network (`net`, `http`)
-```ae
+```ish
 net.ping("google.com")          # => {success: true, latency_ms: 12}
 net.dns_lookup("github.com")    # => {ips: [...], ...}
 net.interfaces()                # List network interfaces
@@ -188,20 +188,20 @@ http.post("url", {body: data})
 ```
 
 ### 5.4 Crypto (`crypto`)
-```ae
+```ish
 crypto.uuid()                            # Generate UUID v4
 crypto.hash("sha256", "hello")           # => "2cf24dba5fb0..."
 crypto.jwt_decode(token)                 # Decode JWT
 ```
 
 ### 5.5 Database (`db`)
-```ae
+```ish
 db.sqlite_open("app.db")
 db.sqlite_query(conn, "SELECT * FROM users")
 ```
 
 ### 5.6 Math, String, Array (`math`, `str`, `arr`)
-```ae
+```ish
 math.sqrt(16)              # => 4.0
 math.pow(2, 10)            # => 1024
 str.upper("hello")         # => "HELLO"
@@ -212,7 +212,7 @@ arr.unique([1, 2, 2, 3])   # => [1, 2, 3]
 ```
 
 ### 5.7 AI (`ai`, `agent`)
-```ae
+```ish
 ai("Explain recursion")
 ai("Summarize", {context: file.read("README.md")})
 ai("What's this?", {images: ["photo.jpg"]})
@@ -228,7 +228,7 @@ swarm({
 ```
 
 ### 5.8 Protocols (`mcp`, `a2a`, `a2ui`, `nanda`)
-```ae
+```ish
 mcp.tools()                              # List 130+ MCP tools
 mcp.call("git", {command: "status"})
 mcp.connect("http://localhost:3001")
@@ -239,7 +239,7 @@ nanda.propose("deployment", {threshold: 0.7})
 ```
 
 ### 5.9 Enterprise (`rbac`, `audit`, `sso`)
-```ae
+```ish
 rbac.create("admin", ["read", "write", "delete"])
 rbac.grant("alice", "admin")
 audit.log("file_modified", "config.toml", {user: "alice"})
@@ -247,7 +247,7 @@ sso.init("okta", {client_id: "..."})
 ```
 
 ### 5.10 ML (`nn`, `evo`, `rl`)
-```ae
+```ish
 net = nn.create("policy", [8, 16, 4])
 output = nn.forward(net, [0.1, 0.2, ...])
 pop = evo.population(100, "nn", {layers: [4, 8, 2]})
@@ -261,9 +261,9 @@ agent = rl.agent("q-learner", 16, 4, {epsilon: 0.1})
 
 ## 6. AI Model URIs
 
-AetherShell uses URI-style model identifiers:
+IronShell uses URI-style model identifiers:
 
-```ae
+```ish
 ai("openai:gpt-4o", "prompt")            # OpenAI
 ai("openai:gpt-4o-mini", "prompt")       # OpenAI (cost-effective)
 ai("anthropic:claude-3-opus", "prompt")   # Anthropic
@@ -280,7 +280,7 @@ ai("compat:local-model", "prompt")        # Any OpenAI-compatible
 |---|---|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Anthropic Claude API key |
-| `AETHER_AI` | Default AI provider (`openai`, `ollama`, `lmstudio`, `compat`, `tgi`) |
+| `IRONSHELL_AI` | Default AI provider (`openai`, `ollama`, `lmstudio`, `compat`, `tgi`) |
 | `OLLAMA_HOST` | Ollama server URL |
 | `LMSTUDIO_API_BASE` | LM Studio server endpoint (default: http://localhost:1234) |
 | `VLLM_API_BASE` | vLLM server endpoint |
@@ -291,7 +291,7 @@ ai("compat:local-model", "prompt")        # Any OpenAI-compatible
 
 ## 7. Agent API Server
 
-Start with `ae agent serve` (default port 3002). The Agent API provides structured JSON endpoints for AI agents to interact with AetherShell without generating code.
+Start with `ish agent serve` (default port 3002). The Agent API provides structured JSON endpoints for AI agents to interact with IronShell without generating code.
 
 ### 7.1 Endpoints
 
@@ -300,7 +300,7 @@ Start with `ae agent serve` (default port 3002). The Agent API provides structur
 | POST | `/api/v1/execute` | Execute any AgentRequest |
 | POST | `/api/v1/call/:builtin` | Call a single builtin |
 | POST | `/api/v1/pipeline` | Execute a pipeline |
-| POST | `/api/v1/eval` | Evaluate raw AetherShell code |
+| POST | `/api/v1/eval` | Evaluate raw IronShell code |
 | POST | `/api/v1/stream/execute` | Stream execution (SSE) |
 | POST | `/api/v1/stream/pipeline` | Stream pipeline (SSE) |
 | POST | `/api/v1/stream/eval` | Stream eval (SSE) |
@@ -365,17 +365,17 @@ The `/api/v1/schema/:format` endpoint supports 25+ AI providers:
 ## 8. Python SDK
 
 ```bash
-pip install aethershell            # Core
-pip install aethershell[langchain]  # With LangChain tools
-pip install aethershell[all]        # Everything
+pip install ironshell            # Core
+pip install ironshell[langchain]  # With LangChain tools
+pip install ironshell[all]        # Everything
 ```
 
 ### 8.1 Basic Usage
 
 ```python
-from aethershell import AetherRuntime, Agent, Swarm
+from ironshell import IronShellRuntime, Agent, Swarm
 
-runtime = AetherRuntime()
+runtime = IronShellRuntime()
 result = runtime.eval('[1, 2, 3] | map(fn(x) => x * 2)')
 
 agent = Agent(name="helper", model="openai:gpt-4o", runtime=runtime)
@@ -385,12 +385,12 @@ swarm = Swarm(agents=[agent])
 ### 8.2 LangChain Integration
 
 ```python
-from aethershell.langchain import get_aethershell_tools, get_agent_api_tools
+from ironshell.langchain import get_ironshell_tools, get_agent_api_tools
 
-# Subprocess-based (requires ae binary)
-tools = get_aethershell_tools()
+# Subprocess-based (requires ish binary)
+tools = get_ironshell_tools()
 
-# HTTP-based (connects to ae agent serve)
+# HTTP-based (connects to ish agent serve)
 tools = get_agent_api_tools("http://localhost:3002")
 
 # Use with LangChain agent
@@ -401,7 +401,7 @@ agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION
 ### 8.3 HTTP Client
 
 ```python
-from aethershell.langchain import AgentAPIClient
+from ironshell.langchain import AgentAPIClient
 
 client = AgentAPIClient("http://localhost:3002")
 result = client.eval('[1,2,3] | map(fn(x) => x * 2)')
@@ -418,9 +418,9 @@ client.ping()  # => True if server is reachable
 
 ```
 src/
-  main.rs          # CLI entry point (ae binary)
+  main.rs          # CLI entry point (ish binary)
   ast.rs           # AST definitions (Stmt, Expr, BinOp)
-  parser.rs        # AetherShell syntax to AST
+  parser.rs        # IronShell syntax to AST
   lexer.rs         # Tokenizer
   tokens.rs        # Token types
   eval.rs          # Expression evaluator (runtime semantics)
@@ -463,10 +463,10 @@ Each stage receives a `Value` and returns a `Value`.
 
 ---
 
-## 10. Why AetherShell for AI Agents?
+## 10. Why IronShell for AI Agents?
 
 ### 10.1 Cross-Platform Consistency
-```ae
+```ish
 # Same command everywhere - no platform detection needed
 ls("./src")          # Windows, macOS, Linux
 file.read("f.txt")   # No encoding issues
@@ -474,14 +474,14 @@ sys.hostname()       # No command differences
 ```
 
 ### 10.2 Structured Output
-```ae
+```ish
 # Returns typed records, not text to parse
 ls(".")     # => [{name: "file.rs", size: 1234, modified: "...", type: "file"}, ...]
 sys.cpu_info()  # => {cores: 8, model: "...", ...}
 ```
 
 ### 10.3 Safe File Editing
-```ae
+```ish
 # No escaping issues - handles any content safely
 file.replace("config.rs", "old text", "new text")
 file.patch("Cargo.toml", [{find: "v1", replace: "v2"}])
@@ -489,7 +489,7 @@ file.patch("Cargo.toml", [{find: "v1", replace: "v2"}])
 ```
 
 ### 10.4 Discoverable API
-```ae
+```ish
 mcp.tools()        # List all available tools
 help("file")       # Module documentation
 file               # => {read, write, exists, copy, move, patch, ...}
@@ -499,19 +499,19 @@ file               # => {read, write, exists, copy, move, patch, ...}
 
 ## 11. Project Metadata
 
-- **Name**: AetherShell
-- **Binary**: `ae`
+- **Name**: IronShell
+- **Binary**: `ish`
 - **Language**: Rust (2021 edition, MSRV 1.88)
 - **Version**: 12.0.2 (13.0.0 in preparation)
 - **License**: AGPL-3.0-or-later (commercial dual-license available)
 - **Author**: Nervosys <contact@nervosys.ai>
 - **Repository**: https://github.com/nervosys/AetherShell
-- **Crate**: https://crates.io/crates/aethershell
-- **VS Code**: https://marketplace.visualstudio.com/items?itemName=admercs.aethershell
+- **Crate**: https://crates.io/crates/iron-shell
+- **VS Code**: https://marketplace.visualstudio.com/items?itemName=admercs.ironshell
 - **Keywords**: shell, ai, multi-agent, functional, multimodal, typed-pipelines, mcp
 - **Categories**: command-line-utilities, development-tools
 - **Tests**: 3,572 passing on Windows, 3,582 on Linux (`cargo test --workspace`, 2026-10-23)
 - **Source**: ~198,000 lines (src/)
 - **Builtins**: 1,172 in the ontology (1,438 callable names with aliases) across 108 modules
-- **File Extension**: `.ae`
-- **MIME Type**: `text/x-aethershell`
+- **File Extension**: `.ish`
+- **MIME Type**: `text/x-ironshell`

@@ -1,4 +1,4 @@
-# Release Checklist for AetherShell v0.1.0
+# Release Checklist for IronShell v0.1.0
 
 Historical checklist for v0.1.0. Current release preparation is tracked in
 [`13.0.0.md`](13.0.0.md); the completion marks below do not describe the current tree.
@@ -33,7 +33,7 @@ Historical checklist for v0.1.0. Current release preparation is tracked in
 - [x] **Cleanup** - temp/ directory cleaned
 
 ### Build Artifacts
-- [x] **Binaries** - ae (main shell) and aimodel (AI model CLI)
+- [x] **Binaries** - ish (main shell) and aimodel (AI model CLI)
 - [x] **Release builds** - Present in target/release/
 - [x] **.gitignore** - Properly configured
 
@@ -50,12 +50,12 @@ cargo build --release
 cargo test --all-features
 
 # 3. Test both binaries
-.\target\release\ae.exe --help
+.\target\release\ish.exe --help
 .\target\release\aimodel.exe --help
 
 # 4. Verify examples
-.\target\release\ae.exe examples\00_hello.ae
-.\target\release\ae.exe examples\99_comprehensive_test.ae
+.\target\release\ish.exe examples\00_hello.ish
+.\target\release\ish.exe examples\99_comprehensive_test.ish
 
 # 5. Check package
 cargo package --list
@@ -83,9 +83,9 @@ cargo publish
 # 4. Create GitHub release
 # - Go to https://github.com/nervosys/AetherShell/releases/new
 # - Select tag v0.1.0
-# - Title: "AetherShell v0.1.0 - Initial Release"
+# - Title: "IronShell v0.1.0 - Initial Release"
 # - Copy content from CHANGELOG.md
-# - Upload release binaries (ae.exe, aimodel.exe for Windows)
+# - Upload release binaries (ish.exe, aimodel.exe for Windows)
 ```
 
 ## 📊 Release Metrics
@@ -97,7 +97,7 @@ cargo publish
 - **Tests**: 25+ unit/integration tests
 - **Documentation**: 5+ guides, comprehensive README
 - **License**: MIT
-- **Binaries**: 2 (ae, aimodel)
+- **Binaries**: 2 (ish, aimodel)
 
 ## 🔍 Known Issues (Documented in CHANGELOG.md)
 

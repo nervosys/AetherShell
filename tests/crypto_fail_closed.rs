@@ -23,13 +23,13 @@
 //! must still fail closed. Positive and malformed-key witnesses live in
 //! text_file_contracts.rs.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 
 /// Call a builtin and return the raw `Result`, so the error case is observable
 /// rather than unwrapped away.
 fn try_call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn s(v: &str) -> Value {

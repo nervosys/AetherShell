@@ -6,12 +6,12 @@
 //! - Resources and prompts
 //! - Category and safety level filtering
 
-use aethershell::mcp::{McpConfig, McpServer, McpToolCall};
-use aethershell::os_tools::{OSToolsDatabase, SafetyLevel, ToolCategory};
+use iron_shell::mcp::{McpConfig, McpServer, McpToolCall};
+use iron_shell::os_tools::{OSToolsDatabase, SafetyLevel, ToolCategory};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-/// Serializes tests that mutate the process-global `AETHER_MODE` env var, so they
+/// Serializes tests that mutate the process-global `IRONSHELL_MODE` env var, so they
 /// can't clear each other's mode mid-call when run in parallel.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -30,7 +30,7 @@ fn test_mcp_stdio_jsonrpc_dispatch() {
         .expect("initialize has a response");
     assert_eq!(init["id"], 1);
     assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
-    assert_eq!(init["result"]["serverInfo"]["name"], "aethershell");
+    assert_eq!(init["result"]["serverInfo"]["name"], "ironshell");
     assert!(init["result"]["capabilities"]["tools"].is_object());
 
     // tools/list → a non-empty array of builtin tools with inputSchema.
@@ -79,7 +79,7 @@ fn test_mcp_server_default_creation() {
     let server = McpServer::new();
     let info = server.initialize();
 
-    assert_eq!(info.server_info.name, "aethershell-mcp");
+    assert_eq!(info.server_info.name, "ironshell-mcp");
     assert_eq!(info.protocol_version, "2024-11-05");
     assert!(server.tool_count() > 0, "Server should have tools");
 }
@@ -314,7 +314,7 @@ fn test_resources_have_required_fields() {
 fn test_read_resource_tools() {
     let server = McpServer::new();
 
-    let content = server.read_resource("aethershell://tools");
+    let content = server.read_resource("ironshell://tools");
     assert!(content.is_ok(), "Should read tools resource");
 }
 
@@ -322,7 +322,7 @@ fn test_read_resource_tools() {
 fn test_read_resource_categories() {
     let server = McpServer::new();
 
-    let content = server.read_resource("aethershell://categories");
+    let content = server.read_resource("ironshell://categories");
     assert!(content.is_ok(), "Should read categories resource");
 }
 
@@ -330,7 +330,7 @@ fn test_read_resource_categories() {
 fn test_read_resource_system_info() {
     let server = McpServer::new();
 
-    let content = server.read_resource("aethershell://system-info");
+    let content = server.read_resource("ironshell://system-info");
     assert!(content.is_ok(), "Should read system-info resource");
 }
 
@@ -338,7 +338,7 @@ fn test_read_resource_system_info() {
 fn test_read_nonexistent_resource() {
     let server = McpServer::new();
 
-    let content = server.read_resource("aethershell://nonexistent");
+    let content = server.read_resource("ironshell://nonexistent");
     assert!(content.is_err(), "Should not find nonexistent resource");
 }
 
@@ -664,12 +664,12 @@ fn test_concurrent_server_access() {
 }
 
 // ============================================================================
-// AetherShell builtins as MCP tools (effect-tagged, safety-guarded)
+// IronShell builtins as MCP tools (effect-tagged, safety-guarded)
 // ============================================================================
 
-fn builtin_text(res: &aethershell::mcp::McpToolResult) -> String {
+fn builtin_text(res: &iron_shell::mcp::McpToolResult) -> String {
     match res.content.first() {
-        Some(aethershell::mcp::McpContent::Text { text }) => text.clone(),
+        Some(iron_shell::mcp::McpContent::Text { text }) => text.clone(),
         other => panic!("expected text content, got {other:?}"),
     }
 }
@@ -679,10 +679,10 @@ fn builtin_tools_listed_with_effect_metadata() {
     // The flat per-builtin listing (with x-effect) is the `=all` mode; compact is
     // the default (see mcp_tools_list_is_compact_by_default).
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("AETHER_MCP_TOOLS", "all");
+    std::env::set_var("IRONSHELL_MCP_TOOLS", "all");
     let server = McpServer::new();
     let tools = server.list_builtin_tools();
-    std::env::remove_var("AETHER_MCP_TOOLS");
+    std::env::remove_var("IRONSHELL_MCP_TOOLS");
     assert!(!tools.is_empty(), "builtins exposed as MCP tools");
 
     let canonical = tools
@@ -714,7 +714,7 @@ fn mcp_tools_list_is_compact_by_default() {
     // Default discovery surface is the 3 meta-tools, not ~1k individual builtins —
     // the standing-context win. (~26k tokens → <1k.)
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_MCP_TOOLS");
+    std::env::remove_var("IRONSHELL_MCP_TOOLS");
     let server = McpServer::new();
     let tools = server.list_builtin_tools();
     let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
@@ -731,46 +731,46 @@ fn mcp_tools_list_is_compact_by_default() {
         names.contains(&"ontology_describe"),
         "describe tool: {names:?}"
     );
-    assert!(names.contains(&"aether"), "invoke meta-tool: {names:?}");
+    assert!(names.contains(&"ironshell"), "invoke meta-tool: {names:?}");
 }
 
 #[test]
-fn mcp_aether_meta_tool_invokes_any_builtin() {
-    // In compact mode the agent invokes builtins through the `aether` meta-tool,
+fn mcp_ironshell_meta_tool_invokes_any_builtin() {
+    // In compact mode the agent invokes builtins through the `ironshell` meta-tool,
     // which unwraps {name, args} and routes to the named builtin.
     use serde_json::json;
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_MCP_TOOLS");
+    std::env::remove_var("IRONSHELL_MCP_TOOLS");
     let server = McpServer::new();
     let res = server
         .handle_rpc(&json!({
             "jsonrpc":"2.0","id":7,"method":"tools/call",
-            "params": {"name":"aether","arguments":{"name":"upper","args":["hi"]}}
+            "params": {"name":"ironshell","arguments":{"name":"upper","args":["hi"]}}
         }))
         .expect("response");
     assert_eq!(
         res["result"]["content"][0]["text"].as_str(),
         Some("HI"),
-        "aether routed to the upper builtin: {res}"
+        "ironshell routed to the upper builtin: {res}"
     );
     assert_eq!(res["result"]["isError"], false);
 }
 
 #[test]
-fn mcp_aether_meta_tool_still_gates_destructive() {
+fn mcp_ironshell_meta_tool_still_gates_destructive() {
     // The meta-tool is not an escape hatch: effect gating applies on the inner call.
     use serde_json::json;
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::remove_var("AETHER_MCP_TOOLS");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::remove_var("IRONSHELL_MCP_TOOLS");
     let server = McpServer::new();
     let res = server
         .handle_rpc(&json!({
             "jsonrpc":"2.0","id":8,"method":"tools/call",
-            "params": {"name":"aether","arguments":{"name":"db_sqlite_delete","args":["x.db","t","1=1"]}}
+            "params": {"name":"ironshell","arguments":{"name":"db_sqlite_delete","args":["x.db","t","1=1"]}}
         }))
         .expect("response");
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
     assert_eq!(
         res["result"]["isError"], true,
         "destructive still gated through the meta-tool: {res}"
@@ -793,10 +793,10 @@ fn call_builtin_executes_a_pure_builtin() {
 #[test]
 fn call_builtin_gates_destructive_in_agent_mode() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let server = McpServer::new();
     let res = server.call_builtin("db_sqlite_delete", &serde_json::json!(["x.db", "t", "1=1"]));
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     assert_eq!(res.is_error, Some(true), "destructive call is gated");
     assert!(
@@ -811,7 +811,7 @@ fn call_builtin_renders_tabular_as_aecon_in_agent_mode() {
     // In agent mode an array-of-records result comes back as compact AECON text
     // (header once) rather than the verbose per-row display — mirroring the CLI.
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let server = McpServer::new();
     let res = server.call_builtin(
         "pick",
@@ -822,7 +822,7 @@ fn call_builtin_renders_tabular_as_aecon_in_agent_mode() {
         ]),
     );
     let text = builtin_text(&res);
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     assert_eq!(res.is_error, Some(false), "pick succeeds: {text}");
     assert!(text.starts_with("name\tsize"), "rendered as AECON: {text}");

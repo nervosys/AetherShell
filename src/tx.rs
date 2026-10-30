@@ -19,7 +19,7 @@
 //! pre-*outer* state. Named savepoints (`savepoint`/`rollback_to`) give SQL-style
 //! partial rollback within the innermost frame. Files **and directory trees** (a
 //! recursive `rmdir` backs up and restores the whole tree). All frames share one
-//! backup store under `<workspace>/.ae/tx/<root-id>/`, removed when the outermost
+//! backup store under `<workspace>/.ironshell/tx/<root-id>/`, removed when the outermost
 //! frame ends. Pairs naturally with the safety model — a destructive batch can be
 //! planned, approved, attempted, and rolled back atomically.
 
@@ -602,7 +602,7 @@ pub fn begin() -> Result<String> {
         }
         None => {
             let dir = crate::safety::workspace_root()
-                .join(".ae")
+                .join(".ironshell")
                 .join("tx")
                 .join(&id);
             // Coded, so a read-only or full workspace reads as that, not as

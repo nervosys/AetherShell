@@ -4,7 +4,7 @@
 // which produced 18 files and 38 KB. It installed without complaint and could
 // not activate: `extension.ts` imports `vscode-languageclient/node` at the top
 // level, that module was not in the package, and the editor got
-// MODULE_NOT_FOUND the moment an AetherShell file was opened.
+// MODULE_NOT_FOUND the moment an IronShell file was opened.
 //
 // Nothing catches that by inspection -- the manifest was right, the compile was
 // clean, the install succeeded. Only loading the packaged output finds it.
@@ -23,7 +23,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
 
 const manifest = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
-const vsix = path.join(root, `aethershell-${manifest.version}.vsix`);
+const vsix = path.join(root, `ironshell-${manifest.version}.vsix`);
 
 const havePackage = existsSync(vsix);
 

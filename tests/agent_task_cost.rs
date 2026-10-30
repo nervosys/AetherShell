@@ -27,11 +27,11 @@
 //! The corpus deliberately includes tasks the features do **not** help, so the
 //! aggregate is not cherry-picked.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 
 fn call(name: &str, args: Vec<Value>) -> Option<Value> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).ok()
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).ok()
 }
 
 fn tokens(s: &str) -> usize {
@@ -47,7 +47,7 @@ fn tokens(s: &str) -> usize {
 
 /// Tokens a value costs when it crosses into the agent's context.
 fn cost(v: &Value) -> usize {
-    match aethershell::builtins::render_agent(v, None) {
+    match iron_shell::builtins::render_agent(v, None) {
         Some(text) => tokens(&text),
         None => 0,
     }
@@ -137,10 +137,10 @@ fn measure() -> Vec<Measured> {
         };
         let answer = (t.narrow)(&full);
 
-        std::env::set_var("AETHER_HANDLE_BYTES", "0");
+        std::env::set_var("IRONSHELL_HANDLE_BYTES", "0");
         let intermediate = cost(&full);
         let final_cost = cost(&answer);
-        std::env::remove_var("AETHER_HANDLE_BYTES");
+        std::env::remove_var("IRONSHELL_HANDLE_BYTES");
 
         out.push(Measured {
             name: t.name,

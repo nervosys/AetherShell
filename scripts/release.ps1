@@ -1,4 +1,4 @@
-# AetherShell Release Script
+# IronShell Release Script
 # Usage: .\scripts\release.ps1 -Version "13.0.0" [-DryRun]
 
 param(
@@ -10,7 +10,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-Write-Host " AetherShell Release Script" -ForegroundColor Cyan
+Write-Host " IronShell Release Script" -ForegroundColor Cyan
 Write-Host "   Version: $Version" -ForegroundColor Gray
 Write-Host ""
 

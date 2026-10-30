@@ -1,4 +1,4 @@
-use aethershell::{builtins::call, env::Env, value::Value};
+use iron_shell::{builtins::call, env::Env, value::Value};
 use std::collections::BTreeMap;
 
 fn options(fields: &[(&str, Value)]) -> Value {
@@ -181,7 +181,7 @@ fn created_population_genomes_have_the_documented_shapes() {
             assert_eq!(individual["id"], id);
             assert!(individual["fitness"].is_null());
             if name == "nn" {
-                let network: aethershell::neural::NeuralNetwork =
+                let network: iron_shell::neural::NeuralNetwork =
                     serde_json::from_value(individual["genome"].clone()).unwrap();
                 assert_eq!(network.param_count(), 76);
                 assert_eq!(network.layers[0].input_size, 4);
@@ -205,7 +205,7 @@ fn wrong_outer_options_are_refused_instead_of_selecting_defaults() {
         Value::Int(1),
         Value::Null,
         Value::Array(vec![]),
-        Value::Table(aethershell::value::Table {
+        Value::Table(iron_shell::value::Table {
             rows: vec![],
             schema: vec![],
         }),

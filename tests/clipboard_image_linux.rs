@@ -6,9 +6,9 @@
 //! Xvfb on display :96 and never touches the user's desktop or the Windows
 //! clipboard.
 
-use aethershell::builtins::call_with_input;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call_with_input;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 #[cfg(target_os = "linux")]
 #[path = "support/disposable.rs"]
@@ -33,7 +33,7 @@ fn env() -> Env {
     static ISOLATED: std::sync::Once = std::sync::Once::new();
     ISOLATED.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_clipboard_image_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
     Env::new()
 }

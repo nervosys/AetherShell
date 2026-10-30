@@ -1,8 +1,8 @@
-# 🚀 AetherShell Live Demo
+# 🚀 IronShell Live Demo
 
 ## Welcome!
 
-This document shows AetherShell's unique features through working examples.
+This document shows IronShell's unique features through working examples.
 
 ---
 
@@ -10,12 +10,12 @@ This document shows AetherShell's unique features through working examples.
 
 Try these in the REPL:
 
-```ae
+```ish
 [1, 2, 3, 4, 5] | map fn(x) => x * 2 | print
 ```
 Output: `[2, 4, 6, 8, 10]`
 
-```ae
+```ish
 [10, 20, 30, 40, 50] | where fn(x) => x > 25 | print
 ```
 Output: `[30, 40, 50]`
@@ -24,12 +24,12 @@ Output: `[30, 40, 50]`
 
 ## ✅ Demo 2: Reduce Operations (WORKS NOW!)
 
-```ae
+```ish
 [1, 2, 3, 4, 5] | reduce fn(a, b) => a + b 0 | print
 ```
 Output: `15` (sum of all numbers)
 
-```ae
+```ish
 [1, 2, 3, 4, 5] | map fn(x) => x * x | reduce fn(a, b) => a + b 0 | print
 ```
 Output: `55` (sum of squares: 1+4+9+16+25)
@@ -38,7 +38,7 @@ Output: `55` (sum of squares: 1+4+9+16+25)
 
 ## ✅ Demo 3: Pattern Matching (WORKS NOW!)
 
-```ae
+```ish
 match 42 {
   x if x > 50 => "Large",
   x if x > 20 => "Medium",
@@ -47,7 +47,7 @@ match 42 {
 ```
 Output: `"Medium"`
 
-```ae
+```ish
 match 15 {
   x if x > 50 => "Large",
   x if x > 20 => "Medium",
@@ -60,7 +60,7 @@ Output: `"Small"`
 
 ## ✅ Demo 4: Records (Structured Data) (WORKS NOW!)
 
-```ae
+```ish
 {name: "Alice", age: 30, role: "Engineer"} | print
 ```
 Output: `{name: "Alice", age: 30, role: "Engineer"}`
@@ -69,7 +69,7 @@ Output: `{name: "Alice", age: 30, role: "Engineer"}`
 
 ## ✅ Demo 5: Filtering Records (WORKS NOW!)
 
-```ae
+```ish
 [
   {name: "Alice", salary: 120000},
   {name: "Bob", salary: 95000},
@@ -84,7 +84,7 @@ Output: Only Alice and Charlie (salary > $100k)
 
 ## ✅ Demo 6: Complex Pipelines (WORKS NOW!)
 
-```ae
+```ish
 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
   | where fn(x) => x > 3
   | map fn(x) => x * x
@@ -104,18 +104,18 @@ Step by step:
 ## 🔮 Demo 7: AI Features (Simulated - Requires API Keys)
 
 ### Basic AI Call
-```ae
+```ish
 ai "What is Rust?" {model: "openai:gpt-4o-mini"}
 ```
 
 ### AI with Context
-```ae
+```ish
 context := read_text "README.md"
 ai "Summarize this project" {context: context, model: "openai:gpt-4o"}
 ```
 
 ### Multi-Modal AI
-```ae
+```ish
 ai "Describe this image" {images: ["diagram.png"], model: "openai:gpt-4o"}
 ```
 
@@ -124,7 +124,7 @@ ai "Describe this image" {images: ["diagram.png"], model: "openai:gpt-4o"}
 ## 🤖 Demo 8: Multi-Agent Swarms (Simulated - Requires API Keys)
 
 ### Create a Swarm
-```ae
+```ish
 swarm := swarm [
   {id: "researcher", model: "openai:gpt-4o", role: "Research topics"},
   {id: "writer", model: "anthropic:claude-3-opus", role: "Write content"},
@@ -133,7 +133,7 @@ swarm := swarm [
 ```
 
 ### Execute Complex Task
-```ae
+```ish
 result := swarm.execute "Create comprehensive API documentation"
 ```
 
@@ -142,7 +142,7 @@ result := swarm.execute "Create comprehensive API documentation"
 ## 🔌 Demo 9: MCP Servers (Simulated - Requires Setup)
 
 ### Start Filesystem Server
-```ae
+```ish
 fs := mcp_server_start {
   name: "filesystem",
   type: "builtin",
@@ -151,7 +151,7 @@ fs := mcp_server_start {
 ```
 
 ### Start AWS Server
-```ae
+```ish
 aws := mcp_server_start {
   name: "aws",
   type: "cloud",
@@ -163,7 +163,7 @@ aws := mcp_server_start {
 `agent_with_mcp` takes a goal and builtin tool names. An endpoint argument is
 refused with `E_UNIMPLEMENTED`, so the earlier `mcp_server_start` servers are
 not contacted by it.
-```ae
+```ish
 result = agent_with_mcp("List the project files", ["ls"])
 ```
 
@@ -172,7 +172,7 @@ result = agent_with_mcp("List the project files", ["ls"])
 ## 💬 Demo 10: AI Protocols (Simulated - Requires API Keys)
 
 ### A2A (Agent-to-Agent Communication)
-```ae
+```ish
 a2a_register("agent1")
 a2a_register("agent2")
 a2a_agents()                     # => [agent1, agent2]
@@ -183,7 +183,7 @@ a2a_status()                     # => {active: true, agents: 2, pending_messages
 ```
 
 ### NANDA (Negotiation And Decision Aggregation)
-```ae
+```ish
 let proposal = nanda_propose("TaskAllocation", { task: "Implement feature X" })
 # => {id: "prop_…", name: "TaskAllocation", status: "pending", threshold: 0.5}
 
@@ -195,7 +195,7 @@ nanda_status()
 
 ---
 
-## 📊 What Makes AetherShell Unique?
+## 📊 What Makes IronShell Unique?
 
 ### ✅ Currently Working (Try Now!)
 - **Type-safe pipelines** - Data flows as structured values, not text
@@ -239,7 +239,7 @@ nanda_status()
 
 5. **Work with records:**
    ```
-   {name: "AetherShell", version: 1, awesome: true} | print
+   {name: "IronShell", version: 1, awesome: true} | print
    ```
 
 ---
@@ -255,14 +255,14 @@ nanda_status()
 
 ## 🚀 Key Takeaway
 
-**AetherShell is the only shell that:**
+**IronShell is the only shell that:**
 1. Has type-safe functional pipelines (like Haskell)
 2. Orchestrates multi-agent AI swarms
 3. Integrates infrastructure via MCP servers
 4. Enables agent collaboration with A2A and NANDA protocols
 5. Processes multi-modal AI (images, audio, video) natively
 
-**No other shell can do what AetherShell does!**
+**No other shell can do what IronShell does!**
 
 ---
 

@@ -1,9 +1,9 @@
 //! Security User Simulation Tests
 //!
 //! This test suite simulates both friendly and adversarial users to ensure
-//! AetherShell's security controls function correctly.
+//! IronShell's security controls function correctly.
 
-use aethershell::security::*;
+use iron_shell::security::*;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -373,7 +373,7 @@ fn adversarial_privilege_escalation_attempts() {
     // human mode these paths are reachable, like any normal shell.
     #[cfg(unix)]
     {
-        use aethershell::security::{configure_path_security, PathSecurityConfig};
+        use iron_shell::security::{configure_path_security, PathSecurityConfig};
         let cfg = PathSecurityConfig {
             allowed_base_dirs: vec![std::env::current_dir().unwrap()],
             ..Default::default()

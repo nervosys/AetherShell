@@ -11,8 +11,8 @@
 
 #![cfg(windows)]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::hash::{BuildHasher, Hasher};
@@ -82,7 +82,7 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call_ok(name: &str, args: Vec<Value>) -> Value {

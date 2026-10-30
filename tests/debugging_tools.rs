@@ -1,10 +1,10 @@
 // tests/debugging_tools.rs
 //! Tests for debugging tools: debug, assert, trace, type_assert, inspect
 
-use aethershell::env::Env;
-use aethershell::eval::eval_program;
-use aethershell::parser::parse_program;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::eval::eval_program;
+use iron_shell::parser::parse_program;
+use iron_shell::value::Value;
 
 fn run(code: &str) -> Value {
     let stmts = parse_program(code).expect("parse failed");

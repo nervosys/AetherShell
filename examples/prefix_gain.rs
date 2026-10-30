@@ -10,8 +10,8 @@
 //! @prefix is lossless (round-trip tested) and deterministic (char-based gate, no
 //! tokenizer/float), and applies only in agent mode — human legibility is untouched.
 
-use aethershell::builtins::{est_token_count, render_agent};
-use aethershell::value::Value;
+use iron_shell::builtins::{est_token_count, render_agent};
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 const PREFIX: &str = "/home/user/project/node_modules/.cache/babel-loader/";

@@ -10,8 +10,8 @@
 
 #![cfg(target_os = "macos")]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::process::Command;
 use std::sync::Mutex;
@@ -39,7 +39,7 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call_ok(name: &str, args: Vec<Value>) -> Value {

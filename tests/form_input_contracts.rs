@@ -1,7 +1,7 @@
 //! Contracts for the line-based prompts: input_form, input_table and
 //! input_autocomplete.
 //!
-//! The binary is driven as a user would drive it: `ae -c '<expr>'` with the
+//! The binary is driven as a user would drive it: `ish -c '<expr>'` with the
 //! answers piped on stdin and stdin then closed. Every child has a hard
 //! deadline, so a prompt that waits for more input than the test supplies
 //! fails the test instead of hanging it.
@@ -9,9 +9,9 @@
 //! Argument refusals fail before the first prompt, so they are checked
 //! in-process, where no stdin is read.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 /// Longest a child may run before the test kills it and fails.
 const CHILD_DEADLINE: Duration = Duration::from_secs(30);
 
-/// Runs `ae -c expr` with `answers` as its stdin, then closes stdin.
+/// Runs `ish -c expr` with `answers` as its stdin, then closes stdin.
 /// Returns (stdout, stderr), both trimmed. Output goes to files, so a child
 /// that writes a lot cannot block on a full pipe.
 fn run_ae(expr: &str, answers: &str) -> (String, String) {
@@ -32,10 +32,10 @@ fn run_ae(expr: &str, answers: &str) -> (String, String) {
     let stdout_path = dir.join("stdout.txt");
     let stderr_path = dir.join("stderr.txt");
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ae"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ish"))
         .arg("-c")
         .arg(expr)
-        .env("AETHER_SESSION_DIR", dir.join("session"))
+        .env("IRONSHELL_SESSION_DIR", dir.join("session"))
         .stdin(Stdio::piped())
         .stdout(std::fs::File::create(&stdout_path).expect("stdout file"))
         .stderr(std::fs::File::create(&stderr_path).expect("stderr file"))
@@ -57,7 +57,7 @@ fn run_ae(expr: &str, answers: &str) -> (String, String) {
             None if started.elapsed() > CHILD_DEADLINE => {
                 let _ = child.kill();
                 let _ = child.wait();
-                panic!("ae -c {expr:?} ran past {CHILD_DEADLINE:?} with answers {answers:?}");
+                panic!("ish -c {expr:?} ran past {CHILD_DEADLINE:?} with answers {answers:?}");
             }
             None => std::thread::sleep(Duration::from_millis(20)),
         }

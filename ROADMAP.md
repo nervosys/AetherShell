@@ -1,4 +1,4 @@
-# AetherShell Roadmap
+# IronShell Roadmap
 
 > Current release status, 2026-10-19: workspace packages remain **12.0.2**;
 > **13.0.0 is in preparation and has not been published by this work**.
@@ -32,7 +32,7 @@ rustc/Cargo JSON diagnostics is implemented without changing compiler policy.
 `fs_watch` and `fs_unwatch` now provide native, process-local filesystem watches with
 explicit handles, bounded event buffers and ReadLocal effects. `crypto_password_verify`
 verifies SHA-crypt `$5$` and `$6$` hashes per Drepper's specification and refuses them
-under AETHER_FIPS; `nc_listen` is a one-shot, bounded loopback listener, and ten platform
+under IRONSHELL_FIPS; `nc_listen` is a one-shot, bounded loopback listener, and ten platform
 branches now report coded errors instead of silent failures.
 Disposable-platform scheduler validation
 remains open. Linux backends for accounts, groups, ACLs, mounts, systemd services, sudo_exec and apt
@@ -52,7 +52,7 @@ plan for outstanding 13.0.0 work and the release checklist before publication.
 
 > **Last Updated:** February 20, 2026
 
-This document tracks the development progress of AetherShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
+This document tracks the development progress of IronShell, the world's first agentic shell with typed functional pipelines and multi-modal AI.
 
 ---
 
@@ -96,7 +96,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] **Structured output fix** — converted 9 remaining raw-text builtins to typed Records/Arrays: `net_whois`, `at_list`, `pkg_sources`, `pkg_history`, `capabilities`, `strace`, `sar`, `dmesg` fallback, `fdisk_list` fallback
 - [x] **Platform module fix** — removed triple-registration of `platform` module in `all_modules()`
 - [x] **VS Code Web extension** — full scaffold with syntax highlighting, eval command, hover/completion providers, Agent API integration
-- [x] **JupyterLab extension** — Jupyter kernel with Agent API proxy, code completion, `.ae` file type registration
+- [x] **JupyterLab extension** — Jupyter kernel with Agent API proxy, code completion, `.ish` file type registration
 - [x] **Load balancing** — `ai_set_load_balancing()` and `ai_load_balancing()` builtins with 5 strategies: round-robin, least-latency, least-requests, weighted, adaptive; `LoadBalancer` in `ProviderRegistry` with lock-free `AtomicU64` counters
 - [x] **Local inference** — `local_inference` module with Candle and ONNX Runtime backends behind feature flags; builtins `ai_local_backends()`, `ai_local_load()`, `ai_local_generate()`, `ai_local_embed()`, `ai_local_unload()`
 - [x] **Transpiler improvements** — PowerShell cmdlet mappings expanded from 42 → 100+ with dot-notation alignment; 12 tests added for Bash transpiler (previously zero); Zsh `rehash`/`emulate` stubs fixed
@@ -112,7 +112,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Unified 20 builtins to use cross-platform Rust crates (sysinfo, chrono, sha2, md5, which) instead of OS-specific commands
 - [x] Published to crates.io as `aethershell v0.3.1`
 - [x] Published `aethershell-lsp v0.2.0` to crates.io
-- [x] VS Code extension v0.3.1 on Marketplace (`admercs.aethershell`)
+- [x] VS Code extension v0.3.1 on Marketplace (`admercs.ironshell`)
 - [x] License: AGPL-3.0-or-later with commercial dual-license
 - [x] Contributor License Agreement (CLA) + CI enforcement
 - [x] All 88 compiler warnings fixed (zero-warning build)
@@ -122,7 +122,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] README badges: CI, crates.io version, downloads, VS Code, license, stars
 - [x] Linux packages (.deb/.rpm) — Cargo.toml metadata + CI job
 - [x] LangChain HTTP Agent API tools (`AgentAPIClient` + 3 tool classes)
-- [x] System AI assistant (`ae assist`) — interactive/execute/context/suggest modes
+- [x] System AI assistant (`ish assist`) — interactive/execute/context/suggest modes
 - [x] AI discoverability metadata (llms.txt, AGENTS.md, OpenAPI, plugin manifest)
 - [x] PyPI distribution for Python SDK (pyproject.toml, CI workflow)
 - [x] Context-aware command suggestions and NL transpilation
@@ -141,7 +141,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Distributed computing builtins
 - [x] Advanced AI (RAG, Knowledge Graphs, Semantic Caching)
 - [x] Enterprise features (RBAC, Audit, SSO, Compliance)
-- [x] LSP server (aethershell-lsp crate)
+- [x] LSP server (iron-shell-lsp crate)
 - [x] VS Code extension v0.2.0 with hover, symbols, folding
 - [x] Error recovery with multi-error reporting
 - [x] Async/await syntax
@@ -150,7 +150,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Conditional compilation (#[cfg(...)])
 - [x] Standard library (lib/)
 - [x] Module visibility (pub/private, export)
-- [x] Package management (import, aether.toml)
+- [x] Package management (import, ironshell.toml)
 - [x] WASM support with browser REPL
 - [x] Distribution: Homebrew, npm, browser extension
 
@@ -187,7 +187,7 @@ This document tracks the development progress of AetherShell, the world's first 
 ### Module & Package System
 - [x] Module visibility (pub/private, export)
 - [x] Import syntax (path, namespaced, selective, aliased, registry)
-- [x] Package manifest (aether.toml)
+- [x] Package manifest (ironshell.toml)
 - [x] Module cache with cycle detection
 - [x] Standard library (7 modules: prelude, math, string, collection, functional, io, test_stdlib)
 
@@ -219,7 +219,7 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Multi-modal: images, audio, video
 - [x] Autonomous agents with tool access and step limits
 - [x] Agent swarms with coordinator patterns
-- [x] Agent API server (`ae agent serve`)
+- [x] Agent API server (`ish agent serve`)
 - [x] OpenAI / Claude / Gemini function calling schemas
 - [x] RAG, Knowledge Graphs, Semantic Caching
 - [ ] Fine-tuning management (finetune_start refuses with E_UNIMPLEMENTED: no training backend; no job is created)
@@ -252,8 +252,8 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] Consensus networks
 
 ### Tooling & Distribution
-- [x] VS Code extension (`admercs.aethershell`) — syntax, snippets, hover, LSP
-- [x] LSP server (`aethershell-lsp`) — completions, diagnostics, symbols, go-to-def
+- [x] VS Code extension (`admercs.ironshell`) — syntax, snippets, hover, LSP
+- [x] LSP server (`iron-shell-lsp`) — completions, diagnostics, symbols, go-to-def
 - [x] TextMate grammar + Markdown injection grammar
 - [x] Homebrew formula
 - [x] npm package (`@nervosys/aethershell`)
@@ -266,7 +266,7 @@ This document tracks the development progress of AetherShell, the world's first 
 ## In Progress
 
 ### Q1 2026
-- [ ] **GitHub Linguist submission** — Grammar, samples, and submission guide ready; blocked on ecosystem threshold (~200 repos with `.ae` files)
+- [ ] **GitHub Linguist submission** — Grammar, samples, and submission guide ready; blocked on ecosystem threshold (~200 repos with `.ish` files)
 - [ ] **VS Code extension v0.3.1 marketplace update** — VSIX built, blocked on PAT renewal
 
 ---
@@ -284,16 +284,16 @@ This document tracks the development progress of AetherShell, the world's first 
 - [x] AI discoverability (llms.txt, AGENTS.md, ai-plugin.json, OpenAPI, IDE rules)
 
 ### Q3 2026 — System AI Assistant
-- [x] System AI assistant mode (`ae assist`)
+- [x] System AI assistant mode (`ish assist`)
 - [x] Context-aware command suggestions
-- [x] Natural language → AetherShell transpilation
+- [x] Natural language → IronShell transpilation
 - [x] Conversation memory and session persistence
 - [x] Proactive monitoring and alerting
-- [x] Shell transpilers: Bash, Zsh, PowerShell → AetherShell with block accumulation
+- [x] Shell transpilers: Bash, Zsh, PowerShell → IronShell with block accumulation
 - [x] CLI flags `--zsh`/`-z`, `--pwsh`/`-p` and auto-detection by file extension
 
 ### Q4 2026 — Cloud & Scale
-- [ ] Cloud platform (hosted AetherShell instances) — `cloud_deploy`, `cloud_instance_create`, `cloud_instance_status` and `cloud_instance_connect` refuse with E_UNIMPLEMENTED: no provider client is wired in
+- [ ] Cloud platform (hosted IronShell instances) — `cloud_deploy`, `cloud_instance_create`, `cloud_instance_status` and `cloud_instance_connect` refuse with E_UNIMPLEMENTED: no provider client is wired in
 - [x] Remote REPL — `repl_serve` and `repl_connect` run over a loopback TCP line protocol with a per-listener token, agent mode only. `repl_broadcast` refuses with E_UNIMPLEMENTED: no peer set is held
 - [ ] Team workspaces with shared agents — `workspace_sync` refuses with E_UNIMPLEMENTED: there are no remote peers
 - [x] Marketplace for community plugins and agents — `marketplace` module: 8 builtins (publish, search, install, uninstall, list, info, rate, update)
@@ -314,7 +314,7 @@ This document tracks the development progress of AetherShell, the world's first 
 #### Provider Architecture
 - [x] **Unify provider routing** — expanded `complete_sync_router()` in `ai.rs` to support 19+ providers via OpenAI-compatible endpoints with `complete_via_compat()` helper and `provider_base_url()` registry; model URI syntax `provider:model` supported
 - [x] **Implement `LLMProvider` trait** for all 19 declared providers — 4 concrete implementations (OpenAI, Anthropic, Google, Ollama) dispatched from `create_provider()` factory; all 14 trait methods implemented; bridge.rs provides `complete_with_provider()`, `chat_with_provider()`, `embed_with_provider()`, `UniversalBackend` adapter
-- [x] **Activate provider routing & fallback** — `complete_via_registry()` wired to `complete_sync_router()` via `AETHER_AI_ROUTER=registry`; `ProviderRegistry.route()` evaluates composable `RoutingRule`/`RoutingCondition` (Always, HasTools, HasVision, ModelPattern, TokenCountOver, TimeRange); fallback across providers; builtins `ai_providers()`, `ai_routes()`, `ai_add_route()`, `ai_set_default()`, `ai_registry_stats()`
+- [x] **Activate provider routing & fallback** — `complete_via_registry()` wired to `complete_sync_router()` via `IRONSHELL_AI_ROUTER=registry`; `ProviderRegistry.route()` evaluates composable `RoutingRule`/`RoutingCondition` (Always, HasTools, HasVision, ModelPattern, TokenCountOver, TimeRange); fallback across providers; builtins `ai_providers()`, `ai_routes()`, `ai_add_route()`, `ai_set_default()`, `ai_registry_stats()`
 - [x] **Add Ollama to `ai_api` server** — OllamaProvider with chat, embeddings, model listing, and auto-pull support
 - [x] **LM Studio explicit detection** — auto-detect at `:1234` (OpenAI-compatible), `lmstudio:` URI scheme, LMStudioProvider in ai_api
 - [x] **Model cost tracking** — `CostTracker` with `COST_TRACKER` global, `estimate_cost()` for 25+ models across 10 providers, `track_usage()` wired into `complete_via_compat()`, builtins `ai_usage()`, `ai_cost()`, `ai_reset_usage()`
@@ -383,9 +383,9 @@ This document tracks the development progress of AetherShell, the world's first 
 
 ### Distribution
 - **crates.io:** [aethershell v12.0.2](https://crates.io/crates/aethershell) + [aethershell-lsp v12.0.2](https://crates.io/crates/aethershell-lsp)
-- **VS Code:** [admercs.aethershell](https://marketplace.visualstudio.com/items?itemName=admercs.aethershell)
+- **VS Code:** [admercs.ironshell](https://marketplace.visualstudio.com/items?itemName=admercs.ironshell)
 - **GitHub:** [nervosys/AetherShell](https://github.com/nervosys/AetherShell) — v12.0.2 release with binaries
-- **Homebrew:** `brew tap nervosys/aethershell https://github.com/nervosys/AetherShell`, then `brew install nervosys/aethershell/aethershell`
+- **Homebrew:** `brew tap nervosys/aethershell https://github.com/nervosys/AetherShell`, then `brew install nervosys/aethershell/ironshell`
 - **npm:** `npm install @nervosys/aethershell`
 
 ---
@@ -395,7 +395,7 @@ This document tracks the development progress of AetherShell, the world's first 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. All contributions require a signed [CLA](CLA.md).
 
 **Priority areas:**
-1. **High** — Ecosystem growth (`.ae` scripts, tutorials, blog posts, 200+ repos for Linguist)
+1. **High** — Ecosystem growth (`.ish` scripts, tutorials, blog posts, 200+ repos for Linguist)
 2. **Medium** — Expand local inference model support (more architectures, quantization options)
 3. **Medium** — VS Code marketplace PAT renewal and extension republish
 4. **Good First Issues** — Theme additions, example scripts, documentation improvements

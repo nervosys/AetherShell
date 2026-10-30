@@ -1,6 +1,6 @@
 //! The audited party may not edit the evidence.
 //!
-//! `audit_path()` defaults to `<workspace>/.ae/audit.log` in agent mode — inside
+//! `audit_path()` defaults to `<workspace>/.ironshell/audit.log` in agent mode — inside
 //! the workspace jail, which is the one region a jailed builtin may write. So an
 //! ordinary `file.write` to it was allowed, and because the hash chain is
 //! **unkeyed** (`sha256_hex` takes only the entry text), the log could be
@@ -19,10 +19,10 @@
 //! rather than a patch, and is deliberately left open. AS-2026-02 stays partially
 //! open for that reason.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::safety;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::safety;
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -38,18 +38,18 @@ struct Ws {
 impl Ws {
     fn new(tag: &str) -> Self {
         let root = std::env::temp_dir().join(format!("ae_audit_ws_{tag}_{}", std::process::id()));
-        std::fs::create_dir_all(root.join(".ae")).expect("workspace");
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_WORKSPACE", &root);
-        std::env::remove_var("AETHER_AUDIT_LOG");
+        std::fs::create_dir_all(root.join(".ironshell")).expect("workspace");
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_WORKSPACE", &root);
+        std::env::remove_var("IRONSHELL_AUDIT_LOG");
         Self { root }
     }
 }
 
 impl Drop for Ws {
     fn drop(&mut self) {
-        std::env::remove_var("AETHER_WORKSPACE");
-        std::env::remove_var("AETHER_MODE");
+        std::env::remove_var("IRONSHELL_WORKSPACE");
+        std::env::remove_var("IRONSHELL_MODE");
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
@@ -63,7 +63,7 @@ fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
 fn a_guarded_write_cannot_truncate_the_audit_log() {
     let _g = lock();
     let ws = Ws::new("trunc");
-    let log = ws.root.join(".ae").join("audit.log");
+    let log = ws.root.join(".ironshell").join("audit.log");
     std::fs::write(&log, "seed\n").expect("seed the log");
 
     let r = call(
@@ -100,7 +100,7 @@ fn the_directory_is_protected_too_so_the_log_cannot_be_removed_around() {
     // level up, so `is_audit_artifact` matches the parent as well.
     let _g = lock();
     let ws = Ws::new("dir");
-    let inside = ws.root.join(".ae").join("anything.txt");
+    let inside = ws.root.join(".ironshell").join("anything.txt");
 
     let r = call(
         "file_write",
@@ -122,7 +122,7 @@ fn a_path_that_is_about_to_become_the_log_is_also_refused() {
     // attack with an extra step.
     let _g = lock();
     let ws = Ws::new("future");
-    let log = ws.root.join(".ae").join("audit.log");
+    let log = ws.root.join(".ironshell").join("audit.log");
     let _ = std::fs::remove_file(&log);
     assert!(!log.exists());
 
@@ -168,18 +168,18 @@ fn ordinary_workspace_writes_are_unaffected() {
 fn the_predicate_is_exact_about_what_it_claims() {
     // A check on the check. `is_audit_artifact` compares against the *active*
     // audit path, so with auditing off it must match nothing — otherwise it
-    // would refuse arbitrary `.ae` paths in human mode, where there is no log.
+    // would refuse arbitrary `.ironshell` paths in human mode, where there is no log.
     let _g = lock();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_WORKSPACE");
-    std::env::remove_var("AETHER_AUDIT_LOG");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
+    std::env::remove_var("IRONSHELL_AUDIT_LOG");
     assert!(
-        !safety::is_audit_artifact("/anywhere/.ae/audit.log"),
+        !safety::is_audit_artifact("/anywhere/.ironshell/audit.log"),
         "with no active audit log there is nothing to protect"
     );
 
     let tmp = std::env::temp_dir().join(format!("ae_pred_{}.log", std::process::id()));
-    std::env::set_var("AETHER_AUDIT_LOG", &tmp);
+    std::env::set_var("IRONSHELL_AUDIT_LOG", &tmp);
     let p = tmp.to_string_lossy().into_owned();
     assert!(safety::is_audit_artifact(&p), "the log itself");
     assert!(
@@ -190,5 +190,5 @@ fn the_predicate_is_exact_about_what_it_claims() {
         !safety::is_audit_artifact(&format!("{p}.other")),
         "a sibling with a longer name is not the log"
     );
-    std::env::remove_var("AETHER_AUDIT_LOG");
+    std::env::remove_var("IRONSHELL_AUDIT_LOG");
 }

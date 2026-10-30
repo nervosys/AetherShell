@@ -9,8 +9,8 @@
 //! E_BUDGET_EXCEEDED), and the assertion message says which one it saw. The
 //! parsers are unit-tested on fixed text in src/monitor_parse.rs.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 /// The ten readers this file covers.
 const READERS: &[&str] = &[
@@ -42,12 +42,12 @@ fn s(text: &str) -> Value {
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call_piped(name: &str, args: Vec<Value>, input: Value) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call_with_input(name, args, Some(input), &mut env)
+    iron_shell::builtins::call_with_input(name, args, Some(input), &mut env)
 }
 
 /// The coded refusal an error carries: the first `E_` token in its text.
@@ -329,7 +329,7 @@ fn syslog_answers_an_array_no_longer_than_its_count_or_a_tool_outcome() {
         "monitor_syslog",
         call(
             "monitor_syslog",
-            vec![s("aethershell-no-such-keyword"), Value::Int(5)],
+            vec![s("ironshell-no-such-keyword"), Value::Int(5)],
         ),
     ) {
         match v {

@@ -13,12 +13,12 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn s(v: &str) -> Value {
@@ -113,12 +113,12 @@ fn empty_password_is_bad_arg_with_no_prose_code() {
 fn fips_refusal_keeps_its_documented_code() {
     // `docs/security/CRYPTO_AND_FIPS.md` names E_FIPS_DISALLOWED, so the code is
     // a variant of its own rather than a generic policy denial.
-    std::env::set_var("AETHER_FIPS", "1");
+    std::env::set_var("IRONSHELL_FIPS", "1");
     let md5 = refusal_of("md5", vec![s("abc")]);
     // `sha1` is not a builtin name; the algorithm is the second argument here.
     let sha1 = refusal_of("crypto_hash", vec![s("abc"), s("sha1")]);
     let ok = call("sha256", vec![s("abc")]);
-    std::env::remove_var("AETHER_FIPS");
+    std::env::remove_var("IRONSHELL_FIPS");
 
     for r in [&md5, &sha1] {
         assert_eq!(r.code, "E_FIPS_DISALLOWED", "{}", r.message);
@@ -156,7 +156,7 @@ fn database_open_failure_is_coded_io() {
 
 #[test]
 fn crypto_failed_constructor_carries_its_code() {
-    let e = aethershell::safety::crypto_failed("crypto_encrypt", "boom", "retry later");
+    let e = iron_shell::safety::crypto_failed("crypto_encrypt", "boom", "retry later");
     let r = structured(&e);
     assert_eq!(r.code, "E_CRYPTO_FAILED");
     assert!(!r.retryable);

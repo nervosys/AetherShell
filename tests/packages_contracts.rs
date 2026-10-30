@@ -12,9 +12,9 @@
 #[path = "support/disposable.rs"]
 mod disposable;
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn s(text: &str) -> Value {
@@ -185,11 +185,11 @@ fn changes_are_refused_inside_a_transaction() {
     struct Rollback;
     impl Drop for Rollback {
         fn drop(&mut self) {
-            while aethershell::tx::rollback().is_ok() {}
+            while iron_shell::tx::rollback().is_ok() {}
         }
     }
     let _rollback = Rollback;
-    aethershell::tx::begin().expect("begin transaction");
+    iron_shell::tx::begin().expect("begin transaction");
     // A valid call: the transaction check must come before any apt run.
     let text = refusal("pkg_update", vec![]);
     assert!(text.contains("E_UNIMPLEMENTED"), "{text}");
@@ -256,8 +256,8 @@ mod disposable_linux {
     use std::process::{Command, Stdio};
 
     const SOURCE_NAME: &str = "aepkg-test";
-    const SOURCE_PATH: &str = "/etc/apt/sources.list.d/ae-aepkg-test.list";
-    const BAD_SOURCE_PATH: &str = "/etc/apt/sources.list.d/ae-aepkg-bad.list";
+    const SOURCE_PATH: &str = "/etc/apt/sources.list.d/ironshell-aepkg-test.list";
+    const BAD_SOURCE_PATH: &str = "/etc/apt/sources.list.d/ironshell-aepkg-bad.list";
 
     /// Undo whatever a test made, even when it fails part way.
     struct Cleanup {
@@ -448,7 +448,7 @@ mod disposable_linux {
         let contents = std::fs::read_to_string(SOURCE_PATH).expect("source file written");
         assert_eq!(
             contents,
-            format!("# Created by AetherShell pkg_add_source\n{line}\n")
+            format!("# Created by IronShell pkg_add_source\n{line}\n")
         );
         assert_refused("pkg_add_source", vec![s(SOURCE_NAME), s(line)], "E_BAD_ARG");
         std::fs::remove_file(SOURCE_PATH).expect("remove the test source");

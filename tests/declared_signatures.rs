@@ -16,10 +16,10 @@
 //!
 //! One declaration now serves both jobs. These tests assert that it does.
 
-use aethershell::builtins::{call, call_with_input, is_dispatched};
-use aethershell::env::Env;
-use aethershell::signature::{signature_of, Ty, SIGNATURES};
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input, is_dispatched};
+use iron_shell::env::Env;
+use iron_shell::signature::{signature_of, Ty, SIGNATURES};
+use iron_shell::value::Value;
 
 /// An environment whose undo journal is this test process's own.
 ///
@@ -28,18 +28,18 @@ use aethershell::value::Value;
 /// against the default key they would rewind, then forget, whatever an agent
 /// session in this checkout had recorded. Every example is evaluated through
 /// this, so none can reach the real journal.
-/// Runs `f` on the evaluation stack `ae` itself uses (`with_eval_stack`).
+/// Runs `f` on the evaluation stack `ish` itself uses (`with_eval_stack`).
 /// These loops evaluate every example on one thread; on libtest's default
 /// stack, a deep example intermittently overflowed it (exit 0xC00000FD).
 fn on_eval_stack(f: fn()) {
-    aethershell::safety::with_eval_stack(f);
+    iron_shell::safety::with_eval_stack(f);
 }
 
 fn env() -> Env {
     static ISOLATED: std::sync::Once = std::sync::Once::new();
     ISOLATED.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_declared_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
     Env::new()
 }
@@ -237,7 +237,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("monitor_dstat", "this machine's CPU, memory, disk and network state"),
     ("monitor_health_check", "this machine's CPU, memory and disk use"),
     ("monitor_alert_list", "this machine's live metrics and the user's alert store"),
-    ("monitor_alert_history", "the user's alert store (AETHER_DATA_HOME or the platform data directory)"),
+    ("monitor_alert_history", "the user's alert store (IRONSHELL_DATA_HOME or the platform data directory)"),
     ("monitor_watch_cpu", "this machine's live CPU load; each call samples it for about the watch duration"),
     ("monitor_watch_memory", "this machine's live memory and swap use"),
     ("monitor_watch_disk", "this machine's mounted disks and their use"),
@@ -616,7 +616,7 @@ fn the_catalogue_entry_comes_from_the_declaration_not_a_second_one() {
     // descriptions of one builtin is the defect this work removes, so a
     // declaration must outrank the hand-written entry rather than sit beside it.
     for sig in SIGNATURES {
-        let def = aethershell::agent_api::ontology_describe_json(sig.name);
+        let def = iron_shell::agent_api::ontology_describe_json(sig.name);
         let advertised = def
             .get("signature")
             .and_then(|v| v.as_str())
@@ -639,8 +639,8 @@ fn a_refusal_does_not_carry_its_signature_twice() {
     // `ontology_describe`, which `tests/self_healing.rs` asserts.
     // Through the evaluator, because `catch` is what binds a failure to a value.
     let src = r#"diagnose(try { map() } catch e { e })"#;
-    let stmts = aethershell::parser::parse_program(src).expect("parse");
-    let diag = aethershell::eval::eval_program(&stmts, &mut env()).expect("eval");
+    let stmts = iron_shell::parser::parse_program(src).expect("parse");
+    let diag = iron_shell::eval::eval_program(&stmts, &mut env()).expect("eval");
     let Value::Record(r) = &diag else {
         panic!("diagnose returned {diag:?}")
     };
@@ -666,7 +666,7 @@ fn a_refusal_does_not_carry_its_signature_twice() {
 
 #[test]
 fn the_corpus_working_set_is_discoverable_with_real_parameters() {
-    // `benches/agentic/PREREGISTERED_E7.md` hands the AetherShell arm its
+    // `benches/agentic/PREREGISTERED_E7.md` hands the IronShell arm its
     // `ontology_describe` output as reference material, and names a poor
     // ontology as the thing that would make that arm lose for a fixable reason
     // rather than a fundamental one. These are the builtins the E1 corpus
@@ -698,7 +698,7 @@ fn the_corpus_working_set_is_discoverable_with_real_parameters() {
         "contains",
     ];
     for name in WORKING_SET {
-        let def = aethershell::agent_api::ontology_describe_json(name);
+        let def = iron_shell::agent_api::ontology_describe_json(name);
         assert!(
             def.get("error").is_none(),
             "{name} is called by the benchmark corpus but is not in the ontology: {def}"
@@ -743,7 +743,7 @@ fn a_declaration_is_found_by_every_spelling_that_dispatches() {
 #[test]
 fn every_alias_of_a_declared_implementation_is_checked() {
     let mut checked = 0;
-    for names in aethershell::builtins::alias_groups() {
+    for names in iron_shell::builtins::alias_groups() {
         if !names.iter().any(|name| signature_of(name).is_some()) {
             continue;
         }
@@ -754,7 +754,7 @@ fn every_alias_of_a_declared_implementation_is_checked() {
             if !signature.params.last().is_some_and(|param| param.variadic) {
                 let extra = vec![Value::Null; signature.params.len() + 2];
                 assert!(
-                    aethershell::signature::validate(name, &extra, None).is_err(),
+                    iron_shell::signature::validate(name, &extra, None).is_err(),
                     "{name} accepted extra arguments"
                 );
             }
@@ -773,7 +773,7 @@ fn non_vacuity_an_unrelated_name_still_resolves_to_nothing() {
     // would pass without meaning anything.
     assert!(signature_of("definitely_not_a_builtin_94117").is_none());
     assert!(
-        aethershell::agent_api::ontology_describe_json("definitely_not_a_builtin_94117")
+        iron_shell::agent_api::ontology_describe_json("definitely_not_a_builtin_94117")
             .get("error")
             .is_some(),
         "the ontology invented an entry for a name that does not exist"
@@ -826,8 +826,8 @@ fn the_forms_the_benchmark_corpora_use_are_all_accepted() {
     ];
     for (src, want) in cases {
         let stmts =
-            aethershell::parser::parse_program(src).unwrap_or_else(|e| panic!("parse {src}: {e}"));
-        let got = aethershell::eval::eval_program(&stmts, &mut env()).unwrap_or_else(|e| {
+            iron_shell::parser::parse_program(src).unwrap_or_else(|e| panic!("parse {src}: {e}"));
+        let got = iron_shell::eval::eval_program(&stmts, &mut env()).unwrap_or_else(|e| {
             panic!("`{src}` was refused, so a declaration is narrower than the language: {e}")
         });
         let shown = format!("{got}");
@@ -843,9 +843,9 @@ fn non_vacuity_the_corpus_form_check_can_fail() {
     // The test above passes if every call succeeds. This pins that a call the
     // declarations *should* refuse still is refused, so a `validate` that
     // returned Ok unconditionally would not slip through both.
-    let stmts = aethershell::parser::parse_program("round(1.0, 99)").expect("parse");
+    let stmts = iron_shell::parser::parse_program("round(1.0, 99)").expect("parse");
     assert!(
-        aethershell::eval::eval_program(&stmts, &mut env()).is_err(),
+        iron_shell::eval::eval_program(&stmts, &mut env()).is_err(),
         "an out-of-range argument is being accepted; the checks above prove nothing"
     );
 }
@@ -870,10 +870,10 @@ fn every_declaration_accepts_its_own_examples_body() {
     // the body ran.
     for sig in SIGNATURES {
         for (code, _) in sig.examples {
-            let Ok(stmts) = aethershell::parser::parse_program(code) else {
+            let Ok(stmts) = iron_shell::parser::parse_program(code) else {
                 panic!("{}'s example does not parse: {code}", sig.name);
             };
-            if let Err(e) = aethershell::eval::eval_program(&stmts, &mut env()) {
+            if let Err(e) = iron_shell::eval::eval_program(&stmts, &mut env()) {
                 let msg = e.to_string();
                 assert!(
                     !(msg.contains("E_BAD_ARG") && msg.contains(sig.name)),
@@ -929,9 +929,9 @@ fn a_self_contained_example_produces_the_result_it_claims_body() {
             if code.contains("issues.json") {
                 continue; // needs the benchmark corpus; covered by benches/agentic
             }
-            let stmts = aethershell::parser::parse_program(code)
+            let stmts = iron_shell::parser::parse_program(code)
                 .unwrap_or_else(|e| panic!("{}: {code}: {e}", sig.name));
-            let got = aethershell::eval::eval_program(&stmts, &mut env()).unwrap_or_else(|e| {
+            let got = iron_shell::eval::eval_program(&stmts, &mut env()).unwrap_or_else(|e| {
                 panic!(
                     "{}'s example failed to run: {code}
   {e}",
@@ -1050,7 +1050,7 @@ fn an_optional_parameter_is_demonstrated_both_ways() {
     // World-touching builtins are exempt by name -- their examples cannot run
     // here -- and the exemption list is asserted small so it cannot grow into a
     // way of avoiding this rule.
-    // db_kv_store: its bare form creates .aether_kv.db in the working
+    // db_kv_store: its bare form creates .ironshell_kv.db in the working
     // directory, which here is the repository.
     const CANNOT_DEMONSTRATE: &[&str] = &["db_json_to_sqlite", "db_kv_store"];
     assert!(
@@ -1130,7 +1130,7 @@ fn a_declared_category_puts_the_builtin_where_an_agent_will_look() {
     // returns a category listing -- so a wrong one does not merely mislabel a
     // builtin, it hides it from the list it belongs in.
     for name in ["zip", "uniq"] {
-        let def = aethershell::agent_api::ontology_describe_json(name);
+        let def = iron_shell::agent_api::ontology_describe_json(name);
         assert_eq!(
             def.get("category").and_then(|v| v.as_str()),
             Some("Array"),
@@ -1140,7 +1140,7 @@ fn a_declared_category_puts_the_builtin_where_an_agent_will_look() {
 
     // And the category listing actually contains them, which is the thing that
     // matters and does not follow from the field alone.
-    let listing = aethershell::agent_api::ontology_describe_json("Array");
+    let listing = iron_shell::agent_api::ontology_describe_json("Array");
     let names: Vec<String> = listing
         .get("builtins")
         .and_then(|v| v.as_array())
@@ -1229,9 +1229,9 @@ fn a_machine_dependent_example_answers_in_its_type_or_says_why_not_body() {
             sig.name
         );
         for (code, _) in sig.examples {
-            let stmts = aethershell::parser::parse_program(code)
+            let stmts = iron_shell::parser::parse_program(code)
                 .unwrap_or_else(|e| panic!("{name}: {code}: {e}"));
-            match aethershell::eval::eval_program(&stmts, &mut env()) {
+            match iron_shell::eval::eval_program(&stmts, &mut env()) {
                 Ok(v) => assert!(
                     has_declared_type(sig.returns, &v),
                     "{name}'s example answered {} where the declaration says {}: {code}",

@@ -6,15 +6,15 @@
 //! recorded file, and undo carries no path argument for the central jail check
 //! to see, so agent-mode undo used to rewrite a file outside the workspace.
 //!
-//! Every test runs against its own temporary `AETHER_SESSION_DIR` and
+//! Every test runs against its own temporary `IRONSHELL_SESSION_DIR` and
 //! directories, under one lock, because the journal and the mode variables are
 //! process-global.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::journal;
-use aethershell::safety::{effect_of, Effect};
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::journal;
+use iron_shell::safety::{effect_of, Effect};
+use iron_shell::value::Value;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
@@ -34,8 +34,8 @@ impl Scene {
         for d in ["state", "workspace", "outside"] {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
-        std::env::set_var("AETHER_JOURNAL", "on");
-        std::env::set_var("AETHER_SESSION_DIR", root.join("state"));
+        std::env::set_var("IRONSHELL_JOURNAL", "on");
+        std::env::set_var("IRONSHELL_SESSION_DIR", root.join("state"));
         human();
         journal::clear();
         Self { root, _lock: lock }
@@ -50,8 +50,8 @@ impl Scene {
     }
 
     fn agent(&self) {
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_WORKSPACE", self.root.join("workspace"));
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_WORKSPACE", self.root.join("workspace"));
     }
 }
 
@@ -59,18 +59,18 @@ impl Drop for Scene {
     fn drop(&mut self) {
         journal::clear();
         human();
-        std::env::remove_var("AETHER_JOURNAL");
-        std::env::remove_var("AETHER_SESSION_DIR");
+        std::env::remove_var("IRONSHELL_JOURNAL");
+        std::env::remove_var("IRONSHELL_SESSION_DIR");
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
 
 fn human() {
     for v in [
-        "AETHER_MODE",
-        "AETHER_AGENT",
-        "AETHER_WORKSPACE",
-        "AETHER_POLICY",
+        "IRONSHELL_MODE",
+        "IRONSHELL_AGENT",
+        "IRONSHELL_WORKSPACE",
+        "IRONSHELL_POLICY",
     ] {
         std::env::remove_var(v);
     }

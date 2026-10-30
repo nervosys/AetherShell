@@ -10,8 +10,8 @@
 //! dropped when it became inconvenient, leaving a claim standing with nothing
 //! behind it — which is exactly how the effect misclassifications survived.
 
-use aethershell::shapes::{observe, DECLARED};
-use aethershell::value::Value;
+use iron_shell::shapes::{observe, DECLARED};
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn rec(pairs: &[(&str, Value)]) -> Value {
@@ -25,8 +25,8 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 /// Call a builtin, returning `None` if it errors. A probe that cannot run is a
 /// failed proof, not a skipped one.
 fn call(name: &str, args: Vec<Value>) -> Option<Value> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).ok()
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).ok()
 }
 
 /// The probe set: a builtin, and **several** argument sets that exercise it
@@ -318,11 +318,11 @@ fn poly_probes() -> Vec<(&'static str, Vec<Vec<Value>>)> {
 
 #[test]
 fn every_polymorphic_shape_predicts_the_actual_result() {
-    use aethershell::shapes::{element_of, instantiate, polymorphic_shape_of};
+    use iron_shell::shapes::{element_of, instantiate, polymorphic_shape_of};
 
     let probes = poly_probes();
     let mut wrong = Vec::new();
-    for (name, declared) in aethershell::shapes::POLYMORPHIC {
+    for (name, declared) in iron_shell::shapes::POLYMORPHIC {
         let Some((_, arg_sets)) = probes.iter().find(|(n, _)| n == name) else {
             wrong.push(format!("  {name}: declared `{declared}` but has no probe"));
             continue;
@@ -387,7 +387,7 @@ fn a_builtin_is_never_both_fixed_and_polymorphic() {
     let overlap: Vec<&str> = DECLARED
         .iter()
         .map(|(n, _)| *n)
-        .filter(|n| aethershell::shapes::POLYMORPHIC.iter().any(|(p, _)| p == n))
+        .filter(|n| iron_shell::shapes::POLYMORPHIC.iter().any(|(p, _)| p == n))
         .collect();
     assert!(overlap.is_empty(), "declared in both tables: {overlap:?}");
 }
@@ -397,7 +397,7 @@ fn sum_stays_undeclared_because_its_rule_is_promotion_not_substitution() {
     // Guards the honesty of the notation itself. `sum` over ints yields `int`,
     // over floats `float` — that tracks a promotion rule, not the element type,
     // so `T` would be a plausible-looking lie.
-    use aethershell::shapes::{polymorphic_shape_of, shape_of};
+    use iron_shell::shapes::{polymorphic_shape_of, shape_of};
     assert_eq!(shape_of("sum"), None);
     assert_eq!(polymorphic_shape_of("sum"), None);
 }
@@ -420,7 +420,7 @@ fn the_path_example_resolves_on_every_runner_layout() {
     // The bug this replaces was invisible on Windows and broke all three CI
     // platforms, so the fix is checked against the layouts it has to survive
     // rather than only against the one this test happens to run on.
-    let example = aethershell::shapes::LS_PATH_EXAMPLE;
+    let example = iron_shell::shapes::LS_PATH_EXAMPLE;
     assert!(
         path_shaped(example),
         "the ls.path example must read as a path: {example}"
@@ -432,9 +432,9 @@ fn the_path_example_resolves_on_every_runner_layout() {
     );
 
     for row in [
-        "/home/runner/work/AetherShell/AetherShell/src/agent.rs", // ubuntu
-        "/Users/runner/work/AetherShell/AetherShell/src/agent.rs", // macos
-        "\\\\?\\D:\\a\\AetherShell\\AetherShell\\src\\agent.rs",  // windows
+        "/home/runner/work/IronShell/IronShell/src/agent.rs", // ubuntu
+        "/Users/runner/work/IronShell/IronShell/src/agent.rs", // macos
+        "\\\\?\\D:\\a\\IronShell\\IronShell\\src\\agent.rs",  // windows
         "src/agent.rs",                                           // relative
     ] {
         assert_eq!(
@@ -450,7 +450,7 @@ fn every_field_example_is_what_the_builtin_actually_returns() {
     // An unverified example is worse than none: it would be a confident,
     // checkable-looking claim that a filter could be written against and fail
     // silently — precisely the failure the examples exist to prevent.
-    use aethershell::shapes::FIELD_EXAMPLES;
+    use iron_shell::shapes::FIELD_EXAMPLES;
 
     let probes = probes();
     let mut wrong = Vec::new();
@@ -515,7 +515,7 @@ fn the_example_that_caught_a_real_mistake_is_present() {
     // `ls().ext` is `".rs"`, not `"rs"`. Writing the filter from the type alone
     // returned an empty set with no error. Pinned so the example is not tidied
     // away as redundant.
-    let ext = aethershell::shapes::field_examples("ls")
+    let ext = iron_shell::shapes::field_examples("ls")
         .into_iter()
         .find(|(f, _)| *f == "ext");
     assert_eq!(

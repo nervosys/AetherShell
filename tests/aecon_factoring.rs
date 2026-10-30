@@ -7,7 +7,7 @@
 //! each test is the round-trip: `aecon_decode(aecon(x)) == x`. The token win is
 //! asserted separately, and only where it is real.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn rec(pairs: &[(&str, Value)]) -> Value {
@@ -19,8 +19,8 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 fn encode(v: &Value) -> String {
@@ -133,12 +133,12 @@ fn a_column_can_carry_both_a_prefix_and_a_suffix() {
     let arr = Value::Array(
         stems
             .iter()
-            .map(|s| rec(&[("path", Value::Str(format!("/src/aether/{s}.rs")))]))
+            .map(|s| rec(&[("path", Value::Str(format!("/src/ironshell/{s}.rs")))]))
             .collect(),
     );
     let out = encode(&arr);
 
-    assert!(out.contains("@prefix path: /src/aether/"), "got: {out}");
+    assert!(out.contains("@prefix path: /src/ironshell/"), "got: {out}");
     assert!(out.contains("@suffix path: .rs"), "got: {out}");
     assert_eq!(roundtrip(&arr), arr, "prefix+suffix must round-trip");
 }
@@ -335,7 +335,7 @@ fn report_the_gain_on_a_realistic_grouped_listing() {
                     ("stage", Value::Str(stages[(i / 10) as usize].into())),
                     (
                         "artifact",
-                        Value::Str(format!("/out/aethershell/step_{i:02}_result.json")),
+                        Value::Str(format!("/out/ironshell/step_{i:02}_result.json")),
                     ),
                     ("ms", Value::Int(120 + i)),
                 ])
@@ -474,11 +474,11 @@ fn the_new_passes_compose_with_the_existing_ones() {
             .map(|i| {
                 let stage = ["build", "build", "build", "test"][(i / 3) as usize % 4];
                 rec(&[
-                    ("repo", Value::Str("aethershell".into())),
+                    ("repo", Value::Str("ironshell".into())),
                     ("stage", Value::Str(stage.into())),
                     (
                         "path",
-                        Value::Str(format!("/src/aether/module_{i}_impl.rs")),
+                        Value::Str(format!("/src/ironshell/module_{i}_impl.rs")),
                     ),
                     ("id", Value::Int(1_700_000_000 + i * 7)),
                 ])
@@ -486,9 +486,9 @@ fn the_new_passes_compose_with_the_existing_ones() {
             .collect(),
     );
     let out = encode(&arr);
-    assert!(out.contains("@const repo=aethershell"), "got: {out}");
+    assert!(out.contains("@const repo=ironshell"), "got: {out}");
     assert!(
-        out.contains("@prefix path: /src/aether/module_"),
+        out.contains("@prefix path: /src/ironshell/module_"),
         "got: {out}"
     );
     assert!(out.contains("@suffix path: _impl.rs"), "got: {out}");
@@ -517,8 +517,8 @@ fn a_malformed_delta_cell_is_refused_not_read_as_zero() {
     };
     assert_eq!(ids, vec![Value::Int(100), Value::Int(101), Value::Int(102)]);
 
-    let mut env = aethershell::env::Env::new();
-    let err = aethershell::builtins::call(
+    let mut env = iron_shell::env::Env::new();
+    let err = iron_shell::builtins::call(
         "aecon_decode",
         vec![Value::Str(
             "id\tname\n@delta: id\n100\ta\nx\tb\n1\tc".into(),
@@ -527,7 +527,7 @@ fn a_malformed_delta_cell_is_refused_not_read_as_zero() {
     )
     .expect_err("a non-integer delta cell must be refused");
     let se = err
-        .downcast_ref::<aethershell::safety::SafetyError>()
+        .downcast_ref::<iron_shell::safety::SafetyError>()
         .expect("a coded error");
     assert_eq!(se.code.as_str(), "E_BAD_ARG", "{err:#}");
 }

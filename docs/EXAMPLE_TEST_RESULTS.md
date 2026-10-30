@@ -1,7 +1,7 @@
 # Example Test Results
 
 **Test Date**: October 20, 2025  
-**Test Command**: `.\target\release\ae.exe <example>`
+**Test Command**: `.\target\release\ish.exe <example>`
 
 ## Summary Statistics
 
@@ -14,7 +14,7 @@
 
 ## ✅ Passing Examples (4)
 
-### `00_hello.ae` ✅
+### `00_hello.ish` ✅
 **Output**:
 ```
 "Hello, Æther!"
@@ -25,7 +25,7 @@ Bool(false)
 
 ---
 
-### `06_agent.ae` ✅
+### `06_agent.ish` ✅
 **Output**:
 ```
 "(incomplete) max steps reached; trace: [AgentStep { thought: "[ai:stu…
@@ -34,13 +34,13 @@ Bool(false)
 
 ---
 
-### `17_syntax_showcase.ae` ✅
+### `17_syntax_showcase.ish` ✅
 **Output**: Shows core language features (numbers, arrays, records, functions, pipelines, etc.)  
 **Status**: Working perfectly, demonstrates most implemented features
 
 ---
 
-### `18_mutable_variables.ae` ✅
+### `18_mutable_variables.ish` ✅
 **Output**: Demonstrates mutable variable patterns (counter, accumulator, state machine, etc.)  
 **Status**: Working perfectly
 
@@ -48,7 +48,7 @@ Bool(false)
 
 ## ❌ Failing Examples (12)
 
-### `01_pipelines.ae` ❌
+### `01_pipelines.ish` ❌
 **Error**: `where requires array input, got Str("20")`  
 **Root Cause**: Syntax error - missing comma in reduce call  
 **Line**: `reduce fn(a,b) => a + b 0` should be `reduce(fn(a,b) => a + b, 0)`  
@@ -56,7 +56,7 @@ Bool(false)
 
 ---
 
-### `02_tables.ae` ❌
+### `02_tables.ish` ❌
 **Error**: `unknown character: .`  
 **Root Cause**: Dot notation for field access not implemented  
 **Missing Feature**: Method chaining (e.g., `r.is_dir`, `r.size`)  
@@ -64,7 +64,7 @@ Bool(false)
 
 ---
 
-### `03_http.ae` ❌
+### `03_http.ish` ❌
 **Error**: `unknown character: .`  
 **Root Cause**: Dot notation not implemented  
 **Missing Features**:
@@ -74,7 +74,7 @@ Bool(false)
 
 ---
 
-### `04_match.ae` ❌
+### `04_match.ish` ❌
 **Error**: `unexpected token Match`  
 **Root Cause**: Match expression not wired at statement level  
 **Issue**: Parser has `parse_match()` but doesn't call it from `parse_stmt()`  
@@ -82,7 +82,7 @@ Bool(false)
 
 ---
 
-### `05_ai.ae` ❌
+### `05_ai.ish` ❌
 **Error**: `unknown builtin: read_text`  
 **Root Cause**: Missing builtin function  
 **Missing Feature**: `read_text()` to read file to string  
@@ -90,7 +90,7 @@ Bool(false)
 
 ---
 
-### `07_uri_types.ae` ❌
+### `07_uri_types.ish` ❌
 **Error**: `unknown builtin: type_of`  
 **Root Cause**: Missing builtin function  
 **Missing Feature**: `type_of()` to get type name of value  
@@ -98,7 +98,7 @@ Bool(false)
 
 ---
 
-### `12_multi_agent_orchestration.ae` ❌
+### `12_multi_agent_orchestration.ish` ❌
 **Error**: `unknown character: #`  
 **Root Cause**: Using `#` for comments instead of `//`  
 **Fix**: Replace all `#` with `//` in file  
@@ -106,7 +106,7 @@ Bool(false)
 
 ---
 
-### `13_multimodal_ai.ae` ❌
+### `13_multimodal_ai.ish` ❌
 **Error**: `unknown character: #`  
 **Root Cause**: Using `#` for comments instead of `//`  
 **Fix**: Replace all `#` with `//` in file  
@@ -114,7 +114,7 @@ Bool(false)
 
 ---
 
-### `14_typed_pipelines.ae` ❌
+### `14_typed_pipelines.ish` ❌
 **Error**: `unknown character: #`  
 **Root Cause**: Using `#` for comments instead of `//`  
 **Fix**: Replace all `#` with `//` in file  
@@ -122,7 +122,7 @@ Bool(false)
 
 ---
 
-### `15_ai_protocols.ae` ❌
+### `15_ai_protocols.ish` ❌
 **Error**: `unknown character: #`  
 **Root Cause**: Using `#` for comments instead of `//`  
 **Fix**: Replace all `#` with `//` in file  
@@ -130,7 +130,7 @@ Bool(false)
 
 ---
 
-### `16_mcp_servers.ae` ❌
+### `16_mcp_servers.ish` ❌
 **Error**: `unknown character: #`  
 **Root Cause**: Using `#` for comments instead of `//`  
 **Fix**: Replace all `#` with `//` in file  
@@ -138,7 +138,7 @@ Bool(false)
 
 ---
 
-### `19_showcase.ae` ❌
+### `19_showcase.ish` ❌
 **Error**: `where requires array input, got Str("[2, 4, 6, 8, ")`  
 **Root Cause**: Likely syntax error in pipeline or print statement  
 **Fix Priority**: P0 (review and fix syntax)
@@ -150,15 +150,15 @@ Bool(false)
 These examples require TUI mode (`--tui` flag) or are interactive:
 
 - `08_transpiler.bash` - Bash script for transpiler demo
-- `09_tui_multimodal.ae` - TUI multimodal interface
-- `10_tui_agent_swarm.ae` - TUI agent swarm visualization
-- `11_tui_showcase.ae` - TUI feature showcase
-- `20_tui_a2a.ae` - TUI A2A protocol demo
-- `21_tui_chat.ae` - TUI chat interface
-- `22_tui_mcp.ae` - TUI MCP integration
-- `23_tui_nanda.ae` - TUI NANDA protocol
+- `09_tui_multimodal.ish` - TUI multimodal interface
+- `10_tui_agent_swarm.ish` - TUI agent swarm visualization
+- `11_tui_showcase.ish` - TUI feature showcase
+- `20_tui_a2a.ish` - TUI A2A protocol demo
+- `21_tui_chat.ish` - TUI chat interface
+- `22_tui_mcp.ish` - TUI MCP integration
+- `23_tui_nanda.ish` - TUI NANDA protocol
 
-**Note**: These can be tested manually with `.\target\release\ae.exe --tui <example>`
+**Note**: These can be tested manually with `.\target\release\ish.exe --tui <example>`
 
 ---
 
@@ -209,11 +209,11 @@ These examples require TUI mode (`--tui` flag) or are interactive:
 
 ```powershell
 # Test all non-TUI examples
-foreach ($file in Get-ChildItem examples\*.ae | Where-Object { 
+foreach ($file in Get-ChildItem examples\*.ish | Where-Object { 
     $_.Name -notmatch '^(08|09|10|11|20|21|22|23)_' 
 }) {
     Write-Host "`n=== $($file.Name) ===" -ForegroundColor Cyan
-    .\target\release\ae.exe $file.FullName
+    .\target\release\ish.exe $file.FullName
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ PASSED" -ForegroundColor Green
     } else {

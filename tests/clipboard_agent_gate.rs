@@ -1,5 +1,5 @@
 //! Agent mode does not read the clipboard's contents unless the operator
-//! permits clear secret reads (`AETHER_SECRETS=allow`) or the policy is
+//! permits clear secret reads (`IRONSHELL_SECRETS=allow`) or the policy is
 //! permissive: a clipboard often holds a password that redaction cannot
 //! recognise.
 //!
@@ -7,9 +7,9 @@
 //! clipboard is asked. The checks that a permitted call goes past the gate run
 //! on Linux only, with no display, so they end at E_NO_UI and read nothing.
 
-use aethershell::builtins::call_with_input;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call_with_input;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 const READERS: [&str; 3] = ["clipboard_get", "clipboard_get_image", "clipboard_history"];
 
@@ -20,17 +20,17 @@ fn env() -> Env {
     static ISOLATED: std::sync::Once = std::sync::Once::new();
     ISOLATED.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_clipboard_gate_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
     Env::new()
 }
 
 /// Agent mode with no opt-in: the state every test starts from.
 fn agent_mode() {
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::remove_var("AETHER_AGENT");
-    std::env::remove_var("AETHER_SECRETS");
-    std::env::remove_var("AETHER_POLICY");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::remove_var("IRONSHELL_AGENT");
+    std::env::remove_var("IRONSHELL_SECRETS");
+    std::env::remove_var("IRONSHELL_POLICY");
 }
 
 fn refusal(name: &str) -> String {
@@ -48,9 +48,9 @@ fn agent_mode_refuses_every_clipboard_read() {
         let msg = refusal(name);
         assert!(msg.contains("E_POLICY_DENY"), "{name}: {msg}");
         assert!(msg.contains("NOTHING WAS READ"), "{name}: {msg}");
-        assert!(msg.contains("AETHER_SECRETS=allow"), "{name}: {msg}");
+        assert!(msg.contains("IRONSHELL_SECRETS=allow"), "{name}: {msg}");
     }
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn a_bad_call_is_still_a_bad_call_in_agent_mode() {
         };
         assert!(msg.contains("E_BAD_ARG"), "{name}(1): {msg}");
     }
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 }
 
 /// With the gate open each reader goes on to the display check, which fails
@@ -86,14 +86,14 @@ fn an_opt_in_or_human_mode_lets_the_read_through() {
         }
     };
     past_the_gate(
-        &|| std::env::set_var("AETHER_SECRETS", "allow"),
-        "AETHER_SECRETS=allow",
+        &|| std::env::set_var("IRONSHELL_SECRETS", "allow"),
+        "IRONSHELL_SECRETS=allow",
     );
     past_the_gate(
-        &|| std::env::set_var("AETHER_POLICY", "permissive"),
-        "AETHER_POLICY=permissive",
+        &|| std::env::set_var("IRONSHELL_POLICY", "permissive"),
+        "IRONSHELL_POLICY=permissive",
     );
-    past_the_gate(&|| std::env::remove_var("AETHER_MODE"), "human mode");
+    past_the_gate(&|| std::env::remove_var("IRONSHELL_MODE"), "human mode");
     // Writing is not gated, and with no display it is E_NO_UI before xclip
     // runs: xclip with no display used to surface as E_TOOL_FAILED.
     let msg = match call_with_input(
@@ -110,7 +110,7 @@ fn an_opt_in_or_human_mode_lets_the_read_through() {
     agent_mode();
     let msg = refusal("clipboard_types");
     assert!(!msg.contains("E_POLICY_DENY"), "clipboard_types: {msg}");
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_SECRETS");
-    std::env::remove_var("AETHER_POLICY");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_SECRETS");
+    std::env::remove_var("IRONSHELL_POLICY");
 }

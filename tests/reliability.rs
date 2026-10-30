@@ -2,12 +2,12 @@
 //! self-correcting — an agent reads `e.error.code` + the expected signature
 //! instead of parsing prose. See docs/AGENTIC_FIRST_DESIGN.md §5.2/§8.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn call(name: &str, args: Vec<Value>) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 fn rec(pairs: &[(&str, Value)]) -> Value {
@@ -30,9 +30,9 @@ fn bad_arg_is_catchable_as_structured_error() {
     // `tokens()` with no argument and no piped input → E_BAD_ARG, caught as a
     // structured record by try/catch.
     let src = r#"try { tokens() } catch e { e }"#;
-    let stmts = aethershell::parser::parse_program(src).expect("parse");
-    let mut env = aethershell::env::Env::new();
-    let result = aethershell::eval::eval_program(&stmts, &mut env).expect("eval");
+    let stmts = iron_shell::parser::parse_program(src).expect("parse");
+    let mut env = iron_shell::env::Env::new();
+    let result = iron_shell::eval::eval_program(&stmts, &mut env).expect("eval");
 
     match result {
         Value::Record(m) => match m.get("error") {
@@ -51,7 +51,7 @@ fn bad_arg_is_catchable_as_structured_error() {
 fn bad_arg_reports_the_offending_type() {
     // Wrong-typed argument to a guarded builtin: the rendered error names both
     // the expected signature and the type that was actually passed.
-    let err = aethershell::builtins::bi_rm(vec![Value::Int(7)], None).unwrap_err();
+    let err = iron_shell::builtins::bi_rm(vec![Value::Int(7)], None).unwrap_err();
     let json: serde_json::Value =
         serde_json::from_str(&format!("{}", err)).expect("structured error renders as JSON");
     assert_eq!(json["error"]["code"], "E_BAD_ARG");
@@ -68,9 +68,9 @@ fn missing_argument_is_structured_bad_arg() {
     // structured, catchable E_BAD_ARG (not ad-hoc prose) naming what's expected.
     // `reduce([1,2,3])` is missing the lambda + init.
     let src = r#"try { reduce([1,2,3]) } catch e { e }"#;
-    let stmts = aethershell::parser::parse_program(src).expect("parse");
-    let mut env = aethershell::env::Env::new();
-    let result = aethershell::eval::eval_program(&stmts, &mut env).expect("eval");
+    let stmts = iron_shell::parser::parse_program(src).expect("parse");
+    let mut env = iron_shell::env::Env::new();
+    let result = iron_shell::eval::eval_program(&stmts, &mut env).expect("eval");
 
     match result {
         Value::Record(m) => match m.get("error") {

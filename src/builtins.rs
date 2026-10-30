@@ -1602,11 +1602,11 @@ lazy_static::lazy_static! {
     };
 
     /// Runtime feature flags registry
-    /// Features can be set via AETHER_FEATURES env var (comma-separated) or via feature_enable/disable
+    /// Features can be set via IRONSHELL_FEATURES env var (comma-separated) or via feature_enable/disable
     static ref FEATURE_FLAGS: std::sync::RwLock<std::collections::HashSet<String>> = {
         let mut features = std::collections::HashSet::new();
         // Load features from environment variable
-        if let Ok(env_features) = std::env::var("AETHER_FEATURES") {
+        if let Ok(env_features) = std::env::var("IRONSHELL_FEATURES") {
             for feature in env_features.split(',') {
                 let feature = feature.trim();
                 if !feature.is_empty() {
@@ -1722,8 +1722,8 @@ lazy_static::lazy_static! {
 
     /// Telemetry opt-in state
     static ref TELEMETRY_ENABLED: std::sync::RwLock<bool> = {
-        // Respect AETHER_TELEMETRY env var, default to disabled (opt-in)
-        let enabled = std::env::var("AETHER_TELEMETRY")
+        // Respect IRONSHELL_TELEMETRY env var, default to disabled (opt-in)
+        let enabled = std::env::var("IRONSHELL_TELEMETRY")
             .map(|v| v == "1" || v.to_lowercase() == "true")
             .unwrap_or(false);
         std::sync::RwLock::new(enabled)
@@ -4409,12 +4409,12 @@ fn arg<'a>(builtin: &str, args: &'a [Value], idx: usize, expected: &str) -> Resu
 }
 
 /// Gate a network-egress builtin through the safety guard with the `Network`
-/// effect, so the resource governor (`AETHER_MAX_NET`) bounds egress and the
+/// effect, so the resource governor (`IRONSHELL_MAX_NET`) bounds egress and the
 /// audit log records the request. `Network` is policy-`allow` in agent mode, so
 /// this meters and audits rather than prompting.
 ///
 /// Egress containment lives in `safety::guard`, which every `Network` call
-/// reaches, not only these: `AETHER_NET_ALLOW` (hosts and their subdomains,
+/// reaches, not only these: `IRONSHELL_NET_ALLOW` (hosts and their subdomains,
 /// `;`- or `,`-separated, `*` for any) refuses other destinations with
 /// `E_POLICY_DENY`, and in agent mode with no allowlist a request needs
 /// approval.
@@ -6446,13 +6446,13 @@ fn bi_is_bsd() -> Result<Value> {
 /// Returns: String - Platform-specific module path
 ///
 /// Given base_path "mymodule", returns:
-///   - "mymodule_windows.ae" on Windows
-///   - "mymodule_linux.ae" on Linux
-///   - "mymodule_macos.ae" on macOS
+///   - "mymodule_windows.ish" on Windows
+///   - "mymodule_linux.ish" on Linux
+///   - "mymodule_macos.ish" on macOS
 ///   - etc.
 ///
 /// Example:
-///   import platform_module("utils")  # Imports utils_windows.ae on Windows
+///   import platform_module("utils")  # Imports utils_windows.ish on Windows
 fn bi_platform_module(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let base_path = if let Some(input_val) = input {
         match input_val {
@@ -6493,14 +6493,14 @@ fn bi_platform_module(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         OperatingSystem::Android => "android",
     };
 
-    // Strip .ae extension if present
-    let base = if base_path.ends_with(".ae") {
+    // Strip .ish extension if present
+    let base = if base_path.ends_with(".ish") {
         &base_path[..base_path.len() - 3]
     } else {
         &base_path
     };
 
-    let module_path = format!("{}_{}.ae", base, platform_suffix);
+    let module_path = format!("{}_{}.ish", base, platform_suffix);
     Ok(Value::Str(module_path))
 }
 
@@ -9480,7 +9480,7 @@ fn bi_from_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // one uncoded failure left in benches/agentic/errors.mjs (malformed-json).
     let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
         // `from_json("issues.json")` -- the parser handed a path -- was every
-        // AetherShell attempt a small model made in the local E7 run. It stays
+        // IronShell attempt a small model made in the local E7 run. It stays
         // an error (the text is not JSON), but the repair is mechanical, so
         // the hint names it.
         let path = json_str.trim();
@@ -10627,7 +10627,7 @@ fn bi_ai_routes() -> Result<Value> {
     );
     rec.insert(
         "router_enabled".to_string(),
-        Value::Bool(std::env::var("AETHER_AI_ROUTER").ok().as_deref() == Some("registry")),
+        Value::Bool(std::env::var("IRONSHELL_AI_ROUTER").ok().as_deref() == Some("registry")),
     );
 
     Ok(Value::Record(rec))
@@ -11992,7 +11992,7 @@ fn bi_mcp_servers(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   - endpoint (optional): String - Specific endpoint to check
 /// Returns: Record with MCP server info, or null when no detected server matches
 ///
-/// Null is the answer for "nothing is listening" (`examples/22_tui_mcp.ae`
+/// Null is the answer for "nothing is listening" (`examples/22_tui_mcp.ish`
 /// relies on it); a found server is a full record.
 ///
 /// Example:
@@ -12030,7 +12030,7 @@ fn bi_mcp_cache_clear(_args: Vec<Value>, input: Option<Value>) -> Result<Value> 
         crate::safety::bad_state(
             "mcp_cache_clear",
             &format!("the MCP cache could not be cleared: {e}"),
-            "a new ae process",
+            "a new ish process",
         )
     })?;
     Ok(Value::Bool(true))
@@ -12058,7 +12058,7 @@ fn bi_mcp_cache_status(_args: Vec<Value>, input: Option<Value>) -> Result<Value>
             return Err(crate::safety::bad_state(
                 "mcp_cache_status",
                 "the MCP cache lock is poisoned by an earlier panic",
-                "a new ae process",
+                "a new ish process",
             ))
         }
     };
@@ -13791,7 +13791,7 @@ fn bi_env(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Gate an env-var read against the secret policy (§7.6): in agent mode, reading
 /// a secret-named var (e.g. `*_KEY`, `*TOKEN*`) returns an opaque
 /// `[REDACTED:NAME]` handle instead of the value, so the credential never enters
-/// the program's value space — unless `AETHER_SECRETS=allow`. Human mode and
+/// the program's value space — unless `IRONSHELL_SECRETS=allow`. Human mode and
 /// non-secret names return the value unchanged.
 fn gate_env_secret(key: &str, val: String) -> Value {
     if crate::safety::env_secret_gated(key) {
@@ -13852,25 +13852,25 @@ fn env_value(builtin: &str, value: &Value) -> Result<String> {
     Ok(text.to_string())
 }
 
-/// Refuse, in agent mode, any change to an `AETHER_*` variable.
+/// Refuse, in agent mode, any change to an `IRONSHELL_*` variable.
 ///
 /// The approval gate and its mode switch are read from the process
-/// environment on every call: `AETHER_MODE`/`AETHER_AGENT` decide whether
-/// `approve()` is refused, `AETHER_APPROVE`/`AETHER_APPROVE_ALL` decide whether a
-/// gated call (including `apply`) is approved, and `AETHER_POLICY`,
-/// `AETHER_WORKSPACE` and the `AETHER_MAX_*` budgets decide the rest. An agent
+/// environment on every call: `IRONSHELL_MODE`/`IRONSHELL_AGENT` decide whether
+/// `approve()` is refused, `IRONSHELL_APPROVE`/`IRONSHELL_APPROVE_ALL` decide whether a
+/// gated call (including `apply`) is approved, and `IRONSHELL_POLICY`,
+/// `IRONSHELL_WORKSPACE` and the `IRONSHELL_MAX_*` budgets decide the rest. An agent
 /// that could set or unset those through `set_env`/`env_set`/`env_unset` (all
 /// classified WriteLocal, so allowed in agent mode) could approve its own plan
 /// or switch the gate off. Fail closed: the agent may not touch them. Human
 /// mode is unchanged.
 fn refuse_gate_env(builtin: &str, name: &str) -> Result<()> {
     if crate::safety::current_mode() == crate::safety::Mode::Agent
-        && name.to_ascii_uppercase().starts_with("AETHER_")
+        && name.to_ascii_uppercase().starts_with("IRONSHELL_")
     {
         return Err(crate::safety::policy_deny(
             builtin,
             format!("{builtin}: an agent may not change the approval gate's environment ({name})"),
-            "AETHER_* variables are set by whoever launches the agent, not by the agent",
+            "IRONSHELL_* variables are set by whoever launches the agent, not by the agent",
         ));
     }
     Ok(())
@@ -13982,12 +13982,12 @@ static SYNTAX_KB: OnceLock<Mutex<SyntaxKB>> = OnceLock::new();
 
 fn get_syntax_kb() -> &'static Mutex<SyntaxKB> {
     SYNTAX_KB.get_or_init(|| {
-        // Try to load from ~/.aethershell/syntax_kb.json
+        // Try to load from ~/.ironshell/syntax_kb.json
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| ".".to_string());
         let storage_path = std::path::PathBuf::from(home)
-            .join(".aethershell")
+            .join(".ironshell")
             .join("syntax_kb.json");
 
         // Create directory if it doesn't exist
@@ -18510,7 +18510,7 @@ fn parse_rlm_config(value: &Value) -> Result<RlmConfig> {
 /// sh(args) - Execute a shell command directly
 /// Usage: sh(["echo", "hello"]) or sh("echo hello")
 ///
-/// SECURITY: Gated behind AETHER_ALLOW_SH=true environment variable.
+/// SECURITY: Gated behind IRONSHELL_ALLOW_SH=true environment variable.
 
 /// Split a command line into words as a POSIX shell does, without any of the
 /// expansions a shell would then perform.
@@ -18873,7 +18873,7 @@ fn aecon_flatten_into(
     }
 }
 
-/// Render a Value as AECON (Aether Compact Object Notation). Tabular values
+/// Render a Value as AECON (IronShell Compact Object Notation). Tabular values
 /// (Table, or a homogeneous Array<Record>) become a `@aecon` header + TSV rows;
 /// single records become `{k=v ...}`; scalar arrays become `[a,b,c]`; scalars
 /// render as their literal. Deterministic (records are key-sorted BTreeMaps).
@@ -20073,7 +20073,7 @@ fn bi_budget(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// Core of `budget`: render `value` to fit ~`max` estimated tokens, paging
 /// arrays/tables from `cursor` (with metadata) and truncating other values'
-/// AECON rendering losslessly. Public so the REPL can apply `AE_TOKEN_BUDGET`.
+/// AECON rendering losslessly. Public so the REPL can apply `IRONSHELL_TOKEN_BUDGET`.
 pub fn budget_value(value: &Value, max: usize, cursor: usize) -> Value {
     let total = match value {
         Value::Table(t) => t.rows.len(),
@@ -20137,7 +20137,7 @@ pub fn budget_value(value: &Value, max: usize, cursor: usize) -> Value {
     Value::Record(r)
 }
 
-/// Render a result for **agent mode** (`AETHER_MODE=agent`): compact, deterministic
+/// Render a result for **agent mode** (`IRONSHELL_MODE=agent`): compact, deterministic
 /// AECON instead of the human pretty-printer (no ANSI, keys emitted once, the
 /// four structural levers applied). `Null` prints nothing and a bare `Str` is
 /// returned raw (a single field value is what the agent asked for). When a token
@@ -20148,7 +20148,7 @@ pub fn budget_value(value: &Value, max: usize, cursor: usize) -> Value {
 pub fn render_agent(v: &Value, budget: Option<usize>) -> Option<String> {
     // Scrub secret shapes from the value before it enters the agent's context
     // window (§7.6). Agent-path only — the human pretty-printer keeps full
-    // fidelity. Opt out with AETHER_REDACT=off.
+    // fidelity. Opt out with IRONSHELL_REDACT=off.
     let redacted;
     let v = if crate::safety::redaction_enabled() {
         redacted = redact_value(v);
@@ -20486,7 +20486,7 @@ fn redactable_by_name(v: &Value) -> bool {
     }
 }
 
-/// Render a result for **deterministic mode** (`--deterministic` / `AE_DETERMINISTIC`):
+/// Render a result for **deterministic mode** (`--deterministic` / `IRONSHELL_DETERMINISTIC`):
 /// canonical JSON — byte-identical for equal values across OS/locale (sorted keys,
 /// shortest round-trip floats), for snapshot tests, content-addressable caching,
 /// and cross-tool diffs. The whole value is emitted (no budget truncation, which
@@ -20656,7 +20656,7 @@ fn bi_plan(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     r.insert(
         "hint".to_string(),
         Value::Str(format!(
-            "review, then a human approves this token out of band (AETHER_APPROVE={}), then apply(<ops>); an agent cannot approve its own plan",
+            "review, then a human approves this token out of band (IRONSHELL_APPROVE={}), then apply(<ops>); an agent cannot approve its own plan",
             token
         )),
     );
@@ -20912,7 +20912,7 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         r.insert(
             "hint".to_string(),
             Value::Str(format!(
-                "a human approves this token out of band (AETHER_APPROVE={}), then re-run apply",
+                "a human approves this token out of band (IRONSHELL_APPROVE={}), then re-run apply",
                 token
             )),
         );
@@ -20925,12 +20925,12 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // for the life of the process, so the same token could re-run the
         // same batch later, against whatever the paths now hold. Revoking
         // before the batch runs is fail-closed: if it fails, the agent needs a
-        // fresh out-of-band approval. An `AETHER_APPROVE` entry is operator
+        // fresh out-of-band approval. An `IRONSHELL_APPROVE` entry is operator
         // configuration and is not touched here.
         crate::safety::revoke_approval(&token);
     }
 
-    let enforce_jail = agent || std::env::var("AETHER_WORKSPACE").is_ok();
+    let enforce_jail = agent || std::env::var("IRONSHELL_WORKSPACE").is_ok();
     // Resolve relative paths once, the way the jail judges them (see
     // resolve_path_str), so the checks and the operations use the same path.
     let resolved: Vec<(String, String, Option<String>, Option<String>)> = parsed
@@ -21919,7 +21919,7 @@ fn bi_rbac_can(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 //
 // They are `Privileged`, and therefore denied in agent mode: logging in is how
 // authority is acquired, and an agent that could acquire authority on its own
-// has none. An agent receives its principal from `AETHER_PRINCIPAL` or the RBAC
+// has none. An agent receives its principal from `IRONSHELL_PRINCIPAL` or the RBAC
 // config file at startup, chosen by whoever launched it.
 // ------------------------------------------------------------------------
 
@@ -22125,7 +22125,7 @@ fn bi_audit_tail(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         return Err(crate::safety::bad_state(
             "audit_tail",
             "no audit log is active",
-            "run in agent mode, or set AETHER_AUDIT_LOG to a file",
+            "run in agent mode, or set IRONSHELL_AUDIT_LOG to a file",
         ));
     };
     match std::fs::File::open(&path) {
@@ -22167,7 +22167,7 @@ fn bi_approve(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     //
     // So the in-band path is refused in agent mode only. Human mode is
     // untouched, and the out-of-band channel the design already provides —
-    // `AETHER_APPROVE` / `AETHER_APPROVE_ALL`, set by whoever launches the
+    // `IRONSHELL_APPROVE` / `IRONSHELL_APPROVE_ALL`, set by whoever launches the
     // agent — still works. No capability is removed that was not already
     // reachable by someone outside the agent's control.
     if crate::safety::current_mode() == crate::safety::Mode::Agent {
@@ -22177,7 +22177,7 @@ fn bi_approve(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             builtin: "approve".to_string(),
             hint: "the token was issued to the caller that was refused, so spending it \
                    here would make the approval gate self-service; approve out of band \
-                   with AETHER_APPROVE=<token> (or AETHER_APPROVE_ALL=1 for trusted \
+                   with IRONSHELL_APPROVE=<token> (or IRONSHELL_APPROVE_ALL=1 for trusted \
                    automation), which is set by whoever launched the agent"
                 .to_string(),
             approval: None,
@@ -22479,7 +22479,7 @@ fn bi_mcp_server_start(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
 
     // This reported status "started" with an endpoint on a port derived from
     // the clock, and started nothing. It now says what it is: a declaration.
-    // `ae mcp serve` is the real server.
+    // `ish mcp serve` is the real server.
     let mut result = BTreeMap::new();
     result.insert("name".to_string(), Value::Str(name));
     result.insert("type".to_string(), Value::Str(server_type));
@@ -22492,7 +22492,7 @@ fn bi_mcp_server_start(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     );
     result.insert(
         "hint".to_string(),
-        Value::Str("run `ae mcp serve` to start an MCP server".to_string()),
+        Value::Str("run `ish mcp serve` to start an MCP server".to_string()),
     );
     if let Some(inner_config) = config.get("config") {
         result.insert("config".to_string(), inner_config.clone());
@@ -22705,7 +22705,7 @@ fn bi_agent_with_mcp(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> R
         },
     )?;
 
-    let model = std::env::var("AETHER_AGENT_MODEL_URI").unwrap_or_else(|_| "default".to_string());
+    let model = std::env::var("IRONSHELL_AGENT_MODEL_URI").unwrap_or_else(|_| "default".to_string());
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "agent_with_mcp",
         effect: crate::safety::Effect::Network,
@@ -26354,14 +26354,14 @@ fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
 /// the only thing read back; prose from PowerShell is never parsed.
 #[cfg(windows)]
 fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
-    const PRELUDE: &str = "$ErrorActionPreference = 'Stop'; Add-Type -Namespace AetherProc -Name Native -MemberDefinition '[DllImport(\"kernel32.dll\", SetLastError=true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid); [DllImport(\"kernel32.dll\", SetLastError=true)] public static extern bool CloseHandle(IntPtr handle); [DllImport(\"ntdll.dll\")] public static extern int NtSuspendProcess(IntPtr handle); [DllImport(\"ntdll.dll\")] public static extern int NtResumeProcess(IntPtr handle);'; ";
+    const PRELUDE: &str = "$ErrorActionPreference = 'Stop'; Add-Type -Namespace IronShellProc -Name Native -MemberDefinition '[DllImport(\"kernel32.dll\", SetLastError=true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid); [DllImport(\"kernel32.dll\", SetLastError=true)] public static extern bool CloseHandle(IntPtr handle); [DllImport(\"ntdll.dll\")] public static extern int NtSuspendProcess(IntPtr handle); [DllImport(\"ntdll.dll\")] public static extern int NtResumeProcess(IntPtr handle);'; ";
     let nt: &'static str = if name == "STOP" {
         "NtSuspendProcess"
     } else {
         "NtResumeProcess"
     };
     let cmd = crate::ps_script!(
-        "{}$h = [AetherProc.Native]::OpenProcess(0x0800, $false, {}); if ($h -eq [IntPtr]::Zero) {{ 'err:open:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error() }} else {{ $s = [AetherProc.Native]::{}($h); [void][AetherProc.Native]::CloseHandle($h); if ($s -eq 0) {{ 'ok' }} else {{ 'err:nt:' + $s.ToString('X8') }} }}",
+        "{}$h = [IronShellProc.Native]::OpenProcess(0x0800, $false, {}); if ($h -eq [IntPtr]::Zero) {{ 'err:open:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error() }} else {{ $s = [IronShellProc.Native]::{}($h); [void][IronShellProc.Native]::CloseHandle($h); if ($s -eq 0) {{ 'ok' }} else {{ 'err:nt:' + $s.ToString('X8') }} }}",
         PRELUDE,
         pid,
         nt
@@ -27180,7 +27180,7 @@ fn bi_fs_tempfile(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .map(|v| expect_string("fs_tempfile", v))
         .transpose()?
-        .unwrap_or("aether_");
+        .unwrap_or("ironshell_");
 
     if prefix.contains(['/', '\\', ':']) {
         return Err(crate::safety::arg_err(
@@ -27205,7 +27205,7 @@ fn bi_fs_tempdir(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .first()
         .map(|v| expect_string("fs_tempdir", v))
         .transpose()?
-        .unwrap_or("aether_");
+        .unwrap_or("ironshell_");
 
     if prefix.contains(['/', '\\', ':']) {
         return Err(crate::safety::arg_err(
@@ -29715,7 +29715,7 @@ fn bi_net_whois(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// The address a net_scan call probes. Only this machine is probed: localhost,
 /// 127.0.0.1 and ::1 (brackets allowed). Any other host is refused by policy
-/// with E_POLICY_DENY, whatever AETHER_NET_ALLOW says, because a port scan of
+/// with E_POLICY_DENY, whatever IRONSHELL_NET_ALLOW says, because a port scan of
 /// a remote host is reconnaissance rather than a request the shell should make.
 fn net_loopback(name: &str, args: &[Value]) -> Result<std::net::IpAddr> {
     let host = net_host(name, args, 0)?;
@@ -32298,7 +32298,7 @@ fn change_cron_backend(
 }
 
 fn transform_cron_entry(text: &str, target: &str, action: &str) -> Result<String> {
-    const DISABLED: &str = "# aethershell-disabled: ";
+    const DISABLED: &str = "# ironshell-disabled: ";
     if target.starts_with('#') || target.trim().is_empty() {
         return Err(crate::safety::arg_err(
             "target must be an active crontab entry, without a comment prefix",
@@ -32373,7 +32373,7 @@ mod cron_mutation_tests {
         let disabled = transform_cron_entry(&text, job, "disable").unwrap();
         assert_eq!(
             disabled,
-            format!("# owned comment\nPATH=/bin\n# aethershell-disabled: {job}\n@daily other")
+            format!("# owned comment\nPATH=/bin\n# ironshell-disabled: {job}\n@daily other")
         );
         assert_eq!(
             transform_cron_entry(&disabled, job, "disable").unwrap(),
@@ -32450,7 +32450,7 @@ mod cron_mutation_tests {
                         assert_eq!(args, &["-"]);
                         assert_eq!(
                             stdin.unwrap(),
-                            format!("# aethershell-disabled: {job}\n").as_bytes()
+                            format!("# ironshell-disabled: {job}\n").as_bytes()
                         );
                         Ok(cron_success_output(vec![]))
                     }
@@ -33307,7 +33307,7 @@ fn bi_tar_create(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("tar_create", &files)?;
 
     let enforce = crate::safety::current_mode() == crate::safety::Mode::Agent
-        || std::env::var("AETHER_WORKSPACE").is_ok();
+        || std::env::var("IRONSHELL_WORKSPACE").is_ok();
     let members: Vec<String> = files
         .iter()
         .map(|f| crate::safety::resolve_path_str(f))
@@ -38218,7 +38218,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
                 return Err(crate::safety::os_denied(
                     NAME,
                     "Screen Recording permission is not granted to the process running ae, so window titles and pixels are withheld",
-                    "grant Screen Recording to the terminal or app that runs ae in System Settings > Privacy & Security, then retry",
+                    "grant Screen Recording to the terminal or app that runs ish in System Settings > Privacy & Security, then retry",
                 ))
             }
             "missing" => return Err(crate::safety::not_found(NAME, "window", &title)),
@@ -39113,7 +39113,7 @@ $text = $xml.GetElementsByTagName("text")
 $text[0].AppendChild($xml.CreateTextNode({})) | Out-Null
 $text[1].AppendChild($xml.CreateTextNode({})) | Out-Null
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("AetherShell").Show($toast)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("IronShell").Show($toast)
 "#,
             crate::safety::ps_quote(&title),
             crate::safety::ps_quote(&message)
@@ -40065,7 +40065,7 @@ fn bi_web_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| std::path::Path::new("."));
-    let temporary = parent.join(format!(".aether_dl_{}", uuid::Uuid::new_v4()));
+    let temporary = parent.join(format!(".ironshell_dl_{}", uuid::Uuid::new_v4()));
     let temporary_arg = temporary.to_string_lossy().to_string();
     let max = WEB_DOWNLOAD_MAX.to_string();
     let run = web_curl(
@@ -42174,7 +42174,7 @@ fn create_edit_file(name: &str, text: &str) -> Result<std::path::PathBuf> {
         .unwrap_or(0);
     for attempt in 0..16u32 {
         let path = std::env::temp_dir().join(format!(
-            "aether_edit_{}_{stamp}_{attempt}.txt",
+            "ironshell_edit_{}_{stamp}_{attempt}.txt",
             std::process::id()
         ));
         let mut options = std::fs::OpenOptions::new();
@@ -42880,8 +42880,9 @@ const CRYPTO_ENVELOPE_V1: &str = "AE1";
 
 /// Additional authenticated data for the original `AE1` envelope.
 ///
-/// Frozen: 10.0.0 shipped ciphertext authenticated under exactly these bytes,
-/// and changing them would make every one of those ciphertexts undecryptable.
+/// Frozen, through the IronShell rename too: 10.0.0 shipped ciphertext
+/// authenticated under exactly these bytes, and changing them would make every
+/// one of those ciphertexts undecryptable.
 const CRYPTO_AAD: &[u8] = b"AetherShell-AE1";
 
 /// AAD for the FIPS envelope, which carries its own version.
@@ -42893,7 +42894,7 @@ const CRYPTO_AAD_FIPS: &[u8] = b"AetherShell-AE1F";
 /// Argon2id is the better choice against offline cracking and stays the
 /// default. It is also not FIPS-approved, which left `crypto.encrypt` with one
 /// non-approved primitive in an otherwise approved chain (AS-2026-08). Under
-/// `AETHER_FIPS` the key is derived with PBKDF2-HMAC-SHA256 (SP 800-132)
+/// `IRONSHELL_FIPS` the key is derived with PBKDF2-HMAC-SHA256 (SP 800-132)
 /// instead and the envelope says so, so a deployment that must be
 /// all-approved can be, without changing what anyone else gets.
 const CRYPTO_ENVELOPE_V1_FIPS: &str = "AE1F";
@@ -42947,7 +42948,7 @@ impl CryptoKdf {
     }
 
     /// Decrypt reads the KDF from the envelope, never from the ambient mode:
-    /// ciphertext written under `AETHER_FIPS` must stay readable without it,
+    /// ciphertext written under `IRONSHELL_FIPS` must stay readable without it,
     /// and vice versa.
     fn from_tag(tag: &str) -> Option<Self> {
         match tag {
@@ -43058,7 +43059,7 @@ fn bi_crypto_encrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 /// Decrypt a pre-AS-2026-04 `openssl enc -aes-256-cbc -pbkdf2` ciphertext. Kept so
-/// data written by an older AetherShell stays recoverable, but off by default:
+/// data written by an older IronShell stays recoverable, but off by default:
 /// see the refusal in `bi_crypto_decrypt` for why.
 ///
 /// The format is OpenSSL's `Salted__` envelope, base64 encoded: the magic, an
@@ -43173,17 +43174,17 @@ fn bi_crypto_decrypt(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // ciphertext and the unauthenticated path would take it. So the legacy
         // format is opt-in, by whoever runs the shell rather than by whoever
         // supplies the ciphertext.
-        if !crate::safety::truthy_env("AETHER_CRYPTO_LEGACY_DECRYPT") {
+        if !crate::safety::truthy_env("IRONSHELL_CRYPTO_LEGACY_DECRYPT") {
             return Err(crate::safety::decrypt_failed(
                 "crypto_decrypt",
                 format!(
                     "crypto_decrypt: this is not an authenticated `{}` ciphertext. It was \
-                     most likely produced by AetherShell before 10.0.0, when crypto.encrypt \
+                     most likely produced by IronShell before 10.0.0, when crypto.encrypt \
                      used unauthenticated AES-256-CBC (AS-2026-04), so decrypting it cannot \
                      detect tampering. Nothing was decrypted",
                     CRYPTO_ENVELOPE_V1
                 ),
-                "set AETHER_CRYPTO_LEGACY_DECRYPT=1 to decrypt it anyway, then re-encrypt \
+                "set IRONSHELL_CRYPTO_LEGACY_DECRYPT=1 to decrypt it anyway, then re-encrypt \
                  with crypto.encrypt to gain integrity protection",
             ));
         }
@@ -43388,7 +43389,7 @@ fn bi_crypto_password_verify(args: Vec<Value>, input: Option<Value>) -> Result<V
         )));
     }
     // SHA-crypt ($5$ / $6$) is verify-only. It is built from SHA-2, but it is not
-    // an approved password-hashing construction; under AETHER_FIPS only PBKDF2 is,
+    // an approved password-hashing construction; under IRONSHELL_FIPS only PBKDF2 is,
     // as for the legacy hex and Argon2 branches.
     if values[1].starts_with("$5$") || values[1].starts_with("$6$") {
         if crate::safety::fips_enabled() {
@@ -44044,7 +44045,7 @@ fn bi_db_sqlite_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 fn bi_db_kv_get(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let store_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => ".aether_kv.db".to_string(),
+        _ => ".ironshell_kv.db".to_string(),
     };
     let key = match args.get(1) {
         Some(Value::Str(s)) => s.clone(),
@@ -44184,7 +44185,7 @@ fn bi_db_kv_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_db_kv_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let store_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
-        _ => ".aether_kv.db".to_string(),
+        _ => ".ironshell_kv.db".to_string(),
     };
 
     if !sqlite_db_exists(&store_path) {
@@ -45215,7 +45216,7 @@ fn read_key_native(builtin: &str, timeout: Option<std::time::Duration>) -> Resul
     Err(crate::safety::unimplemented(
         builtin,
         "reading a keypress needs the `native` feature (crossterm); NOTHING WAS READ",
-        "build with default features, or use `ae --tui`",
+        "build with default features, or use `ish --tui`",
     ))
 }
 
@@ -46433,7 +46434,7 @@ fn bi_db_kv_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             Value::Str(s) => Some(s.clone()),
             _ => None,
         })
-        .unwrap_or_else(|| ".aether_kv.db".to_string());
+        .unwrap_or_else(|| ".ironshell_kv.db".to_string());
 
     // The result was discarded, so a store that could not be created was
     // reported as created.
@@ -46482,7 +46483,7 @@ fn write_file_atomically(builtin: &str, path: &str, content: &[u8]) -> Result<()
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| std::path::Path::new("."));
-    let temporary = parent.join(format!(".aether_tmp_{}", uuid::Uuid::new_v4()));
+    let temporary = parent.join(format!(".ironshell_tmp_{}", uuid::Uuid::new_v4()));
     // Never reuse another writer's temporary file or follow a preexisting link.
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -47549,7 +47550,7 @@ fn copy_file_atomically(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| std::path::Path::new("."));
-    let temporary = parent.join(format!(".aether_tmp_{}", uuid::Uuid::new_v4()));
+    let temporary = parent.join(format!(".ironshell_tmp_{}", uuid::Uuid::new_v4()));
     let mut output = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -49812,7 +49813,7 @@ fn bi_project_loc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn project_loc_in(root: &std::path::Path) -> Result<i64> {
     const SOURCE_EXT: &[&str] = &[
         "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "h", "cc", "cpp", "hpp", "cs",
-        "rb", "sh", "ae", "lua", "kt", "swift", "php", "scala",
+        "rb", "sh", "ish", "lua", "kt", "swift", "php", "scala",
     ];
     // Directories that are build output or vendored code: counting them
     // measures someone else's project, and on a Rust tree `target/` alone
@@ -51558,7 +51559,7 @@ fn bi_env_activate(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 // Platform Versioning Module - Cross-platform determinism for AI agents
 // ============================================================================
 
-/// Path of the platform store: `$HOME/.aether/platform_db.json`, or under
+/// Path of the platform store: `$HOME/.ironshell/platform_db.json`, or under
 /// `%USERPROFILE%` where HOME is unset. HOME relocates it; the tests use that.
 ///
 /// With neither set there is no home to live in. This used to fall back to `.`,
@@ -51574,7 +51575,7 @@ fn platform_db_path() -> Result<std::path::PathBuf> {
             )
         })?;
     Ok(std::path::Path::new(&home)
-        .join(".aether")
+        .join(".ironshell")
         .join("platform_db.json"))
 }
 
@@ -51795,7 +51796,7 @@ const TOOL_VERSION_TIMEOUT_SECS: u64 = 5;
 /// It also waited forever: see [`probe_tool_versions`] for what that cost.
 ///
 /// Asking a tool its version must not reach the network, and several did:
-/// with AETHER_MAX_NET=0, `benches/agentic/network-egress.mjs` traced
+/// with IRONSHELL_MAX_NET=0, `benches/agentic/network-egress.mjs` traced
 /// connections from the tools themselves. `kubectl version` contacts the API
 /// server (localhost:8080 by default); `docker version` asks the daemon, and
 /// exits non-zero when none runs, which read as "not installed"; packer
@@ -57901,7 +57902,7 @@ fn tf_call(
     tool_run(builtin, "terraform", Some(dir), args, keep, deadline_secs)
 }
 
-/// The workspace root as an absolute path. `AETHER_WORKSPACE`, or the process's
+/// The workspace root as an absolute path. `IRONSHELL_WORKSPACE`, or the process's
 /// directory when it is unset.
 fn workspace_root_abs() -> std::path::PathBuf {
     let root = crate::safety::workspace_root();
@@ -58836,7 +58837,7 @@ const GLAB_ISSUE_VERBS: &[&str] = &[
 fn cloud_unimplemented(builtin: &str) -> anyhow::Error {
     crate::safety::unimplemented(
         builtin,
-        "no cloud provider is wired into AetherShell, so nothing was created, changed or read",
+        "no cloud provider is wired into IronShell, so nothing was created, changed or read",
         "use the provider's own CLI or API",
     )
 }
@@ -63005,7 +63006,7 @@ fn monitor_breached(value: f64, condition: &str, threshold: f64) -> bool {
 }
 
 /// The alert store: `alerts.json` in the monitor directory of the data
-/// directory. `AETHER_DATA_HOME` moves it, which is how tests keep it out of
+/// directory. `IRONSHELL_DATA_HOME` moves it, which is how tests keep it out of
 /// the real data directory.
 fn monitor_store_path() -> std::path::PathBuf {
     crate::config::ShellConfig::data_dir()
@@ -65194,7 +65195,7 @@ fn bi_cloud_config(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                     None
                 }
             })
-            .unwrap_or_else(|| "aether".to_string());
+            .unwrap_or_else(|| "ironshell".to_string());
         let region = opts
             .get("region")
             .and_then(|v| {
@@ -65375,7 +65376,7 @@ fn repl_read_line<R: std::io::BufRead>(
     }
 }
 
-/// Evaluate remote source as `ae -c` evaluates local source: parse, then
+/// Evaluate remote source as `ish -c` evaluates local source: parse, then
 /// `eval_program` in the module environment. Each builtin the source calls is
 /// dispatched, and so guarded, exactly as it is locally.
 fn repl_eval(code: &str) -> std::result::Result<Value, String> {
@@ -65583,7 +65584,7 @@ fn bi_repl_serve(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         return Err(crate::safety::policy_deny(
             NAME,
             "remote evaluation needs agent mode, so a peer cannot run code with human-mode permissions",
-            "set AETHER_MODE=agent, then serve again",
+            "set IRONSHELL_MODE=agent, then serve again",
         ));
     }
     let addr = std::net::SocketAddr::new(host, port as u16);
@@ -66317,7 +66318,7 @@ fn with_source(mut v: Value, source: &str) -> Value {
 
 /// Publish a plugin or agent to the marketplace.
 /// With `path`, uploads that file to packages.nervosys.ai (network-guarded,
-/// inside the workspace, and needs AETHER_REGISTRY_TOKEN); the status is then
+/// inside the workspace, and needs IRONSHELL_REGISTRY_TOKEN); the status is then
 /// `published`. Without `path` the package is recorded in the local catalogue
 /// only, and the status says so: `recorded_locally`.
 /// Usage: marketplace.publish({name, version, description?, category?, keywords?, path?})
@@ -66437,7 +66438,7 @@ fn bi_marketplace_publish(args: Vec<Value>, _input: Option<Value>) -> Result<Val
                     authors: vec![user.clone()],
                     license: None,
                     repository: None,
-                    main: "main.ae".to_string(),
+                    main: "main.ish".to_string(),
                 },
                 dependencies: std::collections::HashMap::new(),
             };
@@ -66652,7 +66653,7 @@ fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         )?),
     };
 
-    // Not metered against AETHER_MAX_NET: this builtin is gated as `Exec` at
+    // Not metered against IRONSHELL_MAX_NET: this builtin is gated as `Exec` at
     // dispatch, and calling `guard_network` here would need it listed as
     // self-guarding, which skips that approval. See the report.
     let client = crate::packages::RegistryClient::default();
@@ -72797,7 +72798,7 @@ mod fips_tests {
 
     /// The FIPS posture (`safety::require_fips_hash`) had no test coverage at
     /// all, despite being the enforcement point the compliance claim rests on.
-    /// This pins it: MD5 and SHA-1 are refused under `AETHER_FIPS`, SHA-256
+    /// This pins it: MD5 and SHA-1 are refused under `IRONSHELL_FIPS`, SHA-256
     /// still works, and MD5 stays available for legacy interop when FIPS is off.
     #[test]
     fn file_checksum_honors_the_fips_gate() {
@@ -72808,7 +72809,7 @@ mod fips_tests {
         let dir = std::env::temp_dir().join("ae_fips_checksum_test");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("sample.txt");
-        std::fs::write(&path, b"aethershell").unwrap();
+        std::fs::write(&path, b"ironshell").unwrap();
         // Repointed from `bi_file_checksum` to `bi_crypto_hash_file` when the
         // former was deleted as unreachable: it duplicated this one and nothing
         // dispatched to it, so the only coverage of the FIPS gate was pointed at
@@ -72823,13 +72824,13 @@ mod fips_tests {
             )
         };
 
-        std::env::remove_var("AETHER_FIPS");
+        std::env::remove_var("IRONSHELL_FIPS");
         assert!(
             call("md5").is_ok(),
             "MD5 stays available for legacy interop when FIPS is off"
         );
 
-        std::env::set_var("AETHER_FIPS", "1");
+        std::env::set_var("IRONSHELL_FIPS", "1");
         for weak in ["md5", "sha1"] {
             let err = call(weak).unwrap_err().to_string();
             assert!(
@@ -72839,7 +72840,7 @@ mod fips_tests {
         }
         assert!(call("sha256").is_ok(), "sha256 is FIPS-approved");
 
-        std::env::remove_var("AETHER_FIPS");
+        std::env::remove_var("IRONSHELL_FIPS");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -72902,7 +72903,7 @@ mod declaration_narrowness {
             .unwrap_or_else(|e| e.into_inner());
 
         // Put back what this sets, even when an assertion below fails. These
-        // are process-global: left behind, AETHER_MAX_NET=0 refused the
+        // are process-global: left behind, IRONSHELL_MAX_NET=0 refused the
         // workflow HTTP tests that happened to run later in the same process.
         struct Restore(Vec<(&'static str, Option<std::ffi::OsString>)>);
         impl Drop for Restore {
@@ -72917,10 +72918,10 @@ mod declaration_narrowness {
         }
         let _restore = Restore(
             [
-                "AETHER_MODE",
-                "AETHER_POLICY",
-                "AETHER_WORKSPACE",
-                "AETHER_MAX_NET",
+                "IRONSHELL_MODE",
+                "IRONSHELL_POLICY",
+                "IRONSHELL_WORKSPACE",
+                "IRONSHELL_MAX_NET",
             ]
             .iter()
             .map(|k| (*k, std::env::var_os(k)))
@@ -72929,10 +72930,10 @@ mod declaration_narrowness {
 
         let jail = std::env::temp_dir().join(format!("ae_narrow_{}", std::process::id()));
         std::fs::create_dir_all(&jail).expect("create jail");
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_POLICY", "strict");
-        std::env::set_var("AETHER_WORKSPACE", &jail);
-        std::env::set_var("AETHER_MAX_NET", "0");
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_POLICY", "strict");
+        std::env::set_var("IRONSHELL_WORKSPACE", &jail);
+        std::env::set_var("IRONSHELL_MAX_NET", "0");
 
         let mut too_narrow: Vec<String> = Vec::new();
         let (mut checked, mut refused) = (0usize, 0usize);
@@ -73973,7 +73974,7 @@ mod atomic_write_tests {
                 .unwrap()
                 .file_name()
                 .to_string_lossy()
-                .starts_with(".aether_tmp_")
+                .starts_with(".ironshell_tmp_")
         })
     }
 

@@ -1,11 +1,11 @@
-# AetherShell Documentation & Tooling - Complete Update
+# IronShell Documentation & Tooling - Complete Update
 
 **Date**: December 2024  
 **Status**: ✅ Production Ready
 
 ## Executive Summary
 
-Completed comprehensive documentation and tooling updates for AetherShell following user feedback about type system operator distinction. This update includes:
+Completed comprehensive documentation and tooling updates for IronShell following user feedback about type system operator distinction. This update includes:
 
 - **4 new/updated documentation files** (~755 lines)
 - **Enhanced VS Code extension** (6 new snippets + updated README)
@@ -17,7 +17,7 @@ Completed comprehensive documentation and tooling updates for AetherShell follow
 ### 1. Type System Documentation (✅ Complete)
 
 #### TYPE_SYSTEM_GUIDE.md (300+ lines)
-Comprehensive reference explaining AetherShell's Hindley-Milner type system:
+Comprehensive reference explaining IronShell's Hindley-Milner type system:
 
 **Coverage**:
 - Type inference operator (`:=`) - compiler figures out the type
@@ -32,7 +32,7 @@ Comprehensive reference explaining AetherShell's Hindley-Milner type system:
 **Impact**: Eliminates confusion about operator usage from day one
 
 #### QUICK_REFERENCE.md (400+ lines)
-One-page quick lookup for all AetherShell features:
+One-page quick lookup for all IronShell features:
 
 **Sections**:
 - Type system (inference vs explicit)
@@ -67,32 +67,32 @@ Complete record of this documentation update:
 Educational snippets demonstrating both type operators:
 
 1. **varinfer** - Variable with type inference
-   ```aethershell
-   name := "AetherShell"  # Type inferred by compiler
+   ```ironshell
+   name := "IronShell"  # Type inferred by compiler
    ```
 
 2. **varexplicit** - Variable with explicit type
-   ```aethershell
-   name: String = "AetherShell"
+   ```ironshell
+   name: String = "IronShell"
    ```
 
 3. **fninfer** - Function with inferred types
-   ```aethershell
+   ```ironshell
    double := fn(x) => x * 2  # Types inferred
    ```
 
 4. **fnexplicit** - Function with explicit signature
-   ```aethershell
+   ```ironshell
    double: fn(Int) -> Int = fn(x) => x * 2
    ```
 
 5. **recinfer** - Record with type inference
-   ```aethershell
+   ```ironshell
    config := {host: "localhost", port: 8080}
    ```
 
 6. **arrinfer** - Array with type inference
-   ```aethershell
+   ```ironshell
    items := [1, 2, 3]  # Array<Int> inferred
    ```
 
@@ -113,7 +113,7 @@ Updated extension documentation with:
 #### Quick Reference Links
 Added prominent links to QUICK_REFERENCE.md in two locations:
 
-1. **Quick Start section**: For new users starting with AetherShell
+1. **Quick Start section**: For new users starting with IronShell
 2. **VS Code Extension section**: For IDE users wanting snippet reference
 
 #### Learning Resources Section
@@ -125,7 +125,7 @@ Completely reorganized with:
 - MCP Servers Guide (infrastructure)
 - AI Protocols Report (A2A/NANDA)
 - Competitive Analysis (market positioning)
-- Why AetherShell? (philosophy)
+- Why IronShell? (philosophy)
 
 **Test Examples** (existing, now organized):
 - Type system tests
@@ -196,7 +196,7 @@ Completely reorganized with:
 
 ### Existing Code
 - ✅ All example files checked for correct `:=` usage
-- ✅ examples/12-16.ae use `:=` for inference (correct)
+- ✅ examples/12-16.ish use `:=` for inference (correct)
 - ✅ No instances of incorrect operator usage found
 - ✅ Consistent with documented best practices
 
@@ -219,7 +219,7 @@ Completely reorganized with:
    - Next steps for testing
 
 ### Modified (3 files)
-1. **vscode-extension/snippets/aethershell.json**
+1. **vscode-extension/snippets/ironshell.json**
    - Added 6 new type system snippets
    - Educational snippets for both operators
 
@@ -271,7 +271,7 @@ Completely reorganized with:
    ```
 
 2. **Test new snippets**
-   - Open .ae file
+   - Open .ish file
    - Type `varinfer` + Tab
    - Verify all 6 new snippets work
 
@@ -333,7 +333,7 @@ Completely reorganized with:
 
 ## Conclusion
 
-This comprehensive update ensures AetherShell users have:
+This comprehensive update ensures IronShell users have:
 
 1. **Clear understanding** of type system from day one
 2. **Quick reference** for instant syntax lookup
@@ -347,4 +347,4 @@ The type system distinction (`:=` for inference, `=` for explicit) is now crysta
 
 ---
 
-**Total Impact**: 755 lines of new documentation and enhanced tooling ensuring every AetherShell user understands the type system clearly and can write idiomatic, type-safe code from the start.
+**Total Impact**: 755 lines of new documentation and enhanced tooling ensuring every IronShell user understands the type system clearly and can write idiomatic, type-safe code from the start.

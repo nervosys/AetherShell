@@ -33,10 +33,10 @@
 //! `is_filesystem()` rather than against a severity ordering on purpose: the jail
 //! is the control, so the control's own predicate is the thing to assert.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::safety::{effect_of, Effect};
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::safety::{effect_of, Effect};
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -372,8 +372,8 @@ impl Jail {
         std::fs::create_dir_all(&workspace).expect("workspace");
         let outside = base.join(format!("ae_wev_out_{tag}_{}.txt", std::process::id()));
         std::fs::write(&outside, "original\n").expect("seed the victim file");
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_WORKSPACE", &workspace);
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
         Self { workspace, outside }
     }
     fn target(&self) -> String {
@@ -386,8 +386,8 @@ impl Jail {
 
 impl Drop for Jail {
     fn drop(&mut self) {
-        std::env::remove_var("AETHER_WORKSPACE");
-        std::env::remove_var("AETHER_MODE");
+        std::env::remove_var("IRONSHELL_WORKSPACE");
+        std::env::remove_var("IRONSHELL_MODE");
         let _ = std::fs::remove_file(&self.outside);
         let _ = std::fs::remove_dir_all(&self.workspace);
     }

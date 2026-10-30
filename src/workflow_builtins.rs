@@ -17,7 +17,7 @@
 //! error:
 //!
 //! - No runtime running: drive the future on this module's own runtime.
-//! - A multi-thread runtime already running (`ae mcp`, `ae agent serve`, and
+//! - A multi-thread runtime already running (`ish mcp`, `ish agent serve`, and
 //!   every workflow step, which runs on the blocking pool): hand the thread to
 //!   `block_in_place` and reuse that runtime. Creating a second runtime and
 //!   calling `block_on` inside the first panics.
@@ -707,7 +707,7 @@ pub(crate) fn dispatch(name: &str, args: Vec<Value>, input: Option<Value>) -> Re
         other => Err(crate::safety::unimplemented(
             other,
             "this workflow builtin is not implemented",
-            "use one of the workflow_* builtins `ae agent schema` lists",
+            "use one of the workflow_* builtins `ish agent schema` lists",
         )),
     }
 }
@@ -867,7 +867,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_builtin_works_inside_a_multi_thread_runtime() {
-        // `ae mcp` and `ae agent serve` both run inside one, and a naive
+        // `ish mcp` and `ish agent serve` both run inside one, and a naive
         // Runtime::new().block_on() there panics.
         let out = tokio::task::spawn_blocking(|| call_ok("workflow_templates", vec![]))
             .await

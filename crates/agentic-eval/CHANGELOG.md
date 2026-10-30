@@ -6,7 +6,7 @@ All notable changes to the `agentic-eval` crate. Follows
 ## [0.14.4] - 2026-07-29
 
 ### Added
-- **`sigil_audit` example** — measures every AetherShell agentic-mode construct
+- **`sigil_audit` example** — measures every IronShell agentic-mode construct
   against the real cl100k/o200k BPE, tests candidate alternative encodings
   against the incumbent, and records an explicit **adopted/rejected**
   disposition with a reason for each cheaper candidate, so an encoding rejected

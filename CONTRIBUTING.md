@@ -1,13 +1,13 @@
-# Contributing to AetherShell
+# Contributing to IronShell
 
-Thank you for your interest in contributing to AetherShell! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to IronShell! This document provides guidelines and instructions for contributing.
 
 ## 🎯 Ways to Contribute
 
 - **Bug Reports**: Found a bug? Open an issue with reproduction steps
 - **Feature Requests**: Have an idea? Discuss it in issues first
 - **Code Contributions**: Fix bugs, add features, improve documentation
-- **Examples**: Add new example scripts showcasing AetherShell features
+- **Examples**: Add new example scripts showcasing IronShell features
 - **Testing**: Help improve test coverage and reliability
 - **Documentation**: Improve guides, fix typos, add clarifications
 
@@ -39,16 +39,16 @@ cargo test --test ai_router
 ### Project Structure
 
 ```
-AetherShell/
+IronShell/
 ├── src/              # Core Rust source code
-│   ├── main.rs       # Main binary (ae)
+│   ├── main.rs       # Main binary (ish)
 │   ├── lib.rs        # Library exports
 │   ├── ai.rs         # AI integration
 │   ├── agent.rs      # Agent system
 │   ├── eval.rs       # Expression evaluator
 │   ├── parser.rs     # Language parser
 │   └── tui/          # Terminal UI modules
-├── examples/         # Example .ae scripts
+├── examples/         # Example .ish scripts
 ├── tests/            # Integration tests
 ├── docs/             # Documentation
 └── Cargo.toml        # Package manifest
@@ -91,7 +91,7 @@ cargo clippy --all-features -- -D warnings
 cargo build --release
 
 # Test examples
-./target/release/ae examples/00_hello.ae
+./target/release/ish examples/00_hello.ish
 ```
 
 ### 4. Commit Guidelines
@@ -188,7 +188,7 @@ fn eval_binop(op: BinOp, lhs: Value, rhs: Value) -> Result<Value> {
 
 When adding examples:
 
-- Use clear, descriptive filenames (e.g., `08_multimodal_analysis.ae`)
+- Use clear, descriptive filenames (e.g., `08_multimodal_analysis.ish`)
 - Include comments explaining each section
 - Show practical, real-world use cases
 - Keep examples concise but complete
@@ -203,9 +203,9 @@ When adding examples:
 - Use meaningful variable and function names
 - Keep functions focused and reasonably sized
 
-### AetherShell Script Style
+### IronShell Script Style
 
-```ae
+```ish
 // Use line comments (// not #)
 // Prefer = for variable assignment
 name = "Alice"
@@ -231,7 +231,7 @@ When reporting bugs, please include:
 5. **Environment**:
    - OS (Windows/Linux/macOS)
    - Rust version (`rustc --version`)
-   - AetherShell version
+   - IronShell version
 6. **Logs**: Relevant error messages or stack traces
 
 Example:
@@ -240,7 +240,7 @@ Example:
 ## Bug: Panic when using dot notation with null values
 
 **Reproduction:**
-```ae
+```ish
 data = {user: null}
 result = data.user.name  // Panics here
 ```
@@ -252,7 +252,7 @@ result = data.user.name  // Panics here
 **Environment:**
 - OS: Windows 11
 - Rust: 1.88.0
-- AetherShell: 0.1.0
+- IronShell: 0.1.0
 ```
 
 ## 💡 Feature Requests
@@ -291,8 +291,8 @@ All submissions require review:
 
 ## 📄 License
 
-By contributing to AetherShell, you agree that your contributions will be licensed under the MIT License.
+By contributing to IronShell, you agree that your contributions will be licensed under the MIT License.
 
 ---
 
-**Thank you for contributing to AetherShell! Together we're building the future of shell interaction.** 🚀
+**Thank you for contributing to IronShell! Together we're building the future of shell interaction.** 🚀

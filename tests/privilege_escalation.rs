@@ -21,8 +21,8 @@
 //!
 //! These tests hold that door shut.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
 static ENV: Mutex<()> = Mutex::new(());
@@ -33,22 +33,22 @@ fn call(name: &str, args: Vec<&str>) -> Result<Value, String> {
         .into_iter()
         .map(|a| Value::Str(a.to_string()))
         .collect();
-    aethershell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
+    iron_shell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
 }
 
 fn agent_mode() -> std::path::PathBuf {
     let ws = std::env::temp_dir().join("ae_privesc");
     std::fs::create_dir_all(&ws).unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &ws);
-    std::env::remove_var("AETHER_POLICY");
-    aethershell::safety::set_principal(None);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &ws);
+    std::env::remove_var("IRONSHELL_POLICY");
+    iron_shell::safety::set_principal(None);
     ws
 }
 
 fn human_mode() {
-    std::env::set_var("AETHER_MODE", "human");
-    aethershell::safety::set_principal(None);
+    std::env::set_var("IRONSHELL_MODE", "human");
+    iron_shell::safety::set_principal(None);
 }
 
 #[test]
@@ -114,10 +114,10 @@ fn a_human_session_can_still_administer_rbac() {
         .expect("a human session administers RBAC");
     call("rbac_principal", vec!["operator"]).expect("a human session may set the principal");
     assert_eq!(
-        aethershell::safety::current_principal().as_deref(),
+        iron_shell::safety::current_principal().as_deref(),
         Some("operator")
     );
-    aethershell::safety::set_principal(None);
+    iron_shell::safety::set_principal(None);
 }
 
 #[test]
@@ -128,6 +128,6 @@ fn reading_authorization_state_stays_ungated() {
     agent_mode();
     call("rbac_can", vec!["effect:destructive"]).expect("asking is not escalating");
     let mut env = Env::new();
-    aethershell::builtins::call("rbac_principal", vec![], &mut env)
+    iron_shell::builtins::call("rbac_principal", vec![], &mut env)
         .expect("reading the current principal is not escalating");
 }

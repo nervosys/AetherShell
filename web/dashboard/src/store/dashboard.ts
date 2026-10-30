@@ -155,7 +155,7 @@ export const useDashboardStore = create<DashboardState>()(
 
             socket.onopen = () => {
                 set({ connectionStatus: 'connected', ws: socket })
-                addActivity(set, 'info', 'Connected to AetherShell server')
+                addActivity(set, 'info', 'Connected to IronShell server')
 
                 // Subscribe to updates
                 socket.send(JSON.stringify({ type: 'subscribe', channel: 'agents' }))

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quick Start - AetherShell Documentation</title>
+    <title>Quick Start - IronShell Documentation</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -20,7 +20,7 @@
 <body>
     <nav class="sidebar">
         <div class="logo">
-            <h1>🚀 AetherShell</h1>
+            <h1>🚀 IronShell</h1>
             <p class="version">v1.0.0</p>
         </div>
         <ul class="nav-menu">
@@ -43,7 +43,7 @@
     <main class="content">
         <header class="page-header">
             <h1>⚡ Quick Start Guide</h1>
-            <p class="subtitle">Get up and running with AetherShell in 5 minutes</p>
+            <p class="subtitle">Get up and running with IronShell in 5 minutes</p>
         </header>
 
         <section class="feature-section">
@@ -62,11 +62,11 @@ cd AetherShell
 # Build release version
 cargo build --release
 
-# The binary will be at: target/release/ae
-./target/release/ae</code></pre>
+# The binary will be at: target/release/ish
+./target/release/ish</code></pre>
 
             <div class="alert alert-info">
-                <strong>Tip:</strong> Add AetherShell to your PATH for easy access:
+                <strong>Tip:</strong> Add IronShell to your PATH for easy access:
                 <code>export PATH=$PATH:$PWD/target/release</code>
             </div>
         </section>
@@ -75,7 +75,7 @@ cargo build --release
             <h2>Your First Commands</h2>
 
             <h3>Hello World</h3>
-            <pre><code>print("Hello, AetherShell!")</code></pre>
+            <pre><code>print("Hello, IronShell!")</code></pre>
 
             <h3>Basic Arithmetic</h3>
             <pre><code>result = 10 + 20 * 2
@@ -87,7 +87,7 @@ print("Hello, ${name}!")</code></pre>
         </section>
 
         <section class="feature-section">
-            <h2>Pipelines (The Power of AetherShell)</h2>
+            <h2>Pipelines (The Power of IronShell)</h2>
 
             <h3>Simple Pipeline</h3>
             <pre><code>// Transform an array
@@ -289,22 +289,22 @@ print(decoded.payload)  // "hello"</code></pre>
             <h2>Running Scripts</h2>
 
             <h3>Execute a Script File</h3>
-            <pre><code># Create a script file: hello.ae
-echo 'print("Hello from script!")' > hello.ae
+            <pre><code># Create a script file: hello.ish
+echo 'print("Hello from script!")' > hello.ish
 
 # Run it
-ae hello.ae</code></pre>
+ish hello.ish</code></pre>
 
             <h3>REPL Mode</h3>
             <pre><code># Start interactive mode
-ae
+ish
 
 # Now you can type commands interactively
-ae> x = 10
-ae> y = 20
-ae> print(x + y)
+ish> x = 10
+ish> y = 20
+ish> print(x + y)
 30
-ae> exit</code></pre>
+ish> exit</code></pre>
         </section>
 
         <section class="feature-section">
@@ -365,7 +365,7 @@ type_of([1,2])    // "Array"</code></pre>
     </main>
 
     <footer>
-        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+        <p>&copy; 2025 IronShell. Built with Rust 🦀</p>
     </footer>
 </body>
 

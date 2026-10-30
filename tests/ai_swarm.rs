@@ -1,17 +1,17 @@
 //! Integration tests for AI, agents, and swarms.
-//! Adjust crate name if needed (aethershell → your crate).
+//! Adjust crate name if needed (ironshell → your crate).
 
-use aethershell::{ai::agents::run_sync, builtins, env::Env, value::Value};
+use iron_shell::{ai::agents::run_sync, builtins, env::Env, value::Value};
 
 /// Check if AI provider is configured
 fn ai_available() -> bool {
-    std::env::var("AETHER_AI").is_ok() || std::env::var("OPENAI_API_KEY").is_ok()
+    std::env::var("IRONSHELL_AI").is_ok() || std::env::var("OPENAI_API_KEY").is_ok()
 }
 
 /// Setup environment with stub AI backend for testing
 fn setup_stub_env() -> Env {
     let mut env = Env::default();
-    env.set_var("AETHER_AI", Value::Str("stub".to_string()))
+    env.set_var("IRONSHELL_AI", Value::Str("stub".to_string()))
         .ok();
     env
 }

@@ -1,9 +1,9 @@
-# AetherShell Plugin System
+# IronShell Plugin System
 
 > **Version:** 0.1.0  
 > **Last Updated:** January 21, 2026
 
-The AetherShell plugin system enables extensibility through a modular architecture. Plugins can add AI backends, custom builtins, file handlers, transport protocols, and more.
+The IronShell plugin system enables extensibility through a modular architecture. Plugins can add AI backends, custom builtins, file handlers, transport protocols, and more.
 
 ---
 
@@ -24,7 +24,7 @@ The AetherShell plugin system enables extensibility through a modular architectu
 
 ### List Available Plugins
 
-```aether
+```ironshell
 # List all registered plugins
 plugins
 
@@ -37,10 +37,10 @@ plugin_categories
 
 ### Load an External Plugin
 
-```aether
+```ironshell
 # Register a plugin from its manifest file. Its [builtins] entries become
 # callable by name (see below).
-plugin_load("~/.config/aethershell/plugins/my-plugin/plugin.toml")
+plugin_load("~/.config/ironshell/plugins/my-plugin/plugin.toml")
 
 # Enable/disable a plugin (a disabled plugin's builtins are not callable)
 plugin_enable("my-plugin")
@@ -54,7 +54,7 @@ plugin_unload("my-plugin")
 
 ## Plugin Categories
 
-AetherShell supports six plugin categories:
+IronShell supports six plugin categories:
 
 | Category       | Description             | Example Use Case                       |
 | -------------- | ----------------------- | -------------------------------------- |
@@ -79,7 +79,7 @@ version = "1.0.0"
 author = "Your Name <your.email@example.com>"
 description = "A fantastic plugin that does amazing things"
 categories = ["Builtin", "FileHandler"]
-min_aether_version = "0.1.0"
+min_ironshell_version = "0.1.0"
 dependencies = []
 
 # Optional: Define plugin-specific configuration
@@ -96,7 +96,7 @@ double = "fn(x) => x * 2"
 # More complex function
 greet = """
 fn(name) => {
-    "Hello, " + name + "! Welcome to AetherShell."
+    "Hello, " + name + "! Welcome to IronShell."
 }
 """
 ```
@@ -111,7 +111,7 @@ fn(name) => {
 | `author`             | No       | Author name and email                          |
 | `description`        | No       | Brief description of the plugin                |
 | `categories`         | No       | Array of plugin categories                     |
-| `min_aether_version` | No       | Minimum AetherShell version required           |
+| `min_ironshell_version` | No       | Minimum IronShell version required           |
 | `dependencies`       | No       | Array of required plugin IDs                   |
 
 ---
@@ -122,7 +122,7 @@ fn(name) => {
 
 List all registered plugins.
 
-```aether
+```ironshell
 plugins
 # Returns: Array of plugin records
 # [
@@ -136,17 +136,17 @@ plugins
 
 Get detailed information about a specific plugin.
 
-```aether
+```ironshell
 plugin_info("builtin.json")
 # Returns: Record with full plugin details
 # {
 #   id: "builtin.json",
 #   name: "JSON File Handler",
 #   version: "1.0.0",
-#   author: "AetherShell Team",
+#   author: "IronShell Team",
 #   description: "Native JSON file reading and writing",
 #   categories: ["FileHandler"],
-#   min_aether_version: "0.1.0",
+#   min_ironshell_version: "0.1.0",
 #   dependencies: [],
 #   enabled: true
 # }
@@ -159,7 +159,7 @@ what `plugin_info` reports as enabled. Nothing dispatches on it yet, so
 enabling a plugin does not make its builtins callable. An unknown plugin is
 `E_NOT_FOUND`.
 
-```aether
+```ironshell
 plugin_enable("my-plugin")
 # Returns: true
 ```
@@ -168,7 +168,7 @@ plugin_enable("my-plugin")
 
 Disable an enabled plugin.
 
-```aether
+```ironshell
 plugin_disable("my-plugin")
 # Returns: true on success
 ```
@@ -179,7 +179,7 @@ Register a plugin from a TOML manifest with a `[plugin]` table. Only metadata is
 registered. The id must be 1 to 128 letters, digits, `.`, `_` or `-`, and the
 manifest is at most 1 MiB.
 
-```aether
+```ironshell
 plugin_load("./plugins/my-plugin/plugin.toml")
 # Returns: Record with the registered plugin info
 # { id: "my-plugin", name: "My Plugin", version: "1.0.0", status: "registered" }
@@ -189,8 +189,8 @@ Each `[builtins]` entry is `name = "fn(...) => ..."`, one lambda literal. Its
 name becomes callable (`hello("x")`). A name that is a core builtin, or is
 provided by another loaded plugin, is refused (`E_BAD_ARG`, `E_BAD_STATE`), and so
 is a value that is not one lambda literal (`E_BAD_ARG`). A manifest with
-`[builtins]` is code: `AETHER_PLUGINS=off` refuses it, and in agent mode it needs
-`AETHER_PLUGIN_ALLOW` (`E_POLICY_DENY`). A plugin builtin is classed `exec`, so
+`[builtins]` is code: `IRONSHELL_PLUGINS=off` refuses it, and in agent mode it needs
+`IRONSHELL_PLUGIN_ALLOW` (`E_POLICY_DENY`). A plugin builtin is classed `exec`, so
 agent mode approves each call; the calls its body makes are guarded as usual.
 A duplicate id is `E_BAD_STATE`. Native and script plugins are not loaded by
 this builtin.
@@ -200,7 +200,7 @@ this builtin.
 Remove a registered plugin and what it registered. Built-in plugins cannot be
 unloaded (`E_POLICY_DENY`), and an unknown plugin is `E_NOT_FOUND`.
 
-```aether
+```ironshell
 plugin_unload("my-plugin")
 # Returns: Record with unload status
 # { id: "my-plugin", status: "unloaded" }
@@ -210,7 +210,7 @@ plugin_unload("my-plugin")
 
 List all available plugin categories.
 
-```aether
+```ironshell
 plugin_categories
 # Returns: ["AIBackend", "Builtin", "FileHandler", "Transport", "Syntax", "TUIComponent"]
 ```
@@ -227,7 +227,7 @@ plugin_categories
 1. **Create the plugin directory:**
 
 ```bash
-mkdir -p ~/.config/aethershell/plugins/hello-plugin
+mkdir -p ~/.config/ironshell/plugins/hello-plugin
 ```
 
 2. **Create the manifest (`plugin.toml`):**
@@ -248,8 +248,8 @@ hello_upper = "fn(name) => upper('Hello, ' + name + '!')"
 
 3. **Register the plugin:**
 
-```aether
-plugin_load("~/.config/aethershell/plugins/hello-plugin/plugin.toml")
+```ironshell
+plugin_load("~/.config/ironshell/plugins/hello-plugin/plugin.toml")
 # hello("World") is now callable
 ```
 
@@ -258,8 +258,8 @@ plugin_load("~/.config/aethershell/plugins/hello-plugin/plugin.toml")
 For native Rust plugins that implement the `FileHandlerPlugin` trait:
 
 ```rust
-use aethershell::plugins::{FileHandlerPlugin, PluginMetadata, PluginCategory};
-use aethershell::value::Value;
+use iron_shell::plugins::{FileHandlerPlugin, PluginMetadata, PluginCategory};
+use iron_shell::value::Value;
 use anyhow::Result;
 
 pub struct YamlFileHandler;
@@ -274,7 +274,7 @@ impl FileHandlerPlugin for YamlFileHandler {
             author: "Your Name".to_string(),
             description: "Native YAML file support".to_string(),
             categories: vec![PluginCategory::FileHandler],
-            min_aether_version: "0.1.0".to_string(),
+            min_ironshell_version: "0.1.0".to_string(),
             dependencies: vec![],
         })
     }
@@ -373,7 +373,7 @@ pub trait TransportConnection: Send + Sync {
 
 ## Built-in Plugins
 
-AetherShell ships with these built-in plugins:
+IronShell ships with these built-in plugins:
 
 | Plugin ID      | Category    | Description              |
 | -------------- | ----------- | ------------------------ |
@@ -392,7 +392,7 @@ AetherShell ships with these built-in plugins:
 ### 1. Math Utilities Plugin
 
 ```toml
-# ~/.config/aethershell/plugins/math-utils/plugin.toml
+# ~/.config/ironshell/plugins/math-utils/plugin.toml
 [plugin]
 id = "math-utils"
 name = "Math Utilities"
@@ -427,7 +427,7 @@ fn(n) => {
 ### 2. String Utilities Plugin
 
 ```toml
-# ~/.config/aethershell/plugins/string-utils/plugin.toml
+# ~/.config/ironshell/plugins/string-utils/plugin.toml
 [plugin]
 id = "string-utils"
 name = "String Utilities"
@@ -445,7 +445,7 @@ repeat = "fn(s, n) => range(1, n + 1) | map(fn(_) => s) | join('')"
 ### 3. DevOps Helpers Plugin
 
 ```toml
-# ~/.config/aethershell/plugins/devops/plugin.toml
+# ~/.config/ironshell/plugins/devops/plugin.toml
 [plugin]
 id = "devops-helpers"
 name = "DevOps Helpers"
@@ -463,21 +463,21 @@ git_status = "fn() => sh('git status --porcelain') | split('\\n') | where(fn(l) 
 
 ## Plugin Directories
 
-AetherShell searches for plugins in these locations (in order):
+IronShell searches for plugins in these locations (in order):
 
-1. `~/.aethershell/plugins/` - User plugins (legacy)
-2. `~/.local/share/aethershell/plugins/` - XDG data directory (Linux)
-3. `~/Library/Application Support/aethershell/plugins/` - macOS
-4. `%LOCALAPPDATA%\aethershell\plugins\` - Windows
-5. `/usr/share/aethershell/plugins/` - System plugins (Unix)
-6. `%ProgramData%\AetherShell\plugins\` - System plugins (Windows)
+1. `~/.ironshell/plugins/` - User plugins (legacy)
+2. `~/.local/share/ironshell/plugins/` - XDG data directory (Linux)
+3. `~/Library/Application Support/ironshell/plugins/` - macOS
+4. `%LOCALAPPDATA%\ironshell\plugins\` - Windows
+5. `/usr/share/ironshell/plugins/` - System plugins (Unix)
+6. `%ProgramData%\IronShell\plugins\` - System plugins (Windows)
 
 ---
 
 ## Best Practices
 
 1. **Use unique plugin IDs** - Prefix with your org name: `myorg.my-plugin`
-2. **Specify min_aether_version** - Ensure compatibility
+2. **Specify min_ironshell_version** - Ensure compatibility
 3. **Document your builtins** - Include help text for each function
 4. **Handle errors gracefully** - Return meaningful error messages
 5. **Test thoroughly** - Plugins can affect the entire shell

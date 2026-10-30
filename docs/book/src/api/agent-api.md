@@ -1,18 +1,18 @@
 # Agent API
 
-The Agent API provides HTTP endpoints for executing AetherShell code, managing agents, orchestrating workflows, and accessing the marketplace. The server uses [axum](https://github.com/tokio-rs/axum) and runs on port 3000 by default.
+The Agent API provides HTTP endpoints for executing IronShell code, managing agents, orchestrating workflows, and accessing the marketplace. The server uses [axum](https://github.com/tokio-rs/axum) and runs on port 3000 by default.
 
 ## Starting the Server
 
 ```bash
-ae serve                    # Start on default port 3000
-ae serve --port 8080        # Custom port
+ish serve                    # Start on default port 3000
+ish serve --port 8080        # Custom port
 ```
 
 ## Execution Endpoints
 
 ### POST `/api/v1/execute`
-Execute an AetherShell command and return the result.
+Execute an IronShell command and return the result.
 
 **Request:**
 ```json
@@ -54,7 +54,7 @@ Execute a multi-step pipeline.
 ```
 
 ### POST `/api/v1/eval`
-Evaluate an arbitrary AetherShell expression.
+Evaluate an arbitrary IronShell expression.
 
 **Request:**
 ```json
@@ -97,7 +97,7 @@ data: {"message": "Syntax error at line 3"}
 ## Discovery Endpoints
 
 ### GET `/api/v1/schema`
-Return the complete AetherShell language schema (types, builtins, syntax).
+Return the complete IronShell language schema (types, builtins, syntax).
 
 ### GET `/api/v1/schema/:format`
 Return the schema in a specific format (e.g., `json`, `openapi`).
@@ -129,7 +129,7 @@ Get detailed information about a specific builtin.
 ```
 
 ### GET `/api/v1/types`
-List all AetherShell value types and their properties.
+List all IronShell value types and their properties.
 
 ## Orchestration Endpoints
 

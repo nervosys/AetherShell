@@ -8,7 +8,7 @@ Write-Host ""
 # Test 1: SecureApiConfig Debug Output
 Write-Host "[Test 1] Verifying Debug output redacts keys..." -ForegroundColor Yellow
 $testCode1 = @'
-use aether_shell::secure_config::SecureApiConfig;
+use ironshell_shell::secure_config::SecureApiConfig;
 
 fn main() {
     let config = SecureApiConfig::new(

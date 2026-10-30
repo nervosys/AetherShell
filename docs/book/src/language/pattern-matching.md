@@ -1,10 +1,10 @@
 # Pattern Matching
 
-AetherShell provides `match` expressions for destructuring values and branching on their structure. Pattern matching works with all value types including arrays, records, and constructor-style tagged values.
+IronShell provides `match` expressions for destructuring values and branching on their structure. Pattern matching works with all value types including arrays, records, and constructor-style tagged values.
 
 ## Basic Match
 
-```ae
+```ish
 let x = 42
 
 match x {
@@ -21,7 +21,7 @@ The `_` wildcard matches anything without binding a name.
 
 Identifier patterns match any value and bind it to a name:
 
-```ae
+```ish
 let result = match get_status() {
     "ok" => "all good",
     "error" => "something broke",
@@ -33,7 +33,7 @@ let result = match get_status() {
 
 Match against exact values:
 
-```ae
+```ish
 match value {
     42 => "the answer",
     "hello" => "greeting",
@@ -56,7 +56,7 @@ Supported literal patterns:
 
 Destructure arrays by matching their elements:
 
-```ae
+```ish
 match [1, 2, 3] {
     [] => "empty",
     [x] => "one element: ${x}",
@@ -71,7 +71,7 @@ Array patterns require an **exact length match**. `[x, y]` won't match a 3-eleme
 
 Patterns can be nested:
 
-```ae
+```ish
 match [[1, 2], [3, 4]] {
     [[a, b], [c, d]] => a + b + c + d,
     _ => 0
@@ -83,7 +83,7 @@ match [[1, 2], [3, 4]] {
 
 Match records by their fields:
 
-```ae
+```ish
 let person = {name: "Ada", age: 36, role: "engineer"}
 
 match person {
@@ -98,7 +98,7 @@ match person {
 
 Record patterns match if **all specified fields exist**. Extra fields are ignored:
 
-```ae
+```ish
 # This matches even though the record has 'role' too
 match {name: "Ada", age: 36, role: "engineer"} {
     {name, age} => "${name}, ${age}",
@@ -109,16 +109,16 @@ match {name: "Ada", age: 36, role: "engineer"} {
 
 ## Constructor Patterns
 
-AetherShell uses tagged records to represent algebraic data types. The `Some` and `None` constructors create tagged records:
+IronShell uses tagged records to represent algebraic data types. The `Some` and `None` constructors create tagged records:
 
-```ae
+```ish
 let result = Some(42)    # => {_tag: "Some", _value: 42}
 let empty = None         # => {_tag: "None"}
 ```
 
 Match on constructors:
 
-```ae
+```ish
 match Some(42) {
     Some(x) => "got value: ${x}",
     None => "nothing",
@@ -129,7 +129,7 @@ match Some(42) {
 
 Zero-argument constructors just check the `_tag`:
 
-```ae
+```ish
 match None {
     Some(x) => "got ${x}",
     None => "nothing here",
@@ -141,7 +141,7 @@ match None {
 
 Add conditions to match arms with `if`:
 
-```ae
+```ish
 match value {
     x if x > 100 => "large",
     x if x > 10 => "medium",
@@ -153,7 +153,7 @@ match value {
 
 Guards are evaluated with the pattern's bindings in scope. If the guard is falsy, the next arm is tried:
 
-```ae
+```ish
 match {name: "Ada", age: 36} {
     {name, age} if age >= 21 => "${name} is an adult",
     {name, age} => "${name} is ${age} years old",
@@ -172,7 +172,7 @@ Error: match: no arm matched the value
 
 Always include a `_` wildcard as the last arm to handle unexpected cases:
 
-```ae
+```ish
 match status {
     "active" => handle_active(),
     "paused" => handle_paused(),
@@ -184,7 +184,7 @@ match status {
 
 `match` is an expression — it returns a value:
 
-```ae
+```ish
 let label = match count {
     0 => "none",
     1 => "one",
@@ -200,7 +200,7 @@ print label
 
 When `match` is used inside a lambda body, the scrutinee can be omitted — it defaults to the lambda's first parameter:
 
-```ae
+```ish
 # Explicit scrutinee (always works)
 let grade = fn(score) => match score {
     90..100 => "A",
@@ -220,7 +220,7 @@ grade(85)  # "B"
 
 This works with any single-parameter lambda, including in pipelines:
 
-```ae
+```ish
 [1, 2, 3, 100] | map fn(x) => match {
     _ if x > 50 => "big",
     _            => "small"
@@ -232,7 +232,7 @@ This works with any single-parameter lambda, including in pipelines:
 
 ### Processing command output
 
-```ae
+```ish
 let files = ls "."
 
 files | map fn(f) => match {
@@ -245,7 +245,7 @@ files | map fn(f) => match {
 
 ### Option handling
 
-```ae
+```ish
 let find_user = fn(id) =>
     if id == 1 { Some({name: "Ada", role: "admin"}) }
     else { None }
@@ -259,7 +259,7 @@ match find_user(1) {
 
 ### HTTP response handling
 
-```ae
+```ish
 let response = http_get "https://api.example.com/status"
 
 match response {

@@ -5,15 +5,15 @@
 //! real, repair context is cheap, and a failed attempt leaves no debris. These
 //! tests assert each of those four things directly.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
-// The transaction journal, AETHER_WORKSPACE and AETHER_MODE are process-global.
+// The transaction journal, IRONSHELL_WORKSPACE and IRONSHELL_MODE are process-global.
 static LOCK: Mutex<()> = Mutex::new(());
 
 fn try_call(name: &str, args: Vec<Value>) -> Result<Value, anyhow::Error> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call(name: &str, args: Vec<Value>) -> Value {
@@ -28,7 +28,7 @@ fn s(x: &str) -> Value {
 fn caught(name: &str, args: Vec<Value>) -> Value {
     let e = try_call(name, args).expect_err("expected failure");
     let se = e
-        .downcast_ref::<aethershell::safety::SafetyError>()
+        .downcast_ref::<iron_shell::safety::SafetyError>()
         .unwrap_or_else(|| panic!("failure carried no structured error: {e}"));
     Value::from_json(&se.to_json())
 }
@@ -47,10 +47,10 @@ fn field<'a>(v: &'a Value, path: &[&str]) -> &'a Value {
 }
 
 fn reset() {
-    std::env::remove_var("AETHER_MODE");
-    let mut env = aethershell::env::Env::new();
+    std::env::remove_var("IRONSHELL_MODE");
+    let mut env = iron_shell::env::Env::new();
     for _ in 0..16 {
-        if aethershell::builtins::call("tx_rollback", vec![], &mut env).is_err() {
+        if iron_shell::builtins::call("tx_rollback", vec![], &mut env).is_err() {
             break;
         }
     }
@@ -65,9 +65,9 @@ fn reset() {
 fn an_uncoded_io_failure_is_coded_by_its_cause() {
     use anyhow::Context as _;
     let code_of = |e: anyhow::Error| {
-        let netted = aethershell::safety::ensure_structured("some_builtin", e);
+        let netted = iron_shell::safety::ensure_structured("some_builtin", e);
         let se = netted
-            .downcast_ref::<aethershell::safety::SafetyError>()
+            .downcast_ref::<iron_shell::safety::SafetyError>()
             .expect("coded");
         se.code.as_str().to_string()
     };
@@ -94,8 +94,8 @@ fn an_uncoded_failure_still_arrives_with_a_code() {
     // happens to be uncoded today gets invalidated by every improvement. The
     // net is what this test is about, so drive the net.
     let bare = anyhow::anyhow!("something went wrong in a way nobody classified");
-    let netted = aethershell::safety::ensure_structured("some_builtin", bare);
-    let err = match netted.downcast_ref::<aethershell::safety::SafetyError>() {
+    let netted = iron_shell::safety::ensure_structured("some_builtin", bare);
+    let err = match netted.downcast_ref::<iron_shell::safety::SafetyError>() {
         Some(se) => Value::from_json(&se.to_json()),
         None => panic!("the boundary let a bare error through: {netted}"),
     };
@@ -187,9 +187,9 @@ fn every_suggestion_names_a_builtin_that_exists() {
         "ontology_manifst",
         "aecon_decod",
     ] {
-        for cand in aethershell::builtins::did_you_mean(typo) {
+        for cand in iron_shell::builtins::did_you_mean(typo) {
             assert!(
-                aethershell::builtins::BUILTIN_LOOKUP.contains_key(cand.as_str()),
+                iron_shell::builtins::BUILTIN_LOOKUP.contains_key(cand.as_str()),
                 "suggested '{cand}' for '{typo}', which is not a builtin"
             );
         }
@@ -205,14 +205,14 @@ fn a_misspelled_module_function_suggests_the_real_field() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset();
     for (code, want) in [("file.raed(\"x\")", "read"), ("str.uppr(\"x\")", "upper")] {
-        let mut env = aethershell::env::Env::new();
-        for (name, module) in aethershell::modules::all_modules() {
+        let mut env = iron_shell::env::Env::new();
+        for (name, module) in iron_shell::modules::all_modules() {
             let _ = env.set_var(name.to_string(), module);
         }
-        let stmts = aethershell::parser::parse_program(code).expect("parses");
-        let e = aethershell::eval::eval_program(&stmts, &mut env).expect_err("expected failure");
+        let stmts = iron_shell::parser::parse_program(code).expect("parses");
+        let e = iron_shell::eval::eval_program(&stmts, &mut env).expect_err("expected failure");
         let se = e
-            .downcast_ref::<aethershell::safety::SafetyError>()
+            .downcast_ref::<iron_shell::safety::SafetyError>()
             .unwrap_or_else(|| panic!("{code}: no structured error: {e}"));
         assert_eq!(se.code.as_str(), "E_UNKNOWN_FIELD", "{code}");
         assert!(se.code.retryable(), "{code}: a typo is worth retrying");
@@ -228,9 +228,9 @@ fn a_misspelled_module_function_suggests_the_real_field() {
 /// must not see the ordering shift under it.
 #[test]
 fn suggestions_are_deterministic() {
-    let first = aethershell::builtins::did_you_mean("tokns");
+    let first = iron_shell::builtins::did_you_mean("tokns");
     for _ in 0..5 {
-        assert_eq!(aethershell::builtins::did_you_mean("tokns"), first);
+        assert_eq!(iron_shell::builtins::did_you_mean("tokns"), first);
     }
 }
 
@@ -320,7 +320,7 @@ fn a_failed_attempt_is_rolled_back_before_the_error_is_returned() {
     let w = std::env::temp_dir().join(format!("ae_repair_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let good = w.join("kept.txt");
     std::fs::write(&good, "original").unwrap();
@@ -357,7 +357,7 @@ fn a_failed_attempt_is_rolled_back_before_the_error_is_returned() {
         "a failed attempt left a created file behind"
     );
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -368,7 +368,7 @@ fn a_successful_attempt_keeps_its_work() {
     let w = std::env::temp_dir().join(format!("ae_repair_ok_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let f = w.join("out.txt");
     let code = format!(
@@ -379,7 +379,7 @@ fn a_successful_attempt_keeps_its_work() {
     assert_eq!(field(&out, &["ok"]), &Value::Bool(true));
     assert_eq!(std::fs::read_to_string(&f).unwrap(), "written");
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -392,7 +392,7 @@ fn a_failed_attempt_does_not_discard_an_enclosing_transactions_work() {
     let w = std::env::temp_dir().join(format!("ae_repair_tx_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let earlier = w.join("earlier.txt");
     call("tx_begin", vec![]);
@@ -414,6 +414,6 @@ fn a_failed_attempt_does_not_discard_an_enclosing_transactions_work() {
     call("tx_commit", vec![]);
     assert_eq!(std::fs::read_to_string(&earlier).unwrap(), "earlier");
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }

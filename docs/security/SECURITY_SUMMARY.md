@@ -1,6 +1,6 @@
 # Security Audit Executive Summary
 
-**AetherShell v0.1.0 Security Assessment**  
+**IronShell v0.1.0 Security Assessment**  
 **Date**: October 23, 2025  
 **Status**: ✅ **APPROVED FOR RELEASE**
 
@@ -73,7 +73,7 @@ Tested against real-world attack techniques:
 
 ## What This Means
 
-### ✅ You Can Use AetherShell For:
+### ✅ You Can Use IronShell For:
 - Development environments
 - Personal projects
 - Learning and experimentation
@@ -91,13 +91,13 @@ Tested against real-world attack techniques:
 
 | Shell           | Command Injection | Path Traversal | Input Validation | Memory Safety |
 | --------------- | ----------------- | -------------- | ---------------- | ------------- |
-| **AetherShell** | ✅ Blocked         | ✅ Blocked      | ✅ Active         | ✅ Rust        |
+| **IronShell** | ✅ Blocked         | ✅ Blocked      | ✅ Active         | ✅ Rust        |
 | Bash            | ⚠️ Manual          | ⚠️ Manual       | ❌ None           | ⚠️ C           |
 | Zsh             | ⚠️ Manual          | ⚠️ Manual       | ⚠️ Limited        | ⚠️ C           |
 | PowerShell      | ✅ Good            | ✅ Good         | ✅ Good           | ⚠️ .NET        |
 | Python shells   | ⚠️ Depends         | ⚠️ Depends      | ⚠️ Depends        | ⚠️ Python      |
 
-**AetherShell has security comparable to or better than PowerShell, and far superior to traditional Unix shells.**
+**IronShell has security comparable to or better than PowerShell, and far superior to traditional Unix shells.**
 
 ---
 
@@ -121,7 +121,7 @@ Tested against real-world attack techniques:
 
 **Can we ship v0.1.0?** ✅ **YES**
 
-AetherShell demonstrates **excellent security posture** for a shell application:
+IronShell demonstrates **excellent security posture** for a shell application:
 - No critical vulnerabilities
 - Strong attack protection
 - Industry-leading for shell tools

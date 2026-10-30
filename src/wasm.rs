@@ -1,6 +1,6 @@
-//! AetherShell WASM bindings
+//! IronShell WASM bindings
 //!
-//! Provides WebAssembly bindings for running AetherShell in the browser.
+//! Provides WebAssembly bindings for running IronShell in the browser.
 //! This module exposes parsing and basic evaluation capabilities.
 
 #[cfg(feature = "web")]
@@ -25,19 +25,19 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
-/// AetherShell WASM runtime
+/// IronShell WASM runtime
 #[cfg(feature = "web")]
 #[wasm_bindgen]
-pub struct AetherWasm {
+pub struct IronShellWasm {
     env: Env,
 }
 
 #[cfg(feature = "web")]
 #[wasm_bindgen]
-impl AetherWasm {
+impl IronShellWasm {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        AetherWasm {
+        IronShellWasm {
             env: Env::default(),
         }
     }
@@ -87,8 +87,8 @@ impl AetherWasm {
     pub fn set_var(&mut self, name: &str, json: &str) -> Result<(), JsValue> {
         let value: serde_json::Value = serde_json::from_str(json)
             .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
-        let aether_value = json_to_value(&value);
-        self.env.set_var_unchecked(name, aether_value);
+        let ironshell_value = json_to_value(&value);
+        self.env.set_var_unchecked(name, ironshell_value);
         Ok(())
     }
 
@@ -1274,7 +1274,7 @@ fn format_value(value: &Value) -> String {
 
 #[cfg(feature = "web")]
 #[wasm_bindgen]
-pub fn ae_eval(code: &str) -> Result<String, JsValue> {
+pub fn ish_eval(code: &str) -> Result<String, JsValue> {
     let stmts =
         parse_program(code).map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
     let mut env = Env::default();
@@ -1285,7 +1285,7 @@ pub fn ae_eval(code: &str) -> Result<String, JsValue> {
 
 #[cfg(feature = "web")]
 #[wasm_bindgen]
-pub fn ae_parse(code: &str) -> Result<String, JsValue> {
+pub fn ish_parse(code: &str) -> Result<String, JsValue> {
     match parse_program(code) {
         Ok(stmts) => serde_json::to_string_pretty(&stmts)
             .map_err(|e| JsValue::from_str(&format!("JSON error: {}", e))),
@@ -1295,6 +1295,6 @@ pub fn ae_parse(code: &str) -> Result<String, JsValue> {
 
 #[cfg(feature = "web")]
 #[wasm_bindgen]
-pub fn ae_version() -> String {
+pub fn ish_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }

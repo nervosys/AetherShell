@@ -1,12 +1,12 @@
 # Data Processing
 
-Real-world examples of using AetherShell for data processing tasks.
+Real-world examples of using IronShell for data processing tasks.
 
 ## CSV Analysis
 
 ### Load and Analyze CSV
 
-```aethershell
+```ironshell
 # Parse CSV manually
 let lines = cat "sales.csv" | split "\n"
 let headers = split (first lines) ","
@@ -21,7 +21,7 @@ rows
 
 ### Aggregate by Category
 
-```aethershell
+```ironshell
 let data = cat "products.csv" | split "\n" | slice 1 100
   | map(fn(line) => {
       let cols = split line ","
@@ -38,7 +38,7 @@ data
 
 ### API Data Pipeline
 
-```aethershell
+```ironshell
 # Fetch and process API data
 let users = web_json_get "https://jsonplaceholder.typicode.com/users"
 
@@ -49,7 +49,7 @@ users
 
 ### Merge Multiple Sources
 
-```aethershell
+```ironshell
 let users = web_json_get "https://api.example.com/users"
 let orders = web_json_get "https://api.example.com/orders"
 
@@ -64,7 +64,7 @@ users | map(fn(u) => {
 
 ### Error Frequency
 
-```aethershell
+```ironshell
 cat "app.log"
   | split "\n"
   | where(fn(line) => contains line "ERROR")
@@ -79,7 +79,7 @@ cat "app.log"
 
 ### Request Latency Analysis
 
-```aethershell
+```ironshell
 cat "access.log"
   | split "\n"
   | where(fn(line) => contains line "GET /api")
@@ -101,7 +101,7 @@ cat "access.log"
 
 ### Disk Usage Report
 
-```aethershell
+```ironshell
 ls "."
   | where(fn(f) => f.is_dir)
   | map(fn(d) => {
@@ -113,7 +113,7 @@ ls "."
 
 ### Find Duplicate Files
 
-```aethershell
+```ironshell
 fs_walk "."
   | where(fn(f) => !f.is_dir)
   | map(fn(f) => { path: f.path, hash: crypto_hash_file "md5" f.path, size: f.size })
@@ -126,7 +126,7 @@ fs_walk "."
 
 ## Statistical Summary
 
-```aethershell
+```ironshell
 let data = [23, 45, 12, 67, 34, 89, 11, 56, 78, 42]
 
 let stats = {

@@ -32,16 +32,16 @@ pub struct McpServerInfo {
 
 ### 2. Builtin Functions (`src/builtins.rs`)
 
-Added two new builtin functions for MCP server access from AetherShell scripts:
+Added two new builtin functions for MCP server access from IronShell scripts:
 
 **`mcp_servers()`** - Returns array of MCP server records:
-```aether
+```ironshell
 let servers = mcp_servers()
 # Each record contains: name, endpoint, available, tools[]
 ```
 
 **`mcp_detect(endpoint?)`** - Finds MCP server:
-```aether
+```ironshell
 let server = mcp_detect("http://localhost:3001")  # Specific
 let any = mcp_detect()                            # First available
 ```
@@ -57,7 +57,7 @@ let any = mcp_detect()                            # First available
 
 ### 4. Example Scripts
 
-**examples/14_ai_mcp_integration.ae**:
+**examples/14_ai_mcp_integration.ish**:
 - Comprehensive demonstration of AI backend + MCP server integration
 - Shows detection workflow
 - Provides usage patterns for agents with tools
@@ -72,12 +72,12 @@ let any = mcp_detect()                            # First available
 
 **Integration Tests:**
 ```bash
-$ ae temp/test_mcp_detection.ae
+$ ish temp/test_mcp_detection.ish
 Found 0 MCP server(s)    # Expected when no servers running
 AI Backends: 1           # Detected Ollama
 AI Selected: ollama:...  # Auto-selection working
 
-$ ae examples/14_ai_mcp_integration.ae
+$ ish examples/14_ai_mcp_integration.ish
 # Full integration demo runs successfully
 ```
 
@@ -87,7 +87,7 @@ $ ae examples/14_ai_mcp_integration.ae
 
 Now supports detecting BOTH AI backends AND MCP servers:
 
-```aether
+```ironshell
 # Detect everything
 let ai_backends = ai_backends()
 let ai_selected = ai_detect()
@@ -106,7 +106,7 @@ agent(
 
 Agents can now auto-discover both reasoning (AI) and action (tools) capabilities:
 
-```aether
+```ironshell
 # Completely automatic setup
 let agent_config = {
     model: ai_detect(),              # Auto-selects best AI backend
@@ -119,12 +119,12 @@ let agent_config = {
 MCP servers provide controlled, validated tool access vs raw shell commands:
 
 **Before (Dangerous):**
-```aether
+```ironshell
 agent("task", "ollama:llama3", ["rm -rf /"])  # 😱 Dangerous!
 ```
 
 **After (Safe):**
-```aether
+```ironshell
 let fs_server = mcp_detect("http://localhost:3001")
 agent("task", "ollama:llama3", fs_server.tools)  # ✅ Safe, validated tools
 ```
@@ -133,7 +133,7 @@ agent("task", "ollama:llama3", fs_server.tools)  # ✅ Safe, validated tools
 
 Combine multiple AI backends with multiple MCP servers:
 
-```aether
+```ironshell
 let fast_backend = "ollama:llama3.2:3b"
 let smart_backend = "ollama:llama3.1:70b"
 
@@ -151,7 +151,7 @@ agent("code review", smart_backend, git_tools)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    AetherShell Agent                         │
+│                    IronShell Agent                         │
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
 │  ┌──────────────────┐              ┌──────────────────┐    │
@@ -172,7 +172,7 @@ agent("code review", smart_backend, git_tools)
 ## 🎯 Use Cases
 
 ### 1. Development Assistant
-```aether
+```ironshell
 let fs_server = mcp_detect("http://localhost:3001")
 let git_server = mcp_detect("http://localhost:3002")
 
@@ -184,7 +184,7 @@ agent(
 ```
 
 ### 2. Infrastructure Monitor
-```aether
+```ironshell
 let docker_server = mcp_detect("http://localhost:3003")
 let aws_server = mcp_detect("http://localhost:3004")
 
@@ -196,7 +196,7 @@ agent(
 ```
 
 ### 3. Data Analysis Pipeline
-```aether
+```ironshell
 let db_server = mcp_detect("http://localhost:3005")
 let fs_server = mcp_detect("http://localhost:3001")
 
@@ -222,7 +222,7 @@ agent(
 Potential additions:
 - MCP server health monitoring (continuous ping)
 - Tool usage statistics and logging
-- MCP server auto-start from AetherShell
+- MCP server auto-start from IronShell
 - Tool permission system (read-only vs read-write)
 - MCP server discovery via mDNS/Zeroconf
 - Built-in MCP servers for common operations
@@ -232,12 +232,12 @@ Potential additions:
 
 - **[AI_BACKENDS.md](docs/AI_BACKENDS.md)** - Complete backend + MCP guide
 - **[MCP_SERVERS_GUIDE.md](docs/MCP_SERVERS_GUIDE.md)** - Detailed MCP documentation
-- **[14_ai_mcp_integration.ae](examples/14_ai_mcp_integration.ae)** - Integration example
-- **[13_ai_auto_detect.ae](examples/13_ai_auto_detect.ae)** - Backend detection demo
+- **[14_ai_mcp_integration.ish](examples/14_ai_mcp_integration.ish)** - Integration example
+- **[13_ai_auto_detect.ish](examples/13_ai_auto_detect.ish)** - Backend detection demo
 
 ## ✨ Summary
 
-AetherShell now provides a **complete, auto-configuring AI agent system**:
+IronShell now provides a **complete, auto-configuring AI agent system**:
 
 ✅ **Auto-detects AI backends** (Ollama, vLLM, llama.cpp, TGI, OpenAI)
 ✅ **Auto-detects MCP servers** (Filesystem, Git, Docker, AWS, Database, Custom)

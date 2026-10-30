@@ -2,11 +2,11 @@
 
 > **Date:** January 26, 2026  
 > **Status:** Proposal  
-> **Author:** AetherShell Team
+> **Author:** IronShell Team
 
 ## Executive Summary
 
-This document proposes optimizations and new interfaces for Agent-to-Agent (A2A) and Agent-to-User Interface (A2UI) protocols in AetherShell. The goal is to improve performance, enable richer interactions, and provide a more intuitive developer experience.
+This document proposes optimizations and new interfaces for Agent-to-Agent (A2A) and Agent-to-User Interface (A2UI) protocols in IronShell. The goal is to improve performance, enable richer interactions, and provide a more intuitive developer experience.
 
 ---
 
@@ -296,7 +296,7 @@ impl A2UIChannel {
 
 #### 3.2 A2UI Builtins
 
-```ae
+```ish
 # Notifications
 a2ui_notify(title: String, body: String, opts?: Record) -> Unit
 a2ui_toast(message: String, duration?: Int) -> Unit
@@ -375,9 +375,9 @@ impl AgentContext {
 }
 ```
 
-#### 4.2 AetherShell Builtin Syntax
+#### 4.2 IronShell Builtin Syntax
 
-```ae
+```ish
 # Agent creation with unified context
 let analyzer = agent("code-analyzer", {
     capabilities: ["code-review", "security-scan"],
@@ -513,7 +513,7 @@ impl A2AMessageBus {
 
 #### 6.2 Builtin Debugging Commands
 
-```ae
+```ish
 # View message bus state
 a2a_debug_bus()
 

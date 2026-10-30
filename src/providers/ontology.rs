@@ -664,7 +664,7 @@ impl OSOperationRegistry {
 
         json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "AetherShell OS Ontology",
+            "title": "IronShell OS Ontology",
             "description": "Operating system abstraction layer for AI agents",
             "version": "1.0.0",
             "domains": CapabilityDomain::all(),
@@ -679,20 +679,20 @@ impl OSOperationRegistry {
             .values()
             .map(|op| {
                 json!({
-                    "@type": "aether:Operation",
-                    "@id": format!("aether:{}", op.id),
+                    "@type": "ironshell:Operation",
+                    "@id": format!("ironshell:{}", op.id),
                     "schema:name": op.name,
                     "schema:description": op.description,
-                    "aether:domain": format!("{:?}", op.domain),
-                    "aether:isMutating": op.is_mutating,
-                    "aether:isIdempotent": op.is_idempotent,
-                    "aether:security": op.security,
-                    "aether:parameters": op.parameters.iter().map(|p| {
+                    "ironshell:domain": format!("{:?}", op.domain),
+                    "ironshell:isMutating": op.is_mutating,
+                    "ironshell:isIdempotent": op.is_idempotent,
+                    "ironshell:security": op.security,
+                    "ironshell:parameters": op.parameters.iter().map(|p| {
                         json!({
-                            "@type": "aether:Parameter",
+                            "@type": "ironshell:Parameter",
                             "schema:name": p.name,
                             "schema:description": p.description,
-                            "aether:required": p.required,
+                            "ironshell:required": p.required,
                         })
                     }).collect::<Vec<_>>(),
                 })
@@ -702,21 +702,21 @@ impl OSOperationRegistry {
         json!({
             "@context": {
                 "schema": "https://schema.org/",
-                "aether": "https://aethershell.dev/ontology/",
+                "ironshell": "https://ironshell.dev/ontology/",
                 "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
                 "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
                 "xsd": "http://www.w3.org/2001/XMLSchema#"
             },
-            "@type": "aether:Ontology",
-            "@id": "aether:OSOperations",
-            "schema:name": "AetherShell OS Ontology",
+            "@type": "ironshell:Ontology",
+            "@id": "ironshell:OSOperations",
+            "schema:name": "IronShell OS Ontology",
             "schema:version": "1.0.0",
             "schema:description": "Operating system abstraction layer for AI agents",
-            "aether:operations": operations,
-            "aether:domains": CapabilityDomain::all().iter().map(|d| {
+            "ironshell:operations": operations,
+            "ironshell:domains": CapabilityDomain::all().iter().map(|d| {
                 json!({
-                    "@type": "aether:CapabilityDomain",
-                    "@id": format!("aether:domain:{:?}", d),
+                    "@type": "ironshell:CapabilityDomain",
+                    "@id": format!("ironshell:domain:{:?}", d),
                     "schema:name": format!("{:?}", d),
                     "schema:description": d.description(),
                 })
@@ -729,7 +729,7 @@ impl OSOperationRegistry {
         let mut lines = Vec::new();
 
         // Prefixes
-        lines.push("@prefix aether: <https://aethershell.dev/ontology/> .".to_string());
+        lines.push("@prefix ironshell: <https://ironshell.dev/ontology/> .".to_string());
         lines.push("@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .".to_string());
         lines.push("@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .".to_string());
         lines.push("@prefix owl: <http://www.w3.org/2002/07/owl#> .".to_string());
@@ -738,8 +738,8 @@ impl OSOperationRegistry {
         lines.push(String::new());
 
         // Ontology declaration
-        lines.push("aether:OSOperations a owl:Ontology ;".to_string());
-        lines.push("    rdfs:label \"AetherShell OS Ontology\" ;".to_string());
+        lines.push("ironshell:OSOperations a owl:Ontology ;".to_string());
+        lines.push("    rdfs:label \"IronShell OS Ontology\" ;".to_string());
         lines.push(
             "    rdfs:comment \"Operating system abstraction layer for AI agents\" ;".to_string(),
         );
@@ -747,35 +747,35 @@ impl OSOperationRegistry {
         lines.push(String::new());
 
         // Classes
-        lines.push("aether:Operation a owl:Class ;".to_string());
+        lines.push("ironshell:Operation a owl:Class ;".to_string());
         lines.push("    rdfs:label \"OS Operation\" ;".to_string());
         lines.push("    rdfs:comment \"An abstract operating system operation\" .".to_string());
         lines.push(String::new());
 
-        lines.push("aether:CapabilityDomain a owl:Class ;".to_string());
+        lines.push("ironshell:CapabilityDomain a owl:Class ;".to_string());
         lines.push("    rdfs:label \"Capability Domain\" ;".to_string());
         lines.push("    rdfs:comment \"A domain of OS capabilities\" .".to_string());
         lines.push(String::new());
 
-        lines.push("aether:Parameter a owl:Class ;".to_string());
+        lines.push("ironshell:Parameter a owl:Class ;".to_string());
         lines.push("    rdfs:label \"Operation Parameter\" .".to_string());
         lines.push(String::new());
 
         // Properties
-        lines.push("aether:hasDomain a owl:ObjectProperty ;".to_string());
-        lines.push("    rdfs:domain aether:Operation ;".to_string());
-        lines.push("    rdfs:range aether:CapabilityDomain .".to_string());
+        lines.push("ironshell:hasDomain a owl:ObjectProperty ;".to_string());
+        lines.push("    rdfs:domain ironshell:Operation ;".to_string());
+        lines.push("    rdfs:range ironshell:CapabilityDomain .".to_string());
         lines.push(String::new());
 
-        lines.push("aether:isMutating a owl:DatatypeProperty ;".to_string());
-        lines.push("    rdfs:domain aether:Operation ;".to_string());
+        lines.push("ironshell:isMutating a owl:DatatypeProperty ;".to_string());
+        lines.push("    rdfs:domain ironshell:Operation ;".to_string());
         lines.push("    rdfs:range xsd:boolean .".to_string());
         lines.push(String::new());
 
         // Domain instances
         for domain in CapabilityDomain::all() {
             let id = format!("{:?}", domain);
-            lines.push(format!("aether:domain:{} a aether:CapabilityDomain ;", id));
+            lines.push(format!("ironshell:domain:{} a ironshell:CapabilityDomain ;", id));
             lines.push(format!("    rdfs:label \"{}\" ;", id));
             lines.push(format!("    rdfs:comment \"{}\" .", domain.description()));
             lines.push(String::new());
@@ -784,18 +784,18 @@ impl OSOperationRegistry {
         // Operation instances
         for op in self.operations.values() {
             let safe_id = op.id.replace('.', "_");
-            lines.push(format!("aether:{} a aether:Operation ;", safe_id));
+            lines.push(format!("ironshell:{} a ironshell:Operation ;", safe_id));
             lines.push(format!("    rdfs:label \"{}\" ;", op.name));
             lines.push(format!(
                 "    rdfs:comment \"{}\" ;",
                 op.description.replace('"', "\\\"")
             ));
             lines.push(format!(
-                "    aether:hasDomain aether:domain:{:?} ;",
+                "    ironshell:hasDomain ironshell:domain:{:?} ;",
                 op.domain
             ));
             lines.push(format!(
-                "    aether:isMutating \"{}\"^^xsd:boolean .",
+                "    ironshell:isMutating \"{}\"^^xsd:boolean .",
                 op.is_mutating
             ));
             lines.push(String::new());
@@ -816,7 +816,7 @@ impl OSOperationRegistry {
                     .map(|p| {
                         json!({
                             "@type": "sh:PropertyShape",
-                            "sh:path": format!("aether:{}", p.name),
+                            "sh:path": format!("ironshell:{}", p.name),
                             "sh:name": p.name,
                             "sh:description": p.description,
                             "sh:minCount": if p.required { 1 } else { 0 },
@@ -827,8 +827,8 @@ impl OSOperationRegistry {
 
                 json!({
                     "@type": "sh:NodeShape",
-                    "@id": format!("aether:shape:{}", op.id),
-                    "sh:targetClass": format!("aether:{}", op.id.replace('.', "_")),
+                    "@id": format!("ironshell:shape:{}", op.id),
+                    "sh:targetClass": format!("ironshell:{}", op.id.replace('.', "_")),
                     "sh:name": format!("{} Shape", op.name),
                     "sh:description": format!("Validation shape for {}", op.name),
                     "sh:property": property_shapes,
@@ -839,7 +839,7 @@ impl OSOperationRegistry {
         json!({
             "@context": {
                 "sh": "http://www.w3.org/ns/shacl#",
-                "aether": "https://aethershell.dev/ontology/",
+                "ironshell": "https://ironshell.dev/ontology/",
                 "xsd": "http://www.w3.org/2001/XMLSchema#"
             },
             "@graph": shapes,
@@ -2413,16 +2413,16 @@ lazy_static::lazy_static! {
 // CLI TOOL ONTOLOGY MAPPINGS
 // ============================================================================
 
-/// Information about an installed CLI tool and its AetherShell wrapper
+/// Information about an installed CLI tool and its IronShell wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CLIToolMapping {
     /// Tool name (e.g., "tmux", "cargo", "docker")
     pub tool: String,
     /// Category for grouping
     pub category: String,
-    /// AetherShell module name (e.g., "cargo", "tmux")
+    /// IronShell module name (e.g., "cargo", "tmux")
     pub module: String,
-    /// AetherShell builtin functions mapped to this tool
+    /// IronShell builtin functions mapped to this tool
     pub builtins: Vec<String>,
     /// Whether the tool binary is detected on this system
     pub installed: bool,
@@ -2695,8 +2695,8 @@ impl CLIToolRegistry {
         let installed_count = self.tools.iter().filter(|t| t.installed).count();
 
         json!({
-            "title": "AetherShell CLI Tool Wrappers",
-            "description": "Auto-detected CLI tools with AetherShell module mappings",
+            "title": "IronShell CLI Tool Wrappers",
+            "description": "Auto-detected CLI tools with IronShell module mappings",
             "total_tools": self.tools.len(),
             "installed_tools": installed_count,
             "categories": self.categories(),
@@ -3498,11 +3498,13 @@ mod tests {
     fn test_cli_registry_keeps_definition_order() {
         // Each tool must carry its own detection, not another worker's: its
         // installed flag and path must match a direct PATH lookup of that name.
+        // `<tool>.exe` counts only on Windows: under WSL the PATH carries the
+        // Windows directories, and a Linux registry rightly ignores `go.exe`.
         let lookup = |tool: &str| {
-            which::which(tool)
-                .or_else(|_| which::which(format!("{}.exe", tool)))
-                .ok()
-                .map(|p| p.to_string_lossy().to_string())
+            let found = which::which(tool);
+            #[cfg(windows)]
+            let found = found.or_else(|_| which::which(format!("{}.exe", tool)));
+            found.ok().map(|p| p.to_string_lossy().to_string())
         };
         let expected: Vec<(String, bool, Option<String>)> = CLIToolRegistry::tool_definitions()
             .into_iter()

@@ -1,4 +1,4 @@
-// Cold vs warm: `ae -c` per query, one `ae mcp stdio` process answering N
+// Cold vs warm: `ish -c` per query, one `ish mcp stdio` process answering N
 // tools/call requests, and `sqlite3` per query, on the E1 corpus.
 //
 //   cd <datadir> && AE_BIN=$(command -v ae) node benches/agentic/warm.mjs
@@ -31,7 +31,7 @@ function warm() {
         let t0;
         const send = (id) => p.stdin.write(JSON.stringify({
             jsonrpc: '2.0', id, method: 'tools/call',
-            params: { name: 'aether', arguments: { name: 'sql_value', args: ['issues.json', SQL] } },
+            params: { name: 'ironshell', arguments: { name: 'sql_value', args: ['issues.json', SQL] } },
         }) + '\n');
         p.stdout.on('data', (d) => {
             buf += d;

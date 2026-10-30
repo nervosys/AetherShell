@@ -1,4 +1,4 @@
-"""Tests for the AetherShell code the SDK generates for a single agent.
+"""Tests for the IronShell code the SDK generates for a single agent.
 
 The eval call is mocked and the code it receives is inspected. The shape
 asserted is the one the `agent` builtin accepts (src/builtins.rs,
@@ -10,11 +10,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from aethershell import Agent, AetherRuntime, _build_agent_code
+from ironshell import Agent, IronShellRuntime, _build_agent_code
 
 
 def _runtime_returning(value):
-    runtime = MagicMock(spec=AetherRuntime)
+    runtime = MagicMock(spec=IronShellRuntime)
     runtime.eval.return_value = value
     return runtime
 

@@ -7,7 +7,7 @@
 //! under a hard bound, so a regression fails the test rather than hanging the
 //! suite.
 
-use aethershell::os_tools::{run_capped, ToolExecutionResult};
+use iron_shell::os_tools::{run_capped, ToolExecutionResult};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
@@ -79,7 +79,7 @@ fn code_of(err: &anyhow::Error) -> String {
 /// A fresh directory for the pid file of one test.
 fn scratch_dir(tag: &str) -> PathBuf {
     let dir =
-        std::env::temp_dir().join(format!("aethershell-bounded-{}-{tag}", std::process::id()));
+        std::env::temp_dir().join(format!("ironshell-bounded-{}-{tag}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a scratch directory");
     dir
 }

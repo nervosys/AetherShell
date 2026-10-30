@@ -7,7 +7,7 @@ String builtins provide text manipulation, splitting, joining, and pattern match
 ### `upper`
 Convert a string to uppercase.
 
-```aethershell
+```ironshell
 upper "hello"          # "HELLO"
 "hello" | upper        # "HELLO"
 ```
@@ -15,7 +15,7 @@ upper "hello"          # "HELLO"
 ### `lower`
 Convert a string to lowercase.
 
-```aethershell
+```ironshell
 lower "HELLO"          # "hello"
 "HELLO" | lower        # "hello"
 ```
@@ -25,7 +25,7 @@ lower "HELLO"          # "hello"
 ### `trim`
 Remove leading and trailing whitespace.
 
-```aethershell
+```ironshell
 trim "  hello  "       # "hello"
 "  spaced  " | trim    # "spaced"
 ```
@@ -35,7 +35,7 @@ trim "  hello  "       # "hello"
 ### `split`
 Split a string by a delimiter, returning an array.
 
-```aethershell
+```ironshell
 split "a,b,c" ","      # ["a", "b", "c"]
 "one two three" | split " "   # ["one", "two", "three"]
 
@@ -50,7 +50,7 @@ cat "log.txt" | split "\n"
 ### `join`
 Join an array of strings with a delimiter.
 
-```aethershell
+```ironshell
 join ["a", "b", "c"] ","      # "a,b,c"
 ["hello", "world"] | join " " # "hello world"
 
@@ -66,7 +66,7 @@ cat "data.csv"
 ### `contains`
 Check if a string contains a substring.
 
-```aethershell
+```ironshell
 contains "hello world" "world"    # true
 "hello world" | contains "xyz"    # false
 
@@ -77,7 +77,7 @@ cat "log.txt" | split "\n" | where(fn(l) => contains l "ERROR")
 ### `starts_with`
 Check if a string starts with a prefix.
 
-```aethershell
+```ironshell
 starts_with "hello" "hel"     # true
 "README.md" | starts_with "READ"  # true
 ```
@@ -85,7 +85,7 @@ starts_with "hello" "hel"     # true
 ### `ends_with`
 Check if a string ends with a suffix.
 
-```aethershell
+```ironshell
 ends_with "main.rs" ".rs"     # true
 "photo.jpg" | ends_with ".png"    # false
 ```
@@ -95,7 +95,7 @@ ends_with "main.rs" ".rs"     # true
 ### `replace`
 Replace all occurrences of a substring.
 
-```aethershell
+```ironshell
 replace "hello world" "world" "Rust"    # "hello Rust"
 "foo-bar-baz" | replace "-" "_"          # "foo_bar_baz"
 
@@ -109,9 +109,9 @@ replace "hello world" "world" "Rust"    # "hello Rust"
 
 ## String in Pipelines
 
-Strings integrate seamlessly with AetherShell's pipeline model. When a single-parameter lambda receives an array, it auto-maps:
+Strings integrate seamlessly with IronShell's pipeline model. When a single-parameter lambda receives an array, it auto-maps:
 
-```aethershell
+```ironshell
 # Uppercase every element
 ["hello", "world"] | upper
 # ["HELLO", "WORLD"]
@@ -125,7 +125,7 @@ Strings integrate seamlessly with AetherShell's pipeline model. When a single-pa
 
 ### Log Parsing
 
-```aethershell
+```ironshell
 cat "app.log"
   | split "\n"
   | where(fn(line) => contains line "ERROR")
@@ -143,7 +143,7 @@ cat "app.log"
 
 ### CSV Processing
 
-```aethershell
+```ironshell
 let lines = cat "users.csv" | split "\n"
 let headers = split (first lines) ","
 let rows = lines | slice 1 (len lines) | map(fn(line) => split line ",")
@@ -157,7 +157,7 @@ rows | map(fn(row) => {
 
 ### Text Transformation
 
-```aethershell
+```ironshell
 # Snake_case to camelCase
 let snake = "my_variable_name"
 let parts = split snake "_"
@@ -170,7 +170,7 @@ echo camel   # "myVariableName"
 
 ### Batch File Renaming
 
-```aethershell
+```ironshell
 ls "."
   | where(fn(f) => ends_with f.name ".txt")
   | each(fn(f) => {
@@ -183,7 +183,7 @@ ls "."
 
 For base64 and hex encoding, see the crypto builtins (`crypto_base64_encode`, `crypto_hex_encode`), or use the general `ab_encode` / `ab_decode`:
 
-```aethershell
+```ironshell
 ab_encode "hello" "base64"    # "aGVsbG8="
 ab_decode "aGVsbG8=" "base64" # "hello"
 ```

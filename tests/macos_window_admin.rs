@@ -22,8 +22,8 @@
 
 #![cfg(target_os = "macos")]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::process::{Child, Command, Stdio};
 use std::sync::Once;
 use std::time::{Duration, Instant};
@@ -44,9 +44,9 @@ fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     static ISOLATED: Once = Once::new();
     ISOLATED.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_mac_admin_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
-    aethershell::builtins::call(name, args, &mut Env::new())
+    iron_shell::builtins::call(name, args, &mut Env::new())
 }
 
 /// An NSWindow titled AE_TEST_TITLE, 300 by 200 points at (200, 200), shown

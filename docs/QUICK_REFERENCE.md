@@ -1,21 +1,21 @@
-# AetherShell Quick Reference Guide
+# IronShell Quick Reference Guide
 
-One-page reference for the most common AetherShell patterns and syntax.
+One-page reference for the most common IronShell patterns and syntax.
 
 ## Type System
 
 ### Type Inference vs Explicit Types
 
-```aethershell
+```ironshell
 # Type Inference (:=) - Let the compiler figure it out
-name := "AetherShell"           # String
+name := "IronShell"           # String
 count := 42                     # Int
 price := 19.99                  # Float
 items := [1, 2, 3]              # Array<Int>
 config := {host: "localhost"}   # Record{host: String}
 
 # Explicit Types (=) - Declare the type
-name: String = "AetherShell"
+name: String = "IronShell"
 count: Int = 42
 price: Float = 19.99
 items: Array<Int> = [1, 2, 3]
@@ -28,7 +28,7 @@ config: Record = {host: "localhost"}
 
 ### Variables and Functions
 
-```aethershell
+```ironshell
 # Simple variable
 x := 42
 
@@ -44,7 +44,7 @@ calculate := fn(x, y, z) => (x + y) * z
 
 ### Pipelines
 
-```aethershell
+```ironshell
 # Basic pipeline
 [1, 2, 3] | map(fn(x) => x * 2)
 
@@ -63,7 +63,7 @@ ls(".")
 
 ### Pattern Matching
 
-```aethershell
+```ironshell
 result := match status {
   200 => "OK",
   404 => "Not Found",
@@ -80,7 +80,7 @@ value := match find("key") {
 
 ### Control Flow
 
-```aethershell
+```ironshell
 # If expression
 result := if x > 10 {
   "large"
@@ -96,7 +96,7 @@ items | where(fn(x) => x.price < 100)
 
 ### Basic AI Call
 
-```aethershell
+```ironshell
 response := ai("What is Rust?", {
   model: "openai:gpt-4o-mini"
 })
@@ -104,7 +104,7 @@ response := ai("What is Rust?", {
 
 ### AI with Context
 
-```aethershell
+```ironshell
 context := read_text("report.txt")
 summary := ai("Summarize this report", {
   model: "openai:gpt-4o",
@@ -114,7 +114,7 @@ summary := ai("Summarize this report", {
 
 ### Multi-modal AI
 
-```aethershell
+```ironshell
 # Analyze image
 analysis := ai("Describe this image", {
   images: ["photo.jpg"]
@@ -137,7 +137,7 @@ result := ai("Analyze this content", {
 
 ### Simple Agent
 
-```aethershell
+```ironshell
 researcher := agent("Research Rust programming", [
   "http_get",
   "read_text",
@@ -151,7 +151,7 @@ result := researcher.execute({
 
 ### Agent Swarm
 
-```aethershell
+```ironshell
 swarm := swarm([
   {
     id: "researcher",
@@ -177,7 +177,7 @@ result := swarm.execute("Create documentation for REST API")
 
 ### Start MCP Server
 
-```aethershell
+```ironshell
 # Filesystem server
 fs_server := mcp_server_start({
   name: "filesystem",
@@ -205,7 +205,7 @@ aws_server := mcp_server_start({
 prefix is stripped). No MCP server is contacted: an endpoint argument is refused
 with `E_UNIMPLEMENTED`. It returns a Record, not an object with methods.
 
-```aethershell
+```ironshell
 result = agent_with_mcp("List this directory and summarise README.md", ["ls", "cat"])
 ```
 
@@ -213,7 +213,7 @@ result = agent_with_mcp("List this directory and summarise README.md", ["ls", "c
 
 ### A2A (Agent-to-Agent Communication)
 
-```aethershell
+```ironshell
 # Register agents by name -- there is no bus object
 a2a_register("agent1")
 a2a_register("agent2")
@@ -231,7 +231,7 @@ a2a_unregister("agent1")
 
 ### NANDA (Negotiation and Decision Aggregation)
 
-```aethershell
+```ironshell
 # Propose a decision -- name and data, no coordinator object
 let proposal = nanda_propose("TaskAllocation", {
   task: "Implement feature X",
@@ -256,7 +256,7 @@ nanda_commit(proposal.id)
 
 ### File Operations
 
-```aethershell
+```ironshell
 ls("path")                    # List directory
 read_text("file.txt")         # Read text file
 write_text("file.txt", text)  # Write text file
@@ -266,7 +266,7 @@ grep("pattern", "file.txt")   # Search in file
 
 ### HTTP Operations
 
-```aethershell
+```ironshell
 http_get("https://api.example.com/data")
 http_post("https://api.example.com", {key: "value"})
 json_parse(response)
@@ -275,7 +275,7 @@ json_stringify(data)
 
 ### Data Transformations
 
-```aethershell
+```ironshell
 map(fn, list)                 # Transform each element
 filter(fn, list)              # Keep matching elements
 reduce(fn, initial, list)     # Aggregate values
@@ -287,7 +287,7 @@ where(fn, list)               # Filter with predicate
 
 ### String Operations
 
-```aethershell
+```ironshell
 split(",", "a,b,c")          # Split string
 join(",", ["a", "b"])        # Join strings
 trim(text)                   # Remove whitespace
@@ -298,7 +298,7 @@ replace("old", "new", text)  # Replace substring
 
 ### Array Operations
 
-```aethershell
+```ironshell
 len([1, 2, 3])               # Length
 head([1, 2, 3])              # First element
 tail([1, 2, 3])              # Rest of elements
@@ -310,7 +310,7 @@ concat([1, 2], [3, 4])       # Combine arrays
 
 ### Read, Transform, Write
 
-```aethershell
+```ironshell
 read_text("input.txt")
   | split("\n")
   | filter(fn(line) => len(line) > 0)
@@ -321,7 +321,7 @@ read_text("input.txt")
 
 ### API Data Processing
 
-```aethershell
+```ironshell
 http_get("https://api.github.com/repos/rust-lang/rust")
   | json_parse()
   | select("name", "stargazers_count", "language")
@@ -330,7 +330,7 @@ http_get("https://api.github.com/repos/rust-lang/rust")
 
 ### Multi-Agent Workflow
 
-```aethershell
+```ironshell
 # Stage 1: Research
 research_result := researcher.execute({
   task: "Research topic X"
@@ -351,7 +351,7 @@ final_report := writer.execute({
 
 ### Error Handling
 
-```aethershell
+```ironshell
 result := match http_get("https://api.example.com") {
   Ok(response) => json_parse(response),
   Err(error) => {
@@ -363,7 +363,7 @@ result := match http_get("https://api.example.com") {
 
 ## Model URIs
 
-```aethershell
+```ironshell
 # OpenAI
 "openai:gpt-4o"
 "openai:gpt-4o-mini"
@@ -398,7 +398,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export GOOGLE_API_KEY="..."
 
 # Default AI Provider
-export AETHER_AI="openai"
+export IRONSHELL_AI="openai"
 
 # Agent Tool Permissions
 export AGENT_ALLOW_CMDS="ls,cat,grep,git"
@@ -412,25 +412,25 @@ export MCP_READONLY="true"
 
 ```bash
 # Run script
-ae script.ae
+ish script.ish
 
 # Interactive REPL
-ae
+ish
 
 # TUI mode (interactive terminal UI)
-ae tui
+ish tui
 
 # Check syntax
-ae --check script.ae
+ish --check script.ish
 
 # Transpile to bash
-ae --transpile bash script.ae
+ish --transpile bash script.ish
 
 # Show version
-ae --version
+ish --version
 
 # Help
-ae --help
+ish --help
 ```
 
 ## VS Code Snippets
@@ -452,7 +452,7 @@ Type these prefixes and press Tab:
 
 ## Debugging Tips
 
-```aethershell
+```ironshell
 # Print intermediate values
 data
   | tap(fn(x) => print("After filter: ${x}"))

@@ -6,13 +6,13 @@
 //! on Windows, and launchd LaunchDaemons on macOS. For `sudo_exec` on any other
 //! platform, a valid call refuses with E_UNIMPLEMENTED and changes nothing.
 //!
-//! `svc_create` writes `/etc/systemd/system/ae-<name>.service`, tagged with a
+//! `svc_create` writes `/etc/systemd/system/ironshell-<name>.service`, tagged with a
 //! marker line on its first line. `svc_delete` removes only units that carry
 //! that marker, so the `ae-` namespace cannot reach hand-written units.
 //! `sudo_exec` runs `sudo -n -- argv...` on Linux and macOS and never prompts
 //! for a password. On Windows it runs argv directly, and only when this process
 //! is already elevated: Windows can elevate only through a UAC prompt, which
-//! AetherShell never shows, so a process that is not elevated is refused.
+//! IronShell never shows, so a process that is not elevated is refused.
 
 use crate::value::Value;
 use anyhow::Result;
@@ -21,8 +21,8 @@ use std::collections::BTreeMap;
 /// Written as the first line of every unit this module creates.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const MARKER: &str =
-    "# Created by AetherShell svc_create; svc_delete removes only units carrying this line";
-const UNIT_PREFIX: &str = "ae-";
+    "# Created by IronShell svc_create; svc_delete removes only units carrying this line";
+const UNIT_PREFIX: &str = "ironshell-";
 const MAX_ARGV: usize = 256;
 const MAX_ARG_BYTES: usize = 4096;
 const MAX_DESCRIPTION_BYTES: usize = 256;
@@ -227,7 +227,7 @@ fn parse_create(args: &[Value], input: &Option<Value>) -> Result<CreateSpec> {
         "options {description?, user?, restart?, enable?, start?}",
     )?;
     let description = match map.get("description") {
-        None => format!("AetherShell service {UNIT_PREFIX}{name}"),
+        None => format!("IronShell service {UNIT_PREFIX}{name}"),
         Some(Value::Str(d))
             if !d.is_empty()
                 && d.len() <= MAX_DESCRIPTION_BYTES
@@ -604,7 +604,7 @@ mod unix_sudo {
             return Err(policy_deny(
                 BUILTIN,
                 format!("{BUILTIN}: sudo needs a password for this user, so the command was not run"),
-                "run it as root, or grant this command NOPASSWD in sudoers; AetherShell never supplies a password",
+                "run it as root, or grant this command NOPASSWD in sudoers; IronShell never supplies a password",
             ));
         }
 
@@ -643,7 +643,7 @@ mod unix_sudo {
 
 /// Runs argv directly, and only in a process that is already elevated. Windows
 /// has no `sudo -n`: a process gets an elevated token only through a UAC consent
-/// prompt, and AetherShell never prompts, so an unelevated process is refused
+/// prompt, and IronShell never prompts, so an unelevated process is refused
 /// before anything runs. Nothing here starts `runas`, `Start-Process -Verb
 /// RunAs` or `sudo.exe`. The run goes through the bounded tree runner the
 /// builtins share, so a timeout kills the command's descendants too (a job
@@ -685,7 +685,7 @@ mod win_sudo {
             return Err(policy_deny(
                 BUILTIN,
                 "sudo_exec: this process is not elevated and Windows elevates only through a UAC prompt, so the command was not run",
-                "start ae from an elevated terminal (Run as administrator); AetherShell never shows a UAC prompt",
+                "start ish from an elevated terminal (Run as administrator); IronShell never shows a UAC prompt",
             ));
         }
 
@@ -734,7 +734,7 @@ mod scm {
     use std::ptr::{null, null_mut};
     use std::time::{Duration, Instant};
 
-    const WIN_MARKER: &str = "[AetherShell svc_create] ";
+    const WIN_MARKER: &str = "[IronShell svc_create] ";
     /// How long `svc_delete` waits for a running service to report stopped.
     const STOP_WAIT: Duration = Duration::from_secs(30);
     /// Delay before each of the three restarts that `restart: "on-failure"` sets.
@@ -930,7 +930,7 @@ mod scm {
                 os_denied(
                     builtin,
                     format!("{builtin}: {call} could not log on the account of '{service}' ({win})"),
-                    "use a built-in or virtual account such as LocalSystem; AetherShell never supplies a password",
+                    "use a built-in or virtual account such as LocalSystem; IronShell never supplies a password",
                 )
             }
             _ => bad_state(
@@ -1287,7 +1287,7 @@ mod scm {
         if !description_of(BUILTIN, &svc, &service)?.starts_with(WIN_MARKER) {
             return Err(policy_deny(
                 BUILTIN,
-                format!("{BUILTIN}: service '{service}' has no AetherShell marker in its description; refusing to remove it"),
+                format!("{BUILTIN}: service '{service}' has no IronShell marker in its description; refusing to remove it"),
                 "only services svc_create created can be deleted; remove hand-written services with sc.exe",
             ));
         }
@@ -1575,7 +1575,7 @@ mod linux {
         if !text.lines().any(|line| line == MARKER) {
             return Err(policy_deny(
                 BUILTIN,
-                format!("{BUILTIN}: {unit_path:?} has no AetherShell marker line; refusing to remove it"),
+                format!("{BUILTIN}: {unit_path:?} has no IronShell marker line; refusing to remove it"),
                 "only units svc_create created can be deleted; remove hand-written units by hand",
             ));
         }
@@ -1628,7 +1628,7 @@ mod linux {
 // ── macOS backend ───────────────────────────────────────────────────────────
 
 /// launchd, through `launchctl` and a LaunchDaemon property list. A service is
-/// `/Library/LaunchDaemons/com.aethershell.<name>.plist`, loaded into the system
+/// `/Library/LaunchDaemons/com.ironshell.<name>.plist`, loaded into the system
 /// domain. launchd loads every LaunchDaemon at boot, so `enable` is the
 /// plist's `Disabled` key, and `start` is its `RunAtLoad`.
 ///
@@ -1648,11 +1648,11 @@ mod launchd {
     const PLUTIL: &str = "/usr/bin/plutil";
     const ID: &str = "/usr/bin/id";
     const DAEMON_DIR: &str = "/Library/LaunchDaemons";
-    const LABEL_PREFIX: &str = "com.aethershell.";
+    const LABEL_PREFIX: &str = "com.ironshell.";
     /// Bound on each launchctl, plutil and id call, so a stuck tool cannot hang the shell.
     const TOOL_TIMEOUT_SECS: u64 = 60;
     /// Written as an XML comment in every plist this module creates.
-    const PLIST_MARKER: &str = "<!-- Created by AetherShell svc_create; svc_delete removes only plists carrying this line -->";
+    const PLIST_MARKER: &str = "<!-- Created by IronShell svc_create; svc_delete removes only plists carrying this line -->";
 
     fn label_of(name: &str) -> String {
         format!("{LABEL_PREFIX}{name}")
@@ -1770,7 +1770,7 @@ mod launchd {
         text.push('\n');
         text.push_str("<dict>\n");
         key_string(&mut text, "Label", label);
-        key_string(&mut text, "AetherShellDescription", &spec.description);
+        key_string(&mut text, "IronShellDescription", &spec.description);
         text.push_str("\t<key>ProgramArguments</key>\n\t<array>\n");
         for arg in &spec.argv {
             text.push_str(&format!("\t\t<string>{}</string>\n", xml_escape(arg)));
@@ -1882,7 +1882,7 @@ mod launchd {
                 }
                 return Err(policy_deny(
                     BUILTIN,
-                    format!("{BUILTIN}: {path:?} exists and was not created by AetherShell; refusing to replace it"),
+                    format!("{BUILTIN}: {path:?} exists and was not created by IronShell; refusing to replace it"),
                     "choose another name",
                 ));
             }
@@ -1930,7 +1930,7 @@ mod launchd {
                 if loaded_print(BUILTIN, &label)?.is_some() {
                     return Err(policy_deny(
                         BUILTIN,
-                        format!("{BUILTIN}: {label} is loaded but has no plist in {DAEMON_DIR}; it was not created by AetherShell"),
+                        format!("{BUILTIN}: {label} is loaded but has no plist in {DAEMON_DIR}; it was not created by IronShell"),
                         "remove it with launchctl by hand",
                     ));
                 }
@@ -1949,7 +1949,7 @@ mod launchd {
         if !text.lines().any(|line| line == PLIST_MARKER) {
             return Err(policy_deny(
                 BUILTIN,
-                format!("{BUILTIN}: {path:?} has no AetherShell marker line; refusing to remove it"),
+                format!("{BUILTIN}: {path:?} has no IronShell marker line; refusing to remove it"),
                 "only services svc_create created can be deleted; remove hand-written daemons by hand",
             ));
         }

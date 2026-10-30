@@ -25,7 +25,7 @@ fn scan(dir: &Path, found: &mut Vec<String>, files: &mut usize) {
             continue;
         }
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if !matches!(ext, "rs" | "toml" | "yml" | "yaml" | "md" | "mjs" | "ae") {
+        if !matches!(ext, "rs" | "toml" | "yml" | "yaml" | "md" | "mjs" | "ish") {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else {

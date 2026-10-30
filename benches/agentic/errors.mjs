@@ -27,7 +27,7 @@ fs.writeFileSync(path.join(cwd, 'data.json'), '{"a": 1, "b": [1,2,3]}');
 fs.writeFileSync(path.join(cwd, 'broken.json'), '{"a": 1,');
 
 const ENGINES = {
-    aethershell: { bin: 'ae', argv: (c) => ['-c', c] },
+    ironshell: { bin: 'ish', argv: (c) => ['-c', c] },
     bash: { bin: 'bash', argv: (c) => ['-c', c] },
     pwsh: { bin: 'pwsh', argv: (c) => ['-NoProfile', '-Command', c] },
     nushell: { bin: 'nu', argv: (c) => ['-n', '-c', c] },
@@ -36,37 +36,37 @@ const ENGINES = {
 // Each case is the same mistake expressed in each language.
 const CASES = [
     { id: 'misspelled-builtin',
-      aethershell: 'lenght([1,2,3])', bash: 'lenght 1 2 3',
+      ironshell: 'lenght([1,2,3])', bash: 'lenght 1 2 3',
       pwsh: 'Get-ChildItemz', nushell: 'lenght [1 2 3]' },
     { id: 'missing-file',
-      aethershell: 'cat("nope.json")', bash: 'cat nope.json',
+      ironshell: 'cat("nope.json")', bash: 'cat nope.json',
       pwsh: 'Get-Content nope.json', nushell: 'open nope.json' },
     { id: 'malformed-json',
-      aethershell: 'cat("broken.json") | from_json', bash: 'cat broken.json | jq .',
+      ironshell: 'cat("broken.json") | from_json', bash: 'cat broken.json | jq .',
       pwsh: 'Get-Content broken.json -Raw | ConvertFrom-Json', nushell: 'open broken.json' },
     { id: 'wrong-arg-type',
-      aethershell: 'contains([1,2,3], "x")', bash: 'expr abc + 1',
+      ironshell: 'contains([1,2,3], "x")', bash: 'expr abc + 1',
       pwsh: '[int]"abc"', nushell: '"abc" + 1' },
     { id: 'missing-field',
-      aethershell: 'cat("data.json") | from_json | get("nosuch")',
+      ironshell: 'cat("data.json") | from_json | get("nosuch")',
       bash: 'jq -e .nosuch data.json', pwsh: '(Get-Content data.json -Raw | ConvertFrom-Json).nosuch.deeper',
       nushell: 'open data.json | get nosuch' },
     { id: 'syntax-error',
-      aethershell: '[1,2,3] | map(fn(x) => x *', bash: 'for i in 1 2 3; do echo $i',
+      ironshell: '[1,2,3] | map(fn(x) => x *', bash: 'for i in 1 2 3; do echo $i',
       pwsh: 'if ($true) {', nushell: '[1 2 3] | each {|x| $x *' },
     // `max([1,2,3])` stood here until the aggregate form was implemented, at
     // which point it stopped being an error. `starts_with` genuinely needs two.
     { id: 'wrong-arity',
-      aethershell: 'starts_with("abc")', bash: 'basename',
+      ironshell: 'starts_with("abc")', bash: 'basename',
       pwsh: 'Join-Path', nushell: 'str substring' },
     { id: 'divide-by-zero',
-      aethershell: '1 / 0', bash: 'echo $((1/0))',
+      ironshell: '1 / 0', bash: 'echo $((1/0))',
       pwsh: '1/0', nushell: '1 / 0' },
     { id: 'permission-or-path',
-      aethershell: 'cat("/root/.ssh/id_rsa")', bash: 'cat /root/.ssh/id_rsa',
+      ironshell: 'cat("/root/.ssh/id_rsa")', bash: 'cat /root/.ssh/id_rsa',
       pwsh: 'Get-Content /root/.ssh/id_rsa', nushell: 'open /root/.ssh/id_rsa' },
     { id: 'index-out-of-range',
-      aethershell: '[1,2,3] | nth(99)', bash: 'a=(1 2 3); echo ${a[99]:?out of range}',
+      ironshell: '[1,2,3] | nth(99)', bash: 'a=(1 2 3); echo ${a[99]:?out of range}',
       pwsh: '@(1,2,3)[99].Length', nushell: '[1 2 3] | get 99' },
 ];
 
@@ -143,8 +143,8 @@ if (absent.length) {
 }
 
 // Non-vacuity: a comparison of one engine against nothing is not a comparison.
-// It is still worth running -- the AetherShell row is a real measurement of
-// AetherShell -- but it must not be quoted as a comparison table.
+// It is still worth running -- the IronShell row is a real measurement of
+// IronShell -- but it must not be quoted as a comparison table.
 if (Object.keys(ENGINES).length - absent.length < 2) {
     console.log('\n! only one engine ran; this is a self-measurement, not a comparison.');
 }

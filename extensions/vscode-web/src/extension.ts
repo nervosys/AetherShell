@@ -3,12 +3,12 @@ import * as vscode from 'vscode';
 let agentApiUrl: string;
 
 export function activate(context: vscode.ExtensionContext) {
-    const config = vscode.workspace.getConfiguration('aethershell');
+    const config = vscode.workspace.getConfiguration('ironshell');
     agentApiUrl = config.get('agentApiUrl', 'http://localhost:3002');
 
     // Register eval command
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.eval', async () => {
+        vscode.commands.registerCommand('ironshell.eval', async () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor) return;
 
@@ -19,21 +19,21 @@ export function activate(context: vscode.ExtensionContext) {
 
             try {
                 const result = await evalCode(text);
-                const outputChannel = vscode.window.createOutputChannel('AetherShell');
+                const outputChannel = vscode.window.createOutputChannel('IronShell');
                 outputChannel.appendLine(`> ${text}`);
                 outputChannel.appendLine(JSON.stringify(result, null, 2));
                 outputChannel.show();
             } catch (err: any) {
-                vscode.window.showErrorMessage(`AetherShell: ${err.message}`);
+                vscode.window.showErrorMessage(`IronShell: ${err.message}`);
             }
         })
     );
 
     // Register connect command
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.connectAgent', async () => {
+        vscode.commands.registerCommand('ironshell.connectAgent', async () => {
             const url = await vscode.window.showInputBox({
-                prompt: 'AetherShell Agent API URL',
+                prompt: 'IronShell Agent API URL',
                 value: agentApiUrl,
             });
             if (url) {
@@ -41,12 +41,12 @@ export function activate(context: vscode.ExtensionContext) {
                 try {
                     const resp = await fetch(`${agentApiUrl}/health`);
                     if (resp.ok) {
-                        vscode.window.showInformationMessage(`Connected to AetherShell at ${agentApiUrl}`);
+                        vscode.window.showInformationMessage(`Connected to IronShell at ${agentApiUrl}`);
                     } else {
-                        vscode.window.showWarningMessage(`AetherShell health check failed: ${resp.status}`);
+                        vscode.window.showWarningMessage(`IronShell health check failed: ${resp.status}`);
                     }
                 } catch {
-                    vscode.window.showErrorMessage(`Cannot reach AetherShell at ${agentApiUrl}`);
+                    vscode.window.showErrorMessage(`Cannot reach IronShell at ${agentApiUrl}`);
                 }
             }
         })
@@ -54,7 +54,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Hover provider for builtins
     context.subscriptions.push(
-        vscode.languages.registerHoverProvider('aethershell', {
+        vscode.languages.registerHoverProvider('ironshell', {
             async provideHover(document, position) {
                 const range = document.getWordRangeAtPosition(position, /[\w.]+/);
                 if (!range) return;
@@ -65,7 +65,7 @@ export function activate(context: vscode.ExtensionContext) {
                     if (resp.ok) {
                         const info: any = await resp.json();
                         const md = new vscode.MarkdownString();
-                        md.appendCodeblock(info.signature || word, 'aethershell');
+                        md.appendCodeblock(info.signature || word, 'ironshell');
                         if (info.description) md.appendMarkdown(`\n\n${info.description}`);
                         return new vscode.Hover(md);
                     }
@@ -79,7 +79,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Completion provider
     context.subscriptions.push(
-        vscode.languages.registerCompletionItemProvider('aethershell', {
+        vscode.languages.registerCompletionItemProvider('ironshell', {
             async provideCompletionItems(document, position) {
                 const linePrefix = document.lineAt(position).text.substring(0, position.character);
 

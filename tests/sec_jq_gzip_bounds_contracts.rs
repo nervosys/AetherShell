@@ -10,8 +10,8 @@
 //! `jq --version` succeeds on this machine; otherwise it prints a note and
 //! checks the coded E_TOOL_MISSING instead.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -20,12 +20,12 @@ use std::time::{Duration, Instant};
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call_piped(name: &str, args: Vec<Value>, input: Value) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call_with_input(name, args, Some(input), &mut env)
+    iron_shell::builtins::call_with_input(name, args, Some(input), &mut env)
 }
 
 fn code_of(e: &anyhow::Error) -> String {
@@ -108,7 +108,7 @@ fn gzip_bomb_past_the_cap_is_refused_and_leaves_no_output() {
     let bomb_s = s_path(&bomb);
 
     // The hook runs gzip_decompress with a 1 MiB cap, so the bomb is 4x over it.
-    let err = aethershell::builtins::__test_gzip_decompress_capped(&bomb_s, 1024 * 1024)
+    let err = iron_shell::builtins::__test_gzip_decompress_capped(&bomb_s, 1024 * 1024)
         .expect_err("a bomb past the cap must be refused");
     assert_eq!(code_of(&err), "E_BUDGET_EXCEEDED", "{err}");
     assert!(
@@ -126,12 +126,12 @@ fn gzip_output_exactly_at_the_cap_is_kept() {
     let gz_s = s_path(&gz);
 
     // A cap one byte short of the output refuses; a cap of exactly the output size keeps it.
-    let err = aethershell::builtins::__test_gzip_decompress_capped(&gz_s, 999)
+    let err = iron_shell::builtins::__test_gzip_decompress_capped(&gz_s, 999)
         .expect_err("999 bytes must not hold 1000");
     assert_eq!(code_of(&err), "E_BUDGET_EXCEEDED", "{err}");
     assert!(!dir.path("b.txt").exists());
 
-    aethershell::builtins::__test_gzip_decompress_capped(&gz_s, 1000)
+    iron_shell::builtins::__test_gzip_decompress_capped(&gz_s, 1000)
         .expect("an output of exactly the cap is allowed");
     assert_eq!(std::fs::read(dir.path("b.txt")).unwrap(), data);
 }
@@ -220,7 +220,7 @@ fn sec_run_cmd_kills_a_silent_child_at_its_deadline() {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let _ = tx.send(aethershell::builtins::__test_sec_run_cmd(program, &refs, 2));
+        let _ = tx.send(iron_shell::builtins::__test_sec_run_cmd(program, &refs, 2));
     });
     // The hard bound: the call must answer within 60 s even if the kill were broken.
     let answer = rx

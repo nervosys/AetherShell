@@ -56,11 +56,11 @@ const SCRATCH_HOME = {
 process.on('exit', () => fs.rmSync(JAIL, { recursive: true, force: true }));
 
 const run = (code) => {
-    const r = spawnSync('ae', ['--agent', '--policy', 'strict', '--workspace', JAIL, '-c', code], {
+    const r = spawnSync('ish', ['--agent', '--policy', 'strict', '--workspace', JAIL, '-c', code], {
         cwd: JAIL,
         encoding: 'utf8',
         timeout: 10000,
-        env: { ...process.env, ...SCRATCH_HOME, AETHER_MAX_NET: '0' },
+        env: { ...process.env, ...SCRATCH_HOME, IRONSHELL_MAX_NET: '0' },
     });
     const out = ((r.stdout ?? '') + (r.stderr ?? '')).trim();
     return r.signal === 'SIGTERM' && r.status === null
@@ -69,11 +69,11 @@ const run = (code) => {
 };
 
 if (run('1 + 1').out !== '2') {
-    console.error('! `ae` is not answering; is it on PATH?');
+    console.error('! `ish` is not answering; is it on PATH?');
     process.exit(2);
 }
 
-const AE = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['ae'], {
+const AE = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['ish'], {
     encoding: 'utf8',
 })
     .stdout?.split('\n')[0]
@@ -86,7 +86,7 @@ try {
         process.exit(2);
     }
 } catch (e) {
-    console.error(`! could not check \`ae\` against the sources (${e.message}).`);
+    console.error(`! could not check \`ish\` against the sources (${e.message}).`);
 }
 
 const cats = JSON.parse(run('json.stringify(ontology_manifest())').out).categories.map((c) =>

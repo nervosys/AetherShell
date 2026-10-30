@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI & Agents - AetherShell Documentation</title>
+    <title>AI & Agents - IronShell Documentation</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -20,7 +20,7 @@
 <body>
     <nav class="sidebar">
         <div class="logo">
-            <h1>🚀 AetherShell</h1>
+            <h1>🚀 IronShell</h1>
             <p class="version">v1.0.0</p>
         </div>
         <ul class="nav-menu">
@@ -48,7 +48,7 @@
 
         <section class="feature-section">
             <h2>Overview</h2>
-            <p>AetherShell integrates AI capabilities at the language level, enabling:</p>
+            <p>IronShell integrates AI capabilities at the language level, enabling:</p>
 
             <ul>
                 <li>🤖 <strong>AI Agents</strong> - Autonomous task execution with tool access</li>
@@ -92,7 +92,7 @@
 
             <h3>Environment Setup</h3>
             <pre><code># Set default AI provider
-export AETHER_AI=openai
+export IRONSHELL_AI=openai
 
 # OpenAI API key
 export OPENAI_API_KEY=sk-...
@@ -437,7 +437,7 @@ reflection = ab_encode("command", "reflect", "efficiency:95%")</code></pre>
             <h2>Model Context Protocol (MCP)</h2>
 
             <h3>MCP Integration</h3>
-            <p>AetherShell supports the Model Context Protocol for standardized AI tool integration.</p>
+            <p>IronShell supports the Model Context Protocol for standardized AI tool integration.</p>
 
             <h3>MCP Functions</h3>
             <pre><code>// List available MCP servers
@@ -494,7 +494,7 @@ if type_of(result) == "Record" && result.status == "error" {
 
         <section class="feature-section">
             <h2>Complete Multi-Agent Example</h2>
-            <p>See <code>examples/13_agent_coordination.ae</code> for a full 10-phase workflow with:</p>
+            <p>See <code>examples/13_agent_coordination.ish</code> for a full 10-phase workflow with:</p>
 
             <ul>
                 <li>✅ 4 agents (Coordinator + 3 Workers)</li>
@@ -506,7 +506,7 @@ if type_of(result) == "Record" && result.status == "error" {
             </ul>
 
             <pre><code># Run the example
-ae examples/13_agent_coordination.ae</code></pre>
+ish examples/13_agent_coordination.ish</code></pre>
         </section>
 
         <div class="alert alert-success">
@@ -516,7 +516,7 @@ ae examples/13_agent_coordination.ae</code></pre>
     </main>
 
     <footer>
-        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+        <p>&copy; 2025 IronShell. Built with Rust 🦀</p>
     </footer>
 </body>
 

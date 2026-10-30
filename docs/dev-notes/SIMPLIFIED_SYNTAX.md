@@ -5,13 +5,13 @@
 
 ## Summary
 
-AetherShell now supports a simplified variable declaration syntax using just `=` without requiring `let` or `:=`. This makes the code cleaner and more concise while maintaining full type inference.
+IronShell now supports a simplified variable declaration syntax using just `=` without requiring `let` or `:=`. This makes the code cleaner and more concise while maintaining full type inference.
 
 ## Syntax Options
 
 ### ✅ Recommended: Simple = (New!)
 
-```ae
+```ish
 name = "world"
 count = 42
 items = [1, 2, 3]
@@ -26,7 +26,7 @@ user = {name: "Alice", age: 30}
 
 ### Also Supported: let keyword
 
-```ae
+```ish
 let name = "world"
 let count = 42
 let mut counter = 0  // Mutable
@@ -39,7 +39,7 @@ let mut counter = 0  // Mutable
 
 ### Also Supported: := shorthand
 
-```ae
+```ish
 name := "world"
 count := 42
 ```
@@ -51,15 +51,15 @@ count := 42
 ## Examples
 
 ### Before (using :=)
-```ae
-name := "AetherShell"
+```ish
+name := "IronShell"
 version := "0.1.0"
 greeting := "Welcome to ${name} v${version}!"
 ```
 
 ### After (using =)
-```ae
-name = "AetherShell"
+```ish
+name = "IronShell"
 version = "0.1.0"
 greeting = "Welcome to ${name} v${version}!"
 ```
@@ -70,7 +70,7 @@ Both work identically, but the `=` syntax is shorter and more familiar.
 
 All three syntaxes have full Hindley-Milner type inference:
 
-```ae
+```ish
 // All these infer types correctly
 x = 42                  // Int
 y = 3.14                // Float
@@ -94,7 +94,7 @@ All three desugar to the same `Stmt::Let` AST node.
 
 No migration needed! All three syntaxes work simultaneously:
 
-```ae
+```ish
 // Mix and match as needed
 name = "test"           // Simple =
 let count = 42          // Let keyword
@@ -109,7 +109,7 @@ print("${name}: ${count} items")
 - **src/parser.rs**: Added `identifier = expression` pattern recognition
 - **README.md**: Updated examples to use simple `=` syntax  
 - **docs/specs/SPEC.md**: Updated variable binding section
-- **examples/*.ae**: Updated all 17 examples to use `=` syntax
+- **examples/*.ish**: Updated all 17 examples to use `=` syntax
 
 ## Testing
 

@@ -676,7 +676,7 @@ This software is dual-licensed:
    interacting with the software over a network (Section 13).
 
 2. COMMERCIAL LICENSE:
-   For organizations that wish to use AetherShell in proprietary products
+   For organizations that wish to use IronShell in proprietary products
    or services without the AGPL's copyleft obligations (including the
    network interaction source disclosure requirement), a separate
    commercial license is available.
@@ -690,5 +690,5 @@ This software is dual-licensed:
    Contact: contact@nervosys.ai
    Website: https://nervosys.ai
 
-All contributions to AetherShell are subject to the Contributor License
+All contributions to IronShell are subject to the Contributor License
 Agreement (CLA). See CLA.md for details.

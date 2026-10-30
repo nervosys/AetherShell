@@ -92,19 +92,19 @@ let auth_header = config.create_auth_header()?;
 **CLI Commands**:
 ```bash
 # Store key securely
-ae keys store openai sk-...
+ish keys store openai sk-...
 
 # Retrieve (masked)
-ae keys get openai
+ish keys get openai
 
 # List all stored keys
-ae keys list
+ish keys list
 
 # Delete key
-ae keys delete openai
+ish keys delete openai
 
 # Migrate from environment variables
-ae keys migrate
+ish keys migrate
 ```
 
 ## Implementation Details
@@ -213,15 +213,15 @@ test_anthropic_key_validation        // Multi-provider support
 **Step 1: Store your API key**
 ```bash
 # Secure storage (recommended)
-ae keys store openai YOUR_KEY_HERE
+ish keys store openai YOUR_KEY_HERE
 
 # Or migrate from environment
-ae keys migrate openai
+ish keys migrate openai
 ```
 
 **Step 2: Verify storage**
 ```bash
-ae keys get openai
+ish keys get openai
 # Output: sk-...XXXX...1234 (masked)
 ```
 
@@ -233,7 +233,7 @@ unset OPENAI_API_KEY
 
 **Step 4: Test AI functionality**
 ```bash
-ae tui
+ish tui
 # AI features should work using stored key
 ```
 
@@ -305,7 +305,7 @@ let auth_header = config
 - Use `from_keyring_or_env()` for production
 - Call `validate_format()` after creation
 - Use `create_auth_header()` for temporary usage
-- Store keys with `ae keys store`
+- Store keys with `ish keys store`
 - Enable audit logging
 
 ### DON'T ❌

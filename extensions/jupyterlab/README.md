@@ -1,20 +1,20 @@
-# AetherShell JupyterLab Extension
+# IronShell JupyterLab Extension
 
-Jupyter kernel and JupyterLab integration for [AetherShell](https://github.com/nervosys/AetherShell).
+Jupyter kernel and JupyterLab integration for [IronShell](https://github.com/nervosys/AetherShell).
 
 ## Features
 
-- **AetherShell kernel** — execute `.ae` code in Jupyter notebooks
-- **Syntax highlighting** for AetherShell cells
+- **IronShell kernel** — execute `.ish` code in Jupyter notebooks
+- **Syntax highlighting** for IronShell cells
 - **Code completion** via the Agent API
 - **Structured output** — typed results displayed as tables, JSON, etc.
 
 ## Prerequisites
 
-The AetherShell Agent API server must be running:
+The IronShell Agent API server must be running:
 
 ```bash
-ae agent serve  # starts on port 3002
+ish agent serve  # starts on port 3002
 ```
 
 ## Installation
@@ -23,7 +23,7 @@ ae agent serve  # starts on port 3002
 # Install the kernel
 cd extensions/jupyterlab
 pip install -e .
-jupyter kernelspec install jupyterlab_aethershell/kernelspec --user --name aethershell
+jupyter kernelspec install jupyterlab_ironshell/kernelspec --user --name ironshell
 
 # Install the JupyterLab extension
 jlpm install
@@ -33,7 +33,7 @@ jupyter labextension develop . --overwrite
 
 ## Usage
 
-1. Start `ae agent serve`
+1. Start `ish agent serve`
 2. Open JupyterLab
-3. Create a new notebook with the "AetherShell" kernel
-4. Write AetherShell expressions in cells
+3. Create a new notebook with the "IronShell" kernel
+4. Write IronShell expressions in cells

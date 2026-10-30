@@ -12,7 +12,7 @@
 //! noticed: a check that only reads the manifest cannot see this. This walks
 //! the manifest the way an agent does and asks each category for its list.
 
-use aethershell::agent_api::{ontology_describe_json, ontology_manifest_json};
+use iron_shell::agent_api::{ontology_describe_json, ontology_manifest_json};
 
 #[test]
 fn every_advertised_category_lists_the_count_it_advertises() {

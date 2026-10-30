@@ -1,7 +1,7 @@
 //! AI Provider Tool Integration
 //!
 //! This module provides the integration layer between LLM providers and
-//! AetherShell's OS abstraction ontology, making AetherShell the default
+//! IronShell's OS abstraction ontology, making IronShell the default
 //! OS interface for all AI agents.
 //!
 //! ## Architecture
@@ -51,7 +51,7 @@ use std::collections::HashMap;
 
 /// Tool definition that can be sent to any LLM provider
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AetherTool {
+pub struct IronShellTool {
     /// Tool name (matches ontology operation ID)
     pub name: String,
     /// Human-readable description
@@ -98,12 +98,12 @@ pub struct ToolExecutionMetadata {
 // ============================================================================
 
 /// Registry of tools available to AI providers
-pub struct AetherToolRegistry {
-    tools: HashMap<String, AetherTool>,
+pub struct IronShellToolRegistry {
+    tools: HashMap<String, IronShellTool>,
     executor: &'static PlatformExecutor,
 }
 
-impl AetherToolRegistry {
+impl IronShellToolRegistry {
     /// Create a new tool registry from the ontology
     pub fn new() -> Self {
         let mut tools = HashMap::new();
@@ -122,17 +122,17 @@ impl AetherToolRegistry {
     }
 
     /// Get all available tools
-    pub fn all_tools(&self) -> Vec<&AetherTool> {
+    pub fn all_tools(&self) -> Vec<&IronShellTool> {
         self.tools.values().collect()
     }
 
     /// Get tools available on the current platform
-    pub fn available_tools(&self) -> Vec<&AetherTool> {
+    pub fn available_tools(&self) -> Vec<&IronShellTool> {
         self.tools.values().filter(|t| t.available).collect()
     }
 
     /// Get tools by domain
-    pub fn tools_by_domain(&self, domain: &CapabilityDomain) -> Vec<&AetherTool> {
+    pub fn tools_by_domain(&self, domain: &CapabilityDomain) -> Vec<&IronShellTool> {
         let domain_prefix = match domain {
             CapabilityDomain::FileSystem => "fs.",
             CapabilityDomain::Process => "process.",
@@ -161,7 +161,7 @@ impl AetherToolRegistry {
     }
 
     /// Get a specific tool by name
-    pub fn get_tool(&self, name: &str) -> Option<&AetherTool> {
+    pub fn get_tool(&self, name: &str) -> Option<&IronShellTool> {
         self.tools.get(name)
     }
 
@@ -282,7 +282,7 @@ impl AetherToolRegistry {
     }
 }
 
-impl Default for AetherToolRegistry {
+impl Default for IronShellToolRegistry {
     fn default() -> Self {
         Self::new()
     }
@@ -292,7 +292,7 @@ impl Default for AetherToolRegistry {
 // HELPER FUNCTIONS
 // ============================================================================
 
-fn operation_to_tool(op: &OSOperation, current_platform: SupportedPlatform) -> AetherTool {
+fn operation_to_tool(op: &OSOperation, current_platform: SupportedPlatform) -> IronShellTool {
     // Check if operation is available on current platform
     let available = op
         .supported_platforms
@@ -306,7 +306,7 @@ fn operation_to_tool(op: &OSOperation, current_platform: SupportedPlatform) -> A
     // Convert parameters to JSON Schema
     let parameters = params_to_json_schema(&op.parameters);
 
-    AetherTool {
+    IronShellTool {
         name: op.id.clone(),
         description: format!(
             "{}{}",
@@ -477,7 +477,7 @@ fn param_type_to_json_schema(param_type: &ParamType) -> JsonValue {
 
 lazy_static::lazy_static! {
     /// Global tool registry
-    pub static ref AETHER_TOOLS: AetherToolRegistry = AetherToolRegistry::new();
+    pub static ref IRONSHELL_TOOLS: IronShellToolRegistry = IronShellToolRegistry::new();
 }
 
 // ============================================================================
@@ -490,13 +490,13 @@ mod tests {
 
     #[test]
     fn test_tool_registry_creation() {
-        let registry = AetherToolRegistry::new();
+        let registry = IronShellToolRegistry::new();
         assert!(!registry.all_tools().is_empty());
     }
 
     #[test]
     fn test_tool_availability() {
-        let registry = AetherToolRegistry::new();
+        let registry = IronShellToolRegistry::new();
         // fs.read_file should be available on all platforms
         let tool = registry.get_tool("fs.read_file");
         assert!(tool.is_some());
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_openai_format() {
-        let registry = AetherToolRegistry::new();
+        let registry = IronShellToolRegistry::new();
         let functions = registry.to_openai_functions();
         assert!(!functions.is_empty());
 
@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_anthropic_format() {
-        let registry = AetherToolRegistry::new();
+        let registry = IronShellToolRegistry::new();
         let tools = registry.to_anthropic_tools();
         assert!(!tools.is_empty());
 
@@ -531,7 +531,7 @@ mod tests {
 
     #[test]
     fn test_tool_execution() {
-        let registry = AetherToolRegistry::new();
+        let registry = IronShellToolRegistry::new();
 
         // Test env.get which should work on all platforms
         let result = registry.execute("env.get", json!({ "name": "PATH" }));
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn test_domain_filtering() {
-        let registry = AetherToolRegistry::new();
+        let registry = IronShellToolRegistry::new();
         let fs_tools = registry.tools_by_domain(&CapabilityDomain::FileSystem);
 
         // Should have filesystem tools

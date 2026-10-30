@@ -3,15 +3,15 @@
 //!
 //! The call arm evaluated its arguments while the stage's input was still set,
 //! so `"hello" | slice(1, len("hello"))` ran `len` with "hello" piped in *and*
-//! as its argument, and the declaration refused it. `lib/string.ae`'s
-//! `capitalize` failed this way, which made `lib/test_stdlib.ae` stop halfway.
+//! as its argument, and the declaration refused it. `lib/string.ish`'s
+//! `capitalize` failed this way, which made `lib/test_stdlib.ish` stop halfway.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 fn run(src: &str) -> anyhow::Result<Value> {
-    let stmts = aethershell::parser::parse_program(src)?;
-    aethershell::eval::eval_program(&stmts, &mut Env::new())
+    let stmts = iron_shell::parser::parse_program(src)?;
+    iron_shell::eval::eval_program(&stmts, &mut Env::new())
 }
 
 #[test]

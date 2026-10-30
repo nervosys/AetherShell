@@ -1,4 +1,4 @@
-//! Safety core for AetherShell's agentic-first design.
+//! Safety core for IronShell's agentic-first design.
 //!
 //! Implements the capability → policy → approval → audit model from
 //! `docs/AGENTIC_FIRST_DESIGN.md` (§5.3, §7). Every effecting builtin can route
@@ -15,7 +15,7 @@
 //!
 //! Defaults preserve the human REPL exactly (default-allow, no audit file) while
 //! the agent surface is default-deny for the dangerous effect classes. Mode is
-//! selected by `AETHER_MODE=agent` (or `AETHER_AGENT=1`); everything else is
+//! selected by `IRONSHELL_MODE=agent` (or `IRONSHELL_AGENT=1`); everything else is
 //! human mode. This means existing scripts and tests are unaffected unless they
 //! opt into agent mode.
 //!
@@ -30,8 +30,8 @@
 //! | Exec          | allow  | approve  |
 //! | Privileged    | allow  | deny     |
 //!
-//! `AETHER_POLICY=permissive` makes agent mode behave like human mode (allow
-//! all) for trusted automation; `AETHER_POLICY=strict` is the default.
+//! `IRONSHELL_POLICY=permissive` makes agent mode behave like human mode (allow
+//! all) for trusted automation; `IRONSHELL_POLICY=strict` is the default.
 
 use ironcrypto::core_types::traits::Digest as _;
 use ironcrypto::hash::Sha256;
@@ -110,14 +110,14 @@ impl Effect {
     }
 }
 
-/// Whether FIPS-strict mode is active (`AETHER_FIPS` ∈ {`1`,`on`,`true`}). In FIPS
+/// Whether FIPS-strict mode is active (`IRONSHELL_FIPS` ∈ {`1`,`on`,`true`}). In FIPS
 /// mode, non-FIPS-approved cryptographic algorithms (MD5, SHA-1) are refused, so any
 /// security-relevant operation uses only FIPS-approved algorithms (SHA-2 family).
 /// Note: this enforces *approved-algorithm-only* at the application layer; it does
 /// not by itself make the underlying crypto a FIPS-140-*validated* module (see
 /// `docs/security/CRYPTO_AND_FIPS.md`).
 pub fn fips_enabled() -> bool {
-    std::env::var("AETHER_FIPS")
+    std::env::var("IRONSHELL_FIPS")
         .map(|v| {
             let v = v.trim();
             v.eq_ignore_ascii_case("1")
@@ -136,7 +136,7 @@ pub fn require_fips_hash(algo: &str) -> anyhow::Result<()> {
         // boundary, as it does for `arg_err`.
         return Err(anyhow::Error::new(SafetyError {
             code: ErrorCode::FipsDisallowed,
-            message: format!("hash algorithm '{algo}' is not FIPS-approved (AETHER_FIPS active)"),
+            message: format!("hash algorithm '{algo}' is not FIPS-approved (IRONSHELL_FIPS active)"),
             builtin: String::new(),
             hint: "use sha256, sha384 or sha512; MD5 and SHA-1 are refused in FIPS mode"
                 .to_string(),
@@ -226,7 +226,7 @@ pub fn idempotent(name: &str) -> bool {
 /// has classified is not advertised with the same confidence as one that was
 /// read and found pure.
 pub fn effect_of(name: &str) -> Effect {
-    // A manifest builtin runs arbitrary AetherShell, which this classifier
+    // A manifest builtin runs arbitrary IronShell, which this classifier
     // cannot see into. It takes the strictest class that is centrally enforced
     // (agent mode needs approval per call), and each builtin its body calls is
     // still guarded as it runs. Checked before the cache, because it changes
@@ -497,7 +497,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // The rest of the marketplace family reaches the same registry over
         // HTTPS via `packages::RegistryClient`, and all three were `Pure` by
         // fall-through. Measured, not assumed: in agent mode with
-        // `--policy strict` and `AETHER_MAX_NET=0`, `marketplace_search("x")`
+        // `--policy strict` and `IRONSHELL_MAX_NET=0`, `marketplace_search("x")`
         // exited 0 after a 20-second round trip to packages.nervosys.ai. An
         // agent with networking budgeted to zero could still make an outbound
         // request.
@@ -514,7 +514,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // and reports, so Network rather than Exec.
         "ai_gateway" => Some(Effect::Network),
         // Model calls leave the machine. These were unclassified, so `Pure`, so
-        // `AETHER_MAX_NET=0` did not apply to them: under `--agent --policy
+        // `IRONSHELL_MAX_NET=0` did not apply to them: under `--agent --policy
         // strict` each one connected to IronGate (:7700), `ai_backends` swept
         // five local model ports and `mcp_client` seven MCP ports. Found by
         // `benches/agentic/network-egress.mjs`, which traces connect(2) across
@@ -1200,11 +1200,11 @@ pub fn truthy_env(name: &str) -> bool {
 #[cfg(test)]
 lazy_static! {
     /// Serializes any test that mutates the process-global environment this
-    /// module reads (`AETHER_MODE`, `AETHER_AGENT`, `AETHER_WORKSPACE`, …).
+    /// module reads (`IRONSHELL_MODE`, `IRONSHELL_AGENT`, `IRONSHELL_WORKSPACE`, …).
     ///
     /// Crate-visible on purpose. `security::validate_safe_path` consults
     /// [`current_mode`], so `security`'s tests are affected by an
-    /// `AETHER_MODE=agent` set by a concurrently-running `safety` test — a
+    /// `IRONSHELL_MODE=agent` set by a concurrently-running `safety` test — a
     /// `.` path that is fine in human mode gets jailed in agent mode. Every
     /// test on either side of that coupling must take *this* lock, not a
     /// module-private one.
@@ -1231,11 +1231,11 @@ pub fn refuse_if_headless(builtin: &str) -> anyhow::Result<()> {
 
 /// The active execution mode, derived from the environment.
 pub fn current_mode() -> Mode {
-    if std::env::var_os("AETHER_MODE")
+    if std::env::var_os("IRONSHELL_MODE")
         .as_deref()
         .and_then(|v| v.to_str())
         == Some("agent")
-        || truthy_env("AETHER_AGENT")
+        || truthy_env("IRONSHELL_AGENT")
     {
         Mode::Agent
     } else {
@@ -1244,9 +1244,9 @@ pub fn current_mode() -> Mode {
 }
 
 /// Whether the policy has been globally relaxed to permissive (agent mode
-/// behaves like human mode). `AETHER_POLICY=permissive`.
+/// behaves like human mode). `IRONSHELL_POLICY=permissive`.
 fn policy_permissive() -> bool {
-    std::env::var("AETHER_POLICY").ok().as_deref() == Some("permissive")
+    std::env::var("IRONSHELL_POLICY").ok().as_deref() == Some("permissive")
 }
 
 /// The decision the policy engine reaches for a given effect under a mode.
@@ -1321,7 +1321,7 @@ pub enum ErrorCode {
     /// *can* be asked. This means nobody is reachable, so retrying is futile
     /// until a UI is attached.
     NoUi,
-    /// The builtin exists and the call was well-formed, but AetherShell does
+    /// The builtin exists and the call was well-formed, but IronShell does
     /// not implement the operation and never will by this route.
     ///
     /// `crypto.sign` is the case that named it: it returned prose beginning
@@ -1471,7 +1471,7 @@ impl ErrorCode {
     /// The process exit status this failure leaves behind.
     ///
     /// Measured against bash, PowerShell and nushell on ten induced failures
-    /// (`benches/agentic/errors.mjs`), AetherShell scored 0 of 10 on
+    /// (`benches/agentic/errors.mjs`), IronShell scored 0 of 10 on
     /// exit-status granularity: every failure exited 1. bash scored 5 of 10 and
     /// was the only shell to offer anything here. That is free signal — a
     /// caller, a `set -e` wrapper or a CI step can branch on it without reading
@@ -1546,7 +1546,7 @@ pub fn no_ui(builtin: &str) -> anyhow::Error {
         code: ErrorCode::NoUi,
         message: format!("{builtin}: no UI is attached to answer this prompt"),
         builtin: builtin.to_string(),
-        hint: "attach a UI (`ae --tui`) or avoid interactive builtins in agent mode".to_string(),
+        hint: "attach a UI (`ish --tui`) or avoid interactive builtins in agent mode".to_string(),
         approval: None,
         did_you_mean: Vec::new(),
         expected: "a UI listening for prompts".to_string(),
@@ -1567,7 +1567,7 @@ pub fn tool_missing(builtin: &str, tool: &str, cause: &str) -> anyhow::Error {
     })
 }
 
-/// Build a structured "AetherShell does not implement this" error
+/// Build a structured "IronShell does not implement this" error
 /// (`E_UNIMPLEMENTED`).
 ///
 /// `what` states the operation *and any safety consequence*:
@@ -1586,7 +1586,7 @@ pub fn unimplemented(builtin: &str, what: &str, instead: &str) -> anyhow::Error 
         hint: format!("{instead}; no change to this call will make it work"),
         approval: None,
         did_you_mean: Vec::new(),
-        expected: "an operation AetherShell implements".to_string(),
+        expected: "an operation IronShell implements".to_string(),
         got: "one it does not".to_string(),
     })
 }
@@ -1899,7 +1899,7 @@ pub fn ic_failed(builtin: &str, e: ironcrypto::core_types::Error) -> anyhow::Err
 }
 
 /// Fill `out` with bytes from IronCrypto's HMAC-DRBG, seeded from the operating
-/// system. Every secret in AetherShell (salts, nonces, tokens, keys) is drawn
+/// system. Every secret in IronShell (salts, nonces, tokens, keys) is drawn
 /// through here; `rand::thread_rng` is not used for them.
 pub fn ic_fill_random(builtin: &str, out: &mut [u8]) -> anyhow::Result<()> {
     let mut rng = ironcrypto::drbg::Rng::from_os().map_err(|e| ic_failed(builtin, e))?;
@@ -2317,9 +2317,9 @@ impl std::error::Error for SafetyError {}
 // Workspace jail (§7.4)
 // ════════════════════════════════════════════════════════════════════════
 
-/// The workspace root. `AETHER_WORKSPACE` if set, else the current directory.
+/// The workspace root. `IRONSHELL_WORKSPACE` if set, else the current directory.
 pub fn workspace_root() -> PathBuf {
-    if let Ok(w) = std::env::var("AETHER_WORKSPACE") {
+    if let Ok(w) = std::env::var("IRONSHELL_WORKSPACE") {
         PathBuf::from(w)
     } else {
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
@@ -2354,7 +2354,7 @@ pub fn is_audit_artifact(path: &str) -> bool {
     // workspace — that is the point of it — but nothing forces that, and a
     // sink placed inside the jail would otherwise be an ordinary writable
     // file that any `file.write` could clobber.
-    if let Some(sink) = std::env::var_os("AETHER_AUDIT_SINK") {
+    if let Some(sink) = std::env::var_os("IRONSHELL_AUDIT_SINK") {
         let sink = PathBuf::from(sink);
         if !sink.as_os_str().is_empty() && hit(&sink) {
             return true;
@@ -2366,15 +2366,15 @@ pub fn is_audit_artifact(path: &str) -> bool {
             if hit(&log) {
                 return true;
             }
-            // The containing directory too, so `rm -r .ae` is caught — but
+            // The containing directory too, so `rm -r .ironshell` is caught — but
             // **only when that directory is ours**. The first version
             // protected the parent unconditionally, which meant an
-            // `AETHER_AUDIT_LOG` pointing at `/tmp/x.log` made the whole of
+            // `IRONSHELL_AUDIT_LOG` pointing at `/tmp/x.log` made the whole of
             // `/tmp` unwritable. A guard that swallows a shared directory
             // because a file was placed in it is a denial of service, not a
             // control.
             match log.parent() {
-                Some(dir) if dir.file_name().is_some_and(|n| n == ".ae") => {
+                Some(dir) if dir.file_name().is_some_and(|n| n == ".ironshell") => {
                     let dirs = audit_forms(dir);
                     candidates.iter().any(|c| {
                         dirs.iter()
@@ -2432,13 +2432,13 @@ fn resolve_existing_prefix(path: &Path) -> Option<PathBuf> {
 }
 
 /// Whether `path` names a file that configures the gate itself: the RBAC
-/// config (`AETHER_RBAC_CONFIG`, else `<workspace>/.ae/rbac.toml` whether or
-/// not it exists yet) or the audit chain key (`AETHER_AUDIT_KEY_FILE`).
+/// config (`IRONSHELL_RBAC_CONFIG`, else `<workspace>/.ironshell/rbac.toml` whether or
+/// not it exists yet) or the audit chain key (`IRONSHELL_AUDIT_KEY_FILE`).
 ///
 /// Both are read when a process starts, and the Python SDK starts one per
 /// call, so a jailed write to either would govern the next call: an agent
 /// could grant itself roles, or choose the key its log is chained with. The
-/// default config's `.ae` directory is covered too, so it cannot be renamed
+/// default config's `.ironshell` directory is covered too, so it cannot be renamed
 /// away or replaced by a link. Matched the way [`is_audit_artifact`] matches,
 /// aliases included.
 pub fn is_governance_file(path: &str) -> bool {
@@ -2451,10 +2451,10 @@ pub fn is_governance_file(path: &str) -> bool {
         candidates.iter().any(|c| forms.contains(c)) || same_existing_file(Path::new(path), target)
     };
     let mut files = Vec::new();
-    match std::env::var_os("AETHER_RBAC_CONFIG") {
+    match std::env::var_os("IRONSHELL_RBAC_CONFIG") {
         Some(config) if !config.is_empty() => files.push(PathBuf::from(config)),
         _ => {
-            let dir = workspace_root().join(".ae");
+            let dir = workspace_root().join(".ironshell");
             let dirs = audit_forms(&dir);
             if candidates.iter().any(|c| {
                 dirs.iter()
@@ -2465,7 +2465,7 @@ pub fn is_governance_file(path: &str) -> bool {
             files.push(dir.join("rbac.toml"));
         }
     }
-    if let Some(key) = std::env::var_os("AETHER_AUDIT_KEY_FILE") {
+    if let Some(key) = std::env::var_os("IRONSHELL_AUDIT_KEY_FILE") {
         if !key.is_empty() {
             files.push(PathBuf::from(key));
         }
@@ -2558,13 +2558,13 @@ fn windows_file_id(path: &Path) -> Option<(u32, u64)> {
 /// Whether the jail is enforced. Enforced in agent mode, or whenever the
 /// workspace root is set explicitly (humans opting into reproducible jails).
 fn jail_enforced(mode: Mode) -> bool {
-    mode == Mode::Agent || std::env::var("AETHER_WORKSPACE").is_ok()
+    mode == Mode::Agent || std::env::var("IRONSHELL_WORKSPACE").is_ok()
 }
 
 /// Resolve a user-supplied path the way an effecting builtin should operate on it.
 ///
 /// Absolute paths are returned unchanged. In a **jailed** context (agent mode, or
-/// an explicit `AETHER_WORKSPACE`) a relative path is resolved against the
+/// an explicit `IRONSHELL_WORKSPACE`) a relative path is resolved against the
 /// workspace root, so writes/deletes land inside the jail and agree with both the
 /// `within_workspace` check and the transaction journal — closing the gap where a
 /// relative path was resolved against the process CWD (escaping the workspace when
@@ -2605,7 +2605,7 @@ pub fn rewind_refused(path: &str) -> Option<String> {
     }
     Some(
         "outside the workspace jail, so left as it is; rewind it outside agent mode, \
-         or with AETHER_WORKSPACE covering it"
+         or with IRONSHELL_WORKSPACE covering it"
             .to_string(),
     )
 }
@@ -2674,19 +2674,19 @@ pub fn revoke_approval(token: &str) {
     }
 }
 
-/// Whether `token` has been approved (via `AETHER_APPROVE_ALL`, the
-/// `AETHER_APPROVE` list, or an in-process `grant_approval`). Public so batch
+/// Whether `token` has been approved (via `IRONSHELL_APPROVE_ALL`, the
+/// `IRONSHELL_APPROVE` list, or an in-process `grant_approval`). Public so batch
 /// executors (plan/apply) can gate a whole plan on a single approval token.
 pub fn is_approved(token: &str) -> bool {
     is_token_approved(token)
 }
 
 fn is_token_approved(token: &str) -> bool {
-    if truthy_env("AETHER_APPROVE_ALL") {
+    if truthy_env("IRONSHELL_APPROVE_ALL") {
         return true;
     }
-    // AETHER_APPROVE may carry a comma-separated list of approved tokens.
-    if let Ok(list) = std::env::var("AETHER_APPROVE") {
+    // IRONSHELL_APPROVE may carry a comma-separated list of approved tokens.
+    if let Ok(list) = std::env::var("IRONSHELL_APPROVE") {
         if list.split(',').map(str::trim).any(|t| t == token) {
             return true;
         }
@@ -2735,23 +2735,23 @@ pub fn current_principal() -> Option<String> {
 /// Load and install an RBAC manager from config at startup, if configured, and
 /// set the acting principal. Sources, in order:
 ///
-/// - `AETHER_PRINCIPAL=<id>` sets the acting principal (independent of a config).
-/// - `AETHER_RBAC_CONFIG=<path>` (or `<workspace>/.ae/rbac.toml` if it exists)
+/// - `IRONSHELL_PRINCIPAL=<id>` sets the acting principal (independent of a config).
+/// - `IRONSHELL_RBAC_CONFIG=<path>` (or `<workspace>/.ironshell/rbac.toml` if it exists)
 ///   is parsed as a TOML [`crate::auth::RbacConfig`], installed as the manager,
-///   and its `principal` is used if `AETHER_PRINCIPAL` didn't already set one.
+///   and its `principal` is used if `IRONSHELL_PRINCIPAL` didn't already set one.
 ///
 /// No-op when nothing is configured, so default runs are unaffected. Parse/read
 /// failures warn (security_audit) and leave RBAC disabled rather than aborting.
 pub fn init_rbac_from_env() {
-    if let Ok(p) = std::env::var("AETHER_PRINCIPAL") {
+    if let Ok(p) = std::env::var("IRONSHELL_PRINCIPAL") {
         if !p.is_empty() {
             set_principal(Some(p));
         }
     }
-    let path = match std::env::var("AETHER_RBAC_CONFIG") {
+    let path = match std::env::var("IRONSHELL_RBAC_CONFIG") {
         Ok(p) => PathBuf::from(p),
         Err(_) => {
-            let default = workspace_root().join(".ae").join("rbac.toml");
+            let default = workspace_root().join(".ironshell").join("rbac.toml");
             if !default.exists() {
                 return;
             }
@@ -2818,15 +2818,15 @@ lazy_static! {
 }
 
 /// The audit log path, or `None` if auditing is disabled for this run.
-/// `AETHER_AUDIT_LOG` overrides; in agent mode it defaults to
-/// `<workspace>/.ae/audit.log`. Human mode without an explicit path = no audit
+/// `IRONSHELL_AUDIT_LOG` overrides; in agent mode it defaults to
+/// `<workspace>/.ironshell/audit.log`. Human mode without an explicit path = no audit
 /// (so the default REPL has no side effects).
 pub fn audit_path() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("AETHER_AUDIT_LOG") {
+    if let Ok(p) = std::env::var("IRONSHELL_AUDIT_LOG") {
         return Some(PathBuf::from(p));
     }
     if current_mode() == Mode::Agent {
-        return Some(workspace_root().join(".ae").join("audit.log"));
+        return Some(workspace_root().join(".ironshell").join("audit.log"));
     }
     None
 }
@@ -2863,7 +2863,7 @@ fn sha256_hex(s: &str) -> Result<String, ironcrypto::core_types::Error> {
 //     fixes that; it needs an append-only sink the process cannot rewrite
 //     (remote syslog, a WORM mount), which is a deployment decision.
 //
-// The key must therefore never reach a child process. `AETHER_AUDIT_KEY` is
+// The key must therefore never reach a child process. `IRONSHELL_AUDIT_KEY` is
 // read exactly once and then removed from this process's environment, so every
 // later `Command::spawn` -- which inherits the parent environment by default --
 // starts without it.
@@ -2880,25 +2880,25 @@ lazy_static! {
     static ref AUDIT_KEY: Option<Vec<u8>> = load_audit_key();
 }
 
-/// Read the chain key from `AETHER_AUDIT_KEY` (hex or raw bytes) or from the
-/// file named by `AETHER_AUDIT_KEY_FILE`. A malformed or too-short key is a
+/// Read the chain key from `IRONSHELL_AUDIT_KEY` (hex or raw bytes) or from the
+/// file named by `IRONSHELL_AUDIT_KEY_FILE`. A malformed or too-short key is a
 /// hard error rather than a silent downgrade to an unkeyed chain -- a security
 /// control that quietly turns itself off is worse than one that is off.
 fn load_audit_key() -> Option<Vec<u8>> {
-    let from_env = std::env::var("AETHER_AUDIT_KEY").ok();
+    let from_env = std::env::var("IRONSHELL_AUDIT_KEY").ok();
     if from_env.is_some() {
         // Before anything else can spawn a child that would inherit it.
-        std::env::remove_var("AETHER_AUDIT_KEY");
+        std::env::remove_var("IRONSHELL_AUDIT_KEY");
     }
     let raw = match from_env {
         Some(v) => v,
-        None => match std::env::var("AETHER_AUDIT_KEY_FILE") {
+        None => match std::env::var("IRONSHELL_AUDIT_KEY_FILE") {
             Ok(path) => match std::fs::read_to_string(&path) {
                 Ok(c) => c.trim().to_string(),
                 Err(e) => {
                     tracing::error!(
                         target: "security_audit",
-                        "AETHER_AUDIT_KEY_FILE={} could not be read ({}); the audit chain is \
+                        "IRONSHELL_AUDIT_KEY_FILE={} could not be read ({}); the audit chain is \
                          UNKEYED and a rewrite by anyone with write access will verify clean",
                         path, e
                     );
@@ -2933,7 +2933,8 @@ pub fn audit_key() -> Option<&'static [u8]> {
 
 /// A short, non-secret label for the key in use, so a verifier can tell "wrong
 /// key" from "tampered" and so rotation shows up in the log rather than looking
-/// like corruption.
+/// like corruption. The label predates the IronShell rename and is kept, so
+/// the key ids already written to audit logs still match.
 fn audit_key_id(key: &[u8]) -> Result<String, ironcrypto::core_types::Error> {
     let mut h = Sha256::new();
     h.update(b"AetherShell-audit-key-id\x00");
@@ -3054,7 +3055,7 @@ fn read_last_entry_line(path: &PathBuf) -> Option<Json> {
 /// The chain is per-process state — `seq` and `last_hash` live in memory — so
 /// two processes appending to one log both start at `seq: 1` from genesis and
 /// interleave two chains into one file. That is not exotic: in agent mode the
-/// log defaults to `<workspace>/.ae/audit.log`, so two agents in one workspace
+/// log defaults to `<workspace>/.ironshell/audit.log`, so two agents in one workspace
 /// share it by default.
 ///
 /// Recording who wrote each entry does not make the interleaving valid. What it
@@ -3217,7 +3218,7 @@ fn write_record(f: &mut std::fs::File, line: &str) -> std::io::Result<()> {
     f.write_all(record.as_bytes())
 }
 
-/// Mirror one entry to the append-only sink named by `AETHER_AUDIT_SINK`.
+/// Mirror one entry to the append-only sink named by `IRONSHELL_AUDIT_SINK`.
 ///
 /// Keying the chain (AS-2026-02) stops anyone who can only *write* the log
 /// from forging it, but not code running inside this process: whatever key the
@@ -3231,7 +3232,7 @@ fn write_record(f: &mut std::fs::File, line: &str) -> std::io::Result<()> {
 /// it buys nothing. The integrity comes from what is behind the path, not from
 /// here.
 fn mirror_to_sink(line: &str) -> std::io::Result<()> {
-    let sink = match std::env::var_os("AETHER_AUDIT_SINK") {
+    let sink = match std::env::var_os("IRONSHELL_AUDIT_SINK") {
         Some(p) if !p.is_empty() => PathBuf::from(p),
         _ => return Ok(()),
     };
@@ -3244,7 +3245,7 @@ fn mirror_to_sink(line: &str) -> std::io::Result<()> {
 
 /// Append a tamper-evident audit entry. Best-effort: a write failure logs a
 /// warning but never blocks the guarded operation, unless
-/// `AETHER_AUDIT_REQUIRED=1`, in which case the error is returned.
+/// `IRONSHELL_AUDIT_REQUIRED=1`, in which case the error is returned.
 pub fn audit(
     builtin: &str,
     effect: Effect,
@@ -3315,7 +3316,7 @@ pub fn audit(
             // Mirror after the primary write succeeds, so the sink never holds
             // an entry the log itself does not.
             if let Err(e) = mirror_to_sink(&line) {
-                if truthy_env("AETHER_AUDIT_REQUIRED") {
+                if truthy_env("IRONSHELL_AUDIT_REQUIRED") {
                     return Err(format!("audit sink write failed: {}", e));
                 }
                 tracing::warn!(target: "security_audit", "audit sink write failed: {}", e);
@@ -3323,7 +3324,7 @@ pub fn audit(
             Ok(())
         }
         Err(e) => {
-            if truthy_env("AETHER_AUDIT_REQUIRED") {
+            if truthy_env("IRONSHELL_AUDIT_REQUIRED") {
                 Err(format!("audit write failed: {}", e))
             } else {
                 tracing::warn!(target: "security_audit", "audit write failed: {}", e);
@@ -3409,7 +3410,7 @@ pub fn verify_audit_with(path: &PathBuf, key: Option<&[u8]>) -> Result<u64, Stri
             }
             (None, Some(_)) => {
                 return Err(format!(
-                    "line {}: entry is keyed but no chain key is configured; set                      AETHER_AUDIT_KEY or AETHER_AUDIT_KEY_FILE to verify it",
+                    "line {}: entry is keyed but no chain key is configured; set                      IRONSHELL_AUDIT_KEY or IRONSHELL_AUDIT_KEY_FILE to verify it",
                     lineno + 1
                 ))
             }
@@ -3433,7 +3434,7 @@ pub fn verify_audit_with(path: &PathBuf, key: Option<&[u8]>) -> Result<u64, Stri
             // and sends the reader looking for an attacker who is not there.
             if writers.len() > 1 {
                 return Err(format!(
-                    "line {}: this log interleaves entries from {} writers, so it is not a single chain; give each process its own AETHER_AUDIT_LOG, or share one append-only sink via AETHER_AUDIT_SINK",
+                    "line {}: this log interleaves entries from {} writers, so it is not a single chain; give each process its own IRONSHELL_AUDIT_LOG, or share one append-only sink via IRONSHELL_AUDIT_SINK",
                     lineno + 1,
                     writers.len()
                 ));
@@ -3473,11 +3474,11 @@ pub fn verify_audit_with(path: &PathBuf, key: Option<&[u8]>) -> Result<u64, Stri
 //
 // | Env var             | Bounds                                              |
 // |---------------------|-----------------------------------------------------|
-// | `AETHER_MAX_OPS`    | total guarded operations                            |
-// | `AETHER_MAX_FILES`  | filesystem ops (WriteLocal + Destructive)           |
-// | `AETHER_MAX_PROCS`  | process/exec ops (Process + Exec)                   |
-// | `AETHER_MAX_NET`    | network ops (Network) — egress request count        |
-// | `AETHER_TIMEOUT_MS` | wall-clock ms since the first guarded op (or reset) |
+// | `IRONSHELL_MAX_OPS`    | total guarded operations                            |
+// | `IRONSHELL_MAX_FILES`  | filesystem ops (WriteLocal + Destructive)           |
+// | `IRONSHELL_MAX_PROCS`  | process/exec ops (Process + Exec)                   |
+// | `IRONSHELL_MAX_NET`    | network ops (Network) — egress request count        |
+// | `IRONSHELL_TIMEOUT_MS` | wall-clock ms since the first guarded op (or reset) |
 
 #[derive(Default)]
 struct GovernorState {
@@ -3538,60 +3539,60 @@ fn governor_admit(effect: Effect, builtin: &str) -> Result<(), SafetyError> {
     // Wall-clock: start the envelope lazily on the first guarded op.
     let now = std::time::Instant::now();
     let start = *g.start.get_or_insert(now);
-    if let Some(limit_ms) = env_u64("AETHER_TIMEOUT_MS") {
+    if let Some(limit_ms) = env_u64("IRONSHELL_TIMEOUT_MS") {
         let elapsed = now.duration_since(start).as_millis() as u64;
         if elapsed > limit_ms {
             return Err(budget_error(
                 builtin,
                 format!("wall-clock budget exhausted ({}ms > {}ms)", elapsed, limit_ms),
-                "the run exceeded AETHER_TIMEOUT_MS; reset with governor_reset(), start a new session, or raise the limit",
+                "the run exceeded IRONSHELL_TIMEOUT_MS; reset with governor_reset(), start a new session, or raise the limit",
             ));
         }
     }
 
     g.total += 1;
-    if let Some(max) = env_u64("AETHER_MAX_OPS") {
+    if let Some(max) = env_u64("IRONSHELL_MAX_OPS") {
         if g.total > max {
             return Err(budget_error(
                 builtin,
                 format!("operation budget exhausted ({} > {})", g.total, max),
-                "raise AETHER_MAX_OPS or call governor_reset() to start a fresh envelope",
+                "raise IRONSHELL_MAX_OPS or call governor_reset() to start a fresh envelope",
             ));
         }
     }
     match effect {
         Effect::WriteLocal | Effect::Destructive => {
             g.files += 1;
-            if let Some(max) = env_u64("AETHER_MAX_FILES") {
+            if let Some(max) = env_u64("IRONSHELL_MAX_FILES") {
                 if g.files > max {
                     return Err(budget_error(
                         builtin,
                         format!("file-operation budget exhausted ({} > {})", g.files, max),
-                        "raise AETHER_MAX_FILES or call governor_reset()",
+                        "raise IRONSHELL_MAX_FILES or call governor_reset()",
                     ));
                 }
             }
         }
         Effect::Process | Effect::Exec => {
             g.procs += 1;
-            if let Some(max) = env_u64("AETHER_MAX_PROCS") {
+            if let Some(max) = env_u64("IRONSHELL_MAX_PROCS") {
                 if g.procs > max {
                     return Err(budget_error(
                         builtin,
                         format!("process budget exhausted ({} > {})", g.procs, max),
-                        "raise AETHER_MAX_PROCS or call governor_reset()",
+                        "raise IRONSHELL_MAX_PROCS or call governor_reset()",
                     ));
                 }
             }
         }
         Effect::Network => {
             g.net += 1;
-            if let Some(max) = env_u64("AETHER_MAX_NET") {
+            if let Some(max) = env_u64("IRONSHELL_MAX_NET") {
                 if g.net > max {
                     return Err(budget_error(
                         builtin,
                         format!("network-egress budget exhausted ({} > {})", g.net, max),
-                        "raise AETHER_MAX_NET or call governor_reset()",
+                        "raise IRONSHELL_MAX_NET or call governor_reset()",
                     ));
                 }
             }
@@ -3627,11 +3628,11 @@ pub fn governor_snapshot() -> Json {
         "elapsed_ms": elapsed_ms,
         "used": { "ops": g.total, "files": g.files, "procs": g.procs, "net": g.net },
         "limits": {
-            "max_ops": lim("AETHER_MAX_OPS"),
-            "max_files": lim("AETHER_MAX_FILES"),
-            "max_procs": lim("AETHER_MAX_PROCS"),
-            "max_net": lim("AETHER_MAX_NET"),
-            "timeout_ms": lim("AETHER_TIMEOUT_MS"),
+            "max_ops": lim("IRONSHELL_MAX_OPS"),
+            "max_files": lim("IRONSHELL_MAX_FILES"),
+            "max_procs": lim("IRONSHELL_MAX_PROCS"),
+            "max_net": lim("IRONSHELL_MAX_NET"),
+            "timeout_ms": lim("IRONSHELL_TIMEOUT_MS"),
         }
     })
 }
@@ -3886,7 +3887,7 @@ impl std::fmt::Display for PsLiteral {
 /// `String` is a *compile* error rather than an injection:
 ///
 /// ```
-/// use aethershell::{ps_script, safety::ps_quote};
+/// use iron_shell::{ps_script, safety::ps_quote};
 /// let name = "my service";
 /// assert_eq!(
 ///     ps_script!("Start-Service {}", ps_quote(name)),
@@ -4325,10 +4326,10 @@ pub fn reject_sqlite_dot_command(builtin: &str, sql: &str) -> anyhow::Result<()>
 /// Gate an effecting call. Returns `Ok(())` if the call may proceed (and records
 /// an audit entry), or a [`SafetyError`] with a stable code, an actionable hint,
 /// and — for approvable actions — a bound approval token.
-/// The configured egress allowlist, or `None` when `AETHER_NET_ALLOW` is unset
+/// The configured egress allowlist, or `None` when `IRONSHELL_NET_ALLOW` is unset
 /// or blank. `*` allows every host.
 pub fn net_allowlist() -> Option<String> {
-    std::env::var("AETHER_NET_ALLOW")
+    std::env::var("IRONSHELL_NET_ALLOW")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -4459,7 +4460,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     message: format!("{}: '{}' is outside the workspace root", ctx.builtin, t),
                     builtin: ctx.builtin.to_string(),
                     hint: format!(
-                        "operate on paths under {} or set AETHER_WORKSPACE",
+                        "operate on paths under {} or set IRONSHELL_WORKSPACE",
                         workspace_root().display()
                     ),
                     approval: None,
@@ -4470,7 +4471,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
             }
             // The audited party must not own the evidence (AS-2026-02).
             //
-            // `audit_path()` defaults to `<workspace>/.ae/audit.log`, which is
+            // `audit_path()` defaults to `<workspace>/.ironshell/audit.log`, which is
             // inside the jail — the one region a jailed builtin may write. So an
             // ordinary `file.write` to it was allowed, and since the hash chain
             // is unkeyed, the log could be rewritten end-to-end with a fresh,
@@ -4497,7 +4498,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     ),
                     builtin: ctx.builtin.to_string(),
                     hint: "the audit trail is evidence about this session, so the session \
-                           may not edit it; point AETHER_AUDIT_LOG elsewhere if you need a \
+                           may not edit it; point IRONSHELL_AUDIT_LOG elsewhere if you need a \
                            different location"
                         .to_string(),
                     approval: None,
@@ -4525,7 +4526,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     builtin: ctx.builtin.to_string(),
                     hint: "the RBAC config and the audit key are read at startup and govern \
                            later calls, so the session may not edit them; set \
-                           AETHER_RBAC_CONFIG or AETHER_AUDIT_KEY_FILE to a path outside the \
+                           IRONSHELL_RBAC_CONFIG or IRONSHELL_AUDIT_KEY_FILE to a path outside the \
                            workspace"
                         .to_string(),
                     approval: None,
@@ -4554,7 +4555,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     message: format!("{}: egress denied: {}", ctx.builtin, detail),
                     builtin: ctx.builtin.to_string(),
                     hint: format!(
-                        "AETHER_NET_ALLOW permits only: {allow}; name an allowed host, or ask the operator to add this one"
+                        "IRONSHELL_NET_ALLOW permits only: {allow}; name an allowed host, or ask the operator to add this one"
                     ),
                     approval: None,
                     did_you_mean: Vec::new(),
@@ -4586,7 +4587,7 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
     // default agent posture (`http_get` to an arbitrary host) the channel an
     // exfiltration would use. Deno's `--allow-net` is the precedent: reaching a
     // host is a grant, not a default. An operator who wants the old behaviour
-    // sets `AETHER_NET_ALLOW=*`; one who knows the hosts lists them.
+    // sets `IRONSHELL_NET_ALLOW=*`; one who knows the hosts lists them.
     if decision == Decision::Allow
         && ctx.effect == Effect::Network
         && mode == Mode::Agent
@@ -4651,11 +4652,11 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
                     builtin: ctx.builtin.to_string(),
                     hint: if ctx.effect == Effect::Network {
                         format!(
-                            "re-run with AETHER_APPROVE={token} (or call approve(\"{token}\")), or have the operator allow the destination with AETHER_NET_ALLOW=<host>"
+                            "re-run with IRONSHELL_APPROVE={token} (or call approve(\"{token}\")), or have the operator allow the destination with IRONSHELL_NET_ALLOW=<host>"
                         )
                     } else {
                         format!(
-                            "re-run with AETHER_APPROVE={} (or call approve(\"{}\"))",
+                            "re-run with IRONSHELL_APPROVE={} (or call approve(\"{}\"))",
                             token, token
                         )
                     },
@@ -4834,11 +4835,11 @@ fn centrally_enforced(effect: Effect) -> bool {
             | Effect::Destructive
             | Effect::Exec
             | Effect::Privileged
-            // `Network` was not here, and `AETHER_MAX_NET` therefore governed
+            // `Network` was not here, and `IRONSHELL_MAX_NET` therefore governed
             // only the builtins that happened to call `guard_network`
             // themselves. Measured on 2026-09-22: of 57 builtins classified
             // `Network`, 53 were never charged. Under `--agent --policy strict`
-            // with `AETHER_MAX_NET=0`, `scp_upload` invoked `scp` (it failed
+            // with `IRONSHELL_MAX_NET=0`, `scp_upload` invoked `scp` (it failed
             // only because the local file was absent), `git_fetch` ran, and
             // `host_lookup` resolved. `http_get` was refused, which is why the
             // hole was invisible: the builtin everyone tests was the one that
@@ -5048,9 +5049,9 @@ pub fn guard_dispatch(builtin: &str, args: &[crate::value::Value]) -> Result<(),
 //    secret-denoting name (`*_KEY`, `*TOKEN*`, `*SECRET*`, …) should be replaced
 //    with an opaque `[REDACTED:NAME]` handle *before* the value ever enters the
 //    program's value space. Active only in agent mode and only when the value
-//    isn't explicitly permitted (`AETHER_SECRETS=allow`).
+//    isn't explicitly permitted (`IRONSHELL_SECRETS=allow`).
 //
-// All of this is opt-out via `AETHER_REDACT=off` for trusted automation; human
+// All of this is opt-out via `IRONSHELL_REDACT=off` for trusted automation; human
 // mode keeps full fidelity (the gate is agent-only; render redaction runs on the
 // agent render path only).
 
@@ -5086,20 +5087,20 @@ lazy_static! {
     ).unwrap();
 }
 
-/// Whether secret redaction is active. On by default; `AETHER_REDACT=off`
+/// Whether secret redaction is active. On by default; `IRONSHELL_REDACT=off`
 /// (or `0`/`false`/`no`) disables it for trusted automation.
 pub fn redaction_enabled() -> bool {
     !matches!(
-        std::env::var("AETHER_REDACT").ok().as_deref(),
+        std::env::var("IRONSHELL_REDACT").ok().as_deref(),
         Some("off") | Some("0") | Some("false") | Some("no")
     )
 }
 
 /// Whether the caller has explicitly permitted reading secret-named env vars in
-/// the clear (`AETHER_SECRETS=allow`). Defaults to denied in agent mode.
+/// the clear (`IRONSHELL_SECRETS=allow`). Defaults to denied in agent mode.
 pub fn secrets_permitted() -> bool {
     matches!(
-        std::env::var("AETHER_SECRETS").ok().as_deref(),
+        std::env::var("IRONSHELL_SECRETS").ok().as_deref(),
         Some("allow") | Some("1") | Some("true")
     )
 }
@@ -5140,7 +5141,7 @@ pub fn env_secret_gated(name: &str) -> bool {
 }
 
 /// Refuse to read the clipboard's contents in agent mode unless the operator
-/// permits clear secret reads (`AETHER_SECRETS=allow`) or the policy is
+/// permits clear secret reads (`IRONSHELL_SECRETS=allow`) or the policy is
 /// permissive. A clipboard often holds a password copied from a password
 /// manager, and a bare password has no shape for redaction to recognise.
 /// Listing the clipboard's types reads no contents and is not gated.
@@ -5150,7 +5151,7 @@ pub fn clipboard_read_gate(builtin: &str) -> anyhow::Result<()> {
             builtin,
             "agent mode does not read the clipboard, which often holds a password \
              that redaction cannot recognise; NOTHING WAS READ",
-            "set AETHER_SECRETS=allow to permit it, or pass the text as an argument",
+            "set IRONSHELL_SECRETS=allow to permit it, or pass the text as an argument",
         ));
     }
     Ok(())
@@ -5371,7 +5372,7 @@ pub fn check_deadline() -> anyhow::Result<()> {
 // first (`EVAL_STACK_SIZE`, applied at the process entry point and to the
 // runtime's worker threads), which is what makes `MAX_CALL_DEPTH` meaningful.
 
-/// Stack for threads that evaluate AetherShell code.
+/// Stack for threads that evaluate IronShell code.
 ///
 /// This is *reserved* address space, not committed memory — pages are backed
 /// only as they are touched — so a large value costs essentially nothing on a
@@ -5444,7 +5445,7 @@ where
     // is out of memory or handles, where a clear abort beats limping on with a
     // small stack and overflowing later somewhere less obvious.
     let handle = std::thread::Builder::new()
-        .name("aether-eval".into())
+        .name("ironshell-eval".into())
         .stack_size(EVAL_STACK_SIZE)
         .spawn(f)
         .expect("failed to spawn the evaluation thread");
@@ -5640,24 +5641,24 @@ mod tests {
 
     // Env mutation in these tests is process-global; serialize them via the
     // crate-wide lock (defined at module scope, since tests in other modules
-    // read `AETHER_MODE` too and must take the same lock).
+    // read `IRONSHELL_MODE` too and must take the same lock).
     use super::ENV_LOCK;
 
     fn clear_env() {
         for k in [
-            "AETHER_MODE",
-            "AETHER_AGENT",
-            "AETHER_POLICY",
-            "AETHER_APPROVE",
-            "AETHER_APPROVE_ALL",
-            "AETHER_WORKSPACE",
-            "AETHER_AUDIT_LOG",
-            "AETHER_AUDIT_REQUIRED",
-            "AETHER_MAX_OPS",
-            "AETHER_MAX_FILES",
-            "AETHER_MAX_PROCS",
-            "AETHER_MAX_NET",
-            "AETHER_TIMEOUT_MS",
+            "IRONSHELL_MODE",
+            "IRONSHELL_AGENT",
+            "IRONSHELL_POLICY",
+            "IRONSHELL_APPROVE",
+            "IRONSHELL_APPROVE_ALL",
+            "IRONSHELL_WORKSPACE",
+            "IRONSHELL_AUDIT_LOG",
+            "IRONSHELL_AUDIT_REQUIRED",
+            "IRONSHELL_MAX_OPS",
+            "IRONSHELL_MAX_FILES",
+            "IRONSHELL_MAX_PROCS",
+            "IRONSHELL_MAX_NET",
+            "IRONSHELL_TIMEOUT_MS",
         ] {
             std::env::remove_var(k);
         }
@@ -5675,7 +5676,7 @@ mod tests {
         let mut p = std::env::temp_dir();
         p.push(format!("ae_audit_{}_{}.log", tag, std::process::id()));
         let _ = std::fs::remove_file(&p);
-        std::env::set_var("AETHER_AUDIT_LOG", p.to_string_lossy().to_string());
+        std::env::set_var("IRONSHELL_AUDIT_LOG", p.to_string_lossy().to_string());
         // The audit layer resets its chain automatically when the log path
         // changes, so no manual state reset is needed here.
         p
@@ -5701,11 +5702,11 @@ mod tests {
         // FIPS off (default) → all algorithms pass through.
         assert!(require_fips_hash("md5").is_ok());
         // FIPS on → md5/sha1 refused, SHA-2 family allowed.
-        std::env::set_var("AETHER_FIPS", "1");
+        std::env::set_var("IRONSHELL_FIPS", "1");
         assert!(require_fips_hash("md5").is_err());
         assert!(require_fips_hash("sha1").is_err());
         assert!(require_fips_hash("sha256").is_ok());
-        std::env::remove_var("AETHER_FIPS");
+        std::env::remove_var("IRONSHELL_FIPS");
     }
 
     #[test]
@@ -5771,7 +5772,7 @@ mod tests {
     fn permissive_policy_allows_all_in_agent() {
         let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        std::env::set_var("AETHER_POLICY", "permissive");
+        std::env::set_var("IRONSHELL_POLICY", "permissive");
         assert_eq!(decide(Effect::Destructive, Mode::Agent), Decision::Allow);
         assert_eq!(decide(Effect::Privileged, Mode::Agent), Decision::Allow);
         clear_env();
@@ -5847,11 +5848,11 @@ mod tests {
     fn guard_blocks_then_allows_with_token() {
         let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("IRONSHELL_MODE", "agent");
         let log = isolate_audit("approve");
         // Use a workspace so the jail does not interfere with this approval test.
         let tmp = std::env::temp_dir();
-        std::env::set_var("AETHER_WORKSPACE", &tmp);
+        std::env::set_var("IRONSHELL_WORKSPACE", &tmp);
         let target = tmp
             .join("ae_safety_test_file")
             .to_string_lossy()
@@ -5871,7 +5872,7 @@ mod tests {
         assert_eq!(err.code, ErrorCode::NeedsApproval);
         let token = err.approval.unwrap().token;
 
-        std::env::set_var("AETHER_APPROVE", &token);
+        std::env::set_var("IRONSHELL_APPROVE", &token);
         assert!(
             guard(mk()).is_ok(),
             "matching token should permit the action"
@@ -5884,10 +5885,10 @@ mod tests {
     fn jail_blocks_paths_outside_workspace() {
         let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("IRONSHELL_MODE", "agent");
         let log = isolate_audit("jail");
         let tmp = std::env::temp_dir();
-        std::env::set_var("AETHER_WORKSPACE", &tmp);
+        std::env::set_var("IRONSHELL_WORKSPACE", &tmp);
 
         let outside = if cfg!(windows) {
             "C:/Windows/System32/x"
@@ -5905,9 +5906,9 @@ mod tests {
     fn rbac_authorized_principal_bypasses_approval() {
         let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("IRONSHELL_MODE", "agent");
         let tmp = std::env::temp_dir();
-        std::env::set_var("AETHER_WORKSPACE", &tmp);
+        std::env::set_var("IRONSHELL_WORKSPACE", &tmp);
         let _log = isolate_audit("rbac");
 
         // Build an RBAC manager: a role granting effect:destructive, a user holding it.
@@ -5958,7 +5959,7 @@ mod tests {
         let mut log = std::env::temp_dir();
         log.push(format!("ae_audit_test_{}.log", std::process::id()));
         let _ = std::fs::remove_file(&log);
-        std::env::set_var("AETHER_AUDIT_LOG", log.to_string_lossy().to_string());
+        std::env::set_var("IRONSHELL_AUDIT_LOG", log.to_string_lossy().to_string());
         // The chain resets automatically for this fresh (removed) log path.
 
         audit("rm", Effect::Destructive, "allow", "/x/a", json!({})).unwrap();
@@ -6064,28 +6065,28 @@ mod tests {
     fn env_secret_gated_is_agent_only_and_policy_aware() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        std::env::remove_var("AETHER_REDACT");
-        std::env::remove_var("AETHER_SECRETS");
+        std::env::remove_var("IRONSHELL_REDACT");
+        std::env::remove_var("IRONSHELL_SECRETS");
 
         // Human mode: never gated (legibility — the person reads their own env).
         assert!(!env_secret_gated("OPENAI_API_KEY"));
 
         // Agent mode: secret names gated, ordinary names not.
-        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("IRONSHELL_MODE", "agent");
         assert!(env_secret_gated("OPENAI_API_KEY"));
         assert!(!env_secret_gated("HOME"));
 
         // Explicit permission re-opens clear reads.
-        std::env::set_var("AETHER_SECRETS", "allow");
+        std::env::set_var("IRONSHELL_SECRETS", "allow");
         assert!(!env_secret_gated("OPENAI_API_KEY"));
-        std::env::remove_var("AETHER_SECRETS");
+        std::env::remove_var("IRONSHELL_SECRETS");
 
         // Global opt-out disables redaction entirely.
-        std::env::set_var("AETHER_REDACT", "off");
+        std::env::set_var("IRONSHELL_REDACT", "off");
         assert!(!env_secret_gated("OPENAI_API_KEY"));
 
         clear_env();
-        std::env::remove_var("AETHER_REDACT");
+        std::env::remove_var("IRONSHELL_REDACT");
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -6098,14 +6099,14 @@ mod tests {
         clear_env();
 
         // Human mode: even a tiny limit is ignored.
-        std::env::set_var("AETHER_MAX_FILES", "1");
+        std::env::set_var("IRONSHELL_MAX_FILES", "1");
         for _ in 0..5 {
             assert!(governor_admit(Effect::Destructive, "rm").is_ok());
         }
 
         // Agent mode but no limit set: unlimited.
         clear_env();
-        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("IRONSHELL_MODE", "agent");
         for _ in 0..50 {
             assert!(governor_admit(Effect::Destructive, "rm").is_ok());
         }
@@ -6116,8 +6117,8 @@ mod tests {
     fn governor_breaches_file_and_op_budgets_independently() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_MAX_FILES", "2");
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_MAX_FILES", "2");
 
         assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
         assert!(governor_admit(Effect::Destructive, "rm").is_ok());
@@ -6140,8 +6141,8 @@ mod tests {
     fn governor_enforces_network_egress_budget() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_MAX_NET", "2");
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_MAX_NET", "2");
 
         assert!(governor_admit(Effect::Network, "http_get").is_ok());
         assert!(governor_admit(Effect::Network, "web_fetch").is_ok());
@@ -6163,8 +6164,8 @@ mod tests {
     fn governor_enforces_total_op_budget_across_effects() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_MAX_OPS", "3");
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_MAX_OPS", "3");
 
         assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
         assert!(governor_admit(Effect::Process, "proc_kill").is_ok());
@@ -6179,8 +6180,8 @@ mod tests {
     fn governor_enforces_wall_clock_timeout() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_TIMEOUT_MS", "1");
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_TIMEOUT_MS", "1");
 
         // First call starts the clock (elapsed 0 ≤ 1 → admitted).
         assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
@@ -6197,8 +6198,8 @@ mod tests {
     fn governor_reset_starts_a_fresh_envelope() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_MAX_OPS", "1");
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_MAX_OPS", "1");
 
         assert!(governor_admit(Effect::WriteLocal, "file_write").is_ok());
         assert!(governor_admit(Effect::WriteLocal, "file_write").is_err());

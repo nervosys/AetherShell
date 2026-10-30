@@ -1,20 +1,20 @@
-//! XDG Base Directory compliant configuration for AetherShell
+//! XDG Base Directory compliant configuration for IronShell
 //!
 //! Configuration file locations (in order of precedence):
-//! 1. `$AETHER_CONFIG` environment variable (if set)
-//! 2. `$XDG_CONFIG_HOME/aether/config.toml` (typically `~/.config/aether/config.toml`)
-//! 3. `~/.aetherrc` (legacy fallback)
+//! 1. `$IRONSHELL_CONFIG` environment variable (if set)
+//! 2. `$XDG_CONFIG_HOME/ironshell/config.toml` (typically `~/.config/ironshell/config.toml`)
+//! 3. `~/.ironshellrc` (legacy fallback)
 //!
 //! Additional configuration files:
-//! - `$XDG_CONFIG_HOME/aether/theme.toml` - Custom color themes
-//! - `$XDG_CONFIG_HOME/aether/aliases.toml` - Command aliases
-//! - `$XDG_CONFIG_HOME/aether/init.ae` - Startup script (executed on shell start)
+//! - `$XDG_CONFIG_HOME/ironshell/theme.toml` - Custom color themes
+//! - `$XDG_CONFIG_HOME/ironshell/aliases.toml` - Command aliases
+//! - `$XDG_CONFIG_HOME/ironshell/init.ish` - Startup script (executed on shell start)
 //!
-//! Data directory: `$XDG_DATA_HOME/aether/` (typically `~/.local/share/aether/`)
+//! Data directory: `$XDG_DATA_HOME/ironshell/` (typically `~/.local/share/ironshell/`)
 //! - `history` - Command history
 //! - `plugins/` - Installed plugins
 //!
-//! Cache directory: `$XDG_CACHE_HOME/aether/` (typically `~/.cache/aether/`)
+//! Cache directory: `$XDG_CACHE_HOME/ironshell/` (typically `~/.cache/ironshell/`)
 //! - Downloaded resources, temporary files
 
 use anyhow::{Context, Result};
@@ -403,52 +403,52 @@ impl Default for KeybindingsConfig {
 // ============================================================================
 
 impl ShellConfig {
-    /// Get the XDG config directory for AetherShell
+    /// Get the XDG config directory for IronShell
     pub fn config_dir() -> PathBuf {
-        if let Ok(path) = std::env::var("AETHER_CONFIG_HOME") {
+        if let Ok(path) = std::env::var("IRONSHELL_CONFIG_HOME") {
             return PathBuf::from(path);
         }
         dirs::config_dir()
-            .map(|p| p.join("aether"))
+            .map(|p| p.join("ironshell"))
             .unwrap_or_else(|| {
                 dirs::home_dir()
-                    .map(|h| h.join(".config").join("aether"))
-                    .unwrap_or_else(|| PathBuf::from(".config/aether"))
+                    .map(|h| h.join(".config").join("ironshell"))
+                    .unwrap_or_else(|| PathBuf::from(".config/ironshell"))
             })
     }
 
-    /// Get the XDG data directory for AetherShell
+    /// Get the XDG data directory for IronShell
     pub fn data_dir() -> PathBuf {
-        if let Ok(path) = std::env::var("AETHER_DATA_HOME") {
+        if let Ok(path) = std::env::var("IRONSHELL_DATA_HOME") {
             return PathBuf::from(path);
         }
         dirs::data_dir()
-            .map(|p| p.join("aether"))
+            .map(|p| p.join("ironshell"))
             .unwrap_or_else(|| {
                 dirs::home_dir()
-                    .map(|h| h.join(".local").join("share").join("aether"))
-                    .unwrap_or_else(|| PathBuf::from(".local/share/aether"))
+                    .map(|h| h.join(".local").join("share").join("ironshell"))
+                    .unwrap_or_else(|| PathBuf::from(".local/share/ironshell"))
             })
     }
 
-    /// Get the XDG cache directory for AetherShell
+    /// Get the XDG cache directory for IronShell
     pub fn cache_dir() -> PathBuf {
-        if let Ok(path) = std::env::var("AETHER_CACHE_HOME") {
+        if let Ok(path) = std::env::var("IRONSHELL_CACHE_HOME") {
             return PathBuf::from(path);
         }
         dirs::cache_dir()
-            .map(|p| p.join("aether"))
+            .map(|p| p.join("ironshell"))
             .unwrap_or_else(|| {
                 dirs::home_dir()
-                    .map(|h| h.join(".cache").join("aether"))
-                    .unwrap_or_else(|| PathBuf::from(".cache/aether"))
+                    .map(|h| h.join(".cache").join("ironshell"))
+                    .unwrap_or_else(|| PathBuf::from(".cache/ironshell"))
             })
     }
 
     /// Get the main config file path
     pub fn config_file() -> PathBuf {
-        // Check AETHER_CONFIG env var first
-        if let Ok(path) = std::env::var("AETHER_CONFIG") {
+        // Check IRONSHELL_CONFIG env var first
+        if let Ok(path) = std::env::var("IRONSHELL_CONFIG") {
             return PathBuf::from(path);
         }
 
@@ -459,7 +459,7 @@ impl ShellConfig {
 
         // Legacy fallback
         if let Some(home) = dirs::home_dir() {
-            let legacy = home.join(".aetherrc");
+            let legacy = home.join(".ironshellrc");
             if legacy.exists() {
                 return legacy;
             }
@@ -471,7 +471,7 @@ impl ShellConfig {
 
     /// Get the init script path
     pub fn init_script() -> PathBuf {
-        Self::config_dir().join("init.ae")
+        Self::config_dir().join("init.ish")
     }
 
     /// Get the history file path
@@ -511,7 +511,7 @@ impl ShellConfig {
             toml::from_str(&content)
                 .with_context(|| format!("Failed to parse config file: {:?}", config_file))
         } else {
-            // Legacy .aetherrc format (simple key=value)
+            // Legacy .ironshellrc format (simple key=value)
             Self::parse_legacy(&content)
         }
     }
@@ -539,8 +539,8 @@ impl ShellConfig {
 
     /// Generate a default config file with comments
     pub fn generate_default_config() -> String {
-        r##"# AetherShell Configuration
-# Location: ~/.config/aether/config.toml
+        r##"# IronShell Configuration
+# Location: ~/.config/ironshell/config.toml
 # Documentation: https://github.com/nervosys/AetherShell#configuration
 
 [shell]
@@ -607,7 +607,7 @@ transient = false
 style = "classic"
 # The prompt character
 symbol = "❯"
-# Abbreviate parent path components fish-style: ~/d/n/AetherShell
+# Abbreviate parent path components fish-style: ~/d/n/IronShell
 abbreviate_path = true
 # Keep only the last N path components (0 = keep all)
 max_path_segments = 0
@@ -705,7 +705,7 @@ mode = "emacs"
         .to_string()
     }
 
-    /// Parse legacy .aetherrc format (simple key=value)
+    /// Parse legacy .ironshellrc format (simple key=value)
     fn parse_legacy(content: &str) -> Result<Self> {
         let mut config = Self::default();
 
@@ -1492,8 +1492,8 @@ impl Theme {
 //
 // Until 10.0.1 every printer asked only `config.colors.enabled`, which says
 // whether the *user* wants colour, never whether the destination can use it.
-// So `ae -c '1 + 2' > out` wrote escape codes into the file and
-// `n=$(ae -c '1 + 2')` captured them. One policy, asked by every printer.
+// So `ish -c '1 + 2' > out` wrote escape codes into the file and
+// `n=$(ish -c '1 + 2')` captured them. One policy, asked by every printer.
 
 fn color_policy(stream_is_tty: bool) -> bool {
     if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {

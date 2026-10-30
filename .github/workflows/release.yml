@@ -102,19 +102,19 @@ jobs:
               if: matrix.os != 'windows-latest'
               run: |
                   cd target/${{ matrix.target }}/release
-                  tar czvf ../../../aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz ae aimodel
+                  tar czvf ../../../ironshell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz ish ae aimodel
 
             - name: Package (Windows)
               if: matrix.os == 'windows-latest'
               run: |
                   cd target/${{ matrix.target }}/release
-                  7z a ../../../aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip ae.exe aimodel.exe
+                  7z a ../../../ironshell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip ish.exe ae.exe aimodel.exe
 
             - name: Hand the archive to publish-release
               uses: actions/upload-artifact@v4
               with:
                   name: release-${{ matrix.target }}
-                  path: aethershell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+                  path: ironshell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
                   if-no-files-found: error
 
     build-wasm:
@@ -141,13 +141,13 @@ jobs:
             - name: Package WASM
               run: |
                   cd web
-                  tar czvf ../aethershell-wasm-${{ needs.create-release.outputs.version }}.tar.gz pkg/
+                  tar czvf ../ironshell-wasm-${{ needs.create-release.outputs.version }}.tar.gz pkg/
 
             - name: Hand the archive to publish-release
               uses: actions/upload-artifact@v4
               with:
                   name: release-wasm
-                  path: aethershell-wasm-${{ needs.create-release.outputs.version }}.tar.gz
+                  path: ironshell-wasm-${{ needs.create-release.outputs.version }}.tar.gz
                   if-no-files-found: error
 
     publish-preflight:
@@ -260,7 +260,7 @@ jobs:
               # enough. Its log reads:
               #
               #     CARGO_REGISTRY_TOKEN:
-              #     error: crate aethershell@5.0.0 already exists on crates.io index
+              #     error: crate ironshell@5.0.0 already exists on crates.io index
               #     ##[error]Process completed with exit code 101
               #
               # …and this step then printed "✅ 5.0.0 is published" — true, but
@@ -280,15 +280,15 @@ jobs:
                   VERSION="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
                   OUTCOME="${{ steps.cargo_publish.outcome }}"
 
-                  if curl -sfA "aethershell-release-verify" \
-                       "https://crates.io/api/v1/crates/aethershell/${VERSION}" >/dev/null; then
+                  if curl -sfA "ironshell-release-verify" \
+                       "https://crates.io/api/v1/crates/iron-shell/${VERSION}" >/dev/null; then
                     ON_REGISTRY=yes
                   else
                     ON_REGISTRY=no
                   fi
 
                   {
-                    echo "### crates.io — \`aethershell\` ${VERSION}"
+                    echo "### crates.io — \`iron-shell\` ${VERSION}"
                     echo
                     echo "| check | result |"
                     echo "| --- | --- |"
@@ -349,9 +349,9 @@ jobs:
               # The name was decided on 2026-08-11: **`@nervosys/aethershell`**.
               #
               # wasm-pack derives the manifest name from the crate name in
-              # web/Cargo.toml, which is `aether_wasm` — so the artifact this job
+              # web/Cargo.toml, which is `ironshell_wasm` — so the artifact this job
               # publishes would claim the wrong name. Renaming the crate would also
-              # rename the generated `aether_wasm.js`/`.d.ts` that `web/aethershell.js`
+              # rename the generated `ironshell_wasm.js`/`.d.ts` that `web/ironshell.js`
               # imports, so the name is set on the manifest instead, which is the
               # narrow change. `--access public` below is required for a scoped
               # package; without it npm rejects the first publish as private.
@@ -395,7 +395,7 @@ jobs:
               # Name and version are read from the artifact that is actually
               # published (web/pkg/package.json) rather than assumed, so this
               # verifies whatever was really sent. wasm-pack generates that file
-              # with the crate's name (`aether_wasm`); the "Name the package" step
+              # with the crate's name (`ironshell_wasm`); the "Name the package" step
               # rewrites it to `@nervosys/aethershell` beforehand. Reading it back
               # here means a change to that step cannot silently desync the check.
               if: always()
@@ -484,7 +484,7 @@ jobs:
                     echo "### Homebrew formula"
                     echo
                     echo "Pushing to the tap is not configured, so update"
-                    echo '`Formula/aethershell.rb` by hand:'
+                    echo '`Formula/ironshell.rb` by hand:'
                     echo
                     echo '```ruby'
                     echo "  url \"$url\""
@@ -523,7 +523,7 @@ jobs:
               # WARNING (2026-08-07, updated 2026-09-02): this has never
               # succeeded from CI.
               #
-              # The original note said the `aethershell` name was unregistered
+              # The original note said the `ironshell` name was unregistered
               # on PyPI, that anyone could claim it, and that since pip executes
               # package code at install time this was a live supply-chain
               # exposure rather than merely a broken job. That was true when it
@@ -565,7 +565,7 @@ jobs:
                     {
                       echo "### ⛔ PyPI: this run did not publish"
                       echo
-                      echo "\`aethershell\` **${VERSION}** — publish step outcome:"
+                      echo "\`ironshell\` **${VERSION}** — publish step outcome:"
                       echo "\`${{ steps.pypi_publish.outcome }}\`. As of 2026-08-07 the cause was"
                       echo "that trusted publishing is not configured for this repository"
                       echo "(\`environment: MISSING\` in the OIDC claim)."
@@ -574,19 +574,19 @@ jobs:
                     } | tee -a "$GITHUB_STEP_SUMMARY"
                     exit 1
                   fi
-                  if curl -sf "https://pypi.org/pypi/aethershell/${VERSION}/json" >/dev/null; then
-                    echo "✅ PyPI: this run published \`aethershell\` **${VERSION}**." | tee -a "$GITHUB_STEP_SUMMARY"
+                  if curl -sf "https://pypi.org/pypi/ironshell/${VERSION}/json" >/dev/null; then
+                    echo "✅ PyPI: this run published \`ironshell\` **${VERSION}**." | tee -a "$GITHUB_STEP_SUMMARY"
                   else
                     {
                       echo "### ⚠️ PyPI publish did NOT land"
                       echo
-                      echo "\`aethershell\` **${VERSION}** is not on PyPI, even though the publish"
+                      echo "\`ironshell\` **${VERSION}** is not on PyPI, even though the publish"
                       echo "step reported success (\`continue-on-error\` masks failures)."
                       echo
                       echo "As of 2026-08-07 the cause was that trusted publishing is not"
                       echo "configured for this repository (\`environment: MISSING\` in the OIDC"
                       echo "claim). **The package name is also unregistered**, and the docs"
-                      echo "previously told users to \`pip install aethershell\` — anyone may"
+                      echo "previously told users to \`pip install ironshell\` — anyone may"
                       echo "claim the name, and pip executes package code at install time."
                       echo "See finding 12 in \`docs/security/SECURITY_AUDIT_2026-07-30.md\`."
                     } | tee -a "$GITHUB_STEP_SUMMARY"
@@ -660,7 +660,7 @@ jobs:
               uses: softprops/action-gh-release@v2
               with:
                   tag_name: v${{ needs.create-release.outputs.version }}
-                  name: AetherShell v${{ needs.create-release.outputs.version }}
+                  name: IronShell v${{ needs.create-release.outputs.version }}
                   draft: false
                   prerelease: false
                   generate_release_notes: true

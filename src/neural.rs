@@ -1,4 +1,4 @@
-//! Neural Network Primitives for AetherShell
+//! Neural Network Primitives for IronShell
 //!
 //! Provides lightweight neural network building blocks for in-shell learning,
 //! particularly useful for evolving multi-agent communication protocols and

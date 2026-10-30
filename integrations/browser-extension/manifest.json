@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "AetherShell",
+    "name": "IronShell",
     "version": "0.2.0",
-    "description": "AI-powered shell for the browser - execute AetherShell commands, process data, and run AI agents",
+    "description": "AI-powered shell for the browser - execute IronShell commands, process data, and run AI agents",
     "icons": {
         "16": "icons/icon16.svg",
         "48": "icons/icon48.svg",
@@ -27,7 +27,7 @@
             "16": "icons/icon16.svg",
             "48": "icons/icon48.svg"
         },
-        "default_title": "AetherShell"
+        "default_title": "IronShell"
     },
     "commands": {
         "open-terminal": {
@@ -35,7 +35,7 @@
                 "default": "Ctrl+Shift+A",
                 "mac": "Command+Shift+A"
             },
-            "description": "Open AetherShell terminal overlay"
+            "description": "Open IronShell terminal overlay"
         },
         "ai-assist": {
             "suggested_key": {
@@ -62,8 +62,8 @@
     "web_accessible_resources": [
         {
             "resources": [
-                "wasm/aether_wasm_bg.wasm",
-                "wasm/aether_wasm.js"
+                "wasm/ironshell_wasm_bg.wasm",
+                "wasm/ironshell_wasm.js"
             ],
             "matches": [
                 "<all_urls>"

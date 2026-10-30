@@ -33,7 +33,7 @@ established by reading the code path. *Measured* — quantified.
 | AS-2026-15 | Medium | **Demonstrated** | `catch e` silently failed to bind when the name was already taken, so the handler read a stale value | **fixed** |
 
 Also closed from the previous audit: **AS-2026-02's residue** now has a
-supported mitigation (`AETHER_AUDIT_SINK`), and the `.gitignore` glob that
+supported mitigation (`IRONSHELL_AUDIT_SINK`), and the `.gitignore` glob that
 excluded a shipped example from the repository entirely.
 
 ---
@@ -49,7 +49,7 @@ to name that exception honestly, which is better than the blanket claim it
 replaced but still leaves a deployment that must be all-approved unable to use
 the builtin.
 
-**FIXED.** Under `AETHER_FIPS` the key is derived with PBKDF2-HMAC-SHA256 at
+**FIXED.** Under `IRONSHELL_FIPS` the key is derived with PBKDF2-HMAC-SHA256 at
 600,000 iterations and the ciphertext carries the tag `AE1F`; otherwise it is
 Argon2id and `AE1`. Argon2id remains the default because it is the better
 choice against offline cracking, and this is a trade a FIPS deployment makes
@@ -58,7 +58,7 @@ deliberately rather than one imposed on everyone.
 Two details that decide whether this is usable:
 
 * **Decrypt reads the KDF from the envelope, never from the ambient mode.**
-  Ciphertext written under `AETHER_FIPS` is readable without it and vice
+  Ciphertext written under `IRONSHELL_FIPS` is readable without it and vice
   versa. Demonstrated in both directions; without this, toggling the mode
   would strand data.
 * **The iteration count is a constant, not a field.** The envelope is not
@@ -73,7 +73,7 @@ Two details that decide whether this is usable:
 **Low · Demonstrated · CWE-757 · ATT&CK T1600 · CMMC SC.L2-3.13.11**
 
 Both envelope versions used the same additional authenticated data,
-`AetherShell-AE1`. The version tag therefore selected the KDF but was not
+`IronShell-AE1`. The version tag therefore selected the KDF but was not
 itself authenticated.
 
 The scheme still rejected a swapped tag — `AE1F` relabelled as `AE1` derives
@@ -122,7 +122,7 @@ budget needs a running total threaded through evaluation.
 
 `safety::is_audit_artifact` — the rule that stops a jailed `file.write` from
 touching the audit log — knew only about `audit_path()`. The new
-`AETHER_AUDIT_SINK` is evidence of exactly the same kind. It is normally
+`IRONSHELL_AUDIT_SINK` is evidence of exactly the same kind. It is normally
 outside the workspace, which is the point of it, but nothing enforced that,
 and a sink placed inside the jail was an ordinary writable file.
 
@@ -179,7 +179,7 @@ mk("A")(1)                            # "v: null"
 informational findings: a partial-application helper can return plausible
 nonsense.
 
-Found by running `test-scripts/integration/test_complex_workflows.ae`, whose
+Found by running `test-scripts/integration/test_complex_workflows.ish`, whose
 "higher-order function pattern" test had been asserting this and failing since
 it was written.
 
@@ -289,7 +289,7 @@ yanked version. No new advisories.
 ## What remains open across both audits
 
 1. **In-process code can still forge the audit chain.** Whatever key the shell
-   appends with, it can forge with. `AETHER_AUDIT_SINK` is now the supported
+   appends with, it can forge with. `IRONSHELL_AUDIT_SINK` is now the supported
    mitigation — point it at a FIFO drained by a collector, a WORM mount, or a
    path where the shell's user has append but not write — but the integrity
    comes from what is behind the path, not from the shell. This is as closed as

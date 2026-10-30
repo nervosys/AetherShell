@@ -1,4 +1,4 @@
-use aethershell::{
+use iron_shell::{
     builtins::{budget_value, call, call_with_input},
     env::Env,
     value::{Table, Value},
@@ -108,15 +108,15 @@ fn dynamic_dispatch_keeps_the_target_effect_gate() {
     let workspace = std::env::temp_dir().join(format!("ae-call-contract-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&workspace).unwrap();
     let keys = [
-        "AETHER_MODE",
-        "AETHER_POLICY",
-        "AETHER_WORKSPACE",
-        "AETHER_AUDIT_LOG",
-        "AETHER_AUDIT_SINK",
-        "AETHER_AUDIT_KEY",
-        "AETHER_AUDIT_KEY_FILE",
-        "AETHER_APPROVE",
-        "AETHER_APPROVE_ALL",
+        "IRONSHELL_MODE",
+        "IRONSHELL_POLICY",
+        "IRONSHELL_WORKSPACE",
+        "IRONSHELL_AUDIT_LOG",
+        "IRONSHELL_AUDIT_SINK",
+        "IRONSHELL_AUDIT_KEY",
+        "IRONSHELL_AUDIT_KEY_FILE",
+        "IRONSHELL_APPROVE",
+        "IRONSHELL_APPROVE_ALL",
     ];
     let _restore = Restore {
         vars: keys
@@ -125,16 +125,16 @@ fn dynamic_dispatch_keeps_the_target_effect_gate() {
             .collect(),
         workspace: workspace.clone(),
     };
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_POLICY", "strict");
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
-    std::env::set_var("AETHER_AUDIT_LOG", workspace.join("audit.log"));
-    std::env::set_var("AETHER_AUDIT_KEY", "11".repeat(32));
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_POLICY", "strict");
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
+    std::env::set_var("IRONSHELL_AUDIT_LOG", workspace.join("audit.log"));
+    std::env::set_var("IRONSHELL_AUDIT_KEY", "11".repeat(32));
     for key in [
-        "AETHER_AUDIT_SINK",
-        "AETHER_AUDIT_KEY_FILE",
-        "AETHER_APPROVE",
-        "AETHER_APPROVE_ALL",
+        "IRONSHELL_AUDIT_SINK",
+        "IRONSHELL_AUDIT_KEY_FILE",
+        "IRONSHELL_APPROVE",
+        "IRONSHELL_APPROVE_ALL",
     ] {
         std::env::remove_var(key);
     }

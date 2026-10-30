@@ -13,7 +13,7 @@
 //! - [`read_line`] is the thin I/O layer that puts the terminal in raw mode,
 //!   translates crossterm key events into [`EditKey`], and repaints.
 //!
-//! When stdin is not a TTY (pipes, CI, `ae < script.ae`), [`read_line`] falls
+//! When stdin is not a TTY (pipes, CI, `ish < script.ish`), [`read_line`] falls
 //! back to plain buffered reads so non-interactive use is unaffected.
 
 use crate::config::PromptConfig;
@@ -129,7 +129,7 @@ impl LineState {
     /// [`set_line`](Self::set_line)) rather than assigning `buffer` directly.
     ///
     /// ```
-    /// use aethershell::line_editor::LineState;
+    /// use iron_shell::line_editor::LineState;
     /// let mut s = LineState::default();
     /// s.suggestions_enabled = true;
     /// s.history = vec!["ls(\"./src\")".into()];

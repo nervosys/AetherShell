@@ -41,13 +41,13 @@ if self.check(Tok::Ident) && self.peek_ahead(1) == Some(Tok::Equal) {
 - `docs/dev-notes/SIMPLIFIED_SYNTAX.md` - Complete change documentation
 
 **Before:**
-```ae
+```ish
 name := "world"
 count := 42
 ```
 
 **After:**
-```ae
+```ish
 name = "world"
 count = 42
 ```
@@ -55,13 +55,13 @@ count = 42
 ### 3. Example Files Updated ✅
 
 **All 17 examples updated** to use simplified `=` syntax:
-- `examples/00_hello.ae` through `examples/16_*.ae`
+- `examples/00_hello.ish` through `examples/16_*.ish`
 - Automated replacement: `(\w+) := ` → `$1 = `
 
 **Examples tested:**
-- ✅ `00_hello.ae` - Works perfectly
-- ✅ `01_pipelines.ae` - Works correctly
-- ✅ `06_agent.ae` - Uses new syntax
+- ✅ `00_hello.ish` - Works perfectly
+- ✅ `01_pipelines.ish` - Works correctly
+- ✅ `06_agent.ish` - Uses new syntax
 
 ### 4. Testing ✅
 
@@ -73,12 +73,12 @@ count = 42
 - ✅ String interpolation compatible
 
 **Test File Created:**
-`temp/test_all_syntaxes.ae` - Demonstrates all three syntaxes working together
+`temp/test_all_syntaxes.ish` - Demonstrates all three syntaxes working together
 
 ## Syntax Comparison
 
 ### Recommended: Simple = (New!)
-```ae
+```ish
 name = "world"
 count = 42
 items = [1, 2, 3]
@@ -86,14 +86,14 @@ items = [1, 2, 3]
 **Pros:** Shortest, cleanest, most familiar (Python/JS style)
 
 ### Also Supported: let keyword
-```ae
+```ish
 let name = "world"
 let mut counter = 0  // Mutable
 ```
 **Pros:** Explicit, Rust-like, required for `mut`
 
 ### Also Supported: := shorthand
-```ae
+```ish
 name := "world"
 count := 42
 ```
@@ -102,7 +102,7 @@ count := 42
 ## Examples
 
 ### Variable Declaration
-```ae
+```ish
 // All equivalent for immutable variables
 x = 42
 let x = 42
@@ -113,14 +113,14 @@ let mut counter = 0
 ```
 
 ### String Interpolation
-```ae
-name = "AetherShell"
+```ish
+name = "IronShell"
 version = "0.1.0"
 print("Welcome to ${name} v${version}!")
 ```
 
 ### Complex Types
-```ae
+```ish
 user = {name: "Alice", age: 30, active: true}
 scores = [98, 87, 92, 95]
 transform = fn(x) => x * 2
@@ -150,7 +150,7 @@ transform = fn(x) => x * 2
 
 **No migration required!** All syntaxes work together:
 
-```ae
+```ish
 // Mix freely in the same file
 name = "test"          // New style
 let count = 42         // Explicit
@@ -168,7 +168,7 @@ items := [1, 2, 3]     // Old shorthand
 | `src/parser.rs`                       | Added `=` pattern check | +12   |
 | `README.md`                           | Updated examples        | ~50   |
 | `docs/specs/SPEC.md`                  | Updated spec            | ~10   |
-| `examples/*.ae`                       | Changed `:=` to `=`     | ~50   |
+| `examples/*.ish`                       | Changed `:=` to `=`     | ~50   |
 | `docs/dev-notes/SIMPLIFIED_SYNTAX.md` | Documentation           | +150  |
 
 **Total Impact:**
@@ -179,13 +179,13 @@ items := [1, 2, 3]     // Old shorthand
 
 ## Conclusion
 
-Successfully implemented simplified variable syntax! AetherShell now supports:
+Successfully implemented simplified variable syntax! IronShell now supports:
 
 1. **`=`** - Simple and recommended (new)
 2. **`let`** - Explicit and required for `mut`
 3. **`:=`** - Backwards compatible shorthand
 
-The change makes AetherShell more accessible while preserving all existing functionality. Type inference, pattern matching (when implemented), and all other features work identically with all three syntaxes.
+The change makes IronShell more accessible while preserving all existing functionality. Type inference, pattern matching (when implemented), and all other features work identically with all three syntaxes.
 
 **Status:** ✅ Complete - Ready for use
 **Tests:** ✅ All passing (21/21)

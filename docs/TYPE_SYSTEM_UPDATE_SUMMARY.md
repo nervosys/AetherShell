@@ -5,14 +5,14 @@
 
 ## Overview
 
-Updated AetherShell documentation and tooling to clearly distinguish between type inference operator (`:=`) and explicit type operator (`=`). This clarification addresses potential confusion for new users learning AetherShell's type system.
+Updated IronShell documentation and tooling to clearly distinguish between type inference operator (`:=`) and explicit type operator (`=`). This clarification addresses potential confusion for new users learning IronShell's type system.
 
 ## Changes Made
 
 ### 1. Comprehensive Type System Guide
 **File**: `docs/TYPE_SYSTEM_GUIDE.md`
 - **Size**: 300+ lines
-- **Purpose**: Complete reference for AetherShell's type system
+- **Purpose**: Complete reference for IronShell's type system
 - **Key Sections**:
   - Type Inference Assignment (`:=`)
   - Explicit Type Assignment (`=`)
@@ -23,20 +23,20 @@ Updated AetherShell documentation and tooling to clearly distinguish between typ
   - Integration with pipelines and AI
 
 **Key Examples**:
-```aethershell
+```ironshell
 # Type Inference - Compiler figures it out
-name := "AetherShell"           # Infers String
+name := "IronShell"           # Infers String
 count := 42                     # Infers Int
 items := [1, 2, 3]              # Infers Array<Int>
 
 # Explicit Types - Developer declares it
-name: String = "AetherShell"
+name: String = "IronShell"
 count: Int = 42
 items: Array<Int> = [1, 2, 3]
 ```
 
 ### 2. VS Code Extension Snippets Enhanced
-**File**: `vscode-extension/snippets/aethershell.json`
+**File**: `vscode-extension/snippets/ironshell.json`
 - **Added 6 new snippets** demonstrating type system:
   1. `varinfer` - Variable with type inference (`:=`)
   2. `varexplicit` - Variable with explicit type
@@ -66,13 +66,13 @@ items: Array<Int> = [1, 2, 3]
 **Added Content**:
 ```markdown
 **Key Distinction**:
-```aethershell
+```ironshell
 # Type inference - compiler figures it out
-name := "AetherShell"   # Infers String
+name := "IronShell"   # Infers String
 count := 42             # Infers Int
 
 # Explicit types - you declare it
-name: String = "AetherShell"
+name: String = "IronShell"
 count: Int = 42
 ```
 
@@ -101,14 +101,14 @@ See [Type System Guide](https://github.com/nervosys/AetherShell/blob/master/docs
   - Debugging and performance tips
 
 **Key Feature**: Side-by-side comparison of `:=` and `=`:
-```aethershell
+```ironshell
 # Type Inference (:=) - Let the compiler figure it out
-name := "AetherShell"           # String
+name := "IronShell"           # String
 count := 42                     # Int
 price := 19.99                  # Float
 
 # Explicit Types (=) - Declare the type
-name: String = "AetherShell"
+name: String = "IronShell"
 count: Int = 42
 price: Float = 19.99
 ```
@@ -118,7 +118,7 @@ price: Float = 19.99
 ### For New Users
 1. **Clear understanding** from the start about when to use each operator
 2. **Reduces confusion** that could occur with similar-looking syntax
-3. **Best practices** guide helps write idiomatic AetherShell code
+3. **Best practices** guide helps write idiomatic IronShell code
 4. **Quick reference** provides instant lookup for common patterns
 
 ### For VS Code Users
@@ -136,7 +136,7 @@ price: Float = 19.99
 All changes verified:
 - ✅ TYPE_SYSTEM_GUIDE.md created (300+ lines)
 - ✅ QUICK_REFERENCE.md created (400+ lines)
-- ✅ vscode-extension/snippets/aethershell.json updated (6 new snippets)
+- ✅ vscode-extension/snippets/ironshell.json updated (6 new snippets)
 - ✅ vscode-extension/README.md enhanced (type system section)
 - ✅ All files use correct syntax
 - ✅ Examples demonstrate both operators appropriately
@@ -146,11 +146,11 @@ All changes verified:
 
 ### Existing Code Validation
 Verified existing example files use `:=` correctly:
-- examples/12_multi_agent_orchestration.ae ✅
-- examples/13_multimodal_ai.ae ✅
-- examples/14_typed_pipelines.ae ✅
-- examples/15_ai_protocols.ae ✅
-- examples/16_mcp_servers.ae ✅
+- examples/12_multi_agent_orchestration.ish ✅
+- examples/13_multimodal_ai.ish ✅
+- examples/14_typed_pipelines.ish ✅
+- examples/15_ai_protocols.ish ✅
+- examples/16_mcp_servers.ish ✅
 
 All uses of `:=` are for type inference (correct usage).
 
@@ -211,13 +211,13 @@ All uses of `:=` are for type inference (correct usage).
 2. `docs/QUICK_REFERENCE.md` - One-page quick reference
 
 ### Modified Files (2)
-1. `vscode-extension/snippets/aethershell.json` - Added 6 type snippets
+1. `vscode-extension/snippets/ironshell.json` - Added 6 type snippets
 2. `vscode-extension/README.md` - Enhanced with type system section
 
 ### Total Lines Added
 - TYPE_SYSTEM_GUIDE.md: ~300 lines
 - QUICK_REFERENCE.md: ~400 lines
-- snippets/aethershell.json: ~40 lines (6 snippets)
+- snippets/ironshell.json: ~40 lines (6 snippets)
 - README.md: ~15 lines
 
 **Total**: ~755 lines of new documentation and tooling
@@ -242,7 +242,7 @@ The type system is now thoroughly documented with clear guidance on when to use 
 4. **Inline examples** in README
 5. **Best practices** to write idiomatic code
 
-This update ensures AetherShell users understand the type system from day one, reducing confusion and improving code quality across the ecosystem.
+This update ensures IronShell users understand the type system from day one, reducing confusion and improving code quality across the ecosystem.
 
 ---
 

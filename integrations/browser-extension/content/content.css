@@ -1,4 +1,4 @@
-/* AetherShell Browser Extension - Content Styles */
+/* IronShell Browser Extension - Content Styles */
 
 /* Additional styles that might be needed for specific page integrations */
 /* Most styles are injected dynamically via content.js */
@@ -9,18 +9,18 @@
 }
 
 /* Highlight class for processed elements */
-.aethershell-highlight {
+.ironshell-highlight {
     outline: 2px solid #00d9ff;
     outline-offset: 2px;
     border-radius: 4px;
 }
 
 /* Loading indicator for async operations */
-.aethershell-loading {
+.ironshell-loading {
     position: relative;
 }
 
-.aethershell-loading::after {
+.ironshell-loading::after {
     content: '';
     position: absolute;
     top: 50%;
@@ -31,10 +31,10 @@
     border: 2px solid transparent;
     border-top-color: #00d9ff;
     border-radius: 50%;
-    animation: aethershell-spin 1s linear infinite;
+    animation: ironshell-spin 1s linear infinite;
 }
 
-@keyframes aethershell-spin {
+@keyframes ironshell-spin {
     to {
         transform: rotate(360deg);
     }

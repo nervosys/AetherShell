@@ -1,4 +1,4 @@
-use aethershell::parser;
+use iron_shell::parser;
 
 #[test]
 fn lambda_no_space_is_ok() {

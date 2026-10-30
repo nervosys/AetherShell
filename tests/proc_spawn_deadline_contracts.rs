@@ -9,7 +9,7 @@
 //! or `ping` running. Every wait is bounded. Human mode allows the Process
 //! effect, so these calls need no approval.
 
-use aethershell::{builtins::call, env::Env, value::Value};
+use iron_shell::{builtins::call, env::Env, value::Value};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 use std::{collections::BTreeMap, sync::Mutex};
@@ -25,14 +25,14 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 /// Sets the environment this file needs. The session directory and the audit
 /// log live in the temp directory, so no test touches the real ones.
 fn sandbox() {
-    for key in ["AETHER_MODE", "AETHER_AGENT", "AETHER_POLICY"] {
+    for key in ["IRONSHELL_MODE", "IRONSHELL_AGENT", "IRONSHELL_POLICY"] {
         std::env::remove_var(key);
     }
     let dir = std::env::temp_dir().join(format!("proc_spawn_deadline_{}", std::process::id()));
-    std::env::set_var("AETHER_SESSION_DIR", &dir);
+    std::env::set_var("IRONSHELL_SESSION_DIR", &dir);
     let log = dir.join("audit.log");
-    std::env::set_var("AETHER_AUDIT_LOG", log);
-    std::env::set_var("AETHER_AUDIT_KEY", "33".repeat(32));
+    std::env::set_var("IRONSHELL_AUDIT_LOG", log);
+    std::env::set_var("IRONSHELL_AUDIT_KEY", "33".repeat(32));
 }
 
 fn spawn(args: Vec<Value>) -> anyhow::Result<Value> {

@@ -1,6 +1,6 @@
 # Types and Values
 
-AetherShell is a typed shell where every expression produces a structured `Value`. Unlike traditional shells that pipe raw text, AetherShell pipelines carry rich, typed data.
+IronShell is a typed shell where every expression produces a structured `Value`. Unlike traditional shells that pipe raw text, IronShell pipelines carry rich, typed data.
 
 ## Core Types
 
@@ -20,7 +20,7 @@ AetherShell is a typed shell where every expression produces a structured `Value
 
 ### Integers and Floats
 
-```ae
+```ish
 let x = 42       # Int
 let y = 3.14     # Float
 let z = x + y    # Float (auto-promoted)
@@ -28,7 +28,7 @@ let z = x + y    # Float (auto-promoted)
 
 Integer division always produces a Float:
 
-```ae
+```ish
 10 / 3   # => 3.3333...
 ```
 
@@ -36,7 +36,7 @@ Integer division always produces a Float:
 
 Strings support `${expr}` interpolation:
 
-```ae
+```ish
 let name = "world"
 let greeting = "Hello, ${name}!"    # => "Hello, world!"
 let math = "2 + 2 = ${2 + 2}"      # => "2 + 2 = 4"
@@ -44,7 +44,7 @@ let math = "2 + 2 = ${2 + 2}"      # => "2 + 2 = 4"
 
 String concatenation works with `+` and auto-converts the other operand:
 
-```ae
+```ish
 "count: " + 42        # => "count: 42"
 100 + " items"         # => "100 items"
 ```
@@ -53,7 +53,7 @@ String concatenation works with `+` and auto-converts the other operand:
 
 URIs identify resources with a scheme prefix, commonly used for AI model references:
 
-```ae
+```ish
 let model = openai:gpt-4o-mini
 let local = ollama:llama3
 ```
@@ -62,7 +62,7 @@ let local = ollama:llama3
 
 Arrays hold any mix of types:
 
-```ae
+```ish
 let nums = [1, 2, 3]
 let mixed = [1, "two", true, [4, 5]]
 ```
@@ -71,7 +71,7 @@ let mixed = [1, "two", true, [4, 5]]
 
 Records are key-value maps with sorted keys:
 
-```ae
+```ish
 let person = {name: "Ada", age: 36, langs: ["Rust", "Python"]}
 person.name    # => "Ada"
 person.langs   # => ["Rust", "Python"]
@@ -81,7 +81,7 @@ person.langs   # => ["Rust", "Python"]
 
 Tables are structured arrays of records with a defined schema. Many builtins return tables:
 
-```ae
+```ish
 ls "."    # => Table with columns: name, path, ext, is_dir, size, modified
 ```
 
@@ -89,7 +89,7 @@ Tables get special pretty-printed column-aligned output in the terminal.
 
 ## Type Conversion
 
-AetherShell performs automatic numeric promotion in arithmetic:
+IronShell performs automatic numeric promotion in arithmetic:
 
 | Expression | Result Type | Rule |
 |-----------|-------------|------|
@@ -120,7 +120,7 @@ All values have a boolean interpretation:
 
 Values convert bidirectionally with JSON:
 
-```ae
+```ish
 let data = from_json '{"name": "test", "count": 42}'
 data.name    # => "test"
 
@@ -130,7 +130,7 @@ let json_str = to_json {name: "test", count: 42}
 
 ## Type Inspection
 
-```ae
+```ish
 describe 42          # => "Int"
 describe "hello"     # => "String"
 describe [1, 2, 3]   # => "Array(3 elements)"

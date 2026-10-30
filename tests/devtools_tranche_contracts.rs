@@ -9,14 +9,14 @@
 //! workspace for the length of the test. The make recipe only echoes, and the
 //! CMake project declares no languages, so configure needs no compiler.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Once};
 
-/// Process-global environment (`AETHER_MODE`, `AETHER_WORKSPACE`) is read by
+/// Process-global environment (`IRONSHELL_MODE`, `IRONSHELL_WORKSPACE`) is read by
 /// every call, so each call in this file takes this lock.
 static LOCK: Mutex<()> = Mutex::new(());
 
@@ -28,38 +28,38 @@ fn isolate() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_devtools_tranche_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
 }
 
 /// A call in human mode, with the workspace left as the process has it.
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     isolate();
     let mut env = Env::new();
     builtins::call(name, args, &mut env)
 }
 
-/// A call in human mode with `AETHER_WORKSPACE` set to `workspace` for its
+/// A call in human mode with `IRONSHELL_WORKSPACE` set to `workspace` for its
 /// duration, so the tool may act inside a temp directory and nowhere else.
 fn call_in(workspace: &Path, name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
-    std::env::set_var("AETHER_WORKSPACE", workspace);
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
+    std::env::set_var("IRONSHELL_WORKSPACE", workspace);
     isolate();
     let mut env = Env::new();
     let out = builtins::call(name, args, &mut env);
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     out
 }
 
 fn piped(name: &str, args: Vec<Value>, input: Value) -> anyhow::Result<Value> {
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     isolate();
     let mut env = Env::new();
     builtins::call_with_input(name, args, Some(input), &mut env)

@@ -1,4 +1,4 @@
-//! Bash → Aether Shell transpiler (compat mode).
+//! Bash → IronShell Shell transpiler (compat mode).
 //!
 //! This is a pragmatic, line-oriented transpiler for a *useful subset* of Bash:
 //!   - simple commands, args, and pipelines (`|`)
@@ -15,31 +15,31 @@
 //! `benches/agentic/bashcompat.mjs` runs 32 ordinary agent-emitted commands
 //! through this path. Two run natively; ten fall back to `bash -lc`; the rest
 //! are refused or fail. Read that before treating compat mode as a way to
-//! point a shell-native benchmark at AetherShell.
+//! point a shell-native benchmark at IronShell.
 //!
 //! Fallback: if a line contains redirections or constructs we don't yet handle,
 //! we emit:  sh(["bash","-lc", "<original line>"])
 //!
-//! Output: Aether source as a String. The `sh(...)` call is assumed to be a builtin
+//! Output: IronShell source as a String. The `sh(...)` call is assumed to be a builtin
 //! (or small helper) that runs an external command. If you prefer a different name,
 //! adjust `render_external_call` below.
 
 use anyhow::{anyhow, Result};
 
-/// Transpile a whole Bash script (multi-line) to Aether code.
-/// Transpile a whole Bash script (multi-line) to Aether code.
+/// Transpile a whole Bash script (multi-line) to IronShell code.
+/// Transpile a whole Bash script (multi-line) to IronShell code.
 ///
 /// Multi-line blocks (if/for/while/until/case/select/function) are accumulated
 /// and emitted as a single `sh(["bash","-lc","..."])` call rather than falling
 /// back line-by-line.
-/// Transpile a whole Bash script (multi-line) to Aether code.
+/// Transpile a whole Bash script (multi-line) to IronShell code.
 ///
 /// Multi-line blocks (if/for/while/until/case/select/function) are accumulated
 /// and emitted as a single `sh(["bash","-lc","..."])` call rather than falling
 /// back line-by-line.
 pub fn transpile_bash_to_ae(src: &str) -> Result<String> {
     let mut out = String::new();
-    out.push_str("// Transpiled from Bash \u{2192} Aether (compat mode)\n");
+    out.push_str("// Transpiled from Bash \u{2192} IronShell (compat mode)\n");
 
     let mut block_depth: i32 = 0;
     let mut block_lines: Vec<String> = Vec::new();
@@ -105,8 +105,8 @@ pub fn transpile_bash_to_ae(src: &str) -> Result<String> {
         // Try to parse as a pipeline of commands.
         match parse_pipeline(line) {
             Ok(cmds) if !cmds.is_empty() => {
-                let aether_line = render_pipeline(&cmds);
-                out.push_str(&aether_line);
+                let ironshell_line = render_pipeline(&cmds);
+                out.push_str(&ironshell_line);
                 out.push('\n');
             }
             _ => {
@@ -156,7 +156,7 @@ Top-level quick checks and simple forms
 
 fn contains_redirection_or_complex(s: &str) -> bool {
     // quick n' dirty: redirect operators or process-substitution or background
-    // If you want to support these, map them to Aether I/O or fallback to `bash -lc`.
+    // If you want to support these, map them to IronShell I/O or fallback to `bash -lc`.
     let suspicious = ['>', '<', '&'];
     s.chars().any(|c| suspicious.contains(&c))
         || s.contains("2>")
@@ -208,7 +208,7 @@ fn count_block_closers(line: &str) -> i32 {
 }
 
 fn render_fallback_bash(line: &str) -> String {
-    // Escape the line into a single-quoted Aether string literal safely.
+    // Escape the line into a single-quoted IronShell string literal safely.
     // We'll build: sh(["bash","-lc","<line>"])
     let quoted = single_quote_literal(line);
     format!("sh([\"bash\",\"-lc\", {}]);", quoted)
@@ -419,7 +419,7 @@ fn parse_single_token(s: &str) -> Result<Token> {
 }
 
 /* =============================================================================
-Rendering Aether code
+Rendering IronShell code
 ============================================================================= */
 
 fn render_pipeline(cmds: &[Command]) -> String {
@@ -432,7 +432,7 @@ fn render_pipeline(cmds: &[Command]) -> String {
 }
 
 fn render_command(cmd: &Command, _is_first: bool) -> String {
-    // If the program can be mapped to an Aether builtin, render directly; else `sh([...])`.
+    // If the program can be mapped to an IronShell builtin, render directly; else `sh([...])`.
     let prog_name = token_to_plain_word(&cmd.program);
 
     if let Some(name) = prog_name.as_deref() {
@@ -484,7 +484,7 @@ fn render_arg_expr(tok: &Token) -> String {
             // the identifier was simply unbound, and an unbound identifier
             // evaluates to null rather than raising. So:
             //
-            //     $ ae -b -c 'echo $HOME'
+            //     $ ish -b -c 'echo $HOME'
             //     null                        # exit 0
             //
             // A confident wrong answer at exit 0, for the most common
@@ -685,7 +685,7 @@ Quoting helpers
 ============================================================================= */
 
 fn single_quote_literal(s: &str) -> String {
-    // Aether strings are double-quoted; but for array-to-json-ish we need JSON-like "..." too.
+    // IronShell strings are double-quoted; but for array-to-json-ish we need JSON-like "..." too.
     // We'll produce a JSON string literal here for `sh([...])`.
     json_string_literal(s)
 }
@@ -711,7 +711,7 @@ fn json_string_literal(s: &str) -> String {
 }
 
 fn double_quote_with_escapes(s: &str) -> String {
-    // Aether string literal with minimal escapes, *no* interpolation.
+    // IronShell string literal with minimal escapes, *no* interpolation.
     let mut out = String::from("\"");
     for ch in s.chars() {
         match ch {

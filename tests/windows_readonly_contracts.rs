@@ -10,7 +10,7 @@
 //! The attribute is always cleared again before the fixture is removed, since
 //! a read-only file blocks cleanup.
 
-use aethershell::{builtins::call, env::Env, value::Value};
+use iron_shell::{builtins::call, env::Env, value::Value};
 use std::{
     collections::BTreeMap,
     ffi::OsString,
@@ -33,15 +33,15 @@ impl Fixture {
         let root = root.canonicalize().unwrap();
         let keys = [
             "NO_COLOR",
-            "AETHER_MODE",
-            "AETHER_AGENT",
-            "AETHER_WORKSPACE",
-            "AETHER_POLICY",
-            "AETHER_SESSION_DIR",
-            "AETHER_AUDIT_LOG",
-            "AETHER_AUDIT_KEY",
-            "AETHER_AUDIT_KEY_FILE",
-            "AETHER_AUDIT_SINK",
+            "IRONSHELL_MODE",
+            "IRONSHELL_AGENT",
+            "IRONSHELL_WORKSPACE",
+            "IRONSHELL_POLICY",
+            "IRONSHELL_SESSION_DIR",
+            "IRONSHELL_AUDIT_LOG",
+            "IRONSHELL_AUDIT_KEY",
+            "IRONSHELL_AUDIT_KEY_FILE",
+            "IRONSHELL_AUDIT_SINK",
         ];
         let fixture = Self {
             root,
@@ -55,10 +55,10 @@ impl Fixture {
         }
         let session = fixture.root.join("session");
         std::fs::create_dir(&session).unwrap();
-        std::env::set_var("AETHER_WORKSPACE", &fixture.root);
-        std::env::set_var("AETHER_SESSION_DIR", &session);
-        std::env::set_var("AETHER_AUDIT_LOG", fixture.root.join("audit.log"));
-        std::env::set_var("AETHER_AUDIT_KEY", "11".repeat(32));
+        std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
+        std::env::set_var("IRONSHELL_SESSION_DIR", &session);
+        std::env::set_var("IRONSHELL_AUDIT_LOG", fixture.root.join("audit.log"));
+        std::env::set_var("IRONSHELL_AUDIT_KEY", "11".repeat(32));
         std::env::set_var("NO_COLOR", "1");
         fixture
     }
@@ -70,7 +70,7 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        while aethershell::tx::rollback().is_ok() {}
+        while iron_shell::tx::rollback().is_ok() {}
         for (key, value) in &self.vars {
             match value {
                 Some(v) => std::env::set_var(key, v),
@@ -111,12 +111,12 @@ fn is_read_only(path: &Path) -> bool {
     std::fs::metadata(path).unwrap().permissions().readonly()
 }
 
-/// Names of `.aether_tmp_*` files left in a directory.
+/// Names of `.ironshell_tmp_*` files left in a directory.
 fn leftover_temporaries(dir: &Path) -> Vec<String> {
     std::fs::read_dir(dir)
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|name| name.starts_with(".aether_tmp_"))
+        .filter(|name| name.starts_with(".ironshell_tmp_"))
         .collect()
 }
 

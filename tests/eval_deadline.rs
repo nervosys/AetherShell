@@ -12,7 +12,7 @@
 //! So the claim being tested here is not "a deadline is configured" but "work
 //! stops, and it stops near the deadline rather than after finishing".
 
-use aethershell::{env::Env, eval, parser, safety, value::Value};
+use iron_shell::{env::Env, eval, parser, safety, value::Value};
 use std::time::{Duration, Instant};
 
 /// Parse and evaluate `code`, propagating either failure.

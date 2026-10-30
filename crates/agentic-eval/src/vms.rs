@@ -81,7 +81,7 @@ impl Vm {
     /// (`fc`, `chv`, `runsc`, `kvm`, `runc`, …).
     pub fn from_name(name: &str) -> Option<Vm> {
         match name.to_ascii_lowercase().as_str() {
-            "aethervm" | "aether" | "hypermachine" => Some(Vm::AetherVm),
+            "aethervm" | "ironshell" | "hypermachine" => Some(Vm::AetherVm),
             "firecracker" | "fc" => Some(Vm::Firecracker),
             "cloud-hypervisor" | "cloudhv" | "chv" => Some(Vm::CloudHypervisor),
             "gvisor" | "runsc" => Some(Vm::Gvisor),
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn axis_judgments_hold_directionally() {
-        let aether = profile(Vm::AetherVm);
+        let ironshell = profile(Vm::AetherVm);
         let fc = profile(Vm::Firecracker);
         let qemu = profile(Vm::QemuKvm);
         let docker = profile(Vm::Docker);
@@ -389,7 +389,7 @@ mod tests {
             "shared-kernel containers pack far denser than full VMs"
         );
         assert!(
-            aether.agent_control > fc.agent_control,
+            ironshell.agent_control > fc.agent_control,
             "an MCP-native control plane beats a bring-your-own REST socket"
         );
         assert!(
@@ -397,7 +397,7 @@ mod tests {
             "hardware isolation beats a userspace kernel for untrusted code"
         );
         assert!(
-            aether.snapshotting >= qemu.snapshotting,
+            ironshell.snapshotting >= qemu.snapshotting,
             "first-class CoW branching is at least as strong as savevm snapshots"
         );
     }

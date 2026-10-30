@@ -19,17 +19,17 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 static SERIAL: Mutex<()> = Mutex::new(());
 
 /// The variables a sandbox redirects. Each is restored when it ends.
 const SANDBOX_VARS: [&str; 4] = [
-    "AETHER_WORKSPACE",
-    "AETHER_CONFIG_HOME",
-    "AETHER_DATA_HOME",
-    "AETHER_CACHE_HOME",
+    "IRONSHELL_WORKSPACE",
+    "IRONSHELL_CONFIG_HOME",
+    "IRONSHELL_DATA_HOME",
+    "IRONSHELL_CACHE_HOME",
 ];
 
 /// The cargo-backed builtins that take a project directory.
@@ -74,10 +74,10 @@ impl Sandbox {
             .iter()
             .map(|k| (*k, std::env::var_os(k)))
             .collect();
-        std::env::set_var("AETHER_WORKSPACE", &root);
-        std::env::set_var("AETHER_CONFIG_HOME", base.join("config"));
-        std::env::set_var("AETHER_DATA_HOME", base.join("data"));
-        std::env::set_var("AETHER_CACHE_HOME", base.join("cache"));
+        std::env::set_var("IRONSHELL_WORKSPACE", &root);
+        std::env::set_var("IRONSHELL_CONFIG_HOME", base.join("config"));
+        std::env::set_var("IRONSHELL_DATA_HOME", base.join("data"));
+        std::env::set_var("IRONSHELL_CACHE_HOME", base.join("cache"));
         Sandbox {
             base,
             root,
@@ -137,12 +137,12 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call_piped(name: &str, args: Vec<Value>, input: Value) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call_with_input(name, args, Some(input), &mut env)
+    iron_shell::builtins::call_with_input(name, args, Some(input), &mut env)
 }
 
 /// The coded refusal an error carries: the first `E_` token in its text.

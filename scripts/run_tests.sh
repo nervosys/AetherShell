@@ -1,6 +1,6 @@
 #!/bin/bash
-# AetherShell Test Runner Script
-# Run all .ae test files and report results
+# IronShell Test Runner Script
+# Run all .ish test files and report results
 
 set -e
 
@@ -13,26 +13,26 @@ NC='\033[0m' # No Color
 TEST_DIR="${1:-tests}"
 VERBOSE="${2:-}"
 
-echo -e "${CYAN}=== AetherShell Test Runner ===${NC}"
+echo -e "${CYAN}=== IronShell Test Runner ===${NC}"
 echo ""
 
 # Build first
-echo -e "${CYAN}Building AetherShell...${NC}"
-if ! cargo build --bin ae 2>/dev/null; then
+echo -e "${CYAN}Building IronShell...${NC}"
+if ! cargo build --bin ish 2>/dev/null; then
     echo -e "${RED}Build failed!${NC}"
     exit 1
 fi
 echo -e "${GREEN}Build successful${NC}"
 echo ""
 
-# Find ae binary
-AE_BIN="./target/debug/ae"
+# Find ish binary
+AE_BIN="./target/debug/ish"
 if [ ! -f "$AE_BIN" ]; then
-    AE_BIN="./target/release/ae"
+    AE_BIN="./target/release/ish"
 fi
 
 if [ ! -f "$AE_BIN" ]; then
-    echo -e "${RED}Could not find ae binary!${NC}"
+    echo -e "${RED}Could not find ish binary!${NC}"
     exit 1
 fi
 
@@ -91,22 +91,22 @@ run_tests() {
 
 # Run feature tests
 echo -e "${CYAN}Running feature tests...${NC}"
-run_tests "tests" "feature_*.ae"
+run_tests "tests" "feature_*.ish"
 
 # Run coverage tests
 echo ""
 echo -e "${CYAN}Running coverage tests...${NC}"
-run_tests "tests/coverage" "*.ae"
+run_tests "tests/coverage" "*.ish"
 
 # Run builtin tests
 echo ""
 echo -e "${CYAN}Running builtin tests...${NC}"
-run_tests "tests/scripts/builtins" "*.ae"
+run_tests "tests/scripts/builtins" "*.ish"
 
 # Run integration tests
 echo ""
 echo -e "${CYAN}Running integration tests...${NC}"
-run_tests "tests/scripts/integration" "*.ae"
+run_tests "tests/scripts/integration" "*.ish"
 
 # Summary
 echo ""

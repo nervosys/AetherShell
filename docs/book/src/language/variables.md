@@ -1,20 +1,20 @@
 # Variables and Bindings
 
-AetherShell supports several forms for declaring and binding variables, from explicit `let` declarations to concise shorthand syntax.
+IronShell supports several forms for declaring and binding variables, from explicit `let` declarations to concise shorthand syntax.
 
 ## Let Bindings
 
 The standard way to declare a variable:
 
-```ae
-let name = "AetherShell"
+```ish
+let name = "IronShell"
 let version = 3
 let features = ["typed", "pipelines", "AI"]
 ```
 
 Variables are **immutable by default**. Attempting to reassign an immutable variable produces an error:
 
-```ae
+```ish
 let x = 10
 x = 20    # Error: Cannot reassign immutable variable 'x'. Use 'let mut x' to make it mutable.
 ```
@@ -23,7 +23,7 @@ x = 20    # Error: Cannot reassign immutable variable 'x'. Use 'let mut x' to ma
 
 Use `mut` to allow reassignment:
 
-```ae
+```ish
 let mut counter = 0
 counter = counter + 1    # OK
 counter = 42             # OK
@@ -31,16 +31,16 @@ counter = 42             # OK
 
 Or with shorthand:
 
-```ae
+```ish
 mut counter = 0
 counter = counter + 1
 ```
 
 ## Shorthand Syntax
 
-AetherShell offers shorter forms for common patterns:
+IronShell offers shorter forms for common patterns:
 
-```ae
+```ish
 # These are all equivalent:
 let x = 10
 x = 10       # Inferred let
@@ -51,7 +51,7 @@ x := 10      # Walrus-style binding
 
 Variables can be marked public for export from modules:
 
-```ae
+```ish
 pub let API_URL = "https://api.example.com"
 pub let VERSION = "1.0.0"
 ```
@@ -62,7 +62,7 @@ Public variables are accessible when the module is imported.
 
 Optional type annotations can be added to bindings:
 
-```ae
+```ish
 let name: String = "hello"
 let count: Int = 42
 ```
@@ -71,14 +71,14 @@ Type annotations are parsed but currently used for documentation purposes. The t
 
 ## Scoping Rules
 
-AetherShell uses a flat environment model:
+IronShell uses a flat environment model:
 
 - All variables share a single scope
 - Lambda parameters are temporarily bound during execution and restored after
 - There are no block-level scopes or shadowing in the traditional sense
 - Variables are visible once declared and remain available for the rest of the session
 
-```ae
+```ish
 let x = 10
 let f = fn(x) => x * 2    # Lambda parameter 'x' temporarily shadows outer 'x'
 f(5)                        # => 10
@@ -89,7 +89,7 @@ x                           # => 10 (outer x unchanged)
 
 Shell environment variables are accessible and can be set:
 
-```ae
+```ish
 # Access environment variable
 let home = $HOME
 

@@ -1,4 +1,4 @@
-//! AetherShell's edges into the NERVOSYS stack.
+//! IronShell's edges into the NERVOSYS stack.
 //!
 //! Two kinds of test live here, and the split is deliberate:
 //!
@@ -8,9 +8,9 @@
 //!   stack is absent, and *loud* about skipping: a suite that silently passes
 //!   because it tested nothing is the failure mode this project keeps hitting.
 
-use aethershell::ai::{parse_model_ref, Provider};
-use aethershell::model_plane;
-use aethershell::providers::{ProviderConfig, ProviderType};
+use iron_shell::ai::{parse_model_ref, Provider};
+use iron_shell::model_plane;
+use iron_shell::providers::{ProviderConfig, ProviderType};
 use std::sync::{Mutex, MutexGuard};
 
 /// Serialises every test that reads or writes `IRONGATE_URL` / `IRONVAULT_BIN`.
@@ -18,7 +18,7 @@ use std::sync::{Mutex, MutexGuard};
 /// Environment is process-global and `cargo test` runs in threads, so a test
 /// that sets one of these leaks into whatever is running beside it. That is not
 /// theoretical here: before this lock existed, the run printed
-/// `SKIP: IronVault CLI 'definitely-not-a-real-binary-aethershell' not found`
+/// `SKIP: IronVault CLI 'definitely-not-a-real-binary-ironshell' not found`
 /// from the *other* vault test — it had picked up the deliberately-bogus value
 /// set by the error-message test. The suite stayed green while one test
 /// silently stopped testing anything.
@@ -59,7 +59,7 @@ fn the_gateway_has_short_aliases() {
 
 #[test]
 fn a_bare_gateway_name_takes_the_default_virtual_model() {
-    // `AETHER_AI=irongate` with no model must mean "let the gateway decide",
+    // `IRONSHELL_AI=irongate` with no model must mean "let the gateway decide",
     // not "a model literally called irongate".
     let m = parse_model_ref("irongate");
     assert_eq!(m.provider, Provider::IronGate);
@@ -143,7 +143,7 @@ fn the_new_builtins_declare_the_effects_they_actually_have() {
     // The house failure mode is a builtin that acts while `effect_of` reports
     // Pure, which tells every policy check it is safe. Assert directly rather
     // than trusting the ratchet's silence: a lint that goes blind reports zero.
-    use aethershell::safety::{effect_of, Effect};
+    use iron_shell::safety::{effect_of, Effect};
 
     assert_eq!(
         effect_of("ai_gateway"),
@@ -170,7 +170,7 @@ fn conversion_no_longer_reports_success_for_a_file_copy() {
     // `fs::copy` and which returned `success: true` with a checksum of the
     // unchanged bytes. It must refuse rather than lie, and the refusal must
     // name where conversion moved to.
-    use aethershell::value::Value;
+    use iron_shell::value::Value;
     use std::collections::BTreeMap;
 
     let mut cfg = BTreeMap::new();
@@ -182,8 +182,8 @@ fn conversion_no_longer_reports_success_for_a_file_copy() {
         Value::Str("safetensors".into()),
     );
 
-    let mut env = aethershell::env::Env::new();
-    let err = aethershell::builtins::call("ai_convert_model", vec![Value::Record(cfg)], &mut env)
+    let mut env = iron_shell::env::Env::new();
+    let err = iron_shell::builtins::call("ai_convert_model", vec![Value::Record(cfg)], &mut env)
         .expect_err("the path form must be refused, not silently copied");
 
     let text = err.to_string();
@@ -287,7 +287,7 @@ fn the_vault_error_names_the_fix_when_the_cli_is_absent() {
     let _guard = env_guard();
     let key = "IRONVAULT_BIN";
     let restore = std::env::var(key).ok();
-    std::env::set_var(key, "definitely-not-a-real-binary-aethershell");
+    std::env::set_var(key, "definitely-not-a-real-binary-ironshell");
 
     let err = model_plane::vault_list().expect_err("a missing binary must fail");
 

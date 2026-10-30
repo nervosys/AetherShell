@@ -1,5 +1,5 @@
 """
-Tests for AetherShell Python SDK - Metrics
+Tests for IronShell Python SDK - Metrics
 """
 
 import asyncio
@@ -7,7 +7,7 @@ import pytest
 import time
 from unittest.mock import MagicMock
 
-from aethershell.metrics import (
+from ironshell.metrics import (
     Counter,
     Gauge,
     Histogram,

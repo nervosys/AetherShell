@@ -1,13 +1,13 @@
-//! Comprehensive test coverage for all AetherShell builtins
+//! Comprehensive test coverage for all IronShell builtins
 //!
 //! This test file programmatically verifies that all 143+ builtins are:
 //! 1. Callable without panicking
 //! 2. Return expected types
 //! 3. Work correctly in expressions
 
-use aethershell::{env::Env, eval, parser, value::Value};
+use iron_shell::{env::Env, eval, parser, value::Value};
 
-/// Helper to evaluate AetherShell code and return the result
+/// Helper to evaluate IronShell code and return the result
 fn eval_code(code: &str) -> Result<Value, String> {
     let mut env = Env::default();
     let stmts = parser::parse_program(code).map_err(|e| format!("Parse error: {e}"))?;

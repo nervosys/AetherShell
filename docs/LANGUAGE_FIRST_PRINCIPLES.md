@@ -52,14 +52,14 @@ records tries-to-correct per engine over the same ten queries:
 | PowerShell | 10 |
 | nushell | 16 |
 | bash + coreutils | 17 |
-| **AetherShell** | **18** |
+| **IronShell** | **18** |
 
 That number carries a confound already stated in the benchmark README — the
-author had written far more bash and SQL than nushell, and wrote AetherShell's
+author had written far more bash and SQL than nushell, and wrote IronShell's
 standard library. But the confound runs the *wrong way* for us: the person most
-fluent in AetherShell needed the most attempts in it. And for an LLM the
+fluent in IronShell needed the most attempts in it. And for an LLM the
 mechanism is stronger and simpler than fluency: SQL and jq appear in
-pretraining in volumes AetherShell never will.
+pretraining in volumes IronShell never will.
 
 Now price the other half. The agentic syntax's quick reference is **1,196
 tokens**, and it saves **~9.3 tokens per query** — break-even at ~129 queries,
@@ -89,7 +89,7 @@ regular encoding costs almost nothing to learn — one header line and the shape
 is apparent.
 
 The current design has this exactly backwards: a maximally novel input syntax
-(`.aeg`) and an output encoding whose advantage we only measured last week.
+(`.ishg`) and an output encoding whose advantage we only measured last week.
 
 E2 shows what the read side is worth when it is taken seriously: **334 output
 tokens against bash's 1,395**, from an encoding the agent never has to author.
@@ -107,12 +107,12 @@ So:
   investment belongs.** They are the parts no borrowed front-end provides, and
   the parts E2–E5 say we already win.
 
-What is actually valuable in AetherShell is not its syntax. It is the **core**:
+What is actually valuable in IronShell is not its syntax. It is the **core**:
 typed values, deterministic rendering, structured errors, the effect taxonomy,
 the ontology. The syntax is the part we lose on (E1, E6) and the part with the
 least defensible moat.
 
-### What this makes AetherShell
+### What this makes IronShell
 
 **A typed, effect-gated evaluator with plural borrowed front-ends and one
 output contract.** `sqlite_query` already demonstrates the shape and measures
@@ -274,7 +274,7 @@ out of one; there is now a single `modules::env_with_modules()`.
 
 Fixing it **unmasked a containment hole**: a probe that wrote outside the
 server's directory had been coming back *contained* because the call never ran.
-With the namespaces bound, the same probe wrote the file — `ae agent serve` was
+With the namespaces bound, the same probe wrote the file — `ish agent serve` was
 running the human safety profile. Serving an agent now implies agent mode; see
 `docs/WINNING_ACROSS_THE_BOARD.md`, "Item 4, resolved".
 
@@ -367,7 +367,7 @@ made. But `safety::effect_of` computes a builtin's effect class statically, so
 the effect set of a whole pipeline is computable without running it.
 
 ```
-$ ae --explain 'ls("src") | where(…) | rm'
+$ ish --explain 'ls("src") | where(…) | rm'
 effects: ReadLocal, Destructive
 jail:    /home/me/project
 decision: Destructive requires approval in agent mode

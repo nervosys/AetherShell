@@ -1,19 +1,19 @@
-// E6 -- can a shell-native agentic benchmark be pointed at AetherShell?
+// E6 -- can a shell-native agentic benchmark be pointed at IronShell?
 //
 // The shell-native benchmarks in the field (AgentBench's OS environment, the
 // SWE-bench family, OSWorld's terminal tasks) all drive the agent through the
 // same interface: a string of shell, executed, with stdout and the exit status
-// coming back. Retargeting one at AetherShell therefore rests on a single
+// coming back. Retargeting one at IronShell therefore rests on a single
 // empirical question -- how much of the shell an agent actually emits does
-// `ae -b` run? -- and the repository has claimed "Bash compatibility (via
+// `ish -b` run? -- and the repository has claimed "Bash compatibility (via
 // transpiler)" as a competitive feature without ever measuring it.
 //
 // The measurement has to separate two outcomes that both look like success:
 //
-//   native     AetherShell executed it, and the answer matches bash's.
-//   delegated  AetherShell's transpiler fell back to `sh(["bash","-lc", …])`.
+//   native     IronShell executed it, and the answer matches bash's.
+//   delegated  IronShell's transpiler fell back to `sh(["bash","-lc", …])`.
 //              bash did the work. Whatever the run proves, it is not about
-//              AetherShell, and every safety property in E4 is bypassed --
+//              IronShell, and every safety property in E4 is bypassed --
 //              the effect gate sees one `sh` call, not the fifty things the
 //              script did.
 //
@@ -71,7 +71,7 @@ const CORPUS = [
 
 // A second corpus, written on 2026-09-28 *after* src/posix.rs was built
 // against the one above -- which makes the one above a fit, not a test. These
-// were not run through `ae -b` before being written down, and are reported
+// were not run through `ish -b` before being written down, and are reported
 // whatever they score. `--heldout` selects them.
 const HELDOUT = [
     ['orient', 'ls -a | head -4'],
@@ -121,7 +121,7 @@ const run = (bin, argv, env) => {
 };
 
 // The transpiler announces its own fallback, and the security layer logs the
-// delegation. Either marker means bash ran the command, not AetherShell.
+// delegation. Either marker means bash ran the command, not IronShell.
 const DELEGATED = /\[SECURITY\] sh\(\) executed|sh\(\["bash"/;
 
 const rows = [];
@@ -131,9 +131,9 @@ for (const [group, cmd] of heldout ? HELDOUT : CORPUS) {
 
     // Default posture: sh() disabled, which is what E4 measures and what any
     // deployment that cares about blast radius runs.
-    const sealed = run('ae', ['-b', '-c', cmd], { AETHER_ALLOW_SH: '' });
+    const sealed = run('ish', ['-b', '-c', cmd], { IRONSHELL_ALLOW_SH: '' });
     // Permissive posture: sh() allowed, which is what the compat claim needs.
-    const open = run('ae', ['-b', '-c', cmd], { AETHER_ALLOW_SH: 'true' });
+    const open = run('ish', ['-b', '-c', cmd], { IRONSHELL_ALLOW_SH: 'true' });
 
     const delegated = DELEGATED.test(open.err) || DELEGATED.test(open.out);
     const matches = (a, b) => a.code === b.code && a.out === b.out;
@@ -142,7 +142,7 @@ for (const [group, cmd] of heldout ? HELDOUT : CORPUS) {
     // Matching bash means matching its exit status too, including a non-zero
     // one. This required `sealed.code === 0` until 2026-09-28, which scored
     // `grep -c "fn " src/lib.rs` as a failure once lib.rs stopped containing
-    // "fn ": bash prints 0 and exits 1, and so did `ae -b` -- a case bash
+    // "fn ": bash prints 0 and exits 1, and so did `ish -b` -- a case bash
     // itself would have failed. Changed after that run, and said so here.
     if (!DELEGATED.test(sealed.err) && matches(sealed, reference)) {
         verdict = 'native';
@@ -169,8 +169,8 @@ fs.writeFileSync(path.join(repo, heldout ? 'bashcompat-heldout.json' : 'bashcomp
 const tally = (v) => rows.filter((r) => r.verdict === v).length;
 const pad = (s, n) => String(s).padEnd(n);
 
-console.log(`${rows.length} ordinary shell commands through \`ae -b\`\n`);
-console.log(`  native     ${tally('native')}\t AetherShell ran it and matched bash`);
+console.log(`${rows.length} ordinary shell commands through \`ish -b\`\n`);
+console.log(`  native     ${tally('native')}\t IronShell ran it and matched bash`);
 console.log(`  delegated  ${tally('delegated')}\t handed to \`bash -lc\`; bash did the work`);
 console.log(`  refused    ${tally('refused')}\t blocked by the sh() gate in the default posture`);
 console.log(`  failed     ${tally('failed')}\t did not run, or gave a different answer\n`);

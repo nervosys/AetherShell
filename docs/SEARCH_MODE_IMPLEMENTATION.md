@@ -2,7 +2,7 @@
 
 ## Overview
 
-Successfully implemented a **full-featured search mode** for the AetherShell TUI, completing the dashboard feature set. Users can now search through conversations with a dedicated visual interface, live result updates, and intuitive navigation.
+Successfully implemented a **full-featured search mode** for the IronShell TUI, completing the dashboard feature set. Users can now search through conversations with a dedicated visual interface, live result updates, and intuitive navigation.
 
 ## What Was Implemented
 
@@ -291,7 +291,7 @@ Currently has placeholder for Ctrl+C (copy result). Future implementation would:
 - **Data quality**: Result indices validity, case-insensitivity
 
 ### Manual Testing Checklist
-- [ ] Launch TUI: `ae tui`
+- [ ] Launch TUI: `ish tui`
 - [ ] Add messages via Chat mode
 - [ ] Press Ctrl+F to enter Search mode
 - [ ] Type query and verify results
@@ -356,9 +356,9 @@ All objectives met:
 
 ## Conclusion
 
-The Search Mode implementation represents a **significant enhancement** to the AetherShell TUI, completing the dashboard feature set announced in the previous session. Users now have a powerful, intuitive tool for finding specific messages in long conversations, with a polished visual interface and robust navigation.
+The Search Mode implementation represents a **significant enhancement** to the IronShell TUI, completing the dashboard feature set announced in the previous session. Users now have a powerful, intuitive tool for finding specific messages in long conversations, with a polished visual interface and robust navigation.
 
-Combined with Export, Statistics, and Agent Metrics, AetherShell's TUI now offers a **professional-grade** conversation management experience that rivals commercial chat applications.
+Combined with Export, Statistics, and Agent Metrics, IronShell's TUI now offers a **professional-grade** conversation management experience that rivals commercial chat applications.
 
 **Total TUI Features Now:**
 - ✅ Chat interface

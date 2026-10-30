@@ -1,7 +1,7 @@
 {
-  "name": "aethershell-web",
-  "displayName": "AetherShell Web",
-  "description": "AetherShell terminal and language support for VS Code Web (vscode.dev)",
+  "name": "ironshell-web",
+  "displayName": "IronShell Web",
+  "description": "IronShell terminal and language support for VS Code Web (vscode.dev)",
   "version": "0.1.0",
   "publisher": "admercs",
   "license": "AGPL-3.0-or-later",
@@ -20,7 +20,7 @@
     "shell",
     "terminal",
     "ai",
-    "aethershell",
+    "ironshell",
     "typed-shell"
   ],
   "extensionKind": [
@@ -28,46 +28,46 @@
   ],
   "browser": "./dist/web/extension.js",
   "activationEvents": [
-    "onLanguage:aethershell"
+    "onLanguage:ironshell"
   ],
   "contributes": {
     "languages": [
       {
-        "id": "aethershell",
+        "id": "ironshell",
         "aliases": [
-          "AetherShell",
+          "IronShell",
           "ae"
         ],
         "extensions": [
-          ".ae"
+          ".ish"
         ],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "aethershell",
-        "scopeName": "source.aethershell",
-        "path": "./syntaxes/aethershell.tmLanguage.json"
+        "language": "ironshell",
+        "scopeName": "source.ironshell",
+        "path": "./syntaxes/ironshell.tmLanguage.json"
       }
     ],
     "commands": [
       {
-        "command": "aethershell.eval",
-        "title": "AetherShell: Evaluate Selection"
+        "command": "ironshell.eval",
+        "title": "IronShell: Evaluate Selection"
       },
       {
-        "command": "aethershell.connectAgent",
-        "title": "AetherShell: Connect to Agent API"
+        "command": "ironshell.connectAgent",
+        "title": "IronShell: Connect to Agent API"
       }
     ],
     "configuration": {
-      "title": "AetherShell",
+      "title": "IronShell",
       "properties": {
-        "aethershell.agentApiUrl": {
+        "ironshell.agentApiUrl": {
           "type": "string",
           "default": "http://localhost:3002",
-          "description": "URL of the AetherShell Agent API server"
+          "description": "URL of the IronShell Agent API server"
         }
       }
     }

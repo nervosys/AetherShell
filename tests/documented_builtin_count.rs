@@ -15,11 +15,11 @@
 //! hundred with a "+", so ordinary growth does not churn every page but a
 //! drop below the advertised figure fails here.
 
-use aethershell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
+use iron_shell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
 use std::collections::BTreeSet;
 
 fn listed() -> usize {
-    aethershell::agent_api::ontology_manifest_json()["total_builtins"]
+    iron_shell::agent_api::ontology_manifest_json()["total_builtins"]
         .as_u64()
         .unwrap() as usize
 }
@@ -90,7 +90,7 @@ fn every_advertised_count_is_reproducible() {
 #[test]
 fn every_advertised_name_is_callable() {
     let schema: serde_json::Value =
-        serde_json::from_str(&aethershell::agent_api::generate_schema("json").unwrap()).unwrap();
+        serde_json::from_str(&iron_shell::agent_api::generate_schema("json").unwrap()).unwrap();
     let mut callable: BTreeSet<&str> = BUILTIN_LOOKUP.keys().copied().collect();
     callable.extend(FALLBACK_BUILTINS.iter().map(|(n, _)| *n));
     let builtins = schema["builtins"]

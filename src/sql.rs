@@ -474,7 +474,7 @@ const CACHE_ENTRIES: usize = 4;
 
 thread_local! {
     /// In-memory databases already built from files, for a session that asks
-    /// several questions of the same file (`ae mcp stdio`, `ae agent serve`,
+    /// several questions of the same file (`ish mcp stdio`, `ish agent serve`,
     /// the REPL). Building one parses the file and inserts every row, which
     /// was most of a warm query's cost; the queries are read-only, so reuse
     /// is safe.

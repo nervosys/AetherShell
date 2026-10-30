@@ -1,6 +1,6 @@
 # Security
 
-AetherShell includes multiple security layers for safe AI agent execution and enterprise deployments.
+IronShell includes multiple security layers for safe AI agent execution and enterprise deployments.
 
 ## Agent Sandboxing
 
@@ -43,7 +43,7 @@ Agent goals are validated before execution:
 
 Enterprise deployments support RBAC for fine-grained access control:
 
-```aethershell
+```ironshell
 # Create roles
 role_create "developer" { permissions: ["read", "execute", "agent"] }
 role_create "admin" { permissions: ["read", "write", "execute", "agent", "admin"] }
@@ -65,7 +65,7 @@ user_roles "alice"    # ["developer"]
 
 Track all operations for compliance:
 
-```aethershell
+```ironshell
 # View recent audit events
 audit_log 20
 # [{ timestamp: "...", user: "alice", action: "execute", details: "ls src/" }, ...]
@@ -87,7 +87,7 @@ audit_stats
 contacts the provider. It takes the provider (`oauth2`, `saml` or `oidc`), a
 client id and an https issuer URL (http is allowed only for localhost):
 
-```aethershell
+```ironshell
 sso_init("oidc", "example-app", "https://auth.example.com")
 # {status: "initialized", provider: "oidc"}
 
@@ -102,7 +102,7 @@ sso_logout("token")     # Reports not_found for a token that is not held
 Run compliance checks against a named standard (`GDPR`, `HIPAA`, `SOC2` or
 `PCI`). The only scope is `all`:
 
-```aethershell
+```ironshell
 compliance_check("SOC2")
 # {standard, scope, passed, failed, unverified, compliant}
 # A control the shell cannot observe (such as encryption at rest) is
@@ -116,7 +116,7 @@ compliance_report("SOC2")
 
 ## Cryptographic Operations
 
-```aethershell
+```ironshell
 # Hashing
 crypto_hash "sha256" "Hello, world!"
 crypto_hash_file "sha256" "document.pdf"
@@ -142,10 +142,10 @@ crypto_jwt_decode token
 API keys are stored securely:
 
 - **Keyring integration**: Keys stored in OS keyring when available
-- **Environment fallback**: `OPENAI_API_KEY`, `AETHER_API_KEY` environment variables
+- **Environment fallback**: `OPENAI_API_KEY`, `IRONSHELL_API_KEY` environment variables
 - **No logging**: API keys are never written to logs or audit trails
 
-```aethershell
+```ironshell
 # Keys loaded automatically from keyring or environment
 # SecureApiConfig::from_keyring_or_env() handles the priority
 ```

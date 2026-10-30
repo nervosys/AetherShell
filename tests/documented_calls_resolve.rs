@@ -8,8 +8,8 @@
 //! static analyser resolves a call exactly as evaluation does, so an
 //! unresolved name here is a name that would not run.
 
-use aethershell::explain::explain;
-use aethershell::value::Value;
+use iron_shell::explain::explain;
+use iron_shell::value::Value;
 
 fn unresolved(calls: &[String]) -> Vec<String> {
     let code: String = calls.iter().map(|c| format!("{c}(1)\n")).collect();

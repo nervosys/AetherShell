@@ -13,11 +13,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use aethershell::builtins::{call, call_with_input, is_dispatched};
-use aethershell::env::Env;
-use aethershell::eval::eval_program;
-use aethershell::parser::parse_program;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input, is_dispatched};
+use iron_shell::env::Env;
+use iron_shell::eval::eval_program;
+use iron_shell::parser::parse_program;
+use iron_shell::value::Value;
 
 /// An environment whose undo journal is this test process's own; see
 /// `tests/declared_signatures.rs`.
@@ -25,7 +25,7 @@ fn env() -> Env {
     static ISOLATED: std::sync::Once = std::sync::Once::new();
     ISOLATED.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_fb_ps_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
     Env::new()
 }

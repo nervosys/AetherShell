@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tutorial - AetherShell Documentation</title>
+    <title>Tutorial - IronShell Documentation</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -20,7 +20,7 @@
 <body>
     <nav class="sidebar">
         <div class="logo">
-            <h1>🚀 AetherShell</h1>
+            <h1>🚀 IronShell</h1>
             <p class="version">v1.0.0</p>
         </div>
         <ul class="nav-menu">
@@ -42,8 +42,8 @@
 
     <main class="content">
         <header class="page-header">
-            <h1>📚 AetherShell Tutorial</h1>
-            <p class="subtitle">Learn AetherShell from basics to advanced features</p>
+            <h1>📚 IronShell Tutorial</h1>
+            <p class="subtitle">Learn IronShell from basics to advanced features</p>
         </header>
 
         <nav class="tutorial-nav">
@@ -66,7 +66,7 @@
             <h2>Lesson 1: Basics</h2>
 
             <h3>1.1 Variables and Values</h3>
-            <p>AetherShell uses <strong>immutable bindings by default</strong>. Use <code>=</code> for immutable,
+            <p>IronShell uses <strong>immutable bindings by default</strong>. Use <code>=</code> for immutable,
                 <code>:=</code> for mutable.
             </p>
 
@@ -134,7 +134,7 @@ true || false   // true
         </section>
 
         <section id="pipelines" class="feature-section">
-            <h2>Lesson 2: Pipelines - The Heart of AetherShell</h2>
+            <h2>Lesson 2: Pipelines - The Heart of IronShell</h2>
 
             <h3>2.1 What are Pipelines?</h3>
             <p>Pipelines let you chain operations together, passing data from left to right using the <code>|</code>
@@ -248,7 +248,7 @@ times2_then_plus3 = compose(plus3, times2)
 print(times2_then_plus3(5))  // 13 (5*2=10, 10+3=13)</code></pre>
 
             <div class="alert alert-info">
-                <strong>Pro Tip:</strong> AetherShell supports closures - functions can capture variables from their
+                <strong>Pro Tip:</strong> IronShell supports closures - functions can capture variables from their
                 enclosing scope!
             </div>
         </section>
@@ -257,7 +257,7 @@ print(times2_then_plus3(5))  // 13 (5*2=10, 10+3=13)</code></pre>
             <h2>Lesson 4: Type System</h2>
 
             <h3>4.1 Type Inference</h3>
-            <p>AetherShell uses <strong>Hindley-Milner type inference</strong>. Types are automatically inferred!</p>
+            <p>IronShell uses <strong>Hindley-Milner type inference</strong>. Types are automatically inferred!</p>
 
             <pre><code>// Types are inferred, not declared
 x = 42              // Inferred as Int
@@ -384,7 +384,7 @@ rust_files = find(".", "*.rs")
 print(rust_files)
 
 // Search file content
-matches = grep("README.md", "AetherShell")
+matches = grep("README.md", "IronShell")
 print(matches)</code></pre>
 
             <h3>6.4 Processing Text Files</h3>
@@ -557,7 +557,7 @@ cat("data.csv")
 
             <h3>10.4 Multi-Agent Task Distribution</h3>
             <pre><code>// Complete workflow example
-// See examples/13_agent_coordination.ae for full implementation
+// See examples/13_agent_coordination.ish for full implementation
 
 // 1. Workers learn protocol
 spec = syntax_get("ab")
@@ -579,7 +579,7 @@ reflection = ab_encode("command", "reflect", "efficiency:95%")</code></pre>
 
         <section class="feature-section">
             <h2>🎓 Congratulations!</h2>
-            <p>You've completed the AetherShell tutorial! You now know:</p>
+            <p>You've completed the IronShell tutorial! You now know:</p>
             <ul>
                 <li>✅ Basic syntax and types</li>
                 <li>✅ Powerful pipeline operations</li>
@@ -616,7 +616,7 @@ reflection = ab_encode("command", "reflect", "efficiency:95%")</code></pre>
     </main>
 
     <footer>
-        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+        <p>&copy; 2025 IronShell. Built with Rust 🦀</p>
     </footer>
 
     <style>

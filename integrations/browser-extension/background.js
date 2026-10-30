@@ -1,10 +1,10 @@
 /**
- * AetherShell Browser Extension - Background Service Worker
+ * IronShell Browser Extension - Background Service Worker
  * 
  * Handles extension lifecycle, context menus, and WASM initialization.
  */
 
-import init, { AetherShell, ae_version } from './wasm/aether_wasm.js';
+import init, { IronShell, ish_version } from './wasm/ironshell_wasm.js';
 
 // Global shell instance
 let shell = null;
@@ -14,11 +14,11 @@ let wasmReady = false;
 async function initWasm() {
     try {
         await init();
-        shell = new AetherShell();
+        shell = new IronShell();
         wasmReady = true;
-        console.log(`AetherShell initialized: ${ae_version()}`);
+        console.log(`IronShell initialized: ${ish_version()}`);
     } catch (error) {
-        console.error('Failed to initialize AetherShell WASM:', error);
+        console.error('Failed to initialize IronShell WASM:', error);
     }
 }
 
@@ -37,32 +37,32 @@ chrome.runtime.onStartup.addListener(async () => {
 // Setup context menus
 function setupContextMenus() {
     chrome.contextMenus.create({
-        id: 'aethershell-ai-explain',
+        id: 'ironshell-ai-explain',
         title: 'AI: Explain Selection',
         contexts: ['selection']
     });
 
     chrome.contextMenus.create({
-        id: 'aethershell-ai-summarize',
+        id: 'ironshell-ai-summarize',
         title: 'AI: Summarize Selection',
         contexts: ['selection']
     });
 
     chrome.contextMenus.create({
-        id: 'aethershell-ai-translate',
+        id: 'ironshell-ai-translate',
         title: 'AI: Translate Selection',
         contexts: ['selection']
     });
 
     chrome.contextMenus.create({
-        id: 'aethershell-separator',
+        id: 'ironshell-separator',
         type: 'separator',
         contexts: ['selection']
     });
 
     chrome.contextMenus.create({
-        id: 'aethershell-eval',
-        title: 'Evaluate as AetherShell',
+        id: 'ironshell-eval',
+        title: 'Evaluate as IronShell',
         contexts: ['selection']
     });
 }
@@ -76,16 +76,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const selectedText = info.selectionText;
 
     switch (info.menuItemId) {
-        case 'aethershell-ai-explain':
+        case 'ironshell-ai-explain':
             handleAIAction(tab.id, 'explain', selectedText);
             break;
-        case 'aethershell-ai-summarize':
+        case 'ironshell-ai-summarize':
             handleAIAction(tab.id, 'summarize', selectedText);
             break;
-        case 'aethershell-ai-translate':
+        case 'ironshell-ai-translate':
             handleAIAction(tab.id, 'translate', selectedText);
             break;
-        case 'aethershell-eval':
+        case 'ironshell-eval':
             handleEval(tab.id, selectedText);
             break;
     }
@@ -110,12 +110,12 @@ async function handleAIAction(tabId, action, text) {
     });
 }
 
-// Handle AetherShell evaluation
+// Handle IronShell evaluation
 async function handleEval(tabId, code) {
     if (!shell) {
         chrome.tabs.sendMessage(tabId, {
             type: 'eval-result',
-            error: 'AetherShell not initialized'
+            error: 'IronShell not initialized'
         });
         return;
     }
@@ -154,7 +154,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'eval') {
         if (!shell) {
-            sendResponse({ error: 'AetherShell not initialized' });
+            sendResponse({ error: 'IronShell not initialized' });
             return true;
         }
 
@@ -168,7 +168,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message.type === 'get-version') {
-        sendResponse({ version: wasmReady ? ae_version() : 'not initialized' });
+        sendResponse({ version: wasmReady ? ish_version() : 'not initialized' });
         return true;
     }
 

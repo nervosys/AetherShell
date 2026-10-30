@@ -3,9 +3,9 @@
 //! message, signature and SPKI public key are verified by `openssl dgst`.
 //! Skipped with a printed line when openssl is not on PATH.
 
-use aethershell::builtins::call;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -98,7 +98,7 @@ fn crypto_sign_output_verifies_under_openssl_dgst() {
     // Keep any session state inside the scratch directory, not the user's.
     let session = scratch.path("session");
     std::fs::create_dir_all(&session).expect("create session dir");
-    std::env::set_var("AETHER_SESSION_DIR", &session);
+    std::env::set_var("IRONSHELL_SESSION_DIR", &session);
 
     let mut env = Env::new();
     for (kind, algorithm) in [("rsa", "rsa-pkcs1-sha256"), ("ec", "ecdsa-p256-sha256")] {

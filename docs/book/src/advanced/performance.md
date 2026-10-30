@@ -1,14 +1,14 @@
 # Performance
 
-Tips and techniques for optimizing AetherShell performance in production workloads.
+Tips and techniques for optimizing IronShell performance in production workloads.
 
 ## Pipeline Optimization
 
 ### Lazy Evaluation
 
-AetherShell pipelines process elements lazily where possible. Order your operations to minimize work:
+IronShell pipelines process elements lazily where possible. Order your operations to minimize work:
 
-```aethershell
+```ironshell
 # Good: filter first, then transform
 ls "." | where(fn(f) => f.size > 10000) | map(fn(f) => expensive_operation(f))
 
@@ -20,7 +20,7 @@ ls "." | map(fn(f) => expensive_operation(f)) | where(fn(f) => f.size > 10000)
 
 Limit results early to avoid processing unnecessary elements:
 
-```aethershell
+```ironshell
 # Good: limit early
 ls "." | sort_by "size" "desc" | take 5
 
@@ -31,7 +31,7 @@ ls "." | sort_by "size" "desc" | take 5
 
 Builtins execute instantly; AI calls have network latency:
 
-```aethershell
+```ironshell
 # Fast: builtin string operation
 "hello world" | upper
 
@@ -45,7 +45,7 @@ ai "Convert to uppercase: hello world"
 
 Avoid redundant API calls by caching responses:
 
-```aethershell
+```ironshell
 # First call: hits API
 let answer = ai "What is Rust?"
 semantic_cache "What is Rust?" answer
@@ -68,7 +68,7 @@ Choose the right model for the task:
 
 Process multiple items in a single AI call when possible:
 
-```aethershell
+```ironshell
 # One call for multiple items (faster)
 let items = join(data, "\n")
 ai "Classify each line:\n${items}"
@@ -83,7 +83,7 @@ data | map(fn(item) => ai "Classify: ${item}")
 
 Set appropriate `max_steps` to prevent runaway agents:
 
-```aethershell
+```ironshell
 # Quick lookup: 3-5 steps
 agent "What's in src/main.rs?" ["cat"] 3
 
@@ -95,7 +95,7 @@ agent "Full project review" ["ls", "cat", "grep"] 15
 
 Give agents only the tools they need—fewer tools means faster decisions:
 
-```aethershell
+```ironshell
 # Good: specific tools
 agent "Find TODOs" ["grep"]
 
@@ -119,7 +119,7 @@ The built-in RAG uses in-memory indexing with hash-based embeddings. Performance
 
 Adjust `top_k` based on your needs:
 
-```aethershell
+```ironshell
 rag_search query 3    # Fast, fewer results
 rag_search query 20   # Slower, more comprehensive
 ```
@@ -161,5 +161,5 @@ Strip debug symbols for smaller binaries:
 
 ```bash
 cargo build --release
-strip target/release/ae
+strip target/release/ish
 ```

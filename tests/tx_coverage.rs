@@ -4,12 +4,12 @@
 //! process-wide state: in the library's unit tests, an open one would have
 //! journaled, and rolled back, the writes of tests running beside it.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env)
 }
 /// Transactions are process-wide state, so these tests take one at a time.
 static TX_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -20,17 +20,17 @@ struct TxCleanup;
 
 impl Drop for TxCleanup {
     fn drop(&mut self) {
-        while aethershell::tx::rollback().is_ok() {}
+        while iron_shell::tx::rollback().is_ok() {}
     }
 }
 
 /// The workspace these tests run in. The journal lives under
-/// `<workspace>/.ae/tx`, so without this it went into whatever directory the
+/// `<workspace>/.ironshell/tx`, so without this it went into whatever directory the
 /// binary was started from, the repository included.
 fn workspace() -> std::path::PathBuf {
     let w = std::env::temp_dir().join(format!("ae-txc-ws-{}", std::process::id()));
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
     w
 }
 
@@ -57,10 +57,10 @@ fn file_patch_is_undone_by_rollback() {
         ("find".to_string(), text("alpha")),
         ("replace".to_string(), text("omega")),
     ]));
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     call("file_patch", vec![path_arg(&p), Value::Array(vec![patch])]).unwrap();
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "omega beta\n");
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "alpha beta\n");
     let _ = std::fs::remove_file(&p);
 }
@@ -72,14 +72,14 @@ fn file_insert_is_undone_by_rollback() {
     let p = scratch_path("insert.txt");
     std::fs::write(&p, "alpha\nbeta\n").unwrap();
 
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     call(
         "file_insert",
         vec![path_arg(&p), Value::Int(1), text("new")],
     )
     .unwrap();
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "new\nalpha\nbeta\n");
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "alpha\nbeta\n");
     let _ = std::fs::remove_file(&p);
 }
@@ -93,11 +93,11 @@ fn file_move_restores_source_and_removes_new_destination() {
     std::fs::write(&src, "moving\n").unwrap();
     let _ = std::fs::remove_file(&dst);
 
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     call("file_move", vec![path_arg(&src), path_arg(&dst)]).unwrap();
     assert!(!src.exists());
     assert_eq!(std::fs::read_to_string(&dst).unwrap(), "moving\n");
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::read_to_string(&src).unwrap(), "moving\n");
     assert!(
         !dst.exists(),
@@ -115,9 +115,9 @@ fn file_move_restores_a_destination_it_replaced() {
     std::fs::write(&src, "new\n").unwrap();
     std::fs::write(&dst, "old\n").unwrap();
 
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     call("file_move", vec![path_arg(&src), path_arg(&dst)]).unwrap();
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::read_to_string(&src).unwrap(), "new\n");
     assert_eq!(std::fs::read_to_string(&dst).unwrap(), "old\n");
     let _ = std::fs::remove_file(&src);
@@ -133,11 +133,11 @@ fn save_json_is_undone_by_rollback() {
     std::fs::write(&existing, "\"before\"").unwrap();
     let _ = std::fs::remove_file(&created);
 
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     call("save_json", vec![path_arg(&existing), text("after")]).unwrap();
     call("save_json", vec![path_arg(&created), text("made")]).unwrap();
     assert!(created.exists());
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::read_to_string(&existing).unwrap(), "\"before\"");
     assert!(!created.exists(), "rollback must remove the created file");
     let _ = std::fs::remove_file(&existing);
@@ -155,10 +155,10 @@ fn platform_db_export_over_a_file_is_undone_by_rollback() {
     let existing = scratch_path("pdb-existing.json");
     std::fs::write(&existing, "before").unwrap();
 
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     let written = call("platform_db_export", vec![path_arg(&existing)]);
     let replaced = std::fs::read_to_string(&existing).unwrap();
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     match saved_home {
         Some(h) => std::env::set_var("HOME", h),
         None => std::env::remove_var("HOME"),
@@ -196,13 +196,13 @@ fn db_sqlite_to_csv_over_a_file_is_undone_by_rollback() {
     let existing = scratch_path("csv-existing.csv");
     std::fs::write(&existing, "before").unwrap();
 
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     let written = call(
         "db_sqlite_to_csv",
         vec![path_arg(&db), text("t"), path_arg(&existing)],
     );
     let replaced = std::fs::read_to_string(&existing).unwrap();
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     written.unwrap();
     let rows: Vec<&str> = replaced.lines().map(|l| l.trim_end_matches('\r')).collect();
     assert_eq!(rows, ["a", "7"], "{replaced:?}");
@@ -218,13 +218,13 @@ fn a_journal_directory_that_cannot_be_made_is_a_coded_error() {
     // A workspace that is a file: the journal directory beneath it cannot exist.
     let file = scratch_path("not-a-workspace");
     std::fs::write(&file, "x").unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &file);
-    let result = aethershell::tx::begin();
+    std::env::set_var("IRONSHELL_WORKSPACE", &file);
+    let result = iron_shell::tx::begin();
     workspace();
     let _ = std::fs::remove_file(&file);
     let err = result.expect_err("begin must fail under a file");
     assert!(
-        err.downcast_ref::<aethershell::safety::SafetyError>()
+        err.downcast_ref::<iron_shell::safety::SafetyError>()
             .is_some(),
         "the failure must carry a code: {err}"
     );
@@ -235,7 +235,7 @@ fn zip_extract_is_refused_inside_a_transaction() {
     let _lock = TX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _cleanup = TxCleanup;
     let dest = scratch_path("extract-dest");
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     let err = call(
         "zip_extract",
         vec![text("no-such-archive.zip"), path_arg(&dest)],
@@ -246,7 +246,7 @@ fn zip_extract_is_refused_inside_a_transaction() {
         "{err:#}"
     );
     assert!(!dest.exists(), "a refused extraction must write nothing");
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
 }
 
 #[test]
@@ -260,7 +260,7 @@ fn a_rollback_that_cannot_restore_says_so_and_keeps_its_journal() {
     )
     .unwrap();
 
-    let id = aethershell::tx::begin().unwrap();
+    let id = iron_shell::tx::begin().unwrap();
     call(
         "file_write",
         vec![
@@ -273,18 +273,18 @@ fn a_rollback_that_cannot_restore_says_so_and_keeps_its_journal() {
     )
     .unwrap();
     // Lose the backup, as a full disk or a mount that refused the copy would.
-    let journal = workspace().join(".ae").join("tx").join(&id);
+    let journal = workspace().join(".ironshell").join("tx").join(&id);
     for entry in std::fs::read_dir(&journal).unwrap() {
         std::fs::remove_file(entry.unwrap().path()).unwrap();
     }
-    let err = aethershell::tx::rollback().expect_err("nothing could be restored");
+    let err = iron_shell::tx::rollback().expect_err("nothing could be restored");
     let code = err
-        .downcast_ref::<aethershell::safety::SafetyError>()
+        .downcast_ref::<iron_shell::safety::SafetyError>()
         .map(|s| s.code);
-    assert_eq!(code, Some(aethershell::safety::ErrorCode::Io), "{err:#}");
+    assert_eq!(code, Some(iron_shell::safety::ErrorCode::Io), "{err:#}");
     assert!(format!("{err:#}").contains("lost-backup.txt"), "{err:#}");
     assert!(journal.exists(), "the journal is kept for recovery");
-    assert!(!aethershell::tx::is_active(), "the transaction still ended");
+    assert!(!iron_shell::tx::is_active(), "the transaction still ended");
     let _ = std::fs::remove_dir_all(&journal);
     let _ = std::fs::remove_file(&p);
 }

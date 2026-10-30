@@ -76,7 +76,7 @@ test("every setting the source reads is declared", () => {
   );
   assert.ok(declared.size > 0, "no configuration properties declared");
 
-  // `config.get("lsp.path")` after `getConfiguration("aethershell")`.
+  // `config.get("lsp.path")` after `getConfiguration("ironshell")`.
   const read = new Set();
   for (const m of srcText.matchAll(/\.get(?:<[^>]*>)?\(\s*["'`]([^"'`]+)["'`]/g)) {
     read.add(m[1]);
@@ -87,7 +87,7 @@ test("every setting the source reads is declared", () => {
   );
 
   const undeclared = [...read].filter(
-    (k) => !declared.has(k) && !declared.has(`aethershell.${k}`),
+    (k) => !declared.has(k) && !declared.has(`ironshell.${k}`),
   );
   assert.deepEqual(
     undeclared,
@@ -102,8 +102,8 @@ test("declared settings use the extension's own namespace", () => {
     pkg.contributes?.configuration?.properties ?? {},
   )) {
     assert.ok(
-      key.startsWith("aethershell."),
-      `setting "${key}" is outside the aethershell.* namespace`,
+      key.startsWith("ironshell."),
+      `setting "${key}" is outside the ironshell.* namespace`,
     );
   }
 });
@@ -122,9 +122,9 @@ test("every relative path in the manifest exists", () => {
 
 test("the language contribution is self-consistent", () => {
   const langs = pkg.contributes?.languages ?? [];
-  const ae = langs.find((l) => l.id === "aethershell");
-  assert.ok(ae, "no language with id 'aethershell'");
-  assert.ok(ae.extensions?.includes(".ae"), "language does not claim .ae");
+  const ae = langs.find((l) => l.id === "ironshell");
+  assert.ok(ae, "no language with id 'ironshell'");
+  assert.ok(ae.extensions?.includes(".ish"), "language does not claim .ish");
 
   for (const g of pkg.contributes?.grammars ?? []) {
     if (g.language) {
@@ -147,7 +147,7 @@ test("activation events cover the contributed language", () => {
   const events = pkg.activationEvents ?? [];
   const commandsActivate = declaredCommands.size > 0;
   assert.ok(
-    events.includes("onLanguage:aethershell"),
+    events.includes("onLanguage:ironshell"),
     "the extension does not activate on its own language",
   );
   // VS Code activates on declared commands implicitly since 1.74, so a command

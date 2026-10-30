@@ -1,13 +1,13 @@
-// Opt-in integration test for AetherShell's self-describing external-tool
+// Opt-in integration test for IronShell's self-describing external-tool
 // registration (`ExternalToolRegistry`), exercised against `simon` — a *separate
 // Rust crate* that ships a self-describing CLI. Because `simon` is an independent
-// crate (not a workspace member or dependency of AetherShell), this test can't link
+// crate (not a workspace member or dependency of IronShell), this test can't link
 // it; it points at a built `simon` binary via the SIMON_BIN environment variable and
 // skips when it's unset. No path is hardcoded, so the test carries no
 // machine-specific data.
 //   Run with: SIMON_BIN=/path/to/simon cargo test --test test_simon_integration -- --nocapture
 
-use aethershell::external_tools::ExternalToolRegistry;
+use iron_shell::external_tools::ExternalToolRegistry;
 use std::path::PathBuf;
 
 /// The `simon` binary path from `SIMON_BIN`, or `None` to skip the test.

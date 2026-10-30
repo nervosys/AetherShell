@@ -11,7 +11,7 @@ shell before being written down.
 
 ## A first workflow
 
-```aethershell
+```ironshell
 let t = workflow_pipeline("demo", [
   {id: "up",    run: "upper", args: ["hello"], output: "$.shouted"},
   {id: "count", run: "len",   input: "$.shouted"}
@@ -58,9 +58,9 @@ Any step also takes:
 
 ## Conditions
 
-`when` is AetherShell source, evaluated against the workflow's variables:
+`when` is IronShell source, evaluated against the workflow's variables:
 
-```aethershell
+```ironshell
 let t = workflow_pipeline("guarded", [
   {id: "big", run: "upper", args: ["over"], when: "threshold > 5"}
 ])
@@ -72,7 +72,7 @@ satisfied.
 
 ## Patterns
 
-```aethershell
+```ironshell
 workflow_pipeline(name, steps)                    # sequential
 workflow_map_reduce(name, mapper, reducer)        # parallel map, then reduce
 workflow_fan_out(name, workers, aggregator)       # parallel workers, then fan-in
@@ -84,7 +84,7 @@ workflow_register({name: ..., steps: [...]})      # a plain sequence
 Fan-out runs its workers concurrently and hands their results to the
 aggregator:
 
-```aethershell
+```ironshell
 let t = workflow_fan_out("scan",
   [{id: "a", run: "upper", args: ["a"]},
    {id: "b", run: "upper", args: ["b"]}],
@@ -102,7 +102,7 @@ workflow_execute(workflow_create(t, {input: null}))
 A saga takes `[action, compensation]` pairs. If a later action fails, the
 compensations for the actions that already succeeded run in reverse order:
 
-```aethershell
+```ironshell
 let t = workflow_saga("order", [
   [{id: "charge", run: "upper", args: ["charged"]},
    {id: "refund", run: "upper", args: ["refunded"], output: "$.undone"}],
@@ -118,7 +118,7 @@ The refund ran; `$.undone` holds `"REFUNDED"`.
 
 ## Inspecting a run
 
-```aethershell
+```ironshell
 workflow_status(w)
 # {id: …, template: …, status: completed, steps_completed: 1, variables: {…}}
 
@@ -148,7 +148,7 @@ any step runs; the error names the limit.
 
 ## Circuit breakers
 
-```aethershell
+```ironshell
 circuit_breaker_create("payments", {failure_threshold: 3})
 circuit_breaker_status("payments")
 # closed

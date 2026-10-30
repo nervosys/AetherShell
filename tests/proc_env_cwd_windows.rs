@@ -8,9 +8,9 @@
 
 #![cfg(windows)]
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 

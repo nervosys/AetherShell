@@ -1,11 +1,11 @@
-# AetherShell - Project Organization
+# IronShell - Project Organization
 
-This document describes the organized structure of the AetherShell project.
+This document describes the organized structure of the IronShell project.
 
 ## 📁 Directory Structure
 
 ```
-AetherShell/
+IronShell/
 ├── 📁 src/                     # Source code
 │   ├── 📁 ai_api/             # AI integration modules
 │   ├── 📁 bin/                # Binary crate modules
@@ -13,7 +13,7 @@ AetherShell/
 │   ├── 📁 tui/                # Terminal UI modules
 │   └── 📄 *.rs                # Core Rust modules
 ├── 📁 tests/                   # Unit and integration tests
-├── 📁 examples/               # AetherShell example scripts
+├── 📁 examples/               # IronShell example scripts
 ├── 📁 test-scripts/           # Test scripts for manual testing
 │   ├── 📁 builtins/          # Builtin function tests
 │   └── 📁 integration/       # Integration test scripts
@@ -62,7 +62,7 @@ AetherShell/
 
 ### Testing Structure
 - **`tests/`**: Rust unit and integration tests (run with `cargo test`)
-- **`test-scripts/`**: Manual test scripts written in AetherShell
+- **`test-scripts/`**: Manual test scripts written in IronShell
   - `builtins/`: Tests for individual builtin commands
   - `integration/`: Complex integration test scenarios
 
@@ -72,7 +72,7 @@ AetherShell/
 - **Root docs**: User-facing guides and tutorials
 
 ### Examples and Demos
-- **`examples/`**: Educational examples showing AetherShell features
+- **`examples/`**: Educational examples showing IronShell features
 - **`demos/`**: Showcase scripts demonstrating advanced capabilities
 
 ### Temporary Files (`temp/`)
@@ -89,8 +89,8 @@ AetherShell/
 ## 📝 File Naming Conventions
 
 - **Rust files**: `snake_case.rs`
-- **AetherShell scripts**: `descriptive_name.ae`
+- **IronShell scripts**: `descriptive_name.ish`
 - **Documentation**: `UPPERCASE.md` for specs, `Title_Case.md` for guides
-- **Test scripts**: `test_feature_name.ae`
+- **Test scripts**: `test_feature_name.ish`
 
-This organization follows Rust project conventions while maintaining clear separation of concerns for the various components of AetherShell.
+This organization follows Rust project conventions while maintaining clear separation of concerns for the various components of IronShell.

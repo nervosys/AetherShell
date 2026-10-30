@@ -1,10 +1,10 @@
 // tests/platform_detection.rs
 //! Tests for platform detection functions: platform, is_windows, is_linux, etc.
 
-use aethershell::env::Env;
-use aethershell::eval::eval_program;
-use aethershell::parser::parse_program;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::eval::eval_program;
+use iron_shell::parser::parse_program;
+use iron_shell::value::Value;
 
 fn run(code: &str) -> Value {
     let stmts = parse_program(code).expect("parse failed");
@@ -190,7 +190,7 @@ fn test_platform_module_returns_string() {
     let result = run(r#"platform_module("utils")"#);
     match result {
         Value::Str(s) => {
-            assert!(s.ends_with(".ae"), "Should end with .ae");
+            assert!(s.ends_with(".ish"), "Should end with .ish");
             assert!(s.starts_with("utils_"), "Should start with utils_");
         }
         _ => panic!("Expected String, got {:?}", result),
@@ -203,17 +203,17 @@ fn test_platform_module_includes_platform_suffix() {
     let module_path = run(r#"platform_module("mymodule")"#);
 
     if let (Value::Str(p), Value::Str(m)) = (platform, module_path) {
-        let expected = format!("mymodule_{}.ae", p);
+        let expected = format!("mymodule_{}.ish", p);
         assert_eq!(m, expected, "Module path should include platform suffix");
     }
 }
 
 #[test]
-fn test_platform_module_strips_ae_extension() {
-    let result = run(r#"platform_module("utils.ae")"#);
+fn test_platform_module_strips_ish_extension() {
+    let result = run(r#"platform_module("utils.ish")"#);
     if let Value::Str(m) = result {
-        // Should not have double .ae
-        assert!(!m.contains(".ae_"), "Should strip .ae before adding suffix");
+        // Should not have double .ish
+        assert!(!m.contains(".ish_"), "Should strip .ish before adding suffix");
     }
 }
 

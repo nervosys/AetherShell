@@ -2002,7 +2002,7 @@ impl WorkflowEngine {
     /// Evaluate a step condition or branch guard against the workflow's
     /// variables.
     ///
-    /// The condition is AetherShell source, parsed and evaluated by the same
+    /// The condition is IronShell source, parsed and evaluated by the same
     /// interpreter the shell uses, in an environment holding the workflow's
     /// variables. Previously this returned `true` unconditionally, which meant
     /// a conditional step always ran and a `Branch` always took its first arm
@@ -3180,12 +3180,12 @@ mod tests {
     }
 
     /// The HTTP-step tests assume no network budget is set. Other tests in
-    /// this process set AETHER_MAX_NET under ENV_LOCK, so take it too.
+    /// this process set IRONSHELL_MAX_NET under ENV_LOCK, so take it too.
     fn no_network_budget() -> std::sync::MutexGuard<'static, ()> {
         let g = crate::safety::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("AETHER_MAX_NET");
+        std::env::remove_var("IRONSHELL_MAX_NET");
         g
     }
 

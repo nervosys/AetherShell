@@ -1,19 +1,19 @@
 openapi: 3.1.0
 info:
-  title: AetherShell Agent API
+  title: IronShell Agent API
   version: 12.0.2
   description: >
-    Structured JSON API for AI agents to interact with AetherShell, a typed
+    Structured JSON API for AI agents to interact with IronShell, a typed
     functional shell with 1,100+ builtins. Start the server with
-    `ae agent serve` (default port 3002).
+    `ish agent serve` (default port 3002).
 
 
     Every route except `/health` requires a bearer token. The server mints one
-    at startup and prints it, or set `AETHER_API_TOKEN` to supply your own.
+    at startup and prints it, or set `IRONSHELL_API_TOKEN` to supply your own.
     This is not optional: the API evaluates arbitrary code, so an
     unauthenticated server lets any web page the user visits drive it from
     their browser. Binding a non-loopback address additionally requires
-    `AETHER_ALLOW_REMOTE_BIND=true`.
+    `IRONSHELL_ALLOW_REMOTE_BIND=true`.
   license:
     name: AGPL-3.0-or-later
     url: https://www.gnu.org/licenses/agpl-3.0.html
@@ -52,7 +52,7 @@ paths:
                   args:
                     path: "."
               evalCode:
-                summary: Evaluate AetherShell code
+                summary: Evaluate IronShell code
                 value:
                   action: eval
                   code: "[1,2,3] | map(fn(x) => x * 2)"
@@ -146,7 +146,7 @@ paths:
   /api/v1/eval:
     post:
       operationId: evalCode
-      summary: Evaluate raw AetherShell code
+      summary: Evaluate raw IronShell code
       requestBody:
         required: true
         content:
@@ -158,7 +158,7 @@ paths:
               properties:
                 code:
                   type: string
-                  description: AetherShell code to evaluate
+                  description: IronShell code to evaluate
       responses:
         '200':
           description: Evaluation result
@@ -539,7 +539,7 @@ components:
       type: http
       scheme: bearer
       description: >
-        Printed by the server at startup, or supplied via `AETHER_API_TOKEN`.
+        Printed by the server at startup, or supplied via `IRONSHELL_API_TOKEN`.
         Compared in constant time.
   schemas:
     AgentRequest:
@@ -571,7 +571,7 @@ components:
           description: Arguments for the builtin
         code:
           type: string
-          description: AetherShell code (for eval action)
+          description: IronShell code (for eval action)
         steps:
           type: array
           items:
@@ -617,7 +617,7 @@ components:
           description: The result value (type depends on the action)
         result_type:
           type: string
-          description: AetherShell type of the result (Int, String, Array, Record, etc.)
+          description: IronShell type of the result (Int, String, Array, Record, etc.)
         error:
           type: string
           description: Error message if success is false

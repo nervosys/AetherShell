@@ -11,9 +11,9 @@
 //! - Rate limiting
 //! - Audit logging
 //!
-//! ## AetherShell Integration
+//! ## IronShell Integration
 //!
-//! This agent uses AetherShell's OS abstraction layer for cross-platform
+//! This agent uses IronShell's OS abstraction layer for cross-platform
 //! execution. Tool calls are routed through the ontology-based executor
 //! which provides:
 //! - Unified API across Windows, macOS, Linux, BSD, iOS, Android

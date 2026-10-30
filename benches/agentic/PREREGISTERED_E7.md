@@ -24,7 +24,7 @@ specified afterwards, it will be specified to survive.
 
 **H1.** A model writing the same ten queries will be correct on the first
 attempt more often in a syntax it has seen in pretraining (SQL, jq) than in one
-it has not (AetherShell default, AetherShell agentic), given equal
+it has not (IronShell default, IronShell agentic), given equal
 documentation.
 
 **H2.** Counting standing context, total tokens to a *correct* answer will be
@@ -47,12 +47,12 @@ so it cannot be quietly dropped.
 | --- | --- |
 | SQL | the table schema only |
 | jq | the JSON schema only |
-| AetherShell (default) | the schema + `ontology_describe` output for the ~20 relevant builtins |
-| AetherShell (agentic) | the schema + the same ontology + the 1,196-token cheatsheet |
-| AetherShell (agentic, no cheatsheet) | the schema + the same ontology — the control |
+| IronShell (default) | the schema + `ontology_describe` output for the ~20 relevant builtins |
+| IronShell (agentic) | the schema + the same ontology + the 1,196-token cheatsheet |
+| IronShell (agentic, no cheatsheet) | the schema + the same ontology — the control |
 
 The asymmetry in reference material *is the hypothesis*: the borrowed surfaces
-need none. Supplying AetherShell's ontology and cheatsheet is the steel-manned
+need none. Supplying IronShell's ontology and cheatsheet is the steel-manned
 version of our own side, not a handicap on theirs.
 
 **Model.** One frontier model, one attempt per question per arm (temperature per
@@ -77,7 +77,7 @@ through because it was internally inconsistent and that is worth seeing.
 
 | Claim | Falsified if |
 | --- | --- |
-| H1: borrowed beats invented on first-try | AetherShell's arms match or beat SQL/jq |
+| H1: borrowed beats invented on first-try | IronShell's arms match or beat SQL/jq |
 | H2: borrowed wins on total tokens | agentic wins at session lengths under ~129 queries |
 | "the cheatsheet is a real cost" | the agentic arm scores as well *without* the cheatsheet |
 
@@ -91,7 +91,7 @@ run as a fifth arm.
 - **Ten questions, one domain.** They are query-shaped and scalar-answered,
   which §4 of the response shows is the regime least favourable to a typed
   shell. A tabular corpus might answer differently and should be run second.
-- **We wrote the AetherShell reference material.** If the ontology entries are
+- **We wrote the IronShell reference material.** If the ontology entries are
   poor, the arm loses for a reason that is fixable rather than fundamental —
   which is itself worth knowing, and is why the ontology work in
   `src/signature.rs` should land before this runs.
@@ -132,7 +132,7 @@ after seeing a decisive headline would be choosing the analysis that suits the
 answer.
 
 **A fifth arm** is added, as the original "known limits" section already
-recommended: AetherShell agentic **without** the cheatsheet. It is the cheapest
+recommended: IronShell agentic **without** the cheatsheet. It is the cheapest
 control and the one that tests whether the cheatsheet is a real cost or a real
 benefit.
 
@@ -163,7 +163,7 @@ package. An arm whose interpreter is absent is now named and skipped, never
 scored; `sqlite3` has been installed here, so all five arms are live.
 
 **Also done, and it was a prerequisite this file asked for.** "We wrote the
-AetherShell reference material" above warned that a poor ontology would make
+IronShell reference material" above warned that a poor ontology would make
 that arm lose for a fixable reason. It was worse than poor: four of the
 builtins the answers require (`from_json`, `group_by`, `mean`, `to_string`)
 were not in the ontology at all, because the catalogue walked only one of the

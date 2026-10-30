@@ -2,7 +2,7 @@
 //! as nothing.
 //!
 //! ```text
-//! $ ae -c 'ls("src") | pick("name", "size")'
+//! $ ish -c 'ls("src") | pick("name", "size")'
 //! [{…}, {…}, {…}, {…}, … forty-five of them]
 //! ```
 //!
@@ -16,7 +16,7 @@
 //! here bought nothing and cost the answer.
 //!
 //! How it was found is the uncomfortable part. A benchmark of this repository
-//! measured AetherShell's output for that exact command at 316 bytes against
+//! measured IronShell's output for that exact command at 316 bytes against
 //! bash's 2,650 and reported a 7.9x token advantage. The 316 bytes were forty-
 //! five copies of `{…}`. The harness had no oracle for those tasks -- it
 //! checked only that the exit status was zero and the output non-empty -- so a
@@ -30,7 +30,7 @@
 use std::process::Command;
 
 fn ae(args: &[&str]) -> String {
-    let out = Command::new(env!("CARGO_BIN_EXE_ae"))
+    let out = Command::new(env!("CARGO_BIN_EXE_ish"))
         .args(args)
         .env("NO_COLOR", "1")
         .output()
@@ -99,10 +99,10 @@ fn scalars_and_flat_arrays_are_untouched() {
 
 #[test]
 fn non_vacuity_the_binary_under_test_is_the_one_that_was_built() {
-    // If `ae` silently failed or printed nothing, every assertion that checks
+    // If `ish` silently failed or printed nothing, every assertion that checks
     // for an absence would pass.
     let v = ae(&["--version"]);
-    assert!(v.starts_with("ae "), "unexpected version banner: {v}");
+    assert!(v.starts_with("ish "), "unexpected version banner: {v}");
     assert_eq!(ae(&["-c", "1 + 1"]), "2", "the binary is not evaluating");
     // And the elision marker must still be producible, or "no … in the output"
     // is not evidence of anything.

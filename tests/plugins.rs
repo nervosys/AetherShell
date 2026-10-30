@@ -1,7 +1,7 @@
 // tests/plugins.rs
-// Tests for the AetherShell plugin system builtins
+// Tests for the IronShell plugin system builtins
 
-use aethershell::{env::Env, eval, parser};
+use iron_shell::{env::Env, eval, parser};
 
 /// Strip ANSI escape codes from a string
 fn strip_ansi(s: &str) -> String {
@@ -28,7 +28,7 @@ fn strip_ansi(s: &str) -> String {
     result
 }
 
-/// Helper to evaluate AetherShell code and return the result as string
+/// Helper to evaluate IronShell code and return the result as string
 fn run(code: &str) -> String {
     let mut env = Env::default();
     match parser::parse_program(code) {
@@ -179,7 +179,7 @@ fn test_plugin_info_has_version() {
 #[test]
 fn test_plugin_info_has_author() {
     let result = run(r#"plugin_info("builtin.json").author"#);
-    assert!(result.contains("AetherShell"));
+    assert!(result.contains("IronShell"));
 }
 
 #[test]

@@ -98,21 +98,21 @@ lazy_static::lazy_static! {
 /// Where this session's journal lives. The redo stack lives in the `redo`
 /// subdirectory of the same place.
 ///
-/// Persistence is not a nicety here. The Python SDK runs `ae -c <code>` per
+/// Persistence is not a nicety here. The Python SDK runs `ish -c <code>` per
 /// call, so an in-memory journal would be empty in the process that runs
 /// `undo` — the feature would appear to work and reverse nothing, which is the
 /// exact failure this module is written to avoid.
 fn session_dir() -> Option<PathBuf> {
-    if let Ok(d) = std::env::var("AETHER_SESSION_DIR") {
+    if let Ok(d) = std::env::var("IRONSHELL_SESSION_DIR") {
         return Some(PathBuf::from(d).join("journal"));
     }
-    let key = std::env::var("AETHER_SESSION").ok().unwrap_or_else(|| {
+    let key = std::env::var("IRONSHELL_SESSION").ok().unwrap_or_else(|| {
         let cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
         format!("{:x}", md5::compute(cwd.as_bytes()))
     });
-    dirs::cache_dir().map(|c| c.join("aethershell").join("journal").join(key))
+    dirs::cache_dir().map(|c| c.join("ironshell").join("journal").join(key))
 }
 
 fn redo_dir() -> Option<PathBuf> {
@@ -282,9 +282,9 @@ fn state() -> MutexGuard<'static, State> {
 
 /// Journalling is on in agent mode and off for humans, matching the rest of the
 /// dual-surface split: the agent surface pays a little I/O for recoverability,
-/// the human REPL behaves exactly as before. `AETHER_JOURNAL=on`/`off` forces it.
+/// the human REPL behaves exactly as before. `IRONSHELL_JOURNAL=on`/`off` forces it.
 pub fn enabled() -> bool {
-    match std::env::var_os("AETHER_JOURNAL")
+    match std::env::var_os("IRONSHELL_JOURNAL")
         .as_deref()
         .and_then(|v| v.to_str())
     {

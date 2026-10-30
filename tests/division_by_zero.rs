@@ -4,12 +4,12 @@
 //! (`benches/agentic/errors.mjs`). Two of the ten did not report anything:
 //!
 //! ```text
-//! $ ae -c '1 / 0'
+//! $ ish -c '1 / 0'
 //! inf                      # exit 0
-//! $ ae -c '0 / 0'
+//! $ ish -c '0 / 0'
 //! NaN                      # exit 0
-//! $ ae -c '1 % 0'
-//! thread 'aether-eval' panicked at src/eval.rs:1568:59:
+//! $ ish -c '1 % 0'
+//! thread 'ironshell-eval' panicked at src/eval.rs:1568:59:
 //! attempt to calculate the remainder with a divisor of zero
 //! ```
 //!
@@ -22,8 +22,8 @@
 //!
 //! bash, jq and nushell all raise an error here.
 
-use aethershell::env::Env;
-use aethershell::{eval::eval_program, parser::parse_program, value::Value};
+use iron_shell::env::Env;
+use iron_shell::{eval::eval_program, parser::parse_program, value::Value};
 
 fn eval(src: &str) -> anyhow::Result<Value> {
     let prog = parse_program(src).unwrap_or_else(|e| panic!("parse {src}: {e:?}"));

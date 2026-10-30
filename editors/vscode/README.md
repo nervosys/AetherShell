@@ -1,10 +1,10 @@
 # ÆtherShell Extension for VS Code
 
-This extension provides language support for [AetherShell](https://github.com/nervosys/AetherShell), a typed, functional shell with AI capabilities.
+This extension provides language support for [IronShell](https://github.com/nervosys/AetherShell), a typed, functional shell with AI capabilities.
 
 ## Features
 
-- **Syntax Highlighting**: Full TextMate grammar for `.ae` files
+- **Syntax Highlighting**: Full TextMate grammar for `.ish` files
 - **Autocompletion**: Built-in functions, keywords, and snippets
 - **Hover Documentation**: Detailed docs for builtins and keywords
 - **Diagnostics**: Parse error detection and reporting
@@ -19,20 +19,20 @@ This extension provides language support for [AetherShell](https://github.com/ne
 
 ### Language Server
 
-This extension uses the AetherShell Language Server (LSP) for advanced features. Build it from the AetherShell repository:
+This extension uses the IronShell Language Server (LSP) for advanced features. Build it from the IronShell repository:
 
 ```bash
 cd AetherShell
-cargo build -p aethershell-lsp --release
+cargo build -p iron-shell-lsp --release
 ```
 
 The extension will automatically find the language server if built in the standard location. You can also set a custom path in settings.
 
 ### Configuration
 
-- `aethershell.lsp.enabled`: Enable/disable the language server (default: `true`)
-- `aethershell.lsp.path`: Custom path to the language server binary
-- `aethershell.trace.server`: Trace server communication for debugging
+- `ironshell.lsp.enabled`: Enable/disable the language server (default: `true`)
+- `ironshell.lsp.path`: Custom path to the language server binary
+- `ironshell.trace.server`: Trace server communication for debugging
 
 ## Installing
 
@@ -43,7 +43,7 @@ differs is where each one looks for it.
 ### VS Code
 
 ```bash
-code --install-extension admercs.aethershell
+code --install-extension admercs.ironshell
 ```
 
 ### Cursor, VSCodium, and other forks
@@ -53,13 +53,13 @@ Visual Studio Marketplace, so an extension published only to the Marketplace is
 invisible to them. Install from the registry once it is published there:
 
 ```bash
-cursor --install-extension admercs.aethershell
+cursor --install-extension admercs.ironshell
 ```
 
 or install a `.vsix` directly, which always works:
 
 ```bash
-cursor --install-extension aethershell-1.6.0.vsix
+cursor --install-extension ironshell-1.6.0.vsix
 ```
 
 In the UI: **Extensions → … → Install from VSIX**.
@@ -69,8 +69,8 @@ In the UI: **Extensions → … → Install from VSIX**.
 ```bash
 cd editors/vscode
 npm install
-npm run package                 # produces aethershell-<version>.vsix
-code --install-extension aethershell-*.vsix
+npm run package                 # produces ironshell-<version>.vsix
+code --install-extension ironshell-*.vsix
 ```
 
 Build with `npm run package`, never `vsce package --no-dependencies`: the latter
@@ -82,12 +82,12 @@ checks for this.
 
 1. Install the extension (above)
 2. Build the language server (see above)
-3. Open any `.ae` file
-4. Start writing AetherShell code!
+3. Open any `.ish` file
+4. Start writing IronShell code!
 
 ## Syntax Examples
 
-```aethershell
+```ironshell
 # Variables
 let name = "Alice"
 let mut counter = 0
@@ -128,7 +128,7 @@ agent("Find and fix bugs in src/")
 
 ## Contributing
 
-Contributions are welcome! Please visit the [AetherShell repository](https://github.com/nervosys/AetherShell).
+Contributions are welcome! Please visit the [IronShell repository](https://github.com/nervosys/AetherShell).
 
 ## License
 

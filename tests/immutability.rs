@@ -1,6 +1,6 @@
 //! Test immutability enforcement
 
-use aethershell::{env::Env, eval, parser};
+use iron_shell::{env::Env, eval, parser};
 
 #[test]
 fn test_immutable_by_default() {

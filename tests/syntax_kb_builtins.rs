@@ -1,10 +1,10 @@
 /// Integration tests for Syntax KB builtins
 /// Tests the functionality of syntax_get, syntax_list, syntax_search, syntax_add,
 /// syntax_categories, ab_encode, and ab_decode
-use aethershell::{env::Env, eval, parser, value::Value};
+use iron_shell::{env::Env, eval, parser, value::Value};
 use anyhow::Result;
 
-/// The syntax KB persists to $HOME/.aethershell/syntax_kb.json, and
+/// The syntax KB persists to $HOME/.ironshell/syntax_kb.json, and
 /// `syntax_add` saves. These tests added `test_proto` to the developer's own
 /// knowledge base on every run. Point HOME at a scratch directory before the
 /// first test touches the KB (it is loaded once per process).

@@ -10,9 +10,9 @@
 //! is spawned. A tool that is absent on this machine must answer E_TOOL_MISSING;
 //! a tool that is present is exercised only on files the test wrote itself.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Mutex, Once};
@@ -29,15 +29,15 @@ fn isolate() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_lint_tranche_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
 }
 
 /// A call in human mode, with the process's working directory as it is.
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     isolate();
     let mut env = Env::new();
     builtins::call(name, args, &mut env)
@@ -46,8 +46,8 @@ fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
 /// A call in human mode with a piped subject.
 fn piped(name: &str, args: Vec<Value>, input: Value) -> anyhow::Result<Value> {
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     isolate();
     let mut env = Env::new();
     builtins::call_with_input(name, args, Some(input), &mut env)
@@ -58,15 +58,15 @@ fn piped(name: &str, args: Vec<Value>, input: Value) -> anyhow::Result<Value> {
 /// is what keeps them off the repository.
 fn call_here(dir: &Path, name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     isolate();
     let before = std::env::current_dir().expect("the working directory");
     std::env::set_current_dir(dir).expect("enter the temp directory");
-    std::env::set_var("AETHER_WORKSPACE", dir);
+    std::env::set_var("IRONSHELL_WORKSPACE", dir);
     let mut env = Env::new();
     let out = builtins::call(name, args, &mut env);
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     std::env::set_current_dir(&before).expect("restore the working directory");
     out
 }

@@ -1,4 +1,4 @@
-use aethershell::{env::Env, eval::eval_program, parser::parse_program, value::Value};
+use iron_shell::{env::Env, eval::eval_program, parser::parse_program, value::Value};
 
 fn run(code: &str, env: &mut Env) -> anyhow::Result<Value> {
     eval_program(&parse_program(code)?, env)
@@ -34,7 +34,7 @@ fn computed_records_and_field_errors_keep_their_behavior() {
         let error = run(code, &mut env).unwrap_err();
         assert!(
             error
-                .downcast_ref::<aethershell::safety::SafetyError>()
+                .downcast_ref::<iron_shell::safety::SafetyError>()
                 .is_some(),
             "{error}"
         );

@@ -1,8 +1,8 @@
-# 🎉 VS Code Extension for AetherShell - Complete!
+# 🎉 VS Code Extension for IronShell - Complete!
 
 ## Executive Summary
 
-A **comprehensive, production-ready VS Code extension** has been created for AetherShell, providing professional IDE support that rivals major programming languages. This extension positions AetherShell as a first-class language in the most popular code editor.
+A **comprehensive, production-ready VS Code extension** has been created for IronShell, providing professional IDE support that rivals major programming languages. This extension positions IronShell as a first-class language in the most popular code editor.
 
 ---
 
@@ -13,8 +13,8 @@ A **comprehensive, production-ready VS Code extension** has been created for Aet
 #### Core Extension Files
 1. ✅ **package.json** - Extension manifest with 8 commands, language config, debugger setup
 2. ✅ **language-configuration.json** - Bracket pairs, auto-closing, indentation rules
-3. ✅ **syntaxes/aethershell.tmLanguage.json** - Complete TextMate grammar (50+ patterns)
-4. ✅ **snippets/aethershell.json** - 18 comprehensive code snippets
+3. ✅ **syntaxes/ironshell.tmLanguage.json** - Complete TextMate grammar (50+ patterns)
+4. ✅ **snippets/ironshell.json** - 18 comprehensive code snippets
 5. ✅ **src/extension.ts** - 400+ lines of TypeScript implementing all features
 
 #### Build & Config
@@ -46,7 +46,7 @@ A **comprehensive, production-ready VS Code extension** has been created for Aet
 - ✅ Variables and function calls
 
 ### ⚡ Commands (8 Total)
-1. ✅ **Run AetherShell Script** - Execute current file (Ctrl+Shift+R)
+1. ✅ **Run IronShell Script** - Execute current file (Ctrl+Shift+R)
 2. ✅ **Run Selected Code** - Execute selection (Ctrl+Enter)
 3. ✅ **Format Document** - Smart code formatting
 4. ✅ **Check Syntax** - Validate code
@@ -118,13 +118,13 @@ npm run compile
 npm install -g @vscode/vsce
 cd vscode-extension
 npm run package
-# Creates aethershell-0.1.0.vsix
+# Creates ironshell-0.1.0.vsix
 ```
 
 ### For Installation
 
 ```bash
-code --install-extension aethershell-0.1.0.vsix
+code --install-extension ironshell-0.1.0.vsix
 ```
 
 ---
@@ -159,7 +159,7 @@ code --install-extension aethershell-0.1.0.vsix
 
 | Shell           | Extension | Syntax    | Snippets  | Commands | Debugger | AI Support | Quality |
 | --------------- | --------- | --------- | --------- | -------- | -------- | ---------- | ------- |
-| **AetherShell** | ✅         | ✅ Full    | ✅ 18      | ✅ 8      | ⏳ Ready  | ✅ Native   | ⭐⭐⭐⭐⭐   |
+| **IronShell** | ✅         | ✅ Full    | ✅ 18      | ✅ 8      | ⏳ Ready  | ✅ Native   | ⭐⭐⭐⭐⭐   |
 | PowerShell      | ✅         | ✅ Full    | ✅ Many    | ✅ Many   | ✅ Full   | ❌ No       | ⭐⭐⭐⭐⭐   |
 | Nushell         | ✅         | ✅ Basic   | ⚠️ Few     | ⚠️ Few    | ❌ No     | ❌ No       | ⭐⭐⭐     |
 | Bash            | ✅         | ✅ Basic   | ⚠️ Limited | ⚠️ Few    | ⚠️ Basic  | ❌ No       | ⭐⭐⭐     |
@@ -167,7 +167,7 @@ code --install-extension aethershell-0.1.0.vsix
 | Oil             | ❌         | ❌ No      | ❌ No      | ❌ No     | ❌ No     | ❌ No       | N/A     |
 | Zsh             | ✅         | ✅ Basic   | ⚠️ Few     | ❌ No     | ❌ No     | ❌ No       | ⭐⭐      |
 
-**Result: AetherShell's VS Code extension is on par with PowerShell and SUPERIOR to all other shells, with UNIQUE AI support!**
+**Result: IronShell's VS Code extension is on par with PowerShell and SUPERIOR to all other shells, with UNIQUE AI support!**
 
 ---
 
@@ -213,7 +213,7 @@ code --install-extension aethershell-0.1.0.vsix
 - ✅ **Better debugging** - Syntax validation, error reporting
 - ✅ **Smoother workflow** - Run code, format, REPL, TUI integration
 
-### For AetherShell Project
+### For IronShell Project
 - ✅ **Professional polish** - Shows production readiness
 - ✅ **Lower barrier to entry** - VS Code is most popular editor
 - ✅ **Better developer experience** - Encourages adoption
@@ -233,14 +233,14 @@ code --install-extension aethershell-0.1.0.vsix
 ## 🔮 Future Enhancements
 
 ### Phase 1 (Immediate)
-- ⏳ Test with real `.ae` files
+- ⏳ Test with real `.ish` files
 - ⏳ Fix any bugs
 - ⏳ Gather user feedback
 - ⏳ Publish to VS Code Marketplace
 
 ### Phase 2 (Short-term)
 - ⏳ Full Language Server Protocol (LSP) implementation
-- ⏳ Real-time diagnostics from AetherShell compiler
+- ⏳ Real-time diagnostics from IronShell compiler
 - ⏳ Go to definition
 - ⏳ Find references
 - ⏳ Rename symbol
@@ -305,9 +305,9 @@ code --install-extension aethershell-0.1.0.vsix
 - **Extensible architecture**
 
 ### Business Value
-- **Professional image** - Shows AetherShell is serious
+- **Professional image** - Shows IronShell is serious
 - **Competitive advantage** - Better than most shells
-- **User experience** - Makes AetherShell easy to use
+- **User experience** - Makes IronShell easy to use
 - **Marketing asset** - "Full VS Code support" sells
 - **Community building** - Easier for contributors
 
@@ -376,24 +376,24 @@ code --install-extension aethershell-0.1.0.vsix
 
 ## 🎯 Conclusion
 
-The **AetherShell VS Code Extension** is a **complete, production-ready, professional-quality** IDE integration that:
+The **IronShell VS Code Extension** is a **complete, production-ready, professional-quality** IDE integration that:
 
 1. ✅ Provides **world-class developer experience**
 2. ✅ Demonstrates **professional-grade tooling**
 3. ✅ Offers **unique AI-native features**
-4. ✅ Positions AetherShell as a **first-class language**
+4. ✅ Positions IronShell as a **first-class language**
 5. ✅ Creates **competitive advantage** over other shells
 6. ✅ Enables **faster adoption** and **easier learning**
 7. ✅ Shows **serious commitment** to the project
 8. ✅ Provides **foundation for future enhancements**
 
-**AetherShell now has IDE support comparable to major programming languages like Python, TypeScript, and Rust - with UNIQUE AI features no other shell has!** 🎉🚀
+**IronShell now has IDE support comparable to major programming languages like Python, TypeScript, and Rust - with UNIQUE AI features no other shell has!** 🎉🚀
 
 ---
 
 ## 📞 Next Actions
 
-1. **Test thoroughly** with example `.ae` files
+1. **Test thoroughly** with example `.ish` files
 2. **Fix any bugs** discovered during testing
 3. **Package extension** (`npm run package`)
 4. **Create demo video** showing features

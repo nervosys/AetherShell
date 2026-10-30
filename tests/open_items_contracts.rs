@@ -7,10 +7,10 @@
 //! process it is this test binary itself, selected by name and told what to do
 //! through an environment variable, so it behaves the same on Windows and Linux.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::os_tools::run_capped;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::os_tools::run_capped;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -201,7 +201,7 @@ fn a_missing_program_is_a_coded_tool_missing_refusal() {
     let err = run_capped(
         "tool_exec",
         "missing",
-        "no_such_program_aethershell_open_items",
+        "no_such_program_ironshell_open_items",
         &[],
         1024,
         1024,
@@ -306,17 +306,17 @@ fn piped_rag_search_takes_top_k_from_its_only_argument() {
 #[test]
 fn backend_probes_are_refused_by_the_budget_before_any_connection() {
     let _g = lock();
-    let _env = EnvSet::new(&[("AETHER_MODE", "agent"), ("AETHER_MAX_NET", "0")]);
-    aethershell::safety::governor_reset();
+    let _env = EnvSet::new(&[("IRONSHELL_MODE", "agent"), ("IRONSHELL_MAX_NET", "0")]);
+    iron_shell::safety::governor_reset();
 
-    let err = aethershell::ai::try_detect_available_backends()
+    let err = iron_shell::ai::try_detect_available_backends()
         .expect_err("a zero network budget refuses the first probe");
     assert_eq!(code_of(&err.to_string()), "E_BUDGET_EXCEEDED");
 
     // Through the builtin the call's own charge refuses first, the same way.
     assert_eq!(outcome(run("ai_backends", vec![])), "E_BUDGET_EXCEEDED");
 
-    aethershell::safety::governor_reset();
+    iron_shell::safety::governor_reset();
 }
 
 // ─────────────────────────────────────────────────────────────────────────

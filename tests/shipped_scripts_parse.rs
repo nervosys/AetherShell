@@ -1,6 +1,6 @@
-//! Every `.ae` file this repository ships must parse.
+//! Every `.ish` file this repository ships must parse.
 //!
-//! `examples/` and `lib/` are the first AetherShell most people read, and
+//! `examples/` and `lib/` are the first IronShell most people read, and
 //! `lib/` is the standard library — but nothing ever ran them, so they drifted
 //! away from the language. Measured when this test was written: seven examples
 //! used `/* … */` block comments, which the parser has never accepted (it takes
@@ -21,7 +21,7 @@ fn ae_files(dir: &str) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = std::fs::read_dir(repo(dir))
         .unwrap_or_else(|e| panic!("read {dir}: {e}"))
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "ae"))
+        .filter(|p| p.extension().is_some_and(|x| x == "ish"))
         .collect();
     out.sort();
     out
@@ -38,7 +38,7 @@ fn parse_failures(files: &[PathBuf]) -> Vec<(String, String)> {
                 continue;
             }
         };
-        if let Err(e) = aethershell::parser::parse_program(&src) {
+        if let Err(e) = iron_shell::parser::parse_program(&src) {
             let first = e.to_string().lines().take(2).collect::<Vec<_>>().join(" ");
             bad.push((
                 path.file_name().unwrap().to_string_lossy().to_string(),
@@ -91,24 +91,24 @@ fn every_stdlib_file_parses() {
     let files = ae_files("lib");
     assert!(
         !files.is_empty(),
-        "no .ae files in lib/ — this test is looking in the wrong place",
+        "no .ish files in lib/ — this test is looking in the wrong place",
     );
     let bad = parse_failures(&files);
     assert!(bad.is_empty(), "{}", report("stdlib", &bad));
 }
 
 /// The specific syntax that broke seven examples: `/* … */` is not a comment in
-/// AetherShell, and a file using it fails at its first line. Asserted directly
+/// IronShell, and a file using it fails at its first line. Asserted directly
 /// so the reason stays attached to the rule.
 #[test]
 fn block_comments_are_not_valid_and_no_shipped_script_uses_them() {
     assert!(
-        aethershell::parser::parse_program("/* nope */\n1\n").is_err(),
+        iron_shell::parser::parse_program("/* nope */\n1\n").is_err(),
         "`/* */` now parses — if block comments were added, this test and the \
          comment rules in editors/vscode should learn about them together"
     );
-    assert!(aethershell::parser::parse_program("# yes\n1\n").is_ok());
-    assert!(aethershell::parser::parse_program("// yes\n1\n").is_ok());
+    assert!(iron_shell::parser::parse_program("# yes\n1\n").is_ok());
+    assert!(iron_shell::parser::parse_program("// yes\n1\n").is_ok());
 
     let mut offenders = Vec::new();
     for dir in ["examples", "lib"] {

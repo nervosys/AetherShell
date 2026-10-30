@@ -1,4 +1,4 @@
-# Aether Shell (au)
+# IronShell Shell (au)
 
 *A modern, typed, memory‑safe successor to Bash—bringing the best of PowerShell’s structured pipelines, Rust’s safety & generics, and Julia’s macros & metaprogramming.*
 
@@ -6,7 +6,7 @@
 
 ## 0) Elevator pitch
 
-**Aether (au)** is a new shell & scripting language with:
+**IronShell (au)** is a new shell & scripting language with:
 
 - **Typed, structured pipelines** (tables, records, arrays—not just raw text)
 - **Memory safety** (runtime implemented in Rust; no UB; safe process I/O by default)
@@ -247,13 +247,13 @@ We now provide a **compile‑ready, modular project** that:
 - Supports **Go‑like `:=` inference**, optional `let` annotations, and **arrow lambdas** (`fn(...) => ...`).
 - Adds **AI & Agent** integration with a clean trait you can implement for any provider. Default build compiles **without** network access (no external deps). Enable `--features ai-openai` to call a live LLM.
 
-> Create a new cargo project `aether`, replace files below, then `cargo run`. For live AI: `cargo run --features ai-openai` with `OPENAI_API_KEY` set.
+> Create a new cargo project `ironshell`, replace files below, then `cargo run`. For live AI: `cargo run --features ai-openai` with `OPENAI_API_KEY` set.
 
 ### `Cargo.toml`
 
 ```toml
 [package]
-name = "aether"
+name = "ironshell"
 version = "0.4.0"
 edition = "2021"
 
@@ -533,7 +533,7 @@ pub fn call_builtin(name:&str, mut args:Vec<Value>, env:&mut Env)->Result<Value>
             #[cfg(feature = "ai")]
             { return crate::agent::run(args, env); }
             #[cfg(not(feature = "ai"))]
-            { return Ok(Value::Str("(agent disabled: compile aether with --features ai-openai)".into())); }
+            { return Ok(Value::Str("(agent disabled: compile ironshell with --features ai-openai)".into())); }
         }
         "!"=>{ // external command
             if args.is_empty(){ return Err(anyhow!("usage: ! \"cmd\" [args...]")); }
@@ -601,7 +601,7 @@ use rustyline::{DefaultEditor, error::ReadlineError};
 use crate::{env::Env, lexer::Lexer, parser::Parser, typecheck::type_of_expr, eval::eval_expr, value::Value};
 
 pub fn start() -> Result<()> {
-    println!("au — Aether Shell
+    println!("au — IronShell Shell
 Type :help for tips. Ctrl+C to exit.");
     let mut rl = DefaultEditor::new()?;
     let mut env = Env::default();
@@ -765,7 +765,7 @@ Agent can actually act:
 - We execute that step via built-ins with a safety gate
 - External commands (!) are allowed only if whitelisted via `AGENT_ALLOW_CMDS`
 - AI providers (open & closed source):
-    `Set AETHER_AI=stub | openai | ollama`
+    `Set IRONSHELL_AI=stub | openai | ollama`
     `--features ai-openai` for OpenAI, `--features ai-ollama` for local Ollama (open-source models)
 - Defaults to an offline stub if AI features aren’t enabled
 
@@ -775,10 +775,10 @@ Plain (offline):
 `cargo run`
 
 OpenAI:
-`AETHER_AI=openai OPENAI_API_KEY=... cargo run --features ai-openai`
+`IRONSHELL_AI=openai OPENAI_API_KEY=... cargo run --features ai-openai`
 
 Ollama (local):
-`AETHER_AI=ollama OLLAMA_MODEL=llama3.1 cargo run --features ai-ollama`
+`IRONSHELL_AI=ollama OLLAMA_MODEL=llama3.1 cargo run --features ai-ollama`
 
 ### Try it
 
@@ -790,7 +790,7 @@ files | print
 # Array ops
 [1,2,3,4] | map fn(x) => x*x | filter fn(x) => x > 5 | reduce fn(a,b) => a+b 0
 
-# AI summarize (provider via AETHER_AI)
+# AI summarize (provider via IRONSHELL_AI)
 read_text "README.md" | ai "Summarize as bullets"
 
 # Agent planning & acting (safe by default)

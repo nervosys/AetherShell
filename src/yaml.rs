@@ -36,8 +36,8 @@
 //! # Example
 //!
 //! ```
-//! use aethershell::yaml;
-//! use aethershell::value::Value;
+//! use iron_shell::yaml;
+//! use iron_shell::value::Value;
 //!
 //! let v = yaml::parse("name: ae\nports:\n  - 80\n  - 443\n").unwrap();
 //! let Value::Record(r) = &v else { panic!("expected a record") };
@@ -141,14 +141,14 @@ fn reject_unsupported(line: &str, number: usize) -> Result<()> {
     for (marker, name) in unsupported {
         if value_part.starts_with(marker) {
             return Err(anyhow!(
-                "line {number}: {name} are not supported by AetherShell's YAML \
+                "line {number}: {name} are not supported by IronShell's YAML \
                  subset. Convert the document to JSON, or simplify it."
             ));
         }
     }
     if line.starts_with("<<") {
         return Err(anyhow!(
-            "line {number}: merge keys (<<) are not supported by AetherShell's \
+            "line {number}: merge keys (<<) are not supported by IronShell's \
              YAML subset."
         ));
     }
@@ -331,7 +331,7 @@ fn parse_scalar(raw: &str, number: usize) -> Result<Value> {
             Ok(j) => Ok(json_to_value(j)),
             Err(e) => Err(anyhow!(
                 "line {number}: flow collection {s:?} is not valid JSON ({e}); \
-                 AetherShell's YAML subset supports JSON-compatible flow style only"
+                 IronShell's YAML subset supports JSON-compatible flow style only"
             )),
         };
     }

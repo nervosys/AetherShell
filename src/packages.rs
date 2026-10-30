@@ -1,11 +1,11 @@
-//! AetherShell Package Management
+//! IronShell Package Management
 //!
 //! This module provides package management capabilities including:
 //! - Package registry integration
 //! - Dependency resolution
 //! - Version management
 //!
-//! `import` and `export` of `.ae` files are implemented in
+//! `import` and `export` of `.ish` files are implemented in
 //! `crate::module_loader`; package-name imports (`pkg:`) are not wired to it yet.
 
 use anyhow::{anyhow, Context, Result};
@@ -22,7 +22,7 @@ const BUILTIN: &str = "pkg";
 /// have their own hints; a registry that answers badly gets this one.
 #[cfg(not(target_arch = "wasm32"))]
 const REGISTRY_HINT: &str =
-    "the registry refused the request or could not be reached; check the network and AETHER_REGISTRY_TOKEN, then retry";
+    "the registry refused the request or could not be reached; check the network and IRONSHELL_REGISTRY_TOKEN, then retry";
 
 /// An upstream registry failure (`E_IO`): the registry, not the shell's
 /// policy, failed the request.
@@ -61,11 +61,11 @@ fn auth_required() -> anyhow::Error {
         code: ErrorCode::BadState,
         message: format!("{BUILTIN}: authentication required; no registry token is set"),
         builtin: BUILTIN.to_string(),
-        hint: "set AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN in the environment, then retry"
+        hint: "set IRONSHELL_REGISTRY_TOKEN or IRONSHELL_TOKEN in the environment, then retry"
             .to_string(),
         approval: None,
         did_you_mean: Vec::new(),
-        expected: "AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN".to_string(),
+        expected: "IRONSHELL_REGISTRY_TOKEN or IRONSHELL_TOKEN".to_string(),
         got: "neither set".to_string(),
     })
 }
@@ -76,11 +76,11 @@ fn wasm_unavailable() -> anyhow::Error {
     crate::safety::unimplemented(
         BUILTIN,
         "the package registry is not available in a wasm build",
-        "use a native build of ae to reach the package registry",
+        "use a native build of ish to reach the package registry",
     )
 }
 
-/// Package manifest (aether.toml)
+/// Package manifest (ironshell.toml)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageManifest {
     pub package: PackageInfo,
@@ -100,13 +100,13 @@ pub struct PackageInfo {
     pub license: Option<String>,
     #[serde(default)]
     pub repository: Option<String>,
-    /// Main entry point (default: "main.ae")
+    /// Main entry point (default: "main.ish")
     #[serde(default = "default_main")]
     pub main: String,
 }
 
 fn default_main() -> String {
-    "main.ae".to_string()
+    "main.ish".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,7 +142,7 @@ impl Default for PackageRegistry {
     fn default() -> Self {
         let cache_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("aethershell")
+            .join("ironshell")
             .join("packages");
 
         Self {
@@ -178,7 +178,7 @@ impl PackageRegistry {
 
         // Package not found locally - would need to fetch from registry
         Err(anyhow!(
-            "package '{}' not found. Install with: ae pkg install {}",
+            "package '{}' not found. Install with: ish pkg install {}",
             package,
             package
         ))
@@ -275,12 +275,12 @@ pub struct RegistryListResponse {
     pub next_token: Option<String>,
 }
 
-/// HTTP client for the AetherShell package registry at packages.nervosys.ai
+/// HTTP client for the IronShell package registry at packages.nervosys.ai
 #[derive(Debug, Clone)]
 pub struct RegistryClient {
     /// Base URL (e.g. "https://packages.nervosys.ai")
     pub base_url: String,
-    /// Registry name (e.g. "aethershell")
+    /// Registry name (e.g. "ironshell")
     pub registry: String,
     /// Local cache directory
     pub cache_dir: PathBuf,
@@ -290,12 +290,12 @@ impl Default for RegistryClient {
     fn default() -> Self {
         let cache_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("aethershell")
+            .join("ironshell")
             .join("packages");
 
         Self {
             base_url: "https://packages.nervosys.ai".to_string(),
-            registry: "aethershell".to_string(),
+            registry: "ironshell".to_string(),
             cache_dir,
         }
     }
@@ -357,10 +357,10 @@ impl RegistryClient {
         format!("{}/{}/api/v1{}", self.base_url, self.registry, path)
     }
 
-    /// Get the auth token from AETHER_REGISTRY_TOKEN or AETHERSHELL_TOKEN env var
+    /// Get the auth token from IRONSHELL_REGISTRY_TOKEN or IRONSHELL_TOKEN env var
     fn auth_token() -> Option<String> {
-        std::env::var("AETHER_REGISTRY_TOKEN")
-            .or_else(|_| std::env::var("AETHERSHELL_TOKEN"))
+        std::env::var("IRONSHELL_REGISTRY_TOKEN")
+            .or_else(|_| std::env::var("IRONSHELL_TOKEN"))
             .ok()
     }
 
@@ -380,7 +380,7 @@ impl RegistryClient {
 
         let resp = client
             .get(&url)
-            .header("User-Agent", "AetherShell/1.5.0")
+            .header("User-Agent", "IronShell/1.5.0")
             .send()
             .context("failed to connect to package registry")?;
 
@@ -411,7 +411,7 @@ impl RegistryClient {
 
         let resp = client
             .get(&url)
-            .header("User-Agent", "AetherShell/1.5.0")
+            .header("User-Agent", "IronShell/1.5.0")
             .send()
             .context("failed to connect to package registry")?;
 
@@ -440,7 +440,7 @@ impl RegistryClient {
 
         let resp = client
             .get(&url)
-            .header("User-Agent", "AetherShell/1.5.0")
+            .header("User-Agent", "IronShell/1.5.0")
             .send()
             .context("failed to connect to package registry")?;
 
@@ -480,7 +480,7 @@ impl RegistryClient {
 
         let resp = client
             .get(&url)
-            .header("User-Agent", "AetherShell/1.5.0")
+            .header("User-Agent", "IronShell/1.5.0")
             .send()
             .context("failed to download package from registry")?;
 
@@ -591,7 +591,7 @@ impl RegistryClient {
 
         let resp = client
             .post(&url)
-            .header("User-Agent", "AetherShell/1.5.0")
+            .header("User-Agent", "IronShell/1.5.0")
             .header("Authorization", format!("Bearer {}", token))
             .json(&body)
             .send()
@@ -627,7 +627,7 @@ impl RegistryClient {
 
         let resp = client
             .delete(&url)
-            .header("User-Agent", "AetherShell/1.5.0")
+            .header("User-Agent", "IronShell/1.5.0")
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .context("failed to yank package from registry")?;
@@ -767,7 +767,7 @@ pub mod builtins {
 
         // Find latest version and read manifest
         if let Some(latest) = registry.find_latest_version(&pkg_dir)? {
-            let manifest_path = pkg_dir.join(&latest).join("aether.toml");
+            let manifest_path = pkg_dir.join(&latest).join("ironshell.toml");
             if manifest_path.exists() {
                 let content = fs::read_to_string(&manifest_path)?;
                 let manifest: PackageManifest = toml::from_str(&content)?;
@@ -820,24 +820,24 @@ pub mod builtins {
                 authors: vec![],
                 license: Some("MIT".to_string()),
                 repository: None,
-                main: "main.ae".to_string(),
+                main: "main.ish".to_string(),
             },
             dependencies: HashMap::new(),
         };
 
         let toml_content = toml::to_string_pretty(&manifest)?;
-        fs::write("aether.toml", &toml_content)?;
+        fs::write("ironshell.toml", &toml_content)?;
 
-        // Create main.ae if it doesn't exist
-        if !Path::new("main.ae").exists() {
+        // Create main.ish if it doesn't exist
+        if !Path::new("main.ish").exists() {
             fs::write(
-                "main.ae",
-                "# AetherShell package: {}\n\nprint(\"Hello from {}!\")\n".replace("{}", name),
+                "main.ish",
+                "# IronShell package: {}\n\nprint(\"Hello from {}!\")\n".replace("{}", name),
             )?;
         }
 
         Ok(Value::Str(format!(
-            "Created package '{}' with aether.toml",
+            "Created package '{}' with ironshell.toml",
             name
         )))
     }

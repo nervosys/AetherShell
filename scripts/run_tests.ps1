@@ -1,9 +1,9 @@
-# AetherShell Test Runner Script
-# Run all .ae test files and report results
+# IronShell Test Runner Script
+# Run all .ish test files and report results
 
 param (
     [string]$TestDir = "tests",
-    [string]$Pattern = "*.ae",
+    [string]$Pattern = "*.ish",
     [switch]$Verbose,
     [switch]$CoverageOnly
 )
@@ -15,12 +15,12 @@ function Write-Success { param($msg) Write-Host $msg -ForegroundColor Green }
 function Write-Failure { param($msg) Write-Host $msg -ForegroundColor Red }
 function Write-Info { param($msg) Write-Host $msg -ForegroundColor Cyan }
 
-Write-Info "=== AetherShell Test Runner ==="
+Write-Info "=== IronShell Test Runner ==="
 Write-Info ""
 
 # Build the project first
-Write-Info "Building AetherShell..."
-$buildResult = cargo build --bin ae 2>&1
+Write-Info "Building IronShell..."
+$buildResult = cargo build --bin ish 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Failure "Build failed!"
     Write-Host $buildResult
@@ -29,14 +29,14 @@ if ($LASTEXITCODE -ne 0) {
 Write-Success "Build successful"
 Write-Info ""
 
-# Get the ae binary path
-$aeBinary = ".\target\debug\ae.exe"
+# Get the ish binary path
+$aeBinary = ".\target\debug\ish.exe"
 if (-not (Test-Path $aeBinary)) {
-    $aeBinary = ".\target\release\ae.exe"
+    $aeBinary = ".\target\release\ish.exe"
 }
 
 if (-not (Test-Path $aeBinary)) {
-    Write-Failure "Could not find ae binary!"
+    Write-Failure "Could not find ish binary!"
     exit 1
 }
 
@@ -47,7 +47,7 @@ if ($CoverageOnly) {
 }
 else {
     # Feature tests
-    $testPaths += Get-ChildItem -Path "tests" -Filter "feature_*.ae" -File
+    $testPaths += Get-ChildItem -Path "tests" -Filter "feature_*.ish" -File
     # Coverage tests
     if (Test-Path "tests\coverage") {
         $testPaths += Get-ChildItem -Path "tests\coverage" -Filter $Pattern -File

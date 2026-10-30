@@ -9,8 +9,8 @@
 #[path = "support/disposable.rs"]
 mod disposable;
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
@@ -44,7 +44,7 @@ fn record(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>, env: &mut Env) -> anyhow::Result<Value> {
-    aethershell::builtins::call(name, args, env)
+    iron_shell::builtins::call(name, args, env)
 }
 
 fn code(result: anyhow::Result<Value>, expected: &str) {
@@ -103,7 +103,7 @@ fn malformed_arguments_are_refused_with_bad_arg_on_every_platform() {
         code(call("svc_create", args, &mut env), "E_BAD_ARG");
     }
     code(
-        aethershell::builtins::call_with_input(
+        iron_shell::builtins::call_with_input(
             "svc_create",
             vec![s("aesvc-ok"), argv(&["/usr/bin/true"])],
             Some(s("piped")),
@@ -122,7 +122,7 @@ fn malformed_arguments_are_refused_with_bad_arg_on_every_platform() {
         code(call("svc_delete", args, &mut env), "E_BAD_ARG");
     }
     code(
-        aethershell::builtins::call_with_input(
+        iron_shell::builtins::call_with_input(
             "svc_delete",
             vec![s("aesvc-ok")],
             Some(s("piped")),
@@ -155,7 +155,7 @@ fn malformed_arguments_are_refused_with_bad_arg_on_every_platform() {
         code(call("sudo_exec", args, &mut env), "E_BAD_ARG");
     }
     code(
-        aethershell::builtins::call_with_input(
+        iron_shell::builtins::call_with_input(
             "sudo_exec",
             vec![argv(&["/usr/bin/id"])],
             Some(s("piped")),
@@ -169,7 +169,7 @@ fn malformed_arguments_are_refused_with_bad_arg_on_every_platform() {
 fn every_effect_is_refused_inside_a_transaction() {
     let _lock = LOCK.lock().unwrap();
     let mut env = Env::default();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     let refused = [
         call(
             "svc_create",
@@ -179,7 +179,7 @@ fn every_effect_is_refused_inside_a_transaction() {
         call("svc_delete", vec![s("aesvc-tx")], &mut env),
         call("sudo_exec", vec![argv(&["/usr/bin/true"])], &mut env),
     ];
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     for result in refused {
         code(result, "E_POLICY_DENY");
     }
@@ -317,10 +317,10 @@ mod linux_disposable {
 
     const UNIT_DIR: &str = "/etc/systemd/system";
     const MARKER: &str =
-        "# Created by AetherShell svc_create; svc_delete removes only units carrying this line";
+        "# Created by IronShell svc_create; svc_delete removes only units carrying this line";
 
     fn unit_path(name: &str) -> PathBuf {
-        PathBuf::from(format!("{UNIT_DIR}/ae-{name}.service"))
+        PathBuf::from(format!("{UNIT_DIR}/ironshell-{name}.service"))
     }
 
     fn systemctl(args: &[&str]) -> String {
@@ -341,7 +341,7 @@ mod linux_disposable {
     impl Drop for Cleanup {
         fn drop(&mut self) {
             for unit in &self.units {
-                let name = format!("ae-{unit}.service");
+                let name = format!("ironshell-{unit}.service");
                 let _ = Command::new("/usr/bin/systemctl")
                     .args(["stop", &name])
                     .output();
@@ -399,14 +399,14 @@ mod linux_disposable {
             )
             .unwrap(),
         );
-        assert_eq!(text(&created, "name"), "ae-aesvc-run.service");
+        assert_eq!(text(&created, "name"), "ironshell-aesvc-run.service");
         assert_eq!(
             text(&created, "unit_path"),
-            "/etc/systemd/system/ae-aesvc-run.service"
+            "/etc/systemd/system/ironshell-aesvc-run.service"
         );
         assert!(flag(&created, "started"));
         assert!(!flag(&created, "enabled"));
-        assert_eq!(systemctl(&["is-active", "ae-aesvc-run.service"]), "active");
+        assert_eq!(systemctl(&["is-active", "ironshell-aesvc-run.service"]), "active");
 
         let body = std::fs::read_to_string(unit_path("aesvc-run")).unwrap();
         assert_eq!(body.lines().next(), Some(MARKER));
@@ -419,7 +419,7 @@ mod linux_disposable {
         assert!(flag(&deleted, "stopped"));
         assert!(!flag(&deleted, "disabled"));
         assert!(flag(&deleted, "removed"));
-        assert_ne!(systemctl(&["is-active", "ae-aesvc-run.service"]), "active");
+        assert_ne!(systemctl(&["is-active", "ironshell-aesvc-run.service"]), "active");
         assert!(!Path::new(&unit_path("aesvc-run")).exists());
     }
 

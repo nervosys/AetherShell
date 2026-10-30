@@ -1,4 +1,4 @@
-# AetherShell Competitive Analysis - Executive Summary
+# IronShell Competitive Analysis - Executive Summary
 
 **Date**: October 15, 2025
 
@@ -6,14 +6,14 @@
 
 ## Key Findings
 
-### 🥇 Unique to AetherShell (No Competition)
+### 🥇 Unique to IronShell (No Competition)
 1. **Multi-agent orchestration** - Coordinate multiple AI models
 2. **A2A Protocol** - Agent-to-agent communication
 3. **NANDA Protocol** - Negotiation and consensus framework
 4. **Multi-modal AI** - Native image, audio, video processing
 5. **MCP Protocol** - Model Context Protocol implementation
 
-### 🥈 AetherShell Advantages (Better than Competitors)
+### 🥈 IronShell Advantages (Better than Competitors)
 1. **Type system** - Hindley-Milner inference (vs Nushell's simpler types)
 2. **AI integration** - Built-in, multi-provider (vs Warp's single AI)
 3. **Open source + AI** - No competitor combines both at this level
@@ -33,7 +33,7 @@
 
 ### Overall Feature Comparison
 
-| Category             | AetherShell | Best Competitor         | Gap      |
+| Category             | IronShell | Best Competitor         | Gap      |
 | -------------------- | ----------- | ----------------------- | -------- |
 | **AI Capabilities**  | 🥇🥇🥇🥇🥇 (5/5) | Warp: 🥇🥇 (2/5)          | **+3** ✅ |
 | **Multi-Agent**      | 🥇🥇🥇🥇🥇 (5/5) | None: ⚪ (0/5)           | **+5** ✅ |
@@ -44,7 +44,7 @@
 | **Documentation**    | 🥇🥇🥇🥇 (4/5)  | Nushell: 🥇🥇🥇🥇🥇 (5/5)    | **-1** ⚠️ |
 | **Innovation**       | 🥇🥇🥇🥇🥇 (5/5) | Warp: 🥇🥇🥇 (3/5)         | **+2** ✅ |
 
-**Overall Assessment**: AetherShell leads in innovation and AI, needs growth in ecosystem and adoption.
+**Overall Assessment**: IronShell leads in innovation and AI, needs growth in ecosystem and adoption.
 
 ---
 
@@ -55,7 +55,7 @@
                            ▲
                            │
                            │
-                           │    🎯 AetherShell
+                           │    🎯 IronShell
                            │    (Pioneer)
                            │
                            │
@@ -84,52 +84,52 @@
 
 ### vs. Nushell (Closest Competitor - Modern Shell)
 
-| Criterion        | Nushell       | AetherShell    | Winner        |
+| Criterion        | Nushell       | IronShell    | Winner        |
 | ---------------- | ------------- | -------------- | ------------- |
 | Structured data  | ✅ Excellent   | ✅ Excellent    | 🤝 Tie         |
-| AI integration   | ❌ None        | ✅ Multi-agent  | ⭐ AetherShell |
+| AI integration   | ❌ None        | ✅ Multi-agent  | ⭐ IronShell |
 | Plugin ecosystem | ✅ 50+ plugins | ⚠️ Growing      | ⭐ Nushell     |
 | Community        | ✅ 30k stars   | ⚠️ New          | ⭐ Nushell     |
-| Multi-modal      | ❌ None        | ✅ Full         | ⭐ AetherShell |
-| Type system      | ✅ Good        | ✅ HM inference | ⭐ AetherShell |
+| Multi-modal      | ❌ None        | ✅ Full         | ⭐ IronShell |
+| Type system      | ✅ Good        | ✅ HM inference | ⭐ IronShell |
 
-**Verdict**: Nushell for stability, AetherShell for AI innovation.
+**Verdict**: Nushell for stability, IronShell for AI innovation.
 
 ---
 
 ### vs. Warp (Closest Competitor - AI Terminal)
 
-| Criterion       | Warp           | AetherShell   | Winner        |
+| Criterion       | Warp           | IronShell   | Winner        |
 | --------------- | -------------- | ------------- | ------------- |
 | UI/UX           | ✅ GPU-rendered | ⚠️ Terminal    | ⭐ Warp        |
-| AI agents       | ❌ Single AI    | ✅ Multi-agent | ⭐ AetherShell |
-| Open source     | ❌ Proprietary  | ✅ MIT         | ⭐ AetherShell |
-| Structured data | ❌ Text         | ✅ Typed       | ⭐ AetherShell |
-| Cross-platform  | ⚠️ Mac/Linux    | ✅ All         | ⭐ AetherShell |
-| Offline mode    | ⚠️ Limited      | ✅ Ollama      | ⭐ AetherShell |
+| AI agents       | ❌ Single AI    | ✅ Multi-agent | ⭐ IronShell |
+| Open source     | ❌ Proprietary  | ✅ MIT         | ⭐ IronShell |
+| Structured data | ❌ Text         | ✅ Typed       | ⭐ IronShell |
+| Cross-platform  | ⚠️ Mac/Linux    | ✅ All         | ⭐ IronShell |
+| Offline mode    | ⚠️ Limited      | ✅ Ollama      | ⭐ IronShell |
 
-**Verdict**: Warp for polish, AetherShell for capabilities.
+**Verdict**: Warp for polish, IronShell for capabilities.
 
 ---
 
 ### vs. PowerShell (Enterprise Leader)
 
-| Criterion          | PowerShell      | AetherShell   | Winner        |
+| Criterion          | PowerShell      | IronShell   | Winner        |
 | ------------------ | --------------- | ------------- | ------------- |
 | Enterprise tools   | ✅ Massive       | ⚠️ Growing     | ⭐ PowerShell  |
 | Object pipelines   | ✅ .NET          | ✅ Typed       | 🤝 Tie         |
-| AI integration     | ❌ None          | ✅ Multi-agent | ⭐ AetherShell |
+| AI integration     | ❌ None          | ✅ Multi-agent | ⭐ IronShell |
 | Windows automation | ✅ Best          | ⚠️ Basic       | ⭐ PowerShell  |
-| Syntax             | ⚠️ Verbose       | ✅ Concise     | ⭐ AetherShell |
-| Performance        | ⚠️ .NET overhead | ✅ Rust        | ⭐ AetherShell |
+| Syntax             | ⚠️ Verbose       | ✅ Concise     | ⭐ IronShell |
+| Performance        | ⚠️ .NET overhead | ✅ Rust        | ⭐ IronShell |
 
-**Verdict**: PowerShell for enterprise Windows, AetherShell for modern workflows.
+**Verdict**: PowerShell for enterprise Windows, IronShell for modern workflows.
 
 ---
 
 ## Target Users & Recommendations
 
-### 👥 Who Should Use AetherShell?
+### 👥 Who Should Use IronShell?
 
 ✅ **Perfect For:**
 - **AI researchers** experimenting with multi-agent systems
@@ -215,7 +215,7 @@
 
 ## Bottom Line
 
-### AetherShell's Competitive Moat
+### IronShell's Competitive Moat
 
 **5-10 year lead on:**
 - Multi-agent orchestration
@@ -239,7 +239,7 @@
 
 > **"The First Multi-Agent Shell"**
 >
-> AetherShell isn't just a shell with AI bolted on—it's built from the ground up for coordinating multiple AI agents, processing multi-modal data, and orchestrating complex intelligent workflows.
+> IronShell isn't just a shell with AI bolted on—it's built from the ground up for coordinating multiple AI agents, processing multi-modal data, and orchestrating complex intelligent workflows.
 
 ### Success Probability
 
@@ -254,9 +254,9 @@
 
 ## Conclusion
 
-AetherShell has **unique and valuable features** that no competitor offers. The challenge is **building awareness and community** before well-funded competitors catch up.
+IronShell has **unique and valuable features** that no competitor offers. The challenge is **building awareness and community** before well-funded competitors catch up.
 
-**Strategic imperative**: Establish AetherShell as the **de facto standard for multi-agent shell workflows** within 12-18 months.
+**Strategic imperative**: Establish IronShell as the **de facto standard for multi-agent shell workflows** within 12-18 months.
 
 ---
 

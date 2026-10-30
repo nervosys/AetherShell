@@ -1,4 +1,4 @@
-# AetherShell Browser Extension Build Script
+# IronShell Browser Extension Build Script
 # Builds WASM module and prepares extension for loading
 
 param(
@@ -12,7 +12,7 @@ $RootDir = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $WasmDir = "$ScriptDir\wasm"
 $WebPkgDir = "$RootDir\web\pkg"
 
-Write-Host "🔨 AetherShell Browser Extension Builder" -ForegroundColor Cyan
+Write-Host "🔨 IronShell Browser Extension Builder" -ForegroundColor Cyan
 Write-Host ""
 
 # Clean if requested
@@ -74,9 +74,9 @@ if (!(Test-Path $WasmDir)) {
 
 # Copy WASM files
 $FilesToCopy = @(
-    "aether_wasm.js",
-    "aether_wasm_bg.wasm",
-    "aether_wasm.d.ts"
+    "ironshell_wasm.js",
+    "ironshell_wasm_bg.wasm",
+    "ironshell_wasm.d.ts"
 )
 
 foreach ($File in $FilesToCopy) {

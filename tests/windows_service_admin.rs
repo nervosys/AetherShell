@@ -8,8 +8,8 @@
 
 #![cfg(windows)]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::process::Command;
 use std::sync::Mutex;
@@ -37,7 +37,7 @@ fn record(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>, env: &mut Env) -> anyhow::Result<Value> {
-    aethershell::builtins::call(name, args, env)
+    iron_shell::builtins::call(name, args, env)
 }
 
 fn code(result: anyhow::Result<Value>, expected: &str) {
@@ -121,7 +121,7 @@ fn malformed_service_calls_are_refused_before_the_manager() {
         vec![s("svc-ok"), argv(&["cmd.exe"])],
         vec![s("svc-ok"), argv(&["/usr/bin/true"])],
         vec![s("svc-ok"), argv(&[CMD, "/c", "echo"])],
-        vec![s("svc-ok"), argv(&[r"C:\aethershell\no-such-program.exe"])],
+        vec![s("svc-ok"), argv(&[r"C:\ironshell\no-such-program.exe"])],
         vec![
             s("svc-ok"),
             argv(&[CMD]),
@@ -161,12 +161,12 @@ fn malformed_service_calls_are_refused_before_the_manager() {
 fn service_changes_are_refused_inside_a_transaction() {
     let _lock = LOCK.lock().unwrap();
     let mut env = Env::default();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     let refused = [
         call("svc_create", vec![s("svc-tx"), argv(&[CMD])], &mut env),
         call("svc_delete", vec![s("svc-tx")], &mut env),
     ];
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     for result in refused {
         code(result, "E_POLICY_DENY");
     }
@@ -179,7 +179,7 @@ fn create_query_enable_disable_and_delete_round_trip() {
         return;
     }
     let name = format!("ci-test-{}", std::process::id());
-    let service = format!("ae-{name}");
+    let service = format!("ironshell-{name}");
     let _cleanup = Cleanup(vec![service.clone()]);
     let mut env = Env::default();
 
@@ -210,7 +210,7 @@ fn enable_on_create_is_auto_start_and_delete_reports_it_was_enabled() {
         return;
     }
     let name = format!("ci-auto-{}", std::process::id());
-    let service = format!("ae-{name}");
+    let service = format!("ironshell-{name}");
     let _cleanup = Cleanup(vec![service.clone()]);
     let mut env = Env::default();
 
@@ -241,7 +241,7 @@ fn start_that_fails_is_a_coded_error_and_leaves_no_service() {
         return;
     }
     let name = format!("ci-start-{}", std::process::id());
-    let service = format!("ae-{name}");
+    let service = format!("ironshell-{name}");
     let _cleanup = Cleanup(vec![service.clone()]);
     let mut env = Env::default();
 
@@ -268,7 +268,7 @@ fn duplicate_create_is_bad_state_and_the_first_service_survives() {
         return;
     }
     let name = format!("ci-dup-{}", std::process::id());
-    let service = format!("ae-{name}");
+    let service = format!("ironshell-{name}");
     let _cleanup = Cleanup(vec![service.clone()]);
     let mut env = Env::default();
 
@@ -299,7 +299,7 @@ fn delete_refuses_a_service_without_the_marker_and_leaves_it_alone() {
         return;
     }
     let name = format!("hand-{}", std::process::id());
-    let service = format!("ae-{name}");
+    let service = format!("ironshell-{name}");
     let _cleanup = Cleanup(vec![service.clone()]);
     let mut env = Env::default();
 

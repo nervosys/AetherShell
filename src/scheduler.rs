@@ -174,7 +174,7 @@ fn add_backend(
     }
     if text
         .lines()
-        .any(|line| line == entry || line.strip_prefix("# aethershell-disabled: ") == Some(&entry))
+        .any(|line| line == entry || line.strip_prefix("# ironshell-disabled: ") == Some(&entry))
     {
         return Err(safety::bad_state(
             "cron_add",
@@ -277,7 +277,7 @@ fn valid_unix_id(id: &str) -> bool {
 }
 
 fn valid_windows_id(id: &str) -> bool {
-    id.strip_prefix("AetherShell-at-").is_some_and(|suffix| {
+    id.strip_prefix("IronShell-at-").is_some_and(|suffix| {
         uuid::Uuid::parse_str(suffix).is_ok_and(|value| value.to_string() == suffix)
     })
 }
@@ -362,7 +362,7 @@ fn register_windows(
     run: &mut impl FnMut(&str, &[&str], Option<&[u8]>) -> Result<Output>,
 ) -> Result<Value> {
     windows_command_text(command)?;
-    let id = format!("AetherShell-{kind}-{}", uuid::Uuid::new_v4());
+    let id = format!("IronShell-{kind}-{}", uuid::Uuid::new_v4());
     let cwd = std::env::current_dir().map_err(|_| {
         safety::bad_state(
             name,
@@ -405,7 +405,7 @@ fn register_windows(
 #[cfg(windows)]
 pub(super) fn list_windows_at() -> Result<Value> {
     const SCRIPT: &str = r#"$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);
-try { ConvertTo-Json -InputObject @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.TaskName -like 'AetherShell-at-*' -and $_.TaskPath -eq '\' } | ForEach-Object { [pscustomobject]@{job_id=$_.TaskName; queue='windows'; user=$_.Principal.UserId; schedule=($_.Triggers | Select-Object -First 1).StartBoundary; state=$_.State.ToString()} }) -Depth 3 -Compress } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }"#;
+try { ConvertTo-Json -InputObject @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.TaskName -like 'IronShell-at-*' -and $_.TaskPath -eq '\' } | ForEach-Object { [pscustomobject]@{job_id=$_.TaskName; queue='windows'; user=$_.Principal.UserId; schedule=($_.Triggers | Select-Object -First 1).StartBoundary; state=$_.State.ToString()} }) -Depth 3 -Compress } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }"#;
     parse_windows_at(run_tool(
         "at_list",
         "powershell",
@@ -427,7 +427,7 @@ fn parse_windows_at(output: Output) -> Result<Value> {
         safety::bad_state(
             "at_list",
             "unexpected one-time task JSON",
-            "complete AetherShell task records",
+            "complete IronShell task records",
         )
     };
     let json: serde_json::Value =
@@ -573,7 +573,7 @@ mod tests {
                 })
                 .unwrap();
             assert!(
-                matches!(value, Value::Str(id) if id.starts_with(&format!("AetherShell-{kind}-")))
+                matches!(value, Value::Str(id) if id.starts_with(&format!("IronShell-{kind}-")))
             );
         }
         for reply in [b"null".as_slice(), b"\"different task\"", b""] {
@@ -595,12 +595,12 @@ mod tests {
             (false, "12", "atrm", vec!["12"]),
             (
                 true,
-                "AetherShell-at-12345678-1234-4234-8234-123456789012",
+                "IronShell-at-12345678-1234-4234-8234-123456789012",
                 "schtasks",
                 vec![
                     "/Delete",
                     "/TN",
-                    "AetherShell-at-12345678-1234-4234-8234-123456789012",
+                    "IronShell-at-12345678-1234-4234-8234-123456789012",
                     "/F",
                 ],
             ),
@@ -628,7 +628,7 @@ mod tests {
                 "0",
                 "12\n13",
                 "18446744073709551616",
-                "AetherShell-at-*",
+                "IronShell-at-*",
             ] {
                 assert!(
                     remove_backend(id, windows, |_, _, _| panic!("invalid ID reached tool"))
@@ -645,7 +645,7 @@ mod tests {
             parse_windows_at(cron_success_output(b"[]".to_vec())).unwrap(),
             Value::Array(vec![])
         );
-        let row = serde_json::json!([{"job_id":"AetherShell-at-12345678-1234-4234-8234-123456789012","queue":"windows","user":"owned-user","schedule":"2099-01-02T03:04:00","state":"Ready"}]);
+        let row = serde_json::json!([{"job_id":"IronShell-at-12345678-1234-4234-8234-123456789012","queue":"windows","user":"owned-user","schedule":"2099-01-02T03:04:00","state":"Ready"}]);
         assert!(
             matches!(parse_windows_at(cron_success_output(serde_json::to_vec(&row).unwrap())).unwrap(), Value::Array(rows) if rows.len() == 1)
         );

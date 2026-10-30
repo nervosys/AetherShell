@@ -5,8 +5,8 @@
 //! destructive ops behind approval and the workspace jail, while human mode is
 //! unchanged.
 
-use aethershell::safety;
-use aethershell::value::Value;
+use iron_shell::safety;
+use iron_shell::value::Value;
 
 // Env is process-global and tests run in parallel threads — serialize them.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -19,19 +19,19 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 
 fn clear() {
     for k in [
-        "AETHER_MODE",
-        "AETHER_AGENT",
-        "AETHER_POLICY",
-        "AETHER_APPROVE",
-        "AETHER_APPROVE_ALL",
-        "AETHER_WORKSPACE",
-        "AETHER_AUDIT_LOG",
-        "AETHER_MAX_OPS",
-        "AETHER_MAX_FILES",
-        "AETHER_MAX_PROCS",
-        "AETHER_TIMEOUT_MS",
-        "AETHER_RBAC_CONFIG",
-        "AETHER_PRINCIPAL",
+        "IRONSHELL_MODE",
+        "IRONSHELL_AGENT",
+        "IRONSHELL_POLICY",
+        "IRONSHELL_APPROVE",
+        "IRONSHELL_APPROVE_ALL",
+        "IRONSHELL_WORKSPACE",
+        "IRONSHELL_AUDIT_LOG",
+        "IRONSHELL_MAX_OPS",
+        "IRONSHELL_MAX_FILES",
+        "IRONSHELL_MAX_PROCS",
+        "IRONSHELL_TIMEOUT_MS",
+        "IRONSHELL_RBAC_CONFIG",
+        "IRONSHELL_PRINCIPAL",
     ] {
         std::env::remove_var(k);
     }
@@ -45,9 +45,9 @@ fn clear() {
 fn fresh_workspace(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("ae_safety_it_{}_{}", tag, std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
-    std::env::set_var("AETHER_WORKSPACE", &dir);
+    std::env::set_var("IRONSHELL_WORKSPACE", &dir);
     std::env::set_var(
-        "AETHER_AUDIT_LOG",
+        "IRONSHELL_AUDIT_LOG",
         dir.join("audit.log").to_string_lossy().to_string(),
     );
     dir
@@ -73,7 +73,7 @@ fn rm_in_human_mode_just_works() {
     std::fs::write(&file, b"bye").unwrap();
 
     let res =
-        aethershell::builtins::bi_rm(vec![Value::Str(file.to_string_lossy().to_string())], None);
+        iron_shell::builtins::bi_rm(vec![Value::Str(file.to_string_lossy().to_string())], None);
     assert!(res.is_ok(), "human-mode rm should succeed: {:?}", res.err());
     assert!(!file.exists(), "file should be gone");
     let _ = std::fs::remove_dir_all(&dir);
@@ -84,22 +84,22 @@ fn rm_in_human_mode_just_works() {
 fn rm_in_agent_mode_requires_then_accepts_approval() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let dir = fresh_workspace("rm_approve");
     let file = dir.join("victim.txt");
     std::fs::write(&file, b"bye").unwrap();
     let arg = Value::Str(file.to_string_lossy().to_string());
 
     // First call: blocked, file untouched, structured needs-approval error.
-    let err = aethershell::builtins::bi_rm(vec![arg.clone()], None).unwrap_err();
+    let err = iron_shell::builtins::bi_rm(vec![arg.clone()], None).unwrap_err();
     let rendered = format!("{}", err);
     assert!(rendered.contains("E_NEEDS_APPROVAL"), "got: {rendered}");
     assert!(file.exists(), "file must NOT be deleted before approval");
 
     // Re-call with the bound token: now it proceeds.
     let token = token_from_error(&err);
-    std::env::set_var("AETHER_APPROVE", &token);
-    let res = aethershell::builtins::bi_rm(vec![arg], None);
+    std::env::set_var("IRONSHELL_APPROVE", &token);
+    let res = iron_shell::builtins::bi_rm(vec![arg], None);
     assert!(res.is_ok(), "approved rm should succeed: {:?}", res.err());
     assert!(!file.exists(), "file should be gone after approval");
 
@@ -111,13 +111,13 @@ fn rm_in_agent_mode_requires_then_accepts_approval() {
 fn governor_file_budget_blocks_second_rm_in_agent_mode() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     // Pre-approve so rm proceeds past the approval gate — we want the governor,
     // not approval, to be the thing that stops the second delete.
-    std::env::set_var("AETHER_APPROVE_ALL", "1");
+    std::env::set_var("IRONSHELL_APPROVE_ALL", "1");
     let dir = fresh_workspace("rm_governor");
     safety::governor_reset();
-    std::env::set_var("AETHER_MAX_FILES", "1");
+    std::env::set_var("IRONSHELL_MAX_FILES", "1");
 
     let f1 = dir.join("a.txt");
     let f2 = dir.join("b.txt");
@@ -125,13 +125,13 @@ fn governor_file_budget_blocks_second_rm_in_agent_mode() {
     std::fs::write(&f2, b"b").unwrap();
 
     // First delete is within the file budget.
-    let r1 = aethershell::builtins::bi_rm(vec![Value::Str(f1.to_string_lossy().to_string())], None);
+    let r1 = iron_shell::builtins::bi_rm(vec![Value::Str(f1.to_string_lossy().to_string())], None);
     assert!(r1.is_ok(), "first rm should succeed: {:?}", r1.err());
     assert!(!f1.exists());
 
-    // Second delete exceeds AETHER_MAX_FILES → E_BUDGET_EXCEEDED, file untouched.
+    // Second delete exceeds IRONSHELL_MAX_FILES → E_BUDGET_EXCEEDED, file untouched.
     let err =
-        aethershell::builtins::bi_rm(vec![Value::Str(f2.to_string_lossy().to_string())], None)
+        iron_shell::builtins::bi_rm(vec![Value::Str(f2.to_string_lossy().to_string())], None)
             .unwrap_err();
     let rendered = format!("{}", err);
     assert!(rendered.contains("E_BUDGET_EXCEEDED"), "got: {rendered}");
@@ -148,7 +148,7 @@ fn governor_file_budget_blocks_second_rm_in_agent_mode() {
 fn rbac_config_loaded_at_startup_authorizes_principal() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let dir = fresh_workspace("rbac_cfg");
 
     // A config that grants the `ci` principal the `destructive` effect via a role.
@@ -166,7 +166,7 @@ roles = ["deployer"]
 "#,
     )
     .unwrap();
-    std::env::set_var("AETHER_RBAC_CONFIG", cfg.to_string_lossy().to_string());
+    std::env::set_var("IRONSHELL_RBAC_CONFIG", cfg.to_string_lossy().to_string());
 
     // Boot-time load installs the manager and sets the acting principal.
     safety::init_rbac_from_env();
@@ -176,7 +176,7 @@ roles = ["deployer"]
     let file = dir.join("v.txt");
     std::fs::write(&file, b"x").unwrap();
     let res =
-        aethershell::builtins::bi_rm(vec![Value::Str(file.to_string_lossy().to_string())], None);
+        iron_shell::builtins::bi_rm(vec![Value::Str(file.to_string_lossy().to_string())], None);
     assert!(
         res.is_ok(),
         "RBAC-authorized principal should bypass approval: {:?}",
@@ -192,7 +192,7 @@ roles = ["deployer"]
 fn rm_outside_workspace_is_blocked_in_agent_mode() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let _dir = fresh_workspace("rm_jail");
 
     let outside = if cfg!(windows) {
@@ -201,7 +201,7 @@ fn rm_outside_workspace_is_blocked_in_agent_mode() {
         "/etc/hosts"
     };
     let err =
-        aethershell::builtins::bi_rm(vec![Value::Str(outside.to_string())], None).unwrap_err();
+        iron_shell::builtins::bi_rm(vec![Value::Str(outside.to_string())], None).unwrap_err();
     let rendered = format!("{}", err);
     assert!(rendered.contains("E_OUTSIDE_WORKSPACE"), "got: {rendered}");
 
@@ -213,41 +213,41 @@ fn rm_outside_workspace_is_blocked_in_agent_mode() {
 fn approve_builtin_unblocks_guarded_rm_and_audit_verify_passes() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let dir = fresh_workspace("approve_builtin");
     let file = dir.join("v.txt");
     std::fs::write(&file, b"x").unwrap();
     let arg = Value::Str(file.to_string_lossy().to_string());
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
 
     // Trigger the block via the real guarded builtin, then pull the bound token.
-    let err = aethershell::builtins::bi_rm(vec![arg.clone()], None).unwrap_err();
+    let err = iron_shell::builtins::bi_rm(vec![arg.clone()], None).unwrap_err();
     let token = token_from_error(&err);
 
     // The in-band `approve(token)` path is refused in agent mode (AS-2026-01):
     // the agent holding the token it was just refused with must not be the one
     // to spend it. This asserts the refusal, and that it points somewhere.
     let self_grant =
-        aethershell::builtins::call("approve", vec![Value::Str(token.clone())], &mut env);
+        iron_shell::builtins::call("approve", vec![Value::Str(token.clone())], &mut env);
     let e = self_grant.expect_err("an agent must not approve its own call");
     assert!(
-        format!("{e:#}").contains("AETHER_APPROVE"),
+        format!("{e:#}").contains("IRONSHELL_APPROVE"),
         "the refusal must name the channel that does work: {e:#}"
     );
 
     // Approval arrives out of band instead — set by whoever launched the agent.
     // The property this test exists for is unchanged: an approved token unblocks
     // the guarded call and the audit chain still verifies.
-    std::env::set_var("AETHER_APPROVE", &token);
+    std::env::set_var("IRONSHELL_APPROVE", &token);
     assert!(
-        aethershell::builtins::bi_rm(vec![arg], None).is_ok(),
+        iron_shell::builtins::bi_rm(vec![arg], None).is_ok(),
         "rm should succeed once the token is approved out of band"
     );
-    std::env::remove_var("AETHER_APPROVE");
+    std::env::remove_var("IRONSHELL_APPROVE");
     assert!(!file.exists());
 
     // audit_verify() via the dispatch table (proves index 1105 → bi_audit_verify).
-    let verified = aethershell::builtins::call("audit_verify", vec![], &mut env)
+    let verified = iron_shell::builtins::call("audit_verify", vec![], &mut env)
         .expect("audit_verify builtin runs");
     match verified {
         Value::Record(m) => assert_eq!(m.get("valid"), Some(&Value::Bool(true))),
@@ -262,16 +262,16 @@ fn approve_builtin_unblocks_guarded_rm_and_audit_verify_passes() {
 fn try_catch_binds_structured_safety_error() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let dir = fresh_workspace("trycatch");
 
     // A guarded destructive builtin reached through the evaluator: in agent mode
     // it refuses, and try/catch should bind `e` to a structured Record, not a
     // string — so an agent can branch on `e.error.code`.
     let src = r#"try { db_sqlite_delete("x.db", "t", "1=1") } catch e { e }"#;
-    let stmts = aethershell::parser::parse_program(src).expect("parse");
-    let mut env = aethershell::env::Env::new();
-    let result = aethershell::eval::eval_program(&stmts, &mut env).expect("eval");
+    let stmts = iron_shell::parser::parse_program(src).expect("parse");
+    let mut env = iron_shell::env::Env::new();
+    let result = iron_shell::eval::eval_program(&stmts, &mut env).expect("eval");
 
     match result {
         Value::Record(m) => match m.get("error") {
@@ -297,18 +297,18 @@ fn in_shell_rbac_principal_and_grant_bypass_approval() {
     let file = dir.join("v.txt");
     std::fs::write(&file, b"x").unwrap();
     let arg = Value::Str(file.to_string_lossy().to_string());
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
 
     // Configure RBAC entirely through builtins (dispatch indices 1106-1108) --
     // from a *human* session. `rbac_principal`/`rbac_grant` are `Privileged`,
     // so an agent configuring its own authorization is denied; that is
     // `tests/privilege_escalation.rs`. Here the operator sets it up and the
     // agent inherits it.
-    std::env::set_var("AETHER_MODE", "human");
-    aethershell::builtins::call("rbac_principal", vec![Value::Str("alice".into())], &mut env)
+    std::env::set_var("IRONSHELL_MODE", "human");
+    iron_shell::builtins::call("rbac_principal", vec![Value::Str("alice".into())], &mut env)
         .expect("set principal");
     // Before any grant, alice cannot perform destructive ops.
-    let can_before = aethershell::builtins::call(
+    let can_before = iron_shell::builtins::call(
         "rbac_can",
         vec![Value::Str("effect:destructive".into())],
         &mut env,
@@ -316,7 +316,7 @@ fn in_shell_rbac_principal_and_grant_bypass_approval() {
     .expect("rbac_can");
     assert_eq!(can_before, Value::Bool(false));
 
-    aethershell::builtins::call(
+    iron_shell::builtins::call(
         "rbac_grant",
         vec![
             Value::Str("alice".into()),
@@ -325,7 +325,7 @@ fn in_shell_rbac_principal_and_grant_bypass_approval() {
         &mut env,
     )
     .expect("grant");
-    let can_after = aethershell::builtins::call(
+    let can_after = iron_shell::builtins::call(
         "rbac_can",
         vec![Value::Str("effect:destructive".into())],
         &mut env,
@@ -334,11 +334,11 @@ fn in_shell_rbac_principal_and_grant_bypass_approval() {
     assert_eq!(can_after, Value::Bool(true), "grant should take effect");
 
     // Now act as the agent that operator configured.
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
 
     // The guarded destructive op now proceeds for alice without approval.
     assert!(
-        aethershell::builtins::bi_rm(vec![arg], None).is_ok(),
+        iron_shell::builtins::bi_rm(vec![arg], None).is_ok(),
         "authorized principal bypasses approval"
     );
     assert!(!file.exists());
@@ -351,10 +351,10 @@ fn in_shell_rbac_principal_and_grant_bypass_approval() {
 fn safety_status_reports_the_operating_envelope() {
     let _l = lock();
     clear();
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
 
     // Human mode: everything allowed.
-    let st = aethershell::builtins::call("safety_status", vec![], &mut env).unwrap();
+    let st = iron_shell::builtins::call("safety_status", vec![], &mut env).unwrap();
     match st {
         Value::Record(m) => {
             assert_eq!(m.get("mode"), Some(&Value::Str("human".into())));
@@ -369,8 +369,8 @@ fn safety_status_reports_the_operating_envelope() {
     }
 
     // Agent mode: dangerous classes are gated.
-    std::env::set_var("AETHER_MODE", "agent");
-    let st = aethershell::builtins::call("safety_status", vec![], &mut env).unwrap();
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    let st = iron_shell::builtins::call("safety_status", vec![], &mut env).unwrap();
     match st {
         Value::Record(m) => {
             assert_eq!(m.get("mode"), Some(&Value::Str("agent".into())));
@@ -392,13 +392,13 @@ fn safety_status_reports_the_operating_envelope() {
 fn remote_and_platform_deletes_are_gated_in_agent_mode() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let dir = fresh_workspace("remote_del");
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
 
     // platform_db_delete and k8s_delete are gated before they touch the db /
     // invoke kubectl — the guard short-circuits in agent mode.
-    let pdb = aethershell::builtins::call(
+    let pdb = iron_shell::builtins::call(
         "platform_db_delete",
         vec![Value::Str("some_key".into())],
         &mut env,
@@ -406,7 +406,7 @@ fn remote_and_platform_deletes_are_gated_in_agent_mode() {
     .unwrap_err();
     assert!(format!("{pdb}").contains("E_NEEDS_APPROVAL"), "got: {pdb}");
 
-    let k8s = aethershell::builtins::call(
+    let k8s = iron_shell::builtins::call(
         "k8s_delete",
         vec![Value::Str("pod".into()), Value::Str("nginx".into())],
         &mut env,
@@ -422,15 +422,15 @@ fn remote_and_platform_deletes_are_gated_in_agent_mode() {
 fn audit_tail_returns_recent_decisions() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let dir = fresh_workspace("tail");
 
     // A guarded rm without approval writes a `needs_approval` audit entry.
     let target = dir.join("ae_tail_target.txt").to_string_lossy().to_string();
-    let _ = aethershell::builtins::bi_rm(vec![Value::Str(target)], None);
+    let _ = iron_shell::builtins::bi_rm(vec![Value::Str(target)], None);
 
-    let mut env = aethershell::env::Env::new();
-    let tail = aethershell::builtins::call("audit_tail", vec![Value::Int(10)], &mut env).unwrap();
+    let mut env = iron_shell::env::Env::new();
+    let tail = iron_shell::builtins::call("audit_tail", vec![Value::Int(10)], &mut env).unwrap();
     match tail {
         Value::Array(entries) => {
             assert!(!entries.is_empty(), "audit tail has recent entries");
@@ -450,14 +450,14 @@ fn audit_tail_returns_recent_decisions() {
 fn audit_log_is_written_and_verifies_in_agent_mode() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_APPROVE_ALL", "1");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_APPROVE_ALL", "1");
     let dir = fresh_workspace("audit");
     let log = dir.join("audit.log");
     let file = dir.join("a.txt");
     std::fs::write(&file, b"x").unwrap();
 
-    aethershell::builtins::bi_rm(vec![Value::Str(file.to_string_lossy().to_string())], None)
+    iron_shell::builtins::bi_rm(vec![Value::Str(file.to_string_lossy().to_string())], None)
         .expect("approve-all permits rm");
 
     assert!(log.exists(), "audit log should be written in agent mode");
@@ -477,23 +477,23 @@ fn path_jail_applies_only_in_agent_mode() {
     let outside = std::env::temp_dir();
     let outside = outside.to_str().expect("temp dir is valid UTF-8");
 
-    // Human mode (no AETHER_MODE / AETHER_WORKSPACE): unrestricted, like bash/zsh.
+    // Human mode (no IRONSHELL_MODE / IRONSHELL_WORKSPACE): unrestricted, like bash/zsh.
     assert!(
-        aethershell::security::validate_read_path(outside).is_ok(),
+        iron_shell::security::validate_read_path(outside).is_ok(),
         "human mode must NOT sandbox to the project directory"
     );
 
     // Agent mode with a workspace: the same outside path is blocked by the jail.
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     std::env::set_var(
-        "AETHER_WORKSPACE",
+        "IRONSHELL_WORKSPACE",
         std::env::current_dir()
             .unwrap()
             .to_string_lossy()
             .to_string(),
     );
     assert!(
-        aethershell::security::validate_read_path(outside).is_err(),
+        iron_shell::security::validate_read_path(outside).is_err(),
         "agent mode must jail reads to the workspace"
     );
 
@@ -512,9 +512,9 @@ fn remote_and_container_executors_require_approval_in_agent_mode() {
     let _g = lock();
     clear();
     let _dir = fresh_workspace("exec_gate");
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
 
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
     for (name, args) in [
         (
             "ssh_exec",
@@ -543,7 +543,7 @@ fn remote_and_container_executors_require_approval_in_agent_mode() {
         ),
         ("tool_exec", vec![Value::Str("curl".into())]),
     ] {
-        let err = aethershell::builtins::call(name, args, &mut env)
+        let err = iron_shell::builtins::call(name, args, &mut env)
             .expect_err(&format!("{name} must be gated in agent mode"));
         let rendered = format!("{err}");
         assert!(
@@ -562,9 +562,9 @@ fn infrastructure_destroyers_require_approval_in_agent_mode() {
     let _g = lock();
     clear();
     let _dir = fresh_workspace("destroy_gate");
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
 
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
     for (name, args) in [
         ("terraform_destroy", vec![Value::Str(".".into())]),
         // Changes a running release and runs its chart hooks.
@@ -578,7 +578,7 @@ fn infrastructure_destroyers_require_approval_in_agent_mode() {
             vec![Value::Str("x.db".into()), Value::Str("t".into())],
         ),
     ] {
-        let err = aethershell::builtins::call(name, args, &mut env)
+        let err = iron_shell::builtins::call(name, args, &mut env)
             .expect_err(&format!("{name} must be gated in agent mode"));
         let rendered = format!("{err}");
         assert!(
@@ -595,10 +595,10 @@ fn infrastructure_destroyers_require_approval_in_agent_mode() {
 fn the_new_gates_do_not_fire_in_human_mode() {
     let _g = lock();
     clear();
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
     // Not asserting success — ssh/docker may be absent — only that whatever
     // comes back is not an approval refusal.
-    let res = aethershell::builtins::call(
+    let res = iron_shell::builtins::call(
         "ssh_exec",
         vec![
             Value::Str("user@nonexistent.invalid".into()),

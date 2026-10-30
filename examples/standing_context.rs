@@ -1,4 +1,4 @@
-//! Size AetherShell's **standing context** — the tokens an agent harness pays per
+//! Size IronShell's **standing context** — the tokens an agent harness pays per
 //! turn to know what tools exist — under three disclosure strategies, with the real
 //! cl100k tokenizer:
 //!   • manifest   — `ontology_manifest()`: categories + counts + effects only.
@@ -13,9 +13,9 @@
 //! determinism/reliability/safety/legibility — it changes none of the result
 //! semantics, only how much of the catalog rides along each turn.
 
-use aethershell::agent_api::{builtin_tool_specs, ontology_describe_json, ontology_manifest_json};
-use aethershell::builtins::est_token_count;
-use aethershell::mcp::McpServer;
+use iron_shell::agent_api::{builtin_tool_specs, ontology_describe_json, ontology_manifest_json};
+use iron_shell::builtins::est_token_count;
+use iron_shell::mcp::McpServer;
 
 fn toks(j: &serde_json::Value) -> usize {
     est_token_count(&serde_json::to_string(j).unwrap_or_default())
@@ -37,7 +37,7 @@ fn main() {
     let specs_tok = toks(&serde_json::Value::Array(specs));
     let detail_tok = toks(&serde_json::Value::Array(details));
 
-    println!("AetherShell standing-context size ({total} builtins, real cl100k BPE)\n");
+    println!("IronShell standing-context size ({total} builtins, real cl100k BPE)\n");
     println!(
         "  {:<26}{:>9}{:>12}{:>16}",
         "strategy", "tokens", "vs manifest", "per-10-turn cost"
@@ -58,16 +58,16 @@ fn main() {
     }
 
     // End-to-end: the real MCP `tools/list` payload an agent receives, compact
-    // (default) vs all (`AETHER_MCP_TOOLS=all`). list_builtin_tools reads the env
+    // (default) vs all (`IRONSHELL_MCP_TOOLS=all`). list_builtin_tools reads the env
     // at call time, so set it around each call.
     let server = McpServer::new();
-    std::env::set_var("AETHER_MCP_TOOLS", "all");
+    std::env::set_var("IRONSHELL_MCP_TOOLS", "all");
     let mcp_all = toks(&serde_json::to_value(server.list_builtin_tools()).unwrap_or_default());
-    std::env::remove_var("AETHER_MCP_TOOLS");
+    std::env::remove_var("IRONSHELL_MCP_TOOLS");
     let mcp_compact = toks(&serde_json::to_value(server.list_builtin_tools()).unwrap_or_default());
     println!(
         "\nMCP tools/list payload (what the agent actually receives per session):\n  \
-         compact (default) {mcp_compact} tok   vs   all (AETHER_MCP_TOOLS=all) {mcp_all} tok   \
+         compact (default) {mcp_compact} tok   vs   all (IRONSHELL_MCP_TOOLS=all) {mcp_all} tok   \
          ({:.0}x)",
         mcp_all as f64 / mcp_compact.max(1) as f64,
     );

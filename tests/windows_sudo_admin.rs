@@ -9,8 +9,8 @@
 
 #![cfg(windows)]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::process::Command;
 use std::sync::Mutex;
@@ -54,7 +54,7 @@ fn text(map: &BTreeMap<String, Value>, key: &str) -> String {
 
 /// Fails unless this process is elevated: every test below needs it.
 fn require_elevated(env: &mut Env) {
-    let elevated = aethershell::builtins::call("sudo_check", vec![], env).unwrap();
+    let elevated = iron_shell::builtins::call("sudo_check", vec![], env).unwrap();
     assert_eq!(elevated, Value::Bool(true), "the runner must be elevated");
 }
 
@@ -81,7 +81,7 @@ fn elevated_command_runs_in_a_high_integrity_token() {
     require_elevated(&mut env);
 
     let run = fields(
-        aethershell::builtins::call(
+        iron_shell::builtins::call(
             "sudo_exec",
             vec![argv(&[r"C:\Windows\System32\whoami.exe", "/groups"])],
             &mut env,
@@ -108,7 +108,7 @@ fn nonzero_exit_is_reported_in_exit_code() {
     require_elevated(&mut env);
 
     let run = fields(
-        aethershell::builtins::call(
+        iron_shell::builtins::call(
             "sudo_exec",
             vec![argv(&[r"C:\Windows\System32\cmd.exe", "/c", "exit 3"])],
             &mut env,
@@ -130,7 +130,7 @@ fn missing_file_argument_is_a_nonzero_exit_with_stderr() {
     require_elevated(&mut env);
 
     let run = fields(
-        aethershell::builtins::call(
+        iron_shell::builtins::call(
             "sudo_exec",
             vec![argv(&[
                 r"C:\Windows\System32\where.exe",
@@ -164,7 +164,7 @@ fn timeout_kills_the_command_and_its_tree() {
     let before = ping_count();
     let started = std::time::Instant::now();
     let run = fields(
-        aethershell::builtins::call(
+        iron_shell::builtins::call(
             "sudo_exec",
             vec![
                 argv(&[r"C:\Windows\System32\ping.exe", "-n", "30", "127.0.0.1"]),

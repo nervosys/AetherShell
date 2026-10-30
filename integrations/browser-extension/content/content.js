@@ -1,5 +1,5 @@
 /**
- * AetherShell Browser Extension - Content Script
+ * IronShell Browser Extension - Content Script
  * 
  * Provides the terminal overlay and page integration functionality.
  */
@@ -82,11 +82,11 @@ function showTerminal() {
 
     // Create terminal overlay
     terminalOverlay = document.createElement('div');
-    terminalOverlay.id = 'aethershell-terminal-overlay';
+    terminalOverlay.id = 'ironshell-terminal-overlay';
     terminalOverlay.innerHTML = `
         <div class="ae-terminal-container">
             <div class="ae-terminal-header">
-                <span class="ae-terminal-title">⚡ AetherShell Terminal</span>
+                <span class="ae-terminal-title">⚡ IronShell Terminal</span>
                 <div class="ae-terminal-controls">
                     <button class="ae-terminal-minimize" title="Minimize">−</button>
                     <button class="ae-terminal-close" title="Close">×</button>
@@ -95,10 +95,10 @@ function showTerminal() {
             <div class="ae-terminal-output" id="ae-output"></div>
             <div class="ae-terminal-input-line">
                 <span class="ae-terminal-prompt">ae></span>
-                <input type="text" class="ae-terminal-input" placeholder="Enter AetherShell command..." autocomplete="off" />
+                <input type="text" class="ae-terminal-input" placeholder="Enter IronShell command..." autocomplete="off" />
             </div>
             <div class="ae-terminal-status">
-                <span class="ae-terminal-version">AetherShell v0.2.0</span>
+                <span class="ae-terminal-version">IronShell v0.2.0</span>
                 <span class="ae-terminal-mode">WASM Mode</span>
             </div>
         </div>
@@ -260,7 +260,7 @@ function showResultOverlay(result, isError = false) {
     overlay.innerHTML = `
         <div class="ae-result-container">
             <div class="${headerClass}">
-                <span>${isError ? '❌ Error' : '✓ AetherShell Result'}</span>
+                <span>${isError ? '❌ Error' : '✓ IronShell Result'}</span>
                 <button class="ae-result-close">×</button>
             </div>
             <div class="${contentClass}">
@@ -337,7 +337,7 @@ function showAIResponseOverlay(response, action) {
 // Get terminal CSS styles
 function getTerminalStyles() {
     return `
-        #aethershell-terminal-overlay {
+        #ironshell-terminal-overlay {
             position: fixed;
             top: 0;
             left: 0;
@@ -487,9 +487,9 @@ function getTerminalStyles() {
             color: #00d9ff;
         }
         
-        #aethershell-terminal-overlay.ae-minimized .ae-terminal-output,
-        #aethershell-terminal-overlay.ae-minimized .ae-terminal-input-line,
-        #aethershell-terminal-overlay.ae-minimized .ae-terminal-status {
+        #ironshell-terminal-overlay.ae-minimized .ae-terminal-output,
+        #ironshell-terminal-overlay.ae-minimized .ae-terminal-input-line,
+        #ironshell-terminal-overlay.ae-minimized .ae-terminal-status {
             display: none;
         }
         

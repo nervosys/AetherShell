@@ -7,10 +7,10 @@
 //! * In-process calls are refusals only. Each one fails validation before a
 //!   process is spawned, and each is written so that a body which accepted it
 //!   would still act only on names the test controls.
-//! * Missing tools are checked with a child `ae` whose PATH names an empty
+//! * Missing tools are checked with a child `ish` whose PATH names an empty
 //!   directory, so the answer is E_TOOL_MISSING on every host, whether or not
 //!   the tool is installed.
-//! * Real runs happen only in a fresh temporary workspace, through a child `ae`
+//! * Real runs happen only in a fresh temporary workspace, through a child `ish`
 //!   with every cache and config directory pointed inside that workspace. Go
 //!   builds a module with no dependencies and GOPROXY=off; ruff and black act
 //!   on one temporary file; deno runs a script that imports nothing. Each real
@@ -21,12 +21,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use aethershell::builtins::{call, call_with_input, is_dispatched};
-use aethershell::env::Env;
-use aethershell::signature::signature_of;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input, is_dispatched};
+use iron_shell::env::Env;
+use iron_shell::signature::signature_of;
+use iron_shell::value::Value;
 
-/// Deadline for a child `ae` that only refuses or reports a missing tool.
+/// Deadline for a child `ish` that only refuses or reports a missing tool.
 const DEADLINE: Duration = Duration::from_secs(30);
 /// Deadline for a child that really runs a compiler, which can be slow on a
 /// cold cache.
@@ -122,16 +122,16 @@ fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::Joi
     })
 }
 
-/// Run `ae -c <expr>` in the fixture's workspace. `path_var` is the PATH the
+/// Run `ish -c <expr>` in the fixture's workspace. `path_var` is the PATH the
 /// child sees; `extra` adds environment variables. Caches and tool homes are
 /// all inside the fixture.
 fn ae(fx: &Fixture, path_var: &str, extra: &[(&str, String)], expr: &str, limit: Duration) -> Run {
     let caches = &fx.caches;
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ae"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ish"));
     cmd.current_dir(&fx.workspace)
         .args(["-c", expr])
-        .env("AETHER_SESSION_DIR", &fx.session)
-        .env("AETHER_WORKSPACE", &fx.workspace)
+        .env("IRONSHELL_SESSION_DIR", &fx.session)
+        .env("IRONSHELL_WORKSPACE", &fx.workspace)
         .env("PATH", path_var)
         .env("CHECKPOINT_DISABLE", "1")
         .env("RUFF_CACHE_DIR", caches.join("ruff"))
@@ -149,9 +149,9 @@ fn ae(fx: &Fixture, path_var: &str, extra: &[(&str, String)], expr: &str, limit:
         .env("GOPATH", caches.join("gopath"))
         .env("GOMODCACHE", caches.join("gopath").join("pkg").join("mod"))
         .env("GOENV", caches.join("goenv"))
-        .env_remove("AETHER_MODE")
-        .env_remove("AETHER_AGENT")
-        .env_remove("AETHER_POLICY")
+        .env_remove("IRONSHELL_MODE")
+        .env_remove("IRONSHELL_AGENT")
+        .env_remove("IRONSHELL_POLICY")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -193,7 +193,7 @@ fn installed(program: &str, args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
-/// A path written into an `ae` string literal: forward slashes, no quotes.
+/// A path written into an `ish` string literal: forward slashes, no quotes.
 fn literal(path: &Path) -> String {
     path.display().to_string().replace('\\', "/")
 }

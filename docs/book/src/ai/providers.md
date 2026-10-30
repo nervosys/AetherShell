@@ -1,10 +1,10 @@
 # AI Providers
 
-AetherShell has built-in AI capabilities with a provider-agnostic architecture. Connect to cloud APIs, local models, or self-hosted inference servers — all using the same simple syntax.
+IronShell has built-in AI capabilities with a provider-agnostic architecture. Connect to cloud APIs, local models, or self-hosted inference servers — all using the same simple syntax.
 
 ## Quick Start
 
-```aethershell
+```ironshell
 # Set your API key
 set_env "OPENAI_API_KEY" "sk-..."
 
@@ -17,7 +17,7 @@ ai "Explain monads" { model: "openai:gpt-4o" }
 
 ## Model URI Scheme
 
-AetherShell uses a URI scheme to reference models across providers:
+IronShell uses a URI scheme to reference models across providers:
 
 | URI | Provider | Example |
 |-----|----------|---------|
@@ -28,7 +28,7 @@ AetherShell uses a URI scheme to reference models across providers:
 | `vllm:model-name` | vLLM | `vllm:meta-llama/Llama-3-8B` |
 | `llamacpp:model-name` | llama.cpp | `llamacpp:mistral-7b` |
 
-```aethershell
+```ironshell
 # Use different providers
 ai "Hello" { model: "openai:gpt-4o" }
 ai "Hello" { model: "ollama:llama3" }
@@ -40,9 +40,9 @@ ai "Hello" { model: "compat:mixtral" }
 ### OpenAI
 The default cloud provider. Requires an API key.
 
-```aethershell
+```ironshell
 set_env "OPENAI_API_KEY" "sk-..."
-set_env "AETHER_AI" "openai"
+set_env "IRONSHELL_AI" "openai"
 
 ai "Explain closures in Rust"
 ```
@@ -54,8 +54,8 @@ ai "Explain closures in Rust"
 ### Ollama (Local)
 Run models locally with [Ollama](https://ollama.ai). No API key needed.
 
-```aethershell
-set_env "AETHER_AI" "ollama"
+```ironshell
+set_env "IRONSHELL_AI" "ollama"
 
 ai "Summarize this code" { model: "ollama:codellama" }
 ```
@@ -67,29 +67,29 @@ ai "Summarize this code" { model: "ollama:codellama" }
 ### OpenAI-Compatible
 Any server implementing the OpenAI API format (LiteLLM, LocalAI, etc.).
 
-```aethershell
-set_env "AETHER_AI" "compat"
-set_env "AETHER_COMPAT_BASE" "http://localhost:8000/v1"
+```ironshell
+set_env "IRONSHELL_AI" "compat"
+set_env "IRONSHELL_COMPAT_BASE" "http://localhost:8000/v1"
 
 ai "Hello" { model: "compat:mixtral" }
 ```
 
 **Environment variables:**
-- `AETHER_COMPAT_BASE` — API base URL (default: `http://localhost:8000/v1`)
-- `AETHER_COMPAT_MODEL` — Default model (default: `mixtral`)
+- `IRONSHELL_COMPAT_BASE` — API base URL (default: `http://localhost:8000/v1`)
+- `IRONSHELL_COMPAT_MODEL` — Default model (default: `mixtral`)
 
 ### HuggingFace TGI
 Connect to a Text Generation Inference server.
 
-```aethershell
-set_env "AETHER_AI" "tgi"
+```ironshell
+set_env "IRONSHELL_AI" "tgi"
 set_env "TGI_URL" "http://localhost:8080"
 ```
 
 ### vLLM
 Connect to a vLLM inference server.
 
-```aethershell
+```ironshell
 set_env "VLLM_URL" "http://localhost:8000/v1"
 set_env "VLLM_MODEL" "meta-llama/Llama-3-8B"
 ```
@@ -97,50 +97,50 @@ set_env "VLLM_MODEL" "meta-llama/Llama-3-8B"
 ### llama.cpp
 Connect to a llama.cpp server.
 
-```aethershell
+```ironshell
 set_env "LLAMACPP_URL" "http://localhost:8080/v1"
 ```
 
 ## Provider Selection
 
-The `AETHER_AI` environment variable selects the default provider:
+The `IRONSHELL_AI` environment variable selects the default provider:
 
-```aethershell
-set_env "AETHER_AI" "openai"    # Use OpenAI
-set_env "AETHER_AI" "ollama"    # Use Ollama
-set_env "AETHER_AI" "compat"    # Use OpenAI-compatible server
-set_env "AETHER_AI" "tgi"       # Use TGI
+```ironshell
+set_env "IRONSHELL_AI" "openai"    # Use OpenAI
+set_env "IRONSHELL_AI" "ollama"    # Use Ollama
+set_env "IRONSHELL_AI" "compat"    # Use OpenAI-compatible server
+set_env "IRONSHELL_AI" "tgi"       # Use TGI
 ```
 
 Override per-call with the `model` option:
 
-```aethershell
+```ironshell
 # Default is OpenAI, but use Ollama for this one call
 ai "Quick question" { model: "ollama:llama3" }
 ```
 
 ## Multimodal AI
 
-AetherShell supports sending images, audio, and video to models that accept them.
+IronShell supports sending images, audio, and video to models that accept them.
 
 ### Images
-```aethershell
+```ironshell
 ai "Describe this image" { images: ["photo.jpg"] }
 ai "Compare these" { images: ["before.png", "after.png"] }
 ```
 
 ### Audio
-```aethershell
+```ironshell
 ai "Transcribe this recording" { audio: ["meeting.mp3"] }
 ```
 
 ### Video
-```aethershell
+```ironshell
 ai "What happens in this clip?" { video: ["demo.mp4"] }
 ```
 
 ### Combined
-```aethershell
+```ironshell
 ai "Analyze this screenshot and narration" {
   images: ["screen.png"],
   audio: ["narration.mp3"]
@@ -153,7 +153,7 @@ ai "Analyze this screenshot and narration" {
 
 Discover which AI backends are available on your system:
 
-```aethershell
+```ironshell
 ai_backends
 # [
 #   { provider: "openai", available: true, model: "gpt-4o-mini" },
@@ -169,7 +169,7 @@ Four helpers answer from the shell's own catalogue. **No model is consulted**
 (use `ai(...)` for that), so they work offline and give the same answer every
 time.
 
-```aethershell
+```ironshell
 # Declared builtins whose name or description matches every word
 suggest("sha256 digest")
 # [{name: "sha256", signature: "sha256(...) -> String", doc: "SHA-256 hex digest of a string."}]
@@ -189,7 +189,7 @@ try { crypto_hash("x", "blake3") } catch e { fix(e) }
 
 AI calls compose naturally with pipelines:
 
-```aethershell
+```ironshell
 # Summarize a file
 cat "README.md" | ai "Summarize this document"
 
@@ -210,7 +210,7 @@ ls "src"
 
 Set a global model URI that overrides all defaults:
 
-```aethershell
-set_env "AETHER_MODEL_URI" "ollama:codellama"
+```ironshell
+set_env "IRONSHELL_MODEL_URI" "ollama:codellama"
 # All ai/agent calls now use this model unless explicitly overridden
 ```

@@ -61,7 +61,7 @@ for (const [engine, spec] of Object.entries(ENGINES)) {
         }
         times.sort((a, b) => a - b);
 
-        // Sanitised: the `aethershell (agent)` engine name has a space and
+        // Sanitised: the `ironshell (agent)` engine name has a space and
         // parentheses in it, and these basenames are passed on a command line.
         const base = `${engine.replace(/[^a-z0-9]/gi, '_')}.${t}`;
         fs.writeFileSync(path.join(tokDir, `${base}.cmd`), cmd);

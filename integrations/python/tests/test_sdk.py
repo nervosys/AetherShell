@@ -1,12 +1,12 @@
-"""Tests for AetherShell Python SDK"""
+"""Tests for IronShell Python SDK"""
 
 import pytest
 import json
 from unittest.mock import patch, MagicMock
 import subprocess
 
-from aethershell import (
-    AetherRuntime,
+from ironshell import (
+    IronShellRuntime,
     Agent,
     AgentConfig,
     AgentResult,
@@ -21,11 +21,11 @@ from aethershell import (
 )
 
 
-class TestAetherRuntime:
-    """Tests for AetherRuntime class"""
+class TestIronShellRuntime:
+    """Tests for IronShellRuntime class"""
     
-    @patch('aethershell.subprocess.run')
-    @patch('aethershell.os.path.isfile', return_value=True)
+    @patch('ironshell.subprocess.run')
+    @patch('ironshell.os.path.isfile', return_value=True)
     def test_eval_basic(self, mock_isfile, mock_run):
         """Test basic evaluation"""
         mock_run.return_value = MagicMock(
@@ -34,14 +34,14 @@ class TestAetherRuntime:
             stderr='',
         )
         
-        runtime = AetherRuntime(ae_path="/usr/bin/ae")
+        runtime = IronShellRuntime(ish_path="/usr/bin/ae")
         result = runtime.eval('[1, 2, 3] | map(fn(x) => x * 2)')
         
         assert result == [2, 4, 6]
         mock_run.assert_called_once()
     
-    @patch('aethershell.subprocess.run')
-    @patch('aethershell.os.path.isfile', return_value=True)
+    @patch('ironshell.subprocess.run')
+    @patch('ironshell.os.path.isfile', return_value=True)
     def test_eval_json_result(self, mock_isfile, mock_run):
         """Test evaluation returning JSON"""
         mock_run.return_value = MagicMock(
@@ -50,13 +50,13 @@ class TestAetherRuntime:
             stderr='',
         )
         
-        runtime = AetherRuntime(ae_path="/usr/bin/ae")
+        runtime = IronShellRuntime(ish_path="/usr/bin/ae")
         result = runtime.eval('{"name": "test", "value": 42}')
         
         assert result == {"name": "test", "value": 42}
     
-    @patch('aethershell.subprocess.run')
-    @patch('aethershell.os.path.isfile', return_value=True)
+    @patch('ironshell.subprocess.run')
+    @patch('ironshell.os.path.isfile', return_value=True)
     def test_eval_error(self, mock_isfile, mock_run):
         """Test evaluation with error"""
         mock_run.return_value = MagicMock(
@@ -65,17 +65,17 @@ class TestAetherRuntime:
             stderr='Parse error: unexpected token',
         )
         
-        runtime = AetherRuntime(ae_path="/usr/bin/ae")
+        runtime = IronShellRuntime(ish_path="/usr/bin/ae")
         
-        with pytest.raises(RuntimeError, match="AetherShell error"):
+        with pytest.raises(RuntimeError, match="IronShell error"):
             runtime.eval('invalid code {{{{')
     
     def test_ae_not_found(self):
-        """Test error when ae binary not found"""
-        with patch('aethershell.os.environ.get', return_value=''):
-            with patch('aethershell.os.path.isfile', return_value=False):
-                with pytest.raises(RuntimeError, match="Could not find 'ae'"):
-                    AetherRuntime()
+        """Test error when ish binary not found"""
+        with patch('ironshell.os.environ.get', return_value=''):
+            with patch('ironshell.os.path.isfile', return_value=False):
+                with pytest.raises(RuntimeError, match="Could not find 'ish'"):
+                    IronShellRuntime()
 
 
 class TestAgent:
@@ -141,7 +141,9 @@ class TestPipelineBuilder:
         builder.filter("fn(x) => x > 2")
         
         code = builder.to_code()
-        assert "filter(fn(x) => x > 2)" in code
+        # The shell has no `filter` builtin; its name is `where`.
+        assert "where(fn(x) => x > 2)" in code
+        assert "filter(" not in code
     
     def test_pipeline_chaining(self):
         """Test pipeline operation chaining"""
@@ -154,8 +156,13 @@ class TestPipelineBuilder:
         )
         
         assert "map" in code
-        assert "filter" in code
+        assert "where" in code
         assert "sort" in code
+
+    def test_pipeline_sort_with_key(self):
+        """A key function sorts with sort_by: sort() takes no argument"""
+        code = pipeline([3, 1, 2]).sort("fn(x) => 0 - x").to_code()
+        assert "sort_by(fn(x) => 0 - x)" in code
     
     def test_pipeline_reduce(self):
         """Test pipeline reduce operation"""
@@ -182,7 +189,7 @@ class TestPipelineBuilder:
 class TestConvenienceFunctions:
     """Tests for convenience functions"""
     
-    @patch('aethershell.AetherRuntime')
+    @patch('ironshell.IronShellRuntime')
     def test_evaluate(self, mock_runtime_class):
         """Test evaluate convenience function"""
         mock_runtime = MagicMock()
@@ -260,20 +267,20 @@ class TestNotificationLevel:
         assert NotificationLevel.ERROR.value == "error"
 
 
-# Integration tests (require ae binary)
+# Integration tests (require ish binary)
 @pytest.mark.integration
 class TestIntegration:
-    """Integration tests that require the ae binary"""
+    """Integration tests that require the ish binary"""
     
     def test_eval_simple(self):
         """Test simple evaluation"""
-        runtime = AetherRuntime()
+        runtime = IronShellRuntime()
         result = runtime.eval("1 + 2")
         assert result == 3
     
     def test_eval_array(self):
         """Test array evaluation"""
-        runtime = AetherRuntime()
+        runtime = IronShellRuntime()
         result = runtime.eval("[1, 2, 3]")
         assert result == [1, 2, 3]
     

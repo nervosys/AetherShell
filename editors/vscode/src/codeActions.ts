@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 
 /**
- * AetherShell Code Action Provider
+ * IronShell Code Action Provider
  * Provides quick fixes, refactorings, and AI-powered actions
  */
-export class AetherShellCodeActionProvider implements vscode.CodeActionProvider {
+export class IronShellCodeActionProvider implements vscode.CodeActionProvider {
     static readonly providedCodeActionKinds = [
         vscode.CodeActionKind.QuickFix,
         vscode.CodeActionKind.Refactor,
@@ -35,7 +35,7 @@ export class AetherShellCodeActionProvider implements vscode.CodeActionProvider 
                     vscode.CodeActionKind.Refactor
                 );
                 action.command = {
-                    command: 'aethershell.convertToPipeline',
+                    command: 'ironshell.convertToPipeline',
                     title: 'Convert to Pipeline',
                     arguments: [document, range, funcName, args]
                 };
@@ -50,7 +50,7 @@ export class AetherShellCodeActionProvider implements vscode.CodeActionProvider 
                 vscode.CodeActionKind.RefactorExtract
             );
             action.command = {
-                command: 'aethershell.extractFunction',
+                command: 'ironshell.extractFunction',
                 title: 'Extract to Function',
                 arguments: [document, range]
             };
@@ -66,7 +66,7 @@ export class AetherShellCodeActionProvider implements vscode.CodeActionProvider 
                     vscode.CodeActionKind.Refactor
                 );
                 action.command = {
-                    command: 'aethershell.wrapWithTryCatch',
+                    command: 'ironshell.wrapWithTryCatch',
                     title: 'Wrap with try-catch',
                     arguments: [document, range]
                 };
@@ -82,7 +82,7 @@ export class AetherShellCodeActionProvider implements vscode.CodeActionProvider 
                 vscode.CodeActionKind.Refactor
             );
             action.command = {
-                command: 'aethershell.addTypeAnnotation',
+                command: 'ironshell.addTypeAnnotation',
                 title: 'Add Type Annotation',
                 arguments: [document, range.start.line]
             };
@@ -96,7 +96,7 @@ export class AetherShellCodeActionProvider implements vscode.CodeActionProvider 
                 vscode.CodeActionKind.Refactor
             );
             action.command = {
-                command: 'aethershell.convertToFormat',
+                command: 'ironshell.convertToFormat',
                 title: 'Convert to format()',
                 arguments: [document, range.start.line]
             };
@@ -104,14 +104,14 @@ export class AetherShellCodeActionProvider implements vscode.CodeActionProvider 
         }
 
         // AI-powered suggestions (if AI features enabled)
-        const config = vscode.workspace.getConfiguration('aethershell');
+        const config = vscode.workspace.getConfiguration('ironshell');
         if (config.get<boolean>('ai.enabled', true)) {
             const aiAction = new vscode.CodeAction(
                 '✨ Ask AI to improve this code',
                 vscode.CodeActionKind.Refactor
             );
             aiAction.command = {
-                command: 'aethershell.aiImprove',
+                command: 'ironshell.aiImprove',
                 title: 'AI Improve',
                 arguments: [document, range]
             };
@@ -124,7 +124,7 @@ export class AetherShellCodeActionProvider implements vscode.CodeActionProvider 
                     vscode.CodeActionKind.Source
                 );
                 docAction.command = {
-                    command: 'aethershell.aiDocument',
+                    command: 'ironshell.aiDocument',
                     title: 'AI Document',
                     arguments: [document, range]
                 };
@@ -142,7 +142,7 @@ export class AetherShellCodeActionProvider implements vscode.CodeActionProvider 
 export function registerCodeActionCommands(context: vscode.ExtensionContext): void {
     // Extract to function
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.extractFunction', async (
+        vscode.commands.registerCommand('ironshell.extractFunction', async (
             document: vscode.TextDocument,
             range: vscode.Range
         ) => {
@@ -182,7 +182,7 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
 
     // Wrap with try-catch
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.wrapWithTryCatch', async (
+        vscode.commands.registerCommand('ironshell.wrapWithTryCatch', async (
             document: vscode.TextDocument,
             range: vscode.Range
         ) => {
@@ -199,7 +199,7 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
 
     // Add type annotation
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.addTypeAnnotation', async (
+        vscode.commands.registerCommand('ironshell.addTypeAnnotation', async (
             document: vscode.TextDocument,
             lineNumber: number
         ) => {
@@ -232,7 +232,7 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
 
     // Convert to format
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.convertToFormat', async (
+        vscode.commands.registerCommand('ironshell.convertToFormat', async (
             document: vscode.TextDocument,
             lineNumber: number
         ) => {
@@ -277,7 +277,7 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
 
     // Convert to pipeline
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.convertToPipeline', async (
+        vscode.commands.registerCommand('ironshell.convertToPipeline', async (
             document: vscode.TextDocument,
             range: vscode.Range,
             funcName: string,
@@ -308,13 +308,13 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
 
     // AI improve — runs ae with AI to suggest improvements
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.aiImprove', async (
+        vscode.commands.registerCommand('ironshell.aiImprove', async (
             document: vscode.TextDocument,
             range: vscode.Range
         ) => {
-            const config = vscode.workspace.getConfiguration('aethershell');
+            const config = vscode.workspace.getConfiguration('ironshell');
             if (!config.get<boolean>('ai.enabled', true)) {
-                vscode.window.showWarningMessage('AI features are disabled. Enable via aethershell.ai.enabled setting.');
+                vscode.window.showWarningMessage('AI features are disabled. Enable via ironshell.ai.enabled setting.');
                 return;
             }
 
@@ -330,7 +330,7 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
                 cancellable: true
             }, async (_progress, token) => {
                 const escapedCode = selectedText.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
-                const prompt = `Improve this AetherShell code. Return ONLY the improved code, no explanations:\n${escapedCode}`;
+                const prompt = `Improve this IronShell code. Return ONLY the improved code, no explanations:\n${escapedCode}`;
                 const aeCode = `ai("${prompt.replace(/"/g, '\\"')}")`;
 
                 return await runAeCommand(aeCode, config, token);
@@ -340,7 +340,7 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
                 // Show diff in an untitled document so user can review
                 const doc = await vscode.workspace.openTextDocument({
                     content: `# AI Suggested Improvement\n\n## Original:\n${selectedText}\n\n## Improved:\n${result}`,
-                    language: 'aethershell'
+                    language: 'ironshell'
                 });
                 await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
             }
@@ -349,13 +349,13 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
 
     // AI document — generates documentation comment for code
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.aiDocument', async (
+        vscode.commands.registerCommand('ironshell.aiDocument', async (
             document: vscode.TextDocument,
             range: vscode.Range
         ) => {
-            const config = vscode.workspace.getConfiguration('aethershell');
+            const config = vscode.workspace.getConfiguration('ironshell');
             if (!config.get<boolean>('ai.enabled', true)) {
-                vscode.window.showWarningMessage('AI features are disabled. Enable via aethershell.ai.enabled setting.');
+                vscode.window.showWarningMessage('AI features are disabled. Enable via ironshell.ai.enabled setting.');
                 return;
             }
 
@@ -371,7 +371,7 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
                 cancellable: true
             }, async (_progress, token) => {
                 const escapedCode = selectedText.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
-                const prompt = `Write a concise AetherShell documentation comment (using # comments) for this code. Include parameter types and return type if applicable. Return ONLY the comment lines:\n${escapedCode}`;
+                const prompt = `Write a concise IronShell documentation comment (using # comments) for this code. Include parameter types and return type if applicable. Return ONLY the comment lines:\n${escapedCode}`;
                 const aeCode = `ai("${prompt.replace(/"/g, '\\"')}")`;
 
                 return await runAeCommand(aeCode, config, token);
@@ -395,7 +395,7 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
 }
 
 /**
- * Run an AetherShell command and capture output
+ * Run an IronShell command and capture output
  */
 async function runAeCommand(
     code: string,
@@ -404,19 +404,19 @@ async function runAeCommand(
 ): Promise<string | undefined> {
     const { execFile } = require('child_process');
     const customPath = config.get<string>('executable.path', '');
-    const aePath = customPath || (process.platform === 'win32' ? 'ae.exe' : 'ae');
+    const aePath = customPath || (process.platform === 'win32' ? 'ish.exe' : 'ish');
 
     return new Promise((resolve) => {
         const proc = execFile(aePath, ['-e', code], {
             timeout: 30000,
             maxBuffer: 1024 * 1024,
-            env: { ...process.env, AETHER_AI: config.get<string>('ai.provider', 'auto') }
+            env: { ...process.env, IRONSHELL_AI: config.get<string>('ai.provider', 'auto') }
         }, (error: Error | null, stdout: string, stderr: string) => {
             if (error) {
                 if ((error as any).killed || token?.isCancellationRequested) {
                     resolve(undefined);
                 } else {
-                    vscode.window.showErrorMessage(`AetherShell error: ${stderr || error.message}`);
+                    vscode.window.showErrorMessage(`IronShell error: ${stderr || error.message}`);
                     resolve(undefined);
                 }
             } else {

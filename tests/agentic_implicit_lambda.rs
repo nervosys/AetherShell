@@ -1,6 +1,6 @@
 //! The implicit parameter must bind every `~` in an expression, not the first.
 //!
-//! `ae -a` exists to save tokens. It could not be used on the expressions that
+//! `ish -a` exists to save tokens. It could not be used on the expressions that
 //! spend them, because the desugaring built its lambda at the first `~` it
 //! reached and then ran to the end of the body:
 //!
@@ -20,7 +20,7 @@
 //! The lambda is now lifted to the argument of the lambda-taking builtin, with
 //! every `~.` in it bound to the same parameter.
 
-use aethershell::transpile::agentic::transpile_agentic_to_ae;
+use iron_shell::transpile::agentic::transpile_agentic_to_ae;
 
 /// Transpile the stage in pipeline position and return just the stage.
 ///
@@ -146,7 +146,7 @@ fn the_bare_dot_form_still_works() {
 // ── non-vacuity ─────────────────────────────────────────────────────────
 
 #[test]
-fn non_vacuity_the_transpiler_is_producing_aethershell() {
+fn non_vacuity_the_transpiler_is_producing_ironshell() {
     // If `transpile_agentic_to_ae` echoed its input, several assertions above
     // would hold for the wrong reason.
     let out = stage("w(~.is_pr)");

@@ -2,15 +2,15 @@
 //! a file-effecting batch wrapped in tx_begin can be rolled back to its prior
 //! state, or committed to keep the changes.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
-// The transaction journal and AETHER_WORKSPACE are process-global; serialize.
+// The transaction journal and IRONSHELL_WORKSPACE are process-global; serialize.
 static LOCK: Mutex<()> = Mutex::new(());
 
 fn call(name: &str, args: Vec<Value>) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 fn s(x: &str) -> Value {
@@ -18,13 +18,13 @@ fn s(x: &str) -> Value {
 }
 
 /// Best-effort clear of any leftover active transaction from a prior failure,
-/// and reset mode so a leaked AETHER_MODE can't gate other tests.
+/// and reset mode so a leaked IRONSHELL_MODE can't gate other tests.
 fn reset_tx() {
-    std::env::remove_var("AETHER_MODE");
-    let mut env = aethershell::env::Env::new();
+    std::env::remove_var("IRONSHELL_MODE");
+    let mut env = iron_shell::env::Env::new();
     // Drain any leftover nesting frames (a failed test could leave depth > 1).
     for _ in 0..16 {
-        if aethershell::builtins::call("tx_rollback", vec![], &mut env).is_err() {
+        if iron_shell::builtins::call("tx_rollback", vec![], &mut env).is_err() {
             break;
         }
     }
@@ -47,7 +47,7 @@ fn relative_paths_are_workspace_relative_when_jailed() {
     let w = std::env::temp_dir().join(format!("ae_tx_rel_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w); // jail active, workspace != CWD
+    std::env::set_var("IRONSHELL_WORKSPACE", &w); // jail active, workspace != CWD
 
     // A unique relative name so we can prove it does NOT land in the process CWD.
     let rel = format!("ae_rel_{}.txt", std::process::id());
@@ -76,7 +76,7 @@ fn relative_paths_are_workspace_relative_when_jailed() {
         "rollback restores the workspace-relative file"
     );
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -107,7 +107,7 @@ fn rollback_restores_prior_state() {
     let w = std::env::temp_dir().join(format!("ae_tx_rb_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let existing = w.join("existing.txt");
     let deleteme = w.join("deleteme.txt");
@@ -121,7 +121,7 @@ fn rollback_restores_prior_state() {
         "file_write",
         vec![s(&existing.to_string_lossy()), s("modified")],
     );
-    aethershell::builtins::bi_rm(vec![s(&deleteme.to_string_lossy())], None).unwrap();
+    iron_shell::builtins::bi_rm(vec![s(&deleteme.to_string_lossy())], None).unwrap();
     call("file_write", vec![s(&newf.to_string_lossy()), s("created")]);
 
     // Mid-transaction the changes are live.
@@ -147,7 +147,7 @@ fn rollback_restores_prior_state() {
     );
     assert!(!newf.exists(), "created file removed on rollback");
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -158,8 +158,8 @@ fn plan_apply_requires_approval_then_applies_atomically() {
     let w = std::env::temp_dir().join(format!("ae_plan_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_MODE", "agent");
 
     let f1 = w.join("a.txt");
     let f2 = w.join("b.txt");
@@ -183,19 +183,19 @@ fn plan_apply_requires_approval_then_applies_atomically() {
     //
     // This used to call the `approve` builtin. That path is now refused in
     // agent mode (AS-2026-01): the agent holding a token it was just refused
-    // with must not be the one to spend it. `AETHER_APPROVE` is the channel
+    // with must not be the one to spend it. `IRONSHELL_APPROVE` is the channel
     // that survives, and it is set by whoever launched the agent -- which is
     // the point. The property under test is unchanged: an approved plan
     // applies atomically.
-    std::env::set_var("AETHER_APPROVE", &token);
+    std::env::set_var("IRONSHELL_APPROVE", &token);
     let ap = call("apply", vec![ops]);
     assert_eq!(get_str(&ap, "status"), "applied");
     assert_eq!(std::fs::read_to_string(&f1).unwrap(), "hello");
     assert_eq!(std::fs::read_to_string(&f2).unwrap(), "world");
 
-    std::env::remove_var("AETHER_APPROVE");
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_APPROVE");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -206,7 +206,7 @@ fn apply_supports_append_and_is_atomic() {
     let w = std::env::temp_dir().join(format!("ae_plan_append_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
     // Human mode → no approval needed.
 
     let f = w.join("log.txt");
@@ -227,7 +227,7 @@ fn apply_supports_append_and_is_atomic() {
     assert_eq!(get_str(&call("apply", vec![bad]), "status"), "failed");
     assert!(!g.exists(), "append-created file removed on rollback");
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -238,7 +238,7 @@ fn nested_rollback_isolates_inner_then_outer() {
     let w = std::env::temp_dir().join(format!("ae_tx_nest_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let a = w.join("a.txt");
     let b = w.join("b.txt");
@@ -263,7 +263,7 @@ fn nested_rollback_isolates_inner_then_outer() {
     assert_eq!(std::fs::read_to_string(&a).unwrap(), "orig");
     assert_eq!(get_int(&call("tx_status", vec![]), "depth"), 0);
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -274,7 +274,7 @@ fn nested_commit_folds_into_parent_then_outer_rollback_undoes_all() {
     let w = std::env::temp_dir().join(format!("ae_tx_fold_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let a = w.join("a.txt");
     std::fs::write(&a, b"orig").unwrap();
@@ -294,7 +294,7 @@ fn nested_commit_folds_into_parent_then_outer_rollback_undoes_all() {
     call("tx_rollback", vec![]);
     assert_eq!(std::fs::read_to_string(&a).unwrap(), "orig");
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -305,7 +305,7 @@ fn apply_supports_copy_and_move_atomically() {
     let w = std::env::temp_dir().join(format!("ae_plan_copymove_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     // Helper: an op record carrying a `dest` field.
     let op_dest = |op: &str, path: &str, dest: &str| {
@@ -345,7 +345,7 @@ fn apply_supports_copy_and_move_atomically() {
         "jailed dest never written"
     );
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -356,7 +356,7 @@ fn apply_rolls_back_the_whole_batch_on_failure() {
     let w = std::env::temp_dir().join(format!("ae_plan_fail_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
     // Human mode → no approval needed; still atomic.
 
     let good = w.join("good.txt");
@@ -373,7 +373,7 @@ fn apply_rolls_back_the_whole_batch_on_failure() {
         "the successful write must be rolled back when a later op fails"
     );
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -384,7 +384,7 @@ fn rollback_restores_a_deleted_directory_tree() {
     let w = std::env::temp_dir().join(format!("ae_tx_tree_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     // A nested tree with content: dir/sub/leaf.txt + dir/top.txt
     let dir = w.join("project");
@@ -393,7 +393,7 @@ fn rollback_restores_a_deleted_directory_tree() {
     std::fs::write(dir.join("sub").join("leaf.txt"), b"leaf").unwrap();
 
     call("tx_begin", vec![]);
-    aethershell::builtins::bi_rmdir(vec![s(&dir.to_string_lossy()), Value::Bool(true)], None)
+    iron_shell::builtins::bi_rmdir(vec![s(&dir.to_string_lossy()), Value::Bool(true)], None)
         .unwrap();
     assert!(!dir.exists(), "tree deleted mid-transaction");
 
@@ -407,7 +407,7 @@ fn rollback_restores_a_deleted_directory_tree() {
         "nested file content restored"
     );
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -418,7 +418,7 @@ fn rollback_undoes_a_file_append() {
     let w = std::env::temp_dir().join(format!("ae_tx_app_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let f = w.join("log.txt");
     std::fs::write(&f, b"line1\n").unwrap();
@@ -434,7 +434,7 @@ fn rollback_undoes_a_file_append() {
         "append undone, original content restored"
     );
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -445,7 +445,7 @@ fn rollback_restores_a_sqlite_db_file() {
     let w = std::env::temp_dir().join(format!("ae_tx_db_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let db = w.join("data.db");
     std::fs::write(&db, b"ORIGINAL_DB_BYTES").unwrap();
@@ -455,8 +455,8 @@ fn rollback_restores_a_sqlite_db_file() {
     // snapshot is recorded even when the sqlite3 CLI is unavailable on this host.
     // (We then stand in for the engine's mutation with a direct write — the point
     // under test is that exec captured a restorable snapshot.)
-    let mut env = aethershell::env::Env::new();
-    let _ = aethershell::builtins::call(
+    let mut env = iron_shell::env::Env::new();
+    let _ = iron_shell::builtins::call(
         "db_sqlite_exec",
         vec![s(&db.to_string_lossy()), s("DELETE FROM t WHERE 1=1")],
         &mut env,
@@ -470,7 +470,7 @@ fn rollback_restores_a_sqlite_db_file() {
         "db file restored to its pre-transaction bytes on rollback"
     );
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -484,7 +484,7 @@ fn rollback_restores_a_key_value_store_mutation() {
     let w = std::env::temp_dir().join(format!("ae_tx_kv_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let store = w.join("kv.db");
     std::fs::write(&store, b"KV_ORIGINAL").unwrap();
@@ -492,8 +492,8 @@ fn rollback_restores_a_key_value_store_mutation() {
     call("tx_begin", vec![]);
     // db_kv_set → db_sqlite_exec → snapshot, taken before any sqlite3 shell-out
     // (so the test does not depend on the sqlite3 CLI being installed).
-    let mut env = aethershell::env::Env::new();
-    let _ = aethershell::builtins::call(
+    let mut env = iron_shell::env::Env::new();
+    let _ = iron_shell::builtins::call(
         "db_kv_set",
         vec![s(&store.to_string_lossy()), s("k"), s("v")],
         &mut env,
@@ -508,7 +508,7 @@ fn rollback_restores_a_key_value_store_mutation() {
         "kv store file restored to its pre-transaction bytes"
     );
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -519,7 +519,7 @@ fn savepoint_enables_partial_rollback_then_commit() {
     let w = std::env::temp_dir().join(format!("ae_tx_sp_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let before = w.join("before.txt"); // written before the savepoint → kept
     let after = w.join("after.txt"); // written after the savepoint → reverted
@@ -560,7 +560,7 @@ fn savepoint_enables_partial_rollback_then_commit() {
     assert_eq!(std::fs::read_to_string(&before).unwrap(), "keep-me");
     assert!(!after.exists());
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 
@@ -571,7 +571,7 @@ fn commit_keeps_changes_and_clears_state() {
     let w = std::env::temp_dir().join(format!("ae_tx_ci_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
 
     let f = w.join("kept.txt");
     call("tx_begin", vec![]);
@@ -594,6 +594,6 @@ fn commit_keeps_changes_and_clears_state() {
         other => panic!("expected record, got {other:?}"),
     }
 
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }

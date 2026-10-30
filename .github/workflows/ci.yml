@@ -232,8 +232,8 @@ jobs:
               with:
                   node-version: "20"
 
-            - name: Build ae
-              run: cargo build --bin ae
+            - name: Build ish
+              run: cargo build --bin ish
 
             - name: Run the probes as gates
               env:
@@ -248,7 +248,7 @@ jobs:
                   node "$GITHUB_WORKSPACE/benches/agentic/uncoded.mjs" || status=1
                   node "$GITHUB_WORKSPACE/benches/agentic/uncoded-paths.mjs" || status=1
                   node "$GITHUB_WORKSPACE/benches/agentic/discarded-args.mjs" || status=1
-                  # connect(2) under AETHER_MAX_NET=0: the effect table is
+                  # connect(2) under IRONSHELL_MAX_NET=0: the effect table is
                   # checked against what the builtins actually do.
                   node "$GITHUB_WORKSPACE/benches/agentic/network-egress.mjs" || status=1
                   exit $status
@@ -281,7 +281,7 @@ jobs:
             # packaging is where a broken one surfaces.
             - name: Package
               working-directory: editors/vscode
-              run: npx vsce package --no-dependencies --out /tmp/aethershell.vsix
+              run: npx vsce package --no-dependencies --out /tmp/ironshell.vsix
 
     wasm:
         name: WASM Build
@@ -324,7 +324,7 @@ jobs:
                   path-to-document: "https://github.com/${{ github.repository }}/blob/master/CLA.md"
                   branch: "cla-signatures"
                   remote-organization-name: nervosys
-                  remote-repository-name: AetherShell
+                  remote-repository-name: IronShell
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_TOKEN }}
@@ -367,8 +367,10 @@ jobs:
             - name: Upload binary
               uses: actions/upload-artifact@v4
               with:
-                  name: ae-${{ matrix.target }}
+                  name: ish-${{ matrix.target }}
                   path: |
+                      target/${{ matrix.target }}/release/ish
+                      target/${{ matrix.target }}/release/ish.exe
                       target/${{ matrix.target }}/release/ae
                       target/${{ matrix.target }}/release/ae.exe
                       target/${{ matrix.target }}/release/aimodel

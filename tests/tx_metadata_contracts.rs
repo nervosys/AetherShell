@@ -1,10 +1,10 @@
 //! Filesystem transactions journal permission, ownership and symlink changes.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-// The transaction journal and AETHER_WORKSPACE are process-global; serialize.
+// The transaction journal and IRONSHELL_WORKSPACE are process-global; serialize.
 static LOCK: Mutex<()> = Mutex::new(());
 
 #[cfg(target_os = "linux")]
@@ -12,8 +12,8 @@ static LOCK: Mutex<()> = Mutex::new(());
 mod disposable;
 
 fn try_call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call(name: &str, args: Vec<Value>) -> Value {
@@ -25,10 +25,10 @@ fn s(p: impl AsRef<Path>) -> Value {
 }
 
 fn reset_tx() {
-    std::env::remove_var("AETHER_MODE");
-    let mut env = aethershell::env::Env::new();
+    std::env::remove_var("IRONSHELL_MODE");
+    let mut env = iron_shell::env::Env::new();
     for _ in 0..16 {
-        if aethershell::builtins::call("tx_rollback", vec![], &mut env).is_err() {
+        if iron_shell::builtins::call("tx_rollback", vec![], &mut env).is_err() {
             break;
         }
     }
@@ -44,7 +44,7 @@ impl Fixture {
         let root = std::env::temp_dir().join(format!("ae_txmeta_{tag}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        std::env::set_var("AETHER_WORKSPACE", &root);
+        std::env::set_var("IRONSHELL_WORKSPACE", &root);
         Fixture { root }
     }
 }
@@ -52,7 +52,7 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         reset_tx();
-        std::env::remove_var("AETHER_WORKSPACE");
+        std::env::remove_var("IRONSHELL_WORKSPACE");
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }

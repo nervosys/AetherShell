@@ -176,7 +176,7 @@ Get storage usage statistics for downloaded models.
   "total_size_bytes": 15000000000,
   "model_count": 5,
   "cache_size_bytes": 500000000,
-  "storage_path": "/home/user/.aethershell/models"
+  "storage_path": "/home/user/.ironshell/models"
 }
 ```
 

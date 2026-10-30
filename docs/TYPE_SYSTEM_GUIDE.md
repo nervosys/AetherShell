@@ -1,17 +1,17 @@
-# AetherShell Type System and Operators Guide
+# IronShell Type System and Operators Guide
 
 ## Assignment Operators: `:=` vs `=`
 
-AetherShell has two assignment operators with distinct purposes:
+IronShell has two assignment operators with distinct purposes:
 
 ### `:=` - Type Inference Assignment
 
 Use `:=` when you want the compiler to **infer the type** automatically:
 
-```ae
+```ish
 # Compiler infers type from the value
 x := 42                    # Inferred as Int
-name := "AetherShell"      # Inferred as String
+name := "IronShell"      # Inferred as String
 items := [1, 2, 3]         # Inferred as Array<Int>
 result := ai("prompt")     # Inferred from ai() return type
 
@@ -31,10 +31,10 @@ agent := agent("task", ["tools"]) # Inferred as Agent type
 
 Use `=` when you have **explicitly defined the type**:
 
-```ae
+```ish
 # Explicit type annotations (future feature)
 let x: Int = 42
-let name: String = "AetherShell"
+let name: String = "IronShell"
 let callback: (Int) -> String = fn(n) => "${n}"
 
 # In function signatures
@@ -60,7 +60,7 @@ let id: UserId = 123  # Use = with explicit type
 ### ✅ Currently Supported
 
 **Type Inference (`:=`)**
-```ae
+```ish
 # These all work with type inference
 x := 42
 name := "hello"
@@ -72,10 +72,10 @@ data := http("url") | json()
 ### ⏳ Planned Features
 
 **Explicit Type Annotations**
-```ae
+```ish
 # Future syntax (not yet implemented)
 let x: Int = 42
-let name: String = "AetherShell"
+let name: String = "IronShell"
 let process: (String) -> Int = fn(s) => len(s)
 ```
 
@@ -83,11 +83,11 @@ let process: (String) -> Int = fn(s) => len(s)
 
 ## Hindley-Milner Type Inference
 
-AetherShell uses **Hindley-Milner type inference**, which means:
+IronShell uses **Hindley-Milner type inference**, which means:
 
 ### Automatic Type Deduction
 
-```ae
+```ish
 # Compiler knows these types without annotations
 x := 42                           # Int
 y := 3.14                         # Float
@@ -99,7 +99,7 @@ person := {name: "Bob", age: 30}  # Record {name: String, age: Int}
 
 ### Function Type Inference
 
-```ae
+```ish
 # Function type is inferred from usage
 double := fn(x) => x * 2          # (Int) -> Int or (Float) -> Float
 greet := fn(name) => "Hello ${name}"  # (String) -> String
@@ -111,7 +111,7 @@ map_add := fn(xs, n) => xs | map(fn(x) => x + n)  # (Array<Int>, Int) -> Array<I
 
 ### Pipeline Type Inference
 
-```ae
+```ish
 # Type flows through the pipeline
 result := [1, 2, 3, 4, 5]
   | map(fn(x) => x * 2)           # Array<Int> -> Array<Int>
@@ -123,7 +123,7 @@ result := [1, 2, 3, 4, 5]
 
 ### Type Unification
 
-```ae
+```ish
 # Types must be compatible
 x := 42
 y := x + 10        # OK: Int + Int = Int
@@ -139,9 +139,9 @@ result2 := map_fn(fn(s) => len(s), ["a", "bb"])   # Array<Int>
 
 ### Structural Types
 
-AetherShell uses **structural typing** for records:
+IronShell uses **structural typing** for records:
 
-```ae
+```ish
 # Two records with same structure are compatible
 person1 := {name: "Alice", age: 30}
 person2 := {name: "Bob", age: 25}
@@ -152,7 +152,7 @@ people := [person1, person2]  # Array<{name: String, age: Int}>
 
 ### Option Types
 
-```ae
+```ish
 # Option<T> represents a value that might not exist
 maybe_value := Some(42)     # Option<Int>
 no_value := None            # Option<T>
@@ -165,7 +165,7 @@ result := match maybe_value {
 
 ### Result Types
 
-```ae
+```ish
 # Result<T, E> represents success or error
 success := Ok(42)           # Result<Int, String>
 failure := Err("failed")    # Result<Int, String>
@@ -178,7 +178,7 @@ result := match computation {
 
 ### Lambda Types
 
-```ae
+```ish
 # Functions are first-class values
 add := fn(a, b) => a + b              # (Int, Int) -> Int
 curry_add := fn(a) => fn(b) => a + b # (Int) -> (Int) -> Int
@@ -192,7 +192,7 @@ compose := fn(f, g) => fn(x) => f(g(x))  # <A, B, C>((B) -> C, (A) -> B) -> (A) 
 
 ### 1. Use Type Inference by Default
 
-```ae
+```ish
 # ✅ Good: Let compiler infer
 x := 42
 name := "Alice"
@@ -204,7 +204,7 @@ result := process(data)
 
 ### 2. Let Pipelines Flow Naturally
 
-```ae
+```ish
 # ✅ Good: Type flows through pipeline
 result := data
   | filter(fn(x) => x > 0)
@@ -219,7 +219,7 @@ result := data
 
 ### 3. Use Pattern Matching for Type Safety
 
-```ae
+```ish
 # ✅ Good: Handle all cases
 result := match value {
   Some(x) => x * 2,
@@ -232,7 +232,7 @@ result := match value {
 
 ### 4. Name Types for Clarity
 
-```ae
+```ish
 # ✅ Good: Clear names help inference
 user_data := fetch_user(123)
 processed_user := transform(user_data)
@@ -246,7 +246,7 @@ processed_user := transform(user_data)
 
 ### Common Type Errors
 
-```ae
+```ish
 # Type mismatch
 x := 42
 y := x + "hello"  # ERROR: Cannot add Int and String
@@ -262,7 +262,7 @@ result := double("not a number")  # ERROR: Expected Int or Float, got String
 
 ### Type Error Messages
 
-AetherShell provides helpful error messages:
+IronShell provides helpful error messages:
 
 ```
 ERROR: Type mismatch
@@ -278,7 +278,7 @@ ERROR: Type mismatch
 
 ### Type Aliases
 
-```ae
+```ish
 # Future feature
 type UserId = Int
 type UserName = String
@@ -295,7 +295,7 @@ let user: User = {id: 1, name: "Alice", age: 30}
 
 ### Generic Type Parameters
 
-```ae
+```ish
 # Future feature
 fn first<T>(items: Array<T>) -> Option<T> {
   if len(items) > 0 {
@@ -308,7 +308,7 @@ fn first<T>(items: Array<T>) -> Option<T> {
 
 ### Trait Constraints
 
-```ae
+```ish
 # Future feature
 fn sum_all<T: Numeric>(items: Array<T>) -> T {
   items | reduce(fn(a, b) => a + b, 0)

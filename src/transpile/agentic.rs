@@ -1,4 +1,4 @@
-//! Agentic Syntax → Aether Shell transpiler.
+//! Agentic Syntax → IronShell Shell transpiler.
 //!
 //! A token-minimized syntax mode designed for AI agents. Every construct is
 //! compressed to the fewest possible tokens so that LLM context windows and
@@ -13,7 +13,7 @@
 //!    No `@` prefix needed.
 //! 4. **Function abbreviations** — single-char func names auto-expand
 //!    (e.g., `file.r(…)` → `file.read(…)`).
-//! 5. **`|` pipe** — native AetherShell pipe, no transformation needed.
+//! 5. **`|` pipe** — native IronShell pipe, no transformation needed.
 //! 6. **`~` lambda prefix** — alias for `\`, avoids escape-heavy contexts.
 //! 7. **Implicit lambdas** — `~.field` = `fn(__) => __.field`.
 //! 8. **Symbol→value mapping** — `T`→true, `N`→null, `'`→`"`, `` ` ``→sh().
@@ -154,7 +154,7 @@
 //!
 //! # File Extension
 //!
-//! `.aeg` (agentic)
+//! `.ishg` (agentic)
 
 use anyhow::Result;
 use std::collections::HashMap;
@@ -508,7 +508,7 @@ lazy_static::lazy_static! {
 pub struct OntologyRule {
     /// Compressed input pattern (may use `{...}` as placeholder)
     pub pattern: &'static str,
-    /// Expanded AetherShell output
+    /// Expanded IronShell output
     pub expansion: &'static str,
     /// Version when this rule was introduced (1–4)
     pub version: u8,
@@ -1212,14 +1212,14 @@ fn strip_inline_comment(line: &str) -> (&str, Option<&str>) {
     (line, None)
 }
 
-/// Transpile agentic syntax to AetherShell source code.
+/// Transpile agentic syntax to IronShell source code.
 ///
 /// The agentic format is a token-minimized syntax designed for AI agent
 /// consumption: fewer tokens → cheaper API calls, more room in context
 /// windows, faster generation.
 pub fn transpile_agentic_to_ae(src: &str) -> Result<String> {
     let mut out = String::new();
-    out.push_str("// Transpiled from Agentic \u{2192} Aether\n");
+    out.push_str("// Transpiled from Agentic \u{2192} IronShell\n");
 
     let mut aliases: Vec<(String, String)> = Vec::new();
 
@@ -1275,7 +1275,7 @@ pub fn transpile_agentic_to_ae(src: &str) -> Result<String> {
     Ok(out)
 }
 
-/// Transpile a single line of agentic (`.aeg`) syntax to legible `.ae`.
+/// Transpile a single line of agentic (`.ishg`) syntax to legible `.ish`.
 ///
 /// Phase 5: this is a **single tokenizing pass** (`scan`, plus the two
 /// statement-level prefix handlers `try_for_each`/`try_assignment`) that replaced
@@ -1410,7 +1410,7 @@ fn at_boundary(out: &str) -> bool {
     }
 }
 
-/// The single left-to-right scan that maps every cipher token to legible `.ae`.
+/// The single left-to-right scan that maps every cipher token to legible `.ish`.
 fn scan(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(s.len() * 2);
@@ -2432,7 +2432,7 @@ mod tests {
 
     #[test]
     fn test_tilde_lambda_still_supported() {
-        // Backward compatibility: every existing `.aeg` script must keep working.
+        // Backward compatibility: every existing `.ishg` script must keep working.
         let ae = transpile_agentic_to_ae("l\".\"|w~x:x.size>1k\n").unwrap();
         assert!(ae.contains("where(fn(x) => x.size>1k)"), "got:\n{ae}");
     }

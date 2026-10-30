@@ -897,7 +897,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "fs_watch", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("path", Ty::Str, "existing file or directory to watch"), opt("options", Ty::Record, "Record with optional recursive Bool (default false) and max_events Int in 1..=10000 (default 1000)")], returns: "String",
-        doc: "Start a native filesystem watch on path and return its handle, a String such as \"watch-1\". Watches are process-local and end with the process, so `ae -c` run once per call cannot keep a watch across calls: keep the handle inside one script or session and read it with fs_unwatch before the process exits. Events are OS notifications from the notify crate. They arrive asynchronously, may be coalesced or duplicated, and changes made before the watch is established may not appear; wait for the changes to settle, then call fs_unwatch to collect them. Bounds: at most 64 watches may be live (the 65th is E_BUDGET_EXCEEDED); each handle buffers at most max_events events and counts later ones in dropped. Unknown option keys, wrong types, out-of-range values, pipeline input and wrong argument counts are E_BAD_ARG; a missing path is E_NOT_FOUND. The effect is ReadLocal: the watch observes the filesystem and holds OS watch resources, and changes nothing.",
+        doc: "Start a native filesystem watch on path and return its handle, a String such as \"watch-1\". Watches are process-local and end with the process, so `ish -c` run once per call cannot keep a watch across calls: keep the handle inside one script or session and read it with fs_unwatch before the process exits. Events are OS notifications from the notify crate. They arrive asynchronously, may be coalesced or duplicated, and changes made before the watch is established may not appear; wait for the changes to settle, then call fs_unwatch to collect them. Bounds: at most 64 watches may be live (the 65th is E_BUDGET_EXCEEDED); each handle buffers at most max_events events and counts later ones in dropped. Unknown option keys, wrong types, out-of-range values, pipeline input and wrong argument counts are E_BAD_ARG; a missing path is E_NOT_FOUND. The effect is ReadLocal: the watch observes the filesystem and holds OS watch resources, and changes nothing.",
         examples: &[(r#"typeof(fs_unwatch(fs_watch(".")))"#, "Record"), (r#"fs_unwatch(fs_watch(".", {recursive: false, max_events: 10})).dropped"#, "0")],
     },
     Signature {
@@ -978,7 +978,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "syntax_get", category: None, subject_required: false, aliases: &[],
         subject: Some(Ty::Str), params: &[], returns: "Record",
         doc: "Look up a registered syntax ID and return its specification, examples and encoding metadata.",
-        examples: &[(r#"syntax_get("ab").id"#, "ab"), (r#"("aethershell" | syntax_get).id"#, "aethershell")],
+        examples: &[(r#"syntax_get("ab").id"#, "ab"), (r#"("ironshell" | syntax_get).id"#, "ironshell")],
     },
     Signature {
         name: "terraform_init",
@@ -1192,7 +1192,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "Probe the local and configured model endpoints (IronGate, Ollama, vLLM, llama.cpp, TGI, OpenAI, LM Studio) and list each reachable one as {name, provider, endpoint, available, models}. Only reachable backends are listed. This is a network operation: the call is gated as Network, and each endpoint probe that connects is charged to AETHER_MAX_NET as its own request before it opens a socket (OpenAI is checked for a key only and makes no request). A probe the budget or policy refuses stops the sweep with that coded refusal rather than an empty list. Takes no arguments.",
+        doc: "Probe the local and configured model endpoints (IronGate, Ollama, vLLM, llama.cpp, TGI, OpenAI, LM Studio) and list each reachable one as {name, provider, endpoint, available, models}. Only reachable backends are listed. This is a network operation: the call is gated as Network, and each endpoint probe that connects is charged to IRONSHELL_MAX_NET as its own request before it opens a socket (OpenAI is checked for a key only and makes no request). A probe the budget or policy refuses stops the sweep with that coded refusal rather than an empty list. Takes no arguments.",
         examples: &[
             (r#"(try { ai_backends(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { "x" | ai_backends() } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -1219,7 +1219,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "ai_detect", category: Some("AI"), subject_required: false, aliases: &["ai-detect"],
         subject: None, params: &[], returns: "String",
-        doc: "Probe the local and configured backends and return the first available model URI (for example ollama:llama3), or an empty string when none is reachable. A probe the budget or policy refuses is an error, not an empty answer. This is a network operation: each probe that connects is charged to AETHER_MAX_NET. Takes no arguments and no pipeline input.",
+        doc: "Probe the local and configured backends and return the first available model URI (for example ollama:llama3), or an empty string when none is reachable. A probe the budget or policy refuses is an error, not an empty answer. This is a network operation: each probe that connects is charged to IRONSHELL_MAX_NET. Takes no arguments and no pipeline input.",
         examples: &[
             (r#"(try { ai_detect(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { "x" | ai_detect() } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -1379,7 +1379,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "crypto_decrypt", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("data", Ty::Str, "versioned authenticated ciphertext"), req("password", Ty::Str, "encryption password")], returns: "String",
-        doc: "Authenticate and decrypt a versioned envelope to UTF-8 text. The envelope selects its KDF. Legacy unauthenticated CBC requires explicit environment opt-in (AETHER_CRYPTO_LEGACY_DECRYPT); it is decrypted in-process, with no openssl CLI.",
+        doc: "Authenticate and decrypt a versioned envelope to UTF-8 text. The envelope selects its KDF. Legacy unauthenticated CBC requires explicit environment opt-in (IRONSHELL_CRYPTO_LEGACY_DECRYPT); it is decrypted in-process, with no openssl CLI.",
         examples: &[(r#"crypto_decrypt(crypto_encrypt("hello", "example-password"), "example-password")"#, "hello")],
     },
     Signature {
@@ -2142,7 +2142,7 @@ pub static SIGNATURES: &[Signature] = &[
     // which the catalogue never walked.
     //
     // `benches/agentic/PREREGISTERED_E7.md` names this as the thing that would
-    // make the AetherShell arm lose for a fixable reason rather than a
+    // make the IronShell arm lose for a fixable reason rather than a
     // fundamental one, so it lands before that experiment runs.
     Signature {
         name: "from-json",
@@ -2937,7 +2937,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[req("code", Ty::Str, "AetherShell source to analyse; it is parsed, never run")],
+        params: &[req("code", Ty::Str, "IronShell source to analyse; it is parsed, never run")],
         returns: "Record",
         doc: "Every call in a program with its effect class and agent-mode decision, and the strictest decision overall, without running it.",
         examples: &[
@@ -2964,7 +2964,7 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         // Borrowed from nushell, which answered E2's t6 in 14 tokens with
-        // `open Cargo.toml | get package.version` while AetherShell split the
+        // `open Cargo.toml | get package.version` while IronShell split the
         // file into lines and searched them.
         name: "open",
         category: Some("FileSystem"),
@@ -2975,7 +2975,7 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Any",
         doc: "Read a file and parse it by extension (JSON, JSON lines, TOML, YAML, CSV), or return its text.",
         examples: &[
-            (r#"open("Cargo.toml").package.name"#, r#""aethershell""#),
+            (r#"open("Cargo.toml").package.name"#, r#""iron-shell""#),
             (r#"typeof(open("README.md"))"#, "String"),
         ],
     },
@@ -3996,7 +3996,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("ops", Ty::Array, "an Array of Records {op, path, content?, dest?}; op is write, append, rm, mkdir, copy or move")],
         returns: "Record",
-        doc: "Describe a batch of filesystem operations without running any: {operations, summary (counts by op), token, hint, plan}. The token is derived from the exact ops, content and destinations included, so a changed op changes it. Nothing is written. In agent mode a human approves the token out of band (AETHER_APPROVE), and an agent cannot approve it itself. Refused with E_BAD_ARG for a malformed op, an unknown op, or a write or append without content or a copy or move without dest.",
+        doc: "Describe a batch of filesystem operations without running any: {operations, summary (counts by op), token, hint, plan}. The token is derived from the exact ops, content and destinations included, so a changed op changes it. Nothing is written. In agent mode a human approves the token out of band (IRONSHELL_APPROVE), and an agent cannot approve it itself. Refused with E_BAD_ARG for a malformed op, an unknown op, or a write or append without content or a copy or move without dest.",
         examples: &[
             (r#"(try { plan() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { plan("write") } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -4024,7 +4024,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("ops", Ty::Array, "the Array of ops a plan described")],
         returns: "Record",
-        doc: "Run a plan atomically: every op applies or none does, and a failure rolls the batch back. In agent mode the batch runs only when its plan token has been approved out of band (AETHER_APPROVE or AETHER_APPROVE_ALL); otherwise it answers {status: needs_approval, token}. An approval is spent by the apply it authorises, and an agent cannot approve its own token. Paths are confined to the workspace in agent mode or when AETHER_WORKSPACE is set; a path outside it fails the batch. Returns {status: applied, applied} or {status: failed, error, rolled_back, restored}.",
+        doc: "Run a plan atomically: every op applies or none does, and a failure rolls the batch back. In agent mode the batch runs only when its plan token has been approved out of band (IRONSHELL_APPROVE or IRONSHELL_APPROVE_ALL); otherwise it answers {status: needs_approval, token}. An approval is spent by the apply it authorises, and an agent cannot approve its own token. Paths are confined to the workspace in agent mode or when IRONSHELL_WORKSPACE is set; a path outside it fails the batch. Returns {status: applied, applied} or {status: failed, error, rolled_back, restored}.",
         examples: &[
             (r#"(try { apply() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { apply("write") } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -4038,7 +4038,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("token", Ty::Str, "an approval token, such as one plan returned")],
         returns: "Record",
-        doc: "Grant the approval for a token in this process. Human mode only: in agent mode it is refused with E_POLICY_DENY, because the token was issued to the caller being approved. The out-of-band channel an operator uses is the AETHER_APPROVE environment variable, which an agent cannot set (set_env, env_set and env_unset refuse AETHER_* names in agent mode).",
+        doc: "Grant the approval for a token in this process. Human mode only: in agent mode it is refused with E_POLICY_DENY, because the token was issued to the caller being approved. The out-of-band channel an operator uses is the IRONSHELL_APPROVE environment variable, which an agent cannot set (set_env, env_set and env_unset refuse IRONSHELL_* names in agent mode).",
         examples: &[
             (r#"(try { approve() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { approve(5) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -4063,7 +4063,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "Start a filesystem transaction, or nest a child one inside the active transaction. From then on, file writes and deletes record what they replaced so tx_rollback() or tx_rollback_to() can undo them. Returns transaction (the frame id), active and depth. The journal lives under .ae/tx in the workspace and is removed when the outermost transaction ends. The transaction is held by this process only. Refuses arguments and pipeline input.",
+        doc: "Start a filesystem transaction, or nest a child one inside the active transaction. From then on, file writes and deletes record what they replaced so tx_rollback() or tx_rollback_to() can undo them. Returns transaction (the frame id), active and depth. The journal lives under .ironshell/tx in the workspace and is removed when the outermost transaction ends. The transaction is held by this process only. Refuses arguments and pipeline input.",
         examples: &[
             (r#"(try { tx_begin(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { "x" | tx_begin() } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -4469,9 +4469,9 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "pkg_add_source", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("name", Ty::Str, "a source name matching ^[a-z0-9][a-z0-9_-]{0,63}$; the file is ae-<name>.list"), req("line", Ty::Str, "one deb or deb-src line whose URI is https://, e.g. `deb https://deb.debian.org/debian trixie main`"), opt("options", Ty::Record, "optional Record; its only key is update, a Bool that defaults to false")],
+        params: &[req("name", Ty::Str, "a source name matching ^[a-z0-9][a-z0-9_-]{0,63}$; the file is ironshell-<name>.list"), req("line", Ty::Str, "one deb or deb-src line whose URI is https://, e.g. `deb https://deb.debian.org/debian trixie main`"), opt("options", Ty::Record, "optional Record; its only key is update, a Bool that defaults to false")],
         returns: "Record",
-        doc: "Add an apt source on Debian-family Linux only: writes /etc/apt/sources.list.d/ae-<name>.list containing a first line `# Created by AetherShell pkg_add_source` and then the line, mode 0644, written under a hidden temporary name and hard-linked into place so an existing file is never replaced. Other platforms and package managers are E_UNIMPLEMENTED with NOTHING WAS CHANGED. Requires root. The line must match ^deb(-src)? (\\[[a-z0-9=_ /.:-]+\\] )?https://[^\\s]+ [a-z0-9._/-]+( [a-z0-9._-]+)+$; plain http and file sources are refused, and the line may carry a bracketed option such as signed-by. When update is true, apt-get update runs afterwards; if it fails the new file is removed and its error returned. Returns Record {path: String, updated: Bool}. Not done: repository key import or verification, which apt still enforces on signed repositories. Refused with E_BAD_ARG, before any effect: a bad name, a bad or non-https line, an unknown or non-Bool option, an existing ae-<name>.list, or pipeline input. Refused with E_UNIMPLEMENTED inside a transaction. A held lock is E_BAD_STATE; a nonzero apt exit is E_TOOL_FAILED.",
+        doc: "Add an apt source on Debian-family Linux only: writes /etc/apt/sources.list.d/ironshell-<name>.list containing a first line `# Created by IronShell pkg_add_source` and then the line, mode 0644, written under a hidden temporary name and hard-linked into place so an existing file is never replaced. Other platforms and package managers are E_UNIMPLEMENTED with NOTHING WAS CHANGED. Requires root. The line must match ^deb(-src)? (\\[[a-z0-9=_ /.:-]+\\] )?https://[^\\s]+ [a-z0-9._/-]+( [a-z0-9._-]+)+$; plain http and file sources are refused, and the line may carry a bracketed option such as signed-by. When update is true, apt-get update runs afterwards; if it fails the new file is removed and its error returned. Returns Record {path: String, updated: Bool}. Not done: repository key import or verification, which apt still enforces on signed repositories. Refused with E_BAD_ARG, before any effect: a bad name, a bad or non-https line, an unknown or non-Bool option, an existing ironshell-<name>.list, or pipeline input. Refused with E_UNIMPLEMENTED inside a transaction. A held lock is E_BAD_STATE; a nonzero apt exit is E_TOOL_FAILED.",
         examples: &[
             (r#"(try { pkg_add_source("Bad Name", "deb https://deb.debian.org/debian trixie main") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { pkg_add_source("x", "deb http://example.com/debian trixie main", {update: true}) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -4860,7 +4860,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "net_scan", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("host", Ty::Str, "localhost, 127.0.0.1 or ::1; any other host is refused by policy"), Param { range: Some((1, 65535)), ..req("first_port", Ty::Int, "First TCP port, 1..65535") }, Param { range: Some((1, 65535)), ..req("last_port", Ty::Int, "Last TCP port, inclusive, 1..65535") }, opt_range("timeout_ms", Ty::Int, 1, 10000, "Per-port wait for an answer in milliseconds, default 3000")],
         returns: "Array",
-        doc: "Probe a TCP port range on this machine and return Array of Records port and state, where state is open (accepted), closed (refused) or filtered (no answer within timeout_ms, 1..10000, default 3000). Ports are probed 128 at a time, each batch sharing one wait. Only localhost, 127.0.0.1 and ::1 are probed; another host is E_POLICY_DENY whatever AETHER_NET_ALLOW says. At most 1024 ports per call; a larger range is E_BAD_ARG. The whole call is bounded at 30 s. Connect failures other than refusal are coded I/O errors. Network policy applies. Transactions and pipeline input are refused.",
+        doc: "Probe a TCP port range on this machine and return Array of Records port and state, where state is open (accepted), closed (refused) or filtered (no answer within timeout_ms, 1..10000, default 3000). Ports are probed 128 at a time, each batch sharing one wait. Only localhost, 127.0.0.1 and ::1 are probed; another host is E_POLICY_DENY whatever IRONSHELL_NET_ALLOW says. At most 1024 ports per call; a larger range is E_BAD_ARG. The whole call is bounded at 30 s. Connect failures other than refusal are coded I/O errors. Network policy applies. Transactions and pipeline input are refused.",
         examples: &[(r#"(try { net_scan("example.com", 1, 2) } catch e { e.error.code })"#, "E_POLICY_DENY"), (r#"(try { net_scan("127.0.0.1", 1, 2000, 50) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
@@ -4890,44 +4890,44 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "code_references", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("source", Ty::Str, "AetherShell source text"), req("symbol", Ty::Str, "Identifier or dotted identifier, at most 256 bytes")], returns: "Array",
-        doc: "Pure AetherShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return lexical identifier occurrences, including declarations, parameters and field labels; exclude comments and string tokens including dynamic interpolation. One-based Unicode scalar line/column; exclusive end_column. Dotted queries match the terminal identifier of a lexical member chain.",
+        params: &[req("source", Ty::Str, "IronShell source text"), req("symbol", Ty::Str, "Identifier or dotted identifier, at most 256 bytes")], returns: "Array",
+        doc: "Pure IronShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return lexical identifier occurrences, including declarations, parameters and field labels; exclude comments and string tokens including dynamic interpolation. One-based Unicode scalar line/column; exclusive end_column. Dotted queries match the terminal identifier of a lexical member chain.",
         examples: &[(r#"len(code_references("x = 1; y = x", "x"))"#, "2")],
     },
     Signature {
         name: "code_definition", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("source", Ty::Str, "AetherShell source text"), req("symbol", Ty::Str, "Top-level binding name")], returns: "Array",
-        doc: "Pure AetherShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return all matching top-level bindings with name, kind, mutable, public, params and typed value_ast. Include cfg-wrapped declarations syntactically without evaluating conditions. No import/member definition lookup. Absent declarations return an empty Array.",
+        params: &[req("source", Ty::Str, "IronShell source text"), req("symbol", Ty::Str, "Top-level binding name")], returns: "Array",
+        doc: "Pure IronShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return all matching top-level bindings with name, kind, mutable, public, params and typed value_ast. Include cfg-wrapped declarations syntactically without evaluating conditions. No import/member definition lookup. Absent declarations return an empty Array.",
         examples: &[(r#"len(code_definition("double = fn(x) => x * 2", "double"))"#, "1")],
     },
     Signature {
         name: "code_callers", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("source", Ty::Str, "AetherShell source text"), req("symbol", Ty::Str, "Static callee name, including dotted module names")], returns: "Array",
-        doc: "Pure AetherShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return sorted unique function-binding names containing a syntactic call to symbol; other calls use <top-level>. Include nested lambda bodies as lexical containment, named pipeline stages and registered module pipeline stages. Exclude dynamic calls and evaluated string interpolation. This is not a runtime trace.",
+        params: &[req("source", Ty::Str, "IronShell source text"), req("symbol", Ty::Str, "Static callee name, including dotted module names")], returns: "Array",
+        doc: "Pure IronShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return sorted unique function-binding names containing a syntactic call to symbol; other calls use <top-level>. Include nested lambda bodies as lexical containment, named pipeline stages and registered module pipeline stages. Exclude dynamic calls and evaluated string interpolation. This is not a runtime trace.",
         examples: &[(r#"len(code_callers("double = fn(x) => x * 2; use = fn(x) => double(x)", "double"))"#, "1")],
     },
     Signature {
         name: "code_callees", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("source", Ty::Str, "AetherShell source text"), req("symbol", Ty::Str, "Source function-binding name")], returns: "Record",
-        doc: "Pure AetherShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return {name, found, callees, dynamic_calls}: sorted union of static call names across matching lambdas plus a count of dynamic callee expressions. found=false means no source lambda body exists, including native builtin bodies. Include nested lambdas lexically and named pipeline stages; no evaluated-string call analysis.",
+        params: &[req("source", Ty::Str, "IronShell source text"), req("symbol", Ty::Str, "Source function-binding name")], returns: "Record",
+        doc: "Pure IronShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return {name, found, callees, dynamic_calls}: sorted union of static call names across matching lambdas plus a count of dynamic callee expressions. found=false means no source lambda body exists, including native builtin bodies. Include nested lambdas lexically and named pipeline stages; no evaluated-string call analysis.",
         examples: &[(r#"code_callees("double = fn(x) => abs(x)", "double").found"#, "true")],
     },
     Signature {
         name: "code_hover", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("source", Ty::Str, "AetherShell source text"), req("line", Ty::Int, "One-based line"), req("column", Ty::Int, "One-based Unicode scalar column")], returns: "Record",
-        doc: "Pure AetherShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return found Bool and, for an identifier at the cursor, name, qualified, line, column, top-level definitions and declared signature information. Cursor must be within source or at line end. Comments/strings and keywords outside field/member positions have found=false. Binding metadata is syntactic; shadowing is not resolved.",
+        params: &[req("source", Ty::Str, "IronShell source text"), req("line", Ty::Int, "One-based line"), req("column", Ty::Int, "One-based Unicode scalar column")], returns: "Record",
+        doc: "Pure IronShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return found Bool and, for an identifier at the cursor, name, qualified, line, column, top-level definitions and declared signature information. Cursor must be within source or at line end. Comments/strings and keywords outside field/member positions have found=false. Binding metadata is syntactic; shadowing is not resolved.",
         examples: &[(r#"code_hover("answer = 42", 1, 2).name"#, "answer")],
     },
     Signature {
         name: "code_signature", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("source", Ty::Str, "AetherShell source text, or empty String for builtin lookup"), req("symbol", Ty::Str, "Source binding or declared builtin name")], returns: "Record",
-        doc: "Pure AetherShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return {name, found, origin, signatures, documentation}. Source bindings take precedence; lambdas preserve parameter names and use Any for unknown return types. Return all matching lambda signatures; non-lambda bindings prevent builtin fallback. Otherwise read actual declared builtin signatures, using the actual module mapping for dotted spelling. Unknown/undeclared builtin signatures have found=false.",
+        params: &[req("source", Ty::Str, "IronShell source text, or empty String for builtin lookup"), req("symbol", Ty::Str, "Source binding or declared builtin name")], returns: "Record",
+        doc: "Pure IronShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return {name, found, origin, signatures, documentation}. Source bindings take precedence; lambdas preserve parameter names and use Any for unknown return types. Return all matching lambda signatures; non-lambda bindings prevent builtin fallback. Otherwise read actual declared builtin signatures, using the actual module mapping for dotted spelling. Unknown/undeclared builtin signatures have found=false.",
         examples: &[(r#"code_signature("double = fn(x) => x * 2", "double").found"#, "true")],
     },
     Signature {
         name: "code_completions", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("source", Ty::Str, "AetherShell source text"), opt("prefix", Ty::Str, "Literal prefix, default empty; at most 256 bytes")], returns: "Array",
-        doc: "Pure AetherShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return sorted unique registered builtin/top-level source binding completion records matching a literal prefix. Source bindings replace same-name builtins. Undeclared builtins have declared=false and null signature; no invented contracts. No import/member/local-scope/runtime completion. Refuse results beyond 16 MiB instead of returning partial output.",
+        params: &[req("source", Ty::Str, "IronShell source text"), opt("prefix", Ty::Str, "Literal prefix, default empty; at most 256 bytes")], returns: "Array",
+        doc: "Pure IronShell source-unit analysis; never execute code, read imports or resolve other languages/files. Source limits: 64 KiB, 8192 lexer tokens and 256 raw ASCII punctuation characters including comments/strings. No runtime or semantic scope resolution. Invalid source syntax is E_BAD_ARG; budgets are coded. Reject pipeline input. Return sorted unique registered builtin/top-level source binding completion records matching a literal prefix. Source bindings replace same-name builtins. Undeclared builtins have declared=false and null signature; no invented contracts. No import/member/local-scope/runtime completion. Refuse results beyond 16 MiB instead of returning partial output.",
         examples: &[(r#"len(code_completions("answer = 42", "answer"))"#, "1"), (r#"len(code_completions("answer = 42")) > 0"#, "true")],
     },
     Signature {
@@ -4945,36 +4945,36 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "cron_remove", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("target", Ty::Str, "Windows task name including task path, or exact active Unix crontab entry")], returns: "Bool",
-        doc: "Remove an existing scheduled job. Windows uses schtasks; Unix modifies one exact, unique user-crontab entry, preserving unrelated text. Disabled Unix entries use the AetherShell comment prefix. Returns true after a successful native operation. Rejects transactions, pipeline input and invalid targets. In-process updates are serialized; external crontab writers can race. Requires effect approval.",
+        doc: "Remove an existing scheduled job. Windows uses schtasks; Unix modifies one exact, unique user-crontab entry, preserving unrelated text. Disabled Unix entries use the IronShell comment prefix. Returns true after a successful native operation. Rejects transactions, pipeline input and invalid targets. In-process updates are serialized; external crontab writers can race. Requires effect approval.",
         examples: &[(r#"(try { cron_remove("") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
         name: "cron_enable", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("target", Ty::Str, "Windows task name including task path, or exact active Unix crontab entry")], returns: "Bool",
-        doc: "Enable an existing scheduled job. Windows uses schtasks; Unix modifies one exact, unique user-crontab entry, preserving unrelated text. Disabled Unix entries use the AetherShell comment prefix. Returns true after a successful native operation. Rejects transactions, pipeline input and invalid targets. In-process updates are serialized; external crontab writers can race. Requires effect approval.",
+        doc: "Enable an existing scheduled job. Windows uses schtasks; Unix modifies one exact, unique user-crontab entry, preserving unrelated text. Disabled Unix entries use the IronShell comment prefix. Returns true after a successful native operation. Rejects transactions, pipeline input and invalid targets. In-process updates are serialized; external crontab writers can race. Requires effect approval.",
         examples: &[(r#"(try { cron_enable("") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
         name: "cron_disable", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("target", Ty::Str, "Windows task name including task path, or exact active Unix crontab entry")], returns: "Bool",
-        doc: "Disable an existing scheduled job. Windows uses schtasks; Unix modifies one exact, unique user-crontab entry, preserving unrelated text. Disabled Unix entries use the AetherShell comment prefix. Returns true after a successful native operation. Rejects transactions, pipeline input and invalid targets. In-process updates are serialized; external crontab writers can race. Requires effect approval.",
+        doc: "Disable an existing scheduled job. Windows uses schtasks; Unix modifies one exact, unique user-crontab entry, preserving unrelated text. Disabled Unix entries use the IronShell comment prefix. Returns true after a successful native operation. Rejects transactions, pipeline input and invalid targets. In-process updates are serialized; external crontab writers can race. Requires effect approval.",
         examples: &[(r#"(try { cron_disable("") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
         name: "at_schedule", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("time", Ty::Str, "Future local YYYY-MM-DDTHH:MM timestamp"), req("command", Ty::Str, "One command line; Unix at most 64 KiB, Windows at most 4096 UTF-16 code units")], returns: "String",
-        doc: "Schedule a one-time command and return its job ID. Reject past, ambiguous or nonexistent local times, invalid shape, transactions and pipeline input. Unix uses at -t with the command on stdin; Windows registers a unique AetherShell-at task under the current limited interactive user running cmd.exe /d /s /c, requiring that user to be logged in. Requires Exec approval. Unrecognized successful registration output reports that a job may exist: inspect the queue before retrying.",
+        doc: "Schedule a one-time command and return its job ID. Reject past, ambiguous or nonexistent local times, invalid shape, transactions and pipeline input. Unix uses at -t with the command on stdin; Windows registers a unique IronShell-at task under the current limited interactive user running cmd.exe /d /s /c, requiring that user to be logged in. Requires Exec approval. Unrecognized successful registration output reports that a job may exist: inspect the queue before retrying.",
         examples: &[(r#"(try { at_schedule("", "") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
         name: "at_remove", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("job_id", Ty::Str, "Unix positive decimal atq ID or Windows AetherShell-at UUID task name")], returns: "Bool",
-        doc: "Remove one scheduled one-time job and return true after successful native removal. Unix uses atrm; Windows deletes the exact AetherShell-at task by name. Reject invalid IDs, wildcard targets, transactions and pipeline input; requires Destructive approval.",
+        params: &[req("job_id", Ty::Str, "Unix positive decimal atq ID or Windows IronShell-at UUID task name")], returns: "Bool",
+        doc: "Remove one scheduled one-time job and return true after successful native removal. Unix uses atrm; Windows deletes the exact IronShell-at task by name. Reject invalid IDs, wildcard targets, transactions and pipeline input; requires Destructive approval.",
         examples: &[(r#"(try { at_remove("") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
         name: "at_list", category: None, subject_required: false, aliases: &[], subject: None, params: &[], returns: "Array",
-        doc: "Unix atq job listing in a supported tab-separated layout. Records contain job_id, queue, user and schedule Strings; schedule preserves the entire raw tail including queue/user, without date or locale normalization. Successful empty output means no jobs. Failed tools, non-UTF-8 or unfamiliar layouts carry coded errors. Windows lists root-folder AetherShell-at tasks as job_id/queue/user/schedule/state Strings; other Windows tasks are excluded, and schedule is the native trigger StartBoundary. Reject arguments and pipeline input.",
+        doc: "Unix atq job listing in a supported tab-separated layout. Records contain job_id, queue, user and schedule Strings; schedule preserves the entire raw tail including queue/user, without date or locale normalization. Successful empty output means no jobs. Failed tools, non-UTF-8 or unfamiliar layouts carry coded errors. Windows lists root-folder IronShell-at tasks as job_id/queue/user/schedule/state Strings; other Windows tasks are excluded, and schedule is the native trigger StartBoundary. Reject arguments and pipeline input.",
         examples: &[("at_list()", "[]")],
     },
     Signature {
@@ -5190,7 +5190,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("package", Ty::Record, "{name, version, description?, category?, keywords?, path?}")],
         returns: "Record",
-        doc: "Publish a package. With path, upload that file to the registry (network-guarded, inside the workspace, needs AETHER_REGISTRY_TOKEN) and report status published with target registry. Without path, record it in the local catalogue and report status recorded_locally. A registry refusal is E_POLICY_DENY and leaves the local catalogue unchanged. Unknown fields and fields of the wrong type are E_BAD_ARG.",
+        doc: "Publish a package. With path, upload that file to the registry (network-guarded, inside the workspace, needs IRONSHELL_REGISTRY_TOKEN) and report status published with target registry. Without path, record it in the local catalogue and report status recorded_locally. A registry refusal is E_POLICY_DENY and leaves the local catalogue unchanged. Unknown fields and fields of the wrong type are E_BAD_ARG.",
         examples: &[
             (r#"try { marketplace_publish({name: "example-tool"}) } catch e { e.error.code }"#, r#"E_BAD_ARG"#),
         ],
@@ -5795,7 +5795,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "String",
-        doc: "Create the platform store if it is absent and return its path: $HOME/.aether/platform_db.json, or under %USERPROFILE% where HOME is unset. Writes that file.",
+        doc: "Create the platform store if it is absent and return its path: $HOME/.ironshell/platform_db.json, or under %USERPROFILE% where HOME is unset. Writes that file.",
         examples: &[(r#"(try { platform_db_init(1) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
@@ -6307,7 +6307,7 @@ pub static SIGNATURES: &[Signature] = &[
             "steps to undo, from 1 to 10000; default 1",
         )],
         returns: "Record",
-        doc: "Put back the last n recorded file writes, most recent first; the same record as undo(n), with restored, removed, skipped, failed, steps and complete. Covers local file contents only: a network call, a process or a directory tree is reported as skipped, never restored. Journalling is on in agent mode or with AETHER_JOURNAL=on. Each undone step is kept so session_redo() can re-apply it, until a new recorded write discards that redo stack (a write that is recorded and then refused still discards it). Redo is itself journaled, so session_undo() reverses it. The journal persists per session directory and is bounded to 8 MiB per file and 64 MiB in total, shared with the redo stack.",
+        doc: "Put back the last n recorded file writes, most recent first; the same record as undo(n), with restored, removed, skipped, failed, steps and complete. Covers local file contents only: a network call, a process or a directory tree is reported as skipped, never restored. Journalling is on in agent mode or with IRONSHELL_JOURNAL=on. Each undone step is kept so session_redo() can re-apply it, until a new recorded write discards that redo stack (a write that is recorded and then refused still discards it). Redo is itself journaled, so session_undo() reverses it. The journal persists per session directory and is bounded to 8 MiB per file and 64 MiB in total, shared with the redo stack.",
         examples: &[
             (r#"typeof(session_undo())"#, r#"Record"#),
             (r#"typeof(session_undo(2))"#, r#"Record"#),
@@ -6339,7 +6339,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "The session's reversible history, read-only: enabled, done (the steps undo can reverse, as journal() lists them) and undone (the steps session_redo() can re-apply, most recently undone last). Journalling is on in agent mode or with AETHER_JOURNAL=on, and enabled says whether it is. Covers local file contents only.",
+        doc: "The session's reversible history, read-only: enabled, done (the steps undo can reverse, as journal() lists them) and undone (the steps session_redo() can re-apply, most recently undone last). Journalling is on in agent mode or with IRONSHELL_JOURNAL=on, and enabled says whether it is. Covers local file contents only.",
         examples: &[
             (r#"typeof(session_history())"#, r#"Record"#),
             (r#"typeof(session_history().done)"#, r#"Array"#),
@@ -6353,7 +6353,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "End the reversible session: keep every recorded change and forget the journal and the redo stack. No files are touched. Returns kept (steps forgotten), irreversible (how many of those could not be reversed in the first place) and discarded_redo (undone steps that can no longer be re-applied). Afterwards session_undo() and session_redo() have nothing to do. Journalling is on in agent mode or with AETHER_JOURNAL=on.",
+        doc: "End the reversible session: keep every recorded change and forget the journal and the redo stack. No files are touched. Returns kept (steps forgotten), irreversible (how many of those could not be reversed in the first place) and discarded_redo (undone steps that can no longer be re-applied). Afterwards session_undo() and session_redo() have nothing to do. Journalling is on in agent mode or with IRONSHELL_JOURNAL=on.",
         examples: &[(r#"typeof(session_end())"#, r#"Record"#)],
     },
     Signature {
@@ -7707,7 +7707,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt_range("count", Ty::Int, 0, 10000, "how many of the newest entries; 20 when absent")],
         returns: "Array",
-        doc: "The newest entries of the active chained audit log, oldest first, as records. A log that does not exist yet is an empty array; a log that exists and cannot be read is E_IO. With no active log (human mode without AETHER_AUDIT_LOG) it is E_BAD_STATE. A count outside 0 to 10000 is E_BAD_ARG.",
+        doc: "The newest entries of the active chained audit log, oldest first, as records. A log that does not exist yet is an empty array; a log that exists and cannot be read is E_IO. With no active log (human mode without IRONSHELL_AUDIT_LOG) it is E_BAD_STATE. A count outside 0 to 10000 is E_BAD_ARG.",
         examples: &[
             (r#"try { audit_tail() } catch e { e.error.code }"#, r#"E_BAD_STATE"#),
             (r#"try { audit_tail(-1) } catch e { e.error.code }"#, r#"E_BAD_ARG"#),
@@ -7721,7 +7721,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt("path", Ty::Str, "the log to verify; the active log when absent")],
         returns: "Record",
-        doc: "Verify a hash-chained audit log. Returns {valid, entries, path, keyed}: valid is true only for a log whose every entry chains to the one before. A missing, unreadable, empty or broken log is valid: false with the reason in error. keyed says whether the chain was keyed (AETHER_AUDIT_KEY); an unkeyed chain shows corruption, not tampering. A path that is not a string is E_BAD_ARG.",
+        doc: "Verify a hash-chained audit log. Returns {valid, entries, path, keyed}: valid is true only for a log whose every entry chains to the one before. A missing, unreadable, empty or broken log is valid: false with the reason in error. keyed says whether the chain was keyed (IRONSHELL_AUDIT_KEY); an unkeyed chain shows corruption, not tampering. A path that is not a string is E_BAD_ARG.",
         examples: &[
             (r#"try { audit_verify() } catch e { e.error.code }"#, r#"E_BAD_STATE"#),
             (r#"audit_verify("no-such-audit-log-here.log").valid"#, r#"false"#),
@@ -7859,7 +7859,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Str),
         params: &[],
         returns: "String",
-        doc: "The platform-specific script for a module: utils becomes utils_linux.ae on Linux, utils_windows.ae on Windows.",
+        doc: "The platform-specific script for a module: utils becomes utils_linux.ish on Linux, utils_windows.ish on Windows.",
         examples: &[
             (r#"typeof(platform_module("mymodule"))"#, r#"String"#),
         ],
@@ -7898,7 +7898,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Str),
         params: &[],
         returns: "Record",
-        doc: "Register a plugin from a TOML manifest with a [plugin] table, reporting {id, name, version, status: registered}. Each [builtins] entry is one lambda literal (name = 'fn(...) => ...'); its name becomes callable after the load, and the body runs through the evaluator, so every builtin it calls keeps its own guard and a plugin builtin is classed as exec. A name must be an identifier that no core builtin serves and that no other loaded plugin provides (E_BAD_ARG, or E_BAD_STATE for a provider clash). A manifest with [builtins] is code: AETHER_PLUGINS=off refuses it, and agent mode needs AETHER_PLUGIN_ALLOW (E_POLICY_DENY). The id must be 1 to 128 letters, digits, '.', '_' or '-'. The manifest is at most 1 MiB. A duplicate id is E_BAD_STATE. Native and script plugins are not loaded by this builtin.",
+        doc: "Register a plugin from a TOML manifest with a [plugin] table, reporting {id, name, version, status: registered}. Each [builtins] entry is one lambda literal (name = 'fn(...) => ...'); its name becomes callable after the load, and the body runs through the evaluator, so every builtin it calls keeps its own guard and a plugin builtin is classed as exec. A name must be an identifier that no core builtin serves and that no other loaded plugin provides (E_BAD_ARG, or E_BAD_STATE for a provider clash). A manifest with [builtins] is code: IRONSHELL_PLUGINS=off refuses it, and agent mode needs IRONSHELL_PLUGIN_ALLOW (E_POLICY_DENY). The id must be 1 to 128 letters, digits, '.', '_' or '-'. The manifest is at most 1 MiB. A duplicate id is E_BAD_STATE. Native and script plugins are not loaded by this builtin.",
         examples: &[
             (r#"try { plugin_load("no-such-manifest-here.plugin.toml") } catch e { e.error.code }"#, r#"E_NOT_FOUND"#),
         ],
@@ -8426,7 +8426,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("model_uri", Ty::Str, "a model URI for the subagents"),
         ],
         returns: "Record",
-        doc: "Run a recursive agent: a root model call may spawn subagents, which may spawn further ones within the depth and agent budgets. Each model call is a network request charged to AETHER_MAX_NET and audited, and each agent makes at most 10 steps. Returns {output, total_agents, active_agents, messages_sent, elapsed_ms}. A run that stops at its step limit returns its partial output as an answer beginning (incomplete), not as an error. A budget above its ceiling is E_BUDGET_EXCEEDED; an unknown config key, a non-builtin tool name or a wrong type is E_BAD_ARG or E_NOT_FOUND.",
+        doc: "Run a recursive agent: a root model call may spawn subagents, which may spawn further ones within the depth and agent budgets. Each model call is a network request charged to IRONSHELL_MAX_NET and audited, and each agent makes at most 10 steps. Returns {output, total_agents, active_agents, messages_sent, elapsed_ms}. A run that stops at its step limit returns its partial output as an answer beginning (incomplete), not as an error. A budget above its ceiling is E_BUDGET_EXCEEDED; an unknown config key, a non-builtin tool name or a wrong type is E_BAD_ARG or E_NOT_FOUND.",
         examples: &[
             (r#"(try { rlm_agent() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { rlm_agent("summarise", ["no_such_builtin_xyz"]) } catch e { e.error.code })"#, "E_NOT_FOUND"),
@@ -8444,7 +8444,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("tools", Ty::Array, "builtin names the subagent may call; defaults to ls and cat"),
         ],
         returns: "Record",
-        doc: "Spawn one subagent of depth one (at most 5 agents, 30 seconds) to pursue goal, and return {name, goal, output, complete, success, agents_used, elapsed_ms}. The spawn is an exec decision and is gated as one; its model calls are each charged to AETHER_MAX_NET. complete is false, and success false, when the subagent stopped at its step limit.",
+        doc: "Spawn one subagent of depth one (at most 5 agents, 30 seconds) to pursue goal, and return {name, goal, output, complete, success, agents_used, elapsed_ms}. The spawn is an exec decision and is gated as one; its model calls are each charged to IRONSHELL_MAX_NET. complete is false, and success false, when the subagent stopped at its step limit.",
         examples: &[
             (r#"(try { rlm_spawn("worker") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { rlm_spawn("worker", "count the files", ["no_such_builtin_xyz"]) } catch e { e.error.code })"#, "E_NOT_FOUND"),
@@ -8503,7 +8503,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Str),
         params: &[],
         returns: "String",
-        doc: "MD5 hex digest of a string. Refused under AETHER_FIPS.",
+        doc: "MD5 hex digest of a string. Refused under IRONSHELL_FIPS.",
         examples: &[
             (r#"md5("hello")"#, r#"5d41402abc4b2a76b9719d911017c592"#),
         ],
@@ -8692,7 +8692,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "env_vars", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[],
         returns: "Record",
-        doc: "Every environment variable of this process as a Record from name to value. In agent mode a value whose name looks like a secret (containing SECRET, TOKEN, PASSWORD, _KEY, CREDENTIAL and similar) is replaced with a [REDACTED:<name>] marker unless AETHER_SECRETS=allow; human mode shows values. The redaction is by name only: a secret held under an ordinary name, or inside a URL such as postgres://user:pass@host, is shown. Names and values that are not UTF-8 are shown with replacement characters. Takes no arguments and no pipeline input.",
+        doc: "Every environment variable of this process as a Record from name to value. In agent mode a value whose name looks like a secret (containing SECRET, TOKEN, PASSWORD, _KEY, CREDENTIAL and similar) is replaced with a [REDACTED:<name>] marker unless IRONSHELL_SECRETS=allow; human mode shows values. The redaction is by name only: a secret held under an ordinary name, or inside a URL such as postgres://user:pass@host, is shown. Names and values that are not UTF-8 are shown with replacement characters. Takes no arguments and no pipeline input.",
         examples: &[
             (r#"typeof(env_vars())"#, "Record"),
             (r#"(try { env_vars("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -8881,7 +8881,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[opt("prefix", Ty::Str, "name prefix; default aether_")],
+        params: &[opt("prefix", Ty::Str, "name prefix; default ironshell_")],
         returns: "String",
         doc: "Create a new directory under the system temp directory and return its path.",
         examples: &[
@@ -8895,7 +8895,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[opt("prefix", Ty::Str, "name prefix; default aether_")],
+        params: &[opt("prefix", Ty::Str, "name prefix; default ironshell_")],
         returns: "String",
         doc: "Create a new empty file under the system temp directory and return its path.",
         examples: &[
@@ -9204,31 +9204,31 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "crypto_sign", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("private_key", Ty::Str, "one unencrypted PEM envelope, at most 16384 bytes: PRIVATE KEY (PKCS#8: Ed25519 v2, ECDSA P-256 or P-384, or RSA), RSA PRIVATE KEY (PKCS#1 RSA) or EC PRIVATE KEY (SEC1 P-256 or P-384 with its public key)"), req("message", Ty::Any, "UTF-8 String or Array of byte Ints 0..255, at most 1 MiB")], returns: "Record",
-        doc: "Native signing of exact message bytes with IronCrypto (pure Rust, no dependencies); no OpenSSL or subprocess. Return {algorithm, public_key: String, signature: String}. algorithm is ed25519 (Ed25519 signature, 64 bytes), ecdsa-p256-sha256 or ecdsa-p384-sha384 (ECDSA with an ASN.1 DER signature, deterministic per RFC 6979: the same key and message always give the same signature), or rsa-pkcs1-sha256 (RSASSA-PKCS1-v1_5 with SHA-256, the output of openssl dgst -sha256 -sign; deterministic). public_key is the canonical padded standard Base64 of the raw key: 32 bytes for Ed25519, an uncompressed point 0x04||X||Y of 65 or 97 bytes for P-256 or P-384, or the DER RSAPublicKey. signature is canonical padded standard Base64. RSA private keys must have a 2048 to 4096-bit modulus with public exponent at least 65537 (IronCrypto's limits); larger RSA keys and other curves are E_BAD_ARG. Ed25519 PKCS#8 must be v2 with a public key that agrees with its seed. Do not interpret key Strings as paths. No file I/O, subprocess, model or key registry. Decoded PEM/DER temporary buffers are zeroized; caller key Strings and library-internal key storage have no promised wiping. AETHER_FIPS refuses this native backend with E_POLICY_DENY because it is not FIPS validated, before any key is parsed. Shape, malformed key/message and size errors are coded; pipeline input rejects. Empty messages are valid. Pure effect classification retained.",
+        doc: "Native signing of exact message bytes with IronCrypto (pure Rust, no dependencies); no OpenSSL or subprocess. Return {algorithm, public_key: String, signature: String}. algorithm is ed25519 (Ed25519 signature, 64 bytes), ecdsa-p256-sha256 or ecdsa-p384-sha384 (ECDSA with an ASN.1 DER signature, deterministic per RFC 6979: the same key and message always give the same signature), or rsa-pkcs1-sha256 (RSASSA-PKCS1-v1_5 with SHA-256, the output of openssl dgst -sha256 -sign; deterministic). public_key is the canonical padded standard Base64 of the raw key: 32 bytes for Ed25519, an uncompressed point 0x04||X||Y of 65 or 97 bytes for P-256 or P-384, or the DER RSAPublicKey. signature is canonical padded standard Base64. RSA private keys must have a 2048 to 4096-bit modulus with public exponent at least 65537 (IronCrypto's limits); larger RSA keys and other curves are E_BAD_ARG. Ed25519 PKCS#8 must be v2 with a public key that agrees with its seed. Do not interpret key Strings as paths. No file I/O, subprocess, model or key registry. Decoded PEM/DER temporary buffers are zeroized; caller key Strings and library-internal key storage have no promised wiping. IRONSHELL_FIPS refuses this native backend with E_POLICY_DENY because it is not FIPS validated, before any key is parsed. Shape, malformed key/message and size errors are coded; pipeline input rejects. Empty messages are valid. Pure effect classification retained.",
         examples: &[(r#"typeof(crypto_sign(crypto_generate_key("ed25519"), "example"))"#, "Record"), (r#"crypto_sign(crypto_generate_key("ec"), "example").algorithm"#, "ecdsa-p256-sha256")],
     },
     Signature {
         name: "crypto_verify_signature", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("public_key", Ty::Str, "canonical padded standard Base64 of raw key bytes as crypto_sign returns them (32 Ed25519 bytes; 65 or 97 uncompressed P-256 or P-384 point bytes starting 0x04; DER RSAPublicKey starting 0x30), or a BEGIN PUBLIC KEY SPKI PEM (Ed25519, ECDSA P-256 or P-384, rsaEncryption); at most 4096 bytes"), req("message", Ty::Any, "UTF-8 String or Array of byte Ints 0..255, at most 1 MiB"), req("signature", Ty::Str, "canonical padded standard Base64 signature: 64 bytes for Ed25519, 1 to 72 bytes of DER for P-256, 1 to 104 bytes of DER for P-384, 1 to 512 bytes for RSA; text at most 1400 bytes")], returns: "Bool",
-        doc: "Native verification of exact message bytes with IronCrypto; no OpenSSL or subprocess. Return true only for a valid signature. A well-formed signature that does not verify (wrong message, wrong key, tampered bytes, or an RSA signature of the wrong length) returns false, and so does an EC point that is not on its curve. Malformed input is a coded E_BAD_ARG: bad Base64, a public key that is neither a supported raw encoding nor a supported SPKI PEM (unsupported OIDs and curves such as secp256k1 are named in the message), an RSA public key outside 2048 to 4096 bits, a signature whose length does not fit the key's algorithm, or invalid call shapes. Algorithms: Ed25519 (no prehash), ECDSA P-256 with SHA-256 and P-384 with SHA-384 (ASN.1 DER signatures), RSASSA-PKCS1-v1_5 with SHA-256 (2048 to 4096-bit modulus, public exponent 65537 to 2^33 - 1). The key's algorithm, not a label, selects the verifier. Empty messages are valid. Only these algorithms are supported, without certificate or trust identity resolution, PSS, prehash variants or implicit key loading. AETHER_FIPS refuses this native backend with E_POLICY_DENY, before any input is parsed. No files, processes or key registry; direct-only and Pure.",
+        doc: "Native verification of exact message bytes with IronCrypto; no OpenSSL or subprocess. Return true only for a valid signature. A well-formed signature that does not verify (wrong message, wrong key, tampered bytes, or an RSA signature of the wrong length) returns false, and so does an EC point that is not on its curve. Malformed input is a coded E_BAD_ARG: bad Base64, a public key that is neither a supported raw encoding nor a supported SPKI PEM (unsupported OIDs and curves such as secp256k1 are named in the message), an RSA public key outside 2048 to 4096 bits, a signature whose length does not fit the key's algorithm, or invalid call shapes. Algorithms: Ed25519 (no prehash), ECDSA P-256 with SHA-256 and P-384 with SHA-384 (ASN.1 DER signatures), RSASSA-PKCS1-v1_5 with SHA-256 (2048 to 4096-bit modulus, public exponent 65537 to 2^33 - 1). The key's algorithm, not a label, selects the verifier. Empty messages are valid. Only these algorithms are supported, without certificate or trust identity resolution, PSS, prehash variants or implicit key loading. IRONSHELL_FIPS refuses this native backend with E_POLICY_DENY, before any input is parsed. No files, processes or key registry; direct-only and Pure.",
         examples: &[(r#"key = crypto_generate_key("ed25519"); signed = crypto_sign(key, "example"); crypto_verify_signature(signed.public_key, "example", signed.signature)"#, "true")],
     },
     Signature {
         name: "crypto_generate_key", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[opt("type", Ty::Str, "rsa (default), ec, ecdsa or ed25519; case insensitive"), opt("bits", Ty::Int, "RSA-only size: 2048, 3072 or 4096; default 2048")], returns: "String",
-        doc: "Private-key PEM text: an unencrypted PKCS#8 PRIVATE KEY document (-----BEGIN PRIVATE KEY----- with 64-column Base64 lines), generated natively by IronCrypto on every platform with no openssl or other subprocess. rsa generates a 2048, 3072 or 4096-bit key (default 2048); ec and ecdsa generate a P-256 key; ed25519 generates an Ed25519 key. Randomness comes from the operating system through IronCrypto's Rng::from_os. The output is accepted by crypto_sign. Any other RSA size, including sizes the previous openssl path allowed, is E_BAD_ARG, as is a bit size given for a non-RSA type. Unsupported types, wrong types, surplus arguments and pipeline input are E_BAD_ARG. Generation is refused with E_POLICY_DENY under AETHER_FIPS, because the native backend is not FIPS validated; this now covers RSA and EC as well as Ed25519. No file is written. Existing conservative WriteLocal classification is retained.",
+        doc: "Private-key PEM text: an unencrypted PKCS#8 PRIVATE KEY document (-----BEGIN PRIVATE KEY----- with 64-column Base64 lines), generated natively by IronCrypto on every platform with no openssl or other subprocess. rsa generates a 2048, 3072 or 4096-bit key (default 2048); ec and ecdsa generate a P-256 key; ed25519 generates an Ed25519 key. Randomness comes from the operating system through IronCrypto's Rng::from_os. The output is accepted by crypto_sign. Any other RSA size, including sizes the previous openssl path allowed, is E_BAD_ARG, as is a bit size given for a non-RSA type. Unsupported types, wrong types, surplus arguments and pipeline input are E_BAD_ARG. Generation is refused with E_POLICY_DENY under IRONSHELL_FIPS, because the native backend is not FIPS validated; this now covers RSA and EC as well as Ed25519. No file is written. Existing conservative WriteLocal classification is retained.",
         examples: &[("crypto_generate_key()", "PEM private key"), (r#"crypto_generate_key("rsa")"#, "PEM private key"), (r#"crypto_generate_key("rsa", 2048)"#, "PEM private key"), (r#"crypto_generate_key("ec")"#, "PEM private key"), (r#"typeof(crypto_generate_key("ed25519"))"#, "String")],
     },
     Signature {
         name: "crypto_password_hash", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("password", Ty::Str, "password, at most 65536 bytes")], returns: "String",
-        doc: "Native salted Argon2id PHC hash; AETHER_FIPS algorithm policy uses PBKDF2-HMAC-SHA256 with 600000 iterations. Fresh 16-byte salt. No subprocess or unsalted fallback. Reject pipeline input and surplus arguments.",
+        doc: "Native salted Argon2id PHC hash; IRONSHELL_FIPS algorithm policy uses PBKDF2-HMAC-SHA256 with 600000 iterations. Fresh 16-byte salt. No subprocess or unsalted fallback. Reject pipeline input and surplus arguments.",
         examples: &[(r#"typeof(crypto_password_hash("example"))"#, "String")],
     },
     Signature {
         name: "crypto_password_verify", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("password", Ty::Str, "password"), req("hash", Ty::Str, "stored PHC hash, at most 1024 bytes")], returns: "Bool",
-        doc: "Verify stored salt and bounded Argon2id or PBKDF2-SHA256 parameters, or a SHA-crypt $5$/$6$ hash per Drepper's specification (verify only; rounds above 1000000 are refused with E_BUDGET_EXCEEDED; refused under AETHER_FIPS, where only PBKDF2 is accepted). False means mismatch; malformed, unsupported or excessive parameters produce coded errors. Legacy SHA256 hex is verify-only outside algorithm-policy mode and should be rehashed. Reject pipeline input and surplus arguments.",
+        doc: "Verify stored salt and bounded Argon2id or PBKDF2-SHA256 parameters, or a SHA-crypt $5$/$6$ hash per Drepper's specification (verify only; rounds above 1000000 are refused with E_BUDGET_EXCEEDED; refused under IRONSHELL_FIPS, where only PBKDF2 is accepted). False means mismatch; malformed, unsupported or excessive parameters produce coded errors. Legacy SHA256 hex is verify-only outside algorithm-policy mode and should be rehashed. Reject pipeline input and surplus arguments.",
         examples: &[(r#"crypto_password_verify("example", crypto_password_hash("example"))"#, "true")],
     },
     Signature {
@@ -9242,7 +9242,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("command", Ty::Array, "argv: non-empty Array of String; argv[0] must not start with '-'; no NUL; at most 256 elements of at most 4096 bytes"), opt("options", Ty::Record, "optional {timeout_ms: Int 100..600000, default 60000}")],
         returns: "Record",
-        doc: "Linux and macOS: runs `sudo -n -- argv...` with stdin closed, so sudo never prompts: a password requirement is refused with E_POLICY_DENY and nothing runs. Windows has no sudo, and AetherShell never shows a UAC prompt, so argv runs directly (no shell) only when this process is already elevated: argv[0] must then be an absolute path, such as C:\\Windows\\System32\\whoami.exe, and a relative argv[0] is E_BAD_ARG. A process that is not elevated is refused with E_POLICY_DENY and nothing runs. Returns {exit_code: Int or Null (Null on timeout or signal), stdout: String, stderr: String (each the last 64 KiB), timed_out: Bool}. A nonzero exit of the command is reported in exit_code, not as an error. On timeout the sudo process group (on Windows, the command's job object and its tree) is killed and timed_out is true. Refused inside a transaction, which cannot roll back a command. Other platforms refuse with E_UNIMPLEMENTED and run nothing.",
+        doc: "Linux and macOS: runs `sudo -n -- argv...` with stdin closed, so sudo never prompts: a password requirement is refused with E_POLICY_DENY and nothing runs. Windows has no sudo, and IronShell never shows a UAC prompt, so argv runs directly (no shell) only when this process is already elevated: argv[0] must then be an absolute path, such as C:\\Windows\\System32\\whoami.exe, and a relative argv[0] is E_BAD_ARG. A process that is not elevated is refused with E_POLICY_DENY and nothing runs. Returns {exit_code: Int or Null (Null on timeout or signal), stdout: String, stderr: String (each the last 64 KiB), timed_out: Bool}. A nonzero exit of the command is reported in exit_code, not as an error. On timeout the sudo process group (on Windows, the command's job object and its tree) is killed and timed_out is true. Refused inside a transaction, which cannot roll back a command. Other platforms refuse with E_UNIMPLEMENTED and run nothing.",
         examples: &[
             (r#"(try { sudo_exec([]) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { sudo_exec([], {timeout_ms: 5}) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -10142,7 +10142,7 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Array",
         doc: "Up to 20 lines of target/doc containing a query, as file:line: text. No target/doc is E_NOT_FOUND; an unreadable directory or file is an error, not skipped.",
         examples: &[
-            (r#"docs_search("Value")"#, r#"["target/doc/aethershell/value/enum.Value.html:1: ...", ...]"#),
+            (r#"docs_search("Value")"#, r#"["target/doc/ironshell/value/enum.Value.html:1: ...", ...]"#),
         ],
     },
     Signature {
@@ -10435,7 +10435,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[opt("store", Ty::Str, "a key-value store; default .aether_kv.db")],
+        params: &[opt("store", Ty::Str, "a key-value store; default .ironshell_kv.db")],
         returns: "Array",
         doc: "A key-value store's keys; [] for a store that does not exist yet, which is not created.",
         examples: &[
@@ -11301,7 +11301,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject_required: false,
         aliases: &[],
         subject: None,
-        params: &[opt("store", Ty::Str, "store file; default .aether_kv.db")],
+        params: &[opt("store", Ty::Str, "store file; default .ironshell_kv.db")],
         returns: "String",
         doc: "Create a key-value store (a SQLite file with a kv table) and return its path.",
         examples: &[
@@ -11405,7 +11405,7 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Any",
         doc: "Run a jq filter over a JSON file. A filter jq rejects is E_TOOL_FAILED, not the whole document.",
         examples: &[
-            (r#"db_json_query(".well-known/ai-plugin.json", ".name_for_model")"#, r#"aethershell"#),
+            (r#"db_json_query(".well-known/ai-plugin.json", ".name_for_model")"#, r#"ironshell"#),
             (r#"typeof(db_json_query(".well-known/ai-plugin.json"))"#, r#"Record"#),
         ],
     },
@@ -11456,7 +11456,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "syntax_add", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
         params: &[],
         returns: "Bool",
-        doc: "Add one entry to the syntax knowledge base, which is saved to ~/.aethershell/syntax_kb.json, and return true. The entry is a Record with fields id (required; letters, digits, '_', '-' or '.', at most 128), name (required, non-blank), specification (required String), category (protocol, language, encoding, command or query; any other non-empty value makes a custom category; default custom) and examples (Array of String, optional). Piped or as the argument, never both. A misspelt field, a field of the wrong type, or an id already in the knowledge base is E_BAD_ARG, and nothing is saved in those cases. The file is under the home directory and not AETHER_DATA_HOME; a failure to save is E_IO.",
+        doc: "Add one entry to the syntax knowledge base, which is saved to ~/.ironshell/syntax_kb.json, and return true. The entry is a Record with fields id (required; letters, digits, '_', '-' or '.', at most 128), name (required, non-blank), specification (required String), category (protocol, language, encoding, command or query; any other non-empty value makes a custom category; default custom) and examples (Array of String, optional). Piped or as the argument, never both. A misspelt field, a field of the wrong type, or an id already in the knowledge base is E_BAD_ARG, and nothing is saved in those cases. The file is under the home directory and not IRONSHELL_DATA_HOME; a failure to save is E_IO.",
         examples: &[
             (r#"(try { syntax_add({id: "x"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { syntax_add({id: "x", name: "X", specification: "s", exmples: []}) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -11581,9 +11581,9 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "svc_create", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("name", Ty::Str, "unit name matching ^[a-z0-9][a-z0-9_-]{0,63}$; the unit is ae-<name>.service"), req("command", Ty::Array, "argv: absolute existing executable first, then String arguments without newline, carriage return or '%'"), opt("options", Ty::Record, "optional {description: String single line, user: existing account name, restart: \"no\"|\"on-failure\"|\"always\" default \"no\", enable: Bool default false, start: Bool default false}")],
+        params: &[req("name", Ty::Str, "unit name matching ^[a-z0-9][a-z0-9_-]{0,63}$; the unit is ironshell-<name>.service"), req("command", Ty::Array, "argv: absolute existing executable first, then String arguments without newline, carriage return or '%'"), opt("options", Ty::Record, "optional {description: String single line, user: existing account name, restart: \"no\"|\"on-failure\"|\"always\" default \"no\", enable: Bool default false, start: Bool default false}")],
         returns: "Record",
-        doc: "Linux and Windows. On Linux, writes /etc/systemd/system/ae-<name>.service (0644, never overwriting an existing unit) whose first line is an AetherShell marker, then runs systemctl daemon-reload and, when asked, enable and start. Returns {name: \"ae-<name>\", unit_path: String, enabled: Bool, started: Bool}. ExecStart quotes each argument in systemd syntax, so arguments with spaces or quotes are passed intact. If any later step fails, the unit is stopped and disabled as needed, the file is removed and the manager reloaded, so no half-created service remains. Needs root (or write access to /etc/systemd/system). On Windows it creates the service ae-<name> in the Service Control Manager with argv[0] as its program: an absolute existing .exe, given alone, since a service takes no arguments in this release, so any further argv element is E_BAD_ARG. enable selects start type auto (otherwise demand); the description is stored after an AetherShell marker; restart \"on-failure\" sets three restarts 60 s apart and \"always\" is E_UNIMPLEMENTED, because the manager cannot restart after a clean exit; user must be an account the machine knows. start runs StartServiceW, and if any step fails the new service is stopped and deleted. On Windows unit_path is the service's registry key, HKLM\\SYSTEM\\CurrentControlSet\\Services\\ae-<name>. Needs an administrator. Refused inside a transaction. macOS refuses with E_UNIMPLEMENTED and changes nothing.",
+        doc: "Linux and Windows. On Linux, writes /etc/systemd/system/ironshell-<name>.service (0644, never overwriting an existing unit) whose first line is an IronShell marker, then runs systemctl daemon-reload and, when asked, enable and start. Returns {name: \"ironshell-<name>\", unit_path: String, enabled: Bool, started: Bool}. ExecStart quotes each argument in systemd syntax, so arguments with spaces or quotes are passed intact. If any later step fails, the unit is stopped and disabled as needed, the file is removed and the manager reloaded, so no half-created service remains. Needs root (or write access to /etc/systemd/system). On Windows it creates the service ironshell-<name> in the Service Control Manager with argv[0] as its program: an absolute existing .exe, given alone, since a service takes no arguments in this release, so any further argv element is E_BAD_ARG. enable selects start type auto (otherwise demand); the description is stored after an IronShell marker; restart \"on-failure\" sets three restarts 60 s apart and \"always\" is E_UNIMPLEMENTED, because the manager cannot restart after a clean exit; user must be an account the machine knows. start runs StartServiceW, and if any step fails the new service is stopped and deleted. On Windows unit_path is the service's registry key, HKLM\\SYSTEM\\CurrentControlSet\\Services\\ironshell-<name>. Needs an administrator. Refused inside a transaction. macOS refuses with E_UNIMPLEMENTED and changes nothing.",
         examples: &[
             (r#"(try { svc_create("Bad Name", ["/usr/bin/true"]) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { svc_create("Bad Name", ["/usr/bin/true"], {start: true}) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -11591,9 +11591,9 @@ pub static SIGNATURES: &[Signature] = &[
     },
     Signature {
         name: "svc_delete", category: None, subject_required: false, aliases: &[], subject: None,
-        params: &[req("name", Ty::Str, "unit name matching ^[a-z0-9][a-z0-9_-]{0,63}$; removes ae-<name>.service")],
+        params: &[req("name", Ty::Str, "unit name matching ^[a-z0-9][a-z0-9_-]{0,63}$; removes ironshell-<name>.service")],
         returns: "Record",
-        doc: "Linux and Windows. On Linux, removes /etc/systemd/system/ae-<name>.service only when the file carries the AetherShell marker line; on Windows, removes the service ae-<name> only when its description carries the marker svc_create writes; a unit without it is refused with E_POLICY_DENY and left alone, and a missing unit is E_NOT_FOUND. Stops the unit if running, disables it if enabled, removes the file and runs systemctl daemon-reload. Returns {name: \"ae-<name>\", stopped: Bool (was running), disabled: Bool (was enabled), removed: true}. On Windows it waits up to 30 s for a running service to stop, and disabled means the service was not demand-start or disabled. Refused inside a transaction. macOS refuses with E_UNIMPLEMENTED and changes nothing.",
+        doc: "Linux and Windows. On Linux, removes /etc/systemd/system/ironshell-<name>.service only when the file carries the IronShell marker line; on Windows, removes the service ironshell-<name> only when its description carries the marker svc_create writes; a unit without it is refused with E_POLICY_DENY and left alone, and a missing unit is E_NOT_FOUND. Stops the unit if running, disables it if enabled, removes the file and runs systemctl daemon-reload. Returns {name: \"ironshell-<name>\", stopped: Bool (was running), disabled: Bool (was enabled), removed: true}. On Windows it waits up to 30 s for a running service to stop, and disabled means the service was not demand-start or disabled. Refused inside a transaction. macOS refuses with E_UNIMPLEMENTED and changes nothing.",
         examples: &[(r#"(try { svc_delete("Bad Name") } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
@@ -11808,7 +11808,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("severity", Ty::Str, "info, warning or critical; defaults to warning"),
         ],
         returns: "Record",
-        doc: "Adds a rule to the alert store, a JSON file named alerts.json in the monitor directory of the data directory (AETHER_DATA_HOME moves it), and records a created event in its history. Returns the stored rule {id, name, metric, condition, threshold, severity, status: active, created_at}. Nothing is evaluated or notified here: rules are checked when monitor_alert_list is called. The store holds at most 1000 rules (a full store is E_BUDGET_EXCEEDED). A store file that does not parse is E_IO and is left unchanged.",
+        doc: "Adds a rule to the alert store, a JSON file named alerts.json in the monitor directory of the data directory (IRONSHELL_DATA_HOME moves it), and records a created event in its history. Returns the stored rule {id, name, metric, condition, threshold, severity, status: active, created_at}. Nothing is evaluated or notified here: rules are checked when monitor_alert_list is called. The store holds at most 1000 rules (a full store is E_BUDGET_EXCEEDED). A store file that does not parse is E_IO and is left unchanged.",
         examples: &[
             (r#"(try { monitor_alert_create("", "cpu") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { monitor_alert_create("x", "gpu", "~", 150) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -12030,7 +12030,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "config_init", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[],
         returns: "String",
-        doc: "Create the config directories and, when config.toml does not yet exist, write the default config file. Returns the text 'Created config file: <path>' or 'Config file already exists: <path>'. The directory comes from AETHER_CONFIG_HOME when set. Takes no arguments and no pipeline input. Writes are not transactional: the file is created outside any rollback.",
+        doc: "Create the config directories and, when config.toml does not yet exist, write the default config file. Returns the text 'Created config file: <path>' or 'Config file already exists: <path>'. The directory comes from IRONSHELL_CONFIG_HOME when set. Takes no arguments and no pipeline input. Writes are not transactional: the file is created outside any rollback.",
         examples: &[
             (r#"(try { config_init("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
@@ -12052,7 +12052,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "config_set", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[req("path", Ty::Str, "a settable config path, such as ai.max_tokens or colors.theme"), req("value", Ty::Any, "a value of the path's type: Bool, String or Int as the path requires")],
         returns: "String",
-        doc: "Set one config value and save the config file, returning 'Config saved: <path> = <value>'. Settable paths: colors.enabled, colors.force, colors.true_color (Bool); colors.theme (String of 1 to 64 letters, digits, '_' or '-'); shell.show_banner, shell.show_tips, shell.vi_mode, shell.auto_cd (Bool); ai.default_model, ai.default_provider (non-blank String of at most 256 bytes, no control characters); ai.max_tokens (Int 1 to 4294967295); ai.streaming (Bool); history.enabled (Bool); history.max_size (Int 1 to 1000000). An unknown path, a value of the wrong type, or one out of range is E_BAD_ARG, and the file is neither read nor written. The change takes effect after config_reload. The file is written under AETHER_CONFIG_HOME when set; a failure to read or write it is E_BAD_STATE. Takes no pipeline input.",
+        doc: "Set one config value and save the config file, returning 'Config saved: <path> = <value>'. Settable paths: colors.enabled, colors.force, colors.true_color (Bool); colors.theme (String of 1 to 64 letters, digits, '_' or '-'); shell.show_banner, shell.show_tips, shell.vi_mode, shell.auto_cd (Bool); ai.default_model, ai.default_provider (non-blank String of at most 256 bytes, no control characters); ai.max_tokens (Int 1 to 4294967295); ai.streaming (Bool); history.enabled (Bool); history.max_size (Int 1 to 1000000). An unknown path, a value of the wrong type, or one out of range is E_BAD_ARG, and the file is neither read nor written. The change takes effect after config_reload. The file is written under IRONSHELL_CONFIG_HOME when set; a failure to read or write it is E_BAD_STATE. Takes no pipeline input.",
         examples: &[
             (r#"(try { config_set("ai.max_tokens", -1) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { config_set("no.such.path", true) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -12094,7 +12094,7 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "String | Null",
         doc: "The README in the working directory.",
         examples: &[
-            (r#"docs_readme()"#, r#"# AetherShell ..."#),
+            (r#"docs_readme()"#, r#"# IronShell ..."#),
         ],
     },
     Signature {
@@ -13149,8 +13149,8 @@ pub static SIGNATURES: &[Signature] = &[
         returns: "Record",
         doc: "Describe the in-process MCP server a config would create. An unknown safety level is refused.",
         examples: &[
-            (r#"mcp_server().server_name"#, r#"aethershell-mcp"#),
-            (r#"mcp_server({max_safety_level: "safe"}).server_name"#, r#"aethershell-mcp"#),
+            (r#"mcp_server().server_name"#, r#"ironshell-mcp"#),
+            (r#"mcp_server({max_safety_level: "safe"}).server_name"#, r#"ironshell-mcp"#),
         ],
     },
     // The MCP builtins beside mcp_server: detection, the tool catalogue, the
@@ -13163,7 +13163,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "The MCP servers answering on the loopback ports AetherShell probes, each with name, endpoint, availability and tool names. An empty array when none answers.",
+        doc: "The MCP servers answering on the loopback ports IronShell probes, each with name, endpoint, availability and tool names. An empty array when none answers.",
         examples: &[
             (r#"(try { mcp_servers(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"typeof(mcp_servers())"#, "Array"),
@@ -13266,7 +13266,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("config", Ty::Record, "{name?, type?, endpoint?, config?}")],
         returns: "Record",
-        doc: "Declare an MCP server from a config record. It starts nothing: the status says so, and the hint names `ae mcp serve`, the server that does run.",
+        doc: "Declare an MCP server from a config record. It starts nothing: the status says so, and the hint names `ish mcp serve`, the server that does run.",
         examples: &[
             (r#"(try { mcp_server_start("fs") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"mcp_server_start({name: "fs"}).status"#, "declared (not started)"),
@@ -13829,7 +13829,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "clipboard_get", category: None, subject_required: false, aliases: &["clipboard"], subject: None,
         params: &[],
         returns: "String",
-        doc: "The clipboard's text. Empty when it holds no text. Text over 8 MiB is E_BUDGET_EXCEEDED rather than cut short. The clipboard can hold passwords and other secrets, and this returns them to the caller. In agent mode it is E_POLICY_DENY, with nothing read, unless AETHER_SECRETS=allow or AETHER_POLICY=permissive is set. A failing tool is E_TOOL_FAILED; a missing one on Linux is E_TOOL_MISSING. Pipeline input and any argument are refused with E_BAD_ARG.",
+        doc: "The clipboard's text. Empty when it holds no text. Text over 8 MiB is E_BUDGET_EXCEEDED rather than cut short. The clipboard can hold passwords and other secrets, and this returns them to the caller. In agent mode it is E_POLICY_DENY, with nothing read, unless IRONSHELL_SECRETS=allow or IRONSHELL_POLICY=permissive is set. A failing tool is E_TOOL_FAILED; a missing one on Linux is E_TOOL_MISSING. Pipeline input and any argument are refused with E_BAD_ARG.",
         examples: &[(r#"(try { clipboard_get(1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { clipboard(1) } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
@@ -13857,7 +13857,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "clipboard_get_image", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[],
         returns: "Record",
-        doc: "Read the image on the clipboard as {mime, bytes, base64}. Windows reads the clipboard through PowerShell and answers PNG. macOS reads the PNG class through osascript and answers PNG. Linux uses X11 through xclip or Wayland through wl-paste, preferring PNG, then JPEG, GIF, BMP and WEBP. No image on the clipboard (including an empty clipboard) is E_NOT_FOUND, never Null. Over 32 MiB is E_BUDGET_EXCEEDED. No DISPLAY and no WAYLAND_DISPLAY is E_NO_UI; xclip or wl-paste absent is E_TOOL_MISSING (xsel cannot carry images). In agent mode it is E_POLICY_DENY, with nothing read, unless AETHER_SECRETS=allow or AETHER_POLICY=permissive is set. Pipeline input and any argument are refused with E_BAD_ARG first.",
+        doc: "Read the image on the clipboard as {mime, bytes, base64}. Windows reads the clipboard through PowerShell and answers PNG. macOS reads the PNG class through osascript and answers PNG. Linux uses X11 through xclip or Wayland through wl-paste, preferring PNG, then JPEG, GIF, BMP and WEBP. No image on the clipboard (including an empty clipboard) is E_NOT_FOUND, never Null. Over 32 MiB is E_BUDGET_EXCEEDED. No DISPLAY and no WAYLAND_DISPLAY is E_NO_UI; xclip or wl-paste absent is E_TOOL_MISSING (xsel cannot carry images). In agent mode it is E_POLICY_DENY, with nothing read, unless IRONSHELL_SECRETS=allow or IRONSHELL_POLICY=permissive is set. Pipeline input and any argument are refused with E_BAD_ARG first.",
         examples: &[(r#"(try { clipboard_get_image(1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { 1 | clipboard_get_image() } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
@@ -13871,7 +13871,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "clipboard_history", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[],
         returns: "Array",
-        doc: "The text entries in the Windows clipboard history, newest first, up to ten. An empty Array when the history is empty or switched off. A failing query is E_TOOL_FAILED. Implemented on Windows only: elsewhere it is E_UNIMPLEMENTED. The history can hold secrets, and this returns them to the caller. In agent mode it is E_POLICY_DENY, with nothing read, unless AETHER_SECRETS=allow or AETHER_POLICY=permissive is set. Pipeline input and any argument are refused with E_BAD_ARG.",
+        doc: "The text entries in the Windows clipboard history, newest first, up to ten. An empty Array when the history is empty or switched off. A failing query is E_TOOL_FAILED. Implemented on Windows only: elsewhere it is E_UNIMPLEMENTED. The history can hold secrets, and this returns them to the caller. In agent mode it is E_POLICY_DENY, with nothing read, unless IRONSHELL_SECRETS=allow or IRONSHELL_POLICY=permissive is set. Pipeline input and any argument are refused with E_BAD_ARG.",
         examples: &[(r#"(try { clipboard_history(1) } catch e { e.error.code })"#, "E_BAD_ARG"), (r#"(try { 1 | clipboard_history() } catch e { e.error.code })"#, "E_BAD_ARG")],
     },
     Signature {
@@ -13915,7 +13915,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "sh", category: None, subject_required: false, aliases: &["shell"], subject: None,
         params: &[req("command", Ty::Any, "a command String split into words as a POSIX shell would (quotes and backslashes honoured; nothing expanded), or an argv Array whose first element is the program and whose other elements are Strings or numbers")],
         returns: "Record",
-        doc: "Run one program directly, never through a shell: no globbing, variables, pipes or redirection. Disabled unless AETHER_ALLOW_SH is true, 1 or yes (E_POLICY_DENY otherwise), and gated as Exec. stdin is closed and the run is killed at a 900 s deadline. Returns {stdout, stderr, success, exit_code, stdout_truncated}; only the tail of each stream is kept. A nonzero exit is in the record, as a shell's $? is, not an error. A missing program is E_TOOL_MISSING. An empty command, unbalanced quotes, a wrong argument type, pipeline input and surplus arguments are refused with E_BAD_ARG before the opt-in is checked.",
+        doc: "Run one program directly, never through a shell: no globbing, variables, pipes or redirection. Disabled unless IRONSHELL_ALLOW_SH is true, 1 or yes (E_POLICY_DENY otherwise), and gated as Exec. stdin is closed and the run is killed at a 900 s deadline. Returns {stdout, stderr, success, exit_code, stdout_truncated}; only the tail of each stream is kept. A nonzero exit is in the record, as a shell's $? is, not an error. A missing program is E_TOOL_MISSING. An empty command, unbalanced quotes, a wrong argument type, pipeline input and surplus arguments are refused with E_BAD_ARG before the opt-in is checked.",
         examples: &[
             (r#"(try { sh([]) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { sh("echo 'open") } catch e { e.error.code })"#, "E_BAD_ARG"),

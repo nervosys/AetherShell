@@ -94,8 +94,8 @@ pub fn complete_with_provider(prompt: &str, model_uri: Option<&str>) -> Result<S
     let uri = if let Some(uri_str) = model_uri {
         ModelUri::parse(uri_str)?
     } else {
-        let aether_ai = std::env::var("AETHER_AI").unwrap_or_else(|_| "openai".to_string());
-        let model_ref = ai::parse_model_ref(&aether_ai);
+        let ironshell_ai = std::env::var("IRONSHELL_AI").unwrap_or_else(|_| "openai".to_string());
+        let model_ref = ai::parse_model_ref(&ironshell_ai);
         model_ref_to_uri(&model_ref)
     };
 
@@ -117,8 +117,8 @@ pub fn chat_with_provider(messages: &[ChatMessage], model_uri: Option<&str>) -> 
     let uri = if let Some(uri_str) = model_uri {
         ModelUri::parse(uri_str)?
     } else {
-        let aether_ai = std::env::var("AETHER_AI").unwrap_or_else(|_| "openai".to_string());
-        let model_ref = ai::parse_model_ref(&aether_ai);
+        let ironshell_ai = std::env::var("IRONSHELL_AI").unwrap_or_else(|_| "openai".to_string());
+        let model_ref = ai::parse_model_ref(&ironshell_ai);
         model_ref_to_uri(&model_ref)
     };
 

@@ -716,7 +716,7 @@ impl ToolSchema {
 }
 
 /// Convert a list of builtins (name, description, json_schema) to provider-formatted tool list.
-/// `name_prefix` is prepended to each tool name (e.g. "aethershell_").
+/// `name_prefix` is prepended to each tool name (e.g. "ironshell_").
 pub fn builtins_to_tools<'a>(
     builtins: impl IntoIterator<Item = (&'a str, &'a str, &'a JsonValue)>,
     format: ToolFormat,

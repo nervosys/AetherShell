@@ -17,8 +17,8 @@
 //! lint may still catch; a false positive would be a broken build, so the evidence
 //! markers stay narrow and the exemptions carry reasons.
 
-use aethershell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
-use aethershell::safety::{effect_of, Effect};
+use iron_shell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
+use iron_shell::safety::{effect_of, Effect};
 use std::collections::{HashMap, HashSet};
 
 /// Every Rust source file in the crate, read at test time.

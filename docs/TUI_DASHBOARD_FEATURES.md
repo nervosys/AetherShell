@@ -2,7 +2,7 @@
 
 ## Overview
 
-The AetherShell TUI now includes comprehensive dashboard features for conversation management, statistics, and analytics. These features provide users with powerful tools to export, search, analyze, and monitor their AI interactions.
+The IronShell TUI now includes comprehensive dashboard features for conversation management, statistics, and analytics. These features provide users with powerful tools to export, search, analyze, and monitor their AI interactions.
 
 ## Features Implemented
 
@@ -485,4 +485,4 @@ When adding new dashboard features:
 
 - [TUI Guide](./TUI_GUIDE.md) - Complete TUI documentation
 - [Ratatui Documentation](https://ratatui.rs/) - Widget reference
-- [AetherShell Spec](../SPEC.md) - Language specification
+- [IronShell Spec](../SPEC.md) - Language specification

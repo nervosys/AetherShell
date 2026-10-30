@@ -1,6 +1,6 @@
-# AetherShell HTML Documentation
+# IronShell HTML Documentation
 
-This directory contains the complete HTML documentation site for AetherShell.
+This directory contains the complete HTML documentation site for IronShell.
 
 ## Pages
 
@@ -114,7 +114,7 @@ Add new pages by:
 
 ## Maintenance
 
-When adding new features to AetherShell:
+When adding new features to IronShell:
 - Update relevant page (syntax, builtins, examples, etc.)
 - Add examples to `examples.html`
 - Update version number in sidebar (`<p class="version">`)
@@ -122,7 +122,7 @@ When adding new features to AetherShell:
 
 ## Credits
 
-Built for AetherShell v1.0.0
+Built for IronShell v1.0.0
 Documentation created: 2025
 Style: Modern gradient purple theme
 Framework: Vanilla HTML5 + CSS3 (no dependencies)

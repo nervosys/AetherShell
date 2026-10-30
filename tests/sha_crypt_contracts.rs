@@ -1,7 +1,7 @@
 //! SHA-crypt ($5$ / $6$) verification through `crypto_password_verify`.
 //! Vectors are from Ulrich Drepper's "Unix crypt using SHA-256 and SHA-512"
 //! (the sha256crypt.c and sha512crypt.c test tables).
-use aethershell::{builtins::call, env::Env, value::Value};
+use iron_shell::{builtins::call, env::Env, value::Value};
 use std::sync::{Mutex, MutexGuard};
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -36,17 +36,17 @@ fn code(password: &str, hash: &str, expected: &str) {
     assert!(err.to_string().contains(expected), "{hash}: {err}");
 }
 
-/// Runs `body` with `AETHER_FIPS` set to `value`, restoring the previous value.
+/// Runs `body` with `IRONSHELL_FIPS` set to `value`, restoring the previous value.
 fn with_fips<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
-    let previous = std::env::var_os("AETHER_FIPS");
+    let previous = std::env::var_os("IRONSHELL_FIPS");
     match value {
-        Some(v) => std::env::set_var("AETHER_FIPS", v),
-        None => std::env::remove_var("AETHER_FIPS"),
+        Some(v) => std::env::set_var("IRONSHELL_FIPS", v),
+        None => std::env::remove_var("IRONSHELL_FIPS"),
     }
     let out = body();
     match previous {
-        Some(v) => std::env::set_var("AETHER_FIPS", v),
-        None => std::env::remove_var("AETHER_FIPS"),
+        Some(v) => std::env::set_var("IRONSHELL_FIPS", v),
+        None => std::env::remove_var("IRONSHELL_FIPS"),
     }
     out
 }
@@ -174,7 +174,7 @@ fn wrong_password_is_false_not_an_error() {
 #[test]
 fn sha_crypt_is_refused_when_fips_is_on() {
     // SHA-crypt uses SHA-2 but is not an approved password-hashing construction;
-    // under AETHER_FIPS only PBKDF2 is, as with the legacy hex and Argon2 forms.
+    // under IRONSHELL_FIPS only PBKDF2 is, as with the legacy hex and Argon2 forms.
     // The refusal does not depend on whether the password matches.
     let _lock = lock();
     with_fips(Some("1"), || {

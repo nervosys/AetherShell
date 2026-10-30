@@ -11,9 +11,9 @@ use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -40,12 +40,12 @@ fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<S
     })
 }
 
-/// Runs `ae -c <expr>`. `piped` is written to stdin and then closed; `None`
+/// Runs `ish -c <expr>`. `piped` is written to stdin and then closed; `None`
 /// gives stdin at end of input, which is never a terminal.
 fn run_ae(expr: &str, piped: Option<&[u8]>, tag: &str) -> Run {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ae"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ish"))
         .args(["-c", expr])
-        .env("AETHER_SESSION_DIR", session_dir(tag))
+        .env("IRONSHELL_SESSION_DIR", session_dir(tag))
         .stdin(if piped.is_some() {
             Stdio::piped()
         } else {

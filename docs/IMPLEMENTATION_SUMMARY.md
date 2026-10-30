@@ -72,46 +72,46 @@
 
 ### 3. ✅ Match Statement
 - **Status**: Already fully implemented, no changes needed
-- **Verification**: `04_match.ae` passes successfully
+- **Verification**: `04_match.ish` passes successfully
 - **Note**: Parser, evaluator, and pattern matching all working correctly
 
 ## Test Results Details
 
 ### ✅ Passing Examples (11)
 
-1. **00_hello.ae** - Basic hello world ✅
-2. **01_pipelines.ae** - Array pipelines with map/reduce ✅
-3. **02_tables.ae** - Table operations with filtering ✅
-4. **03_http.ae** - HTTP GET requests ✅
-5. **04_match.ae** - Pattern matching with guards ✅
-6. **05_ai.ae** - File reading and type checking ✅
-7. **06_agent.ae** - AI agent execution ✅
-8. **07_uri_types.ae** - URI type checking ✅
-9. **17_syntax_showcase.ae** - Core language features ✅
-10. **18_mutable_variables.ae** - Mutable variable patterns ✅
-11. **19_showcase.ae** - Pipeline showcase ✅
+1. **00_hello.ish** - Basic hello world ✅
+2. **01_pipelines.ish** - Array pipelines with map/reduce ✅
+3. **02_tables.ish** - Table operations with filtering ✅
+4. **03_http.ish** - HTTP GET requests ✅
+5. **04_match.ish** - Pattern matching with guards ✅
+6. **05_ai.ish** - File reading and type checking ✅
+7. **06_agent.ish** - AI agent execution ✅
+8. **07_uri_types.ish** - URI type checking ✅
+9. **17_syntax_showcase.ish** - Core language features ✅
+10. **18_mutable_variables.ish** - Mutable variable patterns ✅
+11. **19_showcase.ish** - Pipeline showcase ✅
 
 ### ❌ Failing Examples (5)
 
 All failing examples are in the advanced multi-agent category (12-16) and use syntax features not yet fully implemented:
 
-1. **12_multi_agent_orchestration.ae**
+1. **12_multi_agent_orchestration.ish**
    - Error: `unexpected token If`
    - Issue: Guard expressions in certain contexts
 
-2. **13_multimodal_ai.ae**
+2. **13_multimodal_ai.ish**
    - Error: `expected ')' after arguments`
    - Issue: Complex function call syntax
 
-3. **14_typed_pipelines.ae**
+3. **14_typed_pipelines.ish**
    - Error: `expected ':' after key`
    - Issue: Record literal syntax edge cases
 
-4. **15_ai_protocols.ae**
+4. **15_ai_protocols.ish**
    - Error: `expected ':' after key`
    - Issue: Record literal syntax edge cases
 
-5. **16_mcp_servers.ae**
+5. **16_mcp_servers.ish**
    - Error: `expected ':' after key`
    - Issue: Record literal syntax edge cases
 
@@ -120,13 +120,13 @@ All failing examples are in the advanced multi-agent category (12-16) and use sy
 These require interactive TUI mode or are Bash scripts:
 
 - 08_transpiler.bash - Bash script for transpiler demo
-- 09_tui_multimodal.ae - TUI multimodal interface
-- 10_tui_agent_swarm.ae - TUI agent swarm visualization
-- 11_tui_showcase.ae - TUI feature showcase
-- 20_tui_a2a.ae - TUI A2A protocol demo
-- 21_tui_chat.ae - TUI chat interface
-- 22_tui_mcp.ae - TUI MCP integration
-- 23_tui_nanda.ae - TUI NANDA protocol
+- 09_tui_multimodal.ish - TUI multimodal interface
+- 10_tui_agent_swarm.ish - TUI agent swarm visualization
+- 11_tui_showcase.ish - TUI feature showcase
+- 20_tui_a2a.ish - TUI A2A protocol demo
+- 21_tui_chat.ish - TUI chat interface
+- 22_tui_mcp.ish - TUI MCP integration
+- 23_tui_nanda.ish - TUI NANDA protocol
 
 ## Code Statistics
 
@@ -140,23 +140,23 @@ These require interactive TUI mode or are Bash scripts:
 
 ### Files Modified
 - `src/builtins.rs` - Added 4 new functions + 1 alias
-- `examples/01_pipelines.ae` - Fixed pipeline syntax
-- `examples/02_tables.ae` - Simplified to use existing functions
-- `examples/03_http.ae` - Simplified to avoid dot notation
-- `examples/05_ai.ae` - Changed to demonstrate new builtins
-- `examples/12_multi_agent_orchestration.ae` - Fixed comment syntax
-- `examples/13_multimodal_ai.ae` - Fixed comment syntax
-- `examples/14_typed_pipelines.ae` - Fixed comment syntax
-- `examples/15_ai_protocols.ae` - Fixed comment syntax
-- `examples/16_mcp_servers.ae` - Fixed comment syntax
-- `examples/19_showcase.ae` - Fixed pipeline syntax
+- `examples/01_pipelines.ish` - Fixed pipeline syntax
+- `examples/02_tables.ish` - Simplified to use existing functions
+- `examples/03_http.ish` - Simplified to avoid dot notation
+- `examples/05_ai.ish` - Changed to demonstrate new builtins
+- `examples/12_multi_agent_orchestration.ish` - Fixed comment syntax
+- `examples/13_multimodal_ai.ish` - Fixed comment syntax
+- `examples/14_typed_pipelines.ish` - Fixed comment syntax
+- `examples/15_ai_protocols.ish` - Fixed comment syntax
+- `examples/16_mcp_servers.ish` - Fixed comment syntax
+- `examples/19_showcase.ish` - Fixed pipeline syntax
 
 ## Build Status
 
 ✅ **Clean Build**: Zero errors, zero warnings
 ```
 cargo build --release
-   Compiling aethershell v0.1.0
+   Compiling ironshell v0.1.0
     Finished release [optimized] target(s)
 ```
 
@@ -214,10 +214,10 @@ These examples require more complex parser enhancements:
 
 ### Test Command
 ```powershell
-Get-ChildItem examples\*.ae | 
+Get-ChildItem examples\*.ish | 
     Where-Object { $_.Name -notmatch '^(08|09|10|11|20|21|22|23)_' } |
     ForEach-Object {
-        .\target\release\ae.exe $_.FullName
+        .\target\release\ish.exe $_.FullName
     }
 ```
 

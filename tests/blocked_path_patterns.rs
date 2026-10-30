@@ -29,7 +29,7 @@
 //! and one that is wrong in the restrictive direction is a usability defect;
 //! the same line of code produced both, which is why this file asserts both.
 
-use aethershell::security::validate_read_path;
+use iron_shell::security::validate_read_path;
 use std::fs;
 use std::path::{Path, PathBuf};
 

@@ -5,13 +5,13 @@
 //! is the registry that indexes the whole stack, and is a different thing from
 //! the three this module talks to.
 //!
-//! AetherShell is a *frontend*. It does not decide which model serves a
+//! IronShell is a *frontend*. It does not decide which model serves a
 //! request, it does not run inference, and it does not own where weights live.
 //! Those three jobs belong to three other projects, and this module is the one
 //! place that knows how to reach them:
 //!
 //! ```text
-//!   AetherShell ──▶ IronGate ──▶ IronWorks ──▶ IronVault
+//!   IronShell ──▶ IronGate ──▶ IronWorks ──▶ IronVault
 //!    (frontend)     (routing)   (inference)   (model store)
 //!         └──────────────────────────────────────┘
 //!                  model store / conversion
@@ -19,27 +19,27 @@
 //!
 //! Two edges, deliberately:
 //!
-//! * **Inference → IronGate only.** AetherShell never addresses IronWorks
+//! * **Inference → IronGate only.** IronShell never addresses IronWorks
 //!   directly. Which backend serves a prompt is a routing decision, and routing
 //!   is what the gateway is for; a frontend that reaches past it re-implements
 //!   the escalation ladder, the budget ceiling and the circuit breaker badly.
 //!   The gateway in turn reaches IronWorks, and IronWorks reaches IronVault —
-//!   neither of those hops is AetherShell's business.
+//!   neither of those hops is IronShell's business.
 //!
 //! * **Model store → IronVault directly.** Managing local weights is not
 //!   inference traffic, so it does not belong on the gateway path. IronGate is
 //!   explicit that it never talks to IronVault: where the weights live is the
-//!   inference engine's concern. AetherShell's own model-management surface is
+//!   inference engine's concern. IronShell's own model-management surface is
 //!   a *sibling* of IronWorks here, not a client of it.
 //!
 //! ## Why the vault is reached through its CLI rather than its crate
 //!
-//! `ironvault` declares `rust-version = "1.89"`; AetherShell declares 1.88.
+//! `ironvault` declares `rust-version = "1.89"`; IronShell declares 1.88.
 //! Taking the crate as a dependency would raise this project's MSRV for every
 //! user, including those who never touch a model file — and it would pull a
 //! second AES/Argon2/tokio stack into a shell binary. The `iv` binary exposes
 //! the same capabilities with `--format json`, so the CLI is the cheaper edge.
-//! Revisit if AetherShell's own MSRV ever reaches 1.89.
+//! Revisit if IronShell's own MSRV ever reaches 1.89.
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value as Json;
@@ -131,7 +131,7 @@ pub fn gate_health() -> Result<GateHealth> {
 /// Per-target circuit state from `GET /status`.
 ///
 /// This is how an operator sees whether the local leg of the stack — the
-/// IronWorks target behind the gateway — is actually serving. AetherShell
+/// IronWorks target behind the gateway — is actually serving. IronShell
 /// reports it; it does not act on it.
 pub fn gate_status() -> Result<Json> {
     let url = format!("{}/status", gate_root());

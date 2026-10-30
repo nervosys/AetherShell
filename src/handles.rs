@@ -21,7 +21,7 @@
 //!   the result — the failure mode that makes silent truncation dangerous.
 //! * **Human output is untouched.** This is reached from `render_agent` only.
 //! * **They survive the process.** They have to: the Python SDK runs
-//!   `ae -e <code>` per call, a fresh process each time, so an in-memory handle
+//!   `ish -e <code>` per call, a fresh process each time, so an in-memory handle
 //!   would be unresolvable by the very next call — the feature would be broken
 //!   for its main consumer. Handles are written to a session directory keyed by
 //!   workspace, and read back on demand.
@@ -33,22 +33,22 @@ use std::sync::Mutex;
 
 /// Where a session's handles live.
 ///
-/// `AETHER_SESSION_DIR` overrides. Otherwise the directory is keyed by
-/// `AETHER_SESSION`, falling back to a digest of the working directory, so two
+/// `IRONSHELL_SESSION_DIR` overrides. Otherwise the directory is keyed by
+/// `IRONSHELL_SESSION`, falling back to a digest of the working directory, so two
 /// projects do not share handles while successive calls in one project do.
 /// Returns `None` when no cache directory can be determined, in which case
 /// handles degrade to memory-only rather than failing.
 fn session_dir() -> Option<PathBuf> {
-    if let Ok(d) = std::env::var("AETHER_SESSION_DIR") {
+    if let Ok(d) = std::env::var("IRONSHELL_SESSION_DIR") {
         return Some(PathBuf::from(d));
     }
-    let key = std::env::var("AETHER_SESSION").ok().unwrap_or_else(|| {
+    let key = std::env::var("IRONSHELL_SESSION").ok().unwrap_or_else(|| {
         let cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
         format!("{:x}", md5::compute(cwd.as_bytes()))
     });
-    dirs::cache_dir().map(|c| c.join("aethershell").join("handles").join(key))
+    dirs::cache_dir().map(|c| c.join("ironshell").join("handles").join(key))
 }
 
 /// Persist one handle. Failure is deliberately silent: a handle that cannot be
@@ -102,7 +102,7 @@ fn persisted_ids() -> Vec<String> {
 }
 
 /// Rendered bytes above which a result is handled rather than sent whole.
-/// `AETHER_HANDLE_BYTES=0` disables handling entirely and restores whole-result
+/// `IRONSHELL_HANDLE_BYTES=0` disables handling entirely and restores whole-result
 /// rendering.
 const DEFAULT_THRESHOLD_BYTES: usize = 2048;
 
@@ -127,7 +127,7 @@ lazy_static::lazy_static! {
 
 /// The byte threshold in force. `0` means handles are disabled.
 pub fn threshold_bytes() -> usize {
-    match std::env::var("AETHER_HANDLE_BYTES") {
+    match std::env::var("IRONSHELL_HANDLE_BYTES") {
         Ok(v) => v.trim().parse().unwrap_or(DEFAULT_THRESHOLD_BYTES),
         Err(_) => DEFAULT_THRESHOLD_BYTES,
     }
@@ -160,7 +160,7 @@ pub const MAX_HANDLES: usize = 4096;
 /// Store a value and return its handle id.
 ///
 /// The id continues the session's numbering rather than this process's, so two
-/// consecutive `ae -e` calls do not both mint `h1` and have the second silently
+/// consecutive `ish -e` calls do not both mint `h1` and have the second silently
 /// overwrite the first.
 ///
 /// Refused with `E_BUDGET_EXCEEDED` once the session holds `MAX_HANDLES`. An
@@ -285,7 +285,7 @@ mod tests {
     use super::*;
 
     /// Serialises every test that touches the process-global `STORE` or the
-    /// `AETHER_HANDLE_BYTES` env var.
+    /// `IRONSHELL_HANDLE_BYTES` env var.
     ///
     /// `put` derives the next id from `store.len()`, so two tests that each
     /// `clear()` then `put()` both mint `h1`. That is not theoretical: CI's
@@ -393,8 +393,8 @@ mod tests {
         // Point the store at a scratch directory so the test does not write
         // into the real session cache, and restore the caller's setting after.
         let dir = std::env::temp_dir().join(format!("ae-handles-cap-{}", std::process::id()));
-        let previous = std::env::var_os("AETHER_SESSION_DIR");
-        std::env::set_var("AETHER_SESSION_DIR", &dir);
+        let previous = std::env::var_os("IRONSHELL_SESSION_DIR");
+        std::env::set_var("IRONSHELL_SESSION_DIR", &dir);
         clear();
 
         let kept: Vec<String> = (0..3)
@@ -409,8 +409,8 @@ mod tests {
 
         clear();
         match previous {
-            Some(v) => std::env::set_var("AETHER_SESSION_DIR", v),
-            None => std::env::remove_var("AETHER_SESSION_DIR"),
+            Some(v) => std::env::set_var("IRONSHELL_SESSION_DIR", v),
+            None => std::env::remove_var("IRONSHELL_SESSION_DIR"),
         }
         let _ = std::fs::remove_dir_all(&dir);
 
@@ -428,8 +428,8 @@ mod tests {
         let _guard = store_lock();
         // The escape hatch must actually work, or a user who dislikes handles
         // has no way back to whole results.
-        std::env::set_var("AETHER_HANDLE_BYTES", "0");
+        std::env::set_var("IRONSHELL_HANDLE_BYTES", "0");
         assert!(!worth_handling(&big_array(1000), 1_000_000));
-        std::env::remove_var("AETHER_HANDLE_BYTES");
+        std::env::remove_var("IRONSHELL_HANDLE_BYTES");
     }
 }

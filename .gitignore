@@ -11,16 +11,16 @@ infra/
 .env.*
 # Agent-mode runtime artifacts: hash-chained audit log, transaction journals
 # (backups), and any locally-created rbac config / secrets under the workspace.
-.ae/
+.ironshell/
 
 # Temporary files
 temp/
 *.tmp
 *.log
 # Scratch test scripts at the repository root only. Unanchored, this pattern
-# also swallowed examples/99_comprehensive_test.ae — a numbered example that
+# also swallowed examples/99_comprehensive_test.ish — a numbered example that
 # therefore shipped to nobody, and that no CI run ever executed.
-/*_test.ae
+/*_test.ish
 launch_test.*
 security_audit_report.json
 

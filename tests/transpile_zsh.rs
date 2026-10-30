@@ -1,4 +1,4 @@
-use aethershell::transpile::zsh::transpile_zsh_to_ae;
+use iron_shell::transpile::zsh::transpile_zsh_to_ae;
 
 /// Remove all ASCII whitespace to make tests resilient to formatting.
 fn strip_ws(s: &str) -> String {

@@ -5,13 +5,13 @@
 
 ## Summary
 
-AetherShell now supports declaring mutable variables without the `let` keyword, using just `mut`. This makes mutable declarations more concise and consistent with the simplified immutable syntax.
+IronShell now supports declaring mutable variables without the `let` keyword, using just `mut`. This makes mutable declarations more concise and consistent with the simplified immutable syntax.
 
 ## New Syntax Options
 
 ### ✅ Recommended: mut with =
 
-```ae
+```ish
 mut counter = 0
 counter = counter + 1
 ```
@@ -23,7 +23,7 @@ counter = counter + 1
 
 ### Also Supported: mut with :=
 
-```ae
+```ish
 mut total := 100
 total = total - 25
 ```
@@ -34,7 +34,7 @@ total = total - 25
 
 ### Traditional: let mut
 
-```ae
+```ish
 let mut score = 50
 score = score * 2
 ```
@@ -58,7 +58,7 @@ score = score * 2
 
 ### Counter Pattern
 
-```ae
+```ish
 // Before (required let mut)
 let mut counter = 0
 counter = counter + 1
@@ -74,7 +74,7 @@ print(counter)  // 6
 
 ### Accumulator Pattern
 
-```ae
+```ish
 mut sum = 0
 mut product = 1
 
@@ -89,7 +89,7 @@ print("Product: ${product}") // Product: 120
 
 ### State Management
 
-```ae
+```ish
 mut state = "idle"
 mut retries = 0
 
@@ -102,7 +102,7 @@ while retries < 3 {
 
 ### Multiple Types
 
-```ae
+```ish
 // Integers
 mut count = 0
 count = count + 1
@@ -189,7 +189,7 @@ Hindley-Milner type inference works identically for all mutable syntaxes. Mutabi
 
 ### Before Enhancement
 
-```ae
+```ish
 // Only way to declare mutable variables
 let mut counter = 0
 let mut total = 100
@@ -203,7 +203,7 @@ let mut active = true
 
 ### After Enhancement
 
-```ae
+```ish
 // Cleaner mutable declarations
 mut counter = 0
 mut total = 100
@@ -220,7 +220,7 @@ mut active = true
 
 **No migration required!** All three mutable syntaxes work together:
 
-```ae
+```ish
 // Mix freely in the same file
 mut x = 10          // New style
 let mut y = 20      // Traditional
@@ -238,7 +238,7 @@ z = z + 1
 
 ### Test File Created
 
-`temp/test_mut_complete.ae` - Comprehensive test of all mutable syntaxes
+`temp/test_mut_complete.ish` - Comprehensive test of all mutable syntaxes
 
 **Test Results:**
 ```
@@ -275,7 +275,7 @@ After *2: 100
 | `docs/specs/SPEC.md`            | Updated bindings section  | ~8    |
 | `docs/VARIABLE_SYNTAX_GUIDE.md` | Updated comparison table  | ~20   |
 | `docs/dev-notes/MUT_SYNTAX.md`  | This documentation        | +250  |
-| `temp/test_mut_complete.ae`     | Test file                 | +47   |
+| `temp/test_mut_complete.ish`     | Test file                 | +47   |
 
 ## Benefits Summary
 

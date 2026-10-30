@@ -1,4 +1,4 @@
-// Smoke tests for AetherShell examples
+// Smoke tests for IronShell examples
 // These tests run example files and verify they execute without errors
 
 use std::path::Path;
@@ -7,10 +7,10 @@ use std::process::Command;
 fn run_example(name: &str) -> Result<String, String> {
     // Cargo hands integration tests the exact path of the binary it just built,
     // including the platform's executable suffix. The previous hard-coded
-    // "target/debug/ae.exe" meant every test in this file failed on Linux and
-    // macOS — the binary there is named `ae` — and also broke under
+    // "target/debug/ish.exe" meant every test in this file failed on Linux and
+    // macOS — the binary there is named `ish` — and also broke under
     // `--release` or a custom CARGO_TARGET_DIR.
-    let ae_exe = env!("CARGO_BIN_EXE_ae");
+    let ae_exe = env!("CARGO_BIN_EXE_ish");
 
     let example_path = format!("examples/{}", name);
 
@@ -22,7 +22,7 @@ fn run_example(name: &str) -> Result<String, String> {
     let output = Command::new(ae_exe)
         .arg(&example_path)
         .output()
-        .map_err(|e| format!("Failed to execute ae: {}", e))?;
+        .map_err(|e| format!("Failed to execute ish: {}", e))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -42,7 +42,7 @@ fn run_example(name: &str) -> Result<String, String> {
 
 #[test]
 fn test_example_00_hello() {
-    let output = run_example("00_hello.ae").expect("00_hello.ae should run successfully");
+    let output = run_example("00_hello.ish").expect("00_hello.ish should run successfully");
 
     assert!(output.contains("Hello, Æther!"), "Should print greeting");
     assert!(output.contains("Hi, world!"), "Should interpolate string");
@@ -50,7 +50,7 @@ fn test_example_00_hello() {
 
 #[test]
 fn test_example_04_match() {
-    let output = run_example("04_match.ae").expect("04_match.ae should run successfully");
+    let output = run_example("04_match.ish").expect("04_match.ish should run successfully");
 
     assert!(
         output.contains("big: 42"),
@@ -60,11 +60,11 @@ fn test_example_04_match() {
 
 #[test]
 fn test_example_17_syntax_showcase() {
-    let output = run_example("17_syntax_showcase.ae")
-        .expect("17_syntax_showcase.ae should run successfully");
+    let output = run_example("17_syntax_showcase.ish")
+        .expect("17_syntax_showcase.ish should run successfully");
 
     assert!(
-        output.contains("Welcome to AetherShell"),
+        output.contains("Welcome to IronShell"),
         "Should print welcome"
     );
     assert!(
@@ -75,8 +75,8 @@ fn test_example_17_syntax_showcase() {
 
 #[test]
 fn test_example_18_mutable_variables() {
-    let output = run_example("18_mutable_variables.ae")
-        .expect("18_mutable_variables.ae should run successfully");
+    let output = run_example("18_mutable_variables.ish")
+        .expect("18_mutable_variables.ish should run successfully");
 
     assert!(
         output.contains("counter=10"),
@@ -93,7 +93,7 @@ fn test_example_18_mutable_variables() {
 #[test]
 fn test_example_02_tables() {
     // Dot notation works now, but some builtins missing (group_by, agg)
-    let result = run_example("02_tables.ae");
+    let result = run_example("02_tables.ish");
 
     match result {
         Ok(output) => {
@@ -132,7 +132,7 @@ fn test_example_02_tables() {
 
 #[test]
 fn test_example_01_pipelines() {
-    run_example("01_pipelines.ae").expect("01_pipelines.ae should work after parser fix");
+    run_example("01_pipelines.ish").expect("01_pipelines.ish should work after parser fix");
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn test_example_01_pipelines() {
 fn test_example_03_http() {
     // Fetches https://api.github.com over the network: it passes on a
     // connected machine and fails on an isolated runner.
-    run_example("03_http.ae").expect("03_http.ae should work with HTTP builtins");
+    run_example("03_http.ish").expect("03_http.ish should work with HTTP builtins");
 }
 
 #[test]
@@ -148,73 +148,73 @@ fn test_example_03_http() {
 fn test_example_05_ai() {
     // Calls ai("What is 2+2?"), which needs a configured backend
     // (OPENAI_API_KEY, or a local Ollama).
-    run_example("05_ai.ae").expect("05_ai.ae should work with AI configuration");
+    run_example("05_ai.ish").expect("05_ai.ish should work with AI configuration");
 }
 
 #[test]
 fn test_example_06_agent() {
-    run_example("06_agent.ae").expect("06_agent.ae should work with agent configuration");
+    run_example("06_agent.ish").expect("06_agent.ish should work with agent configuration");
 }
 
 #[test]
 fn test_example_07_uri_types() {
-    run_example("07_uri_types.ae").expect("07_uri_types.ae should work with AI");
+    run_example("07_uri_types.ish").expect("07_uri_types.ish should work with AI");
 }
 
 #[test]
 fn test_example_09_tui_multimodal() {
-    run_example("09_tui_multimodal.ae").expect("09_tui_multimodal.ae should work in TUI mode");
+    run_example("09_tui_multimodal.ish").expect("09_tui_multimodal.ish should work in TUI mode");
 }
 
 #[test]
 fn test_example_10_tui_agent_swarm() {
-    run_example("10_tui_agent_swarm.ae").expect("10_tui_agent_swarm.ae should work in TUI mode");
+    run_example("10_tui_agent_swarm.ish").expect("10_tui_agent_swarm.ish should work in TUI mode");
 }
 
 #[test]
 fn test_example_11_tui_showcase() {
-    run_example("11_tui_showcase.ae").expect("11_tui_showcase.ae should work in TUI mode");
+    run_example("11_tui_showcase.ish").expect("11_tui_showcase.ish should work in TUI mode");
 }
 
 #[test]
 fn test_example_12_multi_agent_orchestration() {
-    run_example("12_multi_agent_orchestration.ae")
-        .expect("12_multi_agent_orchestration.ae should work with AI");
+    run_example("12_multi_agent_orchestration.ish")
+        .expect("12_multi_agent_orchestration.ish should work with AI");
 }
 
 #[test]
 fn test_example_13_multimodal_ai() {
-    run_example("13_multimodal_ai.ae").expect("13_multimodal_ai.ae should work with multimodal AI");
+    run_example("13_multimodal_ai.ish").expect("13_multimodal_ai.ish should work with multimodal AI");
 }
 
 #[test]
 fn test_example_14_typed_pipelines() {
-    run_example("14_typed_pipelines.ae").expect("14_typed_pipelines.ae should work");
+    run_example("14_typed_pipelines.ish").expect("14_typed_pipelines.ish should work");
 }
 
 #[test]
 fn test_example_15_ai_protocols() {
-    run_example("15_ai_protocols.ae").expect("15_ai_protocols.ae should work with AI");
+    run_example("15_ai_protocols.ish").expect("15_ai_protocols.ish should work with AI");
 }
 
 #[test]
 fn test_example_16_mcp_servers() {
-    run_example("16_mcp_servers.ae").expect("16_mcp_servers.ae should work with MCP");
+    run_example("16_mcp_servers.ish").expect("16_mcp_servers.ish should work with MCP");
 }
 
 #[test]
 fn test_example_19_showcase() {
-    run_example("19_showcase.ae").expect("19_showcase.ae should run successfully");
+    run_example("19_showcase.ish").expect("19_showcase.ish should run successfully");
 }
 
 #[test]
 fn test_example_20_tui_a2a() {
-    run_example("20_tui_a2a.ae").expect("20_tui_a2a.ae should work in TUI mode");
+    run_example("20_tui_a2a.ish").expect("20_tui_a2a.ish should work in TUI mode");
 }
 
 #[test]
 fn test_example_21_tui_chat() {
-    run_example("21_tui_chat.ae").expect("21_tui_chat.ae should work in TUI mode");
+    run_example("21_tui_chat.ish").expect("21_tui_chat.ish should work in TUI mode");
 }
 
 #[test]
@@ -222,10 +222,10 @@ fn test_example_21_tui_chat() {
 fn test_example_22_tui_mcp() {
     // Starts and detects MCP servers, so it depends on what is
     // installed and listening on the machine.
-    run_example("22_tui_mcp.ae").expect("22_tui_mcp.ae should work in TUI mode");
+    run_example("22_tui_mcp.ish").expect("22_tui_mcp.ish should work in TUI mode");
 }
 
 #[test]
 fn test_example_23_tui_nanda() {
-    run_example("23_tui_nanda.ae").expect("23_tui_nanda.ae should work in TUI mode");
+    run_example("23_tui_nanda.ish").expect("23_tui_nanda.ish should work in TUI mode");
 }

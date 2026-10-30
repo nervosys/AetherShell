@@ -77,7 +77,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-text">Dashboard</h1>
-                    <p className="text-subtext0 mt-1">Monitor your AetherShell infrastructure</p>
+                    <p className="text-subtext0 mt-1">Monitor your IronShell infrastructure</p>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-subtext0">
                     <Clock size={16} />

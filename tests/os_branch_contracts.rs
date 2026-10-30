@@ -13,9 +13,9 @@
 //! Nothing here changes system state. svc, cron and startup are read-only
 //! queries; no service, task or crontab entry is created.
 
-use aethershell::builtins::call;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 #[cfg(unix)]
 use std::process::Command;

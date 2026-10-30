@@ -1,6 +1,6 @@
 //! The Agent API must not execute code for an unauthenticated caller.
 //!
-//! `POST /api/v1/eval` evaluates arbitrary AetherShell code, which can spawn
+//! `POST /api/v1/eval` evaluates arbitrary IronShell code, which can spawn
 //! processes. Until 2026-07-30 the server applied no authentication to any
 //! route, and — with CORS on by default — answered
 //! `allow_origin(Any) / allow_methods(Any) / allow_headers(Any)`. Any web page
@@ -13,7 +13,7 @@
 
 #![cfg(feature = "native")]
 
-use aethershell::agent_api::server::{start_agent_api_server, AgentApiConfig};
+use iron_shell::agent_api::server::{start_agent_api_server, AgentApiConfig};
 
 /// Bind an ephemeral port, start the server on it, and wait for it to accept.
 async fn serve(token: &str) -> u16 {
@@ -55,7 +55,7 @@ async fn serve_with_timeout(token: &str, request_timeout_secs: u64) -> u16 {
 /// reqwest is built without a crypto provider of its own, so a client needs
 /// IronCrypto's installed first, as every client in the crate does.
 fn client() -> reqwest::Client {
-    aethershell::tls::install_provider();
+    iron_shell::tls::install_provider();
     reqwest::Client::new()
 }
 

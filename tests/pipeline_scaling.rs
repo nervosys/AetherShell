@@ -23,8 +23,8 @@
 //! It took running the shell against 500 real records, next to `jq` doing the
 //! same job in 1 ms, for the gap to become a number.
 
-use aethershell::env::Env;
-use aethershell::{eval::eval_program, parser::parse_program, value::Value};
+use iron_shell::env::Env;
+use iron_shell::{eval::eval_program, parser::parse_program, value::Value};
 use std::time::{Duration, Instant};
 
 fn run(src: &str) -> Value {

@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 
 /**
- * AetherShell Code Runner
- * Runs AetherShell code in an integrated terminal or captures output
+ * IronShell Code Runner
+ * Runs IronShell code in an integrated terminal or captures output
  */
-export class AetherShellRunner {
+export class IronShellRunner {
     private terminal: vscode.Terminal | undefined;
     private outputChannel: vscode.OutputChannel;
 
@@ -13,7 +13,7 @@ export class AetherShellRunner {
     }
 
     /**
-     * Get or create the AetherShell terminal
+     * Get or create the IronShell terminal
      */
     private getTerminal(): vscode.Terminal {
         // Check if terminal is still alive
@@ -23,11 +23,11 @@ export class AetherShellRunner {
 
         // Create new terminal
         this.terminal = vscode.window.createTerminal({
-            name: 'AetherShell',
-            shellPath: this.getAetherShellPath(),
+            name: 'IronShell',
+            shellPath: this.getIronShellPath(),
             shellArgs: [],
             env: {
-                AETHER_SHELL_MODE: 'vscode'
+                IRONSHELL_SHELL_MODE: 'vscode'
             }
         });
 
@@ -35,26 +35,26 @@ export class AetherShellRunner {
     }
 
     /**
-     * Find the AetherShell executable path
+     * Find the IronShell executable path
      */
-    private getAetherShellPath(): string {
-        const config = vscode.workspace.getConfiguration('aethershell');
+    private getIronShellPath(): string {
+        const config = vscode.workspace.getConfiguration('ironshell');
         const customPath = config.get<string>('executable.path', '');
 
         if (customPath) {
             return customPath;
         }
 
-        // Default to 'ae' in PATH
-        return process.platform === 'win32' ? 'ae.exe' : 'ae';
+        // Default to 'ish' in PATH
+        return process.platform === 'win32' ? 'ish.exe' : 'ish';
     }
 
     /**
      * Run the current file
      */
     async runFile(document: vscode.TextDocument): Promise<void> {
-        if (document.languageId !== 'aethershell') {
-            vscode.window.showWarningMessage('Not an AetherShell file');
+        if (document.languageId !== 'ironshell') {
+            vscode.window.showWarningMessage('Not an IronShell file');
             return;
         }
 
@@ -67,7 +67,7 @@ export class AetherShellRunner {
         terminal.show();
         terminal.sendText(`# Running: ${document.fileName}`);
 
-        const aePath = this.getAetherShellPath();
+        const aePath = this.getIronShellPath();
         terminal.sendText(`${aePath} "${document.fileName}"`);
     }
 
@@ -76,8 +76,8 @@ export class AetherShellRunner {
      */
     async runSelection(editor: vscode.TextEditor): Promise<void> {
         const document = editor.document;
-        if (document.languageId !== 'aethershell') {
-            vscode.window.showWarningMessage('Not an AetherShell file');
+        if (document.languageId !== 'ironshell') {
+            vscode.window.showWarningMessage('Not an IronShell file');
             return;
         }
 
@@ -108,7 +108,7 @@ export class AetherShellRunner {
         // (`#[arg(long, short = 'c')]`) and against the published binary.
         if (code.includes('\n')) {
             const escapedCode = code.replace(/"/g, '\\"');
-            terminal.sendText(`${this.getAetherShellPath()} -c "${escapedCode}"`);
+            terminal.sendText(`${this.getIronShellPath()} -c "${escapedCode}"`);
         } else {
             terminal.sendText(code);
         }
@@ -127,8 +127,8 @@ export class AetherShellRunner {
      */
     startTui(): void {
         const terminal = vscode.window.createTerminal({
-            name: 'AetherShell TUI',
-            shellPath: this.getAetherShellPath(),
+            name: 'IronShell TUI',
+            shellPath: this.getIronShellPath(),
             // `tui` is a subcommand, not a flag. This read ['--tui'], which
             // ae rejects with "unexpected argument '--tui' found", so the
             // Open TUI command opened a terminal that immediately errored.
@@ -154,12 +154,12 @@ export class AetherShellRunner {
 export function registerRunnerCommands(
     context: vscode.ExtensionContext,
     outputChannel: vscode.OutputChannel
-): AetherShellRunner {
-    const runner = new AetherShellRunner(outputChannel);
+): IronShellRunner {
+    const runner = new IronShellRunner(outputChannel);
 
     // Run current file
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.runFile', async () => {
+        vscode.commands.registerCommand('ironshell.runFile', async () => {
             const editor = vscode.window.activeTextEditor;
             if (editor) {
                 await runner.runFile(editor.document);
@@ -169,7 +169,7 @@ export function registerRunnerCommands(
 
     // Run selection or line
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.runSelection', async () => {
+        vscode.commands.registerCommand('ironshell.runSelection', async () => {
             const editor = vscode.window.activeTextEditor;
             if (editor) {
                 await runner.runSelection(editor);
@@ -179,14 +179,14 @@ export function registerRunnerCommands(
 
     // Start REPL
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.startRepl', () => {
+        vscode.commands.registerCommand('ironshell.startRepl', () => {
             runner.startRepl();
         })
     );
 
     // Start TUI
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.startTui', () => {
+        vscode.commands.registerCommand('ironshell.startTui', () => {
             runner.startTui();
         })
     );

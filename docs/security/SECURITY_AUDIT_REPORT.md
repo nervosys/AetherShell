@@ -1,4 +1,4 @@
-# AetherShell Security Audit Report
+# IronShell Security Audit Report
 
 **Date**: October 23, 2025  
 **Version**: 0.1.0  
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-AetherShell has undergone comprehensive security testing including:
+IronShell has undergone comprehensive security testing including:
 - ✅ User behavior simulation (friendly and adversarial)
 - ✅ CVE vulnerability scanning
 - ✅ MITRE ATT&CK framework assessment
@@ -354,7 +354,7 @@ Evaluated against MITRE ATT&CK Enterprise Matrix:
 
 ### 4.2 Level 2 (Advanced) - 72 Additional Practices ⚠️ **PARTIALLY COMPLIANT**
 
-AetherShell is primarily a **development tool** not a full system, so many Level 2 practices are not applicable (NA).
+IronShell is primarily a **development tool** not a full system, so many Level 2 practices are not applicable (NA).
 
 #### **Applicable Level 2 Practices Assessment:**
 

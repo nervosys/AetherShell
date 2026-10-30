@@ -1,7 +1,7 @@
 # AI Features Implementation & Testing Plan
 
 ## Overview
-This document outlines the comprehensive implementation of MCP, A2A, and NANDA protocols, plus extensive testing coverage for AetherShell's AI capabilities.
+This document outlines the comprehensive implementation of MCP, A2A, and NANDA protocols, plus extensive testing coverage for IronShell's AI capabilities.
 
 ## ✅ Completed
 
@@ -208,13 +208,13 @@ pub mod mcp {
             let input_json: serde_json::Value = serde_json::from_str(input)?;
             let result = self.client.execute_tool(&self.name, input_json)?;
             
-            // Convert result to AetherShell Value
+            // Convert result to IronShell Value
             Ok(json_to_value(&result))
         }
     }
 
     fn json_to_value(v: &serde_json::Value) -> crate::value::Value {
-        // Convert JSON to AetherShell Value
+        // Convert JSON to IronShell Value
         // Implementation similar to existing json_to_value
         crate::value::Value::Str(v.to_string())
     }

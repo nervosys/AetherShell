@@ -1,8 +1,8 @@
 # Python SDK Reference
 
-The AetherShell Python SDK (`aethershell`) provides a Pythonic interface to the AetherShell runtime, agent orchestration, and workflow patterns.
+The IronShell Python SDK (`ironshell`) provides a Pythonic interface to the IronShell runtime, agent orchestration, and workflow patterns.
 
-**Package:** `integrations/python/python/aethershell`  
+**Package:** `integrations/python/python/ironshell`  
 **Version:** 0.3.0
 
 ---
@@ -10,7 +10,7 @@ The AetherShell Python SDK (`aethershell`) provides a Pythonic interface to the 
 ## Installation
 
 ```bash
-pip install aethershell
+pip install ironshell
 ```
 
 Or from a checkout:
@@ -19,7 +19,7 @@ Or from a checkout:
 pip install ./integrations/python
 ```
 
-Requires the `ae` binary on `PATH` or passed explicitly.
+Requires the `ish` binary on `PATH` or passed explicitly.
 
 The SDK versions independently of the shell: SDK 1.5.1 is current against
 shell 7.4.0.
@@ -28,29 +28,29 @@ shell 7.4.0.
 
 ## Core Runtime
 
-### `AetherRuntime`
+### `IronShellRuntime`
 
-Main entry point for evaluating AetherShell code from Python.
+Main entry point for evaluating IronShell code from Python.
 
 ```python
-from aethershell import AetherRuntime
+from ironshell import IronShellRuntime
 
-rt = AetherRuntime(ae_path="/path/to/ae")  # or auto-discovers on PATH
+rt = IronShellRuntime(ish_path="/path/to/ae")  # or auto-discovers on PATH
 ```
 
 #### `rt.eval(code: str) -> Any`
 
-Evaluate AetherShell code and return a parsed Python object.
+Evaluate IronShell code and return a parsed Python object.
 
 ```python
 result = rt.eval('[1, 2, 3] | map(fn(x) => x * 2)')
 # [2, 4, 6]
 ```
 
-Runs `ae -c <code> --deterministic` with a 60-second timeout. Raises
+Runs `ish -c <code> --deterministic` with a 60-second timeout. Raises
 `RuntimeError` on failure.
 
-> Before 7.2.0 this documented — and the SDK passed — `ae -e <code> --json`.
+> Before 7.2.0 this documented — and the SDK passed — `ish -e <code> --json`.
 > Neither flag exists: the binary takes `-c/--command`, and canonical JSON comes
 > from `--deterministic`. `clap` rejected the call, so every `eval()` raised
 > `RuntimeError`. `tests/sdk_contract.rs` now runs the binary with the flags read
@@ -58,10 +58,10 @@ Runs `ae -c <code> --deterministic` with a 60-second timeout. Raises
 
 #### `rt.eval_file(path: str) -> Any`
 
-Evaluate a `.ae` file. 300-second timeout.
+Evaluate a `.ish` file. 300-second timeout.
 
 ```python
-result = rt.eval_file("scripts/analysis.ae")
+result = rt.eval_file("scripts/analysis.ish")
 ```
 
 #### `rt.create_agent(name, model, tools, max_steps) -> Agent`
@@ -98,7 +98,7 @@ The SDK sends the `swarm` builtin the record form `swarm({goal, tools, max_steps
 
 - `max_iterations` becomes `max_steps` (1 to 1000).
 - `tools` is the union of the agents' `tools`, deduplicated, in first-seen order. The swarm itself has no tool list.
-- The goal is escaped as an AetherShell string literal. A goal containing `${` raises `ValueError`, because the language interpolates `${...}` in string literals and has no escape for it.
+- The goal is escaped as an IronShell string literal. A goal containing `${` raises `ValueError`, because the language interpolates `${...}` in string literals and has no escape for it.
 
 #### `rt.subscribe_a2ui(callback) -> Callable[[], None]`
 
@@ -122,7 +122,7 @@ unsubscribe()
 AI agent with tool execution capabilities.
 
 ```python
-from aethershell import Agent
+from ironshell import Agent
 
 agent = Agent(
     name="coder",
@@ -134,7 +134,7 @@ agent = Agent(
 
 #### `await agent.run(goal: str) -> AgentResult`
 
-Execute the agent with a goal string. The SDK sends the `agent` builtin the record form `agent({goal, tools, max_steps})`, with the goal escaped as an AetherShell string literal. `run` raises `ValueError`, before anything runs, for a non-default model, a `max_steps` outside 1 to 1000, or a goal containing `${`.
+Execute the agent with a goal string. The SDK sends the `agent` builtin the record form `agent({goal, tools, max_steps})`, with the goal escaped as an IronShell string literal. `run` raises `ValueError`, before anything runs, for a non-default model, a `max_steps` outside 1 to 1000, or a goal containing `${`.
 
 ```python
 result = await agent.run("Find all Python files with TODO comments")
@@ -167,7 +167,7 @@ The model URI is recorded on the agent but the `agent` and `swarm` builtins take
 Multi-agent swarm, run by the `swarm` builtin.
 
 ```python
-from aethershell import Swarm
+from ironshell import Swarm
 
 swarm = Swarm(
     agents=[planner, coder, tester],
@@ -210,7 +210,7 @@ class SwarmResult:
 Fluent API for building typed data pipelines.
 
 ```python
-from aethershell import pipeline
+from ironshell import pipeline
 
 result = (
     pipeline([1, 2, 3, 4, 5])
@@ -235,22 +235,22 @@ result = (
 | `.unique()`                 | Remove duplicates                 |
 | `.take(n: int)`             | Take first N elements             |
 | `.skip(n: int)`             | Skip first N elements             |
-| `.to_code() -> str`         | Get the AetherShell pipeline code |
+| `.to_code() -> str`         | Get the IronShell pipeline code |
 | `.run(runtime=None) -> Any` | Execute the pipeline              |
 
-The lambda strings use AetherShell syntax: `fn(x) => expr`.
+The lambda strings use IronShell syntax: `fn(x) => expr`.
 
 ---
 
 ## Convenience Function
 
 ```python
-from aethershell import evaluate
+from ironshell import evaluate
 
 result = evaluate('2 + 2')  # 4
 ```
 
-Creates a temporary `AetherRuntime` and evaluates the expression.
+Creates a temporary `IronShellRuntime` and evaluates the expression.
 
 ---
 
@@ -284,7 +284,7 @@ class NotificationLevel(Enum):
 
 ## Submodules
 
-### `aethershell.workflows`
+### `ironshell.workflows`
 
 Workflow orchestration patterns.
 
@@ -297,7 +297,7 @@ Workflow orchestration patterns.
 | `CircuitBreaker`    | Fault tolerance — stops calls to failing services    |
 
 ```python
-from aethershell.workflows import CircuitBreaker, CircuitState
+from ironshell.workflows import CircuitBreaker, CircuitState
 
 breaker = CircuitBreaker(
     failure_threshold=5,
@@ -317,17 +317,17 @@ class WorkflowResult:
     errors: List[str]
 ```
 
-### `aethershell.metrics`
+### `ironshell.metrics`
 
 Observability: Prometheus metrics, tracing, health checks.
 
-### `aethershell.distributed`
+### `ironshell.distributed`
 
 Distributed agent infrastructure: service registry, leader election, routing.
 
-### `aethershell.langchain`
+### `ironshell.langchain`
 
-LangChain integration tools for using AetherShell as a LangChain toolkit.
+LangChain integration tools for using IronShell as a LangChain toolkit.
 
 ---
 
@@ -336,7 +336,7 @@ LangChain integration tools for using AetherShell as a LangChain toolkit.
 ### Simple Evaluation
 
 ```python
-from aethershell import evaluate
+from ironshell import evaluate
 
 files = evaluate('ls(".") | where(fn(f) => f.size > 1000) | select("name")')
 print(files)
@@ -346,10 +346,10 @@ print(files)
 
 ```python
 import asyncio
-from aethershell import AetherRuntime
+from ironshell import IronShellRuntime
 
 async def main():
-    rt = AetherRuntime()
+    rt = IronShellRuntime()
     agent = rt.create_agent(
         name="analyst",
         tools=["ls", "cat", "grep", "wc"],
@@ -364,10 +364,10 @@ asyncio.run(main())
 
 ```python
 import asyncio
-from aethershell import AetherRuntime
+from ironshell import IronShellRuntime
 
 async def main():
-    rt = AetherRuntime()
+    rt = IronShellRuntime()
     # Leave each agent on the default model: the swarm builtin has no per-agent model option.
     planner = rt.create_agent("planner", tools=["ls", "cat"])
     coder = rt.create_agent("coder", tools=["cat", "write"])

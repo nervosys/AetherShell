@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-AetherShell Agent API - Python Integration Example
+IronShell Agent API - Python Integration Example
 
-This example demonstrates how to integrate AetherShell's Agent API with
+This example demonstrates how to integrate IronShell's Agent API with
 popular Python AI frameworks like OpenAI, Anthropic, and LangChain.
 
 Prerequisites:
     pip install openai anthropic httpx
 
 Start the Agent API server:
-    ae --agent-api
+    ish --agent-api
 """
 
 import json
@@ -17,11 +17,11 @@ import httpx
 from typing import Any, Dict, List, Optional
 
 # =============================================================================
-# AetherShell Agent API Client
+# IronShell Agent API Client
 # =============================================================================
 
-class AetherShellClient:
-    """Client for interacting with AetherShell's Agent API."""
+class IronShellClient:
+    """Client for interacting with IronShell's Agent API."""
     
     def __init__(self, base_url: str = "http://localhost:3002"):
         self.base_url = base_url
@@ -34,7 +34,7 @@ class AetherShellClient:
         return response.json()
     
     def eval(self, code: str) -> Dict[str, Any]:
-        """Evaluate AetherShell code."""
+        """Evaluate IronShell code."""
         return self._post({"action": "eval", "code": code})
     
     def call(self, builtin: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -77,11 +77,11 @@ def openai_integration_example():
         return
     
     # Initialize clients
-    aether = AetherShellClient()
+    ironshell = IronShellClient()
     openai_client = OpenAI()  # Uses OPENAI_API_KEY env var
     
-    # Get AetherShell tool schema in OpenAI format
-    schema = aether.schema("openai")
+    # Get IronShell tool schema in OpenAI format
+    schema = ironshell.schema("openai")
     if not schema.get("success"):
         print(f"Failed to get schema: {schema.get('error')}")
         return
@@ -109,8 +109,8 @@ def openai_integration_example():
             
             print(f"AI requested: {function_name}({function_args})")
             
-            # Execute via AetherShell
-            result = aether.call(function_name, function_args)
+            # Execute via IronShell
+            result = ironshell.call(function_name, function_args)
             
             if result.get("success"):
                 print(f"Result: {result['result']}")
@@ -133,11 +133,11 @@ def anthropic_integration_example():
         return
     
     # Initialize clients
-    aether = AetherShellClient()
+    ironshell = IronShellClient()
     claude_client = anthropic.Anthropic()  # Uses ANTHROPIC_API_KEY env var
     
-    # Get AetherShell tool schema in Claude format
-    schema = aether.schema("claude")
+    # Get IronShell tool schema in Claude format
+    schema = ironshell.schema("claude")
     if not schema.get("success"):
         print(f"Failed to get schema: {schema.get('error')}")
         return
@@ -162,8 +162,8 @@ def anthropic_integration_example():
             
             print(f"Claude requested: {tool_name}({tool_input})")
             
-            # Execute via AetherShell
-            result = aether.call(tool_name, tool_input)
+            # Execute via IronShell
+            result = ironshell.call(tool_name, tool_input)
             
             if result.get("success"):
                 print(f"Result: {result['result']}")
@@ -188,29 +188,29 @@ def langchain_integration_example():
         print("Install langchain: pip install langchain langchain-openai")
         return
     
-    # Initialize AetherShell client
-    aether = AetherShellClient()
+    # Initialize IronShell client
+    ironshell = IronShellClient()
     
     # Get builtin descriptions
-    builtins_response = aether.list_builtins()
+    builtins_response = ironshell.list_builtins()
     if not builtins_response.get("success"):
         print(f"Failed to list builtins: {builtins_response.get('error')}")
         return
     
-    # Create LangChain tools dynamically from AetherShell builtins
+    # Create LangChain tools dynamically from IronShell builtins
     tools = []
     for builtin in builtins_response["result"]["builtins"][:10]:  # Limit for demo
         name = builtin["name"]
         description = builtin["description"]
         
         # Get detailed info for the builtin
-        detail = aether.describe(name)
+        detail = ironshell.describe(name)
         if not detail.get("success"):
             continue
         
         def make_tool_func(builtin_name):
             def tool_func(**kwargs):
-                result = aether.call(builtin_name, kwargs if kwargs else None)
+                result = ironshell.call(builtin_name, kwargs if kwargs else None)
                 if result.get("success"):
                     return json.dumps(result["result"])
                 return f"Error: {result.get('error')}"
@@ -245,31 +245,31 @@ def langchain_integration_example():
 
 def direct_api_examples():
     """Show direct API usage without AI framework."""
-    aether = AetherShellClient()
+    ironshell = IronShellClient()
     
     print("=== Direct API Examples ===\n")
     
     # 1. Evaluate code
     print("1. Evaluate expression:")
-    result = aether.eval("1 + 2 * 3")
+    result = ironshell.eval("1 + 2 * 3")
     print(f"   1 + 2 * 3 = {result['result']}")
     
     # 2. List builtins by category
     print("\n2. List filesystem builtins:")
-    result = aether.list_builtins("filesystem")
+    result = ironshell.list_builtins("filesystem")
     if result.get("success"):
         for b in result["result"]["builtins"][:5]:
             print(f"   - {b['name']}: {b['description']}")
     
     # 3. Call builtin
     print("\n3. Call 'pwd' builtin:")
-    result = aether.call("pwd")
+    result = ironshell.call("pwd")
     if result.get("success"):
         print(f"   Current directory: {result['result']}")
     
     # 4. Execute pipeline
     print("\n4. Execute pipeline (ls | filter | select):")
-    result = aether.pipeline([
+    result = ironshell.pipeline([
         {"builtin": "ls", "args": {"path": "."}},
         {"eval": "take(3)"},
         {"eval": "select(\"name\", \"size\")"}
@@ -281,7 +281,7 @@ def direct_api_examples():
     print("\n5. Available schema formats:")
     formats = ["openai", "claude", "gemini", "llama", "mistral", "groq", "ollama"]
     for fmt in formats:
-        schema = aether.schema(fmt)
+        schema = ironshell.schema(fmt)
         if schema.get("success"):
             model_count = len(schema["result"].get("compatible_models", []))
             print(f"   - {fmt}: {model_count} compatible models")
@@ -292,7 +292,7 @@ def direct_api_examples():
 # =============================================================================
 
 if __name__ == "__main__":
-    print("AetherShell Agent API - Python Integration Examples\n")
+    print("IronShell Agent API - Python Integration Examples\n")
     print("=" * 60)
     
     # Check if Agent API is running
@@ -303,7 +303,7 @@ if __name__ == "__main__":
             raise Exception("API not responding")
     except Exception as e:
         print(f"Error: Agent API not running on localhost:3002")
-        print("Start it with: ae --agent-api")
+        print("Start it with: ish --agent-api")
         exit(1)
     
     print("Agent API is running!\n")

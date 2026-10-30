@@ -1,21 +1,21 @@
-# AetherShell Python SDK
+# IronShell Python SDK
 
-Python bindings for AetherShell - AI-powered typed shell with workflow orchestration and cloud deployment.
+Python bindings for IronShell - AI-powered typed shell with workflow orchestration and cloud deployment.
 
 ## Installation
 
 ```bash
 # Core SDK
-pip install aethershell
+pip install ironshell
 
 # With LangChain integration
-pip install aethershell[langchain]
+pip install ironshell[langchain]
 
 # With cloud deployment support
-pip install aethershell[cloud]
+pip install ironshell[cloud]
 
 # Everything
-pip install aethershell[all]
+pip install ironshell[all]
 ```
 
 Or from a checkout of the repository:
@@ -24,23 +24,23 @@ Or from a checkout of the repository:
 pip install ./integrations/python
 ```
 
-Requires the `ae` binary on `PATH`. Install it with
-`cargo install aethershell`, or take a prebuilt binary from the
+Requires the `ish` binary on `PATH`. Install it with
+`cargo install iron-shell`, or take a prebuilt binary from the
 [releases page](https://github.com/nervosys/AetherShell/releases).
 
-> **Versioning:** this SDK versions independently of the `ae` shell. The SDK in
+> **Versioning:** this SDK versions independently of the `ish` shell. The SDK in
 > this repository is 1.5.1; PyPI carries 1.5.0, a manual upload, because CI has
 > never published it. `pip install ./integrations/python` installs the current one.
 
 ## Quick Start
 
 ```python
-from aethershell import AetherRuntime, Agent
+from ironshell import IronShellRuntime, Agent
 
 # Create runtime
-runtime = AetherRuntime()
+runtime = IronShellRuntime()
 
-# Evaluate AetherShell code
+# Evaluate IronShell code
 result = runtime.eval('[1, 2, 3] | map(fn(x) => x * 2)')
 print(result)  # [2, 4, 6]
 
@@ -56,7 +56,7 @@ print(result)
 
 ## Features
 
-- **Evaluation**: Execute AetherShell code from Python
+- **Evaluation**: Execute IronShell code from Python
 - **Pipelines**: Process data with typed pipelines
 - **Agents**: Create and orchestrate AI agents
 - **Swarms**: Multi-agent coordination
@@ -69,7 +69,7 @@ print(result)
 ## Workflow Orchestration
 
 ```python
-from aethershell.workflows import (
+from ironshell.workflows import (
     MapReduceWorkflow,
     SagaWorkflow,
     PipelineWorkflow,
@@ -100,7 +100,7 @@ result = breaker.call(lambda: api_request())
 ## Metrics & Observability
 
 ```python
-from aethershell.metrics import (
+from ironshell.metrics import (
     MetricsCollector,
     Counter,
     Gauge,
@@ -130,7 +130,7 @@ with tracer.start_span("handle_request") as span:
 ## Distributed Agents
 
 ```python
-from aethershell.distributed import (
+from ironshell.distributed import (
     ServiceRegistry,
     LeaderElection,
     LoadBalancer,
@@ -163,7 +163,7 @@ result = await swarm.dispatch(goal="analyze data", capability="nlp")
 Deploy agents as serverless functions:
 
 ```python
-from aethershell.cloud import (
+from ironshell.cloud import (
     CloudProvider,
     FunctionConfig,
     DeploymentConfig,
@@ -200,15 +200,15 @@ Supported platforms:
 ## LangChain Integration
 
 ```python
-from aethershell.langchain import (
-    get_all_aethershell_tools,
-    AetherWorkflowTool,
-    AetherMapReduceTool,
-    AetherMetricsTool,
+from ironshell.langchain import (
+    get_all_ironshell_tools,
+    IronShellWorkflowTool,
+    IronShellMapReduceTool,
+    IronShellMetricsTool,
 )
 
 # Get all tools for LangChain agent
-tools = get_all_aethershell_tools()
+tools = get_all_ironshell_tools()
 
 # Use with LangChain
 from langchain.agents import initialize_agent
@@ -218,10 +218,10 @@ agent.run("Process this data with MapReduce: [1,2,3,4,5]")
 
 ## API Reference
 
-### AetherRuntime
+### IronShellRuntime
 
 ```python
-runtime = AetherRuntime()
+runtime = IronShellRuntime()
 
 # Evaluate code
 result = runtime.eval(code: str) -> Any

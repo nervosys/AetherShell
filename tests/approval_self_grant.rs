@@ -14,8 +14,8 @@
 //! The fix refuses the in-band path **in agent mode only**:
 //!
 //! * human mode is untouched — the documented REPL loop still works;
-//! * the out-of-band channel the design already provides (`AETHER_APPROVE`,
-//!   `AETHER_APPROVE_ALL`, set by whoever launched the agent) still works, so no
+//! * the out-of-band channel the design already provides (`IRONSHELL_APPROVE`,
+//!   `IRONSHELL_APPROVE_ALL`, set by whoever launched the agent) still works, so no
 //!   capability was removed that was not already reachable by someone outside
 //!   the agent's control.
 //!
@@ -24,10 +24,10 @@
 //! language models, prompt injection is the defining threat, and hardening in
 //! that direction is the conservative error.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::safety::{self, effect_of, Effect};
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::safety::{self, effect_of, Effect};
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -44,7 +44,7 @@ fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
 #[test]
 fn an_agent_cannot_spend_the_token_it_was_just_handed() {
     let _g = lock();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
 
     // 1. A Destructive call is refused, and the refusal carries the token.
     let denied = safety::guard_dispatch("git_clean", &[]);
@@ -62,7 +62,7 @@ fn an_agent_cannot_spend_the_token_it_was_just_handed() {
     // 3. And the call is still refused afterwards.
     let after = safety::guard_dispatch("git_clean", &[]);
     safety::revoke_approval(&token);
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     let e = self_grant.expect_err("an agent must not approve its own call");
     let text = format!("{e:#}").to_ascii_lowercase();
@@ -71,7 +71,7 @@ fn an_agent_cannot_spend_the_token_it_was_just_handed() {
         "the refusal should say why, and point at the out-of-band path: {text}"
     );
     assert!(
-        text.contains("aether_approve"),
+        text.contains("ironshell_approve"),
         "the refusal must name the channel that does work, or it is a dead end: {text}"
     );
     assert!(
@@ -85,7 +85,7 @@ fn a_human_can_still_approve_at_the_repl() {
     // The check that keeps the fix from being a removal. §7.2's loop is correct
     // for a person: they are not the party being constrained.
     let _g = lock();
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
     let r = call("approve", vec![Value::Str("apv_human_test".into())]);
     safety::revoke_approval("apv_human_test");
     assert!(
@@ -97,10 +97,10 @@ fn a_human_can_still_approve_at_the_repl() {
 #[test]
 fn the_out_of_band_channel_still_works_in_agent_mode() {
     // The fix would be a wall rather than a redirection if this did not hold.
-    // `AETHER_APPROVE` is set by whoever launches the agent, which is the whole
+    // `IRONSHELL_APPROVE` is set by whoever launches the agent, which is the whole
     // point: the approver is not the approved.
     let _g = lock();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
 
     let token = safety::guard_dispatch("git_clean", &[])
         .expect_err("denied")
@@ -108,10 +108,10 @@ fn the_out_of_band_channel_still_works_in_agent_mode() {
         .map(|a| a.token)
         .expect("token");
 
-    std::env::set_var("AETHER_APPROVE", &token);
+    std::env::set_var("IRONSHELL_APPROVE", &token);
     let after = safety::guard_dispatch("git_clean", &[]);
-    std::env::remove_var("AETHER_APPROVE");
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_APPROVE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     assert!(
         after.is_ok(),
@@ -139,7 +139,7 @@ fn the_binding_property_that_does_hold_still_holds() {
     // property was fine. A bad control produces a false alarm as readily as a
     // real finding.
     let _g = lock();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
 
     let a = safety::guard_dispatch("git_clean", &[])
         .expect_err("denied")
@@ -150,7 +150,7 @@ fn the_binding_property_that_does_hold_still_holds() {
 
     let other = safety::guard_dispatch("git_reset", &[]);
     safety::revoke_approval(&a);
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     assert!(
         other.is_err(),

@@ -1,13 +1,13 @@
 # TUI Overview
 
-AetherShell's Terminal User Interface (TUI) provides a rich, multi-pane interface for AI chat, agent management, media browsing, and more — all within your terminal.
+IronShell's Terminal User Interface (TUI) provides a rich, multi-pane interface for AI chat, agent management, media browsing, and more — all within your terminal.
 
 ## Launching the TUI
 
 ```bash
-ae tui              # standard launch
-ae --tui            # alternative flag
-RUST_LOG=debug ae tui   # with debug logging
+ish tui              # standard launch
+ish --tui            # alternative flag
+RUST_LOG=debug ish tui   # with debug logging
 ```
 
 ## Interface Layout
@@ -61,7 +61,7 @@ The TUI reads configuration from environment variables and defaults:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Model | `$AETHER_AI` | Default AI model for chat |
+| Model | `$IRONSHELL_AI` | Default AI model for chat |
 | Max messages | 1,000 | Message history limit |
 | Auto-scroll | On | Scroll to latest message |
 | Timestamps | On | Show message timestamps |
@@ -72,13 +72,13 @@ The TUI reads configuration from environment variables and defaults:
 
 1. Set your AI provider:
    ```bash
-   export AETHER_AI=openai
+   export IRONSHELL_AI=openai
    export OPENAI_API_KEY=sk-...
    ```
 
 2. Launch the TUI:
    ```bash
-   ae tui
+   ish tui
    ```
 
 3. Press `Enter` to start typing, write your message, press `Enter` to send

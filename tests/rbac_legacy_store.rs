@@ -26,9 +26,9 @@
 //! So these tests pin the *current* separation. If someone bridges the stores,
 //! they go red and say what has to happen first.
 
-use aethershell::env::Env;
-use aethershell::safety::{effect_of, Effect};
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::safety::{effect_of, Effect};
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
@@ -36,7 +36,7 @@ static ENV: Mutex<()> = Mutex::new(());
 
 fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
+    iron_shell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
 }
 
 fn s(v: &str) -> Value {
@@ -46,10 +46,10 @@ fn s(v: &str) -> Value {
 fn agent_mode() -> std::path::PathBuf {
     let ws = std::env::temp_dir().join("ae_rbac_legacy");
     std::fs::create_dir_all(&ws).unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &ws);
-    std::env::remove_var("AETHER_POLICY");
-    aethershell::safety::set_principal(None);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &ws);
+    std::env::remove_var("IRONSHELL_POLICY");
+    iron_shell::safety::set_principal(None);
     ws
 }
 

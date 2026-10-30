@@ -3,11 +3,11 @@
 //! Forms (as `parser.rs` parses them):
 //!
 //! ```text
-//! import "lib/math.ae"                  # every export bound into the importer
-//! import "lib/math.ae" as math          # a Record of the exports, bound as `math`
-//! import { gcd, lcm as l } from "lib/math.ae"
+//! import "lib/math.ish"                  # every export bound into the importer
+//! import "lib/math.ish" as math          # a Record of the exports, bound as `math`
+//! import { gcd, lcm as l } from "lib/math.ish"
 //! export { a, b as c }                  # marks names in this file as exported
-//! export { a } from "lib/math.ae"       # re-export one of another module's exports
+//! export { a } from "lib/math.ish"       # re-export one of another module's exports
 //! pub let x = 1                         # `pub` also marks a name as exported
 //! ```
 //!
@@ -177,7 +177,7 @@ fn load(source: &str) -> Result<(PathBuf, Exports)> {
     if source.contains("://") {
         return Err(safety::bad_arg(
             "import",
-            "a local .ae file path",
+            "a local .ish file path",
             "a URL; modules are read from the filesystem only",
         ));
     }
@@ -275,7 +275,7 @@ fn module_path(source: &str) -> PathBuf {
 fn resolve(source: &str) -> Result<PathBuf> {
     let mut candidate = module_path(source);
     if !candidate.exists() && candidate.extension().is_none() {
-        candidate = PathBuf::from(format!("{}.ae", candidate.display()));
+        candidate = PathBuf::from(format!("{}.ish", candidate.display()));
     }
     // Canonicalize when the file exists so a symlink cannot lead the jail
     // check somewhere the lexical path does not show.
@@ -298,16 +298,16 @@ fn resolve(source: &str) -> Result<PathBuf> {
     // `guard` jails only writes: reads are unjailed by policy (see the note in
     // builtins.rs beside `web_upload_file`). A module is code the importer runs,
     // so an import is held to the workspace whenever the jail is on: agent mode,
-    // or an explicit AETHER_WORKSPACE.
+    // or an explicit IRONSHELL_WORKSPACE.
     let jailed = safety::current_mode() == safety::Mode::Agent
-        || std::env::var_os("AETHER_WORKSPACE").is_some();
+        || std::env::var_os("IRONSHELL_WORKSPACE").is_some();
     if jailed && !safety::within_workspace(&shown) {
         return Err(anyhow::Error::new(SafetyError {
             code: ErrorCode::OutsideWorkspace,
             message: format!("import: '{shown}' is outside the workspace root"),
             builtin: "import".to_string(),
             hint: format!(
-                "import modules under {} or set AETHER_WORKSPACE",
+                "import modules under {} or set IRONSHELL_WORKSPACE",
                 safety::workspace_root().display()
             ),
             approval: None,
@@ -323,7 +323,7 @@ fn resolve(source: &str) -> Result<PathBuf> {
     if target.is_dir() {
         return Err(safety::bad_arg(
             "import",
-            "a .ae file",
+            "a .ish file",
             &format!("the directory '{shown}'"),
         ));
     }

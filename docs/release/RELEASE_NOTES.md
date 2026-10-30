@@ -1,4 +1,4 @@
-# AetherShell v0.1.0 - Release Notes
+# IronShell v0.1.0 - Release Notes
 
 Historical notes for v0.1.0. See [`13.0.0.md`](13.0.0.md) for the next release's
 draft notes and readiness checklist.
@@ -11,7 +11,7 @@ draft notes and readiness checklist.
 
 ## 🎉 What's New
 
-AetherShell v0.1.0 is the **first multi-agent shell with typed functional pipelines and multi-modal AI**. This initial release brings together cutting-edge AI capabilities with a modern, type-safe shell language.
+IronShell v0.1.0 is the **first multi-agent shell with typed functional pipelines and multi-modal AI**. This initial release brings together cutting-edge AI capabilities with a modern, type-safe shell language.
 
 ### 🌟 Unique Features
 
@@ -34,12 +34,12 @@ cargo build --release
 ```
 
 The binaries will be in `target/release/`:
-- `ae` - Main AetherShell executable
+- `ish` - Main IronShell executable
 - `aimodel` - AI model management CLI
 
 ### Coming Soon
 - Pre-built binaries for Windows, macOS, Linux
-- Cargo install: `cargo install aethershell`
+- Cargo install: `cargo install iron-shell`
 - Package managers (Homebrew, Scoop, apt)
 
 ---
@@ -48,14 +48,14 @@ The binaries will be in `target/release/`:
 
 ```bash
 # Interactive REPL
-ae
+ish
 
 # Terminal UI (requires Windows Terminal or modern terminal)
-ae tui
+ish tui
 
 # Run example scripts
-ae examples/00_hello.ae
-ae examples/06_agent.ae
+ish examples/00_hello.ish
+ish examples/06_agent.ish
 
 # AI Model Management
 aimodel list
@@ -103,21 +103,21 @@ aimodel server start
 
 ### For Shell Users
 Start with basic examples:
-1. `00_hello.ae` - Hello world and string interpolation
-2. `01_pipelines.ae` - Data pipelines
-3. `02_tables.ae` - Working with structured data
+1. `00_hello.ish` - Hello world and string interpolation
+2. `01_pipelines.ish` - Data pipelines
+3. `02_tables.ish` - Working with structured data
 
 ### For AI Enthusiasts
 Jump into AI features:
-1. `05_ai.ae` - Basic AI interactions
-2. `06_agent.ae` - Single agent workflows
-3. `12_multi_agent_orchestration.ae` - Multi-agent coordination
+1. `05_ai.ish` - Basic AI interactions
+2. `06_agent.ish` - Single agent workflows
+3. `12_multi_agent_orchestration.ish` - Multi-agent coordination
 
 ### For Type System Fans
 Explore the type system:
-1. `14_typed_pipelines.ae` - Type-safe pipelines
-2. `07_uri_types.ae` - Type-directed model selection
-3. `99_comprehensive_test.ae` - Complex type interactions
+1. `14_typed_pipelines.ish` - Type-safe pipelines
+2. `07_uri_types.ish` - Type-directed model selection
+3. `99_comprehensive_test.ish` - Complex type interactions
 
 ---
 
@@ -200,7 +200,7 @@ See [LICENSE](LICENSE) for full details.
 
 ```bash
 cargo build --release
-./target/release/ae tui
+./target/release/ish tui
 ```
 
 Welcome to the future of shell computing! 🚀

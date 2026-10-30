@@ -108,7 +108,7 @@ Export your conversation for sharing or archival:
 ### Markdown Export
 
 ```markdown
-# AetherShell Conversation Export
+# IronShell Conversation Export
 
 **Model:** gpt-4o-mini
 **Messages:** 24

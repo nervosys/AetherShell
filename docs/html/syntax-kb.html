@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Syntax Knowledge Base - AetherShell Documentation</title>
+    <title>Syntax Knowledge Base - IronShell Documentation</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -20,7 +20,7 @@
 <body>
     <nav class="sidebar">
         <div class="logo">
-            <h1>🚀 AetherShell</h1>
+            <h1>🚀 IronShell</h1>
             <p class="version">v1.0.0</p>
         </div>
         <ul class="nav-menu">
@@ -56,7 +56,7 @@
                 <li>🤝 <strong>Inter-Agent Communication</strong> - Shared understanding of data structures</li>
                 <li>📖 <strong>Self-Documentation</strong> - Built-in specifications with examples</li>
                 <li>🔧 <strong>Extensibility</strong> - Add custom syntaxes at runtime</li>
-                <li>💾 <strong>Persistence</strong> - Stored in <code>~/.aethershell/syntax_kb.json</code></li>
+                <li>💾 <strong>Persistence</strong> - Stored in <code>~/.ironshell/syntax_kb.json</code></li>
             </ul>
 
             <div class="alert alert-info">
@@ -339,10 +339,10 @@ syntax_add(base58_encoding)</code></pre>
 
             <h3>Persistence Location</h3>
             <pre><code># Unix/Linux/Mac
-~/.aethershell/syntax_kb.json
+~/.ironshell/syntax_kb.json
 
 # Windows
-%USERPROFILE%\.aethershell\syntax_kb.json</code></pre>
+%USERPROFILE%\.ironshell\syntax_kb.json</code></pre>
 
             <h3>Storage Format (JSON)</h3>
             <pre><code>{
@@ -444,7 +444,7 @@ syntax_add(base58_encoding)</code></pre>
 
         <section class="feature-section">
             <h2>Complete Example</h2>
-            <p>See <code>examples/12_syntax_kb.ae</code> for a comprehensive demonstration including:</p>
+            <p>See <code>examples/12_syntax_kb.ish</code> for a comprehensive demonstration including:</p>
 
             <ul>
                 <li>✅ Retrieving built-in syntaxes</li>
@@ -455,7 +455,7 @@ syntax_add(base58_encoding)</code></pre>
             </ul>
 
             <pre><code># Run the example
-ae examples/12_syntax_kb.ae</code></pre>
+ish examples/12_syntax_kb.ish</code></pre>
         </section>
 
         <div class="alert alert-success">
@@ -465,7 +465,7 @@ ae examples/12_syntax_kb.ae</code></pre>
     </main>
 
     <footer>
-        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+        <p>&copy; 2025 IronShell. Built with Rust 🦀</p>
     </footer>
 </body>
 

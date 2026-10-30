@@ -1,4 +1,4 @@
-//! Every surface that evaluates AetherShell *source* must have the module
+//! Every surface that evaluates IronShell *source* must have the module
 //! namespaces bound.
 //!
 //! `POST /api/v1/eval` is Option 2 of `AGENTS.md` — the documented way for an
@@ -20,7 +20,7 @@
 //! assert the property an agent actually depends on: run source through the
 //! surface, and see whether the module resolved.
 
-use aethershell::agent_api::{process_request, AgentRequest};
+use iron_shell::agent_api::{process_request, AgentRequest};
 
 /// Representative of the classes an agent reaches for: filesystem, system info,
 /// string handling, data. If the namespace is unbound they all fail the same
@@ -33,7 +33,7 @@ const PROBES: &[(&str, &str)] = &[
     ("arr", "arr.range(3)"),
 ];
 
-fn eval(code: &str) -> aethershell::agent_api::AgentResponse {
+fn eval(code: &str) -> iron_shell::agent_api::AgentResponse {
     process_request(&AgentRequest::Eval {
         code: code.to_string(),
     })

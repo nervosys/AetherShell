@@ -1,5 +1,5 @@
-Write the command in **AetherShell's agentic syntax**, run as `ae -a -c '<command>'`.
-Output only the command itself (not the `ae -a -c` wrapper).
+Write the command in **IronShell's agentic syntax**, run as `ish -a -c '<command>'`.
+Output only the command itself (not the `ish -a -c` wrapper).
 
 The data is `issues.json`, a JSON array of 500 objects with this shape:
 
@@ -16,7 +16,7 @@ The data is `issues.json`, a JSON array of 500 objects with this shape:
 `state` is `"open"` or `"closed"`. `is_pr` is a boolean. `labels` is an array of
 strings, possibly empty.
 
-AetherShell is a typed shell: values flow through `|` as structured data, not
+IronShell is a typed shell: values flow through `|` as structured data, not
 text. Lambdas are written `fn(x) => expr`. Read the file with `cat("issues.json")`
 and parse it with `from_json`.
 
@@ -26,11 +26,11 @@ These are the builtins available, as the shell's own ontology describes them:
 
 And this is the agentic syntax reference:
 
-# AetherShell agentic syntax — quick reference
+# IronShell agentic syntax — quick reference
 
 **Ultra-compressed syntax (v2) — maximum density:**
 
-| Ultra (v2)            | v1 Compat      | AetherShell                        | Savings  |
+| Ultra (v2)            | v1 Compat      | IronShell                        | Savings  |
 | --------------------- | -------------- | ---------------------------------- | -------- |
 | `x=42`                | `x=42`         | `let x = 42`                       | 2 tokens |
 | `x:=0`                | `x:=0`         | `let mut x = 0`                    | 3 tokens |
@@ -54,7 +54,7 @@ And this is the agentic syntax reference:
 
 **v5 features — auto-parens and for-each:**
 
-| v5 Syntax             | AetherShell                            | Savings   |
+| v5 Syntax             | IronShell                            | Savings   |
 | --------------------- | -------------------------------------- | --------- |
 | `F.r"path"`           | `file.read("path")`                    | 2 chars   |
 | `H.g"https://api.io"` | `http.get("https://api.io")`           | 2 chars   |

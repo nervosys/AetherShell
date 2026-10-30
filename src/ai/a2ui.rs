@@ -13,7 +13,7 @@
 //!
 //! # Example Usage
 //!
-//! ```aether
+//! ```ironshell
 //! # Send a notification to the user
 //! a2ui_notify "Processing complete!" { level: "success" }
 //!

@@ -17,13 +17,13 @@
 
 ### Examples (7 files - 10 minutes total)
 ```
-examples/01_pipelines.ae       → Fix reduce syntax
-examples/12_*.ae              → Change # to //
-examples/13_*.ae              → Change # to //
-examples/14_*.ae              → Change # to //
-examples/15_*.ae              → Change # to //
-examples/16_*.ae              → Change # to //
-examples/19_showcase.ae       → Fix pipeline syntax
+examples/01_pipelines.ish       → Fix reduce syntax
+examples/12_*.ish              → Change # to //
+examples/13_*.ish              → Change # to //
+examples/14_*.ish              → Change # to //
+examples/15_*.ish              → Change # to //
+examples/16_*.ish              → Change # to //
+examples/19_showcase.ish       → Fix pipeline syntax
 ```
 
 ### Source Code (2 files - 2-3 hours total)
@@ -49,18 +49,18 @@ src/eval.rs                   → Evaluate field access
 ### Fix All Comment Syntax
 ```powershell
 12..16 | ForEach-Object {
-    $f = (Get-ChildItem "examples\${_}_*.ae")[0]
+    $f = (Get-ChildItem "examples\${_}_*.ish")[0]
     (Get-Content $f.FullName) -replace '^#', '//' | Set-Content $f.FullName
 }
 ```
 
 ### Test All Examples
 ```powershell
-Get-ChildItem examples\*.ae | 
+Get-ChildItem examples\*.ish | 
     Where-Object { $_.Name -notmatch '^(08|09|10|11|20|21|22|23)_' } |
     ForEach-Object {
         Write-Host "`n=== $($_.Name) ===" -ForegroundColor Cyan
-        .\target\release\ae.exe $_.FullName
+        .\target\release\ish.exe $_.FullName
     }
 ```
 

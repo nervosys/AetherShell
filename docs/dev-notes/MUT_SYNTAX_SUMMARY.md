@@ -10,20 +10,20 @@
 ### New Mutable Syntax Options
 
 **Before (only option):**
-```ae
+```ish
 let mut counter = 0
 let mut total = 100
 ```
 
 **After (recommended):**
-```ae
+```ish
 mut counter = 0     // With =
 mut total := 100    // With :=
 ```
 
 ### Complete Syntax Matrix
 
-AetherShell now supports **6 different variable declaration syntaxes**:
+IronShell now supports **6 different variable declaration syntaxes**:
 
 | Syntax           | Mutability | Recommended Use                   |
 | ---------------- | ---------- | --------------------------------- |
@@ -83,7 +83,7 @@ Stmt::Let {
 
 ### Comprehensive Test Created
 
-**File:** `temp/test_mut_complete.ae`
+**File:** `temp/test_mut_complete.ish`
 
 **Test Coverage:**
 - ✅ `mut x = value` with integers, floats, strings, booleans
@@ -120,7 +120,7 @@ After *2: 100
 
 ### Example File
 
-**Created:** `examples/18_mutable_variables.ae`
+**Created:** `examples/18_mutable_variables.ish`
 
 **Demonstrates:**
 - Counter patterns
@@ -157,7 +157,7 @@ After *2: 100
 
 ### Simple Counter
 
-```ae
+```ish
 mut count = 0
 print("Count: ${count}")
 
@@ -170,7 +170,7 @@ print("Count: ${count}")
 
 ### State Machine
 
-```ae
+```ish
 mut state = "idle"
 mut attempts = 0
 
@@ -185,7 +185,7 @@ print("Final state: ${state}")
 
 ### Accumulator
 
-```ae
+```ish
 mut sum = 0
 mut product = 1
 
@@ -201,7 +201,7 @@ print("Sum: ${sum}, Product: ${product}")
 
 ### Progress Tracking
 
-```ae
+```ish
 mut progress = 0.0
 mut status = "Starting"
 
@@ -265,14 +265,14 @@ print("${status}: ${progress}%")
 
 | Language        | Immutable      | Mutable              |
 | --------------- | -------------- | -------------------- |
-| **AetherShell** | `x = 42`       | `mut x = 42`         |
+| **IronShell** | `x = 42`       | `mut x = 42`         |
 | Rust            | `let x = 42`   | `let mut x = 42`     |
 | Python          | `x = 42`       | `x = 42`             |
 | JavaScript      | `const x = 42` | `let x = 42`         |
 | Swift           | `let x = 42`   | `var x = 42`         |
 | F#              | `let x = 42`   | `let mutable x = 42` |
 
-AetherShell's syntax is **shorter than Rust and F#**, while maintaining explicit mutability marking (unlike Python/JavaScript).
+IronShell's syntax is **shorter than Rust and F#**, while maintaining explicit mutability marking (unlike Python/JavaScript).
 
 ## Files Modified Summary
 
@@ -283,8 +283,8 @@ AetherShell's syntax is **shorter than Rust and F#**, while maintaining explicit
 | `docs/specs/SPEC.md`                   | ~10           | Language specification  |
 | `docs/VARIABLE_SYNTAX_GUIDE.md`        | ~25           | Quick reference guide   |
 | `docs/dev-notes/MUT_SYNTAX.md`         | +250          | Technical documentation |
-| `temp/test_mut_complete.ae`            | +47           | Test file               |
-| `examples/18_mutable_variables.ae`     | +140          | Example showcase        |
+| `temp/test_mut_complete.ish`            | +47           | Test file               |
+| `examples/18_mutable_variables.ish`     | +140          | Example showcase        |
 | `docs/dev-notes/MUT_SYNTAX_SUMMARY.md` | +200          | This summary            |
 
 **Total Impact:** ~700 lines added (mostly documentation and examples)
@@ -317,6 +317,6 @@ Successfully implemented `mut x = value` and `mut x := value` syntax!
 **Status:** ✅ Complete and production-ready  
 **Tests:** ✅ All passing (21 library + 200+ integration)  
 **Documentation:** ✅ Complete with examples  
-**Examples:** ✅ Working showcase (18_mutable_variables.ae)  
+**Examples:** ✅ Working showcase (18_mutable_variables.ish)  
 
 The implementation is stable, well-tested, and ready for use! 🎉

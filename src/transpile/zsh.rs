@@ -1,4 +1,4 @@
-//! Zsh → Aether Shell transpiler (compat mode).
+//! Zsh → IronShell Shell transpiler (compat mode).
 //!
 //! Handles a useful subset of Zsh:
 //!   - Simple commands, args, and pipelines (`|`)
@@ -10,16 +10,16 @@
 //!   - export NAME=VALUE → let NAME = VALUE
 //!   - setopt/unsetopt/autoload/zparseopts → comments
 //!   - Multi-line block accumulation (if/for/while/case/function) → single sh() call
-//!   - 100+ command → Aether builtin mappings
+//!   - 100+ command → IronShell builtin mappings
 //!
 //! Fallback: constructs we don't handle emit: sh(["zsh","-c","<code>"])
 
 use anyhow::{anyhow, Result};
 
-/// Transpile a Zsh script (multi-line) to Aether code.
+/// Transpile a Zsh script (multi-line) to IronShell code.
 pub fn transpile_zsh_to_ae(src: &str) -> Result<String> {
     let mut out = String::new();
-    out.push_str("// Transpiled from Zsh → Aether (compat mode)\n");
+    out.push_str("// Transpiled from Zsh → IronShell (compat mode)\n");
 
     let mut block_depth: i32 = 0;
     let mut block_lines: Vec<String> = Vec::new();
@@ -826,8 +826,8 @@ fn map_zsh_builtin(name: &str) -> Option<&'static str> {
         "print" => Some("echo"),
         "whence" => Some("sys.which"),
         "vared" => Some("input.readline"),
-        "rehash" => Some("noop"),  // cache rebuild — no Aether equivalent
-        "emulate" => Some("noop"), // shell emulation mode — no Aether equivalent
+        "rehash" => Some("noop"),  // cache rebuild — no IronShell equivalent
+        "emulate" => Some("noop"), // shell emulation mode — no IronShell equivalent
 
         _ => None,
     }

@@ -13,12 +13,12 @@
 //! or listed in `SELF_COVERED` with where it does so), or be listed in
 //! `HARMLESS` with the reason a rollback need not undo it.
 
-use aethershell::builtins::{call, BUILTIN_LOOKUP};
-use aethershell::env::Env;
-use aethershell::safety::{effect_of, Effect};
-use aethershell::signature::signature_of;
-use aethershell::tx::IRREVERSIBLE;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, BUILTIN_LOOKUP};
+use iron_shell::env::Env;
+use iron_shell::safety::{effect_of, Effect};
+use iron_shell::signature::signature_of;
+use iron_shell::tx::IRREVERSIBLE;
+use iron_shell::value::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
@@ -298,14 +298,14 @@ fn in_transaction(f: impl FnOnce(&mut Env)) {
     let w = std::env::temp_dir().join(format!("ae_tx_irrev_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&w);
     std::fs::create_dir_all(&w).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &w);
-    std::env::set_var("AETHER_SESSION_DIR", w.join("session"));
-    std::env::remove_var("AETHER_MODE");
+    std::env::set_var("IRONSHELL_WORKSPACE", &w);
+    std::env::set_var("IRONSHELL_SESSION_DIR", w.join("session"));
+    std::env::remove_var("IRONSHELL_MODE");
     let mut env = Env::new();
     call("tx_begin", vec![], &mut env).expect("tx_begin");
     f(&mut env);
     let _ = call("tx_rollback", vec![], &mut env);
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     let _ = std::fs::remove_dir_all(&w);
 }
 

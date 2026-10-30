@@ -785,7 +785,7 @@ pub enum DiscoveryProtocol {
 impl Default for ServiceDiscoveryConfig {
     fn default() -> Self {
         Self {
-            service_name: "aethershell-agent".to_string(),
+            service_name: "ironshell-agent".to_string(),
             protocol: DiscoveryProtocol::Multicast,
             multicast_addr: "239.255.255.250:5353".parse().unwrap(),
             broadcast_interval: 5,
@@ -1799,7 +1799,7 @@ mod tests {
     #[test]
     fn test_service_discovery_config_default() {
         let config = ServiceDiscoveryConfig::default();
-        assert_eq!(config.service_name, "aethershell-agent");
+        assert_eq!(config.service_name, "ironshell-agent");
         assert_eq!(config.broadcast_interval, 5);
         assert_eq!(config.stale_threshold, 30);
     }

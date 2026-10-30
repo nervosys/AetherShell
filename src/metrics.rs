@@ -1,6 +1,6 @@
 //! Metrics and Monitoring System
 //!
-//! Comprehensive observability for AetherShell:
+//! Comprehensive observability for IronShell:
 //! - Prometheus-compatible metrics export
 //! - OpenTelemetry traces and spans
 //! - Performance dashboards
@@ -235,7 +235,7 @@ impl Default for MetricsRegistry {
 
 impl MetricsRegistry {
     pub fn new() -> Self {
-        Self::with_namespace("aethershell")
+        Self::with_namespace("ironshell")
     }
 
     pub fn with_namespace(namespace: impl Into<String>) -> Self {
@@ -1242,7 +1242,7 @@ impl ObservabilityManager {
 // Builtins for Shell Integration
 // ============================================================================
 
-/// Create metrics builtins for AetherShell
+/// Create metrics builtins for IronShell
 pub fn create_metrics_builtins() -> BTreeMap<String, Value> {
     let mut builtins: BTreeMap<String, Value> = BTreeMap::new();
 
@@ -1333,8 +1333,8 @@ mod tests {
         gauge.set(5.0);
 
         let prometheus = registry.export_prometheus();
-        assert!(prometheus.contains("aethershell_test"));
-        assert!(prometheus.contains("aethershell_active"));
+        assert!(prometheus.contains("ironshell_test"));
+        assert!(prometheus.contains("ironshell_active"));
     }
 
     #[test]
@@ -1555,7 +1555,7 @@ mod tests {
         let json = registry.export_json();
         match json {
             Value::Record(r) => {
-                assert!(r.contains_key("aethershell_ops"));
+                assert!(r.contains_key("ironshell_ops"));
             }
             _ => panic!("Expected Record"),
         }

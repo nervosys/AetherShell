@@ -1,4 +1,4 @@
-use aethershell::{env::Env, eval, parser, value::Value};
+use iron_shell::{env::Env, eval, parser, value::Value};
 
 fn eval_code(code: &str) -> Value {
     let mut env = Env::default();

@@ -1,4 +1,4 @@
-//! Provider-agnostic LLMs + Agents (single & multi-agent swarms) for Aether Shell.
+//! Provider-agnostic LLMs + Agents (single & multi-agent swarms) for IronShell Shell.
 //!
 //! ## Supported AI Backends
 //!
@@ -463,8 +463,8 @@ pub fn complete_multimodal_sync(messages: &[MultiModalMessage]) -> Result<String
 }
 
 fn multimodal_backend_from_env() -> Box<dyn MultiModalLlmBackend> {
-    let model_uri = std::env::var("AETHER_MODEL_URI").unwrap_or_else(|_| {
-        match std::env::var("AETHER_AI")
+    let model_uri = std::env::var("IRONSHELL_MODEL_URI").unwrap_or_else(|_| {
+        match std::env::var("IRONSHELL_AI")
             .unwrap_or_else(|_| "stub".into())
             .as_str()
         {
@@ -498,7 +498,7 @@ impl MultiModalLlmBackend for StubMultiModalBackend {
         Err(crate::safety::bad_state(
             "ai",
             "no AI provider is configured for multi-modal queries",
-            "set AETHER_AI=openai and OPENAI_API_KEY for vision and audio",
+            "set IRONSHELL_AI=openai and OPENAI_API_KEY for vision and audio",
         ))
     }
 }
@@ -653,16 +653,16 @@ impl MultiModalLlmBackend for OpenAiCompatMultiModalBackend {
 
 // ===================== Provider Router (simple 1-shot completion) =====================
 
-/// Route by `AETHER_AI` to one of: openai | ollama | openai_compat | tgi
+/// Route by `IRONSHELL_AI` to one of: openai | ollama | openai_compat | tgi
 /// Supports all 19 provider types via OpenAI-compatible routing.
 /// Returns an error with configuration instructions if no provider is set.
 pub fn complete_sync_router(prompt: &str) -> Result<String> {
     // If registry routing is enabled, try it first
-    if std::env::var("AETHER_AI_ROUTER").ok().as_deref() == Some("registry") {
+    if std::env::var("IRONSHELL_AI_ROUTER").ok().as_deref() == Some("registry") {
         return complete_via_registry(prompt, None);
     }
 
-    let provider = std::env::var("AETHER_AI").unwrap_or_default();
+    let provider = std::env::var("IRONSHELL_AI").unwrap_or_default();
 
     match provider.as_str() {
         // The gateway first: it is the edge that can answer for any of the
@@ -798,15 +798,15 @@ pub fn complete_sync_router(prompt: &str) -> Result<String> {
         "" => Err(crate::safety::bad_state(
             "ai",
             "no AI provider is configured",
-            "set AETHER_AI to a provider (irongate, openai, anthropic, google, ollama, deepseek, groq, ...) or provider:model",
+            "set IRONSHELL_AI to a provider (irongate, openai, anthropic, google, ollama, deepseek, groq, ...) or provider:model",
         )),
         other => Err(anyhow!(
             "Unknown AI provider: '{}'\n\n\
             Supported providers: irongate, openai, anthropic, google, ollama, deepseek,\n\
             groq, together, fireworks, perplexity, xai, azure, openrouter,\n\
             mistral, cohere, local, vllm, lmstudio, compat, tgi\n\n\
-            You can also use model URIs: AETHER_AI=\"provider:model\"\n\
-            Example: $env:AETHER_AI = \"openai:gpt-4o\"",
+            You can also use model URIs: IRONSHELL_AI=\"provider:model\"\n\
+            Example: $env:IRONSHELL_AI = \"openai:gpt-4o\"",
             other
         )),
     }
@@ -824,26 +824,26 @@ pub fn complete_via_registry(prompt: &str, model_uri: Option<&str>) -> Result<St
         bridge::complete_with_provider, registry::PROVIDER_REGISTRY, ChatRequest, Message, ModelUri,
     };
 
-    // Parse model URI or derive from AETHER_AI env
+    // Parse model URI or derive from IRONSHELL_AI env
     let uri = if let Some(uri_str) = model_uri {
         ModelUri::parse(uri_str)?
     } else {
-        let aether_ai = std::env::var("AETHER_AI").unwrap_or_default();
-        if aether_ai.is_empty() {
+        let ironshell_ai = std::env::var("IRONSHELL_AI").unwrap_or_default();
+        if ironshell_ai.is_empty() {
             // A prerequisite that has not been met, not an unidentified
             // fault: the repair is a different action (set the variable),
             // which is exactly what E_BAD_STATE is for.
             return Err(crate::safety::bad_state(
                 "ai",
                 "no AI provider is configured",
-                "set AETHER_AI to irongate, openai, ollama or compat",
+                "set IRONSHELL_AI to irongate, openai, ollama or compat",
             ));
         }
-        // Build a URI from the AETHER_AI value
-        if aether_ai.contains(':') {
-            ModelUri::parse(&aether_ai)?
+        // Build a URI from the IRONSHELL_AI value
+        if ironshell_ai.contains(':') {
+            ModelUri::parse(&ironshell_ai)?
         } else {
-            let scheme = aether_ai.as_str();
+            let scheme = ironshell_ai.as_str();
             let model = match scheme {
                 "openai" => "gpt-4o-mini",
                 "anthropic" | "claude" => "claude-sonnet-4-20250514",
@@ -1032,7 +1032,7 @@ fn provider_base_url(scheme: &str) -> Option<(String, String)> {
             Some((base, String::new()))
         }
         "compat" => {
-            let base = std::env::var("AETHER_COMPAT_BASE")
+            let base = std::env::var("IRONSHELL_COMPAT_BASE")
                 .unwrap_or_else(|_| "http://localhost:8000/v1".into());
             Some((base, String::new()))
         }
@@ -1049,22 +1049,22 @@ pub mod stub {
     pub fn complete_sync(_prompt: &str) -> Result<String> {
         Err(anyhow!(
             "No AI provider configured.\n\n\
-            Set AETHER_AI environment variable:\n\
-            - openai: $env:AETHER_AI=\"openai\"; $env:OPENAI_API_KEY=\"sk-...\"\n\
-            - ollama: $env:AETHER_AI=\"ollama\" (requires 'ollama serve')\n\
-            - compat: $env:AETHER_AI=\"compat\"; $env:AETHER_COMPAT_BASE=\"http://...\""
+            Set IRONSHELL_AI environment variable:\n\
+            - openai: $env:IRONSHELL_AI=\"openai\"; $env:OPENAI_API_KEY=\"sk-...\"\n\
+            - ollama: $env:IRONSHELL_AI=\"ollama\" (requires 'ollama serve')\n\
+            - compat: $env:IRONSHELL_AI=\"compat\"; $env:IRONSHELL_COMPAT_BASE=\"http://...\""
         ))
     }
 
     /// Check if AI is configured (for graceful warnings)
     pub fn is_configured() -> bool {
-        let provider = std::env::var("AETHER_AI").unwrap_or_default();
+        let provider = std::env::var("IRONSHELL_AI").unwrap_or_default();
         !provider.is_empty()
     }
 
     /// Get configuration warning message
     pub fn config_warning() -> &'static str {
-        "AI not configured. Set AETHER_AI=openai|ollama|compat and restart."
+        "AI not configured. Set IRONSHELL_AI=openai|ollama|compat and restart."
     }
 }
 
@@ -1148,9 +1148,9 @@ pub mod openai_compat {
     use super::*;
     /// Any OpenAI-compatible server: vLLM, TensorRT-LLM, llama.cpp server, etc.
     pub fn complete_sync(prompt: &str) -> Result<String> {
-        let base = std::env::var("AETHER_COMPAT_BASE")
+        let base = std::env::var("IRONSHELL_COMPAT_BASE")
             .unwrap_or_else(|_| "http://localhost:8000/v1".into());
-        let model = std::env::var("AETHER_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into());
+        let model = std::env::var("IRONSHELL_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into());
         let url = format!("{}/chat/completions", base.trim_end_matches('/'));
         let body = json!({
             "model": model,
@@ -1229,7 +1229,7 @@ pub mod tgi {
 pub enum Provider {
     Stub,
     /// The NERVOSYS gateway. Routing, not a model vendor: it decides whether a
-    /// prompt goes to IronWorks locally or to a frontier API, and AetherShell
+    /// prompt goes to IronWorks locally or to a frontier API, and IronShell
     /// deliberately does not know which.
     IronGate,
     OpenAI,
@@ -1286,7 +1286,7 @@ pub fn parse_model_ref(s: &str) -> ModelRef {
             },
             "compat" | "openai_compat" => ModelRef {
                 provider: Provider::OpenAICompat,
-                model: std::env::var("AETHER_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into()),
+                model: std::env::var("IRONSHELL_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into()),
             },
             "tgi" => ModelRef {
                 provider: Provider::Tgi,
@@ -1329,7 +1329,7 @@ impl LlmBackend for StubBackend {
         Err(crate::safety::bad_state(
             "ai",
             "no AI provider is configured",
-            "set AETHER_AI to irongate, openai, ollama or compat",
+            "set IRONSHELL_AI to irongate, openai, ollama or compat",
         ))
     }
 }
@@ -1396,9 +1396,9 @@ impl LlmBackend for OllamaBackend {
 struct OpenAiCompatBackend;
 impl LlmBackend for OpenAiCompatBackend {
     fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
-        let base = std::env::var("AETHER_COMPAT_BASE")
+        let base = std::env::var("IRONSHELL_COMPAT_BASE")
             .unwrap_or_else(|_| "http://localhost:8000/v1".into());
-        let model = std::env::var("AETHER_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into());
+        let model = std::env::var("IRONSHELL_COMPAT_MODEL").unwrap_or_else(|_| "mixtral".into());
         let url = format!("{}/chat/completions", base.trim_end_matches('/'));
         let body = json!({ "model": model, "messages": messages, "temperature": 0.2 });
 
@@ -1598,7 +1598,7 @@ pub fn detect_available_backends() -> Vec<BackendInfo> {
 /// [`detect_available_backends`] that stops at the first probe the safety gate
 /// refuses (the budget, an egress allowlist, a pending approval) and returns
 /// that refusal. Each probe that connects charges its own network unit before
-/// it opens a socket, so `AETHER_MAX_NET` bounds the probes and not just the
+/// it opens a socket, so `IRONSHELL_MAX_NET` bounds the probes and not just the
 /// one builtin call that starts them.
 pub fn try_detect_available_backends() -> Result<Vec<BackendInfo>> {
     type Probe = fn() -> Result<BackendInfo>;
@@ -2070,8 +2070,8 @@ fn select_backend(backends: Vec<BackendInfo>) -> Option<String> {
 
 pub fn backend_from_env() -> Box<dyn LlmBackend> {
     // First check for explicit configuration
-    let model_uri = std::env::var("AETHER_MODEL_URI").ok().or_else(|| {
-        std::env::var("AETHER_AI").ok().map(|ai| {
+    let model_uri = std::env::var("IRONSHELL_MODEL_URI").ok().or_else(|| {
+        std::env::var("IRONSHELL_AI").ok().map(|ai| {
             match ai.as_str() {
                 "irongate" | "gate" | "iron" => {
                     return format!("irongate:{}", crate::model_plane::gate_model())
@@ -2170,7 +2170,7 @@ pub mod agents {
         fn call(&self, input: &str, env: &mut Env) -> Result<Value>;
     }
 
-    /// Tool that bridges to Aether builtins: input is parsed as a JSON array of args.
+    /// Tool that bridges to IronShell builtins: input is parsed as a JSON array of args.
     pub struct BuiltinTool {
         pub name: String,
         pub description: String,
@@ -2228,7 +2228,7 @@ pub mod agents {
         fn get(&self, name: &str) -> Option<Box<dyn Tool>>;
     }
 
-    /// Resolver that exposes Aether builtins as tools.
+    /// Resolver that exposes IronShell builtins as tools.
     pub struct BuiltinToolResolver;
     impl ToolResolver for BuiltinToolResolver {
         fn list(&self) -> Vec<String> {
@@ -2246,7 +2246,7 @@ pub mod agents {
         fn get(&self, name: &str) -> Option<Box<dyn Tool>> {
             Some(Box::new(BuiltinTool {
                 name: name.to_string(),
-                description: format!("Aether builtin `{}`", name),
+                description: format!("IronShell builtin `{}`", name),
             }))
         }
     }
@@ -2325,7 +2325,7 @@ pub mod agents {
             let system = ChatMessage {
                 role: "system".into(),
                 content: format!(
-                    "You are Aether Agent. Emit JSON commands:\n\
+                    "You are IronShell Agent. Emit JSON commands:\n\
                      {{\"type\":\"tool\",\"tool\":\"<name>\",\"input\":<json or string>}} or \
                      {{\"type\":\"final\",\"output\":\"...\"}}.\nTools:\n{}",
                     self.tools
@@ -2436,7 +2436,7 @@ pub mod agents {
     ) -> Result<String> {
         let reg = ToolRegistry::with_builtins();
         let tools = reg.resolve_many(tool_names);
-        let mut agent = if let Ok(uri) = std::env::var("AETHER_AGENT_MODEL_URI") {
+        let mut agent = if let Ok(uri) = std::env::var("IRONSHELL_AGENT_MODEL_URI") {
             Agent::with_model_uri(tools, &uri)
         } else {
             Agent::new(tools)
@@ -2456,7 +2456,7 @@ pub mod agents {
         max_steps: usize,
         env: &mut Env,
     ) -> Result<String> {
-        let mut agent = if let Ok(uri) = std::env::var("AETHER_AGENT_MODEL_URI") {
+        let mut agent = if let Ok(uri) = std::env::var("IRONSHELL_AGENT_MODEL_URI") {
             Agent::with_model_uri(tools, &uri)
         } else {
             Agent::new(tools)
@@ -2711,7 +2711,7 @@ pub mod agents {
             pub fn add_agent(&mut self, mut cfg: AgentConfig) {
                 // Default per-agent model URI from env if none provided
                 if cfg.model_uri.is_none() {
-                    if let Ok(uri) = std::env::var("AETHER_SWARM_AGENT_MODEL_URI") {
+                    if let Ok(uri) = std::env::var("IRONSHELL_SWARM_AGENT_MODEL_URI") {
                         cfg.model_uri = Some(uri);
                     }
                 }

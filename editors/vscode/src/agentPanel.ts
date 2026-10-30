@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
  * Provides a panel for managing and interacting with AI agents
  */
 export class AgentPanelProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = 'aethershell.agentPanel';
+    public static readonly viewType = 'ironshell.agentPanel';
 
     private _view?: vscode.WebviewView;
     private _agents: AgentInfo[] = [];
@@ -60,7 +60,7 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
 
         // Insert agent code into active editor
         const editor = vscode.window.activeTextEditor;
-        if (editor && editor.document.languageId === 'aethershell') {
+        if (editor && editor.document.languageId === 'ironshell') {
             const toolsStr = config.tools.length > 0
                 ? `, { tools: [${config.tools.map(t => `"${t}"`).join(', ')}] }`
                 : '';
@@ -104,7 +104,7 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
     }
 
     private async _scanForAgents(): Promise<void> {
-        const files = await vscode.workspace.findFiles('**/*.ae', '**/node_modules/**', 100);
+        const files = await vscode.workspace.findFiles('**/*.ish', '**/node_modules/**', 100);
 
         for (const file of files) {
             const document = await vscode.workspace.openTextDocument(file);
@@ -153,7 +153,7 @@ export class AgentPanelProvider implements vscode.WebviewViewProvider {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AetherShell Agents</title>
+    <title>IronShell Agents</title>
     <style>
         * {
             box-sizing: border-box;

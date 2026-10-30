@@ -17,7 +17,7 @@ use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
 use ironcrypto::kdf::argon2::{phc, Argon2Params, Variant, Version};
 
-/// PBKDF2 iterations for a new password hash under `AETHER_FIPS`: the `pbkdf2`
+/// PBKDF2 iterations for a new password hash under `IRONSHELL_FIPS`: the `pbkdf2`
 /// crate's default, and the SP 800-132 recommendation at the time it was chosen.
 pub(crate) const PBKDF2_HASH_ROUNDS: u32 = 600_000;
 

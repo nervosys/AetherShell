@@ -7,9 +7,9 @@
 
 #![cfg(target_os = "macos")]
 
-use aethershell::builtins::call;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::process::{Child, Command, Stdio};
 
 /// The code of an error: the first `E_...` word in its text.

@@ -1,4 +1,4 @@
-//! Measures AetherShell's **repair rate**: of the calls that fail, what fraction
+//! Measures IronShell's **repair rate**: of the calls that fail, what fraction
 //! does a purely mechanical agent fix using nothing but the structured error?
 //!
 //! This is the number §11 of `docs/AGENTIC_FIRST_DESIGN.md` left as a placeholder
@@ -12,7 +12,7 @@
 //! model-driven strategy should do better; if it does not, the errors are the
 //! problem.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use agentic_eval::repair::{assess_repair, Attempt, ErrorFacts};
 use std::sync::Mutex;
 
@@ -37,10 +37,10 @@ fn s(x: &str) -> Value {
 
 /// Run one call and reduce its failure to the facts an agent would actually see.
 fn attempt(c: &Case) -> Attempt {
-    let mut env = aethershell::env::Env::new();
-    match aethershell::builtins::call(&c.name, c.args.clone(), &mut env) {
+    let mut env = iron_shell::env::Env::new();
+    match iron_shell::builtins::call(&c.name, c.args.clone(), &mut env) {
         Ok(_) => Attempt::Ok,
-        Err(e) => match e.downcast_ref::<aethershell::safety::SafetyError>() {
+        Err(e) => match e.downcast_ref::<iron_shell::safety::SafetyError>() {
             Some(se) => Attempt::Failed(ErrorFacts {
                 code: se.code.as_str().to_string(),
                 retryable: se.code.retryable(),
@@ -91,7 +91,7 @@ fn misspelling_corpus() -> Vec<Case> {
 #[test]
 fn the_repair_rate_on_misspelled_calls_is_measured_not_assumed() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     let corpus = misspelling_corpus();
     let report = assess_repair(&corpus, attempt, repair_from_error);
@@ -138,7 +138,7 @@ fn the_repair_rate_on_misspelled_calls_is_measured_not_assumed() {
 #[test]
 fn wrong_argument_failures_are_actionable_but_not_mechanically_repairable() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     let corpus = vec![
         case("pick", vec![Value::Int(1)]),
@@ -176,7 +176,7 @@ fn wrong_argument_failures_are_actionable_but_not_mechanically_repairable() {
 #[test]
 fn every_failure_in_a_mixed_corpus_carries_a_code() {
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     let mut corpus = misspelling_corpus();
     corpus.extend([
@@ -241,7 +241,7 @@ fn every_failure_in_a_mixed_corpus_carries_a_code() {
 /// exists to measure is a repair that *looks* right.
 fn model_repair_prompt(c: &Case, facts: &ErrorFacts) -> String {
     let signature = {
-        let d = aethershell::agent_api::ontology_describe_json(&c.name);
+        let d = iron_shell::agent_api::ontology_describe_json(&c.name);
         d.get("signature")
             .and_then(|v| v.as_str())
             .unwrap_or("(unknown)")
@@ -319,7 +319,7 @@ fn the_model_strategy_repairs_what_the_mechanical_one_declines() {
     // test below, which skips loudly when no backend is configured rather than
     // reporting a number nobody measured.
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     let corpus = vec![case("pick", vec![Value::Int(1)]), case("tokens", vec![])];
 
@@ -354,7 +354,7 @@ fn an_unparseable_model_reply_counts_as_no_repair_not_as_success() {
     // and gets scored as a repair. Prose, fences and empty replies must all
     // land in `no_repair_proposed`.
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     let corpus = vec![case("tokens", vec![])];
     for reply in ["I think you meant tokens(\"hello\")", "", "```json\n```"] {
@@ -374,11 +374,11 @@ fn a_configured_model_is_scored_on_the_same_corpus() {
     // The live half. Skips loudly rather than passing silently: a repair rate
     // reported without a model is a number nobody measured.
     let _l = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
-    if aethershell::ai::complete_sync_router("reply with OK").is_err() {
+    if iron_shell::ai::complete_sync_router("reply with OK").is_err() {
         eprintln!(
-            "SKIP: no AI backend configured (set AETHER_AI, or start IronGate); the model repair rate is unmeasured, not zero"
+            "SKIP: no AI backend configured (set IRONSHELL_AI, or start IronGate); the model repair rate is unmeasured, not zero"
         );
         return;
     }
@@ -390,7 +390,7 @@ fn a_configured_model_is_scored_on_the_same_corpus() {
         case("ontology_describe", vec![Value::Bool(true)]),
     ];
     let report = assess_repair(&corpus, attempt, |c, f| {
-        repair_with(c, f, |p| aethershell::ai::complete_sync_router(p).ok())
+        repair_with(c, f, |p| iron_shell::ai::complete_sync_router(p).ok())
     });
 
     eprintln!(

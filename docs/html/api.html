@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API Reference - AetherShell Documentation</title>
+    <title>API Reference - IronShell Documentation</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -20,7 +20,7 @@
 <body>
     <nav class="sidebar">
         <div class="logo">
-            <h1>🚀 AetherShell</h1>
+            <h1>🚀 IronShell</h1>
             <p class="version">v1.0.0</p>
         </div>
         <ul class="nav-menu">
@@ -48,10 +48,10 @@
 
         <section class="feature-section">
             <h2>Overview</h2>
-            <p>AetherShell provides multiple interfaces for programmatic usage:</p>
+            <p>IronShell provides multiple interfaces for programmatic usage:</p>
 
             <ul>
-                <li>📦 <strong>Rust Library</strong> - Embed AetherShell in Rust applications</li>
+                <li>📦 <strong>Rust Library</strong> - Embed IronShell in Rust applications</li>
                 <li>🔧 <strong>Command-line Interface</strong> - Execute scripts from shell</li>
                 <li>🖥️ <strong>REPL API</strong> - Interactive programming interface</li>
                 <li>🌐 <strong>HTTP API</strong> (Future) - REST API for remote execution</li>
@@ -63,15 +63,15 @@
 
             <h3>Adding Dependency</h3>
             <pre><code>[dependencies]
-aethershell = { path = "../AetherShell" }
+iron-shell = { path = "../IronShell" }
 # or when published:
-# aethershell = "1.0.0"</code></pre>
+# ironshell = "1.0.0"</code></pre>
 
             <h3>Basic Usage</h3>
-            <pre><code>use aethershell::{parser, eval, env::Env};
+            <pre><code>use iron_shell::{parser, eval, env::Env};
 
 fn main() -> anyhow::Result&lt;()&gt; {
-    // Parse AetherShell code
+    // Parse IronShell code
     let program = parser::parse_program(r#"
         [1, 2, 3, 4, 5]
         | map(fn(x) => x * 2)
@@ -100,7 +100,7 @@ fn main() -> anyhow::Result&lt;()&gt; {
                 <tbody>
                     <tr>
                         <td><code>parser</code></td>
-                        <td>Parse AetherShell code to AST</td>
+                        <td>Parse IronShell code to AST</td>
                         <td><code>parse_program()</code>, <code>parse_expr()</code></td>
                     </tr>
                     <tr>
@@ -153,7 +153,7 @@ fn main() -> anyhow::Result&lt;()&gt; {
 }</code></pre>
 
             <h3>Creating Values</h3>
-            <pre><code>use aethershell::value::Value;
+            <pre><code>use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 // Primitive values
@@ -174,7 +174,7 @@ map.insert("age".to_string(), Value::Int(30));
 let record = Value::Record(map);</code></pre>
 
             <h3>Value Operations</h3>
-            <pre><code>use aethershell::value::Value;
+            <pre><code>use iron_shell::value::Value;
 
 // Pattern matching
 match value {
@@ -190,7 +190,7 @@ match value {
             <h2>Parser API</h2>
 
             <h3>Parsing Programs</h3>
-            <pre><code>use aethershell::parser;
+            <pre><code>use iron_shell::parser;
 
 // Parse full program
 let program = parser::parse_program(r#"
@@ -203,7 +203,7 @@ let program = parser::parse_program(r#"
 let expr = parser::parse_expr("1 + 2 * 3")?;</code></pre>
 
             <h3>AST Types</h3>
-            <pre><code>use aethershell::ast::{Expr, Stmt, BinOp};
+            <pre><code>use iron_shell::ast::{Expr, Stmt, BinOp};
 
 pub enum Expr {
     Literal(Value),
@@ -227,7 +227,7 @@ pub enum Stmt {
             <h2>Evaluator API</h2>
 
             <h3>Evaluating Code</h3>
-            <pre><code>use aethershell::{parser, eval, env::Env};
+            <pre><code>use iron_shell::{parser, eval, env::Env};
 
 fn evaluate_code(code: &str) -> anyhow::Result&lt;Value&gt; {
     let program = parser::parse_program(code)?;
@@ -240,7 +240,7 @@ let result = evaluate_code("[1,2,3] | len")?;
 assert_eq!(result, Value::Int(3));</code></pre>
 
             <h3>Environment Management</h3>
-            <pre><code>use aethershell::env::Env;
+            <pre><code>use iron_shell::env::Env;
 
 // Create environment
 let mut env = Env::new();
@@ -266,7 +266,7 @@ if let Some(value) = env.get("x") {
             <h2>Syntax Knowledge Base API</h2>
 
             <h3>Accessing Syntax KB</h3>
-            <pre><code>use aethershell::syntax_kb::{get_kb, SyntaxEntry};
+            <pre><code>use iron_shell::syntax_kb::{get_kb, SyntaxEntry};
 
 fn get_protocol() -> anyhow::Result&lt;()&gt; {
     let kb = get_kb()?;
@@ -288,7 +288,7 @@ fn get_protocol() -> anyhow::Result&lt;()&gt; {
 }</code></pre>
 
             <h3>Adding Entries</h3>
-            <pre><code>use aethershell::syntax_kb::{get_kb, SyntaxEntry};
+            <pre><code>use iron_shell::syntax_kb::{get_kb, SyntaxEntry};
 
 fn add_custom_syntax() -> anyhow::Result&lt;()&gt; {
     let kb = get_kb()?;
@@ -306,7 +306,7 @@ fn add_custom_syntax() -> anyhow::Result&lt;()&gt; {
 }</code></pre>
 
             <h3>AgenticBinary Encoding/Decoding</h3>
-            <pre><code>use aethershell::syntax_kb::AgenticBinary;
+            <pre><code>use iron_shell::syntax_kb::AgenticBinary;
 
 fn encode_decode() -> anyhow::Result&lt;()&gt; {
     // Encode message
@@ -328,19 +328,19 @@ fn encode_decode() -> anyhow::Result&lt;()&gt; {
 
             <h3>Basic Usage</h3>
             <pre><code># Run script file
-ae script.ae
+ish script.ish
 
 # Run with arguments
-ae script.ae arg1 arg2
+ish script.ish arg1 arg2
 
 # REPL mode
-ae
+ish
 
 # TUI mode
-ae tui
+ish tui
 
 # Execute inline code
-ae -c "print([1,2,3] | len)"</code></pre>
+ish -c "print([1,2,3] | len)"</code></pre>
 
             <h3>Environment Variables</h3>
             <table>
@@ -353,7 +353,7 @@ ae -c "print([1,2,3] | len)"</code></pre>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><code>AETHER_AI</code></td>
+                        <td><code>IRONSHELL_AI</code></td>
                         <td>Default AI provider</td>
                         <td><code>openai</code>, <code>ollama</code></td>
                     </tr>
@@ -408,7 +408,7 @@ ae -c "print([1,2,3] | len)"</code></pre>
 
             <h3>Interactive Session</h3>
             <pre><code># Start REPL
-ae
+ish
 
 # Execute commands
 > x = 10
@@ -422,7 +422,7 @@ ae
 | print
 
 # Load file
-> load("script.ae")
+> load("script.ish")
 
 # Exit
 > exit(0)</code></pre>
@@ -460,7 +460,7 @@ ae
             <h2>Type Checking API</h2>
 
             <h3>Type Inference</h3>
-            <pre><code>use aethershell::typecheck;
+            <pre><code>use iron_shell::typecheck;
 
 fn check_types() -> anyhow::Result&lt;()&gt; {
     let program = parser::parse_program(r#"
@@ -529,7 +529,7 @@ cargo build
 # Build release binary
 cargo build --release
 
-# Build all binaries (ae + aimodel)
+# Build all binaries (ish + aimodel)
 cargo build --bins --release
 
 # Run tests
@@ -549,9 +549,9 @@ cargo build --features "ai,mcp"</code></pre>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><code>ae</code></td>
-                        <td>Main AetherShell executable</td>
-                        <td><code>target/release/ae.exe</code></td>
+                        <td><code>ish</code></td>
+                        <td>Main IronShell executable</td>
+                        <td><code>target/release/ish.exe</code></td>
                     </tr>
                     <tr>
                         <td><code>aimodel</code></td>
@@ -672,17 +672,17 @@ cargo doc --open
 cargo doc --open --document-private-items</code></pre>
 
             <h3>API Documentation Location</h3>
-            <pre><code>target/doc/aethershell/index.html</code></pre>
+            <pre><code>target/doc/ironshell/index.html</code></pre>
         </section>
 
         <div class="alert alert-success">
-            <strong>Complete!</strong> You now have the full AetherShell API reference. For more details, see the <a
+            <strong>Complete!</strong> You now have the full IronShell API reference. For more details, see the <a
                 href="https://github.com/nervosys/AetherShell">GitHub repository</a>.
         </div>
     </main>
 
     <footer>
-        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+        <p>&copy; 2025 IronShell. Built with Rust 🦀</p>
     </footer>
 </body>
 

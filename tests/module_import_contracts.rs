@@ -1,15 +1,15 @@
-//! Contracts for `import` and `export` of `.ae` file modules
+//! Contracts for `import` and `export` of `.ish` file modules
 //! (`src/module_loader.rs`). Every fixture lives in a fresh temp directory.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use aethershell::env::Env;
-use aethershell::safety::{ErrorCode, SafetyError};
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::safety::{ErrorCode, SafetyError};
+use iron_shell::value::Value;
 
-/// Tests in this binary share the process environment (`AETHER_MODE`,
-/// `AETHER_WORKSPACE`) and the process-wide module cache, so they run one at a time.
+/// Tests in this binary share the process environment (`IRONSHELL_MODE`,
+/// `IRONSHELL_WORKSPACE`) and the process-wide module cache, so they run one at a time.
 static LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
@@ -35,14 +35,14 @@ fn write(dir: &Path, name: &str, body: &str) -> PathBuf {
 
 /// Run `code` as a script whose directory is `dir`, the way `ae FILE` does.
 fn run_in(dir: &Path, code: &str, env: &mut Env) -> anyhow::Result<Value> {
-    let script = dir.join("main.ae");
-    let _entry = aethershell::module_loader::enter_entry_file(&script);
-    let stmts = aethershell::parser::parse_program(code)?;
-    aethershell::eval::eval_program(&stmts, env)
+    let script = dir.join("main.ish");
+    let _entry = iron_shell::module_loader::enter_entry_file(&script);
+    let stmts = iron_shell::parser::parse_program(code)?;
+    iron_shell::eval::eval_program(&stmts, env)
 }
 
 fn fresh_env() -> Env {
-    aethershell::modules::env_with_modules()
+    iron_shell::modules::env_with_modules()
 }
 
 fn code_of(e: &anyhow::Error) -> ErrorCode {
@@ -63,16 +63,16 @@ struct AgentEnv;
 
 impl AgentEnv {
     fn set(workspace: &Path) -> Self {
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_WORKSPACE", workspace);
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_WORKSPACE", workspace);
         AgentEnv
     }
 }
 
 impl Drop for AgentEnv {
     fn drop(&mut self) {
-        std::env::remove_var("AETHER_WORKSPACE");
-        std::env::remove_var("AETHER_MODE");
+        std::env::remove_var("IRONSHELL_WORKSPACE");
+        std::env::remove_var("IRONSHELL_MODE");
     }
 }
 
@@ -82,11 +82,11 @@ const MATH: &str = "pub let double = fn(x) => x * 2\nlet secret = 41\nexport { d
 fn named_import_binds_the_export() {
     let _g = lock();
     let dir = scratch("named");
-    write(&dir, "m.ae", MATH);
+    write(&dir, "m.ish", MATH);
     let mut env = fresh_env();
     let v = run_in(
         &dir,
-        "import { double } from \"m.ae\"\ndouble(21)",
+        "import { double } from \"m.ish\"\ndouble(21)",
         &mut env,
     )
     .unwrap();
@@ -101,11 +101,11 @@ fn named_import_binds_the_export() {
 fn named_import_with_alias_binds_the_alias() {
     let _g = lock();
     let dir = scratch("alias_named");
-    write(&dir, "m.ae", MATH);
+    write(&dir, "m.ish", MATH);
     let mut env = fresh_env();
     let v = run_in(
         &dir,
-        "import { double as twice } from \"m.ae\"\ntwice(4)",
+        "import { double as twice } from \"m.ish\"\ntwice(4)",
         &mut env,
     )
     .unwrap();
@@ -117,9 +117,9 @@ fn named_import_with_alias_binds_the_alias() {
 fn whole_module_import_binds_exports_into_scope() {
     let _g = lock();
     let dir = scratch("whole");
-    write(&dir, "m.ae", MATH);
+    write(&dir, "m.ish", MATH);
     let mut env = fresh_env();
-    run_in(&dir, "import \"m.ae\"", &mut env).unwrap();
+    run_in(&dir, "import \"m.ish\"", &mut env).unwrap();
     assert!(env.get_var("double").is_some());
     assert!(env.get_var("secret").is_none());
 }
@@ -128,9 +128,9 @@ fn whole_module_import_binds_exports_into_scope() {
 fn whole_module_import_with_alias_binds_a_record_of_exports() {
     let _g = lock();
     let dir = scratch("record");
-    write(&dir, "m.ae", MATH);
+    write(&dir, "m.ish", MATH);
     let mut env = fresh_env();
-    run_in(&dir, "import \"m.ae\" as m", &mut env).unwrap();
+    run_in(&dir, "import \"m.ish\" as m", &mut env).unwrap();
     match env.get_var("m") {
         Some(Value::Record(fields)) => {
             assert!(fields.contains_key("double"));
@@ -144,13 +144,13 @@ fn whole_module_import_with_alias_binds_a_record_of_exports() {
 fn importing_an_unexported_name_is_not_found_and_names_module_and_name() {
     let _g = lock();
     let dir = scratch("unexported");
-    write(&dir, "m.ae", MATH);
+    write(&dir, "m.ish", MATH);
     let mut env = fresh_env();
-    let err = run_in(&dir, "import { secret } from \"m.ae\"", &mut env).unwrap_err();
+    let err = run_in(&dir, "import { secret } from \"m.ish\"", &mut env).unwrap_err();
     assert_eq!(code_of(&err), ErrorCode::NotFound);
     let msg = message_of(&err);
     assert!(msg.contains("secret"), "message names the item: {msg}");
-    assert!(msg.contains("m.ae"), "message names the module: {msg}");
+    assert!(msg.contains("m.ish"), "message names the module: {msg}");
     assert!(env.get_var("secret").is_none());
 }
 
@@ -159,9 +159,9 @@ fn missing_module_is_not_found() {
     let _g = lock();
     let dir = scratch("missing");
     let mut env = fresh_env();
-    let err = run_in(&dir, "import \"nope.ae\"", &mut env).unwrap_err();
+    let err = run_in(&dir, "import \"nope.ish\"", &mut env).unwrap_err();
     assert_eq!(code_of(&err), ErrorCode::NotFound);
-    assert!(message_of(&err).contains("nope.ae"));
+    assert!(message_of(&err).contains("nope.ish"));
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn url_sources_are_refused() {
     let _g = lock();
     let dir = scratch("url");
     let mut env = fresh_env();
-    let err = run_in(&dir, "import \"https://example.com/m.ae\"", &mut env).unwrap_err();
+    let err = run_in(&dir, "import \"https://example.com/m.ish\"", &mut env).unwrap_err();
     assert_eq!(code_of(&err), ErrorCode::BadArg);
 }
 
@@ -177,15 +177,15 @@ fn url_sources_are_refused() {
 fn import_cycle_is_a_coded_error_naming_the_cycle() {
     let _g = lock();
     let dir = scratch("cycle");
-    write(&dir, "a.ae", "import \"b.ae\"\npub let a = 1\n");
-    write(&dir, "b.ae", "import \"a.ae\"\npub let b = 2\n");
+    write(&dir, "a.ish", "import \"b.ish\"\npub let a = 1\n");
+    write(&dir, "b.ish", "import \"a.ish\"\npub let b = 2\n");
     let mut env = fresh_env();
-    let err = run_in(&dir, "import \"a.ae\"", &mut env).unwrap_err();
+    let err = run_in(&dir, "import \"a.ish\"", &mut env).unwrap_err();
     assert_eq!(code_of(&err), ErrorCode::BadArg);
     let msg = message_of(&err);
     assert!(msg.contains("cycle"), "message says cycle: {msg}");
     assert!(
-        msg.contains("a.ae") && msg.contains("b.ae"),
+        msg.contains("a.ish") && msg.contains("b.ish"),
         "names both: {msg}"
     );
 }
@@ -194,17 +194,17 @@ fn import_cycle_is_a_coded_error_naming_the_cycle() {
 fn import_depth_is_bounded() {
     let _g = lock();
     let dir = scratch("depth");
-    let chain = aethershell::module_loader::MAX_IMPORT_DEPTH + 8;
+    let chain = iron_shell::module_loader::MAX_IMPORT_DEPTH + 8;
     for i in 0..chain {
         let body = if i + 1 < chain {
-            format!("import \"m{}.ae\"\npub let v{i} = {i}\n", i + 1)
+            format!("import \"m{}.ish\"\npub let v{i} = {i}\n", i + 1)
         } else {
             format!("pub let v{i} = {i}\n")
         };
-        write(&dir, &format!("m{i}.ae"), &body);
+        write(&dir, &format!("m{i}.ish"), &body);
     }
     let mut env = fresh_env();
-    let err = run_in(&dir, "import \"m0.ae\"", &mut env).unwrap_err();
+    let err = run_in(&dir, "import \"m0.ish\"", &mut env).unwrap_err();
     assert_eq!(code_of(&err), ErrorCode::BudgetExceeded);
     assert!(message_of(&err).contains("depth"));
 }
@@ -213,13 +213,13 @@ fn import_depth_is_bounded() {
 fn oversized_module_is_refused_before_it_is_evaluated() {
     let _g = lock();
     let dir = scratch("oversize");
-    let limit = aethershell::module_loader::MAX_MODULE_BYTES as usize;
+    let limit = iron_shell::module_loader::MAX_MODULE_BYTES as usize;
     let mut body = String::from("# ");
     body.push_str(&"x".repeat(limit));
     body.push('\n');
-    write(&dir, "big.ae", &body);
+    write(&dir, "big.ish", &body);
     let mut env = fresh_env();
-    let err = run_in(&dir, "import \"big.ae\"", &mut env).unwrap_err();
+    let err = run_in(&dir, "import \"big.ish\"", &mut env).unwrap_err();
     assert_eq!(code_of(&err), ErrorCode::BudgetExceeded);
 }
 
@@ -232,16 +232,16 @@ fn reimporting_a_module_evaluates_it_once() {
         "file.append(\"{}\", \"ran\\n\")\npub let v = 1\n",
         marker.display().to_string().replace('\\', "/")
     );
-    write(&dir, "side.ae", &module);
+    write(&dir, "side.ish", &module);
     let mut env = fresh_env();
     run_in(
         &dir,
-        "import \"side.ae\"\nimport \"side.ae\" as s\nimport { v } from \"side.ae\"",
+        "import \"side.ish\"\nimport \"side.ish\" as s\nimport { v } from \"side.ish\"",
         &mut env,
     )
     .unwrap();
     let mut other = fresh_env();
-    run_in(&dir, "import \"side.ae\"", &mut other).unwrap();
+    run_in(&dir, "import \"side.ish\"", &mut other).unwrap();
     let ran = std::fs::read_to_string(&marker).expect("module ran at least once");
     assert_eq!(
         ran.lines().count(),
@@ -255,11 +255,11 @@ fn reimporting_a_module_evaluates_it_once() {
 fn errors_inside_a_module_carry_the_module_path() {
     let _g = lock();
     let dir = scratch("inner_error");
-    write(&dir, "bad.ae", "pub let ok = 1\nthrow \"boom\"\n");
+    write(&dir, "bad.ish", "pub let ok = 1\nthrow \"boom\"\n");
     let mut env = fresh_env();
-    let err = run_in(&dir, "import \"bad.ae\"", &mut env).unwrap_err();
+    let err = run_in(&dir, "import \"bad.ish\"", &mut env).unwrap_err();
     let msg = message_of(&err);
-    assert!(msg.contains("bad.ae"), "module path in message: {msg}");
+    assert!(msg.contains("bad.ish"), "module path in message: {msg}");
     assert!(msg.contains("boom"), "inner cause kept: {msg}");
 }
 
@@ -267,13 +267,13 @@ fn errors_inside_a_module_carry_the_module_path() {
 fn nested_module_errors_name_every_module_on_the_way_out() {
     let _g = lock();
     let dir = scratch("nested_error");
-    write(&dir, "inner.ae", "throw \"deep\"\n");
-    write(&dir, "outer.ae", "import \"inner.ae\"\npub let x = 1\n");
+    write(&dir, "inner.ish", "throw \"deep\"\n");
+    write(&dir, "outer.ish", "import \"inner.ish\"\npub let x = 1\n");
     let mut env = fresh_env();
-    let err = run_in(&dir, "import \"outer.ae\"", &mut env).unwrap_err();
+    let err = run_in(&dir, "import \"outer.ish\"", &mut env).unwrap_err();
     let msg = message_of(&err);
     assert!(
-        msg.contains("inner.ae") && msg.contains("outer.ae"),
+        msg.contains("inner.ish") && msg.contains("outer.ish"),
         "both: {msg}"
     );
 }
@@ -300,9 +300,9 @@ fn export_of_an_undefined_name_is_not_found() {
 fn export_with_alias_exports_the_alias() {
     let _g = lock();
     let dir = scratch("export_alias");
-    write(&dir, "m.ae", "let inner = 5\nexport { inner as outer }\n");
+    write(&dir, "m.ish", "let inner = 5\nexport { inner as outer }\n");
     let mut env = fresh_env();
-    let v = run_in(&dir, "import { outer } from \"m.ae\"\nouter", &mut env).unwrap();
+    let v = run_in(&dir, "import { outer } from \"m.ish\"\nouter", &mut env).unwrap();
     assert_eq!(v, Value::Int(5));
 }
 
@@ -310,12 +310,12 @@ fn export_with_alias_exports_the_alias() {
 fn re_export_passes_through_another_modules_export() {
     let _g = lock();
     let dir = scratch("reexport");
-    write(&dir, "m.ae", MATH);
-    write(&dir, "r.ae", "export { double } from \"m.ae\"\n");
+    write(&dir, "m.ish", MATH);
+    write(&dir, "r.ish", "export { double } from \"m.ish\"\n");
     let mut env = fresh_env();
     let v = run_in(
         &dir,
-        "import { double } from \"r.ae\"\ndouble(10)",
+        "import { double } from \"r.ish\"\ndouble(10)",
         &mut env,
     )
     .unwrap();
@@ -330,15 +330,15 @@ fn agent_mode_refuses_an_import_from_outside_the_workspace() {
     let outside = root.join("outside");
     std::fs::create_dir_all(&ws).unwrap();
     std::fs::create_dir_all(&outside).unwrap();
-    write(&outside, "m.ae", MATH);
-    write(&ws, "inside.ae", MATH);
+    write(&outside, "m.ish", MATH);
+    write(&ws, "inside.ish", MATH);
     let _agent = AgentEnv::set(&ws);
 
     // Positive control: a module inside the workspace still imports.
     let mut env = fresh_env();
     let v = run_in(
         &ws,
-        "import { double } from \"inside.ae\"\ndouble(3)",
+        "import { double } from \"inside.ish\"\ndouble(3)",
         &mut env,
     )
     .unwrap();
@@ -346,11 +346,11 @@ fn agent_mode_refuses_an_import_from_outside_the_workspace() {
 
     // Relative escape from the importing file's directory.
     let mut env = fresh_env();
-    let err = run_in(&ws, "import \"../outside/m.ae\"", &mut env).unwrap_err();
+    let err = run_in(&ws, "import \"../outside/m.ish\"", &mut env).unwrap_err();
     assert_eq!(code_of(&err), ErrorCode::OutsideWorkspace);
 
     // Absolute path outside the workspace.
-    let abs = outside.join("m.ae");
+    let abs = outside.join("m.ish");
     let src = format!(
         "import \"{}\"",
         abs.display().to_string().replace('\\', "/")
@@ -365,17 +365,17 @@ fn relative_import_resolves_against_the_importing_modules_directory() {
     let _g = lock();
     let dir = scratch("nested_dir");
     std::fs::create_dir_all(dir.join("lib")).unwrap();
-    write(&dir.join("lib"), "util.ae", "pub let three = 3\n");
-    // `lib/outer.ae` imports `util.ae` next to itself, not from the script's directory.
+    write(&dir.join("lib"), "util.ish", "pub let three = 3\n");
+    // `lib/outer.ish` imports `util.ish` next to itself, not from the script's directory.
     write(
         &dir.join("lib"),
-        "outer.ae",
-        "import \"util.ae\"\npub let four = three + 1\n",
+        "outer.ish",
+        "import \"util.ish\"\npub let four = three + 1\n",
     );
     let mut env = fresh_env();
     let v = run_in(
         &dir,
-        "import { four } from \"lib/outer.ae\"\nfour",
+        "import { four } from \"lib/outer.ish\"\nfour",
         &mut env,
     )
     .unwrap();

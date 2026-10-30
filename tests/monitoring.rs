@@ -1,11 +1,11 @@
 //! Tests for proactive monitoring and alerting builtins
 
-use aethershell::builtins::*;
-use aethershell::value::Value;
+use iron_shell::builtins::*;
+use iron_shell::value::Value;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
-/// The alert store lives under AETHER_DATA_HOME and is one process-wide file, so
+/// The alert store lives under IRONSHELL_DATA_HOME and is one process-wide file, so
 /// every test that touches it holds this lock and points the store at its own directory.
 static STORE: Mutex<()> = Mutex::new(());
 
@@ -22,13 +22,13 @@ fn isolated_store() -> IsolatedStore {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&dir).expect("create the temporary data directory");
-    std::env::set_var("AETHER_DATA_HOME", &dir);
+    std::env::set_var("IRONSHELL_DATA_HOME", &dir);
     IsolatedStore { dir, _guard: guard }
 }
 
 impl Drop for IsolatedStore {
     fn drop(&mut self) {
-        std::env::remove_var("AETHER_DATA_HOME");
+        std::env::remove_var("IRONSHELL_DATA_HOME");
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }

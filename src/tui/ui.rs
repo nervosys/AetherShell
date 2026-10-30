@@ -49,7 +49,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("AetherShell TUI"),
+                .title("IronShell TUI"),
         )
         .select(app.tab_index)
         .style(Style::default().fg(Color::White))

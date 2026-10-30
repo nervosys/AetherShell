@@ -3,15 +3,15 @@
 //! These assert *behavior*, not the transpiler's internal text output:
 //!  - `eval_aeg(x)` transpiles → parses → evaluates and checks the resulting
 //!    `Value`, for forms that evaluate without external resources.
-//!  - `assert_call(x, needle)` checks the transpiled `.ae` **parses** and resolves
+//!  - `assert_call(x, needle)` checks the transpiled `.ish` **parses** and resolves
 //!    to the expected dotted call/keyword (tolerant of spacing/parens), for forms
 //!    that hit external tools/IO and can't be evaluated here.
 //!
 //! Decoupling from exact emitted text lets the 10-pass pipeline be replaced by a
 //! single tokenizing pass without rewriting every assertion.
 
-use aethershell::transpile::agentic::transpile_agentic_to_ae;
-use aethershell::value::Value;
+use iron_shell::transpile::agentic::transpile_agentic_to_ae;
+use iron_shell::value::Value;
 
 fn tr(src: &str) -> String {
     transpile_agentic_to_ae(src).expect("transpile")
@@ -20,9 +20,9 @@ fn tr(src: &str) -> String {
 /// Transpile → parse → eval, returning the value (for evaluable forms).
 fn eval_aeg(src: &str) -> Value {
     let ae = tr(src);
-    let stmts = aethershell::parser::parse_program(&ae).expect("transpiled .ae should parse");
-    let mut env = aethershell::env::Env::new();
-    aethershell::eval::eval_program(&stmts, &mut env).expect("transpiled .ae should eval")
+    let stmts = iron_shell::parser::parse_program(&ae).expect("transpiled .ish should parse");
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::eval::eval_program(&stmts, &mut env).expect("transpiled .ish should eval")
 }
 
 /// Assert a cipher form resolves to the expected dotted call/keyword. `needle` is

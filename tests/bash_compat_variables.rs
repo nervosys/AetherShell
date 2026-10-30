@@ -1,14 +1,14 @@
 //! Bash compatibility mode must not answer `null` where bash answers.
 //!
 //! Measured while asking whether a shell-native agentic benchmark (AgentBench's
-//! OS environment, the SWE-bench family) could be pointed at `ae -b`. The
+//! OS environment, the SWE-bench family) could be pointed at `ish -b`. The
 //! answer is mostly no — `benches/agentic/bashcompat.mjs` has the numbers — but
 //! one of the failures was worse than incompatibility:
 //!
 //! ```text
-//! $ ae -b -c 'echo $HOME'
+//! $ ish -b -c 'echo $HOME'
 //! null                       # exit 0
-//! $ ae -b -c 'echo "home is $HOME"'
+//! $ ish -b -c 'echo "home is $HOME"'
 //! home is null               # exit 0
 //! ```
 //!
@@ -29,10 +29,10 @@
 use std::process::Command;
 
 fn ae(args: &[&str]) -> (String, i32) {
-    let out = Command::new(env!("CARGO_BIN_EXE_ae"))
+    let out = Command::new(env!("CARGO_BIN_EXE_ish"))
         .args(args)
         .env("NO_COLOR", "1")
-        .env("AETHER_ALLOW_SH", "")
+        .env("IRONSHELL_ALLOW_SH", "")
         .env("AE_COMPAT_FIXTURE", "fixture-value")
         .env_remove("AE_COMPAT_UNSET")
         .output()
@@ -148,7 +148,7 @@ fn a_literal_run_stays_one_string_in_the_transpiled_source() {
     // `echo("h" + "e" + "l" + "l" + "o")` -- correct, and four times the
     // tokens, in a shell whose case rests on token efficiency.
     let src =
-        aethershell::transpile::bash::transpile_bash_to_ae("echo hello there").expect("transpile");
+        iron_shell::transpile::bash::transpile_bash_to_ae("echo hello there").expect("transpile");
     assert!(
         src.contains(r#"echo("hello", "there")"#) || src.contains(r#"echo("hello""#),
         "literal run was split into per-character concatenation: {src}"
@@ -159,7 +159,7 @@ fn a_literal_run_stays_one_string_in_the_transpiled_source() {
     );
 
     // And a mixed literal/variable argument keeps the literal whole.
-    let mixed = aethershell::transpile::bash::transpile_bash_to_ae("echo \"home is $HOME\"")
+    let mixed = iron_shell::transpile::bash::transpile_bash_to_ae("echo \"home is $HOME\"")
         .expect("transpile");
     assert!(
         mixed.contains(r#""home is " + env("HOME", "")"#),

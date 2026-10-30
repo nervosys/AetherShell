@@ -9,10 +9,10 @@
 //! The list is checked against the source here, so a new builtin that drops its
 //! input has to join it, and one that starts reading its input has to leave.
 
-use aethershell::builtins::{call_with_input, BUILTIN_LOOKUP};
-use aethershell::env::Env;
-use aethershell::signature::{signature_of, TAKES_NO_INPUT};
-use aethershell::value::Value;
+use iron_shell::builtins::{call_with_input, BUILTIN_LOOKUP};
+use iron_shell::env::Env;
+use iron_shell::signature::{signature_of, TAKES_NO_INPUT};
+use iron_shell::value::Value;
 use std::collections::BTreeSet;
 
 fn source() -> String {

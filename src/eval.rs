@@ -19,8 +19,8 @@ fn eval_cfg_condition(condition: &CfgCondition) -> Result<bool> {
             })
         }
         CfgCondition::Feature(feature) => {
-            // Check environment variable AETHER_FEATURES for enabled features
-            let features = std::env::var("AETHER_FEATURES").unwrap_or_default();
+            // Check environment variable IRONSHELL_FEATURES for enabled features
+            let features = std::env::var("IRONSHELL_FEATURES").unwrap_or_default();
             Ok(features.split(',').any(|f| f.trim() == feature))
         }
         CfgCondition::Not(inner) => Ok(!eval_cfg_condition(inner)?),

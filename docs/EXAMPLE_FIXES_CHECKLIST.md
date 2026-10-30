@@ -3,7 +3,7 @@
 Quick reference for fixing all 12 failing examples.
 
 ## Current Status
-- ✅ **4 passing**: `00_hello.ae`, `06_agent.ae`, `17_syntax_showcase.ae`, `18_mutable_variables.ae`
+- ✅ **4 passing**: `00_hello.ish`, `06_agent.ish`, `17_syntax_showcase.ish`, `18_mutable_variables.ish`
 - ❌ **12 failing**: Need fixes documented below
 - ⏭️ **8 skipped**: TUI/interactive examples (not testable in batch mode)
 
@@ -13,26 +13,26 @@ Quick reference for fixing all 12 failing examples.
 
 ### [ ] Fix Comment Syntax in 5 Examples
 Replace `#` with `//` in:
-- [ ] `examples/12_multi_agent_orchestration.ae`
-- [ ] `examples/13_multimodal_ai.ae`
-- [ ] `examples/14_typed_pipelines.ae`
-- [ ] `examples/15_ai_protocols.ae`
-- [ ] `examples/16_mcp_servers.ae`
+- [ ] `examples/12_multi_agent_orchestration.ish`
+- [ ] `examples/13_multimodal_ai.ish`
+- [ ] `examples/14_typed_pipelines.ish`
+- [ ] `examples/15_ai_protocols.ish`
+- [ ] `examples/16_mcp_servers.ish`
 
 **Command**:
 ```powershell
 foreach ($f in 12..16) { 
-    $file = "examples/${f}_*.ae"
+    $file = "examples/${f}_*.ish"
     (Get-Content $file) -replace '^#', '//' | Set-Content $file
 }
 ```
 
 ### [ ] Fix Pipeline Syntax Errors
-- [ ] `examples/01_pipelines.ae` - Line 2: Add comma in reduce
+- [ ] `examples/01_pipelines.ish` - Line 2: Add comma in reduce
   - Change: `reduce fn(a,b) => a + b 0`
   - To: `reduce(fn(a,b) => a + b, 0)`
   
-- [ ] `examples/19_showcase.ae` - Check all pipeline syntax
+- [ ] `examples/19_showcase.ish` - Check all pipeline syntax
 
 ---
 
@@ -60,12 +60,12 @@ fn parse_stmt(&mut self) -> Result<Stmt> {
 **Test**:
 ```powershell
 cargo build --release
-.\target\release\ae.exe .\examples\04_match.ae
+.\target\release\ish.exe .\examples\04_match.ish
 ```
 
 **Affected Examples**:
-- [ ] `04_match.ae` - Should print "big: 42"
-- [ ] `03_http.ae` - Uses match in body (needs dot notation too)
+- [ ] `04_match.ish` - Should print "big: 42"
+- [ ] `03_http.ish` - Uses match in body (needs dot notation too)
 
 ---
 
@@ -95,11 +95,11 @@ fn bi_read_text(args: &[Value], _input: Value) -> Result<Value> {
 **Test**:
 ```powershell
 cargo build --release
-.\target\release\ae.exe .\examples\05_ai.ae  # May need AI key
+.\target\release\ish.exe .\examples\05_ai.ish  # May need AI key
 ```
 
 **Affected Examples**:
-- [ ] `05_ai.ae`
+- [ ] `05_ai.ish`
 
 ---
 
@@ -135,11 +135,11 @@ fn bi_type_of(args: &[Value], input: Value) -> Result<Value> {
 
 **Test**:
 ```powershell
-.\target\release\ae.exe .\examples\07_uri_types.ae
+.\target\release\ish.exe .\examples\07_uri_types.ish
 ```
 
 **Affected Examples**:
-- [ ] `07_uri_types.ae`
+- [ ] `07_uri_types.ish`
 
 ---
 
@@ -170,7 +170,7 @@ fn bi_keys(args: &[Value], input: Value) -> Result<Value> {
 ```
 
 **Affected Examples**:
-- [ ] `03_http.ae` (partial - also needs dot notation)
+- [ ] `03_http.ish` (partial - also needs dot notation)
 
 ---
 
@@ -200,7 +200,7 @@ fn bi_len(args: &[Value], input: Value) -> Result<Value> {
 ```
 
 **Affected Examples**:
-- [ ] `03_http.ae` (partial)
+- [ ] `03_http.ish` (partial)
 
 ---
 
@@ -266,8 +266,8 @@ Expr::FieldAccess { object, field } => {
 
 #### Step 5: Test
 **Affected Examples**:
-- [ ] `02_tables.ae`
-- [ ] `03_http.ae`
+- [ ] `02_tables.ish`
+- [ ] `03_http.ish`
 
 ---
 
@@ -284,7 +284,7 @@ Expr::FieldAccess { object, field } => {
 Aggregation with `count()`, `sum()`, `avg()`, `min()`, `max()`
 
 **Affected Examples**:
-- [ ] `02_tables.ae`
+- [ ] `02_tables.ish`
 
 ---
 
@@ -294,14 +294,14 @@ Aggregation with `count()`, `sum()`, `avg()`, `min()`, `max()`
 ```powershell
 # After each fix
 cargo build --release
-.\target\release\ae.exe .\examples\XX_name.ae
+.\target\release\ish.exe .\examples\XX_name.ish
 ```
 
 ### Test All Non-TUI Examples
 ```powershell
-foreach ($file in Get-ChildItem examples\*.ae | Where-Object { $_.Name -notmatch '^(09|10|11|20|21|22|23)_' }) {
+foreach ($file in Get-ChildItem examples\*.ish | Where-Object { $_.Name -notmatch '^(09|10|11|20|21|22|23)_' }) {
     Write-Host "`n=== $($file.Name) ===" -ForegroundColor Cyan
-    .\target\release\ae.exe $file.FullName
+    .\target\release\ish.exe $file.FullName
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ PASSED" -ForegroundColor Green
     } else {
@@ -321,22 +321,22 @@ cargo test --workspace
 
 | Example                   | Current Status | After P0 | After P1  | After P2 |
 | ------------------------- | -------------- | -------- | --------- | -------- |
-| `00_hello.ae`             | ✅ Pass         | ✅        | ✅         | ✅        |
-| `01_pipelines.ae`         | ❌ Syntax       | ✅        | ✅         | ✅        |
-| `02_tables.ae`            | ❌ Dot          | ❌        | ❌         | ✅        |
-| `03_http.ae`              | ❌ Dot          | ❌        | ⚠️ Partial | ✅        |
-| `04_match.ae`             | ❌ Match        | ❌        | ✅         | ✅        |
-| `05_ai.ae`                | ❌ read_text    | ❌        | ✅         | ✅        |
-| `06_agent.ae`             | ✅ Pass         | ✅        | ✅         | ✅        |
-| `07_uri_types.ae`         | ❌ type_of      | ❌        | ✅         | ✅        |
-| `12_*.ae`                 | ❌ Comments     | ✅        | ✅         | ✅        |
-| `13_*.ae`                 | ❌ Comments     | ✅        | ✅         | ✅        |
-| `14_*.ae`                 | ❌ Comments     | ✅        | ✅         | ✅        |
-| `15_*.ae`                 | ❌ Comments     | ✅        | ✅         | ✅        |
-| `16_*.ae`                 | ❌ Comments     | ✅        | ✅         | ✅        |
-| `17_syntax_showcase.ae`   | ✅ Pass         | ✅        | ✅         | ✅        |
-| `18_mutable_variables.ae` | ✅ Pass         | ✅        | ✅         | ✅        |
-| `19_showcase.ae`          | ❌ Syntax       | ✅        | ✅         | ✅        |
+| `00_hello.ish`             | ✅ Pass         | ✅        | ✅         | ✅        |
+| `01_pipelines.ish`         | ❌ Syntax       | ✅        | ✅         | ✅        |
+| `02_tables.ish`            | ❌ Dot          | ❌        | ❌         | ✅        |
+| `03_http.ish`              | ❌ Dot          | ❌        | ⚠️ Partial | ✅        |
+| `04_match.ish`             | ❌ Match        | ❌        | ✅         | ✅        |
+| `05_ai.ish`                | ❌ read_text    | ❌        | ✅         | ✅        |
+| `06_agent.ish`             | ✅ Pass         | ✅        | ✅         | ✅        |
+| `07_uri_types.ish`         | ❌ type_of      | ❌        | ✅         | ✅        |
+| `12_*.ish`                 | ❌ Comments     | ✅        | ✅         | ✅        |
+| `13_*.ish`                 | ❌ Comments     | ✅        | ✅         | ✅        |
+| `14_*.ish`                 | ❌ Comments     | ✅        | ✅         | ✅        |
+| `15_*.ish`                 | ❌ Comments     | ✅        | ✅         | ✅        |
+| `16_*.ish`                 | ❌ Comments     | ✅        | ✅         | ✅        |
+| `17_syntax_showcase.ish`   | ✅ Pass         | ✅        | ✅         | ✅        |
+| `18_mutable_variables.ish` | ✅ Pass         | ✅        | ✅         | ✅        |
+| `19_showcase.ish`          | ❌ Syntax       | ✅        | ✅         | ✅        |
 
 **Summary**:
 - **After P0**: 10 passing (↑ 6 from syntax fixes)

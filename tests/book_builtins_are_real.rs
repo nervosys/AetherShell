@@ -21,7 +21,7 @@
 //!
 //! Scope is deliberately narrow, because precision matters more than reach
 //! here. Only identifiers containing an underscore, in command position,
-//! inside an ````aethershell```` fence are checked — `agent_reset`,
+//! inside an ````ironshell```` fence are checked — `agent_reset`,
 //! `tool_exec`, `workflow_create`. A bare word like `map` or `person` is
 //! ambiguous (it is as likely a variable in the example), and a rule that
 //! fires on those would be turned off rather than obeyed. Names an example
@@ -187,7 +187,7 @@ fn book_blocks() -> Vec<(String, String)> {
                     Some(body) => blocks.push((rel.clone(), body)),
                     None => {
                         let lang = rest.trim().to_ascii_lowercase();
-                        if lang == "aethershell" || lang == "ae" {
+                        if lang == "ironshell" || lang == "ish" {
                             current = Some(String::new());
                         }
                     }
@@ -240,7 +240,7 @@ fn non_vacuity_the_scanner_finds_calls_and_the_index_is_populated() {
     let blocks = book_blocks();
     assert!(
         blocks.len() > 50,
-        "found only {} aethershell blocks in the book; the test above would \
+        "found only {} ironshell blocks in the book; the test above would \
          pass vacuously",
         blocks.len()
     );

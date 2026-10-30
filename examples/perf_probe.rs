@@ -2,12 +2,12 @@
 //!
 //!   cargo run --release --example perf_probe
 //!
-//! Startup is measured separately, by timing the `ae` process
+//! Startup is measured separately, by timing the `ish` process
 //! (`benches/agentic/startup.sh`); this measures what happens after it.
 //! Each case runs once to warm up, then `REPS` times; the median is reported.
 
-use aethershell::eval::eval_program;
-use aethershell::parser::parse_program;
+use iron_shell::eval::eval_program;
+use iron_shell::parser::parse_program;
 use std::time::Instant;
 
 const REPS: usize = 7;
@@ -15,7 +15,7 @@ const REPS: usize = 7;
 fn median_ms(code: &str) -> (f64, String) {
     let stmts = parse_program(code).expect("parse");
     let run = || {
-        let mut env = aethershell::modules::env_with_modules();
+        let mut env = iron_shell::modules::env_with_modules();
         let t = Instant::now();
         let v = eval_program(&stmts, &mut env).expect("eval");
         (t.elapsed().as_secs_f64() * 1e3, v)
@@ -24,8 +24,8 @@ fn median_ms(code: &str) -> (f64, String) {
     let mut times: Vec<f64> = (0..REPS).map(|_| run().0).collect();
     times.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let shown = match &v {
-        aethershell::value::Value::Int(n) => n.to_string(),
-        aethershell::value::Value::Float(f) => format!("{f:.3}"),
+        iron_shell::value::Value::Int(n) => n.to_string(),
+        iron_shell::value::Value::Float(f) => format!("{f:.3}"),
         other => other.type_name().to_string(),
     };
     (times[REPS / 2], shown)
@@ -61,7 +61,7 @@ fn main() {
     // A warm request includes parsing. Time enough requests to resolve
     // sub-microsecond work; the old "parse+eval tiny" parsed outside its timer.
     for code in ["1 + 1", "math.abs(-42)", "str.upper(\"hello\")"] {
-        let mut env = aethershell::modules::env_with_modules();
+        let mut env = iron_shell::modules::env_with_modules();
         let mut samples = Vec::new();
         for _ in 0..REPS {
             let start = Instant::now();

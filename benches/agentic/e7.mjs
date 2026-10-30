@@ -45,9 +45,9 @@ const ORACLE = oracleFor(dataDir);
 const ARMS = [
     { id: 'sql', prompt: 'sql.md', bin: 'sqlite3', run: (c) => ['sqlite3', ['issues.db', c]], replay: 'sqlite' },
     { id: 'jq', prompt: 'jq.md', bin: 'jq', run: (c) => ['bash', ['-c', c]], replay: 'bash+jq' },
-    { id: 'aethershell', prompt: 'aethershell.md', bin: 'ae', run: (c) => ['ae', ['-c', c]], replay: 'aethershell' },
-    { id: 'agentic', prompt: 'agentic.md', bin: 'ae', run: (c) => ['ae', ['-a', '-c', c]], replay: 'aethershell (agentic)' },
-    { id: 'agentic-nocheat', prompt: 'agentic-nocheat.md', bin: 'ae', run: (c) => ['ae', ['-a', '-c', c]], replay: 'aethershell (agentic)' },
+    { id: 'ironshell', prompt: 'ironshell.md', bin: 'ish', run: (c) => ['ish', ['-c', c]], replay: 'ironshell' },
+    { id: 'agentic', prompt: 'agentic.md', bin: 'ish', run: (c) => ['ish', ['-a', '-c', c]], replay: 'ironshell (agentic)' },
+    { id: 'agentic-nocheat', prompt: 'agentic-nocheat.md', bin: 'ish', run: (c) => ['ish', ['-a', '-c', c]], replay: 'ironshell (agentic)' },
 ];
 
 // An arm whose interpreter is not installed must be SKIPPED and named, never
@@ -106,11 +106,11 @@ const WORKING_SET = [
 function ontologyText() {
     const lines = [];
     for (const name of WORKING_SET) {
-        const r = spawnSync('ae', ['-c', 'ontology_describe("' + name + '")'],
+        const r = spawnSync('ish', ['-c', 'ontology_describe("' + name + '")'],
             { encoding: 'utf8', timeout: 20000 });
         const out = (r.stdout ?? '').trim();
         if (!out || out.includes('is not a known')) {
-            throw new Error('ontology has no entry for ' + name + ' -- the AetherShell arms would ' +
+            throw new Error('ontology has no entry for ' + name + ' -- the IronShell arms would ' +
                 'be handed incomplete reference material, which PREREGISTERED_E7.md names as a ' +
                 'reason an arm would lose for a fixable rather than a fundamental reason.');
         }
@@ -230,9 +230,9 @@ if (seeds > 1 && temperature === 0) {
 // the guard E2 did not have when it scored `[{...}, {...}, ...]` as the
 // cheapest correct answer in the whole benchmark.
 function selfCheck(cwd) {
-    const ae = ARMS.find((a) => a.id === 'aethershell');
+    const ae = ARMS.find((a) => a.id === 'ironshell');
     const cases = [
-        ['a known-good command', COMMANDS.aethershell.q2, true],
+        ['a known-good command', COMMANDS.ironshell.q2, true],
         ['a wrong but valid command', 'cat("issues.json") | from_json | len', false],
         ['a command that errors', 'this_is_not_a_builtin()', false],
         ['an empty answer', 'echo("")', false],

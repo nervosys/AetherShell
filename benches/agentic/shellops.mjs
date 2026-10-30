@@ -14,12 +14,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const ENGINES = {
-    aethershell: { bin: 'ae', argv: (c) => ['-c', c], label: 'AetherShell 12.0.2' },
+    ironshell: { bin: 'ish', argv: (c) => ['-c', c], label: 'IronShell 12.0.2' },
     // The mode an agent actually runs in: AECON output, effect gating on. It is
     // listed separately rather than replacing the default, because the two
     // render differently and a reader is entitled to both numbers.
-    'aethershell (agent)': {
-        bin: 'ae', argv: (c) => ['--agent', '-c', c], label: 'AetherShell 12.0.2 --agent',
+    'ironshell (agent)': {
+        bin: 'ish', argv: (c) => ['--agent', '-c', c], label: 'IronShell 12.0.2 --agent',
     },
     bash: { bin: 'bash', argv: (c) => ['-c', c], label: 'bash 5.2 + coreutils' },
     pwsh: { bin: 'pwsh', argv: (c) => ['-NoProfile', '-Command', c], label: 'PowerShell 7.6.6' },
@@ -40,7 +40,7 @@ export const TASKS = {
 // What every engine's output must contain for the measurement to count.
 //
 // E2 originally had no oracle: `correct` was `exit === 0 && output non-empty`.
-// That let AetherShell's default renderer -- which printed an array of records
+// That let IronShell's default renderer -- which printed an array of records
 // as `[{…}, {…}, …]` -- score 316 bytes against bash's 2,650 and be reported
 // as a 7.9x win, while containing none of the requested data. An output-size
 // comparison is meaningless unless something checks that both outputs contain
@@ -53,7 +53,7 @@ export const TASKS = {
 // missing answer:
 //
 //   bash                27260
-//   AetherShell --agent 27260, under a factored `@suffix name: .rs` header
+//   IronShell --agent 27260, under a factored `@suffix name: .rs` header
 //   nushell             27.2 kB
 //
 // That third form is worth noticing rather than merely tolerating: nushell's
@@ -63,7 +63,7 @@ export const TASKS = {
 // most expensive.
 const SIZE = /\d{3,}|\d+(\.\d+)?\s*[kKMGT]i?B/;
 
-// `\blib\b` rather than `lib\.rs`, because AetherShell's agent mode factors the
+// `\blib\b` rather than `lib\.rs`, because IronShell's agent mode factors the
 // common suffix out of the column (`@suffix name: .rs` then bare stems). The
 // data is there and is reconstructible; only the spelling differs.
 export const EXPECT = {
@@ -109,9 +109,9 @@ export function selfCheck() {
     // One sample per engine's real encoding of the same facts. All three must
     // be accepted, or the oracle is scoring spelling instead of content.
     const accept = {
-        'plain (bash, AetherShell default)':
+        'plain (bash, IronShell default)':
             'lib.rs 10991 builtins.rs 1770246 master 190 12.0.2 88 parser.rs',
-        'AECON (AetherShell --agent)':
+        'AECON (IronShell --agent)':
             '@suffix name: .rs\nlib\t10991\nbuiltins\t1770246\nmaster 190 12.0.2 88 parser.rs',
         'rounded units (nushell)':
             '│ src/lib.rs │ 11.0 kB │ src/builtins.rs │ 1.8 MB │ master 190 12.0.2 88 parser.rs 109968',
@@ -141,7 +141,7 @@ export function selfCheck() {
 }
 
 export const COMMANDS = {
-    aethershell: {
+    ironshell: {
         // t1, t2, t6 and t7 changed on 2026-09-28 to use `ls`/`cat` globs,
         // `lines`, `open` and a recursive `glob`, added because these four
         // were where the arm lost. The earlier commands are in git history and
@@ -190,4 +190,4 @@ export const COMMANDS = {
 // Agent mode runs the identical programs; only the renderer and the effect
 // gate differ. Sharing the map rather than copying it keeps the two rows a
 // comparison of output modes and not, accidentally, of two different corpora.
-COMMANDS['aethershell (agent)'] = COMMANDS.aethershell;
+COMMANDS['ironshell (agent)'] = COMMANDS.ironshell;

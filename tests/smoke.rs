@@ -1,4 +1,4 @@
-use aethershell::typecheck;
+use iron_shell::typecheck;
 
 #[test]
 fn infer_last_type_for_pipeline() {

@@ -19,11 +19,11 @@ const require = createRequire(import.meta.url);
 const h = require('./load-extension.cjs');
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-const { AetherShellRunner } = h.load('runner');
+const { IronShellRunner } = h.load('runner');
 
 function freshRunner() {
     h.reset();
-    return new AetherShellRunner(h.vscode.window.createOutputChannel('test'));
+    return new IronShellRunner(h.vscode.window.createOutputChannel('test'));
 }
 
 function lastTerminal() {
@@ -51,7 +51,7 @@ test('a multi-line selection is run with the flag the CLI actually has', async (
 
     const sent = lastTerminal().sent.join('\n');
     assert.match(sent, /\s-c\s/, `expected -c, got: ${sent}`);
-    assert.doesNotMatch(sent, /\s-e\s/, 'ae does not accept -e');
+    assert.doesNotMatch(sent, /\s-e\s/, 'ish does not accept -e');
 });
 
 test('a single-line selection is sent as-is', async () => {
@@ -62,7 +62,7 @@ test('a single-line selection is sent as-is', async () => {
     assert.equal(lastTerminal().sent.join('\n').trim(), '1 + 2');
 });
 
-test('a non-AetherShell document is refused rather than run', async () => {
+test('a non-IronShell document is refused rather than run', async () => {
     const runner = freshRunner();
     const editor = editorWithSelection('print("x")');
     editor.document.languageId = 'python';
@@ -87,32 +87,32 @@ test('the TUI is launched by subcommand, not by a flag', () => {
 
     const term = lastTerminal();
     assert.deepEqual(term.shellArgs, ['tui'], `got ${JSON.stringify(term.shellArgs)}`);
-    assert.notDeepEqual(term.shellArgs, ['--tui'], 'ae rejects --tui');
+    assert.notDeepEqual(term.shellArgs, ['--tui'], 'ish rejects --tui');
 });
 
 test('running a file quotes the path, so a space does not split it', async () => {
     const runner = freshRunner();
-    await runner.runFile(h.doc('let x = 1', { fileName: 'C:/my projects/a.ae' }));
+    await runner.runFile(h.doc('let x = 1', { fileName: 'C:/my projects/a.ish' }));
 
     const sent = lastTerminal().sent.join('\n');
-    assert.match(sent, /"C:\/my projects\/a\.ae"/, `unquoted path: ${sent}`);
+    assert.match(sent, /"C:\/my projects\/a\.ish"/, `unquoted path: ${sent}`);
 });
 
-test('the executable path is configurable, defaulting to ae on PATH', () => {
+test('the executable path is configurable, defaulting to ish on PATH', () => {
     const runner = freshRunner();
     runner.startTui();
-    // The default is platform-dependent: ae.exe on Windows, ae elsewhere.
-    const bare = process.platform === 'win32' ? 'ae.exe' : 'ae';
+    // The default is platform-dependent: ish.exe on Windows, ish elsewhere.
+    const bare = process.platform === 'win32' ? 'ish.exe' : 'ish';
     assert.equal(lastTerminal().shellPath, bare);
 
     h.reset();
-    h.vscode.__test.config.set('aethershell.executable.path', 'C:/custom/ae.exe');
-    const configured = new AetherShellRunner(h.vscode.window.createOutputChannel('t'));
+    h.vscode.__test.config.set('ironshell.executable.path', 'C:/custom/ish.exe');
+    const configured = new IronShellRunner(h.vscode.window.createOutputChannel('t'));
     configured.startTui();
-    assert.equal(lastTerminal().shellPath, 'C:/custom/ae.exe');
+    assert.equal(lastTerminal().shellPath, 'C:/custom/ish.exe');
 });
 
-test('no source file invokes ae with an interface it does not have', () => {
+test('no source file invokes ish with an interface it does not have', () => {
     // Read the source, so a failure names the file a maintainer would edit --
     // with comments stripped first. Without that this fires on the comment
     // documenting the bug, which quotes the wrong flag in order to explain it.
@@ -125,7 +125,7 @@ test('no source file invokes ae with an interface it does not have', () => {
         .join('\n');
 
     for (const bad of ['-e "', "'--tui'", '"--tui"', '--eval', '--exec']) {
-        assert.ok(!src.includes(bad), `uses ${bad}, which ae does not accept`);
+        assert.ok(!src.includes(bad), `uses ${bad}, which ish does not accept`);
     }
     assert.match(src, /-c "/, 'running code should use -c');
     assert.match(src, /'tui'/, 'the TUI should be launched by subcommand');

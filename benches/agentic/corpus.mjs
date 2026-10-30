@@ -7,25 +7,25 @@
 // README.md about what that number can and cannot support.
 
 export const ENGINES = {
-    aethershell: { bin: 'ae', argv: (c) => ['-c', c], label: 'AetherShell 12.0.2' },
+    ironshell: { bin: 'ish', argv: (c) => ['-c', c], label: 'IronShell 12.0.2' },
     // The token-minimised syntax, which exists for exactly this benchmark's
     // failure mode and was not measured until the implicit-lambda desugaring
     // was fixed to bind more than one reference.
-    'aethershell (agentic)': {
-        bin: 'ae', argv: (c) => ['-a', '-c', c], label: 'AetherShell 12.0.2 -a',
+    'ironshell (agentic)': {
+        bin: 'ish', argv: (c) => ['-a', '-c', c], label: 'IronShell 12.0.2 -a',
     },
     // SQL from inside the shell. The Vercel post's own conclusion was that the
     // hybrid wins; this measures whether that is available here without
-    // leaving AetherShell.
-    'aethershell (sql)': {
-        bin: 'ae', argv: (c) => ['-c', c], label: 'AetherShell 12.0.2 + sqlite_query',
+    // leaving IronShell.
+    'ironshell (sql)': {
+        bin: 'ish', argv: (c) => ['-c', c], label: 'IronShell 12.0.2 + sqlite_query',
     },
     // The same SQL, run in-process over the raw issues.json rather than the
     // prepared issues.db, through sql_value -- which returns the one cell
     // instead of paying `|first|values|first` for it. Added with src/sql.rs;
     // the arm above is kept unchanged so the two can be compared.
-    'aethershell (sql_value)': {
-        bin: 'ae', argv: (c) => ['-c', c], label: 'AetherShell 12.0.2 + sql_value over JSON',
+    'ironshell (sql_value)': {
+        bin: 'ish', argv: (c) => ['-c', c], label: 'IronShell 12.0.2 + sql_value over JSON',
     },
     'bash+jq': { bin: 'bash', argv: (c) => ['-c', c], label: 'bash 5.2 + jq 1.7.1' },
     'bash+coreutils': { bin: 'bash', argv: (c) => ['-c', c], label: 'bash 5.2 + coreutils (files)' },
@@ -80,7 +80,7 @@ const AGENTIC = {
     q10: 'c"issues.json"|from_json|w(!~.is_pr&&~.state=="open")|.comments|mean|round(2)',
 };
 
-// SQL from inside AetherShell. Same engine, same effect gate, same structured
+// SQL from inside IronShell. Same engine, same effect gate, same structured
 // errors -- the hybrid the Vercel post found best, without leaving the shell.
 const AESQL_QUERIES = {
     q1: `SELECT count(*) FROM issues WHERE state='open' AND lower(title||' '||body) LIKE '%security%'`,
@@ -171,9 +171,9 @@ const NU = {
 };
 
 export const COMMANDS = {
-    aethershell: AE,
-    'aethershell (agentic)': AGENTIC,
-    'aethershell (sql)': AESQL, 'aethershell (sql_value)': AESQLV, 'bash+jq': JQ, 'bash+coreutils': CORE,
+    ironshell: AE,
+    'ironshell (agentic)': AGENTIC,
+    'ironshell (sql)': AESQL, 'ironshell (sql_value)': AESQLV, 'bash+jq': JQ, 'bash+coreutils': CORE,
     sqlite: SQL, pwsh: PS, nushell: NU,
 };
 
@@ -194,14 +194,14 @@ export const QUESTIONS = {
 // See README.md: the author was not blinded, so this measures the interaction
 // of one author's fluency with each language, not the languages alone.
 export const ATTEMPTS = {
-    aethershell: { q1: 2, q2: 1, q3: 1, q4: 4, q5: 1, q6: 1, q7: 2, q8: 3, q9: 2, q10: 1 },
+    ironshell: { q1: 2, q2: 1, q3: 1, q4: 4, q5: 1, q6: 1, q7: 2, q8: 3, q9: 2, q10: 1 },
     'bash+jq': { q1: 1, q2: 1, q3: 1, q4: 1, q5: 1, q6: 1, q7: 1, q8: 1, q9: 1, q10: 1 },
     'bash+coreutils': { q1: 2, q2: 1, q3: 2, q4: 2, q5: 1, q6: 4, q7: 2, q8: 1, q9: 1, q10: 1 },
     sqlite: { q1: 1, q2: 1, q3: 1, q4: 1, q5: 1, q6: 1, q7: 1, q8: 1, q9: 1, q10: 1 },
     // All first-try, but not a fluency result: the SQL was reused verbatim from
     // the arm above, so this records only that nothing needed rewriting for a
     // JSON source.
-    'aethershell (sql_value)': { q1: 1, q2: 1, q3: 1, q4: 1, q5: 1, q6: 1, q7: 1, q8: 1, q9: 1, q10: 1 },
+    'ironshell (sql_value)': { q1: 1, q2: 1, q3: 1, q4: 1, q5: 1, q6: 1, q7: 1, q8: 1, q9: 1, q10: 1 },
     pwsh: { q1: 1, q2: 1, q3: 1, q4: 1, q5: 1, q6: 1, q7: 1, q8: 1, q9: 1, q10: 1 },
     nushell: { q1: 3, q2: 1, q3: 1, q4: 1, q5: 2, q6: 1, q7: 2, q8: 1, q9: 2, q10: 2 },
 };

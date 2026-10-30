@@ -15,7 +15,7 @@
 //! shrinks the set of names every safety analysis knows about, and nothing goes
 //! red.
 
-use aethershell::builtins::{is_dispatched, BUILTIN_LOOKUP, FALLBACK_BUILTINS};
+use iron_shell::builtins::{is_dispatched, BUILTIN_LOOKUP, FALLBACK_BUILTINS};
 use std::collections::BTreeSet;
 
 /// Read from disk rather than `include_str!` so the test reports on the working

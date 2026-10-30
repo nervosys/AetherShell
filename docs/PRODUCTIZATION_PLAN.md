@@ -1,10 +1,10 @@
-# AetherShell Productization Plan
+# IronShell Productization Plan
 
-A comprehensive strategy for taking AetherShell from development project to market-ready product.
+A comprehensive strategy for taking IronShell from development project to market-ready product.
 
 ## Executive Summary
 
-AetherShell is a next-generation typed shell that combines functional programming paradigms with multimodal AI capabilities. This document outlines the path to productization, covering distribution channels, target audiences, monetization strategies, and the roadmap for a sustainable product.
+IronShell is a next-generation typed shell that combines functional programming paradigms with multimodal AI capabilities. This document outlines the path to productization, covering distribution channels, target audiences, monetization strategies, and the roadmap for a sustainable product.
 
 ---
 
@@ -14,7 +14,7 @@ AetherShell is a next-generation typed shell that combines functional programmin
 
 **"The intelligent shell for modern developers"**
 
-AetherShell uniquely combines:
+IronShell uniquely combines:
 - **Typed pipelines**: Structured data flow eliminates text parsing errors
 - **Functional programming**: Lambda expressions, map/filter/reduce built-in
 - **AI integration**: Natural language to code, intelligent agents, multi-modal support
@@ -32,7 +32,7 @@ AetherShell uniquely combines:
 
 ### Competitive Landscape
 
-| Competitor     | Strengths           | AetherShell Advantage            |
+| Competitor     | Strengths           | IronShell Advantage            |
 | -------------- | ------------------- | -------------------------------- |
 | **Bash/Zsh**   | Ubiquitous, mature  | Type safety, AI integration      |
 | **Nushell**    | Structured data     | AI capabilities, WASM support    |
@@ -48,10 +48,10 @@ AetherShell uniquely combines:
 
 **Priority 1 - Core Platforms:**
 ```
-- Homebrew (macOS/Linux): `brew install aethershell`
-- Cargo (Rust): `cargo install aethershell`
-- Winget (Windows): `winget install AetherShell`
-- Chocolatey (Windows): `choco install aethershell`
+- Homebrew (macOS/Linux): `brew install ironshell`
+- Cargo (Rust): `cargo install iron-shell`
+- Winget (Windows): `winget install IronShell`
+- Chocolatey (Windows): `choco install ironshell`
 ```
 
 **Priority 2 - Linux:**
@@ -65,19 +65,19 @@ AetherShell uniquely combines:
 
 **Priority 3 - Ecosystem:**
 ```
-- npm: `npm install -g aethershell` (via WASM)
-- PyPI: `pip install aethershell` (Python SDK)
+- npm: `npm install -g ironshell` (via WASM)
+- PyPI: `pip install ironshell` (Python SDK)
 ```
 
-> **PyPI is claimed; npm is not.** `aethershell` was published to PyPI on
+> **PyPI is claimed; npm is not.** `ironshell` was published to PyPI on
 > 2026-08-07, closing the squatting hole — the docs had been telling readers to
-> `pip install aethershell` while the name was unregistered, and `pip install`
+> `pip install ironshell` while the name was unregistered, and `pip install`
 > executes package code at install time.
 >
 > npm remains unclaimed, and the name is undecided: the artifact the release
-> workflow builds declares `aether_wasm`, while `web/package.json` declares
+> workflow builds declares `ironshell_wasm`, while `web/package.json` declares
 > `@nervosys/aethershell`. Settle that before setting `NPM_TOKEN`, or the first
-> successful publish claims the wrong one. `aether-shell` on PyPI is still worth
+> successful publish claims the wrong one. `ironshell-shell` on PyPI is still worth
 > taking as typo protection. Finding 12 in
 > [`security/SECURITY_AUDIT_2026-07-30.md`](security/SECURITY_AUDIT_2026-07-30.md).
 
@@ -111,7 +111,7 @@ jobs:
 
 ### 2.4 Cloud IDEs & Development Environments
 
-- **GitHub Codespaces**: Dev container with AetherShell pre-installed
+- **GitHub Codespaces**: Dev container with IronShell pre-installed
 - **Gitpod**: Workspace image configuration
 - **VS Code DevContainers**: Feature contribution
 - **JetBrains Fleet**: Plugin potential
@@ -122,7 +122,7 @@ jobs:
 
 ### 3.1 Tier Structure
 
-#### 🆓 **AetherShell Community** (Free, Open Source)
+#### 🆓 **IronShell Community** (Free, Open Source)
 
 **Includes:**
 - Full CLI with all language features
@@ -137,7 +137,7 @@ jobs:
 - No team collaboration features
 - No commercial support
 
-#### 💼 **AetherShell Pro** ($9/month or $79/year)
+#### 💼 **IronShell Pro** ($9/month or $79/year)
 
 **Additional Features:**
 - Cloud AI providers (OpenAI, Anthropic, Azure)
@@ -147,7 +147,7 @@ jobs:
 - Commercial use license
 - Advanced analytics/telemetry
 
-#### 🏢 **AetherShell Enterprise** (Custom pricing)
+#### 🏢 **IronShell Enterprise** (Custom pricing)
 
 **Additional Features:**
 - Self-hosted AI API server
@@ -200,7 +200,7 @@ Patreon: Community building
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    AetherShell Cloud                        │
+│                    IronShell Cloud                        │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
 │  │  Auth    │  │ License  │  │ AI Proxy │  │Analytics │   │
@@ -220,9 +220,9 @@ Patreon: Community building
 ### 4.3 License Validation Flow
 
 ```
-1. User runs `ae --login`
+1. User runs `ish --login`
 2. Opens browser for OAuth flow
-3. Receives API key, stored in ~/.aethershell/credentials
+3. Receives API key, stored in ~/.ironshell/credentials
 4. CLI checks license on startup (cached 24h)
 5. Pro features unlocked based on license tier
 ```
@@ -255,8 +255,8 @@ Patreon: Community building
 
 **Blog Series (Monthly):**
 1. "Why Typed Shells Are the Future"
-2. "Building AI Agents with AetherShell"
-3. "From Bash to AetherShell: Migration Guide"
+2. "Building AI Agents with IronShell"
+3. "From Bash to IronShell: Migration Guide"
 4. "Data Engineering with Structured Pipelines"
 5. "The Browser as a Shell: WASM Adventures"
 
@@ -274,7 +274,7 @@ Patreon: Community building
 - LinkedIn for enterprise outreach
 
 **Programs:**
-- AetherShell Champions (community advocates)
+- IronShell Champions (community advocates)
 - Plugin/extension bounties
 - Documentation contributors
 - Conference speaker support
@@ -423,7 +423,7 @@ Patreon: Community building
 - [ ] Create Homebrew formula
 - [ ] Publish to crates.io
 - [ ] Submit browser extension to Chrome Web Store
-- [ ] Create landing page (aethershell.io domain)
+- [ ] Create landing page (ironshell.io domain)
 
 ### Week 3-4: Documentation
 - [ ] Write comprehensive getting-started guide
@@ -447,7 +447,7 @@ Patreon: Community building
 
 ## Appendix A: Competitive Feature Matrix
 
-| Feature           | AetherShell | Nushell | Bash | PowerShell | Fish |
+| Feature           | IronShell | Nushell | Bash | PowerShell | Fish |
 | ----------------- | ----------- | ------- | ---- | ---------- | ---- |
 | Type System       | ✅ Inference | ✅       | ❌    | ✅          | ❌    |
 | Structured Data   | ✅           | ✅       | ❌    | ✅          | ❌    |
@@ -466,7 +466,7 @@ Average pricing for similar developer tools:
 - Raycast Pro: $8/month
 - Fig (now AWS): $9/month (was)
 
-Recommended starting price: **$9/month** positions AetherShell competitively while reflecting the AI feature value.
+Recommended starting price: **$9/month** positions IronShell competitively while reflecting the AI feature value.
 
 ## Appendix C: Resource Requirements
 

@@ -2,7 +2,7 @@
 //!
 //! Tests the JSON-based API for AI agent integration.
 
-use aethershell::agent_api::{
+use iron_shell::agent_api::{
     build_language_ontology, generate_schema, process_json_request, process_request, AgentRequest,
     AgentResponse, SchemaFormat,
 };
@@ -303,7 +303,7 @@ fn test_generate_schema_invalid() {
 fn test_language_ontology_structure() {
     let ontology = build_language_ontology();
 
-    assert_eq!(ontology.language.name, "AetherShell");
+    assert_eq!(ontology.language.name, "IronShell");
     assert!(!ontology.types.is_empty());
     assert!(!ontology.builtins.is_empty());
     assert!(!ontology.operators.is_empty());

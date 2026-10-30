@@ -1,12 +1,12 @@
 # Error Handling
 
-AetherShell provides structured error handling with `try`/`catch` expressions and first-class `Error` values. Errors can be created with `throw`, caught with `try`/`catch`, and inspected like any other value.
+IronShell provides structured error handling with `try`/`catch` expressions and first-class `Error` values. Errors can be created with `throw`, caught with `try`/`catch`, and inspected like any other value.
 
 ## Error Values
 
 `Error` is a first-class value type. It's **falsy** and carries a string message:
 
-```ae
+```ish
 let err = throw "something went wrong"
 # err is Value::Error("something went wrong")
 ```
@@ -15,7 +15,7 @@ let err = throw "something went wrong"
 
 Catch errors and recover gracefully:
 
-```ae
+```ish
 let result = try {
     cat("config.toml")
 } catch {
@@ -27,7 +27,7 @@ let result = try {
 
 Use `catch variable` to capture the error message:
 
-```ae
+```ish
 let result = try {
     http_get "https://unreachable.example.com"
 } catch e {
@@ -42,7 +42,7 @@ The `catch` variable receives the error message as a `String`.
 
 Create an error value explicitly:
 
-```ae
+```ish
 throw "file not found"
 throw "invalid argument: ${arg}"
 ```
@@ -54,20 +54,20 @@ throw "invalid argument: ${arg}"
 `try`/`catch` handles two categories of errors:
 
 1. **Error values** — produced by `throw`:
-   ```ae
+   ```ish
    try { throw "oops" } catch e { "caught: ${e}" }
    # => "caught: oops"
    ```
 
 2. **Runtime errors** — produced by invalid operations:
-   ```ae
+   ```ish
    try { 1 / 0 } catch e { "caught: ${e}" }
    try { null.field } catch e { "caught: ${e}" }
    ```
 
 If the `try` block succeeds (returns a non-error value), the `catch` branch is not executed:
 
-```ae
+```ish
 try { 42 } catch { "never reached" }
 # => 42
 ```
@@ -88,7 +88,7 @@ try { 42 } catch { "never reached" }
 
 Without `try`/`catch`, errors propagate up and terminate the current execution:
 
-```ae
+```ish
 let validate = fn(x) =>
     if x < 0 { throw "must be non-negative" }
     else { x }
@@ -99,7 +99,7 @@ validate(-5)
 
 Wrap the call in `try`/`catch` to handle it:
 
-```ae
+```ish
 let result = try { validate(-5) } catch e {
     print "Validation failed: ${e}"
     0
@@ -111,7 +111,7 @@ let result = try { validate(-5) } catch e {
 
 ### Default on failure
 
-```ae
+```ish
 let config = try { from_json(cat "config.json") } catch {
     {host: "localhost", port: 8080}
 }
@@ -119,7 +119,7 @@ let config = try { from_json(cat "config.json") } catch {
 
 ### Retry logic
 
-```ae
+```ish
 let fetch_with_retry = fn(url) => {
     let result = try { http_get url } catch { null }
     if result { result }
@@ -134,7 +134,7 @@ let fetch_with_retry = fn(url) => {
 
 ### Validate and collect errors
 
-```ae
+```ish
 let validate_user = fn(user) => {
     if !user.name { throw "name is required" }
     if user.age < 0 { throw "age must be non-negative" }
@@ -150,7 +150,7 @@ let result = try { validate_user({name: "", age: -1}) } catch e {
 
 ### Pipeline error handling
 
-```ae
+```ish
 # Errors in pipelines can be caught at any stage
 let safe_pipeline = fn(data) =>
     try {
@@ -170,7 +170,7 @@ let safe_pipeline = fn(data) =>
 - `Error(msg)` represents a failure with a message (exceptional)
 - Both are falsy, but `Error` carries diagnostic information
 
-```ae
+```ish
 let result = find_user("nonexistent")
 
 match result {

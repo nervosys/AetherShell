@@ -1,6 +1,6 @@
 # Databases & SQL
 
-AetherShell can put a corpus into SQLite and query it with SQL, from inside the
+IronShell can put a corpus into SQLite and query it with SQL, from inside the
 shell. That matters more than it sounds, and the measurement is in
 `benches/agentic/`.
 
@@ -30,7 +30,7 @@ effect gate are still around the query.
 Note the argument order: **database first**, then the source file, then the
 table. It reads backwards from the name.
 
-```aethershell
+```ironshell
 db_json_to_sqlite("issues.db", "issues.json", "issues")
 # true
 
@@ -43,7 +43,7 @@ query those formats directly when a database would be overkill.
 
 The result is ordinary typed data, so it composes with the rest of the language:
 
-```aethershell
+```ironshell
 sqlite_query("issues.db", "SELECT user, count(*) n FROM issues GROUP BY user")
     | where(fn(r) => r.n > 10)
     | sort_by("n")

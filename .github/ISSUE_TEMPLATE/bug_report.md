@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug to help improve AetherShell
+about: Report a bug to help improve IronShell
 title: '[BUG] '
 labels: bug
 assignees: ''
@@ -22,7 +22,7 @@ What you expected to happen.
 What actually happened.
 
 ## Code Sample
-```aether
+```ironshell
 # Minimal code to reproduce the issue
 let x = ...
 ```
@@ -34,7 +34,7 @@ Paste any error messages here
 
 ## Environment
 - **OS**: [e.g., macOS 14.0, Ubuntu 22.04, Windows 11]
-- **AetherShell Version**: [e.g., 0.2.0]
+- **IronShell Version**: [e.g., 0.2.0]
 - **Rust Version**: [output of `rustc --version`]
 - **Installation Method**: [cargo, homebrew, binary]
 

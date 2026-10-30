@@ -1,7 +1,7 @@
 //! Asking a tool its version must not reach the network.
 //!
 //! The egress gate (`benches/agentic/network-egress.mjs`) traced every
-//! `platform_*` builtin on the CI runner, with AETHER_MAX_NET=0, and found the
+//! `platform_*` builtin on the CI runner, with IRONSHELL_MAX_NET=0, and found the
 //! connections came from the tools being asked: `kubectl version` contacted
 //! the API server, packer checked HashiCorp for updates, vcpkg and az sent
 //! telemetry, and `bazel` -- bazelisk there -- downloaded Bazel. This puts
@@ -10,7 +10,7 @@
 
 #![cfg(unix)]
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -58,8 +58,8 @@ fn version_probes_ask_the_offline_question() {
     // The only test in this binary, so changing PATH races nothing.
     let old = std::env::var("PATH").unwrap_or_default();
     std::env::set_var("PATH", format!("{}:{old}", dir.display()));
-    let mut env = aethershell::env::Env::new();
-    let result = aethershell::builtins::call("platform_tool_versions", vec![], &mut env);
+    let mut env = iron_shell::env::Env::new();
+    let result = iron_shell::builtins::call("platform_tool_versions", vec![], &mut env);
     std::env::set_var("PATH", old);
 
     let Value::Record(versions) = result.unwrap() else {

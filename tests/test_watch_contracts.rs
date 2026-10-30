@@ -3,10 +3,10 @@
 //! Timing margins are generous on purpose. Windows process start-up is slow,
 //! and these tests must not depend on how quickly a child exits.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::safety::{effect_of, Effect};
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::safety::{effect_of, Effect};
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -322,7 +322,7 @@ fn pipeline_input_is_refused() {
 #[test]
 fn a_program_that_does_not_exist_is_an_error() {
     let e = watch(
-        strs(&["aethershell-no-such-program-for-test-watch"]),
+        strs(&["ironshell-no-such-program-for-test-watch"]),
         strs(&["Cargo.toml"]),
         Some(record(&[("max_runs", Value::Int(1))])),
     )

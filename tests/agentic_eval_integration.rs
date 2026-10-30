@@ -1,14 +1,14 @@
-//! `agentic-eval` applied to AetherShell's real engine: asserts AetherShell scores
+//! `agentic-eval` applied to IronShell's real engine: asserts IronShell scores
 //! well on all four agentic axes when measured with the standalone evaluation
 //! library against the actual tokenizer / evaluator / canonical renderer / effect
 //! model. This is the regression test for the `examples/agentic_eval.rs` wiring.
 
-use aethershell::builtins::{est_token_count, render_canonical};
-use aethershell::env::Env;
-use aethershell::eval::eval_program;
-use aethershell::parser::parse_program;
-use aethershell::safety::{self, SafetyError};
-use aethershell::value::Value;
+use iron_shell::builtins::{est_token_count, render_canonical};
+use iron_shell::env::Env;
+use iron_shell::eval::eval_program;
+use iron_shell::parser::parse_program;
+use iron_shell::safety::{self, SafetyError};
+use iron_shell::value::Value;
 
 use agentic_eval::determinism::assess_determinism;
 use agentic_eval::reliability::{assess_reliability, Outcome};
@@ -17,7 +17,7 @@ use agentic_eval::tokens::{evaluate_with, Program};
 
 use std::sync::{Mutex, MutexGuard};
 
-/// Serialises the two tests that touch `AETHER_POLICY`.
+/// Serialises the two tests that touch `IRONSHELL_POLICY`.
 ///
 /// It is process-global and selects the policy table, so a test that clears it
 /// while another is asserting against the permissive table gets an answer for a
@@ -35,9 +35,9 @@ fn eval_to_value(code: &str) -> anyhow::Result<Value> {
 }
 
 #[test]
-fn aethershell_token_surface_is_competitive_over_a_session() {
-    // Flow AetherShell's real tokenizer through the library's cost model via
-    // `evaluate_with`: legible .ae vs the .aeg cipher (charged its real ontology tax).
+fn ironshell_token_surface_is_competitive_over_a_session() {
+    // Flow IronShell's real tokenizer through the library's cost model via
+    // `evaluate_with`: legible .ish vs the .ishg cipher (charged its real ontology tax).
     let count = est_token_count;
     let legible = evaluate_with(
         &Program::new("legible", r#"ls(".") | where(fn(f) => f.size > 1000)"#)
@@ -46,7 +46,7 @@ fn aethershell_token_surface_is_competitive_over_a_session() {
     );
     let cipher = evaluate_with(
         &Program::new("cipher", r#"l.|w~.size>1k"#)
-            .with_standing_context(aethershell::transpile::agentic::describe_ontology())
+            .with_standing_context(iron_shell::transpile::agentic::describe_ontology())
             .with_retries(1),
         count,
     );
@@ -61,7 +61,7 @@ fn aethershell_token_surface_is_competitive_over_a_session() {
 }
 
 #[test]
-fn aethershell_canonical_render_is_deterministic() {
+fn ironshell_canonical_render_is_deterministic() {
     let _env = env_lock();
     let det = assess_determinism(6, || {
         let v = eval_to_value(r#"{ b: 2.0, a: 1, items: [3, 1, 2] }"#).expect("eval");
@@ -78,7 +78,7 @@ fn aethershell_canonical_render_is_deterministic() {
 }
 
 #[test]
-fn aethershell_is_reliable_with_actionable_failures() {
+fn ironshell_is_reliable_with_actionable_failures() {
     let programs = [
         r#"len([1, 2, 3])"#,
         r#"upper("hi")"#,
@@ -103,7 +103,7 @@ fn aethershell_is_reliable_with_actionable_failures() {
 }
 
 #[test]
-fn aethershell_bounds_dangerous_builtin_blast_radius_in_agent_mode() {
+fn ironshell_bounds_dangerous_builtin_blast_radius_in_agent_mode() {
     let builtins = [
         "len",
         "file_read",
@@ -113,7 +113,7 @@ fn aethershell_bounds_dangerous_builtin_blast_radius_in_agent_mode() {
         "rm",
         "sh",
     ];
-    // Map names → effects through AetherShell's real classifier via the library's
+    // Map names → effects through IronShell's real classifier via the library's
     // `assess_safety_named` convenience (no hand-rolled filter_map).
     let report = assess_safety_named(
         &builtins,
@@ -138,17 +138,17 @@ fn aethershell_bounds_dangerous_builtin_blast_radius_in_agent_mode() {
 }
 
 #[test]
-fn agentic_eval_policy_stays_in_sync_with_aethershell() {
+fn agentic_eval_policy_stays_in_sync_with_ironshell() {
     let _env = env_lock();
     // agentic-eval carries its OWN copy of the effect→decision policy (it must not
-    // depend on aethershell). The applied safety score is only faithful if that copy
-    // matches AetherShell's real policy — so assert they agree for every
+    // depend on ironshell). The applied safety score is only faithful if that copy
+    // matches IronShell's real policy — so assert they agree for every
     // (effect, mode) pair. This fails loudly if the two ever drift.
-    use aethershell::safety as ae;
+    use iron_shell::safety as ae;
     use agentic_eval::safety as ag;
 
     // Ensure the default (non-permissive) policy table is in effect.
-    std::env::remove_var("AETHER_POLICY");
+    std::env::remove_var("IRONSHELL_POLICY");
 
     let label_ae = |d: ae::Decision| match d {
         ae::Decision::Allow => "allow",

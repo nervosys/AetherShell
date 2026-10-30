@@ -10,7 +10,7 @@ Two of the seven items are recommendations *not* to do something.
 
 ## The scoreboard as it stands
 
-| Axis | AetherShell | Best other | Standing |
+| Axis | IronShell | Best other | Standing |
 | --- | --- | --- | --- |
 | E1 scalar-query tokens | 448 | sqlite 258, jq 345 | **4th of 6** |
 | E1 latency (Linux) | 13–24 ms/query | sqlite 3–4, jq 6 | **3rd** |
@@ -32,8 +32,8 @@ Four firsts, three lasts. The lasts are what this document is about.
 **Measured prize: −27.5% on command tokens. Cost: one function.**
 
 E1 is lost entirely on the command side: our output is 67 tokens against
-SQLite's 56, but our commands are 381 against 202. AetherShell already ships a
-token-minimised syntax for exactly this (`ae -a`), and it was never benchmarked.
+SQLite's 56, but our commands are 381 against 202. IronShell already ships a
+token-minimised syntax for exactly this (`ish -a`), and it was never benchmarked.
 It should have been; that is a gap in the measurement, not only in the product.
 
 It was never benchmarked because it does not work on the queries that matter.
@@ -63,8 +63,8 @@ reference case is unchanged, so nothing that works today breaks.
 
 | Form | Tokens | vs SQLite |
 | --- | ---: | ---: |
-| AetherShell, current verbose | 305 | +74% |
-| AetherShell, agentic syntax | **221** | +26% |
+| IronShell, current verbose | 305 | +74% |
+| IronShell, agentic syntax | **221** | +26% |
 | SQLite | 175 | — |
 
 Extrapolated to the full ten-query E1 that would be roughly 276 command tokens
@@ -91,10 +91,10 @@ The Vercel post's own conclusion was not that SQL wins; it was that *the hybrid
 wins*: "the hybrid approach consistently hits 100% accuracy, while pure SQL
 occasionally gets things wrong", at roughly twice SQL's tokens.
 
-AetherShell already has `sqlite_query`, `db_json_to_sqlite`, `db_csv_to_sqlite`
+IronShell already has `sqlite_query`, `db_json_to_sqlite`, `db_csv_to_sqlite`
 and eleven other `db_sqlite_*` builtins. This runs today:
 
-```aethershell
+```ironshell
 sqlite_query("issues.db", "SELECT count(*) FROM issues WHERE is_pr=1")
 # [{count(*): 293}]
 ```
@@ -158,7 +158,7 @@ invented.
 **Risk, audited rather than estimated.** Ten places across `tests/` read a
 process exit status and **none asserts it equals 1** — they check `is_err()`, or
 zero against non-zero. Nothing in `scripts/` or the CI workflows branches on an
-AetherShell exit code either; the `exit 1` lines there are those scripts failing
+IronShell exit code either; the `exit 1` lines there are those scripts failing
 themselves. The blast radius is empty, which is worth establishing before
 proposing the change rather than after.
 
@@ -194,7 +194,7 @@ quiet patch.
 
 **Honest assessment: this is structural, and the gap is smaller than it looks.**
 
-Per-query on Linux, AetherShell is 13–24 ms against SQLite's 3–4. The
+Per-query on Linux, IronShell is 13–24 ms against SQLite's 3–4. The
 decomposition says where it goes: **4 ms process start, 3 ms to read and parse
 334 KB of JSON, the rest evaluation.** SQLite is not faster at the same work; it
 is doing different work — reading a pre-built index instead of parsing a
@@ -216,7 +216,7 @@ chasing SQLite.
 
 **Recommendation: drop the claim, take the other route.**
 
-E6 measured `ae -b` at 2 of 32 commands run natively, 10 delegated to
+E6 measured `ish -b` at 2 of 32 commands run natively, 10 delegated to
 `bash -lc`. Closing that properly means a real bash parser — word splitting,
 globbing, parameter expansion, job control, `trap`, arrays, arithmetic — which
 is a multi-quarter project with a well-populated graveyard.
@@ -229,7 +229,7 @@ containment property we argue for.
 
 **Instead:** retarget the harness, not the shell. SWE-agent's action space is
 "governed by a single `yaml` file"; rewriting that file and the system prompt to
-emit AetherShell is a bounded piece of work, and it is the honest experiment —
+emit IronShell is a bounded piece of work, and it is the honest experiment —
 it measures a typed shell rather than a bash emulator. Meanwhile the README
 should stop advertising bash compatibility as a feature, which it has now
 stopped doing.
@@ -240,7 +240,7 @@ stopped doing.
 
 **Recommendation: leave it. bash's 42 bytes is not a target.**
 
-We are third on mean error size: bash 42, PowerShell 114, AetherShell 141,
+We are third on mean error size: bash 42, PowerShell 114, IronShell 141,
 nushell 294. The instinct is to trim. Do not.
 
 bash's 42 bytes buy 0/10 machine-readable codes and 1/10 repair hints. Our extra
@@ -293,11 +293,11 @@ the two differ, the measurement stands.
 | Engine | Cmd tokens | Output | **Total** | Total ms |
 | --- | ---: | ---: | ---: | ---: |
 | sqlite | 202 | 56 | **258** | 52 |
-| **AetherShell `-a`** | 275 | 67 | **342** | 438 |
+| **IronShell `-a`** | 275 | 67 | **342** | 438 |
 | bash + jq | 287 | 58 | **345** | 140 |
 | nushell | 297 | 56 | **353** | 361 |
-| **AetherShell + `sqlite_query`** | 329 | 57 | **386** | 80 |
-| AetherShell (default) | 381 | 67 | **448** | 308 |
+| **IronShell + `sqlite_query`** | 329 | 57 | **386** | 80 |
+| IronShell (default) | 381 | 67 | **448** | 308 |
 | PowerShell | 474 | 57 | 531 | 33,995 |
 | bash + coreutils | 647 | 57 | 704 | 3,686 |
 
@@ -306,7 +306,7 @@ against jq's 345; the measurement is **342**. All ten queries correct, all
 byte-stable.
 
 **And second on latency, by a different route.** `sqlite_query` from inside
-AetherShell answers all ten in 80 ms against bare `sqlite3`'s 52 and the JSON
+IronShell answers all ten in 80 ms against bare `sqlite3`'s 52 and the JSON
 pipeline's 308 — the hybrid the Vercel post found best, inside one shell, with
 the typed output, the structured errors and the effect gate still around it.
 
@@ -342,7 +342,7 @@ compatibility, do not trim error bytes.
 ### Item 4, resolved — narrower than proposed, and for a reason found by testing
 
 The proposal was `--workspace` by default for **all** non-interactive
-invocations. That was too broad. `ae -c` and `ae deploy.sh` are how people and
+invocations. That was too broad. `ish -c` and `ish deploy.sh` are how people and
 shell scripts use the shell, and Option 4 of `AGENTS.md` sells running existing
 bash scripts unchanged; a shell that refuses to write outside its working
 directory would break that and would not really be a shell. Scaling a safety
@@ -350,12 +350,12 @@ default up until it breaks the product is not a safety win.
 
 What the proposal was right about was that the headline described a
 configuration most users would not be in. Probing the actual surface showed
-where: **`ae agent serve` and `ae mcp serve` ran the human profile** unless the
+where: **`ish agent serve` and `ish mcp serve` ran the human profile** unless the
 operator also passed `--agent`. Those two subcommands exist for no purpose other
 than to serve an AI agent, so they now imply agent mode — default-deny, jail
 rooted at the server's working directory, profile printed at startup, and
-`AETHER_MODE` honoured as an explicit opt-out. Nothing about `ae -c`, `ae
-script.ae` or the REPL changes, so this is not the breaking change the proposal
+`IRONSHELL_MODE` honoured as an explicit opt-out. Nothing about `ish -c`, `ish
+script.ish` or the REPL changes, so this is not the breaking change the proposal
 worried about and does not need a version boundary.
 
 Two things worth keeping from how this was found:
@@ -371,9 +371,9 @@ indistinguishable from containment until the day someone fixes the second
 defect.
 
 **The measured number went down, and that is the honest one.** E4 now carries a
-third AetherShell arm — a live `ae agent serve` with no flags — and it scores
+third IronShell arm — a live `ish agent serve` with no flags — and it scores
 **5/6, not 6/6**. Network egress still executes, because that axis is governed
-by `AETHER_MAX_NET`, which agent mode does not set. Making agent mode imply a
+by `IRONSHELL_MAX_NET`, which agent mode does not set. Making agent mode imply a
 zero network quota would make the table read 6/6 and would break every
 legitimate `http.get` an agent makes, so the gap is reported rather than
 closed.

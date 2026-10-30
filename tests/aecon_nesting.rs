@@ -6,7 +6,7 @@
 //! As everywhere else in this format, the load-bearing assertion is the exact
 //! round-trip; the token win is measured separately.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn rec(pairs: &[(&str, Value)]) -> Value {
@@ -18,8 +18,8 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 fn encode(v: &Value) -> String {
@@ -70,7 +70,7 @@ fn nested_payload(n: i64) -> Value {
                         rec(&[
                             (
                                 "path",
-                                Value::Str(format!("/out/aethershell/step_{i:02}_result.json")),
+                                Value::Str(format!("/out/ironshell/step_{i:02}_result.json")),
                             ),
                             ("bytes", Value::Int(4096 + i)),
                         ]),

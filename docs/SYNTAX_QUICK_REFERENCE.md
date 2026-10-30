@@ -1,10 +1,10 @@
-# AetherShell Variable Syntax - Complete Reference Card
+# IronShell Variable Syntax - Complete Reference Card
 
 ## 📋 All Variable Declaration Syntaxes
 
 ### Immutable Variables (Cannot Change After Declaration)
 
-```ae
+```ish
 # Recommended: Simple assignment
 name = "Alice"
 count = 42
@@ -17,7 +17,7 @@ let count = 42
 
 ### Mutable Variables (Can Change After Declaration)
 
-```ae
+```ish
 # Recommended: mut with =
 mut counter = 0
 mut total = 100
@@ -31,17 +31,17 @@ let mut total = 100
 ## 🎯 Quick Decision Guide
 
 **For immutable variables (most common):**
-```ae
+```ish
 x = 42              // ✅ USE THIS - simplest and cleanest
 ```
 
 **For mutable variables:**
-```ae
+```ish
 mut x = 42          // ✅ USE THIS - consistent with immutable style
 ```
 
 **For type annotations:**
-```ae
+```ish
 let x: Int = 42     // Use when you need explicit types
 let mut x: Float = 0.0
 ```
@@ -58,33 +58,33 @@ let mut x: Float = 0.0
 ## 💡 Common Patterns
 
 ### Counter
-```ae
+```ish
 mut count = 0
 count = count + 1
 ```
 
 ### Accumulator
-```ae
+```ish
 mut sum = 0
 sum = sum + 10
 sum = sum + 20
 ```
 
 ### State Machine
-```ae
+```ish
 mut state = "idle"
 state = "loading"
 state = "ready"
 ```
 
 ### Flag Toggle
-```ae
+```ish
 mut active = false
 active = true
 ```
 
 ### Progress Tracker
-```ae
+```ish
 mut progress = 0.0
 progress = 25.0
 progress = 50.0
@@ -93,7 +93,7 @@ progress = 100.0
 
 ## 🔄 Type Examples
 
-```ae
+```ish
 # Integers
 count = 42
 mut counter = 0
@@ -126,25 +126,25 @@ mut transform = fn(x) => x
 ## ✅ Best Practices
 
 1. **Prefer immutable by default**
-   ```ae
+   ```ish
    x = 42              # Default to immutable
    mut y = 0           # Only use mut when needed
    ```
 
 2. **Use shortest syntax**
-   ```ae
+   ```ish
    x = 42              # ✅ Good
    let x = 42          # ❌ Unnecessarily verbose
    ```
 
 3. **Clear mutability intent**
-   ```ae
+   ```ish
    mut counter = 0     # ✅ Clear that it will change
    let mut counter = 0 # ❌ Extra verbosity
    ```
 
 4. **Consistent style in file**
-   ```ae
+   ```ish
    # Pick one style and stick to it
    x = 10
    y = 20
@@ -159,21 +159,21 @@ mut transform = fn(x) => x
 ## 🚀 Quick Examples
 
 ### Read-only Configuration
-```ae
+```ish
 api_url = "https://api.example.com"
 timeout = 30
 retries = 3
 ```
 
 ### Mutable State
-```ae
+```ish
 mut attempts = 0
 mut last_error = ""
 mut is_connected = false
 ```
 
 ### Mixed Usage
-```ae
+```ish
 # Immutable config
 max_retries = 3
 base_url = "https://api.example.com"

@@ -4,22 +4,22 @@
 //! through a hard link, as `audit_alias_contracts.rs` and
 //! `governance_file_contracts.rs` require for symbolic links on Unix.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 static LOCK: Mutex<()> = Mutex::new(());
 
 const VARS: &[&str] = &[
-    "AETHER_MODE",
-    "AETHER_WORKSPACE",
-    "AETHER_AUDIT_LOG",
-    "AETHER_RBAC_CONFIG",
-    "AETHER_AUDIT_KEY_FILE",
-    "AETHER_AUDIT_SINK",
-    "AETHER_SESSION_DIR",
+    "IRONSHELL_MODE",
+    "IRONSHELL_WORKSPACE",
+    "IRONSHELL_AUDIT_LOG",
+    "IRONSHELL_RBAC_CONFIG",
+    "IRONSHELL_AUDIT_KEY_FILE",
+    "IRONSHELL_AUDIT_SINK",
+    "IRONSHELL_SESSION_DIR",
 ];
 
 struct Ws {
@@ -29,22 +29,22 @@ struct Ws {
 
 impl Ws {
     /// A jailed workspace. Its audit log starts outside the workspace; a test
-    /// that wants the log inside it moves `AETHER_AUDIT_LOG` itself.
+    /// that wants the log inside it moves `IRONSHELL_AUDIT_LOG` itself.
     fn new() -> Self {
         let id = uuid::Uuid::new_v4();
         let root = std::env::temp_dir().join(format!("ae-hardlink-ws-{id}"));
         let outside = std::env::temp_dir().join(format!("ae-hardlink-out-{id}"));
-        std::fs::create_dir_all(root.join(".ae")).unwrap();
+        std::fs::create_dir_all(root.join(".ironshell")).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
         let root = root.canonicalize().unwrap();
         let outside = outside.canonicalize().unwrap();
         for var in VARS {
             std::env::remove_var(var);
         }
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_WORKSPACE", &root);
-        std::env::set_var("AETHER_AUDIT_LOG", outside.join("audit.log"));
-        std::env::set_var("AETHER_SESSION_DIR", outside.join("session"));
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_WORKSPACE", &root);
+        std::env::set_var("IRONSHELL_AUDIT_LOG", outside.join("audit.log"));
+        std::env::set_var("IRONSHELL_SESSION_DIR", outside.join("session"));
         Self { root, outside }
     }
 
@@ -86,7 +86,7 @@ fn a_hard_link_to_the_audit_log_cannot_be_written() {
     let ws = Ws::new();
     std::fs::create_dir_all(ws.root.join("logs")).unwrap();
     let log = ws.path("logs/audit.log");
-    std::env::set_var("AETHER_AUDIT_LOG", &log);
+    std::env::set_var("IRONSHELL_AUDIT_LOG", &log);
     std::fs::write(&log, "entry\n").unwrap();
     let alias = ws.path("innocent.txt");
     std::fs::hard_link(&log, &alias).unwrap();
@@ -112,7 +112,7 @@ fn a_hard_link_to_the_audit_log_cannot_be_written() {
 fn a_hard_link_to_the_rbac_config_cannot_be_written() {
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let ws = Ws::new();
-    let config = ws.path(".ae/rbac.toml");
+    let config = ws.path(".ironshell/rbac.toml");
     std::fs::write(&config, "seed\n").unwrap();
     let alias = ws.path("innocent.txt");
     std::fs::hard_link(&config, &alias).unwrap();

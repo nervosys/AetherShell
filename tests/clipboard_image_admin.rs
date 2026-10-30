@@ -8,12 +8,12 @@
 
 #![cfg(any(windows, target_os = "macos"))]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-// The clipboard and AETHER_WORKSPACE are process-global, so tests take this lock.
+// The clipboard and IRONSHELL_WORKSPACE are process-global, so tests take this lock.
 static LOCK: Mutex<()> = Mutex::new(());
 
 fn s(text: &str) -> Value {
@@ -21,7 +21,7 @@ fn s(text: &str) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>, env: &mut Env) -> anyhow::Result<Value> {
-    aethershell::builtins::call(name, args, env)
+    iron_shell::builtins::call(name, args, env)
 }
 
 fn code(result: anyhow::Result<Value>, expected: &str) {
@@ -56,7 +56,7 @@ impl Workspace {
             std::process::id()
         ));
         std::fs::create_dir_all(&dir).expect("create workspace");
-        std::env::set_var("AETHER_WORKSPACE", &dir);
+        std::env::set_var("IRONSHELL_WORKSPACE", &dir);
         Workspace(dir)
     }
 
@@ -67,7 +67,7 @@ impl Workspace {
 
 impl Drop for Workspace {
     fn drop(&mut self) {
-        std::env::remove_var("AETHER_WORKSPACE");
+        std::env::remove_var("IRONSHELL_WORKSPACE");
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }

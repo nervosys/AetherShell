@@ -1,4 +1,4 @@
-//! Reinforcement Learning module for AetherShell
+//! Reinforcement Learning module for IronShell
 //!
 //! Provides RL primitives for training agents and learning optimal behaviors.
 //!
@@ -11,7 +11,7 @@
 //! - Multi-agent RL support
 //!
 //! ## Example Usage
-//! ```ae
+//! ```ish
 //! # Create a Q-learning agent
 //! let agent = rl_agent("q_learning", {
 //!   state_size: 10,

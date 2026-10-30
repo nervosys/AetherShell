@@ -10,30 +10,30 @@ answer as a string.
 An agent needs a provider. Without one, every call fails immediately and says
 so:
 
-```aethershell
+```ironshell
 agent("list the files here")
 # error[E_UNKNOWN]: No AI provider configured.
-# Set AETHER_AI environment variable to: irongate, openai, ollama, or compat
+# Set IRONSHELL_AI environment variable to: irongate, openai, ollama, or compat
 ```
 
 See [Configuring Providers](./providers.md).
 
 ## Running an agent
 
-```aethershell
+```ironshell
 agent(<goal>, [tools...], [max_steps], [dry_run])
 ```
 
 Only the goal is required. It is a task, not a persona — the system prompt is
 supplied by the loop, and the goal is the user turn.
 
-```aethershell
+```ironshell
 agent("Find the three largest files under src/")
 ```
 
 Tools are named individually or as an array. They are ordinary builtins:
 
-```aethershell
+```ironshell
 agent("Find every .log file over 1 MB", "ls", "find", "stat")
 
 agent("Summarise what this project builds", ["cat", "ls", "grep"])
@@ -42,7 +42,7 @@ agent("Summarise what this project builds", ["cat", "ls", "grep"])
 After the tools come two optional positional arguments: an integer step limit
 (default **8**) and a boolean dry-run flag.
 
-```aethershell
+```ironshell
 # Twenty steps, and do not actually execute the tool calls.
 agent("Reorganise the test fixtures", ["ls", "mv"], 20, true)
 ```
@@ -53,7 +53,7 @@ The same call can be written as a record, which is easier to build
 programmatically. Exactly four keys are read — `goal`, `tools`, `max_steps` and
 `dry_run` — and anything else is ignored:
 
-```aethershell
+```ironshell
 agent({
     goal: "Summarise the open TODOs",
     tools: ["grep", "cat"],
@@ -71,7 +71,7 @@ returns a string. There is no session, no conversation history, and no reset
 builtin, so a second call knows nothing about the first. To carry context
 forward, put it in the next goal:
 
-```aethershell
+```ironshell
 let plan = agent("Break down building a CLI todo app into steps")
 let code = agent("Implement this plan: " + plan, ["write", "cat"])
 ```
@@ -90,7 +90,7 @@ export AGENT_ALLOW_CMDS=ls,cat,grep,git
 ```
 
 The list is read once, when the security configuration is first built, so
-export it before starting `ae`. Setting it from inside a running shell with
+export it before starting `ish`. Setting it from inside a running shell with
 `env_set` or `set_env` takes effect only if no command has been validated yet.
 
 Anything outside the list is refused by name, and both the allowed and the
@@ -104,7 +104,7 @@ an `mcp:` prefix is stripped, and a name the dispatcher does not serve is
 refused with `E_UNIMPLEMENTED`, and the run is refused if it ends without a
 final answer:
 
-```aethershell
+```ironshell
 agent_with_mcp("Check the deployment status", ["k8s_pods", "k8s_logs"])
 ```
 
@@ -117,9 +117,9 @@ agent_with_mcp("Check the deployment status", ["k8s_pods", "k8s_logs"])
 
 An agent runs real commands. Beyond `AGENT_ALLOW_CMDS`:
 
-- `ae --agent` puts the shell in default-deny mode, gating destructive effect
+- `ish --agent` puts the shell in default-deny mode, gating destructive effect
   classes behind approval.
-- `ae --workspace <dir>` confines writes and destructive operations to that
+- `ish --workspace <dir>` confines writes and destructive operations to that
   directory.
 - `dry_run` lets you watch the loop's intent without executing it.
 

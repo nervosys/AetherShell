@@ -15,16 +15,16 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn piped(name: &str, args: Vec<Value>, input: Value) -> anyhow::Result<Value> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call_with_input(name, args, Some(input), &mut env)
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call_with_input(name, args, Some(input), &mut env)
 }
 
 fn code_of(e: &anyhow::Error) -> String {
@@ -245,7 +245,7 @@ fn ai_routes_lists_the_rules_the_registry_holds() {
 
 #[test]
 fn noop_is_not_a_builtin() {
-    assert!(!aethershell::builtins::is_dispatched("noop"));
+    assert!(!iron_shell::builtins::is_dispatched("noop"));
     assert!(call("noop", vec![]).is_err());
 }
 

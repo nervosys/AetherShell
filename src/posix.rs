@@ -1,9 +1,9 @@
-//! A POSIX-shell subset, executed in-process: what `ae -b` runs before it
+//! A POSIX-shell subset, executed in-process: what `ish -b` runs before it
 //! falls back to the transpiler.
 //!
 //! E6 (`benches/agentic/bashcompat.mjs`) asked how much of the shell an agent
-//! actually emits `ae -b` could run. The answer was 2 of 32: the transpiler
-//! produced AetherShell that did not parse, and everything with a loop, a
+//! actually emits `ish -b` could run. The answer was 2 of 32: the transpiler
+//! produced IronShell that did not parse, and everything with a loop, a
 //! variable or `&&` was handed to `bash -lc` -- which bypasses every safety
 //! property the rest of the shell has, because the effect gate sees one `sh`
 //! call instead of the commands the script ran.
@@ -1039,7 +1039,7 @@ struct Shell {
     glob_refused: Option<String>,
 }
 
-const SHELL_NAME: &str = "ae";
+const SHELL_NAME: &str = "ish";
 
 impl Shell {
     fn var(&self, name: &str) -> Option<String> {
@@ -1724,8 +1724,8 @@ impl Shell {
             return e.code.exit_code();
         }
         // The approval above describes argv only. A child that inherits an
-        // `AETHER_*` variable from an assignment prefix or an export runs with
-        // whatever gate that variable sets (`AETHER_MODE=human ae -c 'apply(..)'`
+        // `IRONSHELL_*` variable from an assignment prefix or an export runs with
+        // whatever gate that variable sets (`IRONSHELL_MODE=human ish -c 'apply(..)'`
         // is ungated), so in agent mode no such variable reaches a child.
         if crate::safety::current_mode() == crate::safety::Mode::Agent {
             let gate_var = self
@@ -1733,14 +1733,14 @@ impl Shell {
                 .iter()
                 .map(String::as_str)
                 .chain(env.iter().map(|(n, _)| n.as_str()))
-                .find(|n| n.to_ascii_uppercase().starts_with("AETHER_"));
+                .find(|n| n.to_ascii_uppercase().starts_with("IRONSHELL_"));
             if let Some(name) = gate_var {
                 let refusal = crate::safety::policy_deny(
                     "posix",
                     format!(
-                        "{name}: an agent may not pass an AETHER_* variable to a child process"
+                        "{name}: an agent may not pass an IRONSHELL_* variable to a child process"
                     ),
-                    "AETHER_* variables are set by whoever launches the agent",
+                    "IRONSHELL_* variables are set by whoever launches the agent",
                 );
                 sink.eline(&refusal.to_string());
                 return 126;

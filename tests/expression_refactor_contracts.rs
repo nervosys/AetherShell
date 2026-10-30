@@ -1,4 +1,4 @@
-use aethershell::{
+use iron_shell::{
     builtins::{call, call_with_input},
     env::Env,
     value::Value,
@@ -237,16 +237,16 @@ fn new_examples_and_aliases_execute_with_pure_effects() {
         ("refactor_inline", "refactor.inline"),
     ] {
         assert_eq!(
-            aethershell::safety::effect_of(name),
-            aethershell::safety::Effect::Pure
+            iron_shell::safety::effect_of(name),
+            iron_shell::safety::Effect::Pure
         );
-        for (code, expected) in aethershell::signature::signature_of(name).unwrap().examples {
+        for (code, expected) in iron_shell::signature::signature_of(name).unwrap().examples {
             for source in [code.to_string(), code.replacen(name, alias, 1)] {
                 let mut env = Env::default();
-                env.register_module("refactor", aethershell::modules::refactor_module());
-                let statements = aethershell::parser::parse_program(&source).unwrap();
+                env.register_module("refactor", iron_shell::modules::refactor_module());
+                let statements = iron_shell::parser::parse_program(&source).unwrap();
                 assert_eq!(
-                    aethershell::eval::eval_program(&statements, &mut env)
+                    iron_shell::eval::eval_program(&statements, &mut env)
                         .unwrap()
                         .to_display_string(),
                     *expected

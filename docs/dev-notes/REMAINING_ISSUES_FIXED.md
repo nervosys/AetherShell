@@ -41,7 +41,7 @@
 - Works at runtime during expression evaluation
 
 **Examples That Now Work:**
-```ae
+```ish
 name := "world"
 print("Hi, ${name}!")  // Outputs: "Hi, world!"
 
@@ -65,7 +65,7 @@ print("${x} + ${y} = ${x + y}")  // Outputs: "10 + 20 = 30"
 - Implemented as tagged records (not full ADTs)
 
 **Example:**
-```ae
+```ish
 opt1 := Some(42)
 opt2 := None()
 ```
@@ -79,10 +79,10 @@ opt2 := None()
 **Documentation Created:** `docs/dev-notes/EXAMPLE_TEST_RESULTS.md`
 
 **Results:**
-- ✅ `00_hello.ae` - Fully working
-- ⚠️ `01_pipelines.ae` - Partially working (first pipeline works)
-- ❌ `02_tables.ae` - Field access (`.`) not implemented
-- ❌ `04_match.ae` - Pattern matching not implemented
+- ✅ `00_hello.ish` - Fully working
+- ⚠️ `01_pipelines.ish` - Partially working (first pipeline works)
+- ❌ `02_tables.ish` - Field access (`.`) not implemented
+- ❌ `04_match.ish` - Pattern matching not implemented
 - ❓ AI examples - Require API keys (not tested)
 
 **Critical Issues Discovered:**
@@ -98,8 +98,8 @@ opt2 := None()
 - Some/None constructors work as expected
 
 **Example Files:**
-- **Working:** 1/17 (00_hello.ae)
-- **Partial:** 1/17 (01_pipelines.ae)
+- **Working:** 1/17 (00_hello.ish)
+- **Partial:** 1/17 (01_pipelines.ish)
 - **Blocked:** 2/17 (need field access, pattern matching)
 - **Untested:** 13/17 (AI features, TUI, advanced)
 

@@ -1,12 +1,12 @@
-# AetherShell Examples Index
+# IronShell Examples Index
 
-This directory contains examples showcasing AetherShell's unique and powerful features.
+This directory contains examples showcasing IronShell's unique and powerful features.
 
 ## 🌟 Best Features Showcase
 
-### 🥇 **Unique to AetherShell** (No Other Shell Has These!)
+### 🥇 **Unique to IronShell** (No Other Shell Has These!)
 
-#### 16_mcp_servers.ae ⭐⭐⭐
+#### 16_mcp_servers.ish ⭐⭐⭐
 **ESSENTIAL!** Run local MCP servers that give AI agents safe, controlled access to:
 - Operating system tools (filesystem, processes, commands)
 - Cloud services (AWS, Azure, Google Cloud)
@@ -16,7 +16,7 @@ This directory contains examples showcasing AetherShell's unique and powerful fe
 
 **Run it:**
 ```bash
-ae examples/16_mcp_servers.ae
+ish examples/16_mcp_servers.ish
 ```
 
 **What you'll see:**
@@ -31,8 +31,8 @@ ae examples/16_mcp_servers.ae
 
 ---
 
-#### 12_multi_agent_orchestration.ae ⭐⭐⭐
-**The crown jewel!** Demonstrates features that make AetherShell revolutionary:
+#### 12_multi_agent_orchestration.ish ⭐⭐⭐
+**The crown jewel!** Demonstrates features that make IronShell revolutionary:
 - Multi-agent swarms with different AI models
 - A2A (Agent-to-Agent) communication protocol
 - NANDA negotiation and consensus framework
@@ -41,7 +41,7 @@ ae examples/16_mcp_servers.ae
 
 **Run it:**
 ```bash
-ae examples/12_multi_agent_orchestration.ae
+ish examples/12_multi_agent_orchestration.ish
 ```
 
 **What you'll see:**
@@ -53,7 +53,7 @@ ae examples/12_multi_agent_orchestration.ae
 
 ---
 
-#### 13_multimodal_ai.ae ⭐⭐⭐
+#### 13_multimodal_ai.ish ⭐⭐⭐
 **Revolutionary multi-modal capabilities!** No other shell can process images, audio, and video like this:
 - Image analysis with AI vision
 - Batch image processing in pipelines
@@ -64,7 +64,7 @@ ae examples/12_multi_agent_orchestration.ae
 
 **Run it:**
 ```bash
-ae examples/13_multimodal_ai.ae
+ish examples/13_multimodal_ai.ish
 ```
 
 **What you'll see:**
@@ -76,15 +76,15 @@ ae examples/13_multimodal_ai.ae
 
 ---
 
-#### 15_ai_protocols.ae ⭐⭐⭐
-**The three protocols that define AetherShell:**
+#### 15_ai_protocols.ish ⭐⭐⭐
+**The three protocols that define IronShell:**
 - **MCP (Model Context Protocol)**: Standardized tool calling
 - **A2A (Agent-to-Agent)**: Inter-agent communication
 - **NANDA (Negotiation And Dynamic Agents)**: Consensus framework
 
 **Run it:**
 ```bash
-ae examples/15_ai_protocols.ae
+ish examples/15_ai_protocols.ish
 ```
 
 **What you'll see:**
@@ -95,7 +95,7 @@ ae examples/15_ai_protocols.ae
 
 ---
 
-#### 14_typed_pipelines.ae ⭐⭐
+#### 14_typed_pipelines.ish ⭐⭐
 **Type system showcase!** Demonstrates Hindley-Milner type inference and functional programming:
 - Automatic type inference
 - Structured data vs text streams
@@ -106,7 +106,7 @@ ae examples/15_ai_protocols.ae
 
 **Run it:**
 ```bash
-ae examples/14_typed_pipelines.ae
+ish examples/14_typed_pipelines.ish
 ```
 
 **What you'll see:**
@@ -120,49 +120,49 @@ ae examples/14_typed_pipelines.ae
 
 ## 📚 Core Feature Examples
 
-### 00_hello.ae
-**Your first AetherShell program**
+### 00_hello.ish
+**Your first IronShell program**
 - Basic print statements
 - Hello world example
 - Introduction to syntax
 
-### 01_pipelines.ae
+### 01_pipelines.ish
 **Pipeline fundamentals**
 - Data flowing through transformations
 - Functional pipeline composition
 - Real-world data processing
 
-### 02_tables.ae
+### 02_tables.ish
 **Structured data handling**
 - Working with tables and records
 - Filtering, mapping, reducing
 - Type-safe data transformations
 
-### 03_http.ae
+### 03_http.ish
 **HTTP and web requests**
 - Making API calls
 - JSON parsing and manipulation
 - Structured HTTP responses
 
-### 04_match.ae
+### 04_match.ish
 **Pattern matching**
 - Match expressions
 - Option types
 - Error handling patterns
 
-### 05_ai.ae
+### 05_ai.ish
 **Basic AI integration**
 - Simple AI calls
 - Different AI providers
 - AI-assisted data processing
 
-### 06_agent.ae
+### 06_agent.ish
 **Single agent usage**
 - Creating AI agents
 - Tool access for agents
 - Agent execution flow
 
-### 07_uri_types.ae
+### 07_uri_types.ish
 **Model URI syntax**
 - Understanding `provider:model` format
 - Different AI providers
@@ -174,54 +174,54 @@ ae examples/14_typed_pipelines.ae
 - Transpilation examples
 - Migration strategies
 
-### 09_tui_multimodal.ae
+### 09_tui_multimodal.ish
 **TUI multi-modal features**
 - Terminal UI demonstrations
 - Media handling in TUI
 - Interactive AI sessions
 
-### 10_tui_agent_swarm.ae
+### 10_tui_agent_swarm.ish
 **TUI agent dashboard**
 - Visualizing agent swarms in TUI
 - Monitoring agent status
 - Interactive swarm control
 
-### 11_tui_showcase.ae
+### 11_tui_showcase.ish
 **Complete TUI feature tour**
 - Dashboard with statistics and metrics
 - Conversation export (Markdown/JSON)
 - Search and filtering capabilities
 - Advanced TUI features demonstration
 
-### 19_showcase.ae
+### 19_showcase.ish
 **Language feature showcase**
 - Comprehensive demonstration of all core language features
 - Pipelines, pattern matching, records
 - Functional programming patterns
 - Complete language tour
 
-### 20_tui_a2a.ae
+### 20_tui_a2a.ish
 **Agent-to-Agent (A2A) protocol in TUI**
 - Direct agent-to-agent messaging
 - Broadcasting and delegation
 - A2A protocol demonstration
 - Interactive agent communication
 
-### 21_tui_chat.ae
+### 21_tui_chat.ish
 **TUI chat mode features**
 - Interactive chat interface
 - Media attachments in chat
 - Configuration and settings
 - Chat-focused TUI workflow
 
-### 22_tui_mcp.ae
+### 22_tui_mcp.ish
 **Model Context Protocol in TUI**
 - MCP server integration
 - Tool calling interface
 - Standardized tool access
 - MCP visualization
 
-### 23_tui_nanda.ae
+### 23_tui_nanda.ish
 **NANDA negotiation protocol**
 - Multi-agent negotiation
 - Voting and consensus
@@ -233,27 +233,27 @@ ae examples/14_typed_pipelines.ae
 ## 🎯 Recommended Learning Path
 
 ### For Beginners:
-1. Start with `00_hello.ae` - Get familiar with syntax
-2. Try `01_pipelines.ae` - Understand data flow
-3. Explore `02_tables.ae` - Learn structured data
-4. Check `05_ai.ae` - Your first AI calls
+1. Start with `00_hello.ish` - Get familiar with syntax
+2. Try `01_pipelines.ish` - Understand data flow
+3. Explore `02_tables.ish` - Learn structured data
+4. Check `05_ai.ish` - Your first AI calls
 
 ### For AI Enthusiasts:
-1. Start with `05_ai.ae` - Basic AI integration
-2. Move to `06_agent.ae` - Single agent usage
-3. Explore `12_multi_agent_orchestration.ae` - Multi-agent power ⭐
-4. Try `13_multimodal_ai.ae` - Images, audio, video ⭐
+1. Start with `05_ai.ish` - Basic AI integration
+2. Move to `06_agent.ish` - Single agent usage
+3. Explore `12_multi_agent_orchestration.ish` - Multi-agent power ⭐
+4. Try `13_multimodal_ai.ish` - Images, audio, video ⭐
 
 ### For Type System Fans:
-1. Begin with `02_tables.ae` - See typed data in action
-2. Study `14_typed_pipelines.ae` - Deep dive into types ⭐
-3. Practice with `03_http.ae` - Type-safe HTTP
-4. Advanced: `04_match.ae` - Pattern matching
+1. Begin with `02_tables.ish` - See typed data in action
+2. Study `14_typed_pipelines.ish` - Deep dive into types ⭐
+3. Practice with `03_http.ish` - Type-safe HTTP
+4. Advanced: `04_match.ish` - Pattern matching
 
 ### For Protocol Developers:
-1. Start with `06_agent.ae` - Agent basics
-2. Progress to `15_ai_protocols.ae` - Full protocol suite ⭐
-3. Study `12_multi_agent_orchestration.ae` - See protocols in action ⭐
+1. Start with `06_agent.ish` - Agent basics
+2. Progress to `15_ai_protocols.ish` - Full protocol suite ⭐
+3. Study `12_multi_agent_orchestration.ish` - See protocols in action ⭐
 
 ---
 
@@ -262,19 +262,19 @@ ae examples/14_typed_pipelines.ae
 ### Demo 1: AI-Powered File Analysis
 ```bash
 # Analyze your codebase with AI
-ae -c "ls('.') | where(fn(f) => f.ext == '.rs') | map(fn(f) => {file: f.name, analysis: read_text(f.path) | ai('Summarize this code')})"
+ish -c "ls('.') | where(fn(f) => f.ext == '.rs') | map(fn(f) => {file: f.name, analysis: read_text(f.path) | ai('Summarize this code')})"
 ```
 
 ### Demo 2: Image Batch Processing
 ```bash
 # Describe all images in a directory
-ae -c "ls('./photos') | where(fn(f) => f.ext | in(['.jpg', '.png'])) | map(fn(f) => ai('Describe this image', {images: [f.path]}))"
+ish -c "ls('./photos') | where(fn(f) => f.ext | in(['.jpg', '.png'])) | map(fn(f) => ai('Describe this image', {images: [f.path]}))"
 ```
 
 ### Demo 3: Multi-Agent Task
 ```bash
-# Deploy an agent with tools (requires AETHER_AI config)
-ae -c "agent({goal: 'Analyze project structure', tools: ['ls', 'cat'], max_steps: 3, dry_run: true})"
+# Deploy an agent with tools (requires IRONSHELL_AI config)
+ish -c "agent({goal: 'Analyze project structure', tools: ['ls', 'cat'], max_steps: 3, dry_run: true})"
 ```
 
 ---
@@ -285,7 +285,7 @@ ae -c "agent({goal: 'Analyze project structure', tools: ['ls', 'cat'], max_steps
 - **Language Spec**: [../docs/specs/SPEC.md](../docs/specs/SPEC.md)
 - **TUI Guide**: [../docs/TUI_GUIDE.md](../docs/TUI_GUIDE.md)
 - **Competitive Analysis**: [../docs/COMPETITIVE_ANALYSIS.md](../docs/COMPETITIVE_ANALYSIS.md)
-- **Why AetherShell**: [../docs/WHY_AETHERSHELL.md](../docs/WHY_AETHERSHELL.md)
+- **Why IronShell**: [../docs/WHY_IRONSHELL.md](../docs/WHY_IRONSHELL.md)
 
 ---
 
@@ -314,7 +314,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 # Or use local models with Ollama (no API key needed!)
 # Install Ollama, then:
-export AETHER_AI=ollama
+export IRONSHELL_AI=ollama
 ```
 
 ### For Agent Examples:
@@ -326,10 +326,10 @@ export AGENT_ALLOW_CMDS=ls,git,cat,head,tail
 ### TUI Mode:
 ```bash
 # Launch with TUI for interactive demos
-ae tui
+ish tui
 
 # Then load an example:
-# :load examples/09_tui_multimodal.ae
+# :load examples/09_tui_multimodal.ish
 ```
 
 ---
@@ -350,7 +350,7 @@ ae tui
 - Structured data, tables
 - No AI, no multi-agent features
 
-**AetherShell examples:**
+**IronShell examples:**
 - ✅ Multi-agent AI orchestration
 - ✅ Multi-modal (images, audio, video)
 - ✅ Type-safe functional pipelines
@@ -366,10 +366,10 @@ ae tui
 
 If you only have time for a few examples, try these:
 
-1. **`12_multi_agent_orchestration.ae`** - See what makes AetherShell unique
-2. **`13_multimodal_ai.ae`** - Experience multi-modal AI power
-3. **`14_typed_pipelines.ae`** - Understand the type system
-4. **`15_ai_protocols.ae`** - Learn the three protocols
+1. **`12_multi_agent_orchestration.ish`** - See what makes IronShell unique
+2. **`13_multimodal_ai.ish`** - Experience multi-modal AI power
+3. **`14_typed_pipelines.ish`** - Understand the type system
+4. **`15_ai_protocols.ish`** - Learn the three protocols
 
 These four examples demonstrate features found NOWHERE else in the shell ecosystem!
 

@@ -2,15 +2,15 @@
 //!
 //! Network rule: nothing here contacts any host but 127.0.0.1. Refusal tests
 //! use hosts that are never reached, because the refusal comes first. Positive
-//! tests start a loopback server inside the test and drive the `ae` binary as a
+//! tests start a loopback server inside the test and drive the `ish` binary as a
 //! child process with a 30 s deadline.
 //!
 //! `web_open_url` and `web_browser_open` launch the desktop browser, so they are
 //! only ever called here with input that must be refused.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -30,11 +30,11 @@ fn isolate() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_web_tranche_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
 }
 
-/// `AETHER_MODE` is process-global, and one test changes it. Every in-process
+/// `IRONSHELL_MODE` is process-global, and one test changes it. Every in-process
 /// call takes this lock so that no call sees another test's mode.
 static MODE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -47,8 +47,8 @@ fn locked() -> std::sync::MutexGuard<'static, ()> {
 /// these tests check would be an approval request instead.
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     invoke(name, args)
 }
 
@@ -116,8 +116,8 @@ fn every_web_builtin_refuses_piped_input() {
         ("web_xpath", vec![text("<p/>"), text("//p")]),
     ];
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     isolate();
     for (name, args) in cases {
         let mut env = Env::new();
@@ -180,13 +180,13 @@ fn a_refused_scheme_is_refused_before_the_network_guard_runs() {
     // download must be refused for its scheme first, so the answer is the
     // argument refusal and not an approval request.
     let _guard = locked();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::remove_var("AETHER_NET_ALLOW");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::remove_var("IRONSHELL_NET_ALLOW");
     let r = invoke(
         "web_download",
         vec![text("file:///etc/hosts"), text("x.bin")],
     );
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
     assert_eq!(code_of(&r), "E_BAD_ARG");
 }
 
@@ -263,7 +263,7 @@ fn xpath_refuses_what_it_does_not_support_and_bad_arity() {
     assert_eq!(code_of(&r), "E_BAD_ARG");
 }
 
-// ── loopback server and `ae` child ──────────────────────────────────────
+// ── loopback server and `ish` child ──────────────────────────────────────
 
 /// One scripted answer from the loopback server.
 #[derive(Clone)]
@@ -385,7 +385,7 @@ fn serve(replies: Vec<Reply>) -> Loopback {
     Loopback { port, seen, handle }
 }
 
-/// A fresh workspace for one test; `AETHER_WORKSPACE` points here, so relative
+/// A fresh workspace for one test; `IRONSHELL_WORKSPACE` points here, so relative
 /// download and upload paths resolve inside it.
 fn workspace(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("ae_web_{tag}_{}", std::process::id()));
@@ -421,17 +421,17 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
-/// Run `expr` through the `ae` binary with a hard deadline, returning its
+/// Run `expr` through the `ish` binary with a hard deadline, returning its
 /// stdout and stderr together with colour codes removed.
 fn ae(dir: &Path, expr: &str) -> String {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ae"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ish"))
         .current_dir(dir)
-        .env("AETHER_SESSION_DIR", dir.join("session"))
-        .env("AETHER_WORKSPACE", dir)
-        .env("AETHER_NET_ALLOW", "127.0.0.1")
-        .env_remove("AETHER_MODE")
-        .env_remove("AETHER_AGENT")
-        .env_remove("AETHER_POLICY")
+        .env("IRONSHELL_SESSION_DIR", dir.join("session"))
+        .env("IRONSHELL_WORKSPACE", dir)
+        .env("IRONSHELL_NET_ALLOW", "127.0.0.1")
+        .env_remove("IRONSHELL_MODE")
+        .env_remove("IRONSHELL_AGENT")
+        .env_remove("IRONSHELL_POLICY")
         .args(["-c", expr])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

@@ -1,5 +1,5 @@
 /**
- * AetherShell Browser Extension - Popup Script
+ * IronShell Browser Extension - Popup Script
  */
 
 document.addEventListener('DOMContentLoaded', async () => {

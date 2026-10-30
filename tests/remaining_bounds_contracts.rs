@@ -12,8 +12,8 @@
 //! fails instead of hanging. Every child here is a harmless shell or PowerShell
 //! command that sleeps, and every scratch file is removed at the end.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -55,7 +55,7 @@ fn assert_structured_code(e: &anyhow::Error, code: &str) {
     );
 }
 
-/// The legacy tests set and clear `AETHER_CRYPTO_LEGACY_DECRYPT`, which is
+/// The legacy tests set and clear `IRONSHELL_CRYPTO_LEGACY_DECRYPT`, which is
 /// process-wide, so they run one at a time.
 #[cfg(unix)]
 static LEGACY_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -133,7 +133,7 @@ fn container_cli_kills_a_silent_child_past_its_deadline() {
     let (program, args) = SILENT;
     let (result, elapsed) = bounded("container_cli", move || {
         let started = Instant::now();
-        let result = aethershell::builtins::__test_container_cli(program, args, 1);
+        let result = iron_shell::builtins::__test_container_cli(program, args, 1);
         (result, started.elapsed())
     });
     let err = result.expect_err("a silent child past its deadline must be refused");
@@ -149,7 +149,7 @@ fn container_cli_is_not_held_by_a_grandchild_that_keeps_the_pipe() {
     let (program, args) = GRANDCHILD;
     let (result, elapsed) = bounded("container_cli grandchild", move || {
         let started = Instant::now();
-        let result = aethershell::builtins::__test_container_cli(program, args, 30);
+        let result = iron_shell::builtins::__test_container_cli(program, args, 30);
         (result, started.elapsed())
     });
     let text = result.expect("the child exited 0; its grandchild must not fail the call");
@@ -169,7 +169,7 @@ fn checked_tool_runner_kills_a_silent_child_past_its_deadline() {
     let (program, args) = SILENT;
     let (result, elapsed) = bounded("run_checked", move || {
         let started = Instant::now();
-        let result = aethershell::builtins::__test_run_checked(program, args, 1);
+        let result = iron_shell::builtins::__test_run_checked(program, args, 1);
         (result, started.elapsed())
     });
     let err = result.expect_err("a silent child past its deadline must be refused");
@@ -185,7 +185,7 @@ fn checked_tool_runner_is_not_held_by_a_grandchild_that_keeps_the_pipe() {
     let (program, args) = GRANDCHILD;
     let (result, elapsed) = bounded("run_checked grandchild", move || {
         let started = Instant::now();
-        let result = aethershell::builtins::__test_run_checked(program, args, 30);
+        let result = iron_shell::builtins::__test_run_checked(program, args, 30);
         (result, started.elapsed())
     });
     // The output stayed open after the child exited, so the run is refused as
@@ -207,7 +207,7 @@ fn checked_tool_runner_is_not_held_by_a_grandchild_that_keeps_the_pipe() {
 fn pkg_exec_kills_a_silent_child_past_its_deadline() {
     let (result, elapsed) = bounded("pkg exec", move || {
         let started = Instant::now();
-        let result = aethershell::builtins::__test_pkg_exec(ENV_SILENT.0, ENV_SILENT.1, 1);
+        let result = iron_shell::builtins::__test_pkg_exec(ENV_SILENT.0, ENV_SILENT.1, 1);
         (result, started.elapsed())
     });
     let err = result.expect_err("a silent child past its deadline must be refused");
@@ -223,7 +223,7 @@ fn pkg_exec_kills_a_silent_child_past_its_deadline() {
 fn pkg_exec_is_not_held_by_a_grandchild_that_keeps_the_pipe() {
     let (result, elapsed) = bounded("pkg exec grandchild", move || {
         let started = Instant::now();
-        let result = aethershell::builtins::__test_pkg_exec(ENV_GRANDCHILD.0, ENV_GRANDCHILD.1, 30);
+        let result = iron_shell::builtins::__test_pkg_exec(ENV_GRANDCHILD.0, ENV_GRANDCHILD.1, 30);
         (result, started.elapsed())
     });
     let output = result.expect("the child exited 0; its grandchild must not fail the call");
@@ -247,7 +247,7 @@ fn manifest_probe_kills_a_silent_tool_past_its_deadline() {
     let probe = write_probe(&dir, PROBE_SILENT);
     let (result, elapsed) = bounded("is_self_describing", move || {
         let started = Instant::now();
-        let result = aethershell::external_tools::ExternalToolRegistry::is_self_describing(&probe);
+        let result = iron_shell::external_tools::ExternalToolRegistry::is_self_describing(&probe);
         (result, started.elapsed())
     });
     let _ = std::fs::remove_dir_all(&dir);
@@ -265,7 +265,7 @@ fn manifest_probe_is_not_held_by_a_grandchild_that_keeps_the_pipe() {
     let probe = write_probe(&dir, PROBE_GRANDCHILD);
     let (result, elapsed) = bounded("is_self_describing grandchild", move || {
         let started = Instant::now();
-        let result = aethershell::external_tools::ExternalToolRegistry::is_self_describing(&probe);
+        let result = iron_shell::external_tools::ExternalToolRegistry::is_self_describing(&probe);
         (result, started.elapsed())
     });
     let _ = std::fs::remove_dir_all(&dir);
@@ -318,7 +318,7 @@ fn test_watch_kills_a_silent_run_past_its_timeout_and_reports_it() {
     let (result, elapsed) = bounded("test_watch", move || {
         let started = Instant::now();
         let mut env = Env::new();
-        let result = aethershell::builtins::call(
+        let result = iron_shell::builtins::call(
             "test_watch",
             vec![
                 command,
@@ -355,7 +355,7 @@ fn test_watch_is_not_held_by_a_grandchild_that_keeps_the_pipe() {
     let (result, elapsed) = bounded("test_watch grandchild", move || {
         let started = Instant::now();
         let mut env = Env::new();
-        let result = aethershell::builtins::call(
+        let result = iron_shell::builtins::call(
             "test_watch",
             vec![
                 command,
@@ -442,16 +442,16 @@ fn legacy_decrypt_refuses_plaintext_that_is_not_utf8() {
     };
 
     let _lock = legacy_env_lock();
-    std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
+    std::env::set_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT", "1");
     let got = bounded("legacy crypto_decrypt (not UTF-8)", move || {
         let mut env = Env::new();
-        aethershell::builtins::call(
+        iron_shell::builtins::call(
             "crypto_decrypt",
             vec![Value::Str(ciphertext), Value::Str(password.to_string())],
             &mut env,
         )
     });
-    std::env::remove_var("AETHER_CRYPTO_LEGACY_DECRYPT");
+    std::env::remove_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT");
 
     match got {
         Err(e) => assert_structured_code(&e, "E_DECRYPT_FAILED"),
@@ -467,16 +467,16 @@ fn legacy_decrypt(
     password: &'static str,
     what: &'static str,
 ) -> anyhow::Result<Value> {
-    std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
+    std::env::set_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT", "1");
     let got = bounded(what, move || {
         let mut env = Env::new();
-        aethershell::builtins::call(
+        iron_shell::builtins::call(
             "crypto_decrypt",
             vec![Value::Str(ciphertext), Value::Str(password.to_string())],
             &mut env,
         )
     });
-    std::env::remove_var("AETHER_CRYPTO_LEGACY_DECRYPT");
+    std::env::remove_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT");
     got
 }
 
@@ -553,16 +553,16 @@ fn legacy_decrypt_still_returns_utf8_plaintext_whole() {
     };
 
     let _lock = legacy_env_lock();
-    std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
+    std::env::set_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT", "1");
     let got = bounded("legacy crypto_decrypt (UTF-8)", move || {
         let mut env = Env::new();
-        aethershell::builtins::call(
+        iron_shell::builtins::call(
             "crypto_decrypt",
             vec![Value::Str(ciphertext), Value::Str(password.to_string())],
             &mut env,
         )
     });
-    std::env::remove_var("AETHER_CRYPTO_LEGACY_DECRYPT");
+    std::env::remove_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT");
 
     match got {
         Ok(Value::Str(text)) => assert_eq!(text, plain),

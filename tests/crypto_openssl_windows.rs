@@ -13,18 +13,18 @@
 //! All checks that depend on the process PATH live in ONE test, because PATH
 //! and the other environment variables are shared by every test in the binary.
 
-use aethershell::builtins::call;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-const AE: &str = env!("CARGO_BIN_EXE_ae");
+const AE: &str = env!("CARGO_BIN_EXE_ish");
 /// Where Git for Windows keeps its openssl.exe.
 const GIT_OPENSSL_DIR: &str = r"C:\Program Files\Git\mingw64\bin";
-/// A child `ae` that has not finished by then is killed.
+/// A child `ish` that has not finished by then is killed.
 const CHILD_DEADLINE: Duration = Duration::from_secs(30);
 
 /// A scratch directory, removed on drop even when the test panics.
@@ -247,8 +247,8 @@ fn openssl_backed_crypto_builtins_on_this_host() {
         .to_string();
 
     {
-        let _unset = UnsetOnDrop("AETHER_CRYPTO_LEGACY_DECRYPT");
-        std::env::remove_var("AETHER_CRYPTO_LEGACY_DECRYPT");
+        let _unset = UnsetOnDrop("IRONSHELL_CRYPTO_LEGACY_DECRYPT");
+        std::env::remove_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT");
         let e = call(
             "crypto_decrypt",
             vec![text(&ciphertext), text("legacy-pass")],
@@ -257,13 +257,13 @@ fn openssl_backed_crypto_builtins_on_this_host() {
         .expect_err("legacy ciphertext decrypted without the opt-in");
         assert!(e.to_string().contains("E_DECRYPT_FAILED"), "{e}");
         assert!(
-            e.to_string().contains("AETHER_CRYPTO_LEGACY_DECRYPT"),
+            e.to_string().contains("IRONSHELL_CRYPTO_LEGACY_DECRYPT"),
             "{e}"
         );
     }
     {
-        let _unset = UnsetOnDrop("AETHER_CRYPTO_LEGACY_DECRYPT");
-        std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
+        let _unset = UnsetOnDrop("IRONSHELL_CRYPTO_LEGACY_DECRYPT");
+        std::env::set_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT", "1");
         match call(
             "crypto_decrypt",
             vec![text(&ciphertext), text("legacy-pass")],
@@ -317,8 +317,8 @@ fn openssl_backed_crypto_builtins_on_this_host() {
     let empty = ScratchDir::new("no-openssl");
     let _restore = RestorePath(std::env::var_os("PATH"));
     std::env::set_var("PATH", empty.0.as_os_str());
-    let _opt_in = UnsetOnDrop("AETHER_CRYPTO_LEGACY_DECRYPT");
-    std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
+    let _opt_in = UnsetOnDrop("IRONSHELL_CRYPTO_LEGACY_DECRYPT");
+    std::env::set_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT", "1");
     assert!(
         matches!(
             call("crypto_cert_info", vec![text(s(&cert))], &mut env),
@@ -365,7 +365,7 @@ fn ensure_openssl_on_path() -> bool {
     true
 }
 
-/// `ae -c` with no openssl on its PATH inspects a file that is not a
+/// `ish -c` with no openssl on its PATH inspects a file that is not a
 /// certificate and refuses it as E_BAD_ARG: the path needs no tool, and a file
 /// that is not a certificate is a refusal, never an empty success.
 /// It runs everywhere, and never touches this test process's environment.
@@ -382,7 +382,7 @@ fn ae_cert_info_without_openssl_on_path_is_bad_arg() {
     cmd.args(["-c", &expr])
         .current_dir(&empty.0)
         .env("PATH", &empty.0)
-        .env("AETHER_SESSION_DIR", &dir.0)
+        .env("IRONSHELL_SESSION_DIR", &dir.0)
         .stdin(Stdio::null())
         .stdout(std::fs::File::create(&stdout_path).expect("create stdout file"))
         .stderr(std::fs::File::create(&stderr_path).expect("create stderr file"));

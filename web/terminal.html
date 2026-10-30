@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Aether (ae) — Web Terminal (WASM)</title>
+    <title>IronShell (ish) — Web Terminal (WASM)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -82,7 +82,7 @@
         <header class="flex items-center justify-between mb-4">
             <div class="flex items-center">
                 <i class="fas fa-terminal text-ayu-accent text-2xl mr-2"></i>
-                <h1 class="text-xl font-mono font-bold text-ayu-accent">Aether (ae) — WASM Terminal</h1>
+                <h1 class="text-xl font-mono font-bold text-ayu-accent">IronShell (ish) — WASM Terminal</h1>
             </div>
             <div class="flex space-x-2 items-center">
                 <button class="w-3 h-3 rounded-full bg-red-500"></button>
@@ -99,19 +99,19 @@
                     <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
                     <div class="w-3 h-3 rounded-full bg-green-500"></div>
                 </div>
-                <div class="text-sm font-mono">ae@localhost: ~</div>
+                <div class="text-sm font-mono">ish@localhost: ~</div>
             </div>
 
             <div id="terminal-output" class="terminal-output p-4 font-mono text-sm flex-grow overflow-y-auto">
                 <div class="mb-4">
-                    <div class="text-ayu-accent">Aether (ae) Web Terminal — WASM engine</div>
+                    <div class="text-ayu-accent">IronShell (ish) Web Terminal — WASM engine</div>
                     <div class="text-gray-400">
                         Type <code>help</code> or try:
                         <code>[1,2,3] | map fn(x)=> x*2 | reduce fn(a,b)=> a+b 0</code>
                     </div>
                 </div>
                 <div class="flex items-start mb-2">
-                    <span class="text-ayu-accent mr-2">ae@localhost:~$</span>
+                    <span class="text-ayu-accent mr-2">ish@localhost:~$</span>
                     <span class="typewriter" id="welcome-message"></span>
                 </div>
             </div>
@@ -120,7 +120,7 @@
                 <div class="flex items-center">
                     <span class="text-ayu-accent mr-2">$</span>
                     <input id="terminal-input" type="text" class="bg-transparent outline-none flex-grow font-mono"
-                        placeholder="Enter Aether (ae) code…" autocomplete="off" spellcheck="false" />
+                        placeholder="Enter IronShell (ish) code…" autocomplete="off" spellcheck="false" />
                     <span id="cursor" class="cursor-blink bg-ayu-accent w-2 h-5 ml-1"></span>
                 </div>
             </div>
@@ -133,7 +133,7 @@
 
     <!-- Load the wasm-pack output (ensure ./pkg exists next to this file) -->
     <script type="module">
-        import init, { ae_eval, ae_reset, ae_version } from "./pkg/ae_wasm.js";
+        import init, { ish_eval, ae_reset, ish_version } from "./pkg/ae_wasm.js";
 
         const termOut = document.getElementById('terminal-output');
         const termIn = document.getElementById('terminal-input');
@@ -144,7 +144,7 @@
         const code = s => `<code>${escapeHtml(String(s))}</code>`;
         const err = s => `<span class="text-red-400">${s}</span>`;
         function escapeHtml(s) { return s.replace(/[&<>\"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c])); }
-        function addPrompt() { const line = document.createElement('div'); line.className = 'flex items-start mb-2'; line.innerHTML = '<span class="text-ayu-accent mr-2">ae@localhost:~$</span><span class="flex-grow" id="current-line"></span>'; termOut.appendChild(line); scrollDown(); return line; }
+        function addPrompt() { const line = document.createElement('div'); line.className = 'flex items-start mb-2'; line.innerHTML = '<span class="text-ayu-accent mr-2">ish@localhost:~$</span><span class="flex-grow" id="current-line"></span>'; termOut.appendChild(line); scrollDown(); return line; }
         function scrollDown() { termOut.scrollTop = termOut.scrollHeight; }
         function println(html) { const d = document.createElement('div'); d.className = 'mb-2'; d.innerHTML = html; termOut.appendChild(d); scrollDown(); }
 
@@ -166,7 +166,7 @@
 
         // Typewriter welcome
         const messages = [
-            'Welcome to Aether (ae) — WASM Runtime',
+            'Welcome to IronShell (ish) — WASM Runtime',
             'Try:  [1,2,3] | map fn(x)=> x*2 | reduce fn(a,b)=> a+b 0',
             'Type <help> to see available commands.'
         ];
@@ -181,7 +181,7 @@
 
         // Init WASM and wire terminal
         await init();
-        wasmVer.textContent = await ae_version();
+        wasmVer.textContent = await ish_version();
 
         let history = [], hIndex = -1, current = '';
         document.addEventListener('click', () => termIn.focus());
@@ -203,7 +203,7 @@
                     } else if (command === 'reset' || command === 'ae reset') {
                         ae_reset(); println('<span class="text-blue-300">Environment reset.</span>');
                     } else {
-                        const out = ae_eval(command); // sync export
+                        const out = ish_eval(command); // sync export
                         if (out && out.length) println(escapeHtml(out));
                     }
                 } catch (ex) { println(err(escapeHtml(String(ex.message || ex)))); }

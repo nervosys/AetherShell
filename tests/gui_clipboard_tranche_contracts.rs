@@ -8,10 +8,10 @@
 //! that stops refusing one of these would be caught by its assertion and not
 //! by touching a real desktop.
 
-use aethershell::builtins::{call_with_input, is_dispatched};
-use aethershell::env::Env;
-use aethershell::signature::signature_of;
-use aethershell::value::Value;
+use iron_shell::builtins::{call_with_input, is_dispatched};
+use iron_shell::env::Env;
+use iron_shell::signature::signature_of;
+use iron_shell::value::Value;
 
 /// An environment whose undo journal is this test process's own, as the
 /// declaration tests use.
@@ -19,7 +19,7 @@ fn env() -> Env {
     static ISOLATED: std::sync::Once = std::sync::Once::new();
     ISOLATED.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_gui_contracts_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
     Env::new()
 }

@@ -276,4 +276,4 @@ python -m http.server 8000
 ✨ No dependencies or build steps
 ✨ Production-ready deployment
 
-The AetherShell documentation site is now complete and ready to help users learn and use the shell effectively!
+The IronShell documentation site is now complete and ready to help users learn and use the shell effectively!

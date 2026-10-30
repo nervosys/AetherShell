@@ -1,6 +1,6 @@
 //! Authentication and Role-Based Access Control (RBAC)
 //!
-//! Comprehensive security system for AetherShell:
+//! Comprehensive security system for IronShell:
 //! - Token-based authentication (JWT, API keys)
 //! - Role-based access control with permissions
 //! - Session management
@@ -1260,7 +1260,7 @@ impl AuthManager {
 // Builtins for Shell Integration
 // ============================================================================
 
-/// Create auth builtins for AetherShell
+/// Create auth builtins for IronShell
 pub fn create_auth_builtins() -> BTreeMap<String, Value> {
     let mut builtins: BTreeMap<String, Value> = BTreeMap::new();
 

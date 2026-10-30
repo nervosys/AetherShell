@@ -22,8 +22,8 @@
 
 #![cfg(windows)]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::ffi::c_void;
 use std::process::{Child, Command, Stdio};
 use std::sync::Once;
@@ -67,9 +67,9 @@ fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     static ISOLATED: Once = Once::new();
     ISOLATED.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_win_admin_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
-    aethershell::builtins::call(name, args, &mut Env::new())
+    iron_shell::builtins::call(name, args, &mut Env::new())
 }
 
 /// A NUL-terminated UTF-16 copy of `text`, for the W-suffixed user32 calls.

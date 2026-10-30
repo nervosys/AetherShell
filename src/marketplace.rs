@@ -1,6 +1,6 @@
 //! Agent Marketplace Registry
 //!
-//! This module provides a registry for sharing and discovering AetherShell agents.
+//! This module provides a registry for sharing and discovering IronShell agents.
 //! Agents can be published, searched, installed, and versioned.
 
 use anyhow::Result;
@@ -66,8 +66,8 @@ pub struct AgentManifest {
     pub categories: Vec<String>,
     /// Agent capabilities
     pub capabilities: Vec<String>,
-    /// Required AetherShell version
-    pub aethershell_version: String,
+    /// Required IronShell version
+    pub ironshell_version: String,
     /// Dependencies on other agents
     pub dependencies: Vec<AgentDependency>,
     /// Agent definition
@@ -186,7 +186,7 @@ impl RegistryClient {
     /// Create a new registry client
     pub fn new(registry_url: Option<String>) -> Result<Self> {
         let registry_url =
-            registry_url.unwrap_or_else(|| "https://registry.aethershell.dev".to_string());
+            registry_url.unwrap_or_else(|| "https://registry.ironshell.dev".to_string());
 
         let cache_dir = dirs::cache_dir()
             .ok_or_else(|| {
@@ -196,7 +196,7 @@ impl RegistryClient {
                     "this host reports no cache directory; set HOME (or XDG_CACHE_HOME on Linux) and retry",
                 )
             })?
-            .join("aethershell")
+            .join("ironshell")
             .join("agents");
 
         std::fs::create_dir_all(&cache_dir)?;
@@ -348,7 +348,7 @@ impl RegistryClient {
                 serde_json::to_string_pretty(&agent.manifest)?,
             )?;
 
-            let agent_path = agent_dir.join("agent.ae");
+            let agent_path = agent_dir.join("agent.ish");
             std::fs::write(&agent_path, &bytes)?;
 
             let installed = InstalledAgent {
@@ -456,7 +456,7 @@ impl RegistryClient {
             )
         })?;
 
-        let code_path = installed.path.join("agent.ae");
+        let code_path = installed.path.join("agent.ish");
         Ok(std::fs::read_to_string(&code_path)?)
     }
 }
@@ -565,20 +565,20 @@ pub async fn process_command(command: MarketplaceCommand) -> Result<String> {
 
         MarketplaceCommand::Publish { path } => {
             let manifest_path = path.join("manifest.json");
-            let code_path = path.join("agent.ae");
+            let code_path = path.join("agent.ish");
 
             if !manifest_path.exists() {
                 return Err(registry_coded(
                     crate::safety::ErrorCode::NotFound,
                     format!("manifest.json not found in {}", path.display()),
-                    "point the publish at a directory that holds manifest.json and agent.ae",
+                    "point the publish at a directory that holds manifest.json and agent.ish",
                 ));
             }
             if !code_path.exists() {
                 return Err(registry_coded(
                     crate::safety::ErrorCode::NotFound,
-                    format!("agent.ae not found in {}", path.display()),
-                    "point the publish at a directory that holds manifest.json and agent.ae",
+                    format!("agent.ish not found in {}", path.display()),
+                    "point the publish at a directory that holds manifest.json and agent.ish",
                 ));
             }
 
@@ -586,11 +586,11 @@ pub async fn process_command(command: MarketplaceCommand) -> Result<String> {
                 serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)?;
             let code = std::fs::read_to_string(&code_path)?;
 
-            let api_key = std::env::var("AETHERSHELL_API_KEY").map_err(|_| {
+            let api_key = std::env::var("IRONSHELL_API_KEY").map_err(|_| {
                 registry_coded(
                     crate::safety::ErrorCode::BadState,
-                    "AETHERSHELL_API_KEY environment variable not set".to_string(),
-                    "set AETHERSHELL_API_KEY to your registry API key, then retry",
+                    "IRONSHELL_API_KEY environment variable not set".to_string(),
+                    "set IRONSHELL_API_KEY to your registry API key, then retry",
                 )
             })?;
 
@@ -693,7 +693,7 @@ mod tests {
             keywords: vec!["code".to_string(), "review".to_string()],
             categories: vec!["development".to_string()],
             capabilities: vec!["code_analysis".to_string(), "suggestions".to_string()],
-            aethershell_version: ">=0.2.0".to_string(),
+            ironshell_version: ">=0.2.0".to_string(),
             dependencies: vec![],
             agent: AgentDefinition {
                 system_prompt: "You are a code reviewer...".to_string(),

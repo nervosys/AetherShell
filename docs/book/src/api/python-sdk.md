@@ -1,19 +1,19 @@
 # Python SDK
 
-The AetherShell Python SDK (`aethershell` package v1.5.0) provides a Pythonic interface for evaluating AetherShell code, running agents, building pipelines, and integrating with Python AI ecosystems.
+The IronShell Python SDK (`ironshell` package v1.5.0) provides a Pythonic interface for evaluating IronShell code, running agents, building pipelines, and integrating with Python AI ecosystems.
 
 ## Installation
 
 ```bash
-pip install aethershell
+pip install ironshell
 ```
 
 ## Quick Start
 
 ```python
-from aethershell import evaluate, pipeline
+from ironshell import evaluate, pipeline
 
-# Evaluate AetherShell code
+# Evaluate IronShell code
 result = evaluate('[1, 2, 3] | map(fn(x) => x * 2)')
 print(result)  # [2, 4, 6]
 
@@ -22,20 +22,20 @@ result = pipeline([1, 2, 3, 4, 5]).filter(lambda x: x > 2).map(lambda x: x * 10)
 print(result)  # [30, 40, 50]
 ```
 
-## AetherRuntime
+## IronShellRuntime
 
-The core runtime class for evaluating AetherShell code.
+The core runtime class for evaluating IronShell code.
 
 ```python
-from aethershell import AetherRuntime
+from ironshell import IronShellRuntime
 
-runtime = AetherRuntime()
+runtime = IronShellRuntime()
 
 # Evaluate a single expression
 result = runtime.eval('42 * 2')
 
 # Evaluate a file
-result = runtime.eval_file('script.ae')
+result = runtime.eval_file('script.ish')
 ```
 
 ### Creating Agents
@@ -81,7 +81,7 @@ runtime.subscribe_a2ui(on_event)
 A fluent API for building data transformation pipelines:
 
 ```python
-from aethershell import pipeline
+from ironshell import pipeline
 
 result = (
     pipeline([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
@@ -107,10 +107,10 @@ print(result)  # [4, 16, 36]
 | `.unique()`              | Remove duplicates                |
 | `.take(n)`               | First N elements                 |
 | `.skip(n)`               | Skip N elements                  |
-| `.to_code()`             | Generate AetherShell code        |
+| `.to_code()`             | Generate IronShell code        |
 | `.run()`                 | Execute the pipeline             |
 
-### Generating AetherShell Code
+### Generating IronShell Code
 
 ```python
 code = (
@@ -127,7 +127,7 @@ print(code)  # [1, 2, 3] | map(fn(x) => x * 2) | where(fn(x) => x > 2)
 Build structured AI workflows with retry and circuit-breaker patterns:
 
 ```python
-from aethershell.workflows import Workflow, WorkflowStep, WorkflowPattern
+from ironshell.workflows import Workflow, WorkflowStep, WorkflowPattern
 
 # Create a sequential workflow
 wf = Workflow(pattern=WorkflowPattern.SEQUENTIAL)
@@ -142,7 +142,7 @@ print(result.outputs)
 ### MapReduce Workflow
 
 ```python
-from aethershell.workflows import MapReduceWorkflow
+from ironshell.workflows import MapReduceWorkflow
 
 wf = MapReduceWorkflow(
     map_code='fn(item) => ai("Summarize: " + item)',
@@ -156,7 +156,7 @@ result = await wf.run(["doc1.md", "doc2.md", "doc3.md"])
 Protect against cascading failures:
 
 ```python
-from aethershell.workflows import CircuitBreaker
+from ironshell.workflows import CircuitBreaker
 
 breaker = CircuitBreaker(
     failure_threshold=3,
@@ -174,7 +174,7 @@ except Exception:
 Production-grade observability with Prometheus-compatible metrics:
 
 ```python
-from aethershell.metrics import Counter, Histogram, Timer
+from ironshell.metrics import Counter, Histogram, Timer
 
 # Count operations
 requests = Counter("requests_total", "Total requests processed")
@@ -195,21 +195,21 @@ print(latency.to_prometheus())
 Service discovery and leader election for multi-node deployments:
 
 ```python
-from aethershell.distributed import ServiceRegistry, ServiceInfo
+from ironshell.distributed import ServiceRegistry, ServiceInfo
 
 registry = ServiceRegistry()
 
 # Register a service
 registry.register(ServiceInfo(
     id="worker-1",
-    name="aethershell-worker",
+    name="ironshell-worker",
     address="192.168.1.10",
     port=3000,
     metadata={"gpu": "true"}
 ))
 
 # Discover services
-workers = registry.get_services_by_name("aethershell-worker")
+workers = registry.get_services_by_name("ironshell-worker")
 for w in workers:
     print(f"{w.id} at {w.address}:{w.port}")
 ```
@@ -217,7 +217,7 @@ for w in workers:
 ### Leader Election
 
 ```python
-from aethershell.distributed import LeaderElection
+from ironshell.distributed import LeaderElection
 
 election = LeaderElection(service_info)
 
@@ -232,26 +232,26 @@ if election.is_leader():
 
 ## LangChain Integration
 
-Use AetherShell tools within LangChain agents:
+Use IronShell tools within LangChain agents:
 
 ```python
-from aethershell.langchain import AetherShellTool, AetherAgentTool
+from ironshell.langchain import IronShellTool, IronShellAgentTool
 
-# Use AetherShell as a LangChain tool
-shell_tool = AetherShellTool()
+# Use IronShell as a LangChain tool
+shell_tool = IronShellTool()
 result = shell_tool.run('ls "src" | where(fn(f) => f.size > 1000)')
 
-# Run an AetherShell agent from LangChain
-agent_tool = AetherAgentTool(tools=["ls", "cat"])
+# Run an IronShell agent from LangChain
+agent_tool = IronShellAgentTool(tools=["ls", "cat"])
 result = agent_tool.run("Find TODO comments in the project")
 ```
 
 ## Cloud Deployment
 
-Deploy AetherShell as serverless functions:
+Deploy IronShell as serverless functions:
 
 ```python
-from aethershell.cloud import LambdaRuntime, FunctionConfig
+from ironshell.cloud import LambdaRuntime, FunctionConfig
 
 runtime = LambdaRuntime()
 handler = runtime.create_handler(FunctionConfig(

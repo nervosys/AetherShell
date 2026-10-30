@@ -1,4 +1,4 @@
-use aethershell::{
+use iron_shell::{
     builtins::{call, call_with_input},
     env::Env,
     value::Value,
@@ -11,8 +11,8 @@ use std::sync::Mutex;
 static EVOLUTION: Mutex<()> = Mutex::new(());
 
 fn lambda(source: &str) -> Value {
-    let program = aethershell::parser::parse_program(source).unwrap();
-    let result = aethershell::eval::eval_program(&program, &mut Env::new()).unwrap();
+    let program = iron_shell::parser::parse_program(source).unwrap();
+    let result = iron_shell::eval::eval_program(&program, &mut Env::new()).unwrap();
     assert!(
         matches!(result, Value::Lambda(_)),
         "expected Lambda from {source}"
@@ -341,9 +341,9 @@ fn computed_statistics_overflow_is_a_coded_refusal() {
     let mut env = Env::new();
     let pop = population("vec", &mut env);
     let numeric_callback = |score| {
-        Value::Lambda(aethershell::value::Lambda {
+        Value::Lambda(iron_shell::value::Lambda {
             params: vec!["g".into()],
-            body: Box::new(aethershell::ast::Expr::LitFloat(score)),
+            body: Box::new(iron_shell::ast::Expr::LitFloat(score)),
             captured: BTreeMap::new(),
         })
     };

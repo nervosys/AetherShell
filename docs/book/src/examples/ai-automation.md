@@ -1,10 +1,10 @@
 # AI Automation
 
-Examples of using AetherShell's AI capabilities for automation tasks.
+Examples of using IronShell's AI capabilities for automation tasks.
 
 ## Code Documentation Generator
 
-```aethershell
+```ironshell
 # Generate documentation for all Rust files
 ls "src"
   | where(fn(f) => f.extension == "rs")
@@ -22,7 +22,7 @@ ls "src"
 
 ## Intelligent Log Analysis
 
-```aethershell
+```ironshell
 # Index logs for RAG
 let errors = cat "app.log" | split "\n" | where(fn(l) => contains l "ERROR")
 errors | each(fn(e) => rag_index e "app.log")
@@ -34,7 +34,7 @@ ai "Based on these log entries:\n${ctx.context}\n\nIdentify the top 3 error patt
 
 ## Automated Code Review
 
-```aethershell
+```ironshell
 # Agent-powered code review
 agent {
   goal: "Review all .rs files in src/ for: 1) unwrap() calls that should use ? or expect(), 2) TODO/FIXME comments, 3) functions over 50 lines. Provide a summary with file:line references.",
@@ -45,7 +45,7 @@ agent {
 
 ## Commit Message Generator
 
-```aethershell
+```ironshell
 # Generate a commit message from the current diff
 let diff = sh "git diff --staged"
 
@@ -62,7 +62,7 @@ if len(diff) > 0 {
 
 ## RAG-Powered Q&A System
 
-```aethershell
+```ironshell
 # Step 1: Index your project docs
 ls "docs" | where(fn(f) => f.extension == "md")
   | each(fn(f) => {
@@ -89,7 +89,7 @@ echo answer
 
 ## Knowledge Graph Builder
 
-```aethershell
+```ironshell
 # Build a project knowledge graph from source code
 ls "src" | where(fn(f) => f.extension == "rs") | each(fn(f) => {
   # Add each file as an entity
@@ -113,7 +113,7 @@ kg_query "eval"
 
 ## Multi-Agent Analysis
 
-```aethershell
+```ironshell
 # Swarm-based project analysis
 swarm {
   goal: "Perform a comprehensive analysis: 1) Code quality assessment, 2) Dependency audit, 3) Test coverage estimate, 4) Documentation completeness. Produce a structured report.",
@@ -124,7 +124,7 @@ swarm {
 
 ## Automated Testing
 
-```aethershell
+```ironshell
 # Generate test cases with AI
 let source = cat "src/parser.rs"
 let tests = ai "Generate 5 unit test functions in Rust for the parser module. Cover edge cases:\n\n${source}" {
@@ -137,7 +137,7 @@ echo "Generated test file"
 
 ## Batch Classification
 
-```aethershell
+```ironshell
 # Classify support tickets
 let tickets = web_json_get "https://api.example.com/tickets?status=new"
 

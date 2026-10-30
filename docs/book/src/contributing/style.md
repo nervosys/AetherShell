@@ -1,6 +1,6 @@
 # Code Style
 
-Coding conventions and style guidelines for AetherShell contributors.
+Coding conventions and style guidelines for IronShell contributors.
 
 ## Rust Style
 

@@ -1,4 +1,4 @@
-# AetherShell Standard Library
+# IronShell Standard Library
 
 The standard library provides commonly used functions and utilities organized into logical modules.
 
@@ -17,14 +17,14 @@ The standard library provides commonly used functions and utilities organized in
 
 ## Usage
 
-```ae
+```ish
 # Import modules
-import "lib/prelude.ae"
-import "lib/math.ae"
-import "lib/string.ae"
-import "lib/collection.ae"
-import "lib/functional.ae"
-import "lib/io.ae"
+import "lib/prelude.ish"
+import "lib/math.ish"
+import "lib/string.ish"
+import "lib/collection.ish"
+import "lib/functional.ish"
+import "lib/io.ish"
 
 # Use imported functions
 PI                          # 3.14159...
@@ -36,7 +36,7 @@ find([1,2,3,4], fn(x) => x > 2)  # 3
 
 ## Module Overview
 
-### prelude.ae
+### prelude.ish
 Core utilities that most programs need:
 - `id` - Identity function
 - `compose` - Function composition (right-to-left)*
@@ -48,7 +48,7 @@ Core utilities that most programs need:
 
 *Note: Higher-order functions that return lambdas may have closure issues when imported.
 
-### math.ae
+### math.ish
 Mathematical utilities:
 - `PI`, `E`, `PHI`, `TAU` - Mathematical constants
 - `is_even`, `is_odd` - Parity checking
@@ -61,7 +61,7 @@ Mathematical utilities:
 - `deg_to_rad`, `rad_to_deg` - Angle conversion
 - `mean` - Statistics
 
-### string.ae
+### string.ish
 String manipulation utilities:
 - `words`, `unwords` - Split/join by spaces
 - `lines`, `unlines` - Split/join by newlines
@@ -71,14 +71,14 @@ String manipulation utilities:
 - `is_upper`, `is_lower` - Case checking
 - `repeat`, `reverse_str`, `count_substr` - Utilities
 
-### collection.ae
+### collection.ish
 Collection manipulation:
 - `partition` - Split by predicate
 - `union`, `intersect`, `difference` - Set operations
 - `is_subset` - Subset checking
 - `sort_desc` - Reverse sort
 
-### functional.ae
+### functional.ish
 Advanced functional programming utilities:
 - `curry`, `uncurry` - Currying functions*
 - `partial`, `partial_right` - Partial application*
@@ -89,7 +89,7 @@ Advanced functional programming utilities:
 
 *Note: Functions that return lambdas may have closure issues when imported.
 
-### io.ae
+### io.ish
 Input/output utilities:
 - `read_json` - Read JSON file
 - `read_lines`, `read_trimmed` - Read text files
@@ -102,5 +102,5 @@ Input/output utilities:
 
 Run the standard library tests:
 ```bash
-./target/debug/ae lib/test_stdlib.ae
+./target/debug/ish lib/test_stdlib.ish
 ```

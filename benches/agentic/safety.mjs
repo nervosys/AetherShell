@@ -48,12 +48,12 @@ const strayFile = () => fs.existsSync(path.join(outside, 'pwn.txt'));
 
 // Each runner takes a probe and returns { code, out }.
 const RUNNERS = {
-    'ae (human)': (p) => run('ae', ['-c', p.ae], {}),
-    'ae (agent+jail)': (p) => run('ae', ['--agent', '--policy', 'strict', '--workspace', jail, '-c', p.ae],
-        { AETHER_MAX_NET: '0' }),
+    'ae (human)': (p) => run('ish', ['-c', p.ae], {}),
+    'ae (agent+jail)': (p) => run('ish', ['--agent', '--policy', 'strict', '--workspace', jail, '-c', p.ae],
+        { IRONSHELL_MAX_NET: '0' }),
     // The surface an agent actually drives, with the flags an operator actually
     // types -- i.e. none. This arm exists because the two above did not cover
-    // `ae agent serve`, and the server turned out to run the *human* profile by
+    // `ish agent serve`, and the server turned out to run the *human* profile by
     // default. That was invisible for a second reason: /api/v1/eval could not
     // resolve a module namespace at all, so every probe came back "contained"
     // because the call had never run. A benchmark arm whose subject is broken
@@ -85,7 +85,7 @@ function startServer() {
     const log = path.join(root, 'agent-serve.log');
     fs.writeFileSync(log, '');
     const fd = fs.openSync(log, 'a');
-    const child = spawn('ae', ['agent', 'serve', '--port', String(API_PORT)], {
+    const child = spawn('ish', ['agent', 'serve', '--port', String(API_PORT)], {
         cwd: jail, stdio: ['ignore', fd, fd], env: { ...process.env },
     });
 
@@ -101,7 +101,7 @@ function startServer() {
         spawnSync('sleep', ['0.25']);
     }
     child.kill();
-    console.error(`! \`ae agent serve\` did not come up; its arm is skipped, not scored (see ${log})`);
+    console.error(`! \`ish agent serve\` did not come up; its arm is skipped, not scored (see ${log})`);
     return null;
 }
 

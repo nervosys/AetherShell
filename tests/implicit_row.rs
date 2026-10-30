@@ -10,10 +10,10 @@
 //! left of a pipe, or explicit lambdas, where a leading `.` would otherwise
 //! quietly mean something.
 
-use aethershell::env::Env;
-use aethershell::eval::eval_program;
-use aethershell::parser::parse_program;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::eval::eval_program;
+use iron_shell::parser::parse_program;
+use iron_shell::value::Value;
 
 fn run(code: &str) -> Value {
     let stmts = parse_program(code).unwrap_or_else(|e| panic!("parse failed for {code}: {e}"));

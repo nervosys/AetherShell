@@ -1,6 +1,6 @@
 //! A statement must not swallow the statement after it.
 //!
-//! AetherShell supports word-calls: `print "hi"` parses as `print("hi")`. The
+//! IronShell supports word-calls: `print "hi"` parses as `print("hi")`. The
 //! parser has two places that slurp space-separated arguments, and only one of
 //! them checked that the arguments were on the same line as the callee. So a
 //! bare identifier statement consumed whatever followed it:
@@ -17,7 +17,7 @@
 //! the error was `expected ')'` pointing at a comma on a line the author had
 //! no reason to suspect.
 
-use aethershell::parser::parse_program;
+use iron_shell::parser::parse_program;
 
 fn parses(src: &str) -> bool {
     parse_program(src).is_ok()

@@ -1,12 +1,12 @@
 // Tests for conditional compilation (#[cfg(...)] attribute)
 
-use aethershell::env::Env;
-use aethershell::eval::eval_program;
-use aethershell::parser::parse_program;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::eval::eval_program;
+use iron_shell::parser::parse_program;
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
-/// Mutex to serialize tests that mutate the process-wide AETHER_FEATURES env var.
+/// Mutex to serialize tests that mutate the process-wide IRONSHELL_FEATURES env var.
 /// Without this, parallel test execution causes a race condition.
 static FEATURE_ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -121,7 +121,7 @@ fn cfg_unix_alias() {
 fn cfg_feature_enabled() {
     let _lock = FEATURE_ENV_LOCK.lock().unwrap();
     // Use a unique feature name to avoid race conditions with other tests
-    std::env::set_var("AETHER_FEATURES", "test_feature_enabled_unique");
+    std::env::set_var("IRONSHELL_FEATURES", "test_feature_enabled_unique");
 
     let (_, env) = eval_with_env(
         r#"
@@ -137,14 +137,14 @@ fn cfg_feature_enabled() {
     assert_eq!(clean_value(x), "feature enabled");
 
     // Clean up
-    std::env::remove_var("AETHER_FEATURES");
+    std::env::remove_var("IRONSHELL_FEATURES");
 }
 
 #[test]
 fn cfg_feature_disabled() {
     let _lock = FEATURE_ENV_LOCK.lock().unwrap();
-    // Use AETHER_FEATURES_DISABLED to avoid race with cfg_feature_enabled
-    std::env::set_var("AETHER_FEATURES", "some_other_feature");
+    // Use IRONSHELL_FEATURES_DISABLED to avoid race with cfg_feature_enabled
+    std::env::set_var("IRONSHELL_FEATURES", "some_other_feature");
 
     let (_, env) = eval_with_env(
         r#"
@@ -161,7 +161,7 @@ fn cfg_feature_disabled() {
     assert!(env.get_var("y").is_some());
 
     // Clean up
-    std::env::remove_var("AETHER_FEATURES");
+    std::env::remove_var("IRONSHELL_FEATURES");
 }
 
 #[test]

@@ -20,7 +20,7 @@
 //   node benches/agentic/uncoded-paths.mjs
 //
 // Safety is identical to the first sweep: `--agent --policy strict` in a
-// throwaway workspace with `AETHER_MAX_NET=0`, so the effect gate refuses
+// throwaway workspace with `IRONSHELL_MAX_NET=0`, so the effect gate refuses
 // anything dangerous before a body runs.
 
 import { spawnSync } from 'node:child_process';
@@ -46,11 +46,11 @@ const SCRATCH_HOME = {
 process.on('exit', () => fs.rmSync(JAIL, { recursive: true, force: true }));
 
 const run = (code) => {
-    const r = spawnSync('ae', ['--agent', '--policy', 'strict', '--workspace', JAIL, '-c', code], {
+    const r = spawnSync('ish', ['--agent', '--policy', 'strict', '--workspace', JAIL, '-c', code], {
         cwd: JAIL,
         encoding: 'utf8',
         timeout: 10000,
-        env: { ...process.env, ...SCRATCH_HOME, AETHER_MAX_NET: '0' },
+        env: { ...process.env, ...SCRATCH_HOME, IRONSHELL_MAX_NET: '0' },
     });
     const out = ((r.stdout ?? '') + (r.stderr ?? '')).trim();
     return r.signal === 'SIGTERM' && r.status === null ? '\u0000TIMEOUT' : out;
@@ -58,13 +58,13 @@ const run = (code) => {
 
 const probe = run('1 + 1');
 if (probe !== '2') {
-    console.error(`! \`ae\` is not answering (got ${JSON.stringify(probe)}); is it on PATH?`);
+    console.error(`! \`ish\` is not answering (got ${JSON.stringify(probe)}); is it on PATH?`);
     process.exit(2);
 }
 
 // Same staleness guard as the first sweep, and for the same reason: a number
 // measured from a binary older than the sources is worse than no number.
-const AE = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['ae'], {
+const AE = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['ish'], {
     encoding: 'utf8',
 })
     .stdout?.split('\n')[0]
@@ -77,7 +77,7 @@ try {
         process.exit(2);
     }
 } catch (e) {
-    console.error(`! could not check \`ae\` against the sources (${e.message}).`);
+    console.error(`! could not check \`ish\` against the sources (${e.message}).`);
 }
 
 const cats = JSON.parse(run('json.stringify(ontology_manifest())')).categories.map((c) =>

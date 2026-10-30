@@ -12,7 +12,7 @@
 #[allow(dead_code)]
 mod disposable;
 
-use aethershell::{
+use iron_shell::{
     builtins::{call, call_with_input},
     env::Env,
     value::Value,
@@ -22,13 +22,13 @@ use std::{path::PathBuf, sync::Mutex};
 static LOCK: Mutex<()> = Mutex::new(());
 
 const SANDBOX_KEYS: &[&str] = &[
-    "AETHER_MODE",
-    "AETHER_AGENT",
-    "AETHER_WORKSPACE",
-    "AETHER_POLICY",
-    "AETHER_AUDIT_LOG",
-    "AETHER_AUDIT_KEY",
-    "AETHER_AUDIT_KEY_FILE",
+    "IRONSHELL_MODE",
+    "IRONSHELL_AGENT",
+    "IRONSHELL_WORKSPACE",
+    "IRONSHELL_POLICY",
+    "IRONSHELL_AUDIT_LOG",
+    "IRONSHELL_AUDIT_KEY",
+    "IRONSHELL_AUDIT_KEY_FILE",
 ];
 
 /// Keeps the audit log out of the workspace, and removes any jail or mode
@@ -49,15 +49,15 @@ impl Sandbox {
         for key in SANDBOX_KEYS {
             std::env::remove_var(key);
         }
-        std::env::set_var("AETHER_AUDIT_LOG", root.join("audit.log"));
-        std::env::set_var("AETHER_AUDIT_KEY", "11".repeat(32));
+        std::env::set_var("IRONSHELL_AUDIT_LOG", root.join("audit.log"));
+        std::env::set_var("IRONSHELL_AUDIT_KEY", "11".repeat(32));
         Self { root, saved }
     }
 }
 
 impl Drop for Sandbox {
     fn drop(&mut self) {
-        while aethershell::tx::rollback().is_ok() {}
+        while iron_shell::tx::rollback().is_ok() {}
         for (key, value) in &self.saved {
             match value {
                 Some(v) => std::env::set_var(key, v),
@@ -352,7 +352,7 @@ fn every_builtin_refuses_inside_a_transaction_without_touching_anything() {
     let _lock = LOCK.lock().unwrap();
     let _sandbox = Sandbox::new();
     let mut env = Env::default();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     code(call("acl_get", vec![s("/")], &mut env), "E_POLICY_DENY");
     code(
         call(
@@ -370,13 +370,13 @@ fn every_builtin_refuses_inside_a_transaction_without_touching_anything() {
         call("fs_unmount", vec![s(&abs("a"))], &mut env),
         "E_POLICY_DENY",
     );
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
 }
 
 #[test]
 fn declared_examples_are_refusals() {
     for name in ["acl_get", "acl_set", "fs_mount", "fs_unmount"] {
-        let signature = aethershell::signature::signature_of(name).unwrap();
+        let signature = iron_shell::signature::signature_of(name).unwrap();
         assert!(!signature.examples.is_empty(), "{name} has no examples");
         assert!(
             !signature.doc.contains("Unsupported placeholder"),
@@ -498,7 +498,7 @@ fn acl_get_reads_an_owned_file_without_changing_it() {
 #[cfg(target_os = "linux")]
 mod disposable_tests {
     use super::{code, rec, s, Sandbox, LOCK};
-    use aethershell::{builtins::call, env::Env, value::Value};
+    use iron_shell::{builtins::call, env::Env, value::Value};
     use std::{
         fs,
         path::{Path, PathBuf},

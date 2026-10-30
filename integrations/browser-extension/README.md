@@ -1,13 +1,13 @@
-# AetherShell Browser Extension
+# IronShell Browser Extension
 
-A Chrome/Firefox extension that brings AetherShell's typed shell capabilities directly to your browser through WebAssembly.
+A Chrome/Firefox extension that brings IronShell's typed shell capabilities directly to your browser through WebAssembly.
 
 ## Features
 
-- **Terminal Overlay**: Press `Ctrl+Shift+A` (or `Cmd+Shift+A` on Mac) to toggle an AetherShell terminal on any webpage
+- **Terminal Overlay**: Press `Ctrl+Shift+A` (or `Cmd+Shift+A` on Mac) to toggle an IronShell terminal on any webpage
 - **Popup Interface**: Quick code execution from the extension popup
-- **Context Menu**: Right-click selected text for AI actions and AetherShell evaluation
-- **Full WASM Runtime**: The complete AetherShell evaluator runs locally in your browser
+- **Context Menu**: Right-click selected text for AI actions and IronShell evaluation
+- **Full WASM Runtime**: The complete IronShell evaluator runs locally in your browser
 
 ## Installation
 
@@ -39,12 +39,12 @@ A Chrome/Firefox extension that brings AetherShell's typed shell capabilities di
 ### Terminal Overlay
 
 - Press `Ctrl+Shift+A` to open the terminal overlay
-- Type AetherShell commands and press Enter
+- Type IronShell commands and press Enter
 - Use arrow keys for command history
 - Press `Escape` or click outside to close
 
 Example commands:
-```aether
+```ironshell
 # Basic arithmetic
 1 + 2 * 3
 
@@ -62,7 +62,7 @@ person.name
 ### Popup Interface
 
 - Click the extension icon to open the popup
-- Enter AetherShell code in the textarea
+- Enter IronShell code in the textarea
 - Click "Run" or press `Ctrl+Enter`
 - Results are displayed with syntax highlighting
 
@@ -72,7 +72,7 @@ Right-click selected text to access:
 - **AI: Explain Selection** - Get an AI explanation of the text
 - **AI: Summarize Selection** - Summarize the selected content
 - **AI: Translate Selection** - Translate text to English
-- **Evaluate as AetherShell** - Run selected text as AetherShell code
+- **Evaluate as IronShell** - Run selected text as IronShell code
 
 ### Keyboard Shortcuts
 
@@ -97,9 +97,9 @@ browser-extension/
 │   ├── popup.html      # Popup UI
 │   └── popup.js        # Popup logic
 ├── wasm/               # Built WASM module (generated)
-│   ├── aether_wasm.js
-│   ├── aether_wasm_bg.wasm
-│   └── aether_wasm.d.ts
+│   ├── ironshell_wasm.js
+│   ├── ironshell_wasm_bg.wasm
+│   └── ironshell_wasm.d.ts
 └── icons/              # Extension icons
 ```
 
@@ -132,4 +132,4 @@ cd integrations/browser-extension
 
 ## License
 
-AGPL-3.0-or-later with commercial dual-license option — see the main AetherShell [LICENSE](https://github.com/nervosys/AetherShell/blob/master/LICENSE) file.
+AGPL-3.0-or-later with commercial dual-license option — see the main IronShell [LICENSE](https://github.com/nervosys/AetherShell/blob/master/LICENSE) file.

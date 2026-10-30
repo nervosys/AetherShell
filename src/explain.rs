@@ -7,7 +7,7 @@
 //! (`docs/LANGUAGE_FIRST_PRINCIPLES.md` §6):
 //!
 //! ```text
-//! $ ae --explain -c 'ls("src") | where(fn(f) => f.size > 1000) | map(fn(f) => rm(f.path))'
+//! $ ish --explain -c 'ls("src") | where(fn(f) => f.size > 1000) | map(fn(f) => rm(f.path))'
 //! ```
 //!
 //! reports `ls` as `read_local` and `rm` as `destructive`, and that
@@ -176,7 +176,7 @@ pub fn explain(code: &str) -> Result<Value> {
     let stmts = crate::parser::parse_program(code).map_err(|e| {
         crate::safety::bad_arg(
             "explain_effects",
-            "AetherShell source that parses",
+            "IronShell source that parses",
             &e.to_string(),
         )
     })?;

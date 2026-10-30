@@ -1,7 +1,7 @@
 [book]
-title = "AetherShell Documentation"
+title = "IronShell Documentation"
 authors = ["Nervosys"]
-description = "Complete documentation for AetherShell - a typed, functional shell with AI capabilities"
+description = "Complete documentation for IronShell - a typed, functional shell with AI capabilities"
 language = "en"
 src = "src"
 
@@ -18,7 +18,7 @@ default-theme = "ayu"
 preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/nervosys/AetherShell"
 edit-url-template = "https://github.com/nervosys/AetherShell/edit/master/docs/book/src/{path}"
-site-url = "/AetherShell/book/"
+site-url = "/IronShell/book/"
 additional-css = ["custom.css"]
 
 [output.html.fold]

@@ -1,4 +1,4 @@
-use aethershell::{
+use iron_shell::{
     builtins::{call, call_with_input},
     env::Env,
     value::Value,
@@ -153,10 +153,10 @@ fn actual_rustc_json_warning_can_be_filtered() {
 #[test]
 fn declared_example_and_module_alias_are_pure_and_executable() {
     assert_eq!(
-        aethershell::safety::effect_of("diag_suppress"),
-        aethershell::safety::Effect::Pure
+        iron_shell::safety::effect_of("diag_suppress"),
+        iron_shell::safety::Effect::Pure
     );
-    for (code, expected) in aethershell::signature::signature_of("diag_suppress")
+    for (code, expected) in iron_shell::signature::signature_of("diag_suppress")
         .unwrap()
         .examples
     {
@@ -165,9 +165,9 @@ fn declared_example_and_module_alias_are_pure_and_executable() {
             code.replacen("diag_suppress", "diag.suppress", 1),
         ] {
             let mut env = Env::default();
-            env.register_module("diag", aethershell::modules::diag_module());
-            let statements = aethershell::parser::parse_program(&source).unwrap();
-            let result = aethershell::eval::eval_program(&statements, &mut env).unwrap();
+            env.register_module("diag", iron_shell::modules::diag_module());
+            let statements = iron_shell::parser::parse_program(&source).unwrap();
+            let result = iron_shell::eval::eval_program(&statements, &mut env).unwrap();
             assert_eq!(result.to_display_string(), *expected);
         }
     }

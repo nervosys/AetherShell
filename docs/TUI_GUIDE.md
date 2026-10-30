@@ -1,8 +1,8 @@
-# AetherShell Terminal User Interface (TUI)
+# IronShell Terminal User Interface (TUI)
 
 ## Overview
 
-The AetherShell TUI provides a rich terminal-based interface for interacting with multi-modal Large Language Models (LLMs) and managing AI agent swarms. It offers an intuitive visual environment for complex AI workflows while maintaining the power and flexibility of the command line.
+The IronShell TUI provides a rich terminal-based interface for interacting with multi-modal Large Language Models (LLMs) and managing AI agent swarms. It offers an intuitive visual environment for complex AI workflows while maintaining the power and flexibility of the command line.
 
 ## Terminal Requirements
 
@@ -26,7 +26,7 @@ The AetherShell TUI provides a rich terminal-based interface for interacting wit
 
 ```bash
 # Quick test - if this works, TUI should work:
-ae tui
+ish tui
 
 # If you see rendering issues, try:
 # 1. Use Windows Terminal or native PowerShell
@@ -55,7 +55,7 @@ ae tui
 
 ```bash
 # Launch the TUI
-ae tui
+ish tui
 
 # Navigate between modes
 Tab / Shift+Tab    # Cycle through modes
@@ -150,7 +150,7 @@ export OLLAMA_URL="http://localhost:11434"
 export OLLAMA_MODEL="llava"
 
 # Custom endpoints
-export AETHER_MODEL_URI="openai:gpt-4o"
+export IRONSHELL_MODEL_URI="openai:gpt-4o"
 ```
 
 ## Agent Swarm Architecture
@@ -239,7 +239,7 @@ export AETHER_MODEL_URI="openai:gpt-4o"
 ```bash
 # Enable debug logging
 export RUST_LOG=debug
-ae tui
+ish tui
 ```
 
 ## Future Enhancements
@@ -254,6 +254,6 @@ ae tui
 ---
 
 For more examples and advanced usage, see the `examples/` directory:
-- `09_tui_multimodal.ae` - Multi-modal chat examples
-- `10_tui_agent_swarm.ae` - Agent coordination patterns
-- `11_tui_showcase.ae` - Complete feature demonstration
+- `09_tui_multimodal.ish` - Multi-modal chat examples
+- `10_tui_agent_swarm.ish` - Agent coordination patterns
+- `11_tui_showcase.ish` - Complete feature demonstration

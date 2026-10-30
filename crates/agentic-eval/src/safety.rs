@@ -48,7 +48,7 @@ impl Effect {
     }
 
     /// Parse an effect from its snake_case name (the inverse of [`Self::name`]).
-    /// Accepts the same spellings other effect taxonomies use (e.g. AetherShell's
+    /// Accepts the same spellings other effect taxonomies use (e.g. IronShell's
     /// `safety::Effect::as_str`), so a host system's effect classifier can be mapped
     /// straight in. Returns `None` for an unknown name.
     pub fn from_name(name: &str) -> Option<Effect> {
@@ -159,7 +159,7 @@ impl Decision {
 
 /// The default agent policy: humans get default-allow (great errors instead of
 /// friction); agents get default-deny for the dangerous classes. This mirrors the
-/// AetherShell agentic-first model so the score reflects a real, shipped policy.
+/// IronShell agentic-first model so the score reflects a real, shipped policy.
 pub fn decide(effect: Effect, mode: Mode) -> Decision {
     match mode {
         Mode::Human => Decision::Allow,

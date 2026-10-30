@@ -5,11 +5,11 @@
      the docs mean by "the full mapping in AGENTS.md is larger still".
      Do not edit: E7 hashes this directory. -->
 
-# AetherShell agentic syntax — quick reference
+# IronShell agentic syntax — quick reference
 
 **Ultra-compressed syntax (v2) — maximum density:**
 
-| Ultra (v2)            | v1 Compat      | AetherShell                        | Savings  |
+| Ultra (v2)            | v1 Compat      | IronShell                        | Savings  |
 | --------------------- | -------------- | ---------------------------------- | -------- |
 | `x=42`                | `x=42`         | `let x = 42`                       | 2 tokens |
 | `x:=0`                | `x:=0`         | `let mut x = 0`                    | 3 tokens |
@@ -33,7 +33,7 @@
 
 **v5 features — auto-parens and for-each:**
 
-| v5 Syntax             | AetherShell                            | Savings   |
+| v5 Syntax             | IronShell                            | Savings   |
 | --------------------- | -------------------------------------- | --------- |
 | `F.r"path"`           | `file.read("path")`                    | 2 chars   |
 | `H.g"https://api.io"` | `http.get("https://api.io")`           | 2 chars   |

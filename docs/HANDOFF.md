@@ -83,7 +83,7 @@
 > which session 4 could only check as far as `afd6e8f` — is **17/17 green by
 > SHA**, `Test (windows-latest)` included.
 >
-> **Measured this session, not inspected:** `aethershell` **1905 passed, 0 failed
+> **Measured this session, not inspected:** `ironshell` **1905 passed, 0 failed
 > across 111 suites**; `agentic-eval` **83 passed, 0 failed**; doctests **7 ok / 1
 > ignored / 0 failed**; `cargo clippy --workspace --all-targets --features native
 > -- -D warnings` exit 0; `cargo fmt --all -- --check` exit 0. That was the state
@@ -106,7 +106,7 @@
 > | Reading | What it actually was |
 > |---|---|
 > | 3 doctest failures, *crate `encoding_rs` required to be available in rlib format* | re-running the doctests alone: 7 ok / 0 failed |
-> | `error[E0463]: can't find crate for aethershell` during clippy | clippy on the identical tree minutes later: exit 0 |
+> | `error[E0463]: can't find crate for ironshell` during clippy | clippy on the identical tree minutes later: exit 0 |
 > | `EXIT=127` mid-suite | disk, exactly as §7.2 says — 358 `.pdb` files holding **49.1 GB**; purging restored it |
 > | `STATUS_STACK_BUFFER_OVERRUN` (rustc ICE), twice | 39 concurrent `cargo`/`rustc` from other repos; clean once they drained to 2 |
 >
@@ -289,7 +289,7 @@
 > session. `effect_of("web_open_url")` is `Network` by the `web_*` prefix rule,
 > `Network` is not in `centrally_enforced()`, and the builtin was not in
 > `SELF_GUARDED`. So in agent mode it was **default-allow, unapproved, unmetered,
-> and outside the `AETHER_NET_ALLOW` egress allowlist** — a builtin advertised as
+> and outside the `IRONSHELL_NET_ALLOW` egress allowlist** — a builtin advertised as
 > "open a web page" was an unapproved `Exec`, and separately a clean exfiltration
 > channel, since a URL carries whatever you put in its query string.
 >
@@ -670,10 +670,10 @@
 > exit 0; `cargo fmt --all -- --check` exit 0.
 >
 > **New environment finding — see §7.1.** The first full-suite attempt died with
-> `E0786 invalid metadata files for crate aethershell` and a run of rustc ICEs
+> `E0786 invalid metadata files for crate ironshell` and a run of rustc ICEs
 > (`STATUS_STACK_BUFFER_OVERRUN`). It was **not** a code failure: ~17 stray
 > `cargo.exe`/`rustc.exe` from *other* repositories (irongate, ami-server, iv)
-> were building concurrently under other sessions. `cargo clean -p aethershell`
+> were building concurrently under other sessions. `cargo clean -p iron-shell`
 > (56 GiB reclaimed) plus a re-run passed cleanly. §6's "do not run two cargo
 > invocations at once" extends **across repositories**, not just within one — and
 > the symptom impersonates a compiler bug, so check `tasklist` before believing it.
@@ -1062,13 +1062,13 @@ on that date. None is blocked on the shell.
    carry a fresh mistake, since some of it was written in the same session that
    fixed the first audit's findings. Five findings, three fixed on the spot:
    the cipher chain's one non-approved primitive (AS-2026-08, now PBKDF2 under
-   `AETHER_FIPS`), an envelope version that was not bound into the AEAD's AAD
+   `IRONSHELL_FIPS`), an envelope version that was not bound into the AEAD's AAD
    (AS-2026-09), and the new audit sink sitting outside the jail's protection
    (AS-2026-11). Two left open and documented: the string-repeat cap is
    per-operation and `+` walks past it (AS-2026-10), and an undefined variable
    interpolates as `null` (AS-2026-12, the language's existing behaviour).
 
-   The AS-2026-02 residue now has a supported mitigation: `AETHER_AUDIT_SINK`
+   The AS-2026-02 residue now has a supported mitigation: `IRONSHELL_AUDIT_SINK`
    mirrors every entry to a destination the shell cannot rewrite. The integrity
    comes from what is behind the path — a FIFO, a WORM mount — not from the
    shell, which is as closed as it gets without leaving the process.
@@ -1111,7 +1111,7 @@ on that date. None is blocked on the shell.
      program that means something different on each surface, which is worse than
      a syntax error and invisible to a parse check. Deleting the transpiler
      without a grammar production for `>`-as-pipe would silently change what
-     existing `.aeg` means, rather than failing loudly.
+     existing `.ishg` means, rather than failing loudly.
    - ~~Optionally bridge the older `RBAC_ROLES` registry into `RbacManager`~~ —
      **decided against, deliberately** (session 5, `a006d40`), and the decision
      is now pinned by `tests/rbac_legacy_store.rs`. The two stores are not two
@@ -1147,7 +1147,7 @@ everything above:
   has exhausted it before and produced a bogus `E0463`; purging `.pdb` files
   reclaims space. Do not run two `cargo` invocations at once — a concurrent
   build deleting an `rlib` mid-run produces
-  `extern location for aethershell does not exist`, which looks like a code
+  `extern location for ironshell does not exist`, which looks like a code
   failure and is not.
 
 ---
@@ -1192,7 +1192,7 @@ toolchain.** The recovery took most of the session. What is now known:
 
 1. **Never pipe `cargo test` through `tail`/`head`.** `$?` becomes the *pager's*
    exit code. A run piped to `tail -120` reported "exit 0" and 91 tests while
-   cargo's real status was hidden and the `aethershell` suites were silently
+   cargo's real status was hidden and the `ironshell` suites were silently
    discarded. Redirect to a log and echo `$?` on the next line. This is exactly
    the green-but-wrong shape this repo keeps warning about — it was caught only
    because 91 tests is visibly not 1650.

@@ -1,11 +1,11 @@
 //! Tests for import statement parsing
 
-use aethershell::ast::Stmt;
-use aethershell::parser::parse_program;
+use iron_shell::ast::Stmt;
+use iron_shell::parser::parse_program;
 
 #[test]
 fn test_import_simple_path() {
-    let src = r#"import "path/to/module.ae""#;
+    let src = r#"import "path/to/module.ish""#;
     let stmts = parse_program(src).expect("should parse");
     assert_eq!(stmts.len(), 1);
 
@@ -16,7 +16,7 @@ fn test_import_simple_path() {
             alias,
         } => {
             assert!(items.is_empty(), "no specific items for simple import");
-            assert_eq!(source, "path/to/module.ae");
+            assert_eq!(source, "path/to/module.ish");
             assert!(alias.is_none());
         }
         _ => panic!("expected import statement"),
@@ -25,7 +25,7 @@ fn test_import_simple_path() {
 
 #[test]
 fn test_import_with_alias() {
-    let src = r#"import "utils.ae" as utils"#;
+    let src = r#"import "utils.ish" as utils"#;
     let stmts = parse_program(src).expect("should parse");
     assert_eq!(stmts.len(), 1);
 
@@ -36,7 +36,7 @@ fn test_import_with_alias() {
             alias,
         } => {
             assert!(items.is_empty());
-            assert_eq!(source, "utils.ae");
+            assert_eq!(source, "utils.ish");
             assert_eq!(alias.as_deref(), Some("utils"));
         }
         _ => panic!("expected import statement"),
@@ -45,7 +45,7 @@ fn test_import_with_alias() {
 
 #[test]
 fn test_import_selective() {
-    let src = r#"import { add, subtract } from "math.ae""#;
+    let src = r#"import { add, subtract } from "math.ish""#;
     let stmts = parse_program(src).expect("should parse");
     assert_eq!(stmts.len(), 1);
 
@@ -60,7 +60,7 @@ fn test_import_selective() {
             assert!(items[0].alias.is_none());
             assert_eq!(items[1].name, "subtract");
             assert!(items[1].alias.is_none());
-            assert_eq!(source, "math.ae");
+            assert_eq!(source, "math.ish");
             assert!(alias.is_none());
         }
         _ => panic!("expected import statement"),
@@ -69,7 +69,7 @@ fn test_import_selective() {
 
 #[test]
 fn test_import_selective_with_aliases() {
-    let src = r#"import { add as plus, subtract as minus } from "math.ae""#;
+    let src = r#"import { add as plus, subtract as minus } from "math.ish""#;
     let stmts = parse_program(src).expect("should parse");
     assert_eq!(stmts.len(), 1);
 
@@ -84,7 +84,7 @@ fn test_import_selective_with_aliases() {
             assert_eq!(items[0].alias.as_deref(), Some("plus"));
             assert_eq!(items[1].name, "subtract");
             assert_eq!(items[1].alias.as_deref(), Some("minus"));
-            assert_eq!(source, "math.ae");
+            assert_eq!(source, "math.ish");
             assert!(alias.is_none());
         }
         _ => panic!("expected import statement"),
@@ -136,7 +136,7 @@ fn test_import_selective_from_package() {
 #[test]
 fn test_import_in_program() {
     let src = r#"
-        import "utils.ae" as u
+        import "utils.ish" as u
         let x = 5
         print(u.helper(x))
     "#;

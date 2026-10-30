@@ -1,4 +1,4 @@
-use aethershell::{
+use iron_shell::{
     builtins::{call, call_with_input},
     env::Env,
     eval::eval_program,
@@ -1066,7 +1066,7 @@ fn metadata_options_do_not_silently_turn_wrong_shapes_into_defaults() {
         ("tool_schema", Value::Uri("https://example.com".into())),
         (
             "telemetry_report",
-            Value::Table(aethershell::value::Table {
+            Value::Table(iron_shell::value::Table {
                 rows: vec![],
                 schema: vec![],
             }),

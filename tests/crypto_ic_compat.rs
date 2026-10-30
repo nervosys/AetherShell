@@ -7,12 +7,12 @@
 //! now must keep verifying in an older release, so these tests are the contract.
 //!
 //! Environment variables are process-wide, so each test takes `ENV_LOCK` and
-//! points `AETHER_SESSION_DIR` at a scratch directory before building an `Env`.
+//! points `IRONSHELL_SESSION_DIR` at a scratch directory before building an `Env`.
 
 use std::sync::{Mutex, MutexGuard};
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -21,23 +21,23 @@ fn configure(fips: bool, legacy_decrypt: bool) -> MutexGuard<'static, ()> {
     let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("ae-crypto-compat-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("scratch session dir");
-    std::env::set_var("AETHER_SESSION_DIR", &dir);
+    std::env::set_var("IRONSHELL_SESSION_DIR", &dir);
     if fips {
-        std::env::set_var("AETHER_FIPS", "1");
+        std::env::set_var("IRONSHELL_FIPS", "1");
     } else {
-        std::env::remove_var("AETHER_FIPS");
+        std::env::remove_var("IRONSHELL_FIPS");
     }
     if legacy_decrypt {
-        std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
+        std::env::set_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT", "1");
     } else {
-        std::env::remove_var("AETHER_CRYPTO_LEGACY_DECRYPT");
+        std::env::remove_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT");
     }
     guard
 }
 
 fn call(name: &str, args: &[&str]) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(
+    iron_shell::builtins::call(
         name,
         args.iter().map(|a| Value::Str(a.to_string())).collect(),
         &mut env,
@@ -267,7 +267,7 @@ fn aes_256_gcm_with_aad_matches_the_old_crate_vector() {
         .is_err());
 }
 
-// --- Legacy CBC (AETHER_CRYPTO_LEGACY_DECRYPT=1) -----------------------------
+// --- Legacy CBC (IRONSHELL_CRYPTO_LEGACY_DECRYPT=1) -----------------------------
 
 /// `openssl enc -aes-256-cbc -pbkdf2 -base64 -pass pass:legacy-pass`, 3.5.9,
 /// wrapped at 64 characters as OpenSSL writes it.
@@ -309,5 +309,5 @@ fn legacy_stays_off_without_the_opt_in() {
     let err = decrypt(LEGACY_CIPHER, LEGACY_PASSWORD)
         .unwrap_err()
         .to_string();
-    assert!(err.contains("AETHER_CRYPTO_LEGACY_DECRYPT"), "{err}");
+    assert!(err.contains("IRONSHELL_CRYPTO_LEGACY_DECRYPT"), "{err}");
 }

@@ -4,7 +4,7 @@
 //! must exist, lie inside the workspace and hold a `Cargo.toml`, and all of
 //! that is checked before any process starts. Nothing defaults to the shell's
 //! current directory: the earlier bodies ran `cargo test` on whatever project
-//! the shell happened to be started in, the AetherShell repository included.
+//! the shell happened to be started in, the IronShell repository included.
 //!
 //! Each call runs under the long tool deadline and keeps its output bounded.
 //! Diagnostics are read from cargo's JSON messages, so a build that never

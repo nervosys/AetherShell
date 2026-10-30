@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# AetherShell Test Coverage Runner
+# IronShell Test Coverage Runner
 # Run all coverage tests and report results
 
 param(
@@ -14,7 +14,7 @@ $script:failed = 0
 $script:failedTests = @()
 
 Write-Host "╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║           AetherShell Test Coverage Runner                    ║" -ForegroundColor Cyan
+Write-Host "║           IronShell Test Coverage Runner                    ║" -ForegroundColor Cyan
 Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
@@ -68,15 +68,15 @@ if (-not $AeOnly) {
     Write-Host ""
 }
 
-# Run .ae tests
+# Run .ish tests
 if (-not $RustOnly) {
     Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
     Write-Host " .AE COVERAGE TESTS" -ForegroundColor Cyan
     Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
     
-    $aeFiles = Get-ChildItem "tests/coverage/*.ae"
+    $aeFiles = Get-ChildItem "tests/coverage/*.ish"
     foreach ($file in $aeFiles) {
-        $output = & ".\target\debug\ae.exe" $file.FullName 2>&1 | Out-String
+        $output = & ".\target\debug\ish.exe" $file.FullName 2>&1 | Out-String
         if ($LASTEXITCODE -eq 0 -and $output -match "COMPLETE") {
             # Count passed checks by looking for the success marker (may appear garbled in PowerShell)
             $testCount = ([regex]::Matches($output, "Γ£ô")).Count

@@ -1,21 +1,21 @@
 # Records and Tables
 
-Records and tables are AetherShell's structured data types. Records are key-value maps; tables are arrays of records with a defined schema. Together they enable typed data processing pipelines.
+Records and tables are IronShell's structured data types. Records are key-value maps; tables are arrays of records with a defined schema. Together they enable typed data processing pipelines.
 
 ## Records
 
 ### Creating Records
 
-```ae
+```ish
 let person = {name: "Ada", age: 36, active: true}
 let config = {host: "localhost", port: 8080, debug: false}
 ```
 
 Record keys are always strings. Values can be any type, including nested records and arrays:
 
-```ae
+```ish
 let project = {
-    name: "AetherShell",
+    name: "IronShell",
     version: {major: 0, minor: 3, patch: 0},
     tags: ["shell", "rust", "ai"]
 }
@@ -25,7 +25,7 @@ let project = {
 
 Use dot notation to access fields:
 
-```ae
+```ish
 person.name      # => "Ada"
 person.age       # => 36
 project.version.major    # => 0
@@ -33,13 +33,13 @@ project.version.major    # => 0
 
 Accessing a non-existent field produces an error:
 
-```ae
+```ish
 person.email     # Error: field 'email' not found in record
 ```
 
 ### Record Operations
 
-```ae
+```ish
 # Get all keys
 {name: "Ada", age: 36} | keys
 # => ["age", "name"]   (sorted alphabetically)
@@ -55,7 +55,7 @@ merge defaults custom
 
 Records flow through pipelines as structured data:
 
-```ae
+```ish
 let users = [
     {name: "Ada", score: 95},
     {name: "Bob", score: 82},
@@ -80,7 +80,7 @@ A table has:
 
 ### Built-in Table Sources
 
-```ae
+```ish
 # List files — returns a table
 ls "."
 # Columns: name, path, ext, is_dir, size, modified
@@ -110,7 +110,7 @@ Tables get special column-aligned display in the terminal:
 
 Keep only specific columns:
 
-```ae
+```ish
 ls "." | select "name" "size"
 # Records with only name and size fields
 ```
@@ -119,7 +119,7 @@ ls "." | select "name" "size"
 
 Keep rows matching a predicate:
 
-```ae
+```ish
 ls "." | where fn(f) => f.size > 1000
 ls "." | where fn(f) => f.ext == "rs"
 ```
@@ -128,7 +128,7 @@ ls "." | where fn(f) => f.ext == "rs"
 
 Create new values from each row:
 
-```ae
+```ish
 ls "." | map fn(f) => {
     file: f.name,
     kb: f.size / 1024
@@ -137,7 +137,7 @@ ls "." | map fn(f) => {
 
 ### `sort` — Order Rows
 
-```ae
+```ish
 [3, 1, 4, 1, 5] | sort
 # => [1, 1, 3, 4, 5]
 ```
@@ -146,7 +146,7 @@ ls "." | map fn(f) => {
 
 Group records by a field value:
 
-```ae
+```ish
 ls "." | group "ext"
 # Records grouped by file extension
 ```
@@ -155,33 +155,33 @@ ls "." | group "ext"
 
 Collapse an array into a single value:
 
-```ae
+```ish
 ls "." | map fn(f) => f.size | reduce fn(a, b) => a + b, 0
 # Total size of all files
 ```
 
 ### `first` / `last` — Take Elements
 
-```ae
+```ish
 [1, 2, 3, 4, 5] | first 3    # => [1, 2, 3]
 [1, 2, 3, 4, 5] | last 2     # => [4, 5]
 ```
 
 ### `reverse` — Reverse Order
 
-```ae
+```ish
 [1, 2, 3] | reverse    # => [3, 2, 1]
 ```
 
 ### `unique` — Remove Duplicates
 
-```ae
+```ish
 [1, 2, 2, 3, 3, 3] | unique    # => [1, 2, 3]
 ```
 
 ### `columns` — Get Column Names
 
-```ae
+```ish
 ls "." | columns
 # => ["ext", "is_dir", "modified", "name", "path", "size"]
 ```
@@ -190,7 +190,7 @@ ls "." | columns
 
 Convert between structured data and serialization formats:
 
-```ae
+```ish
 # JSON
 let data = from_json '{"name": "test"}'
 data | to_json
@@ -208,7 +208,7 @@ yaml_data | to_yaml
 
 ### Analyze project files
 
-```ae
+```ish
 ls "src"
 | where fn(f) => f.ext == "rs"
 | map fn(f) => {name: f.name, kb: f.size / 1024}
@@ -219,7 +219,7 @@ ls "src"
 
 ### Process API response
 
-```ae
+```ish
 http_get "https://api.github.com/repos/user/repo/issues"
 | from_json
 | where fn(i) => i.state == "open"
@@ -229,7 +229,7 @@ http_get "https://api.github.com/repos/user/repo/issues"
 
 ### Build a report
 
-```ae
+```ish
 let files = ls "src" | where fn(f) => f.ext == "rs"
 let total_size = files | map fn(f) => f.size | reduce fn(a, b) => a + b, 0
 let count = files | length

@@ -1,8 +1,8 @@
 //! Contracts for the platform_* builtins: refusals, determinism of the pure
 //! comparators, the platform store's round trip, and coded failures.
 //!
-//! The platform store lives at `$HOME/.aether/platform_db.json`. Every test that
-//! writes it runs `ae` as a child process with HOME and USERPROFILE pointing at
+//! The platform store lives at `$HOME/.ironshell/platform_db.json`. Every test that
+//! writes it runs `ish` as a child process with HOME and USERPROFILE pointing at
 //! a fresh temporary directory, so the user's real store is never touched. The
 //! file is read back with serde_json, never through the builtin under test.
 //! Each child has a 30 second deadline and a non-interactive stdin.
@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -68,8 +68,8 @@ struct Run {
     stderr: String,
 }
 
-/// A temporary home directory for one test. The store is `.aether/platform_db.json`
-/// under it, and `ae` runs with this as HOME, USERPROFILE and working directory.
+/// A temporary home directory for one test. The store is `.ironshell/platform_db.json`
+/// under it, and `ish` runs with this as HOME, USERPROFILE and working directory.
 struct Home {
     root: PathBuf,
 }
@@ -90,7 +90,7 @@ impl Home {
     }
 
     fn store(&self) -> PathBuf {
-        self.root.join(".aether").join("platform_db.json")
+        self.root.join(".ironshell").join("platform_db.json")
     }
 
     fn read_store(&self) -> String {
@@ -106,13 +106,13 @@ impl Home {
             .expect("the store is a JSON object")
     }
 
-    /// Run `ae -c <expr>` with this home and a hard deadline.
+    /// Run `ish -c <expr>` with this home and a hard deadline.
     fn ae(&self, expr: &str) -> Run {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_ae"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_ish"))
             .current_dir(&self.root)
             .env("HOME", &self.root)
             .env("USERPROFILE", &self.root)
-            .env("AETHER_SESSION_DIR", self.root.join("session"))
+            .env("IRONSHELL_SESSION_DIR", self.root.join("session"))
             .args(["-c", expr])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -171,7 +171,7 @@ impl Home {
     }
 }
 
-/// `path` with forward slashes, so it can sit inside an AetherShell string.
+/// `path` with forward slashes, so it can sit inside an IronShell string.
 fn slashed(path: &Path) -> String {
     path.display().to_string().replace('\\', "/")
 }

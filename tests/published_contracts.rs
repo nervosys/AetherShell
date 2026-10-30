@@ -1,6 +1,6 @@
 //! The documents other systems read about this one, checked against reality.
 //!
-//! Three published contracts describe how to call AetherShell:
+//! Three published contracts describe how to call IronShell:
 //!
 //!   * `.well-known/openapi.yaml`  — pointed at by IronStack's registry
 //!   * `.well-known/ai-plugin.json` — read by model hosts
@@ -109,8 +109,8 @@ fn the_ironstack_manifest_matches_the_registrys_view_of_us() {
     // registry's tool.
     let manifest = read(".well-known/ironstack.json");
     for expected in [
-        "\"id\": \"aethershell\"",
-        "\"product\": \"AetherShell\"",
+        "\"id\": \"ironshell\"",
+        "\"product\": \"IronShell\"",
         "\"layer\": \"languages\"",
         "\"irongate\"",
         "\"ironvault\"",
@@ -312,7 +312,7 @@ fn the_spec_documents_every_endpoint_that_does_exist() {
 /// the formula catches up in the commit after the tag.
 #[test]
 fn the_homebrew_formula_names_the_current_release() {
-    let formula = read("Formula/aethershell.rb");
+    let formula = read("Formula/ironshell.rb");
     let version = env!("CARGO_PKG_VERSION");
 
     let previous = previous_release(&read("CHANGELOG.md"), version);
@@ -371,7 +371,7 @@ fn previous_release_is_the_heading_after_the_current_one() {
 /// not a typo but a materially wrong claim about what a user may do.
 #[test]
 fn the_homebrew_formula_states_the_real_licence() {
-    let formula = read("Formula/aethershell.rb");
+    let formula = read("Formula/ironshell.rb");
     let manifest = read("Cargo.toml");
     let crate_licence = manifest
         .lines()

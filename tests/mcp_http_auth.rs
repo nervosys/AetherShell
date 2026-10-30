@@ -16,7 +16,7 @@
 //! explaining that its own `allow_origin(Any)` is tolerable only *because* a
 //! bearer token is required; this server simply lacked the token.
 
-use aethershell::mcp::server::McpServerConfig;
+use iron_shell::mcp::server::McpServerConfig;
 
 #[test]
 fn cors_is_off_by_default() {

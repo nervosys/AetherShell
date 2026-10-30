@@ -1,10 +1,10 @@
-# AetherShell - Cline/Roo Rules
+# IronShell - Cline/Roo Rules
 
 ## Project Identity
-AetherShell (`ae`) — the shell built for AI agents. One language, every platform, deterministic typed output. Written in Rust, version 1.4.0, AGPL-3.0-or-later.
+IronShell (`ae`) — the shell built for AI agents. One language, every platform, deterministic typed output. Written in Rust, version 1.4.0, AGPL-3.0-or-later.
 
 ## Why It Exists
-Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies by OS version, locale, and tool installation — making agent workflows fundamentally brittle. AetherShell eliminates this: every command returns deterministic, typed data. A built-in ontology makes commands, arguments, and return types machine-discoverable.
+Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies by OS version, locale, and tool installation — making agent workflows fundamentally brittle. IronShell eliminates this: every command returns deterministic, typed data. A built-in ontology makes commands, arguments, and return types machine-discoverable.
 
 ## Key Facts
 - Data flows as typed `Value` (Int, Float, String, Array, Record, Lambda) — not text
@@ -21,7 +21,7 @@ Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies
 - `src/builtins.rs` - builtins return `Value` types, not raw strings
 - `src/ai.rs` - AI provider router (model URIs: `openai:gpt-4o`, `ollama:llama3`)
 - `src/agent_api.rs` - Agent API HTTP server with function calling schemas
-- `src/transpile/` - shell transpilers (Bash, Zsh, PowerShell → AetherShell)
+- `src/transpile/` - shell transpilers (Bash, Zsh, PowerShell → IronShell)
 - `src/tui/` - terminal UI components
 
 ## Build

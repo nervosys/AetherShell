@@ -1,13 +1,13 @@
 {
     "name": "@nervosys/aethershell",
     "version": "10.0.0",
-    "description": "AetherShell - AI-powered typed shell for the browser",
-    "main": "aethershell.js",
-    "types": "aethershell.d.ts",
+    "description": "IronShell - AI-powered typed shell for the browser",
+    "main": "ironshell.js",
+    "types": "ironshell.d.ts",
     "type": "module",
     "files": [
-        "aethershell.js",
-        "aethershell.d.ts",
+        "ironshell.js",
+        "ironshell.d.ts",
         "pkg/"
     ],
     "scripts": {
@@ -50,11 +50,11 @@
     "sideEffects": false,
     "exports": {
         ".": {
-            "import": "./aethershell.js",
-            "types": "./aethershell.d.ts"
+            "import": "./ironshell.js",
+            "types": "./ironshell.d.ts"
         },
         "./wasm": {
-            "import": "./pkg/aether_wasm.js"
+            "import": "./pkg/ironshell_wasm.js"
         }
     }
 }

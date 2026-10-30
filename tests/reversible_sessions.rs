@@ -2,16 +2,16 @@
 //!
 //! These tests use real files in a temp directory, because the claim is about
 //! the filesystem and a mocked one would prove nothing. They run single-threaded
-//! (the journal and `AETHER_MODE` are process-global), which the harness is told
+//! (the journal and `IRONSHELL_MODE` are process-global), which the harness is told
 //! via the lock below rather than by hoping.
 
-use aethershell::journal;
-use aethershell::value::Value;
+use iron_shell::journal;
+use iron_shell::value::Value;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 /// Serialises these tests against each other: the journal is process-global,
-/// as is `AETHER_JOURNAL`.
+/// as is `IRONSHELL_JOURNAL`.
 static LOCK: Mutex<()> = Mutex::new(());
 
 struct Session {
@@ -23,11 +23,11 @@ impl Session {
         let dir = std::env::temp_dir().join(format!("ae_journal_{tag}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
-        std::env::set_var("AETHER_JOURNAL", "on");
+        std::env::set_var("IRONSHELL_JOURNAL", "on");
         // The default journal is keyed by working directory, which is the
         // repository: clearing it here deleted whatever an agent session in
         // this checkout had recorded. Each session gets its own journal.
-        std::env::set_var("AETHER_SESSION_DIR", dir.join("state"));
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir.join("state"));
         journal::clear();
         Self { dir }
     }
@@ -39,15 +39,15 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         journal::clear();
-        std::env::remove_var("AETHER_JOURNAL");
-        std::env::remove_var("AETHER_SESSION_DIR");
+        std::env::remove_var("IRONSHELL_JOURNAL");
+        std::env::remove_var("IRONSHELL_SESSION_DIR");
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
 fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
 }
 
 fn field(v: &Value, key: &str) -> Value {
@@ -247,18 +247,18 @@ fn undo_does_not_journal_itself() {
 fn journalling_is_off_for_humans_by_default() {
     // The dual-surface split: the human REPL behaves exactly as before.
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_JOURNAL");
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_JOURNAL");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     assert!(!journal::enabled(), "humans pay nothing for this");
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     assert!(journal::enabled(), "agents get recoverability");
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 }
 
 #[test]
 fn undo_works_across_separate_processes() {
-    // The SDK runs `ae -c <code>` per call, so the process that writes a file is
+    // The SDK runs `ish -c <code>` per call, so the process that writes a file is
     // never the process that undoes it. An in-memory journal would make `undo`
     // report "0 restored, complete: true" — succeeding at nothing, which is the
     // precise failure this module exists to prevent.
@@ -271,14 +271,14 @@ fn undo_works_across_separate_processes() {
     let target = dir.join("notes.txt");
     std::fs::write(&target, "original").expect("seed");
 
-    let ae = env!("CARGO_BIN_EXE_ae");
+    let ae = env!("CARGO_BIN_EXE_ish");
     let run = |code: String| -> String {
         let out = std::process::Command::new(ae)
             .args(["--agent", "-c", &code])
-            .env("AETHER_SESSION_DIR", &dir)
-            .env("AETHER_JOURNAL", "on")
-            .env("AETHER_POLICY", "permissive")
-            .env("AETHER_WORKSPACE", &dir)
+            .env("IRONSHELL_SESSION_DIR", &dir)
+            .env("IRONSHELL_JOURNAL", "on")
+            .env("IRONSHELL_POLICY", "permissive")
+            .env("IRONSHELL_WORKSPACE", &dir)
             .output()
             .expect("run ae");
         String::from_utf8_lossy(&out.stdout).into_owned()
@@ -315,8 +315,8 @@ fn a_call_that_failed_leaves_nothing_to_undo() {
     let outside = std::env::temp_dir().join("ae_definitely_outside_ws.txt");
     let _ = std::fs::remove_file(&outside);
 
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", s.dir.to_string_lossy().into_owned());
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", s.dir.to_string_lossy().into_owned());
     let result = call(
         "file_write",
         vec![
@@ -324,8 +324,8 @@ fn a_call_that_failed_leaves_nothing_to_undo() {
             Value::Str("nope".into()),
         ],
     );
-    std::env::remove_var("AETHER_WORKSPACE");
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     assert!(result.is_err(), "the jail should refuse this write");
     assert!(

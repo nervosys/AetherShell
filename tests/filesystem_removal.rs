@@ -10,12 +10,12 @@
 //! The design doc recorded half of this as "needs a product decision". Whether
 //! a *shell* should be able to remove a file is not one.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
+    iron_shell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
 }
 
 fn s(v: &str) -> Value {
@@ -81,7 +81,7 @@ fn registering_them_did_not_weaken_their_effect_classification() {
     // `rm` was classified Destructive while unreachable. Registration must not
     // have quietly turned it into something the policy engine waves through —
     // Destructive is what makes it need approval in agent mode.
-    use aethershell::safety::{effect_is_declared, effect_of, Effect};
+    use iron_shell::safety::{effect_is_declared, effect_of, Effect};
     assert_eq!(effect_of("rm"), Effect::Destructive);
     assert_eq!(effect_of("rmdir"), Effect::Destructive);
     assert!(effect_is_declared("rm"));
@@ -96,7 +96,7 @@ fn the_deletion_builtins_are_not_silently_missing_from_the_catalog() {
     // operation that exists in the safety model but not the catalog is worse
     // than one that is absent from both: policy claims to govern something no
     // caller can reach, which reads as coverage.
-    use aethershell::builtins::BUILTIN_LOOKUP;
+    use iron_shell::builtins::BUILTIN_LOOKUP;
     for name in ["rm", "rmdir", "touch"] {
         assert!(
             BUILTIN_LOOKUP.contains_key(name),

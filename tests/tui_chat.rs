@@ -2,12 +2,12 @@
 
 #[cfg(test)]
 mod tui_chat_tests {
-    use aethershell::tui::agents::MultiModalAgent;
-    use aethershell::tui::app::{AgentInfo, AgentStatus, ChatMessage, MessageRole};
-    use aethershell::tui::chat::{
+    use iron_shell::tui::agents::MultiModalAgent;
+    use iron_shell::tui::app::{AgentInfo, AgentStatus, ChatMessage, MessageRole};
+    use iron_shell::tui::chat::{
         ChatManager, ChatSession, ChatSettings, Participant, ParticipantType,
     };
-    use aethershell::tui::media::{MediaFile, MediaType};
+    use iron_shell::tui::media::{MediaFile, MediaType};
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -117,7 +117,7 @@ mod tui_chat_tests {
         );
 
         // Skip if AI not configured
-        if std::env::var("AETHER_AI").is_err() {
+        if std::env::var("IRONSHELL_AI").is_err() {
             return;
         }
 
@@ -342,7 +342,7 @@ mod tui_chat_tests {
         );
 
         // Skip if AI not configured
-        if std::env::var("AETHER_AI").is_err() {
+        if std::env::var("IRONSHELL_AI").is_err() {
             return;
         }
 
@@ -379,7 +379,7 @@ mod tui_chat_tests {
 
         // Summarization requires AI, so verify behavior based on whether AI is configured
         // If no AI configured, messages just accumulate (summarization fails silently)
-        if std::env::var("AETHER_AI").is_err() {
+        if std::env::var("IRONSHELL_AI").is_err() {
             // Without AI, all 5 messages should be present (no summarization occurred)
             assert_eq!(session.messages.len(), 5);
             return;

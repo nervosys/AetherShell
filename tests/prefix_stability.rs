@@ -12,7 +12,7 @@
 //! Provider cache-hit pricing is a modelled multiplier, stated as an assumption
 //! below rather than smuggled into the result.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn rec(pairs: &[(&str, Value)]) -> Value {
@@ -24,8 +24,8 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 fn encode(v: &Value) -> String {

@@ -5,7 +5,7 @@
 //! the exact ops; `approve` is refused in agent mode; `apply` runs a batch only
 //! when its token is approved, and an in-process approval is spent by the apply
 //! it authorises. `set_env`, `env_set` and `env_unset` may not change an
-//! `AETHER_*` variable in agent mode, because the gate reads its mode and its
+//! `IRONSHELL_*` variable in agent mode, because the gate reads its mode and its
 //! approvals from those variables.
 //!
 //! Nothing here calls a model provider, opens the network, opens an audio
@@ -14,10 +14,10 @@
 //! Process-wide state (environment, approvals, transactions) is touched only
 //! under `LOCK`.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::safety;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::safety;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -97,7 +97,7 @@ impl Workspace {
             std::process::id()
         ));
         std::fs::create_dir_all(&dir).expect("create workspace");
-        std::env::set_var("AETHER_WORKSPACE", &dir);
+        std::env::set_var("IRONSHELL_WORKSPACE", &dir);
         Workspace(dir)
     }
 
@@ -108,8 +108,8 @@ impl Workspace {
 
 impl Drop for Workspace {
     fn drop(&mut self) {
-        std::env::remove_var("AETHER_WORKSPACE");
-        std::env::remove_var("AETHER_MODE");
+        std::env::remove_var("IRONSHELL_WORKSPACE");
+        std::env::remove_var("IRONSHELL_MODE");
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
@@ -119,14 +119,14 @@ struct AgentMode;
 
 impl AgentMode {
     fn enter() -> Self {
-        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("IRONSHELL_MODE", "agent");
         AgentMode
     }
 }
 
 impl Drop for AgentMode {
     fn drop(&mut self) {
-        std::env::remove_var("AETHER_MODE");
+        std::env::remove_var("IRONSHELL_MODE");
     }
 }
 
@@ -163,20 +163,20 @@ fn an_agent_cannot_flip_the_gate_through_the_environment() {
     let _ws = Workspace::new("env_gate");
     let _a = AgentMode::enter();
     for name in ["set_env", "env_set"] {
-        let args = vec![s("AETHER_APPROVE_ALL"), s("1")];
+        let args = vec![s("IRONSHELL_APPROVE_ALL"), s("1")];
         assert_eq!(outcome(run(name, args)), "E_POLICY_DENY", "{name}");
     }
     assert_eq!(
-        outcome(run("set_env", vec![s("aether_mode"), s("human")])),
+        outcome(run("set_env", vec![s("ironshell_mode"), s("human")])),
         "E_POLICY_DENY",
         "names are matched case-insensitively, as Windows matches them"
     );
     assert_eq!(
-        outcome(run("env_unset", vec![s("AETHER_MODE")])),
+        outcome(run("env_unset", vec![s("IRONSHELL_MODE")])),
         "E_POLICY_DENY"
     );
-    assert!(std::env::var("AETHER_APPROVE_ALL").is_err());
-    assert_eq!(std::env::var("AETHER_MODE").as_deref(), Ok("agent"));
+    assert!(std::env::var("IRONSHELL_APPROVE_ALL").is_err());
+    assert_eq!(std::env::var("IRONSHELL_MODE").as_deref(), Ok("agent"));
 }
 
 /// Removes an environment variable when dropped, so a failed assertion cannot
@@ -195,16 +195,16 @@ fn a_child_process_never_inherits_a_gate_variable_in_agent_mode() {
     let _ws = Workspace::new("posix_child");
     let _a = AgentMode::enter();
     // Approve the exec itself, so the only thing refused below is the variable.
-    std::env::set_var("AETHER_APPROVE_ALL", "1");
-    let _approve = EnvVarGuard("AETHER_APPROVE_ALL");
+    std::env::set_var("IRONSHELL_APPROVE_ALL", "1");
+    let _approve = EnvVarGuard("IRONSHELL_APPROVE_ALL");
     let program = "ae_no_such_program_xyz";
     // With the gate variable as a prefix: refused before any spawn (126).
     assert_eq!(
-        aethershell::posix::run(&format!("AETHER_MODE=human {program}")),
+        iron_shell::posix::run(&format!("IRONSHELL_MODE=human {program}")),
         Some(126)
     );
     // Without it, the same command reaches the spawn and is not found (127).
-    assert_eq!(aethershell::posix::run(program), Some(127));
+    assert_eq!(iron_shell::posix::run(program), Some(127));
 }
 
 #[test]
@@ -816,14 +816,14 @@ fn the_tranche_declarations_answer_their_own_examples() {
     // Run on a thread with a larger stack: evaluating an example is recursive.
     let body = || {
         for name in DECLARED {
-            let sig = aethershell::signature::signature_of(name)
+            let sig = iron_shell::signature::signature_of(name)
                 .unwrap_or_else(|| panic!("{name} is not declared"));
             assert!(!sig.examples.is_empty(), "{name} declares no example");
             for (code, want) in sig.examples {
-                let stmts = aethershell::parser::parse_program(code)
+                let stmts = iron_shell::parser::parse_program(code)
                     .unwrap_or_else(|e| panic!("{name}: {code}: {e}"));
                 let mut env = Env::new();
-                let got = aethershell::eval::eval_program(&stmts, &mut env)
+                let got = iron_shell::eval::eval_program(&stmts, &mut env)
                     .unwrap_or_else(|e| panic!("{name}'s example failed: {code}: {e}"));
                 let shown = plain(&format!("{got}"));
                 assert!(

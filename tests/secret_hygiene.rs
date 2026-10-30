@@ -8,9 +8,9 @@
 //!   3. `safety::audit` — secrets never land in the persistent, hash-chained
 //!      audit log, and the chain still verifies over the redacted content.
 
-use aethershell::builtins::render_agent;
-use aethershell::safety;
-use aethershell::value::Value;
+use iron_shell::builtins::render_agent;
+use iron_shell::safety;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 // Env is process-global; serialize the env-mutating tests in this binary.
@@ -22,28 +22,28 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 
 fn clear() {
     for k in [
-        "AETHER_MODE",
-        "AETHER_AGENT",
-        "AETHER_POLICY",
-        "AETHER_REDACT",
-        "AETHER_SECRETS",
-        "AETHER_WORKSPACE",
-        "AETHER_AUDIT_LOG",
+        "IRONSHELL_MODE",
+        "IRONSHELL_AGENT",
+        "IRONSHELL_POLICY",
+        "IRONSHELL_REDACT",
+        "IRONSHELL_SECRETS",
+        "IRONSHELL_WORKSPACE",
+        "IRONSHELL_AUDIT_LOG",
     ] {
         std::env::remove_var(k);
     }
 }
 
 fn call(name: &str, args: Vec<Value>) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 #[test]
 fn render_agent_redacts_secret_shapes_and_named_fields() {
     let _l = lock();
     clear();
-    std::env::remove_var("AETHER_REDACT");
+    std::env::remove_var("IRONSHELL_REDACT");
 
     let mut rec = BTreeMap::new();
     rec.insert(
@@ -77,7 +77,7 @@ fn render_agent_redacts_secret_shapes_and_named_fields() {
 fn render_agent_opt_out_keeps_full_fidelity() {
     let _l = lock();
     clear();
-    std::env::set_var("AETHER_REDACT", "off");
+    std::env::set_var("IRONSHELL_REDACT", "off");
 
     let mut rec = BTreeMap::new();
     rec.insert(
@@ -87,7 +87,7 @@ fn render_agent_opt_out_keeps_full_fidelity() {
     let out = render_agent(&Value::Record(rec), None).expect("output");
     assert!(
         out.contains("sk-keepmewhenredactoff123456"),
-        "AETHER_REDACT=off must not redact: {out}"
+        "IRONSHELL_REDACT=off must not redact: {out}"
     );
 
     clear();
@@ -108,7 +108,7 @@ fn env_read_is_gated_in_agent_mode_only() {
     );
 
     // Agent mode: a secret-named var becomes an opaque handle.
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let agent = call("env", vec![Value::Str("AE_SECRET_FIXTURE_KEY".to_string())]);
     assert_eq!(
         agent,
@@ -122,7 +122,7 @@ fn env_read_is_gated_in_agent_mode_only() {
     assert_eq!(plain, Value::Str("plainvalue".to_string()));
 
     // Explicit permission re-opens clear reads of the secret.
-    std::env::set_var("AETHER_SECRETS", "allow");
+    std::env::set_var("IRONSHELL_SECRETS", "allow");
     let permitted = call("env", vec![Value::Str("AE_SECRET_FIXTURE_KEY".to_string())]);
     assert_eq!(
         permitted,
@@ -142,7 +142,7 @@ fn audit_log_never_persists_secrets_and_still_verifies() {
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("audit.log");
     let _ = std::fs::remove_file(&log);
-    std::env::set_var("AETHER_AUDIT_LOG", log.to_string_lossy().to_string());
+    std::env::set_var("IRONSHELL_AUDIT_LOG", log.to_string_lossy().to_string());
 
     safety::audit(
         "env",
@@ -188,12 +188,12 @@ fn a_password_argument_never_reaches_the_audit_log() {
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("audit.log");
     let _ = std::fs::remove_file(&log);
-    std::env::set_var("AETHER_AUDIT_LOG", log.to_string_lossy().to_string());
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &dir);
+    std::env::set_var("IRONSHELL_AUDIT_LOG", log.to_string_lossy().to_string());
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &dir);
 
-    let mut env = aethershell::env::Env::new();
-    let out = aethershell::builtins::call(
+    let mut env = iron_shell::env::Env::new();
+    let out = iron_shell::builtins::call(
         "rbac_login",
         vec![
             Value::Str("alice".into()),

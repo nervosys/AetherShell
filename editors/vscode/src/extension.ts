@@ -8,19 +8,19 @@ import {
 } from 'vscode-languageclient/node';
 import { activate as activateMarkdownPreview } from './markdownPreview';
 import { registerProviders } from './providers';
-import { registerRunnerCommands, AetherShellRunner } from './runner';
-import { AetherShellCodeActionProvider, registerCodeActionCommands } from './codeActions';
+import { registerRunnerCommands, IronShellRunner } from './runner';
+import { IronShellCodeActionProvider, registerCodeActionCommands } from './codeActions';
 import { registerAgentPanel } from './agentPanel';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
-let runner: AetherShellRunner | undefined;
+let runner: IronShellRunner | undefined;
 let extensionContext: vscode.ExtensionContext;
 
 export async function activate(context: vscode.ExtensionContext) {
     extensionContext = context;
-    outputChannel = vscode.window.createOutputChannel('AetherShell');
-    outputChannel.appendLine('AetherShell extension activating...');
+    outputChannel = vscode.window.createOutputChannel('IronShell');
+    outputChannel.appendLine('IronShell extension activating...');
 
     // Register language providers (symbols, folding, hover)
     registerProviders(context);
@@ -33,10 +33,10 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register code action provider
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider(
-            { language: 'aethershell' },
-            new AetherShellCodeActionProvider(),
+            { language: 'ironshell' },
+            new IronShellCodeActionProvider(),
             {
-                providedCodeActionKinds: AetherShellCodeActionProvider.providedCodeActionKinds
+                providedCodeActionKinds: IronShellCodeActionProvider.providedCodeActionKinds
             }
         )
     );
@@ -48,11 +48,11 @@ export async function activate(context: vscode.ExtensionContext) {
     outputChannel.appendLine('Agent panel registered');
 
     // Register run-on-save handler
-    const config = vscode.workspace.getConfiguration('aethershell');
+    const config = vscode.workspace.getConfiguration('ironshell');
     context.subscriptions.push(
         vscode.workspace.onDidSaveTextDocument(async (document) => {
-            const runOnSave = vscode.workspace.getConfiguration('aethershell').get<boolean>('runOnSave', false);
-            if (runOnSave && document.languageId === 'aethershell' && runner) {
+            const runOnSave = vscode.workspace.getConfiguration('ironshell').get<boolean>('runOnSave', false);
+            if (runOnSave && document.languageId === 'ironshell' && runner) {
                 await runner.runFile(document);
             }
         })
@@ -62,13 +62,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Always register these commands so they're available even if LSP is disabled
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.restartServer', async () => {
+        vscode.commands.registerCommand('ironshell.restartServer', async () => {
             await restartServer();
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('aethershell.showOutput', () => {
+        vscode.commands.registerCommand('ironshell.showOutput', () => {
             outputChannel.show();
         })
     );
@@ -85,7 +85,7 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 async function startServer(context: vscode.ExtensionContext) {
-    const config = vscode.workspace.getConfiguration('aethershell');
+    const config = vscode.workspace.getConfiguration('ironshell');
     let serverPath = config.get<string>('lsp.path', '');
 
     // If no path configured, look for the binary
@@ -93,17 +93,17 @@ async function startServer(context: vscode.ExtensionContext) {
         // Try to find in common locations
         const possiblePaths = [
             // Development: built from source
-            path.join(context.extensionPath, '..', '..', 'target', 'release', 'aethershell-lsp'),
-            path.join(context.extensionPath, '..', '..', 'target', 'debug', 'aethershell-lsp'),
+            path.join(context.extensionPath, '..', '..', 'target', 'release', 'iron-shell-lsp'),
+            path.join(context.extensionPath, '..', '..', 'target', 'debug', 'iron-shell-lsp'),
             // Installed globally
-            'aethershell-lsp',
+            'iron-shell-lsp',
         ];
 
         // On Windows, add .exe
         if (process.platform === 'win32') {
             possiblePaths.unshift(
-                path.join(context.extensionPath, '..', '..', 'target', 'release', 'aethershell-lsp.exe'),
-                path.join(context.extensionPath, '..', '..', 'target', 'debug', 'aethershell-lsp.exe')
+                path.join(context.extensionPath, '..', '..', 'target', 'release', 'iron-shell-lsp.exe'),
+                path.join(context.extensionPath, '..', '..', 'target', 'debug', 'iron-shell-lsp.exe')
             );
         }
 
@@ -130,11 +130,11 @@ async function startServer(context: vscode.ExtensionContext) {
     }
 
     if (!serverPath) {
-        outputChannel.appendLine('Warning: AetherShell language server not found');
-        outputChannel.appendLine('Please build the LSP server with: cargo build -p aethershell-lsp --release');
-        outputChannel.appendLine('Or set the path in settings: aethershell.lsp.path');
+        outputChannel.appendLine('Warning: IronShell language server not found');
+        outputChannel.appendLine('Please build the LSP server with: cargo build -p iron-shell-lsp --release');
+        outputChannel.appendLine('Or set the path in settings: ironshell.lsp.path');
         vscode.window.showWarningMessage(
-            'AetherShell language server not found. Build it with "cargo build -p aethershell-lsp --release"'
+            'IronShell language server not found. Build it with "cargo build -p iron-shell-lsp --release"'
         );
         return;
     }
@@ -154,19 +154,19 @@ async function startServer(context: vscode.ExtensionContext) {
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
-            { scheme: 'file', language: 'aethershell' },
-            { scheme: 'untitled', language: 'aethershell' }
+            { scheme: 'file', language: 'ironshell' },
+            { scheme: 'untitled', language: 'ironshell' }
         ],
         synchronize: {
-            fileEvents: vscode.workspace.createFileSystemWatcher('**/*.ae')
+            fileEvents: vscode.workspace.createFileSystemWatcher('**/*.ish')
         },
         outputChannel,
         traceOutputChannel: outputChannel
     };
 
     client = new LanguageClient(
-        'aethershell',
-        'AetherShell Language Server',
+        'ironshell',
+        'IronShell Language Server',
         serverOptions,
         clientOptions
     );
@@ -176,7 +176,7 @@ async function startServer(context: vscode.ExtensionContext) {
         outputChannel.appendLine('Language server started successfully');
     } catch (error) {
         outputChannel.appendLine(`Failed to start language server: ${error}`);
-        vscode.window.showErrorMessage(`Failed to start AetherShell language server: ${error}`);
+        vscode.window.showErrorMessage(`Failed to start IronShell language server: ${error}`);
     }
 }
 

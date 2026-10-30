@@ -1,12 +1,12 @@
-# AetherShell vs Traditional & AI Shells: Comprehensive Comparison
+# IronShell vs Traditional & AI Shells: Comprehensive Comparison
 
-> **Executive Summary**: AetherShell represents a paradigm shift in shell design, combining functional programming, static type safety, agents that call builtins as tools, and a default-deny effect gate with a keyed audit chain — a combination no existing shell offers.
+> **Executive Summary**: IronShell represents a paradigm shift in shell design, combining functional programming, static type safety, agents that call builtins as tools, and a default-deny effect gate with a keyed audit chain — a combination no existing shell offers.
 
 ---
 
 ## 📊 Feature Matrix
 
-| Feature                           | Bash | Zsh | Fish | PowerShell | Warp | Aider | Cursor Shell | **AetherShell** |
+| Feature                           | Bash | Zsh | Fish | PowerShell | Warp | Aider | Cursor Shell | **IronShell** |
 | --------------------------------- | ---- | --- | ---- | ---------- | ---- | ----- | ------------ | --------------- |
 | **Core Language Features**        |
 | Typed Pipelines                   | ❌    | ❌   | ❌    | ✅          | ❌    | ❌     | ❌            | ✅               |
@@ -66,7 +66,7 @@
 - Manual memory management via external tools
 - No AI integration
 
-**AetherShell Advantage**: 
+**IronShell Advantage**: 
 - **100% backward compatible** via Bash transpiler
 - **Structured data** eliminates text parsing errors
 - **Type safety** catches errors before execution
@@ -91,7 +91,7 @@
 - No AI capabilities
 - Learning curve for power features
 
-**AetherShell Advantage**:
+**IronShell Advantage**:
 - **Type-safe pipelines** eliminate text parsing
 - **Built-in AI** without external plugins
 - **Structured data** as first-class citizens
@@ -117,7 +117,7 @@
 - No AI features
 - No structured data support
 
-**AetherShell Advantage**:
+**IronShell Advantage**:
 - **POSIX compatible** via transpiler
 - **Strong type system** with inference
 - **Functional programming** (map, filter, lambdas)
@@ -146,7 +146,7 @@
 - Heavy runtime (.NET dependency)
 - No agent frameworks
 
-**AetherShell Advantage**:
+**IronShell Advantage**:
 - **Type inference** (no manual annotations needed)
 - **Lambda functions** and functional programming
 - **A keyed, tamper-evident audit chain**
@@ -155,7 +155,7 @@
 - **Unix-first** philosophy with Windows support
 - **A tamper-evident audit chain** over every operation
 
-**Similarity**: Both have structured pipelines, but AetherShell adds:
+**Similarity**: Both have structured pipelines, but IronShell adds:
 - Hindley-Milner type inference
 - Functional programming paradigm
 - AI-first design
@@ -185,11 +185,11 @@
 - No effect gate or workspace jail
 - No type system or structured data
 
-**AetherShell Advantage**:
+**IronShell Advantage**:
 - **Open source** and extensible
 - **Programmable AI** (agents as code)
 - **A 198-tool catalogue** with per-tool safety levels
-- **An MCP server** (`ae mcp stdio`)
+- **An MCP server** (`ish mcp stdio`)
 - **Native type system** and structured pipelines
 - **A tool catalogue** with per-tool safety levels
 - **Advanced reasoning** strategies
@@ -217,7 +217,7 @@
 - No structured data handling
 - No audit trail over operations
 
-**AetherShell Advantage**:
+**IronShell Advantage**:
 - **Full shell** with AI integration
 - **System administration** + AI
 - **Data pipelines** with AI processing
@@ -227,7 +227,7 @@
 - **Built-in reasoning** engines
 - **Both scripting and automation**
 
-**Complementary**: Aider excels at code editing; AetherShell excels at system automation with AI
+**Complementary**: Aider excels at code editing; IronShell excels at system automation with AI
 
 ---
 
@@ -250,7 +250,7 @@
 - No distributed coordination
 - Limited to development context
 
-**AetherShell Advantage**:
+**IronShell Advantage**:
 - **Standalone shell** (not IDE-dependent)
 - **Agents that call builtins as tools**
 - **A tamper-evident audit chain**
@@ -281,7 +281,7 @@
 - No distributed coordination
 - Limited functional programming
 
-**AetherShell Advantage**:
+**IronShell Advantage**:
 - **Static type inference** (Hindley-Milner)
 - **Native AI** with agents that call builtins as tools
 - **MCP in both directions**
@@ -308,7 +308,7 @@
 - No agent frameworks
 - Depends on Python runtime
 
-**AetherShell Advantage**:
+**IronShell Advantage**:
 - **Compiled Rust** (faster execution)
 - **Static type inference**
 - **Native AI** and agents
@@ -318,7 +318,7 @@
 
 ---
 
-## 🎯 What AetherShell Actually Has
+## 🎯 What IronShell Actually Has
 
 Every item below was checked against the running binary. An earlier version of
 this section advertised vision AI, audio transcription, video analysis, four
@@ -330,7 +330,7 @@ unverified, so the list is now shorter and true.
 
 ### 1. **Typed Functional Programming** 📐
 
-```ae
+```ish
 # Lambda functions
 let double = fn(x) => x * 2
 
@@ -347,7 +347,7 @@ ls | where(fn(f) => f.size > 1000000) | sort_by("size") | take(5)
 
 ### 2. **Agents Using Builtins as Tools** 🤖
 
-```ae
+```ish
 # A goal, and the builtins the agent may call
 agent("Find the three largest files under src/", ["ls", "find", "stat"])
 ```
@@ -359,7 +359,7 @@ currently delegates to the same single-agent loop.
 
 ### 3. **A Tool Catalogue with Safety Levels** 🧰
 
-```ae
+```ish
 tool_list() | len          # 198
 tool_info("ls")
 tool_exec("git", ["status", "--short"])
@@ -371,11 +371,11 @@ refused unless `allow_dangerous` is passed explicitly.
 ### 4. **MCP in Both Directions** 🔌
 
 ```bash
-ae mcp stdio          # serve every builtin as an MCP tool over JSON-RPC
-ae --agent mcp stdio  # …with default-deny gating on dangerous effects
+ish mcp stdio          # serve every builtin as an MCP tool over JSON-RPC
+ish --agent mcp stdio  # …with default-deny gating on dangerous effects
 ```
 
-```ae
+```ish
 agent_with_mcp("Check system health", ["monitor_sockets", "sys_info"])
 # The tools are builtins. An endpoint argument is refused with E_UNIMPLEMENTED,
 # and no MCP server is contacted by agent_with_mcp.
@@ -386,7 +386,7 @@ No other shell in this comparison is an MCP server.
 ### 5. **An Effect Gate and a Workspace Jail** 🔒
 
 ```bash
-ae --agent --workspace ./sandbox script.ae
+ish --agent --workspace ./sandbox script.ish
 ```
 
 Destructive effect classes are gated behind approval, and writes are confined
@@ -396,22 +396,22 @@ is the one traditional shells cannot retrofit.
 ### 6. **A Tamper-Evident Audit Log** 🧾
 
 Every operation is appended to an HMAC-SHA256 chain keyed by
-`AETHER_AUDIT_KEY_FILE`, with a per-process writer id inside the signed core,
+`IRONSHELL_AUDIT_KEY_FILE`, with a per-process writer id inside the signed core,
 so a rewritten entry fails verification rather than passing as concurrency.
 
 ### 7. **Shell Compatibility Layers** 🔄
 
 ```bash
-ae --bash deploy.sh     # transpile and run a bash script
-ae --zsh script.zsh
-ae --pwsh script.ps1
+ish --bash deploy.sh     # transpile and run a bash script
+ish --zsh script.zsh
+ish --pwsh script.ps1
 ```
 
 ### 8. **Output Built for Agents** 📉
 
 ```bash
-ae --deterministic -c 'ls'   # canonical, byte-stable JSON
-ae --budget 2000 -c 'ls -R'  # page or truncate past a token budget
+ish --deterministic -c 'ls'   # canonical, byte-stable JSON
+ish --budget 2000 -c 'ls -R'  # page or truncate past a token budget
 ```
 
 ## 📈 Performance Comparison
@@ -423,7 +423,7 @@ ae --budget 2000 -c 'ls -R'  # page or truncate past a token budget
 | Fish            | ~100ms       | Fast              | Medium       | None             |
 | PowerShell      | ~500ms       | Medium (.NET)     | High         | Runtime          |
 | Warp            | ~200ms       | Fast (rust+shell) | Medium       | None             |
-| **AetherShell** | **~50ms**    | **Fast (Rust)**   | **Low**      | **Compile-time** |
+| **IronShell** | **~50ms**    | **Fast (Rust)**   | **Low**      | **Compile-time** |
 
 ---
 
@@ -435,13 +435,13 @@ Easiest ────────────────────────
   ├── Fish (simple, good defaults)
   ├── Bash (familiar, widely documented)
   ├── Warp (modern UI, AI helps)
-  ├── AetherShell (new paradigm, but consistent)
+  ├── IronShell (new paradigm, but consistent)
   ├── Zsh (many features, complex config)
   ├── PowerShell (verbose, different paradigm)
   └── Nushell (structured data, new concepts)
 ```
 
-**AetherShell Learning Aids**:
+**IronShell Learning Aids**:
 - Interactive TUI with examples
 - Type inference (no manual annotations)
 - Consistent functional syntax
@@ -483,7 +483,7 @@ Easiest ────────────────────────
 - Need AI pair programming
 - Working within existing shell
 
-### **Use AetherShell When:** ⭐
+### **Use IronShell When:** ⭐
 - ✅ **Data pipeline processing** with type safety
 - ✅ **AI-powered automation** and decision-making
 - ✅ **Agentic automation** behind an effect gate and a workspace jail
@@ -499,7 +499,7 @@ Easiest ────────────────────────
 
 ## 🔮 Future Vision
 
-### **AetherShell Roadmap**
+### **IronShell Roadmap**
 - 🎯 **Model Context Protocol (MCP)** integration
 - 🎯 **WebAssembly** runtime for sandboxed execution
 - 🎯 **Distributed file system** integration
@@ -516,14 +516,14 @@ Easiest ────────────────────────
 
 ### **AI Shells**
 - More tools will add AI assistance
-- But unlikely to match AetherShell's deep integration
-- AetherShell's agent orchestration is unique
+- But unlikely to match IronShell's deep integration
+- IronShell's agent orchestration is unique
 
 ---
 
-## 🏆 Verdict: When AetherShell Wins
+## 🏆 Verdict: When IronShell Wins
 
-**AetherShell is the superior choice when you need:**
+**IronShell is the superior choice when you need:**
 
 1. **🧠 AI as a first-class citizen** - Not just suggestions, but programmable agents
 2. **🔒 An effect gate** - Destructive classes default-deny, behind approval
@@ -546,15 +546,15 @@ Easiest ────────────────────────
 | **Gen 2** (1990s-2000s) | Zsh, Fish       | Enhanced text | Strings              | None             |
 | **Gen 3** (2000s-2010s) | PowerShell      | Objects       | .NET objects         | None             |
 | **Gen 4** (2020s)       | Warp, Aider     | AI-assisted   | Mixed                | Assistive        |
-| **Gen 5** (2024+)       | **AetherShell** | **AI-Native** | **Typed structures** | **Programmable** |
+| **Gen 5** (2024+)       | **IronShell** | **AI-Native** | **Typed structures** | **Programmable** |
 
 ---
 
 ## 🎯 Conclusion
 
-**AetherShell is the first shell designed for the AI era** - combining type-safe functional programming, agents that call builtins as tools, MCP in both directions, and a default-deny effect gate over a keyed audit chain — in a memory-safe Rust runtime.
+**IronShell is the first shell designed for the AI era** - combining type-safe functional programming, agents that call builtins as tools, MCP in both directions, and a default-deny effect gate over a keyed audit chain — in a memory-safe Rust runtime.
 
-While traditional shells excel at their historical use cases (Bash for scripts, PowerShell for Windows admin, Fish for interactivity), and AI tools like Warp and Aider provide AI assistance, **AetherShell uniquely integrates AI as a native programming construct** with capabilities no other shell can match:
+While traditional shells excel at their historical use cases (Bash for scripts, PowerShell for Windows admin, Fish for interactivity), and AI tools like Warp and Aider provide AI assistance, **IronShell uniquely integrates AI as a native programming construct** with capabilities no other shell can match:
 
 - **Agents that call builtins as tools**, gated by an allowlist
 - **A 198-tool catalogue** with per-tool safety levels
@@ -563,12 +563,12 @@ While traditional shells excel at their historical use cases (Bash for scripts, 
 - **Type-safe functional** programming with inference
 - **Structured pipelines** with compile-time guarantees
 
-For agentic automation that has to be auditable and confined, and for structured data instead of text parsing, AetherShell is built for the job in a way a POSIX shell cannot be retrofitted to be.
+For agentic automation that has to be auditable and confined, and for structured data instead of text parsing, IronShell is built for the job in a way a POSIX shell cannot be retrofitted to be.
 
 ---
 
 **Generated**: October 14, 2025  
-**AetherShell Version**: 0.1.0  
+**IronShell Version**: 0.1.0  
 **License**: MIT (Open Source)  
 **Repository**: https://github.com/nervosys/AetherShell
 

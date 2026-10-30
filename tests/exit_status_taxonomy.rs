@@ -1,7 +1,7 @@
 //! A failure's exit status should say which kind of failure it was.
 //!
 //! Measured against bash, PowerShell and nushell on ten induced failures
-//! (`benches/agentic/errors.mjs`), AetherShell scored **0 of 10** on
+//! (`benches/agentic/errors.mjs`), IronShell scored **0 of 10** on
 //! exit-status granularity: everything exited 1. bash scored 5 of 10 and was
 //! the only shell offering anything on that axis. It is free signal — a
 //! caller, a `set -e` wrapper, or a CI step can branch on it without reading
@@ -14,14 +14,14 @@
 //! rest follow `sysexits.h`. `E_UNKNOWN` stays 1, because an unidentified
 //! fault should look like the generic failure it is.
 
-use aethershell::safety::ErrorCode;
+use iron_shell::safety::ErrorCode;
 use std::process::Command;
 
 fn exit_of(args: &[&str]) -> i32 {
-    Command::new(env!("CARGO_BIN_EXE_ae"))
+    Command::new(env!("CARGO_BIN_EXE_ish"))
         .args(args)
         .env("NO_COLOR", "1")
-        .env("AETHER_ALLOW_SH", "")
+        .env("IRONSHELL_ALLOW_SH", "")
         .output()
         .expect("run ae")
         .status

@@ -1,12 +1,12 @@
 # DevOps
 
-Examples of using AetherShell for DevOps automation, system administration, and infrastructure management.
+Examples of using IronShell for DevOps automation, system administration, and infrastructure management.
 
 ## System Monitoring
 
 ### Health Dashboard
 
-```aethershell
+```ironshell
 let cpu = sys_cpu_info
 let mem = sys_mem_info
 let disk = sys_disk_info
@@ -24,7 +24,7 @@ echo "Disk: ${round(disk.used / 1073741824)}GB / ${round(disk.total / 1073741824
 
 ### Process Monitor
 
-```aethershell
+```ironshell
 # Find top memory-consuming processes
 proc_list
   | sort_by "mem_usage" "desc"
@@ -34,7 +34,7 @@ proc_list
 
 ### Port Scanning
 
-```aethershell
+```ironshell
 # Check which services are listening
 net_ports
   | where(fn(p) => p.state == "LISTEN")
@@ -46,7 +46,7 @@ net_ports
 
 ### Service Status Check
 
-```aethershell
+```ironshell
 let services = ["nginx", "postgresql", "redis"]
 
 services | map(fn(svc) => {
@@ -57,7 +57,7 @@ services | map(fn(svc) => {
 
 ### Restart All Services
 
-```aethershell
+```ironshell
 ["nginx", "postgresql", "redis"]
   | each(fn(svc) => {
       echo "Restarting ${svc}..."
@@ -69,7 +69,7 @@ services | map(fn(svc) => {
 
 ### Build and Deploy
 
-```aethershell
+```ironshell
 # Build
 echo "Building..."
 let build = sh "cargo build --release 2>&1"
@@ -85,14 +85,14 @@ if contains test_result "FAILED" {
 
 # Deploy
 echo "Deploying..."
-file_copy "target/release/ae" "/opt/aethershell/ae"
-svc_restart "aethershell"
+file_copy "target/release/ish" "/opt/ironshell/ae"
+svc_restart "ironshell"
 echo "Deployed successfully"
 ```
 
 ### Rolling Deployment
 
-```aethershell
+```ironshell
 let nodes = ["192.168.1.10", "192.168.1.11", "192.168.1.12"]
 
 nodes | each(fn(node) => {
@@ -104,7 +104,7 @@ nodes | each(fn(node) => {
 
   # Deploy. Use ssh_exec: it really runs the command. `remote_exec` refuses
   # with E_UNIMPLEMENTED and runs nothing, so it cannot deploy anything.
-  ssh_exec "${node}" "sudo systemctl restart aethershell"
+  ssh_exec "${node}" "sudo systemctl restart ironshell"
 
   # Health check
   let health = web_check_url "http://${node}:3000/health"
@@ -123,7 +123,7 @@ echo "All nodes deployed successfully"
 
 ### Change Summary
 
-```aethershell
+```ironshell
 # Summarize recent changes
 let log = sh "git log --oneline -20"
 echo "Recent commits:"
@@ -135,7 +135,7 @@ ai "Summarize these git commits into a changelog entry:\n${log}"
 
 ### Branch Cleanup
 
-```aethershell
+```ironshell
 # Find merged branches
 let branches = sh "git branch --merged" | split "\n" | map(fn(b) => trim b)
   | where(fn(b) => b != "main" && b != "master" && !starts_with(b, "*"))
@@ -146,7 +146,7 @@ branches | each(fn(b) => echo "  ${b}")
 
 ## Container Management
 
-```aethershell
+```ironshell
 # List running containers
 sh "docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'"
   | split "\n"
@@ -158,7 +158,7 @@ sh "docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'"
 
 ## Backup Script
 
-```aethershell
+```ironshell
 let timestamp = sh "date +%Y%m%d_%H%M%S" | trim
 let backup_dir = "/backups/${timestamp}"
 
@@ -168,10 +168,10 @@ echo "Backing up database..."
 sh "pg_dump mydb > ${backup_dir}/db.sql"
 
 echo "Backing up config..."
-file_copy "/etc/aethershell" "${backup_dir}/config"
+file_copy "/etc/ironshell" "${backup_dir}/config"
 
 echo "Backing up data..."
-sh "tar czf ${backup_dir}/data.tar.gz /var/lib/aethershell"
+sh "tar czf ${backup_dir}/data.tar.gz /var/lib/ironshell"
 
 # Cleanup old backups (keep last 7)
 ls "/backups"
@@ -187,13 +187,13 @@ echo "Backup complete: ${backup_dir}"
 
 ## Cron Jobs
 
-```aethershell
+```ironshell
 # List scheduled jobs
 cron_list
-# [{ id: "1", schedule: "0 * * * *", command: "ae health-check.ae" }, ...]
+# [{ id: "1", schedule: "0 * * * *", command: "ish health-check.ish" }, ...]
 
 # Add a new cron job
-cron_add "0 2 * * *" "ae backup.ae"    # Daily at 2 AM
+cron_add "0 2 * * *" "ish backup.ish"    # Daily at 2 AM
 
 # Remove a job
 cron_remove "1"
@@ -201,7 +201,7 @@ cron_remove "1"
 
 ## Network Diagnostics
 
-```aethershell
+```ironshell
 let target = "api.example.com"
 
 echo "=== Network Diagnostics for ${target} ==="

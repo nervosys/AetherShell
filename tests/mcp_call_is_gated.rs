@@ -4,9 +4,9 @@
 //! outside the workspace was E_OUTSIDE_WORKSPACE, and `mcp_call("cp", ...)`
 //! made the same copy. Its own process, since it sets the mode.
 
-use aethershell::builtins::call;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 #[test]
@@ -17,9 +17,9 @@ fn an_agent_cannot_run_a_catalogue_program_through_mcp_call() {
     let src = root.join("outside.txt");
     let dst = root.join("copied.txt");
     std::fs::write(&src, "secret").unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &ws);
-    std::env::remove_var("AETHER_POLICY");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &ws);
+    std::env::remove_var("IRONSHELL_POLICY");
 
     let mut args = BTreeMap::new();
     args.insert("source".to_string(), Value::Str(src.display().to_string()));

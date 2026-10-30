@@ -1,11 +1,11 @@
-// Shared semantic types for Aether's checker & public APIs.
+// Shared semantic types for IronShell's checker & public APIs.
 use std::collections::BTreeMap;
 
-/// The Aether semantic type lattice used by the typechecker and (optionally) by
+/// The IronShell semantic type lattice used by the typechecker and (optionally) by
 /// runtime-facing surfaces (e.g., schema hints for tables).
 ///
 /// Keep this file lightweight and dependency-free so tests can import
-/// `aethershell::types::Type` without pulling in other modules.
+/// `iron_shell::types::Type` without pulling in other modules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     /// Unknown or unconstrained type. Unifies with anything.

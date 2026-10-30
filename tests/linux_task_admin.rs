@@ -2,7 +2,7 @@
 //!
 //! Every test is `#[ignore]`d and calls `disposable::require()` first, so it
 //! runs only in the disposable distro, via scripts/disposable_linux_tests.sh
-//! (AETHER_DISPOSABLE=1, /etc/ae-disposable and root). Each test verifies the
+//! (IRONSHELL_DISPOSABLE=1, /etc/ae-disposable and root). Each test verifies the
 //! builtin's answer against an independent oracle: the `crontab -l` text, the
 //! `atq` queue and `at -c <id>`, all read with std::process::Command rather
 //! than through the builtins. A Drop guard restores the user's original
@@ -18,8 +18,8 @@
 #[path = "support/disposable.rs"]
 mod disposable;
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -35,7 +35,7 @@ fn s(text: &str) -> Value {
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 /// The coded refusal an error carries: the first `E_` token in its text.
@@ -64,8 +64,8 @@ struct Approve(Option<std::ffi::OsString>);
 
 impl Approve {
     fn new() -> Self {
-        let prior = std::env::var_os("AETHER_APPROVE_ALL");
-        std::env::set_var("AETHER_APPROVE_ALL", "1");
+        let prior = std::env::var_os("IRONSHELL_APPROVE_ALL");
+        std::env::set_var("IRONSHELL_APPROVE_ALL", "1");
         Approve(prior)
     }
 }
@@ -73,8 +73,8 @@ impl Approve {
 impl Drop for Approve {
     fn drop(&mut self) {
         match self.0.take() {
-            Some(value) => std::env::set_var("AETHER_APPROVE_ALL", value),
-            None => std::env::remove_var("AETHER_APPROVE_ALL"),
+            Some(value) => std::env::set_var("IRONSHELL_APPROVE_ALL", value),
+            None => std::env::remove_var("IRONSHELL_APPROVE_ALL"),
         }
     }
 }
@@ -314,8 +314,8 @@ fn cron_lifecycle_touches_only_its_own_entry() {
     );
     assert_eq!(
         crontab_text(),
-        format!("{seed}# aethershell-disabled: {entry}\n"),
-        "crontab -l after cron_disable: the entry carries the AetherShell comment prefix"
+        format!("{seed}# ironshell-disabled: {entry}\n"),
+        "crontab -l after cron_disable: the entry carries the IronShell comment prefix"
     );
     let listed = call("cron_list", vec![]).expect("cron_list");
     assert!(
@@ -379,7 +379,7 @@ fn cron_refusals_leave_the_crontab_unchanged() {
     );
 
     call("cron_disable", vec![s(&entry)]).expect("cron_disable");
-    let disabled = format!("{seed}# aethershell-disabled: {entry}\n");
+    let disabled = format!("{seed}# ironshell-disabled: {entry}\n");
     assert_eq!(crontab_text(), disabled);
     expect_code(
         call("cron_add", vec![s("30 4 * * *"), s(&command)]),

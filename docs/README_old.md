@@ -1,4 +1,4 @@
-# Aether Shell (ae) 🚀
+# IronShell Shell (ish) 🚀
 
 *The next-generation shell that combines the power of modern programming languages with cutting-edge AI capabilities. Built in Rust for safety and performance, featuring a stunning Terminal UI (TUI) for multimodal AI interactions.*
 
@@ -44,25 +44,25 @@
 ```bash
 git clone https://github.com/nervosys/AetherShell
 cd AetherShell
-cargo install --path . --bin ae
+cargo install --path . --bin ish
 ```
 
 ### Launch Options
 
 **Classic REPL Mode:**
 ```bash
-ae
+ish
 ```
 
 **🎨 Interactive TUI Mode (Recommended):**
 ```bash
-ae tui
+ish tui
 ```
 
 **Run Scripts:**
 ```bash
-ae script.ae          # Run Aether script
-ae --bash script.sh   # Run Bash script in compatibility mode
+ish script.ish          # Run IronShell script
+ish --bash script.sh   # Run Bash script in compatibility mode
 ```
 
 ---
@@ -73,7 +73,7 @@ ae --bash script.sh   # Run Bash script in compatibility mode
 
 **Analyze images with AI:**
 ```bash
-ae tui  # Launch TUI, then:
+ish tui  # Launch TUI, then:
 # 1. Switch to Media tab (Tab key)
 # 2. Select your image files (Space to select)
 # 3. Switch to Chat tab
@@ -81,14 +81,14 @@ ae tui  # Launch TUI, then:
 ```
 
 **Voice-to-text transcription:**
-```ae
+```ish
 # Load audio file and get transcription
 audio_file := media("recording.mp3")
 audio_file | ai("transcribe this audio")
 ```
 
 **Video content analysis:**
-```ae
+```ish
 # Analyze video content
 video_file := media("presentation.mp4") 
 video_file | ai("summarize the key points from this video")
@@ -97,7 +97,7 @@ video_file | ai("summarize the key points from this video")
 ### 🤖 **AI Agent Swarms**
 
 **Deploy a research team:**
-```ae
+```ish
 swarm "research quantum computing" [
   "researcher:gather recent papers",
   "analyst:identify key trends", 
@@ -106,7 +106,7 @@ swarm "research quantum computing" [
 ```
 
 **Content creation swarm:**
-```ae
+```ish
 swarm "create blog post about AI" [
   "planner:outline structure",
   "writer:draft content",
@@ -118,7 +118,7 @@ swarm "create blog post about AI" [
 ### 💬 **Smart Chat Sessions**
 
 **Context-aware conversations:**
-```ae
+```ish
 # In TUI mode, chat sessions remember:
 # • Previous messages and context
 # • Attached media files  
@@ -131,7 +131,7 @@ swarm "create blog post about AI" [
 ## 🔥 Powerful Examples
 
 ### Data Processing Pipeline
-```ae
+```ish
 # Load CSV, transform, and analyze
 load_csv("sales.csv") 
   | where fn(r) => r.amount > 1000
@@ -142,7 +142,7 @@ load_csv("sales.csv")
 ```
 
 ### Smart File Management
-```ae
+```ish
 # Find and organize photos using AI
 ls("~/Pictures") 
   | where fn(f) => f.ext in [".jpg", ".png"]
@@ -157,18 +157,18 @@ ls("~/Pictures")
 ### Classic Language Features
 
 **Hello World:**
-```ae
-print("Hello, Aether!")
+```ish
+print("Hello, IronShell!")
 ```
 
 **Structured Pipelines:**
-```ae
+```ish
 [1,2,3,4] | map fn(x) => x*x | reduce fn(a,b) => a+b 0
 # → 30
 ```
 
 **Pattern Matching:**
-```ae
+```ish
 let msg = Some(42)
 match msg {
   None => print("no value"),
@@ -178,7 +178,7 @@ match msg {
 ```
 
 **Typed HTTP:**
-```ae
+```ish
 resp := http_get "https://api.github.com"
 print(resp.status)
 print(resp.headers."content-type")
@@ -193,28 +193,28 @@ print(resp.headers."content-type")
 ```bash
 git clone https://github.com/nervosys/AetherShell
 cd AetherShell
-cargo install --path . --bin ae
+cargo install --path . --bin ish
 ```
 
 Now run:
 
 ```bash
-ae
+ish
 ```
 
-and you’re in the Aether REPL:
+and you’re in the IronShell REPL:
 
 ```text
 Æther REPL — type Ctrl-D to exit
-ae>
+ish>
 ```
 
 ---
 
 ### Hello World
 
-```ae
-print("Hello, Aether!")
+```ish
+print("Hello, IronShell!")
 ```
 
 ---
@@ -223,19 +223,19 @@ print("Hello, Aether!")
 
 Structured values flow through `|`:
 
-```ae
+```ish
 [1,2,3,4] | map fn(x) => x*x | reduce fn(a,b) => a+b 0
 # → 30
 ```
 
 List files and filter by type:
 
-```ae
+```ish
 ls() | where fn(f) => f.ext == ".txt" | each fn(f) => print(f.name)
 ```
 
 **Pattern Matching:**
-```ae
+```ish
 let msg = Some(42)
 match msg {
   None => print("no value"),
@@ -245,7 +245,7 @@ match msg {
 ```
 
 **Typed HTTP:**
-```ae
+```ish
 resp := http_get "https://api.github.com"
 print(resp.status)
 print(resp.headers."content-type")
@@ -295,13 +295,13 @@ print(resp.headers."content-type")
 **Run old scripts seamlessly:**
 
 ```bash
-ae --bash script.sh
+ish --bash script.sh
 ```
 
 **Or pipe Bash from stdin:**
 
 ```bash
-echo 'echo hello | wc -l' | ae -b
+echo 'echo hello | wc -l' | ish -b
 ```
 
 **Transpiler magic - turns this:**
@@ -310,9 +310,9 @@ echo 'echo hello | wc -l' | ae -b
 echo hello | wc -l
 ```
 
-**into Aether:**
+**into IronShell:**
 
-```ae
+```ish
 echo("hello") | sh(["wc","-l"])
 ```
 
@@ -348,7 +348,7 @@ export AI_BACKEND="ollama"  # or "openai" or "custom"
 
 ### 1. **Document Analysis Pipeline**
 ```bash
-ae tui
+ish tui
 # 1. Load PDFs, images, audio recordings in Media tab
 # 2. Select multiple files (Space key)
 # 3. Chat: "Analyze these documents and create a summary report"
@@ -356,7 +356,7 @@ ae tui
 ```
 
 ### 2. **Content Creation Swarm**
-```ae
+```ish
 # Deploy specialized agents for blog creation
 swarm "create tech blog post" [
   "researcher:gather latest AI trends",
@@ -367,7 +367,7 @@ swarm "create tech blog post" [
 ```
 
 ### 3. **Interactive Media Analysis**
-```ae
+```ish
 # Batch process images with AI descriptions
 ls("./photos") 
   | where fn(f) => f.ext in [".jpg", ".png"]
@@ -380,7 +380,7 @@ ls("./photos")
 ```
 
 ### 4. **Voice-Controlled Automation**
-```ae
+```ish
 # Record voice command and execute
 audio_input := record_audio(5) # 5 seconds
 command := audio_input | ai("transcribe and extract shell command")
@@ -431,12 +431,12 @@ print("Result: ${result}")
 ## 📚 Documentation & Examples
 
 ### Example Scripts
-- [`examples/00_hello.ae`](examples/00_hello.ae): Basic syntax introduction
-- [`examples/05_ai.ae`](examples/05_ai.ae): AI integration examples
-- [`examples/06_agent.ae`](examples/06_agent.ae): Agent deployment
-- [`examples/09_tui_basic.ae`](examples/09_tui_basic.ae): TUI usage guide
-- [`examples/10_multimodal.ae`](examples/10_multimodal.ae): Multimodal AI workflows
-- [`examples/11_agent_swarm.ae`](examples/11_agent_swarm.ae): Advanced swarm coordination
+- [`examples/00_hello.ish`](examples/00_hello.ish): Basic syntax introduction
+- [`examples/05_ai.ish`](examples/05_ai.ish): AI integration examples
+- [`examples/06_agent.ish`](examples/06_agent.ish): Agent deployment
+- [`examples/09_tui_basic.ish`](examples/09_tui_basic.ish): TUI usage guide
+- [`examples/10_multimodal.ish`](examples/10_multimodal.ish): Multimodal AI workflows
+- [`examples/11_agent_swarm.ish`](examples/11_agent_swarm.ish): Advanced swarm coordination
 
 ### Learning Resources
 - **Type system**: See `tests/typecheck.rs` for comprehensive examples
@@ -488,4 +488,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Ready to experience the future of shell interaction? Start with `ae tui` and prepare to be amazed! 🚀**
+**Ready to experience the future of shell interaction? Start with `ish tui` and prepare to be amazed! 🚀**

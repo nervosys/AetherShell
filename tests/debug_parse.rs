@@ -1,4 +1,4 @@
-use aethershell::parser::parse_program;
+use iron_shell::parser::parse_program;
 
 #[test]
 fn debug_parse_pipeline() {

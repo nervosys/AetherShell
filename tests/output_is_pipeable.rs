@@ -1,14 +1,14 @@
-//! `ae -c` output must be consumable by another program.
+//! `ish -c` output must be consumable by another program.
 //!
 //! Until 10.0.1 the colour decision was `config.colors.enabled` and nothing
 //! else — it never asked where the output was going. So
 //!
 //! ```text
-//! ae -c '1 + 2' > out
+//! ish -c '1 + 2' > out
 //! ```
 //!
 //! wrote `\x1b[38;2;180;142;173m3\x1b[39m` into the file, and
-//! `n=$(ae -c '1 + 2')` captured escape codes rather than `3`. Every consumer
+//! `n=$(ish -c '1 + 2')` captured escape codes rather than `3`. Every consumer
 //! downstream of the shell — a pipe, a command substitution, a CI assertion,
 //! the project's own Homebrew formula, which asserts `assert_equal "3"` — got
 //! bytes it had to strip before it could use them.
@@ -19,9 +19,9 @@
 
 use std::process::{Command, Stdio};
 
-/// The `ae` binary built alongside this test.
+/// The `ish` binary built alongside this test.
 fn ae() -> std::path::PathBuf {
-    // target/debug/deps/<test>-<hash> -> target/debug/ae
+    // target/debug/deps/<test>-<hash> -> target/debug/ish
     let mut p = std::env::current_exe().expect("test exe path");
     p.pop();
     if p.ends_with("deps") {
@@ -39,7 +39,7 @@ fn run(args: &[&str], env: &[(&str, &str)]) -> (String, String) {
         .env_remove("NO_COLOR")
         .env_remove("FORCE_COLOR")
         .env_remove("CLICOLOR_FORCE")
-        .env_remove("AETHER_MODE");
+        .env_remove("IRONSHELL_MODE");
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -61,7 +61,7 @@ fn assert_no_ansi(what: &str, s: &str) {
 fn values_written_to_a_pipe_carry_no_escape_codes() {
     for expr in ["1 + 2", "[1, 2, 3]", "{a: 1}", "true", "null", "3.5"] {
         let (stdout, _) = run(&["-c", expr], &[]);
-        assert_no_ansi(&format!("`ae -c {expr:?}` stdout"), &stdout);
+        assert_no_ansi(&format!("`ish -c {expr:?}` stdout"), &stdout);
     }
 }
 

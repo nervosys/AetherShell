@@ -1,6 +1,6 @@
 // Tests for error messages with line numbers
 
-use aethershell::parser::parse_program;
+use iron_shell::parser::parse_program;
 
 #[test]
 fn error_includes_line_number() {

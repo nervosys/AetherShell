@@ -31,7 +31,7 @@ function load(name) {
 }
 
 /** A minimal stand-in for `vscode.TextDocument`. */
-function doc(text, { fileName = '/w/test.ae', languageId = 'aethershell' } = {}) {
+function doc(text, { fileName = '/w/test.ish', languageId = 'ironshell' } = {}) {
     const lines = text.split('\n');
     return {
         fileName,

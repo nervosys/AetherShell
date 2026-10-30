@@ -1,32 +1,32 @@
 # Chrome Web Store Submission Guide
 
-This document contains all the information needed to submit the AetherShell browser extension to the Chrome Web Store.
+This document contains all the information needed to submit the IronShell browser extension to the Chrome Web Store.
 
 ## Store Listing Information
 
 ### Basic Info
 
-**Extension Name:** AetherShell - AI Terminal for Browser
+**Extension Name:** IronShell - AI Terminal for Browser
 
 **Summary (132 chars max):**
 AI-powered shell in your browser. Execute typed commands, use AI agents, and process data with functional pipelines.
 
 **Description (16,000 chars max):**
 ```
-AetherShell brings the power of an AI-native typed shell directly to your browser.
+IronShell brings the power of an AI-native typed shell directly to your browser.
 
 ⚡ FEATURES
 
-• Terminal Overlay: Press Ctrl+Shift+A on any webpage to open an AetherShell terminal
+• Terminal Overlay: Press Ctrl+Shift+A on any webpage to open an IronShell terminal
 • Typed Pipelines: Process structured data with map, filter, reduce - no text parsing
 • AI Integration: Query AI models, run autonomous agents, analyze images and text
 • Context Menu: Right-click selected text for AI explanations, summaries, and translations
-• Full WASM Runtime: The complete AetherShell evaluator runs locally in your browser
+• Full WASM Runtime: The complete IronShell evaluator runs locally in your browser
 
 🚀 QUICK START
 
 1. Click the extension icon or press Ctrl+Shift+A
-2. Type AetherShell commands in the terminal
+2. Type IronShell commands in the terminal
 3. Results display with syntax highlighting
 4. Use command history with arrow keys
 
@@ -52,7 +52,7 @@ Right-click any selected text to:
 • AI: Explain Selection
 • AI: Summarize Selection  
 • AI: Translate Selection
-• Evaluate as AetherShell
+• Evaluate as IronShell
 
 ⌨️ KEYBOARD SHORTCUTS
 
@@ -72,7 +72,7 @@ Escape - Close terminal
 
 GitHub: https://github.com/nervosys/AetherShell
 Documentation: https://github.com/nervosys/AetherShell/docs
-Crates.io: https://crates.io/crates/aethershell
+Crates.io: https://crates.io/crates/iron-shell
 
 Built with ❤️ by Nervosys
 ```
@@ -122,16 +122,16 @@ Required: At least 1, recommended: 4-5
 
 ## Privacy Policy
 
-**Required URL:** Host at https://aethershell.io/privacy or GitHub
+**Required URL:** Host at https://ironshell.io/privacy or GitHub
 
 ```markdown
-# AetherShell Browser Extension Privacy Policy
+# IronShell Browser Extension Privacy Policy
 
 Last updated: January 2026
 
 ## Data Collection
 
-The AetherShell browser extension does NOT collect, store, or transmit:
+The IronShell browser extension does NOT collect, store, or transmit:
 - Personal information
 - Browsing history
 - Page content
@@ -139,7 +139,7 @@ The AetherShell browser extension does NOT collect, store, or transmit:
 
 ## Local Processing
 
-All AetherShell code execution occurs locally in your browser using WebAssembly. 
+All IronShell code execution occurs locally in your browser using WebAssembly. 
 No code or data is sent to external servers during normal operation.
 
 ## AI Features

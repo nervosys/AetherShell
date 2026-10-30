@@ -1,28 +1,28 @@
 # Quick Start
 
-Get up and running with AetherShell in 5 minutes.
+Get up and running with IronShell in 5 minutes.
 
 ## Launch the Shell
 
 ```bash
 # Interactive REPL
-ae
+ish
 
 # TUI mode (rich terminal interface)
-ae --tui
+ish --tui
 
 # Execute a file
-ae script.ae
+ish script.ish
 
 # Evaluate an expression
-ae -e '[1,2,3] | map(fn(x) => x * 2)'
+ish -e '[1,2,3] | map(fn(x) => x * 2)'
 ```
 
 ## Basic Syntax
 
 ### Variables
 
-```aethershell
+```ironshell
 # Immutable by default
 let name = "Alice"
 let numbers = [1, 2, 3, 4, 5]
@@ -35,9 +35,9 @@ counter = counter + 1
 
 ### Types
 
-AetherShell has a rich type system:
+IronShell has a rich type system:
 
-```aethershell
+```ironshell
 # Primitives
 let n = 42           # Int
 let f = 3.14         # Float
@@ -55,9 +55,9 @@ let double = fn(x) => x * 2   # Lambda
 
 ### Pipelines
 
-The power of AetherShell is in pipelines:
+The power of IronShell is in pipelines:
 
-```aethershell
+```ironshell
 # Traditional pipeline
 [1, 2, 3, 4, 5]
   | filter(fn(x) => x > 2)
@@ -75,7 +75,7 @@ ls "src"
 
 ### Pattern Matching
 
-```aethershell
+```ironshell
 let describe = fn(x) => match {
     0 => "zero",
     n if n < 0 => "negative",
@@ -91,7 +91,7 @@ describe(-5)  # "negative"
 
 ### Simple Query
 
-```aethershell
+```ironshell
 # Ask the AI a question
 ai("What is the capital of France?")
 
@@ -104,7 +104,7 @@ ai("Explain monads", { model: "claude-3-sonnet" })
 `agent` takes a goal, not a persona, and returns the final answer as a string.
 It is not a callable object: there is no `let a = agent(...)` then `a("...")`.
 
-```aethershell
+```ironshell
 # A goal, with no tools
 agent("Explain what this project builds")
 
@@ -112,17 +112,17 @@ agent("Explain what this project builds")
 agent("Find all TODO comments under src/", ["ls", "grep", "cat"])
 ```
 
-Shell commands are default-deny; export `AGENT_ALLOW_CMDS` before starting `ae`
+Shell commands are default-deny; export `AGENT_ALLOW_CMDS` before starting `ish`
 to permit any. See [Creating Agents](../ai/agents.md).
 
 ### Set Up AI Provider
 
-```aethershell
+```ironshell
 # Set environment variable
 env_set("OPENAI_API_KEY", "sk-...")
 
 # Or use the config
-# ~/.config/aethershell/config.toml
+# ~/.config/ironshell/config.toml
 ```
 
 ## Common Commands
@@ -140,9 +140,9 @@ env_set("OPENAI_API_KEY", "sk-...")
 
 ## Example Script
 
-Save as `example.ae`:
+Save as `example.ish`:
 
-```aethershell
+```ironshell
 # Fetch and process data
 let response = http_get("https://api.github.com/repos/nervosys/AetherShell")
 let repo = json_parse(response.body)
@@ -164,7 +164,7 @@ large_files | each(fn(f) => print("  " + f.name + ": " + string(f.size) + " byte
 Run it:
 
 ```bash
-ae example.ae
+ish example.ish
 ```
 
 ## Next Steps

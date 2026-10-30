@@ -1,0 +1,37 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "IronShell Markdown Code Blocks",
+    "scopeName": "markdown.ironshell.codeblock",
+    "injectionSelector": "L:text.html.markdown",
+    "patterns": [
+        {
+            "include": "#ironshell-fenced-code-block"
+        }
+    ],
+    "repository": {
+        "ironshell-fenced-code-block": {
+            "begin": "(^|\\G)(\\s*)(`{3,})\\s*(?i:(ish|ironshell))\\s*$",
+            "end": "(^|\\G)(\\2)(\\3)\\s*$",
+            "beginCaptures": {
+                "3": {
+                    "name": "punctuation.definition.markdown"
+                },
+                "4": {
+                    "name": "fenced_code.block.language.markdown"
+                }
+            },
+            "endCaptures": {
+                "3": {
+                    "name": "punctuation.definition.markdown"
+                }
+            },
+            "name": "markup.fenced_code.block.markdown",
+            "contentName": "meta.embedded.block.ironshell",
+            "patterns": [
+                {
+                    "include": "source.ironshell"
+                }
+            ]
+        }
+    }
+}

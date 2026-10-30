@@ -1,8 +1,8 @@
-# Migration Guide: Bash / Zsh / PowerShell → AetherShell
+# Migration Guide: Bash / Zsh / PowerShell → IronShell
 
 > **One language, every platform, deterministic typed output.**
 
-This guide helps you migrate scripts and workflows from legacy shells to AetherShell. Every example shows the old way (brittle text parsing) and the new way (typed structured output).
+This guide helps you migrate scripts and workflows from legacy shells to IronShell. Every example shows the old way (brittle text parsing) and the new way (typed structured output).
 
 ---
 
@@ -14,13 +14,13 @@ Traditional shells produce **non-deterministic text output** that varies across:
 - Tool versions (`coreutils` 8.x vs 9.x column widths)
 - Platform (Bash on Linux vs PowerShell on Windows vs Zsh on macOS)
 
-AetherShell eliminates this. Every command returns **typed, structured data** — the same `Value` on every platform.
+IronShell eliminates this. Every command returns **typed, structured data** — the same `Value` on every platform.
 
 ---
 
 ## Quick Reference
 
-| Concept | Bash/Zsh | PowerShell | AetherShell |
+| Concept | Bash/Zsh | PowerShell | IronShell |
 |---------|----------|------------|-------------|
 | Variables | `x=42` | `$x = 42` | `x = 42` |
 | Strings | `"hello $name"` | `"hello $name"` | `"hello ${name}"` |
@@ -44,8 +44,8 @@ AetherShell eliminates this. Every command returns **typed, structured data** �
 cat file.txt
 ```
 
-```ae
-# AetherShell — returns Value::Str, UTF-8 guaranteed
+```ish
+# IronShell — returns Value::Str, UTF-8 guaranteed
 file.read("file.txt")
 ```
 
@@ -56,8 +56,8 @@ file.read("file.txt")
 ls -la
 ```
 
-```ae
-# AetherShell — always returns Array<Record> with typed fields
+```ish
+# IronShell — always returns Array<Record> with typed fields
 ls(".")
 # Pipeline-friendly:
 ls(".") | where(fn(f) => f.size > 1024) | select("name", "size")
@@ -77,8 +77,8 @@ hostname
 $env:COMPUTERNAME
 ```
 
-```ae
-# AetherShell — cross-platform, returns Value::Str
+```ish
+# IronShell — cross-platform, returns Value::Str
 sys.hostname()
 ```
 
@@ -92,8 +92,8 @@ grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2
 (Get-CimInstance Win32_Processor).Name
 ```
 
-```ae
-# AetherShell — returns Record with typed fields on all platforms
+```ish
+# IronShell — returns Record with typed fields on all platforms
 sys.cpu_info()
 # → {brand, cores, frequency, vendor, ...}
 ```
@@ -105,8 +105,8 @@ sys.cpu_info()
 free -b | awk '/Mem:/ {print $3}'
 ```
 
-```ae
-# AetherShell — typed Record, same schema everywhere
+```ish
+# IronShell — typed Record, same schema everywhere
 sys.mem_info()
 # → {total, used, free, available, use_percent}
 ```
@@ -122,8 +122,8 @@ sys.mem_info()
 ps aux | awk '{print $2, $11}'
 ```
 
-```ae
-# AetherShell — Array<Record> with consistent schema
+```ish
+# IronShell — Array<Record> with consistent schema
 proc.list()
 # → [{pid, name, cpu_percent, memory_bytes}, ...]
 proc.list() | where(fn(p) => p.cpu_percent > 10.0) | select("pid", "name")
@@ -140,8 +140,8 @@ proc.list() | where(fn(p) => p.cpu_percent > 10.0) | select("pid", "name")
 curl -s https://api.example.com/data | jq '.items[]'
 ```
 
-```ae
-# AetherShell — built-in, returns typed Value
+```ish
+# IronShell — built-in, returns typed Value
 http.get("https://api.example.com/data")
 ```
 
@@ -158,8 +158,8 @@ echo "Mem: $(free -m | awk '/Mem:/ {printf "%d/%d MB", $3, $2}')"
 echo "Disk: $(df -h / | awk 'NR==2 {print $5}')"
 ```
 
-```ae
-# AetherShell — single command, typed output, cross-platform
+```ish
+# IronShell — single command, typed output, cross-platform
 monitor.health()
 # → {status: "healthy", cpu_percent: 23.5, memory_percent: 64.2,
 #    disk_percent: 45.0, alerts: [], timestamp: "..."}
@@ -172,7 +172,7 @@ monitor.health()
 while true; do top -bn1 | grep Cpu | awk '{print $2}'; sleep 1; done
 ```
 
-```ae
+```ish
 monitor.watch_cpu(80.0, 5)
 # → {threshold: 80.0, samples: 5, average_cpu: 34.2,
 #    breaches: 0, alert: false, readings: [...]}
@@ -192,8 +192,8 @@ curl -s https://api.openai.com/v1/chat/completions \
   | jq '.choices[0].message.content'
 ```
 
-```ae
-# AetherShell — built-in, provider-agnostic
+```ish
+# IronShell — built-in, provider-agnostic
 ai("Hello")
 # Or specify a model:
 ai("openai:gpt-4o-mini", "Hello")
@@ -229,10 +229,10 @@ ai("openai:gpt-4o-mini", "Hello")
 
 ## Getting Help
 
-- **REPL**: Launch `ae` and experiment interactively
+- **REPL**: Launch `ish` and experiment interactively
 - **Examples**: See the `examples/` directory
 - **Spec**: Read the language specification in `docs/specs/SPEC.md`
 
 ---
 
-*AetherShell — one language, every platform, deterministic typed output.*
+*IronShell — one language, every platform, deterministic typed output.*

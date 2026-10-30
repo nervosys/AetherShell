@@ -20,7 +20,7 @@
 //! they reported `E_BAD_ARG`, telling an agent to retry with different
 //! arguments when no arguments would ever work.
 
-use aethershell::safety::ErrorCode;
+use iron_shell::safety::ErrorCode;
 
 /// Every code's exit status and retryability, asserted together so that a
 /// taxonomy that quietly collapsed two variants into one would fail here
@@ -46,7 +46,7 @@ fn the_four_codes_carry_distinct_contracts() {
     // The hint has to name the call that establishes the state, or "retry"
     // means "run the identical thing again", which is exactly the loop the
     // `retryable` flag exists to prevent.
-    let e = aethershell::safety::bad_state("tx_commit", "no active transaction", "tx_begin");
+    let e = iron_shell::safety::bad_state("tx_commit", "no active transaction", "tx_begin");
     let rendered = e.to_string();
     assert!(
         rendered.contains("tx_begin"),
@@ -77,8 +77,8 @@ fn the_four_codes_carry_distinct_contracts() {
 /// advice that fits one is actively wrong for the other.
 #[test]
 fn a_tool_that_ran_is_not_a_tool_that_is_absent() {
-    let missing = aethershell::safety::tool_missing("eza", "eza", "No such file or directory");
-    let failed = aethershell::safety::tool_failed("eza", "eza -la", Some(2), "bad flag");
+    let missing = iron_shell::safety::tool_missing("eza", "eza", "No such file or directory");
+    let failed = iron_shell::safety::tool_failed("eza", "eza -la", Some(2), "bad flag");
 
     assert!(missing.to_string().contains("not installed"));
     assert!(
@@ -100,7 +100,7 @@ fn a_tool_that_ran_is_not_a_tool_that_is_absent() {
 /// silence was the entire diagnosis.
 #[test]
 fn an_empty_stderr_is_stated_not_rendered_as_silence() {
-    let e = aethershell::safety::tool_failed("docker_ps", "docker ps", Some(1), "   ");
+    let e = iron_shell::safety::tool_failed("docker_ps", "docker ps", Some(1), "   ");
     let s = e.to_string();
     assert!(
         s.contains("printed nothing to stderr"),
@@ -112,7 +112,7 @@ fn an_empty_stderr_is_stated_not_rendered_as_silence() {
     );
 
     // And a signal kill is not an exit code.
-    let killed = aethershell::safety::tool_failed("docker_ps", "docker ps", None, "");
+    let killed = iron_shell::safety::tool_failed("docker_ps", "docker ps", None, "");
     assert!(
         killed.to_string().contains("killed by a signal"),
         "None is not exit 0: {killed}"
@@ -128,9 +128,9 @@ fn an_empty_stderr_is_stated_not_rendered_as_silence() {
 #[test]
 fn an_interactive_dialog_refuses_rather_than_blocks() {
     // The only test in this binary that touches the environment.
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
 
-    let e = aethershell::safety::refuse_if_headless("gui_dialog_file_save")
+    let e = iron_shell::safety::refuse_if_headless("gui_dialog_file_save")
         .expect_err("agent mode has no human to dismiss a dialog");
     assert!(
         e.to_string().contains("no UI"),
@@ -139,10 +139,10 @@ fn an_interactive_dialog_refuses_rather_than_blocks() {
 
     // Non-vacuity: it must NOT refuse for a human at a terminal, or this is a
     // test that GUI dialogs are simply disabled.
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     assert!(
-        aethershell::safety::refuse_if_headless("gui_dialog_file_save").is_ok(),
+        iron_shell::safety::refuse_if_headless("gui_dialog_file_save").is_ok(),
         "human mode still has a desktop; the guard is for agent mode only"
     );
 }
@@ -159,7 +159,7 @@ fn an_interactive_dialog_refuses_rather_than_blocks() {
 fn a_process_that_cannot_start_says_which_one_and_why() {
     use std::io::{Error, ErrorKind};
 
-    let absent = aethershell::safety::spawn_error(
+    let absent = iron_shell::safety::spawn_error(
         "env_go",
         "go",
         &Error::new(
@@ -181,7 +181,7 @@ fn a_process_that_cannot_start_says_which_one_and_why() {
     // advice that cannot work for the rest. On Unix the tool must really be on
     // PATH: an EACCES for a name found nowhere is an absent tool (below).
     let present = if cfg!(unix) { "sh" } else { "go" };
-    let unusable = aethershell::safety::spawn_error(
+    let unusable = iron_shell::safety::spawn_error(
         "env_go",
         present,
         &Error::new(ErrorKind::PermissionDenied, "permission denied"),
@@ -204,7 +204,7 @@ fn a_process_that_cannot_start_says_which_one_and_why() {
 #[test]
 fn a_permission_error_for_a_tool_on_no_path_directory_is_tool_missing() {
     use std::io::{Error, ErrorKind};
-    let e = aethershell::safety::spawn_error(
+    let e = iron_shell::safety::spawn_error(
         "env_go",
         "ae-no-such-tool-5c1e",
         &Error::new(ErrorKind::PermissionDenied, "permission denied"),
@@ -237,7 +237,7 @@ fn a_shell_out_that_never_returns_is_given_up_on() {
     cmd.env("LC_ALL", "C");
 
     let began = std::time::Instant::now();
-    let r = aethershell::safety::output_with_timeout(cmd, 1);
+    let r = iron_shell::safety::output_with_timeout(cmd, 1);
     let took = began.elapsed();
 
     match r {
@@ -279,7 +279,7 @@ fn a_bounded_shell_out_still_returns_everything_it_printed() {
         cmd.args(["-c", "yes hello | head -c 500000"]);
     }
 
-    match aethershell::safety::output_with_timeout(cmd, 30) {
+    match iron_shell::safety::output_with_timeout(cmd, 30) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             eprintln!("skipped: no shell binary here");
         }
@@ -302,7 +302,7 @@ fn a_bounded_shell_out_still_returns_everything_it_printed() {
 /// calling `user_lock("alice")` got `false` at exit 0, which is
 /// indistinguishable from "the lock failed" — so it might retry, or route
 /// around, or believe the account was already locked. The truth was that
-/// AetherShell does not implement account locking at all, while the ontology
+/// IronShell does not implement account locking at all, while the ontology
 /// listed it as a callable capability.
 ///
 /// Found by `benches/agentic/silent-success.mjs`, which asks a question the
@@ -328,11 +328,11 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
         // tests/{rename,extract_function}_refactor_contracts.rs.
         // test_watch is implemented, with contracts in tests/test_watch_contracts.rs.
     ] {
-        let mut env = aethershell::env::Env::new();
+        let mut env = iron_shell::env::Env::new();
         // Each remaining placeholder is called with one String; malformed-call
         // rejection is covered by the contract regressions.
-        let args = vec![aethershell::value::Value::Str("anything".to_string())];
-        let r = aethershell::builtins::call_with_input(name, args, None, &mut env);
+        let args = vec![iron_shell::value::Value::Str("anything".to_string())];
+        let r = iron_shell::builtins::call_with_input(name, args, None, &mut env);
         match r {
             Ok(v) => panic!("{name} answered {v:?} instead of saying it is not implemented"),
             Err(e) => {
@@ -390,11 +390,11 @@ fn an_unimplemented_builtin_says_so_rather_than_returning_false() {
 /// listed them.
 #[test]
 fn the_tool_catalogue_is_byte_stable() {
-    use aethershell::value::Value;
+    use iron_shell::value::Value;
 
     let call = || {
-        let mut env = aethershell::env::Env::new();
-        aethershell::builtins::call_with_input("tools", vec![], None, &mut env)
+        let mut env = iron_shell::env::Env::new();
+        iron_shell::builtins::call_with_input("tools", vec![], None, &mut env)
             .expect("tools() should answer")
     };
 

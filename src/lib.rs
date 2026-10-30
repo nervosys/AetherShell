@@ -1,8 +1,8 @@
-//! # AetherShell
+//! # IronShell
 //!
 //! **The shell built for AI agents — one language, every platform, deterministic typed output.**
 //!
-//! AetherShell is a cross-platform shell where every command returns structured, typed data
+//! IronShell is a cross-platform shell where every command returns structured, typed data
 //! instead of raw text. It provides a single language that works identically on Linux, macOS,
 //! and Windows, eliminating the non-deterministic text parsing that makes traditional shell-based
 //! agent workflows brittle.
@@ -23,7 +23,7 @@
 //!
 //! ### Core (always available)
 //! - [`ast`] — Abstract syntax tree definitions
-//! - [`parser`] — AetherShell source → AST
+//! - [`parser`] — IronShell source → AST
 //! - [`value`] — Runtime value system (the typed output contract)
 //! - [`types`] — Type lattice for inference
 //! - [`typecheck`] — Hindley-Milner type inference engine
@@ -36,7 +36,7 @@
 //! - [`ai`] / [`ai_api`] — Multi-provider AI integration
 //! - [`agent`] / [`agent_api`] — Autonomous agent framework and HTTP API
 //! - [`mcp`] — Model Context Protocol; exposes the builtin catalog as a compact
-//!   three-tool discovery surface by default (`AETHER_MCP_TOOLS=all` for the
+//!   three-tool discovery surface by default (`IRONSHELL_MCP_TOOLS=all` for the
 //!   flat per-builtin listing)
 //! - [`metrics`] — Prometheus-compatible metrics, alerting, and monitoring
 //! - [`prompt`] / [`line_editor`] — Prompt styles and fish-style line editing
@@ -100,7 +100,7 @@
 pub mod ast;
 /// Environment — variable bindings, scopes, and module resolution.
 pub mod env;
-/// Parser — transforms AetherShell source text into an AST.
+/// Parser — transforms IronShell source text into an AST.
 pub mod parser;
 /// Type lattice — type definitions used by the inference engine.
 pub mod types;
@@ -186,7 +186,7 @@ pub mod metrics;
 /// IronVault (model store and conversion).
 #[cfg(feature = "native")]
 pub mod model_plane;
-/// `import` / `export` of `.ae` file modules.
+/// `import` / `export` of `.ish` file modules.
 #[cfg(feature = "native")]
 pub mod module_loader;
 /// Module system — maps module.function() syntax to builtin dispatch.
@@ -198,7 +198,7 @@ pub mod neural;
 /// OS tools — platform-specific tool discovery and metadata.
 #[cfg(feature = "native")]
 pub mod os_tools;
-/// Package management — import resolution and aether.toml manifests.
+/// Package management — import resolution and ironshell.toml manifests.
 #[cfg(feature = "native")]
 pub mod packages;
 /// Persistence — session state and data persistence.
@@ -207,7 +207,7 @@ pub mod persistence;
 /// Plugin system — dynamic TOML-based plugin loading.
 #[cfg(feature = "native")]
 pub mod plugins;
-/// A POSIX-shell subset run in-process: what `ae -b` executes before it
+/// A POSIX-shell subset run in-process: what `ish -b` executes before it
 /// falls back to the transpiler.
 #[cfg(feature = "native")]
 pub mod posix;
@@ -253,7 +253,7 @@ pub mod syntax_kb;
 /// TLS — installs IronCrypto's rustls provider before any reqwest or tungstenite TLS use.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod tls;
-/// Transpiler — AetherShell ↔ Bash compatibility layer.
+/// Transpiler — IronShell ↔ Bash compatibility layer.
 #[cfg(feature = "native")]
 pub mod transpile;
 /// Terminal UI — rich TUI with chat, agent dashboard, and media viewer.

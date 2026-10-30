@@ -1,7 +1,7 @@
 //! Tests for MCP Server Detection
 //! Tests the auto-detection of MCP servers and integration with AI backends
 
-use aethershell::ai::{detect_mcp_servers, McpServerInfo};
+use iron_shell::ai::{detect_mcp_servers, McpServerInfo};
 
 // ========== Basic MCP Detection Tests ==========
 
@@ -186,7 +186,7 @@ fn test_mcp_detection_checks_common_ports() {
 
 #[test]
 fn test_mcp_detection_integration_with_ai_backends() {
-    use aethershell::ai::{detect_available_backends, detect_mcp_servers};
+    use iron_shell::ai::{detect_available_backends, detect_mcp_servers};
 
     let ai_backends = detect_available_backends();
     let mcp_servers = detect_mcp_servers();
@@ -203,7 +203,7 @@ fn test_mcp_detection_integration_with_ai_backends() {
 
 #[test]
 fn test_mcp_detection_does_not_block_ai_detection() {
-    use aethershell::ai::{auto_select_backend, detect_mcp_servers};
+    use iron_shell::ai::{auto_select_backend, detect_mcp_servers};
 
     // MCP detection must not interfere with AI backend selection: whatever
     // `auto_select_backend` returns on its own, it must still return after MCP

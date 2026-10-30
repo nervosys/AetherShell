@@ -18,16 +18,16 @@
 >   hash algorithm — three of three call sites, confirmed three independent
 >   ways. That is the hash family.
 > * `crypto.encrypt` derives its key with PBKDF2-HMAC-SHA256 under
->   `AETHER_FIPS` and encrypts with AES-256-GCM in every mode, so that chain is
+>   `IRONSHELL_FIPS` and encrypts with AES-256-GCM in every mode, so that chain is
 >   approved end to end when the mode is set (AS-2026-08).
 >
-> Still **not** gated by `AETHER_FIPS`: DRBGs, and the Argon2id used for
+> Still **not** gated by `IRONSHELL_FIPS`: DRBGs, and the Argon2id used for
 > password storage in `auth.rs`. The cryptography is delegated to the host, so
 > any validated-module boundary is the operating system's.
 
 ## Overview
 
-AetherShell has been evaluated for compliance with both:
+IronShell has been evaluated for compliance with both:
 - **FIPS 140-2** (Federal Information Processing Standard Publication 140-2)
 - **FIPS 140-3** (The updated standard published in 2019, superseding FIPS 140-2)
 
@@ -40,7 +40,7 @@ These standards specify security requirements for cryptographic modules used by 
 
 ## Executive Summary
 
-AetherShell achieves FIPS 140-2/140-3 compliance through:
+IronShell achieves FIPS 140-2/140-3 compliance through:
 - Use of FIPS-approved cryptographic algorithms (both standards)
 - Reliance on FIPS-validated cryptographic libraries
 - Limited cryptographic operations (integrity verification only)
@@ -88,13 +88,13 @@ AetherShell achieves FIPS 140-2/140-3 compliance through:
 
 ## FIPS 140-3 Enhanced Requirements
 
-FIPS 140-3 introduces stricter requirements and aligns with ISO/IEC 19790:2012. AetherShell meets all enhanced requirements:
+FIPS 140-3 introduces stricter requirements and aligns with ISO/IEC 19790:2012. IronShell meets all enhanced requirements:
 
 ### Key Differences from FIPS 140-2
 
-| Requirement Area              | FIPS 140-2             | FIPS 140-3               | AetherShell Status                     |
+| Requirement Area              | FIPS 140-2             | FIPS 140-3               | IronShell Status                     |
 | ----------------------------- | ---------------------- | ------------------------ | -------------------------------------- |
-| **Algorithm Requirements**    | SP 800-131A Transition | SP 800-131A Strict       | ✅ Approved under AETHER_FIPS; see Key Derivation |
+| **Algorithm Requirements**    | SP 800-131A Transition | SP 800-131A Strict       | ✅ Approved under IRONSHELL_FIPS; see Key Derivation |
 | **Minimum Security Strength** | 80 bits                | 112 bits                 | ✅ SHA-256 (256-bit), AES (128/256-bit) |
 | **TLS Versions**              | TLS 1.0+ allowed       | TLS 1.2+ required        | ✅ TLS 1.2/1.3 only                     |
 | **Triple-DES**                | Allowed                | Deprecated               | ✅ Not used                             |
@@ -114,7 +114,7 @@ FIPS 140-3 introduces stricter requirements and aligns with ISO/IEC 19790:2012. 
 #### 2. **Security Functions** (ISO/IEC 19790 Section 7.5)
 - ✅ Cryptographic operations clearly documented
 - ✅ No undocumented security functions
-- ⚠️ Under `AETHER_FIPS` the `crypto.encrypt` chain is fully approved; password storage in `auth.rs` still uses Argon2id in every mode — see "Key Derivation"
+- ⚠️ Under `IRONSHELL_FIPS` the `crypto.encrypt` chain is fully approved; password storage in `auth.rs` still uses Argon2id in every mode — see "Key Derivation"
 - ✅ Integrity verification via approved hash functions
 
 #### 3. **Ports and Interfaces** (ISO/IEC 19790 Section 7.3)
@@ -182,16 +182,16 @@ this document was written.
 
 ### Key Derivation
 - **PBKDF2-HMAC-SHA256**: SP 800-132 approved. **Used by `crypto.encrypt`
-  whenever `AETHER_FIPS` is set**, at 600,000 iterations.
+  whenever `IRONSHELL_FIPS` is set**, at 600,000 iterations.
   - Ciphertext produced this way carries the envelope tag `AE1F`.
   - Decryption reads the KDF from the envelope, never from the ambient mode,
-    so data written under `AETHER_FIPS` stays readable without it and vice
+    so data written under `IRONSHELL_FIPS` stays readable without it and vice
     versa. Turning the mode on does not strand existing ciphertext.
   - The iteration count is fixed in code rather than carried in the envelope.
     The envelope is not authenticated until after key derivation, so a count
     supplied by the ciphertext would let an attacker demand an arbitrarily
     expensive derivation before the tag could reject it.
-- **Argon2id**: **not** FIPS-approved, and the default when `AETHER_FIPS` is
+- **Argon2id**: **not** FIPS-approved, and the default when `IRONSHELL_FIPS` is
   not set. Also used unconditionally for password *storage* in `auth.rs`.
   - Why it is the default: Argon2id is memory-hard and materially better
     against offline password cracking, which is the actual threat to a
@@ -199,7 +199,7 @@ this document was written.
     only where the operator has not asked otherwise.
   - **Password storage in `auth.rs` remains Argon2id in every mode.** If your
     assessment requires an approved KDF there too, that gap is real and is not
-    closed by `AETHER_FIPS`.
+    closed by `IRONSHELL_FIPS`.
 
 ### TLS Cipher Suites (via rustls)
 Supported FIPS-approved cipher suites:
@@ -235,7 +235,7 @@ Additional security features that support but don't require FIPS validation:
 
 ### Enabling FIPS-Only Mode
 
-To run AetherShell in strict FIPS mode, ensure:
+To run IronShell in strict FIPS mode, ensure:
 
 1. **System-Level FIPS Mode** (recommended):
    ```bash
@@ -307,7 +307,7 @@ if calculated_hash != expected_hash {
 
 ## Known Limitations
 
-1. **Security Level 1 Only**: AetherShell targets FIPS 140-2/140-3 Security Level 1 (software-only)
+1. **Security Level 1 Only**: IronShell targets FIPS 140-2/140-3 Security Level 1 (software-only)
 2. **No Hardware Security Module**: Does not utilize HSM or TPM for key storage
 3. **Limited Cryptographic Scope**: Only uses cryptography for integrity checks and TLS transport
 4. **No Key Management**: No key generation, storage, or derivation operations
@@ -324,7 +324,7 @@ if calculated_hash != expected_hash {
 | Module Validation      | Pending    | Pending       | ⚠️ Relies on validated libraries          |
 | ISO/IEC 19790          | N/A        | Required      | ✅ Compliant with requirements            |
 
-**Note**: AetherShell itself is not independently FIPS 140-2 or FIPS 140-3 validated but achieves compliance through:
+**Note**: IronShell itself is not independently FIPS 140-2 or FIPS 140-3 validated but achieves compliance through:
 - Exclusive use of FIPS-validated cryptographic libraries
 - Use of FIPS-approved algorithms only
 - Adherence to FIPS 140-3 enhanced requirements
@@ -345,7 +345,7 @@ if calculated_hash != expected_hash {
 If independent FIPS 140-2 or FIPS 140-3 validation is required:
 
 **FIPS 140-2 Path** (legacy, no new validations after 2024):
-1. Submit AetherShell to NIST Cryptographic Module Validation Program (CMVP)
+1. Submit IronShell to NIST Cryptographic Module Validation Program (CMVP)
 2. Complete formal security policy documentation
 3. Undergo independent laboratory testing
 4. Maintain compliance through change management procedures
@@ -359,7 +359,7 @@ If independent FIPS 140-2 or FIPS 140-3 validation is required:
 
 ## Compliance Statement
 
-**AetherShell achieves FIPS 140-2 and FIPS 140-3 compliance at Security Level 1** through:
+**IronShell achieves FIPS 140-2 and FIPS 140-3 compliance at Security Level 1** through:
 
 ✅ Exclusive use of FIPS-approved cryptographic algorithms (both standards)  
 ✅ Reliance on FIPS-validated cryptographic libraries  

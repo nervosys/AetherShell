@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 
 /**
- * AetherShell Document Symbol Provider
+ * IronShell Document Symbol Provider
  * Provides outline view with functions, variables, and structures
  */
-export class AetherShellSymbolProvider implements vscode.DocumentSymbolProvider {
+export class IronShellSymbolProvider implements vscode.DocumentSymbolProvider {
     provideDocumentSymbols(
         document: vscode.TextDocument,
         _token: vscode.CancellationToken
@@ -135,10 +135,10 @@ export class AetherShellSymbolProvider implements vscode.DocumentSymbolProvider 
 }
 
 /**
- * AetherShell Folding Range Provider
+ * IronShell Folding Range Provider
  * Provides code folding for blocks, arrays, records, and comments
  */
-export class AetherShellFoldingProvider implements vscode.FoldingRangeProvider {
+export class IronShellFoldingProvider implements vscode.FoldingRangeProvider {
     provideFoldingRanges(
         document: vscode.TextDocument,
         _context: vscode.FoldingContext,
@@ -236,10 +236,10 @@ export class AetherShellFoldingProvider implements vscode.FoldingRangeProvider {
 }
 
 /**
- * AetherShell Hover Provider
+ * IronShell Hover Provider
  * Provides hover documentation for builtins and keywords
  */
-export class AetherShellHoverProvider implements vscode.HoverProvider {
+export class IronShellHoverProvider implements vscode.HoverProvider {
     private readonly builtinDocs: Map<string, { signature: string; description: string; example?: string }>;
 
     constructor() {
@@ -336,21 +336,21 @@ export class AetherShellHoverProvider implements vscode.HoverProvider {
         const builtin = this.builtinDocs.get(word);
         if (builtin) {
             const md = new vscode.MarkdownString();
-            md.appendCodeblock(builtin.signature, 'aethershell');
+            md.appendCodeblock(builtin.signature, 'ironshell');
             md.appendMarkdown(`\n\n${builtin.description}`);
             if (builtin.example) {
                 md.appendMarkdown(`\n\n**Example:**`);
-                md.appendCodeblock(builtin.example, 'aethershell');
+                md.appendCodeblock(builtin.example, 'ironshell');
             }
             return new vscode.Hover(md, range);
         }
 
         // Check keywords
         const keywords: Record<string, string> = {
-            'let': 'Declare a variable binding.\n\n```aethershell\nlet name = value\n```',
-            'fn': 'Lambda (anonymous function) expression.\n\n```aethershell\nfn(x, y) => x + y\n```',
-            'match': 'Pattern matching expression.\n\n```aethershell\nmatch value {\n  pattern => result,\n  _ => default\n}\n```',
-            'if': 'Conditional expression.\n\n```aethershell\nif condition { then_value } else { else_value }\n```',
+            'let': 'Declare a variable binding.\n\n```ironshell\nlet name = value\n```',
+            'fn': 'Lambda (anonymous function) expression.\n\n```ironshell\nfn(x, y) => x + y\n```',
+            'match': 'Pattern matching expression.\n\n```ironshell\nmatch value {\n  pattern => result,\n  _ => default\n}\n```',
+            'if': 'Conditional expression.\n\n```ironshell\nif condition { then_value } else { else_value }\n```',
             'true': 'Boolean true literal.',
             'false': 'Boolean false literal.',
             'null': 'Null value literal.',
@@ -358,7 +358,7 @@ export class AetherShellHoverProvider implements vscode.HoverProvider {
 
         if (keywords[word]) {
             const md = new vscode.MarkdownString();
-            md.appendMarkdown(`**${word}** — AetherShell keyword\n\n${keywords[word]}`);
+            md.appendMarkdown(`**${word}** — IronShell keyword\n\n${keywords[word]}`);
             return new vscode.Hover(md, range);
         }
 
@@ -367,16 +367,16 @@ export class AetherShellHoverProvider implements vscode.HoverProvider {
 }
 
 /**
- * Register all AetherShell language providers
+ * Register all IronShell language providers
  */
 export function registerProviders(context: vscode.ExtensionContext): void {
-    const selector: vscode.DocumentSelector = { language: 'aethershell', scheme: '*' };
+    const selector: vscode.DocumentSelector = { language: 'ironshell', scheme: '*' };
 
     // Register symbol provider for outline view
     context.subscriptions.push(
         vscode.languages.registerDocumentSymbolProvider(
             selector,
-            new AetherShellSymbolProvider()
+            new IronShellSymbolProvider()
         )
     );
 
@@ -384,7 +384,7 @@ export function registerProviders(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.languages.registerFoldingRangeProvider(
             selector,
-            new AetherShellFoldingProvider()
+            new IronShellFoldingProvider()
         )
     );
 
@@ -392,7 +392,7 @@ export function registerProviders(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.languages.registerHoverProvider(
             selector,
-            new AetherShellHoverProvider()
+            new IronShellHoverProvider()
         )
     );
 }

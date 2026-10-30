@@ -1,6 +1,6 @@
 # Cryptographic Posture & FIPS 140-3 Path
 
-Status of cryptography in AetherShell and the path to FIPS-validated deployments.
+Status of cryptography in IronShell and the path to FIPS-validated deployments.
 Companion to the security audit (CVE / NIST FIPS / MITRE ATT&CK / CMMC 2.0).
 
 ## Algorithm inventory
@@ -29,9 +29,9 @@ Companion to the security audit (CVE / NIST FIPS / MITRE ATT&CK / CMMC 2.0).
 - **0 dependency CVEs** (`cargo audit`) after patch bumps; the TLS stack
   (`rustls-webpki`) cert-path-validation flaws are remediated.
 
-## Implemented: app-layer FIPS-strict mode (`AETHER_FIPS`)
+## Implemented: app-layer FIPS-strict mode (`IRONSHELL_FIPS`)
 
-Set **`AETHER_FIPS=1`** (or `on`/`true`) to enforce *approved-algorithms-only* at the
+Set **`IRONSHELL_FIPS=1`** (or `on`/`true`) to enforce *approved-algorithms-only* at the
 application layer (`safety::fips_enabled` / `safety::require_fips_hash`):
 
 - The hash builtins (`crypto_hash`, `crypto_hash_file`, `crypto_checksum`, and the
@@ -47,7 +47,7 @@ requires the build below.
 
 ## FIPS 140-3 status — NOT validated (algorithms approved, modules not)
 
-AetherShell uses FIPS-**approved algorithms** (SHA-2 family) but **not
+IronShell uses FIPS-**approved algorithms** (SHA-2 family) but **not
 FIPS-140-validated cryptographic modules**. The RustCrypto (`sha2`), `ring`, and
 `rand` implementations are not FIPS-validated. SHA-1 and MD5 remain available as
 *user-selectable* options in the general file-hash builtin (parity with
@@ -66,7 +66,7 @@ default (it requires a FIPS-validated C toolchain and changes CI):
    ideally behind a `fips` cargo feature.
 2. **DRBG:** ensure randomness flows from the validated module's DRBG for any
    security-relevant key/nonce generation.
-3. **Disallow legacy algorithms:** ✅ available now via `AETHER_FIPS=1` (rejects
+3. **Disallow legacy algorithms:** ✅ available now via `IRONSHELL_FIPS=1` (rejects
    MD5/SHA-1 and fails closed on legacy MD5 digests). Set it for regulated runs.
 4. **Document the validation boundary** and the module certificate in the
    deployment's System Security Plan (SSP).

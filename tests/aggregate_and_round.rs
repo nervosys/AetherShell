@@ -20,9 +20,9 @@
 //! The binary forms are unchanged and are asserted here too, because widening
 //! an overload is the kind of fix that quietly breaks the narrow case.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 fn f(name: &str, args: Vec<Value>) -> Value {
     let mut env = Env::new();
@@ -151,9 +151,9 @@ fn non_vacuity_these_names_reach_the_implementations_under_test() {
     // If `call` silently routed elsewhere, or if a helper returned the input
     // unchanged, every assertion above could hold for the wrong reason.
     assert!(
-        aethershell::builtins::is_dispatched("round")
-            && aethershell::builtins::is_dispatched("max")
-            && aethershell::builtins::is_dispatched("min"),
+        iron_shell::builtins::is_dispatched("round")
+            && iron_shell::builtins::is_dispatched("max")
+            && iron_shell::builtins::is_dispatched("min"),
         "one of round/max/min is not dispatched; the tests above prove nothing"
     );
 

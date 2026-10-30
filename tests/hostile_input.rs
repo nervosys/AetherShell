@@ -9,7 +9,7 @@
 //! overflowed the native stack and killed the process —
 //!
 //! ```text
-//! thread 'aether-eval' has overflowed its stack
+//! thread 'ironshell-eval' has overflowed its stack
 //! ```
 //!
 //! — as did nested arrays, nested records, long prefix-operator runs, and
@@ -73,7 +73,7 @@ fn feed(source: &str) -> Outcome {
             .unwrap_or(0)
     ));
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let path = dir.join("input.ae");
+    let path = dir.join("input.ish");
     std::fs::write(&path, source).expect("write input");
 
     // Output goes to files, not pipes.

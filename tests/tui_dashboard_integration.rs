@@ -1,6 +1,6 @@
 // Integration test to verify dashboard UI components render correctly
 
-use aethershell::tui::app::{App, AppMode, MessageRole};
+use iron_shell::tui::app::{App, AppMode, MessageRole};
 
 #[test]
 fn test_dashboard_integration_with_app() {
@@ -87,7 +87,7 @@ fn test_dashboard_export_integration() {
 
     // Test markdown export
     let markdown = app.export_to_markdown();
-    assert!(markdown.contains("# AetherShell Conversation Export"));
+    assert!(markdown.contains("# IronShell Conversation Export"));
     assert!(markdown.contains("**Total Messages:** 2"));
     assert!(markdown.contains("Hello"));
     assert!(markdown.contains("Hi there"));
@@ -107,7 +107,7 @@ fn test_dashboard_search_integration() {
     app.add_message(MessageRole::User, "How do I use pipelines?".to_string());
     app.add_message(
         MessageRole::Assistant,
-        "Pipelines in AetherShell use the | operator".to_string(),
+        "Pipelines in IronShell use the | operator".to_string(),
     );
     app.add_message(MessageRole::User, "What about functions?".to_string());
 

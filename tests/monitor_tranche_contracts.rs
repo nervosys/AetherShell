@@ -1,21 +1,21 @@
 //! Contracts for the monitor_* builtins.
 //!
 //! Nothing here starts a program: the snapshot builtins read through sysinfo.
-//! The alert store is redirected with AETHER_DATA_HOME to a temporary
+//! The alert store is redirected with IRONSHELL_DATA_HOME to a temporary
 //! directory, so the real store is never written, and the store file is read
 //! back with serde_json rather than through the builtins that wrote it.
 //!
 //! Refusals are decided before the alert store or the machine is read, so the
 //! refusal table runs anywhere.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// The alert store tests share one AETHER_DATA_HOME, so they run one at a time.
+/// The alert store tests share one IRONSHELL_DATA_HOME, so they run one at a time.
 static STORE: Mutex<()> = Mutex::new(());
 
 fn s(text: &str) -> Value {
@@ -80,7 +80,7 @@ impl StoreDir {
         let dir =
             std::env::temp_dir().join(format!("ae-monitor-{tag}-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create the temporary data directory");
-        std::env::set_var("AETHER_DATA_HOME", &dir);
+        std::env::set_var("IRONSHELL_DATA_HOME", &dir);
         StoreDir(dir)
     }
 
@@ -91,7 +91,7 @@ impl StoreDir {
 
 impl Drop for StoreDir {
     fn drop(&mut self) {
-        std::env::remove_var("AETHER_DATA_HOME");
+        std::env::remove_var("IRONSHELL_DATA_HOME");
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
@@ -294,7 +294,7 @@ fn alert_round_trip_in_a_temporary_store() {
     assert!(matches!(field(&second, "severity"), Value::Str(c) if c == "warning"));
 
     // The file the builtins wrote, read back independently.
-    assert!(file.exists(), "the store is under AETHER_DATA_HOME");
+    assert!(file.exists(), "the store is under IRONSHELL_DATA_HOME");
     let doc = read_store(&file);
     let rules = doc["rules"].as_array().expect("rules array");
     assert_eq!(rules.len(), 2);

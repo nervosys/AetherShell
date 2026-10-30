@@ -15,24 +15,24 @@
 //!    accounts with the same password produced byte-identical entries and one
 //!    crack broke both.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
-/// `AETHER_MODE` and the acting principal are process-global; these tests set
+/// `IRONSHELL_MODE` and the acting principal are process-global; these tests set
 /// both, so they take turns.
 static ENV: Mutex<()> = Mutex::new(());
 
 fn call(name: &str, args: &[&str]) -> Result<Value, String> {
     let mut env = Env::new();
     let args = args.iter().map(|a| Value::Str(a.to_string())).collect();
-    aethershell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
+    iron_shell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
 }
 
 fn human() {
-    std::env::set_var("AETHER_MODE", "human");
-    std::env::remove_var("AETHER_POLICY");
-    aethershell::safety::set_principal(None);
+    std::env::set_var("IRONSHELL_MODE", "human");
+    std::env::remove_var("IRONSHELL_POLICY");
+    iron_shell::safety::set_principal(None);
 }
 
 fn field(v: &Value, key: &str) -> String {
@@ -54,7 +54,7 @@ fn a_registered_user_can_log_in_and_becomes_the_principal() {
     let uid = field(&reg, "user_id");
 
     assert_eq!(
-        aethershell::safety::current_principal(),
+        iron_shell::safety::current_principal(),
         None,
         "registering is not logging in"
     );
@@ -65,7 +65,7 @@ fn a_registered_user_can_log_in_and_becomes_the_principal() {
     assert_eq!(field(&session, "user_id"), uid);
     assert!(!field(&session, "session").is_empty());
     assert_eq!(
-        aethershell::safety::current_principal(),
+        iron_shell::safety::current_principal(),
         Some(uid),
         "a successful login must set the acting principal"
     );
@@ -78,7 +78,7 @@ fn a_wrong_password_is_refused_and_leaves_the_caller_anonymous() {
     let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
     human();
     call("rbac_register", &["grace", "hopper-1906"]).expect("registration should succeed");
-    aethershell::safety::set_principal(None);
+    iron_shell::safety::set_principal(None);
 
     let err = call("rbac_login", &["grace", "hopper-1907"])
         .expect_err("the wrong password must not authenticate");
@@ -91,7 +91,7 @@ fn a_wrong_password_is_refused_and_leaves_the_caller_anonymous() {
         "the refusal names which half was wrong: {err}"
     );
     assert_eq!(
-        aethershell::safety::current_principal(),
+        iron_shell::safety::current_principal(),
         None,
         "a failed login must not set a principal"
     );
@@ -115,7 +115,7 @@ fn logging_out_drops_the_principal_and_the_session() {
     ));
 
     assert_eq!(call("rbac_logout", &[]).unwrap(), Value::Bool(true));
-    assert_eq!(aethershell::safety::current_principal(), None);
+    assert_eq!(iron_shell::safety::current_principal(), None);
     assert_eq!(call("rbac_session", &[]).unwrap(), Value::Null);
     // A second logout is honest about having done nothing.
     assert_eq!(call("rbac_logout", &[]).unwrap(), Value::Bool(false));
@@ -126,7 +126,7 @@ fn passwords_are_salted_so_equal_passwords_do_not_collide() {
     // The regression this replaces: `hash_key` is unsalted SHA-256, so the two
     // stored entries below were byte-identical and a single rainbow-table hit
     // opened both accounts.
-    use aethershell::auth::{hash_password, verify_password};
+    use iron_shell::auth::{hash_password, verify_password};
     let a = hash_password("same password").unwrap();
     let b = hash_password("same password").unwrap();
     assert_ne!(a, b, "two hashes of one password are identical -- unsalted");
@@ -143,13 +143,13 @@ fn passwords_are_salted_so_equal_passwords_do_not_collide() {
 fn an_agent_cannot_log_itself_in() {
     // Logging in is how authority is acquired. `Privileged` is `Deny` in agent
     // mode, so an agent's principal comes from whoever launched it
-    // (`AETHER_PRINCIPAL` or the RBAC config), not from itself.
+    // (`IRONSHELL_PRINCIPAL` or the RBAC config), not from itself.
     let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
     human();
     call("rbac_register", &["agent_target", "s3cret-passphrase"]).unwrap();
-    aethershell::safety::set_principal(None);
+    iron_shell::safety::set_principal(None);
 
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     for (name, args) in [
         ("rbac_login", &["agent_target", "s3cret-passphrase"][..]),
         ("rbac_register", &["another", "s3cret-passphrase"][..]),
@@ -163,11 +163,11 @@ fn an_agent_cannot_log_itself_in() {
         }
     }
     assert_eq!(
-        aethershell::safety::current_principal(),
+        iron_shell::safety::current_principal(),
         None,
         "the denied login must not have set a principal"
     );
-    std::env::set_var("AETHER_MODE", "human");
+    std::env::set_var("IRONSHELL_MODE", "human");
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn an_unknown_username_costs_the_same_as_a_wrong_password() {
     let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
     human();
     call("rbac_register", &["timed", "a-real-password"]).unwrap();
-    aethershell::safety::set_principal(None);
+    iron_shell::safety::set_principal(None);
 
     let bench = |user: &str| {
         let t = std::time::Instant::now();

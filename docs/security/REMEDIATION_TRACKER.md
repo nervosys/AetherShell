@@ -47,7 +47,7 @@
 > | HIGH-5 | mitigated, not implemented | no rate limiter, but every route needs a 256-bit bearer token, so there is nothing to brute-force cheaply |
 > | MED-1 | done | hash-chained tamper-evident audit log + `verify_audit` |
 > | MED-2 | mitigated by the framework | axum 0.7 default 2 MB body cap — **measured**: an 8 MB body returns 413 |
-> | MED-3 | **addressed, not by TLS** | a non-loopback bind is now *refused* unless `AETHER_ALLOW_REMOTE_BIND=true`. TLS would protect the token in transit but not the decision to expose a builtin-executing endpoint, which is the part worth a deliberate act; the refusal points at an SSH tunnel or a TLS-terminating proxy |
+> | MED-3 | **addressed, not by TLS** | a non-loopback bind is now *refused* unless `IRONSHELL_ALLOW_REMOTE_BIND=true`. TLS would protect the token in transit but not the decision to expose a builtin-executing endpoint, which is the part worth a deliberate act; the refusal points at an SSH tunnel or a TLS-terminating proxy |
 > | MED-4 | **was live — fixed** | MCP HTTP server executed builtins unauthenticated; cross-origin file read demonstrated |
 > | MED-5 | **done** | `nosniff`, `X-Frame-Options: DENY`, `default-src 'none'; frame-ancestors 'none'`, `no-referrer`, `no-store` on both servers — verified on a live response |
 > | MED-6 | done | gitleaks runs; non-blocking pending a git-history triage, stated in the workflow |

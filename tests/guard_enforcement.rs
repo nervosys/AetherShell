@@ -6,11 +6,11 @@
 //! called a guard. This file asserts the control is now wired, and keeps the
 //! self-guarding list honest against the source.
 
-use aethershell::safety::{self, Effect};
-use aethershell::value::Value;
+use iron_shell::safety::{self, Effect};
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
-/// `AETHER_MODE` is process-global, and these tests switch it.
+/// `IRONSHELL_MODE` is process-global, and these tests switch it.
 static LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
@@ -147,10 +147,10 @@ fn a_builtin_that_runs_its_own_approval_flow_is_not_double_gated() {
         "apply enforces its own policy and must be skipped centrally"
     );
 
-    std::env::set_var("AETHER_MODE", "agent");
-    let mut env = aethershell::env::Env::new();
-    let result = aethershell::builtins::call("apply", vec![Value::Array(vec![])], &mut env);
-    std::env::remove_var("AETHER_MODE");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    let mut env = iron_shell::env::Env::new();
+    let result = iron_shell::builtins::call("apply", vec![Value::Array(vec![])], &mut env);
+    std::env::remove_var("IRONSHELL_MODE");
 
     // It must reach apply's own logic rather than being refused by the
     // dispatcher — whatever apply then decides about an empty plan.
@@ -182,9 +182,9 @@ fn a_destructive_builtin_is_now_stopped_in_agent_mode() {
     let _g = lock();
     assert_eq!(safety::effect_of("git_clean"), Effect::Destructive);
 
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let denied = safety::guard_dispatch("git_clean", &[]);
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     let err = denied.expect_err("a destructive builtin must not run unguarded in agent mode");
     assert_eq!(err.code, safety::ErrorCode::NeedsApproval);
@@ -198,8 +198,8 @@ fn a_destructive_builtin_is_now_stopped_in_agent_mode() {
 fn the_human_surface_is_unchanged() {
     // The dual-surface split: a human at a REPL is not gated by any of this.
     let _g = lock();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     assert!(
         safety::guard_dispatch("git_clean", &[]).is_ok(),
         "human mode stays default-allow"
@@ -211,12 +211,12 @@ fn read_only_builtins_are_not_gated_even_in_agent_mode() {
     // Enforcement must not tax exploration. 140 of the 306 are read-only
     // wrappers an agent leans on constantly; gating them would buy nothing.
     let _g = lock();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let results: Vec<_> = ["git_status", "pkg_list", "platform_cpu", "hw_gpu"]
         .iter()
         .map(|n| (*n, safety::guard_dispatch(n, &[]).is_ok()))
         .collect();
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
     for (name, ok) in results {
         assert!(ok, "{name} is read-only and must stay ungated");
     }
@@ -227,9 +227,9 @@ fn a_self_guarding_builtin_is_not_guarded_twice() {
     // `rm` guards itself with real targets and a real blast radius. The
     // dispatcher must defer to that rather than admit the same action again.
     let _g = lock();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let skipped = safety::guard_dispatch("rm", &[Value::Str("/tmp/x".into())]).is_ok();
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
     assert!(
         skipped,
         "a self-guarding builtin must be skipped centrally; its own call site guards it"
@@ -241,7 +241,7 @@ fn an_approval_token_lets_the_call_through() {
     // A gate with no key is a denial. The approval path must actually work,
     // end to end, or the friction has no release valve.
     let _g = lock();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let err =
         safety::guard_dispatch("git_clean", &[]).expect_err("expected an approval requirement");
     let token = err.approval.as_ref().expect("descriptor").token.clone();
@@ -249,7 +249,7 @@ fn an_approval_token_lets_the_call_through() {
     safety::grant_approval(&token);
     let allowed = safety::guard_dispatch("git_clean", &[]);
     safety::revoke_approval(&token);
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     assert!(
         allowed.is_ok(),
@@ -262,10 +262,10 @@ fn enforcement_reaches_the_dispatcher_not_just_the_helper() {
     // Guarding in `guard_dispatch` proves nothing if the dispatcher never calls
     // it. Go through the real entry point.
     let _g = lock();
-    std::env::set_var("AETHER_MODE", "agent");
-    let mut env = aethershell::env::Env::new();
-    let result = aethershell::builtins::call("git_clean", vec![Value::Bool(false)], &mut env);
-    std::env::remove_var("AETHER_MODE");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    let mut env = iron_shell::env::Env::new();
+    let result = iron_shell::builtins::call("git_clean", vec![Value::Bool(false)], &mut env);
+    std::env::remove_var("IRONSHELL_MODE");
 
     let err = result.expect_err("the dispatcher must enforce, not merely offer enforcement");
     let text = err.to_string();
@@ -285,14 +285,14 @@ fn the_central_jail_catches_a_path_that_really_is_outside_the_workspace() {
     let workspace = std::env::temp_dir().join(format!("ae_jail_ws_{}", std::process::id()));
     std::fs::create_dir_all(&workspace).expect("ws");
 
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
     let result = safety::guard_dispatch(
         "git_clean",
         &[Value::Str(outside.to_string_lossy().into_owned())],
     );
-    std::env::remove_var("AETHER_WORKSPACE");
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
+    std::env::remove_var("IRONSHELL_MODE");
     let _ = std::fs::remove_file(&outside);
     let _ = std::fs::remove_dir_all(&workspace);
 
@@ -310,8 +310,8 @@ fn a_non_path_argument_is_never_mistaken_for_one() {
     let workspace = std::env::temp_dir().join(format!("ae_jail_ws2_{}", std::process::id()));
     std::fs::create_dir_all(&workspace).expect("ws");
 
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
     // Approve so the only thing that can fail is the jail.
     let probe = safety::guard_dispatch("podman_stop", &[Value::Str("my-container".into())]);
     let token = probe
@@ -328,8 +328,8 @@ fn a_non_path_argument_is_never_mistaken_for_one() {
         }
         None => probe,
     };
-    std::env::remove_var("AETHER_WORKSPACE");
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
+    std::env::remove_var("IRONSHELL_MODE");
     let _ = std::fs::remove_dir_all(&workspace);
 
     match after {
@@ -368,10 +368,10 @@ fn approving_one_call_does_not_authorise_a_different_one() {
     // Approving the harmless preview silently authorised the destructive call,
     // the exact inverse of what content-binding exists to guarantee.
     let _g = lock();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let dry = safety::guard_dispatch("git_clean", &[Value::Bool(true)]);
     let destructive = safety::guard_dispatch("git_clean", &[Value::Bool(false)]);
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     let dry_token = dry
         .expect_err("dry run is still Destructive and needs approval")
@@ -394,7 +394,7 @@ fn approving_one_call_does_not_authorise_a_different_one() {
 fn a_granted_token_authorises_only_the_call_it_was_issued_for() {
     // The other half: holding a token must not become a general permit.
     let _g = lock();
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let token = safety::guard_dispatch("git_clean", &[Value::Bool(true)])
         .expect_err("needs approval")
         .approval
@@ -405,7 +405,7 @@ fn a_granted_token_authorises_only_the_call_it_was_issued_for() {
     let same = safety::guard_dispatch("git_clean", &[Value::Bool(true)]);
     let other = safety::guard_dispatch("git_clean", &[Value::Bool(false)]);
     safety::revoke_approval(&token);
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
 
     assert!(same.is_ok(), "the approved call must proceed: {same:?}");
     assert!(

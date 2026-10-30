@@ -846,24 +846,24 @@ impl LocalProvider {
 
         // XDG data directories
         if let Ok(data_home) = std::env::var("XDG_DATA_HOME") {
-            model_dirs.push(std::path::PathBuf::from(&data_home).join("aethershell/models"));
+            model_dirs.push(std::path::PathBuf::from(&data_home).join("ironshell/models"));
         }
-        // Default: ~/.local/share/aethershell/models (Unix) or %APPDATA%/aethershell/models (Windows)
+        // Default: ~/.local/share/ironshell/models (Unix) or %APPDATA%/ironshell/models (Windows)
         if let Some(home) = dirs_next_home() {
             #[cfg(not(target_os = "windows"))]
-            model_dirs.push(home.join(".local/share/aethershell/models"));
+            model_dirs.push(home.join(".local/share/ironshell/models"));
             #[cfg(target_os = "windows")]
             {
                 if let Ok(appdata) = std::env::var("APPDATA") {
-                    model_dirs.push(std::path::PathBuf::from(appdata).join("aethershell\\models"));
+                    model_dirs.push(std::path::PathBuf::from(appdata).join("ironshell\\models"));
                 }
             }
             model_dirs.push(home.join(".cache/lm-studio/models"));
             model_dirs.push(home.join(".ollama/models"));
         }
 
-        // Also support AETHER_MODEL_DIR env var
-        if let Ok(dir) = std::env::var("AETHER_MODEL_DIR") {
+        // Also support IRONSHELL_MODEL_DIR env var
+        if let Ok(dir) = std::env::var("IRONSHELL_MODEL_DIR") {
             model_dirs.push(std::path::PathBuf::from(dir));
         }
 

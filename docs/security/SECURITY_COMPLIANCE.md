@@ -1,8 +1,8 @@
-# AetherShell Security Compliance Configuration
+# IronShell Security Compliance Configuration
 
 ## Security Hardening Checklist
 
-This document outlines the comprehensive security measures implemented in AetherShell to ensure full compliance with industry security standards.
+This document outlines the comprehensive security measures implemented in IronShell to ensure full compliance with industry security standards.
 
 ## ✅ Critical Security Controls
 
@@ -33,7 +33,7 @@ This document outlines the comprehensive security measures implemented in Aether
   all FFI: dynamic plugin loading via `libloading` (`src/plugins.rs`) and
   `libc::geteuid` for privilege checks (`src/builtins.rs`, `src/os_tools.rs`,
   `src/agent.rs`, `src/external_tools.rs`). Loading a plugin executes
-  third-party code in-process and is gated by `AETHER_PLUGIN_ALLOW`.
+  third-party code in-process and is gated by `IRONSHELL_PLUGIN_ALLOW`.
 - [ ] **Panics are not eliminated.** The source contains roughly 494
   `.unwrap()` calls, 20 `.expect()` and 21 `panic!`. A panic aborts the shell;
   it does not corrupt memory or bypass a gate, but it is a denial-of-service
@@ -132,37 +132,37 @@ pub fn validate_ai_prompt(prompt: &str) -> Result<String> {
 ### Production Security Settings
 
 Every variable below is read by the shell. (An earlier revision of this
-document listed seven variables — `AETHER_SECURITY_LEVEL`,
-`AETHER_AUDIT_LOGGING`, `AETHER_RATE_LIMIT_*`, `AETHER_COMMAND_WHITELIST`,
-`AETHER_MAX_PROMPT_LENGTH`, `AETHER_SESSION_TIMEOUT` — that the source never
+document listed seven variables — `IRONSHELL_SECURITY_LEVEL`,
+`IRONSHELL_AUDIT_LOGGING`, `IRONSHELL_RATE_LIMIT_*`, `IRONSHELL_COMMAND_WHITELIST`,
+`IRONSHELL_MAX_PROMPT_LENGTH`, `IRONSHELL_SESSION_TIMEOUT` — that the source never
 read. Exporting them hardened nothing.)
 
 ```bash
 # Run under the agent policy: destructive, process, exec and privileged
 # operations require approval instead of running silently.
-export AETHER_MODE=agent
-export AETHER_WORKSPACE=/srv/work        # the jail; writes outside it are refused
+export IRONSHELL_MODE=agent
+export IRONSHELL_WORKSPACE=/srv/work        # the jail; writes outside it are refused
 
 # Audit log. Give each process its own file, or point several at one
 # append-only sink -- a shared plain log interleaves independent hash chains.
-export AETHER_AUDIT_LOG=/var/log/aether/$HOSTNAME.$$.log
-export AETHER_AUDIT_SINK=/var/log/aether/sink.log
-export AETHER_AUDIT_REQUIRED=1           # refuse to run if the log cannot be written
-export AETHER_AUDIT_KEY_FILE=/etc/aether/audit.key   # keyed HMAC chain
+export IRONSHELL_AUDIT_LOG=/var/log/ironshell/$HOSTNAME.$$.log
+export IRONSHELL_AUDIT_SINK=/var/log/ironshell/sink.log
+export IRONSHELL_AUDIT_REQUIRED=1           # refuse to run if the log cannot be written
+export IRONSHELL_AUDIT_KEY_FILE=/etc/ironshell/audit.key   # keyed HMAC chain
 
 # Resource ceilings.
-export AETHER_MAX_OPS=100000
-export AETHER_MAX_FILES=1000
-export AETHER_MAX_PROCS=0                # no subprocesses
-export AETHER_MAX_NET=0                  # no network
-export AETHER_TIMEOUT_MS=30000
+export IRONSHELL_MAX_OPS=100000
+export IRONSHELL_MAX_FILES=1000
+export IRONSHELL_MAX_PROCS=0                # no subprocesses
+export IRONSHELL_MAX_NET=0                  # no network
+export IRONSHELL_TIMEOUT_MS=30000
 
 # Keep the escape hatches shut.
-unset  AETHER_ALLOW_SH                   # sh() stays disabled
-unset  AETHER_APPROVE AETHER_APPROVE_ALL # no blanket approval
-unset  AETHER_ALLOW_REMOTE_BIND          # HTTP API stays on loopback
-unset  AETHER_PLUGIN_ALLOW               # no third-party code in-process
-export AETHER_REDACT=1                   # redact secrets in output
+unset  IRONSHELL_ALLOW_SH                   # sh() stays disabled
+unset  IRONSHELL_APPROVE IRONSHELL_APPROVE_ALL # no blanket approval
+unset  IRONSHELL_ALLOW_REMOTE_BIND          # HTTP API stays on loopback
+unset  IRONSHELL_PLUGIN_ALLOW               # no third-party code in-process
+export IRONSHELL_REDACT=1                   # redact secrets in output
 ```
 
 ### Security Policies
@@ -221,7 +221,7 @@ export AETHER_REDACT=1                   # redact secrets in output
 
 **Security Certification**: ✅ **COMPLIANT**
 
-AetherShell meets or exceeds all industry security standards and is ready for production deployment with full security compliance.
+IronShell meets or exceeds all industry security standards and is ready for production deployment with full security compliance.
 
 **Security Review Date**: November 4, 2025  
 **Next Review**: December 4, 2025  

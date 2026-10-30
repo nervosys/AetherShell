@@ -1,14 +1,14 @@
 # Builtins Overview
 
-AetherShell provides a rich set of built-in commands that return structured data for pipeline processing.
+IronShell provides a rich set of built-in commands that return structured data for pipeline processing.
 
 ## Core Philosophy
 
-Unlike traditional shells where commands return text, AetherShell builtins return typed `Value` objects:
+Unlike traditional shells where commands return text, IronShell builtins return typed `Value` objects:
 
-```aethershell
+```ironshell
 # Traditional shell: ls returns text
-# AetherShell: ls returns Array[Record]
+# IronShell: ls returns Array[Record]
 
 ls "."
 # Returns: [
@@ -20,7 +20,7 @@ ls "."
 
 This enables powerful pipeline operations:
 
-```aethershell
+```ironshell
 ls "."
   | where(fn(f) => f.size > 1000)
   | sort_by("modified", "desc")
@@ -146,7 +146,7 @@ ls "."
 
 ### File System Records
 
-```aethershell
+```ironshell
 # ls returns:
 {
     name: String,      # File name
@@ -162,7 +162,7 @@ ls "."
 
 ### HTTP Response
 
-```aethershell
+```ironshell
 # http_get/post returns:
 {
     status: Int,       # HTTP status code
@@ -174,7 +174,7 @@ ls "."
 
 ### Grep Match
 
-```aethershell
+```ironshell
 # grep returns:
 {
     file: String,      # File path
@@ -186,7 +186,7 @@ ls "."
 
 ## Pipeline Examples
 
-```aethershell
+```ironshell
 # Find large Rust files
 ls "src"
   | where(fn(f) => f.extension == "rs" && f.size > 10000)

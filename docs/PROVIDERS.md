@@ -1,8 +1,8 @@
-# AetherShell Universal Provider System
+# IronShell Universal Provider System
 
 ## Overview
 
-AetherShell now includes a comprehensive provider abstraction layer that enables any AI model to interact with operating systems through a standardized interface. This system supports 19 LLM providers and includes a rich OS operation ontology.
+IronShell now includes a comprehensive provider abstraction layer that enables any AI model to interact with operating systems through a standardized interface. This system supports 19 LLM providers and includes a rich OS operation ontology.
 
 ## Architecture
 
@@ -97,7 +97,7 @@ let schema = ToolSchemaGenerator::new(ToolFormat::Google)
 ### Basic Chat
 
 ```rust
-use aethershell::providers::{
+use iron_shell::providers::{
     create_provider, ChatRequest, ModelUri, ProviderConfig, ProviderType
 };
 
@@ -118,7 +118,7 @@ println!("{}", response.text());
 ### With Tools
 
 ```rust
-use aethershell::providers::{ChatRequest, ToolSchema};
+use iron_shell::providers::{ChatRequest, ToolSchema};
 
 let tools = vec![
     ToolSchema::new("read_file", "Read a file")
@@ -138,7 +138,7 @@ if let Some(tool_calls) = response.tool_calls {
 ### Embeddings
 
 ```rust
-use aethershell::providers::EmbeddingRequest;
+use iron_shell::providers::EmbeddingRequest;
 
 let request = EmbeddingRequest {
     model: ModelUri::parse("openai:text-embedding-3-small")?,
@@ -152,7 +152,7 @@ let response = provider.embed(request).await?;
 ### Provider Registry
 
 ```rust
-use aethershell::providers::ProviderRegistry;
+use iron_shell::providers::ProviderRegistry;
 
 let registry = ProviderRegistry::new();
 registry.add_provider(config, weight)?;
@@ -191,7 +191,7 @@ cargo test providers::impls:: --lib
 The bridge module provides compatibility with the existing `ai.rs` module:
 
 ```rust
-use aethershell::providers::bridge::{
+use iron_shell::providers::bridge::{
     complete_with_provider,
     chat_with_provider,
     UniversalBackend,

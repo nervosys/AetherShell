@@ -1,4 +1,4 @@
-use aethershell::{builtins, env::Env, value::Value};
+use iron_shell::{builtins, env::Env, value::Value};
 
 #[test]
 fn builtin_print_returns_null() {
@@ -12,12 +12,12 @@ fn builtin_map_reduce_direct() {
     let mut env = Env::default();
     // map: double each
     let arr = Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
-    let f = Value::Lambda(aethershell::value::Lambda {
+    let f = Value::Lambda(iron_shell::value::Lambda {
         params: vec!["x".into()],
-        body: Box::new(aethershell::ast::Expr::Binary {
-            left: Box::new(aethershell::ast::Expr::Ident("x".into())),
-            op: aethershell::ast::BinOp::Mul,
-            right: Box::new(aethershell::ast::Expr::LitInt(2)),
+        body: Box::new(iron_shell::ast::Expr::Binary {
+            left: Box::new(iron_shell::ast::Expr::Ident("x".into())),
+            op: iron_shell::ast::BinOp::Mul,
+            right: Box::new(iron_shell::ast::Expr::LitInt(2)),
         }),
         // These lambdas reference only their own parameters, so there is
         // nothing free to capture.
@@ -32,12 +32,12 @@ fn builtin_map_reduce_direct() {
 
     // reduce: sum
     let arr = Value::Array(vec![Value::Int(2), Value::Int(4), Value::Int(6)]);
-    let add = Value::Lambda(aethershell::value::Lambda {
+    let add = Value::Lambda(iron_shell::value::Lambda {
         params: vec!["a".into(), "b".into()],
-        body: Box::new(aethershell::ast::Expr::Binary {
-            left: Box::new(aethershell::ast::Expr::Ident("a".into())),
-            op: aethershell::ast::BinOp::Add,
-            right: Box::new(aethershell::ast::Expr::Ident("b".into())),
+        body: Box::new(iron_shell::ast::Expr::Binary {
+            left: Box::new(iron_shell::ast::Expr::Ident("a".into())),
+            op: iron_shell::ast::BinOp::Add,
+            right: Box::new(iron_shell::ast::Expr::Ident("b".into())),
         }),
         // These lambdas reference only their own parameters, so there is
         // nothing free to capture.

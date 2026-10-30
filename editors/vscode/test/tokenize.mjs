@@ -18,8 +18,8 @@ const oniguruma = require("vscode-oniguruma");
 const here = dirname(fileURLToPath(import.meta.url));
 export const extRoot = join(here, "..");
 
-const SCOPE = "source.aethershell";
-const MARKDOWN_INJECTION = "markdown.aethershell.codeblock";
+const SCOPE = "source.ironshell";
+const MARKDOWN_INJECTION = "markdown.ironshell.codeblock";
 /// A stand-in for VS Code's markdown grammar. The injection is declared with
 /// `injectionSelector: L:text.html.markdown`, so it cannot be tokenized on its
 /// own — it needs a host to inject into. Shipping the real markdown grammar
@@ -41,11 +41,11 @@ async function makeRegistry() {
   await oniguruma.loadWASM(wasm.buffer);
 
   const grammars = {
-    [SCOPE]: join(extRoot, "syntaxes", "aethershell.tmLanguage.json"),
+    [SCOPE]: join(extRoot, "syntaxes", "ironshell.tmLanguage.json"),
     [MARKDOWN_INJECTION]: join(
       extRoot,
       "syntaxes",
-      "aethershell.markdown.tmLanguage.json",
+      "ironshell.markdown.tmLanguage.json",
     ),
   };
 

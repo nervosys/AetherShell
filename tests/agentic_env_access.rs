@@ -19,7 +19,7 @@
 
 use std::process::Command;
 
-const AE: &str = env!("CARGO_BIN_EXE_ae");
+const AE: &str = env!("CARGO_BIN_EXE_ish");
 
 fn ae(args: &[&str], var: &str, value: &str) -> (String, bool) {
     let out = Command::new(AE)

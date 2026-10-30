@@ -1,6 +1,6 @@
 # Development Setup
 
-How to set up a development environment for contributing to AetherShell.
+How to set up a development environment for contributing to IronShell.
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ cargo build --bins
 ```
 
 This produces two binaries:
-- `target/debug/ae` — the main shell
+- `target/debug/ish` — the main shell
 - `target/debug/aimodel` — the AI model management CLI
 
 ## Run Tests
@@ -57,7 +57,7 @@ cargo run
 cargo run -- --tui
 
 # Execute a script
-cargo run -- examples/00_hello.ae
+cargo run -- examples/00_hello.ish
 
 # AI model server
 cargo run --bin aimodel -- serve --port 8080
@@ -67,17 +67,17 @@ cargo run --bin aimodel -- serve --port 8080
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `AETHER_AI` | Default AI provider | `openai` |
+| `IRONSHELL_AI` | Default AI provider | `openai` |
 | `OPENAI_API_KEY` | OpenAI API key | `sk-...` |
 | `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
 | `AGENT_ALLOW_CMDS` | Agent tool allowlist | `ls,git,cat` |
-| `AETHER_LOG` | Log level | `debug` |
+| `IRONSHELL_LOG` | Log level | `debug` |
 
 ## IDE Setup
 
 ### VS Code
 
-Install the **AetherShell** extension from the marketplace, or load it from source:
+Install the **IronShell** extension from the marketplace, or load it from source:
 
 ```bash
 cd vscode-extension
@@ -113,7 +113,7 @@ Recommended extensions:
 | `src/bin/` | Additional binaries |
 | `tests/` | Integration tests |
 | `test-scripts/` | Script-based tests |
-| `examples/` | Example `.ae` scripts |
+| `examples/` | Example `.ish` scripts |
 | `docs/book/` | mdBook documentation |
 | `web/` | Web dashboard & WASM |
 | `vscode-extension/` | VS Code extension |

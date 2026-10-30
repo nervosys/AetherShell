@@ -1,7 +1,7 @@
 # Immutability Implementation Summary
 
 ## Overview
-Successfully implemented **immutability-by-default** for all variables in AetherShell, bringing the language in line with modern functional programming best practices.
+Successfully implemented **immutability-by-default** for all variables in IronShell, bringing the language in line with modern functional programming best practices.
 
 ## Implementation Date
 October 22, 2025
@@ -52,7 +52,7 @@ Created 6 comprehensive tests:
 - Documented immutability enforcement and new error messages
 
 ### 2. docs/IMMUTABILITY.md (NEW)
-- Comprehensive guide to immutability in AetherShell
+- Comprehensive guide to immutability in IronShell
 - Syntax reference for immutable and mutable variables
 - Explanation of shadowing vs reassignment
 - Common patterns and examples
@@ -62,20 +62,20 @@ Created 6 comprehensive tests:
 ## Syntax Summary
 
 ### Immutable Variables (Default)
-```aethershell
+```ironshell
 x = 42              # Immutable
 let y = 100         # Explicitly immutable
 name = "Alice"      # Immutable
 ```
 
 ### Mutable Variables
-```aethershell
+```ironshell
 mut counter = 0          # Mutable
 let mut total = 100      # Explicitly mutable
 ```
 
 ### Shadowing (Always Allowed)
-```aethershell
+```ironshell
 x = 42      # First binding
 x = 100     # Creates NEW binding (shadows first)
 ```
@@ -83,7 +83,7 @@ x = 100     # Creates NEW binding (shadows first)
 ## Design Decisions
 
 ### 1. Shadowing vs Reassignment
-In AetherShell, `x = value` (without `let`) creates a NEW binding (shadowing), not a reassignment. This is similar to Rust's behavior and allows for flexible variable reuse while maintaining immutability.
+In IronShell, `x = value` (without `let`) creates a NEW binding (shadowing), not a reassignment. This is similar to Rust's behavior and allows for flexible variable reuse while maintaining immutability.
 
 ### 2. Internal Bindings
 Lambda parameters, pattern matching bindings, and builtin function parameters use `set_var_unchecked()` to bypass mutability checks. This is correct because these are creating new local bindings, not reassigning existing variables.
@@ -100,13 +100,13 @@ Cannot reassign immutable variable 'x'. Use 'let mut x' to make it mutable.
 This is a **breaking change** for any code that relied on implicit mutability:
 
 **Before:**
-```aethershell
+```ironshell
 x = 42
 x = 100  # Worked as reassignment
 ```
 
 **After:**
-```aethershell
+```ironshell
 # Option 1: Explicit mutable
 mut x = 42
 x = 100  # Shadowing
@@ -146,9 +146,9 @@ x = 100  # Creates new binding
 ✅ **Total**: 419/419 passing
 
 ### Example Validation
-✅ **00_hello.ae**: Working
-✅ **01_pipelines.ae**: Working
-✅ **18_mutable_variables.ae**: Working
+✅ **00_hello.ish**: Working
+✅ **01_pipelines.ish**: Working
+✅ **18_mutable_variables.ish**: Working
 ✅ **All 18 examples**: Validated
 
 ## Security Implications
@@ -178,7 +178,7 @@ x = 100  # Creates new binding
 - Migration path provided
 
 ## Conclusion
-Immutability-by-default has been successfully implemented in AetherShell with:
+Immutability-by-default has been successfully implemented in IronShell with:
 - ✅ Zero test failures
 - ✅ Comprehensive test coverage (6 new tests)
 - ✅ Clear error messages
@@ -186,4 +186,4 @@ Immutability-by-default has been successfully implemented in AetherShell with:
 - ✅ All examples working
 - ✅ Minimal performance overhead
 
-This brings AetherShell in line with modern functional programming languages like Rust, Scala, and Haskell, improving code safety and predictability.
+This brings IronShell in line with modern functional programming languages like Rust, Scala, and Haskell, improving code safety and predictability.

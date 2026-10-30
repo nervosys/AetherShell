@@ -4,25 +4,25 @@ import {
 } from '@jupyterlab/application';
 
 /**
- * AetherShell JupyterLab extension
+ * IronShell JupyterLab extension
  *
  * Provides:
- * - AetherShell kernel proxy (connects to `ae agent serve`)
- * - Syntax highlighting for .ae files
+ * - IronShell kernel proxy (connects to `ish agent serve`)
+ * - Syntax highlighting for .ish files
  * - Code completion via Agent API
  */
 const plugin: JupyterFrontEndPlugin<void> = {
-  id: 'jupyterlab-aethershell:plugin',
+  id: 'jupyterlab-ironshell:plugin',
   autoStart: true,
   activate: (app: JupyterFrontEnd) => {
-    console.log('JupyterLab AetherShell extension activated');
+    console.log('JupyterLab IronShell extension activated');
 
-    // Register .ae file type
+    // Register .ish file type
     app.docRegistry.addFileType({
-      name: 'aethershell',
-      displayName: 'AetherShell Script',
-      extensions: ['.ae'],
-      mimeTypes: ['text/x-aethershell'],
+      name: 'ironshell',
+      displayName: 'IronShell Script',
+      extensions: ['.ish'],
+      mimeTypes: ['text/x-ironshell'],
       icon: undefined,
     });
   },

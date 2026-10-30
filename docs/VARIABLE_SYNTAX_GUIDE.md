@@ -1,9 +1,9 @@
-# AetherShell Variable Syntax - Quick Reference
+# IronShell Variable Syntax - Quick Reference
 
 ## Two Ways to Declare Variables
 
 ### 🌟 Recommended: Simple Assignment
-```ae
+```ish
 x = 42              # Immutable Int
 name = "Alice"      # Immutable String  
 items = [1, 2, 3]   # Immutable Array<Int>
@@ -11,7 +11,7 @@ items = [1, 2, 3]   # Immutable Array<Int>
 **Use:** Default for all immutable variables
 
 ### 🔧 Mutable Variables
-```ae
+```ish
 mut count = 0       # Mutable Int
 mut total = 100     # Also mutable
 let mut score = 50  # Traditional Rust style
@@ -19,7 +19,7 @@ let mut score = 50  # Traditional Rust style
 **Use:** When you need to modify variables
 
 ### 📝 Explicit Declaration
-```ae
+```ish
 let x = 42              # Explicit immutable
 let mut count = 0       # Explicit mutable
 let total: Int = 100    # With type annotation
@@ -38,7 +38,7 @@ let total: Int = 100    # With type annotation
 ## Common Patterns
 
 ### Variables with Type Inference
-```ae
+```ish
 # Types inferred automatically
 count = 42                    # Int
 price = 99.99                 # Float
@@ -49,7 +49,7 @@ user = {name: "Bob", age: 30} # Record
 ```
 
 ### Mutable Variables
-```ae
+```ish
 # Recommended: mut with =
 mut counter = 0
 counter = counter + 1
@@ -64,7 +64,7 @@ score = score + 10
 ```
 
 ### Old Style: Mutable with let mut
-```ae
+```ish
 let mut counter = 0
 counter = counter + 1
 
@@ -73,21 +73,21 @@ items = items + [1, 2, 3]
 ```
 
 ### String Interpolation
-```ae
-name = "AetherShell"
+```ish
+name = "IronShell"
 version = "0.1.0"
 print("Welcome to ${name} v${version}!")
 ```
 
 ### Functions
-```ae
+```ish
 double = fn(x) => x * 2
 add = fn(a, b) => a + b
 greet = fn(name) => "Hello, ${name}!"
 ```
 
 ### Complex Types
-```ae
+```ish
 # Records
 person = {
   name: "Alice",
@@ -132,7 +132,7 @@ operations = [
 ## Migration Guide
 
 **Old Code (using :=):**
-```ae
+```ish
 name := "test"
 count := 42
 items := [1, 2, 3]
@@ -140,7 +140,7 @@ process := fn(x) => x * 2
 ```
 
 **New Code (using =):**
-```ae
+```ish
 name = "test"
 count = 42
 items = [1, 2, 3]
@@ -148,7 +148,7 @@ process = fn(x) => x * 2
 ```
 
 **Mixed (all work together):**
-```ae
+```ish
 name = "test"         # New style
 let count = 42        # Explicit
 items := [1, 2, 3]    # Old style
@@ -157,7 +157,7 @@ items := [1, 2, 3]    # Old style
 
 ## Type Inference Examples
 
-```ae
+```ish
 # Primitives
 x = 42              # Int
 y = 3.14            # Float

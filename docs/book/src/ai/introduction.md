@@ -1,10 +1,10 @@
 # AI Integration
 
-AetherShell has first-class support for AI models and agents.
+IronShell has first-class support for AI models and agents.
 
 ## Quick Start
 
-```aethershell
+```ironshell
 # Simple AI query
 ai("What is the capital of France?")
 # → "The capital of France is Paris."
@@ -17,7 +17,7 @@ ai("Explain monads in simple terms", {
 
 ## Supported Providers
 
-AetherShell supports 25+ AI providers out of the box:
+IronShell supports 25+ AI providers out of the box:
 
 | Provider       | Models                     | Setup                |
 | -------------- | -------------------------- | -------------------- |
@@ -36,7 +36,7 @@ AetherShell supports 25+ AI providers out of the box:
 
 Specify models using the `provider:model` format:
 
-```aethershell
+```ironshell
 # OpenAI
 ai("Query", { model: "openai:gpt-4o-mini" })
 
@@ -55,7 +55,7 @@ ai("Query", { model: "openrouter:meta-llama/llama-3-70b-instruct" })
 
 ## AI Function Options
 
-```aethershell
+```ironshell
 ai("Your prompt", {
     # Model selection
     model: "gpt-4o",
@@ -82,7 +82,7 @@ ai("Your prompt", {
 
 Maintain context across queries:
 
-```aethershell
+```ironshell
 let history = []
 
 let chat = fn(message) => {
@@ -108,7 +108,7 @@ chat("How does it handle memory?")  # Remembers context
 
 Analyze images with vision-capable models:
 
-```aethershell
+```ironshell
 # Describe an image
 ai("What's in this image?", {
     model: "gpt-4o",
@@ -132,7 +132,7 @@ ai("Analyze this diagram", {
 
 Get structured JSON responses:
 
-```aethershell
+```ironshell
 let result = ai("Extract the person's name and age from: John is 30 years old", {
     model: "gpt-4o",
     format: "json",
@@ -152,7 +152,7 @@ print(data.age)   # 30
 
 ## Error Handling
 
-```aethershell
+```ironshell
 let result = try {
     ai("Query that might fail", { model: "gpt-4o" })
 } catch err {
@@ -165,7 +165,7 @@ let result = try {
 
 ### OpenAI Function Calling
 
-```aethershell
+```ironshell
 let tools = [
     {
         name: "get_weather",
@@ -187,7 +187,7 @@ let response = ai("What's the weather in Paris?", {
 
 ### Claude with System Prompts
 
-```aethershell
+```ironshell
 ai("Translate to French: Hello, world!", {
     model: "claude:claude-3-haiku",
     system: "You are a professional translator. Respond only with the translation."
@@ -202,8 +202,8 @@ ollama pull llama3
 ollama pull codellama
 ```
 
-```aethershell
-# Use in AetherShell
+```ironshell
+# Use in IronShell
 ai("Write a Python function to sort a list", {
     model: "ollama:codellama"
 })
@@ -213,7 +213,7 @@ ai("Write a Python function to sort a list", {
 
 1. **Set defaults** - Configure your preferred provider:
    ```bash
-   export AETHER_AI=openai
+   export IRONSHELL_AI=openai
    export OPENAI_API_KEY=sk-...
    ```
 

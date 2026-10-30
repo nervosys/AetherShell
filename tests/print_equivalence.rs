@@ -1,4 +1,4 @@
-use aethershell::{env::Env, eval, parser, value::Value};
+use iron_shell::{env::Env, eval, parser, value::Value};
 
 fn eval_code(code: &str) -> Value {
     let mut env = Env::default();
@@ -34,17 +34,17 @@ fn print_equivalence() {
     let b = eval_code(r#"print "hi""#);
     let c = eval_code(r#""hi" | print"#);
 
-    let pretty_a = aethershell::value::pretty::display_inline(
+    let pretty_a = iron_shell::value::pretty::display_inline(
         &a,
-        &aethershell::value::pretty::Theme::default(),
+        &iron_shell::value::pretty::Theme::default(),
     );
-    let pretty_b = aethershell::value::pretty::display_inline(
+    let pretty_b = iron_shell::value::pretty::display_inline(
         &b,
-        &aethershell::value::pretty::Theme::default(),
+        &iron_shell::value::pretty::Theme::default(),
     );
-    let pretty_c = aethershell::value::pretty::display_inline(
+    let pretty_c = iron_shell::value::pretty::display_inline(
         &c,
-        &aethershell::value::pretty::Theme::default(),
+        &iron_shell::value::pretty::Theme::default(),
     );
 
     assert_eq!(strip_ansi(&pretty_a), strip_ansi(&pretty_b));

@@ -1,4 +1,4 @@
-use aethershell::ai_api::*;
+use iron_shell::ai_api::*;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
@@ -382,16 +382,16 @@ pub enum KeysAction {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    aethershell::tls::install_provider();
+    iron_shell::tls::install_provider();
     // Print deprecation notice
     eprintln!("⚠️  DEPRECATION NOTICE:");
     eprintln!("⚠️  The 'aimodel' command is deprecated.");
     eprintln!("⚠️  Please use 'ae ai' instead:");
     eprintln!("⚠️  ");
-    eprintln!("⚠️    aimodel serve     →  ae ai serve");
-    eprintln!("⚠️    aimodel list      →  ae ai list");
-    eprintln!("⚠️    aimodel download  →  ae ai download");
-    eprintln!("⚠️    aimodel keys      →  ae ai keys");
+    eprintln!("⚠️    aimodel serve     →  ish ai serve");
+    eprintln!("⚠️    aimodel list      →  ish ai list");
+    eprintln!("⚠️    aimodel download  →  ish ai download");
+    eprintln!("⚠️    aimodel keys      →  ish ai keys");
     eprintln!();
 
     let cli = Cli::parse();
@@ -420,7 +420,7 @@ async fn main() -> Result<()> {
         // it is `false` whenever absent, and assigning it turned authentication
         // *off* for anyone who had enabled it in their config file. A CLI flag
         // may add a requirement; it may not silently drop one.
-        let (require_key, exposure) = aethershell::ai_api::config::resolve_auth_requirement(
+        let (require_key, exposure) = iron_shell::ai_api::config::resolve_auth_requirement(
             config.security.require_api_key,
             args.require_api_key,
             &config.server.host,
@@ -932,8 +932,8 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                 "openai" => {
                     if std::env::var("OPENAI_API_KEY").is_ok() {
                         // Try to list models to verify API key works
-                        aethershell::tls::install_provider();
-                        let client = aethershell::security::create_secure_async_client()
+                        iron_shell::tls::install_provider();
+                        let client = iron_shell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
 
                         match client
@@ -961,8 +961,8 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                 }
                 "anthropic" => {
                     if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-                        aethershell::tls::install_provider();
-                        let client = aethershell::security::create_secure_async_client()
+                        iron_shell::tls::install_provider();
+                        let client = iron_shell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
 
                         // Anthropic doesn't have a simple models endpoint, so we just check the base URL
@@ -1189,8 +1189,8 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
                         );
 
                         // Try health endpoint
-                        aethershell::tls::install_provider();
-                        let client = aethershell::security::create_secure_async_client()
+                        iron_shell::tls::install_provider();
+                        let client = iron_shell::security::create_secure_async_client()
                             .unwrap_or_else(|_| reqwest::Client::new());
 
                         match client
@@ -1256,8 +1256,8 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
             });
 
             // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
-            aethershell::tls::install_provider();
-            let client = aethershell::security::create_secure_async_client()
+            iron_shell::tls::install_provider();
+            let client = iron_shell::security::create_secure_async_client()
                 .unwrap_or_else(|_| reqwest::Client::new());
 
             match client
@@ -1296,8 +1296,8 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
             ];
 
             // SECURITY FIX (LOW-002): Use secure HTTP client with timeouts
-            aethershell::tls::install_provider();
-            let client = aethershell::security::create_secure_async_client()
+            iron_shell::tls::install_provider();
+            let client = iron_shell::security::create_secure_async_client()
                 .unwrap_or_else(|_| reqwest::Client::new());
 
             for (name, endpoint) in endpoints {
@@ -1328,7 +1328,7 @@ async fn run_backend(config: APIConfig, args: BackendArgs) -> Result<()> {
 }
 
 async fn run_keys(args: KeysArgs) -> Result<()> {
-    use aethershell::secure_config::SecureApiConfig;
+    use iron_shell::secure_config::SecureApiConfig;
     use std::io::{self, Write};
 
     match args.action {
@@ -1356,7 +1356,7 @@ async fn run_keys(args: KeysArgs) -> Result<()> {
                 provider
             );
             println!("\nThe key can now be used with:");
-            println!("  - AetherShell AI functions");
+            println!("  - IronShell AI functions");
             println!("  - `aimodel` server");
             println!("  - Environment variable fallback disabled");
         }
@@ -1426,7 +1426,7 @@ async fn run_keys(args: KeysArgs) -> Result<()> {
             ];
 
             for provider in providers {
-                use aethershell::secure_config::SecureApiConfig;
+                use iron_shell::secure_config::SecureApiConfig;
 
                 match SecureApiConfig::from_keyring(
                     provider,
@@ -1498,7 +1498,7 @@ async fn run_keys(args: KeysArgs) -> Result<()> {
         }
 
         KeysAction::Validate { provider } => {
-            use aethershell::secure_config::SecureApiConfig;
+            use iron_shell::secure_config::SecureApiConfig;
 
             let config = SecureApiConfig::from_keyring(
                 &provider,

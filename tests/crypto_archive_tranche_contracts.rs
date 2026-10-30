@@ -10,18 +10,18 @@
 //! 127.0.0.1 port 1, with BatchMode, where the connection is refused at once.
 //! No test reads or writes ~/.ssh, ~/.gnupg or a keyring.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::path::{Path, PathBuf};
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call_piped(name: &str, args: Vec<Value>, input: Value) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call_with_input(name, args, Some(input), &mut env)
+    iron_shell::builtins::call_with_input(name, args, Some(input), &mut env)
 }
 
 fn code_of(e: &anyhow::Error) -> String {

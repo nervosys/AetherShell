@@ -1,12 +1,12 @@
 # TUI Guide
 
-AetherShell's Terminal User Interface (TUI) provides a rich, interactive environment for working with AI, viewing multimodal content, and managing agents.
+IronShell's Terminal User Interface (TUI) provides a rich, interactive environment for working with AI, viewing multimodal content, and managing agents.
 
 ## Starting TUI Mode
 
 ```bash
 # Start in TUI mode
-ae --tui
+ish --tui
 
 # Or from the REPL
 tui()
@@ -16,7 +16,7 @@ tui()
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  AetherShell TUI                                    [Agents]│
+│  IronShell TUI                                    [Agents]│
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  User: Explain the concept of monads                        │
@@ -75,9 +75,9 @@ Within the TUI, you can use these commands:
 
 > **Not implemented.** Inline image rendering is intended, not present. The
 > source contains no kitty, iterm or sixel support and reads no
-> `AETHER_TUI_IMAGE_PROTOCOL` — exporting it does nothing.
+> `IRONSHELL_TUI_IMAGE_PROTOCOL` — exporting it does nothing.
 
-```aethershell
+```ironshell
 # In TUI, send an image
 /image screenshot.png
 
@@ -194,7 +194,7 @@ AI: The quick brown fox |  ← Cursor shows typing
 
 ## Configuration
 
-TUI settings in `~/.config/aethershell/config.toml`:
+TUI settings in `~/.config/ironshell/config.toml`:
 
 ```toml
 [tui]

@@ -9,11 +9,11 @@
 
 #![cfg(target_os = "linux")]
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 
 fn call(name: &str) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, vec![], &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, vec![], &mut env).expect("builtin call")
 }
 
 fn kernel_mask(key: &str) -> u64 {

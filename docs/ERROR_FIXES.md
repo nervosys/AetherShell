@@ -5,11 +5,11 @@
 ### 1. VS Code Extension - package.json
 **Issue:** Activation events warnings - VS Code now auto-generates these
 **Fix:** Removed redundant `activationEvents` array entries:
-- Removed: `onLanguage:aethershell`
-- Removed: `onCommand:aethershell.run`
-- Removed: `onCommand:aethershell.runSelection`
-- Removed: `onCommand:aethershell.format`
-- Removed: `onCommand:aethershell.checkSyntax`
+- Removed: `onLanguage:ironshell`
+- Removed: `onCommand:ironshell.run`
+- Removed: `onCommand:ironshell.runSelection`
+- Removed: `onCommand:ironshell.format`
+- Removed: `onCommand:ironshell.checkSyntax`
 - Kept: Empty array `[]` (VS Code will auto-generate based on contributions)
 
 ### 2. VS Code Extension - src/extension.ts

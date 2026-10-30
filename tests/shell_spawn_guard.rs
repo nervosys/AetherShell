@@ -23,7 +23,7 @@
 //! model. `effect_of("web_open_url")` is `Network` by the `web_*` prefix rule,
 //! `Network` is not in `centrally_enforced()`, and the builtin was not in
 //! `SELF_GUARDED` — so in agent mode it was *default-allow*, unmetered, and
-//! outside the `AETHER_NET_ALLOW` egress allowlist. A builtin advertised as
+//! outside the `IRONSHELL_NET_ALLOW` egress allowlist. A builtin advertised as
 //! "open a web page" was an unapproved `Exec`.
 //!
 //! The fix is structural rather than a filter, because a filter cannot work

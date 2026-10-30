@@ -1,6 +1,6 @@
 # Testing
 
-How to write and run tests for AetherShell.
+How to write and run tests for IronShell.
 
 ## Running Tests
 
@@ -45,10 +45,10 @@ cargo test -- --test-threads=1
 
 ### Evaluator Tests
 
-Test that AetherShell expressions produce expected values:
+Test that IronShell expressions produce expected values:
 
 ```rust
-use aether_shell::{eval_str, Value};
+use ironshell_shell::{eval_str, Value};
 
 #[test]
 fn test_arithmetic() {
@@ -76,8 +76,8 @@ fn test_record_access() {
 Verify that source text parses to the expected AST:
 
 ```rust
-use aether_shell::parser::parse;
-use aether_shell::ast::*;
+use ironshell_shell::parser::parse;
+use ironshell_shell::ast::*;
 
 #[test]
 fn test_parse_let() {
@@ -159,10 +159,10 @@ fn test_undefined_variable() {
 
 ### Script-Based Tests
 
-For complex scenarios, use `.ae` test scripts in `test-scripts/`:
+For complex scenarios, use `.ish` test scripts in `test-scripts/`:
 
-```aethershell
-# test-scripts/builtins/test_basic.ae
+```ironshell
+# test-scripts/builtins/test_basic.ish
 # Each line is a self-contained assertion
 
 let x = 42

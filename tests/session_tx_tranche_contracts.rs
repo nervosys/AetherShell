@@ -1,9 +1,9 @@
 //! Contracts for the `session_*` and `tx_*` builtins.
 //!
-//! Every case drives the real `ae` binary with `-c`, from a sandbox that
+//! Every case drives the real `ish` binary with `-c`, from a sandbox that
 //! this test made under the system temp directory. The sandbox has a `work`
 //! directory (the cwd, the workspace and, for the git cases, the repository)
-//! and a `state` directory (`AETHER_SESSION_DIR`). The undo journal and the
+//! and a `state` directory (`IRONSHELL_SESSION_DIR`). The undo journal and the
 //! transaction journal are keyed by directory, so no case can reach the
 //! journal of a real checkout. Nothing here calls a mutating builtin in
 //! process: the repository's own journal is never touched.
@@ -64,13 +64,13 @@ fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> JoinHandle<String> {
     })
 }
 
-/// Run `ae -c expr` in the sandbox's work directory.
+/// Run `ish -c expr` in the sandbox's work directory.
 fn ae(sb: &Sandbox, expr: &str) -> Out {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ae"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ish"))
         .args(["-c", expr])
         .current_dir(sb.work())
-        .env("AETHER_WORKSPACE", sb.work())
-        .env("AETHER_SESSION_DIR", sb.root.join("state"))
+        .env("IRONSHELL_WORKSPACE", sb.work())
+        .env("IRONSHELL_SESSION_DIR", sb.root.join("state"))
         // A git call in the sandbox must not find a repository above it.
         .env("GIT_CEILING_DIRECTORIES", &sb.root)
         .env("GIT_AUTHOR_NAME", "ae test")
@@ -92,7 +92,7 @@ fn ae(sb: &Sandbox, expr: &str) -> Out {
         if start.elapsed() > DEADLINE {
             let _ = child.kill();
             let _ = child.wait();
-            panic!("ae -c {expr:?} ran past {DEADLINE:?}");
+            panic!("ish -c {expr:?} ran past {DEADLINE:?}");
         }
         std::thread::sleep(Duration::from_millis(20));
     };
@@ -107,7 +107,7 @@ fn ok(sb: &Sandbox, expr: &str) -> Out {
     let out = ae(sb, expr);
     assert!(
         out.ok,
-        "ae -c {expr:?} failed\nstdout: {}\nstderr: {}",
+        "ish -c {expr:?} failed\nstdout: {}\nstderr: {}",
         out.stdout, out.stderr
     );
     out
@@ -117,12 +117,12 @@ fn refused(sb: &Sandbox, expr: &str, code: &str) -> Out {
     let out = ae(sb, expr);
     assert!(
         !out.ok,
-        "ae -c {expr:?} was accepted; it should be refused as {code}\nstdout: {}",
+        "ish -c {expr:?} was accepted; it should be refused as {code}\nstdout: {}",
         out.stdout
     );
     assert!(
         out.stderr.contains(&format!("error[{code}]")),
-        "ae -c {expr:?} should fail as {code}\nstderr: {}",
+        "ish -c {expr:?} should fail as {code}\nstderr: {}",
         out.stderr
     );
     out
@@ -181,7 +181,7 @@ fn begin_savepoint_rollback_to_commit_round_trip_on_files() {
     assert_eq!(read(&sb.file("keep.txt")), "keep");
     assert!(!sb.file("made.txt").exists(), "made.txt must be undone");
     // The outermost commit removes the journal it was keeping.
-    let journal = sb.work().join(".ae").join("tx");
+    let journal = sb.work().join(".ironshell").join("tx");
     let left = std::fs::read_dir(&journal).map(|d| d.count()).unwrap_or(0);
     assert_eq!(left, 0, "journal entries left after commit");
 }

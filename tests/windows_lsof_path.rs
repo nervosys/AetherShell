@@ -3,13 +3,13 @@
 //! Read-only and local: nothing is written outside a temp directory, no service
 //! is touched, and the only child process is a PowerShell that holds one temp
 //! file open and is killed by the test. Each test is in-process and isolates
-//! AETHER_SESSION_DIR, as tests/web_tranche_contracts.rs does.
+//! IRONSHELL_SESSION_DIR, as tests/web_tranche_contracts.rs does.
 
 #![cfg(windows)]
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -21,11 +21,11 @@ fn isolate() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_lsof_path_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
 }
 
-/// `AETHER_MODE` is process-global. Every in-process call takes this lock so
+/// `IRONSHELL_MODE` is process-global. Every in-process call takes this lock so
 /// that no call sees another test's mode.
 static MODE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -36,8 +36,8 @@ fn locked() -> std::sync::MutexGuard<'static, ()> {
 /// Human mode, whatever the environment says.
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     isolate();
     let mut env = Env::new();
     builtins::call(name, args, &mut env)

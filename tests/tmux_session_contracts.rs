@@ -6,9 +6,9 @@
 //! reaches a session the person has open. The server is killed when the test
 //! ends, pass or fail. No terminal is attached.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -34,9 +34,9 @@ impl Server {
         std::fs::create_dir_all(&dir).unwrap();
         std::env::set_var("TMUX_TMPDIR", &dir);
         std::env::remove_var("TMUX");
-        std::env::remove_var("AETHER_MODE");
-        std::env::remove_var("AETHER_AGENT");
-        std::env::set_var("AETHER_SESSION_DIR", dir.join("session"));
+        std::env::remove_var("IRONSHELL_MODE");
+        std::env::remove_var("IRONSHELL_AGENT");
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir.join("session"));
         Server { dir }
     }
 

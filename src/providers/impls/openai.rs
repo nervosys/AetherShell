@@ -286,8 +286,8 @@ impl LLMProvider for OpenAIProvider {
 
         // Provider-specific headers
         if self.config.provider == ProviderType::OpenRouter {
-            req = req.header("HTTP-Referer", "https://aethershell.dev");
-            req = req.header("X-Title", "AetherShell");
+            req = req.header("HTTP-Referer", "https://ironshell.dev");
+            req = req.header("X-Title", "IronShell");
         }
 
         let response = req
@@ -352,8 +352,8 @@ impl LLMProvider for OpenAIProvider {
         }
 
         if self.config.provider == ProviderType::OpenRouter {
-            req = req.header("HTTP-Referer", "https://aethershell.dev");
-            req = req.header("X-Title", "AetherShell");
+            req = req.header("HTTP-Referer", "https://ironshell.dev");
+            req = req.header("X-Title", "IronShell");
         }
 
         let response = req

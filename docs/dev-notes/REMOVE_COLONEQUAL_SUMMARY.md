@@ -3,13 +3,13 @@
 ## ✅ Successfully Completed
 
 **Date:** October 18, 2025  
-**Goal:** Remove the `:=` operator from AetherShell to simplify syntax
+**Goal:** Remove the `:=` operator from IronShell to simplify syntax
 
 ## What Changed
 
 ### Before: 6 Variable Declaration Syntaxes
 
-```ae
+```ish
 // Immutable (3 ways)
 x = 42
 x := 42              // ← REMOVED
@@ -23,7 +23,7 @@ let mut x = 42
 
 ### After: 4 Variable Declaration Syntaxes
 
-```ae
+```ish
 // Immutable (2 ways)
 x = 42               // ✅ Recommended
 let x = 42           // Explicit
@@ -88,17 +88,17 @@ enum Tok {
 ### Examples Updated
 
 **Fixed:**
-- `examples/18_mutable_variables.ae` - Changed `mut total := 100` to `mut total = 100`
+- `examples/18_mutable_variables.ish` - Changed `mut total := 100` to `mut total = 100`
 
 **Already Correct:**
 - All other examples (00-17) already using `=` syntax
 
 ### New Test File
 
-**Created:** `temp/test_no_colonequal.ae`
+**Created:** `temp/test_no_colonequal.ish`
 
 Tests all syntax without `:=`:
-```ae
+```ish
 x = 42              // Immutable
 mut counter = 0     // Mutable
 let a = 100         // Explicit immutable
@@ -128,7 +128,7 @@ let mut score = 50  // Explicit mutable
 
 **PowerShell Script:**
 ```powershell
-Get-ChildItem *.ae -Recurse | ForEach-Object {
+Get-ChildItem *.ish -Recurse | ForEach-Object {
     (Get-Content $_.FullName -Raw) -replace ' := ', ' = ' | 
     Set-Content $_.FullName -NoNewline
 }
@@ -137,7 +137,7 @@ Get-ChildItem *.ae -Recurse | ForEach-Object {
 ### Example Migration
 
 **Before:**
-```ae
+```ish
 name := "Alice"
 count := 42
 mut total := 100
@@ -145,7 +145,7 @@ items := [1, 2, 3]
 ```
 
 **After:**
-```ae
+```ish
 name = "Alice"
 count = 42
 mut total = 100
@@ -164,13 +164,13 @@ items = [1, 2, 3]
 ### Consistency
 
 **Before (inconsistent):**
-```ae
+```ish
 x = 42      // Use this?
 x := 42     // Or this?
 ```
 
 **After (consistent):**
-```ae
+```ish
 x = 42      // Always use =
 ```
 
@@ -181,7 +181,7 @@ Most languages use `=` for assignment:
 - JavaScript: `let x = 42`
 - Rust: `let x = 42`
 - Swift: `let x = 42`
-- **Go** is unique with `:=` (but AetherShell isn't Go)
+- **Go** is unique with `:=` (but IronShell isn't Go)
 
 ### Clarity
 
@@ -219,14 +219,14 @@ Much clearer mental model!
 
 | Language        | Simple         | Mutable          | Notes           |
 | --------------- | -------------- | ---------------- | --------------- |
-| **AetherShell** | `x = 42`       | `mut x = 42`     | Minimal & clear |
+| **IronShell** | `x = 42`       | `mut x = 42`     | Minimal & clear |
 | Python          | `x = 42`       | `x = 42`         | No distinction  |
 | JavaScript      | `const x = 42` | `let x = 42`     | Keyword-based   |
 | Rust            | `let x = 42`   | `let mut x = 42` | Always explicit |
 | Go              | `x := 42`      | `var x = 42`     | Uses `:=`       |
 | Swift           | `let x = 42`   | `var x = 42`     | Keyword-based   |
 
-**AetherShell = Python's simplicity + Rust's explicit mutability**
+**IronShell = Python's simplicity + Rust's explicit mutability**
 
 ## Breaking Changes
 
@@ -243,12 +243,12 @@ Much clearer mental model!
 ### Error Messages
 
 **Before removal:**
-```ae
+```ish
 x := 42  // ✅ Works
 ```
 
 **After removal:**
-```ae
+```ish
 x := 42  // ❌ Error: unexpected token ':'
 ```
 
@@ -298,7 +298,7 @@ We removed `:=` because it added no value, only complexity.
 
 ## Conclusion
 
-Successfully removed the `:=` operator from AetherShell!
+Successfully removed the `:=` operator from IronShell!
 
 ### Key Achievements
 
@@ -326,4 +326,4 @@ Successfully removed the `:=` operator from AetherShell!
 
 The language is now cleaner, simpler, and more consistent! 🎉
 
-**AetherShell: Typed. Functional. AI-Native. Simple.** ✨
+**IronShell: Typed. Functional. AI-Native. Simple.** ✨

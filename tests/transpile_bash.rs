@@ -111,7 +111,7 @@ fn test_brackets() {
         ae
     );
 }
-use aethershell::transpile::bash::transpile_bash_to_ae;
+use iron_shell::transpile::bash::transpile_bash_to_ae;
 
 /// Remove all ASCII whitespace to make tests resilient to formatting.
 fn strip_ws(s: &str) -> String {
@@ -155,7 +155,7 @@ fn var_arg_reads_the_environment() {
     // This test used to be `var_arg_as_identifier` and asserted `echo(HOME)`:
     // a lone `$VAR` became a bare identifier, on the theory that a preceding
     // `NAME=value` had bound it. Nothing binds `$HOME`, an unbound identifier
-    // evaluates to null rather than raising, and so `ae -b -c 'echo $HOME'`
+    // evaluates to null rather than raising, and so `ish -b -c 'echo $HOME'`
     // printed `null` and exited 0 — a confident wrong answer for the most
     // common expansion in shell. The test passed throughout, because it
     // asserted the emission rather than the answer.
@@ -220,7 +220,7 @@ fn builtin_mapped_ls() {
 }
 
 #[test]
-fn preserves_comments_as_aether_comments() {
+fn preserves_comments_as_ironshell_comments() {
     let bash = r#"
 # heading
 echo "x"

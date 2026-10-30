@@ -2,7 +2,7 @@
 
 **From Environment Variables to Secure OS Credential Store**
 
-This guide helps you migrate your API keys from insecure environment variables to AetherShell's secure credential storage system.
+This guide helps you migrate your API keys from insecure environment variables to IronShell's secure credential storage system.
 
 ---
 
@@ -43,11 +43,11 @@ env | grep API_KEY
 
 ```bash
 # Automatic migration (recommended)
-ae keys migrate
+ish keys migrate
 
 # Or migrate specific providers
-ae keys migrate openai
-ae keys migrate anthropic
+ish keys migrate openai
+ish keys migrate anthropic
 ```
 
 The migration command will:
@@ -95,13 +95,13 @@ source ~/.config/fish/config.fish
 
 ```bash
 # Check stored keys
-ae keys list
+ish keys list
 
 # Verify specific key (shows masked version)
-ae keys get openai
+ish keys get openai
 
 # Test AI functionality
-ae tui
+ish tui
 # Try an AI command to ensure it works
 ```
 
@@ -115,14 +115,14 @@ If you prefer step-by-step control:
 
 ```bash
 # 1. Store the key
-ae keys store openai sk-proj-YOUR_KEY_HERE
+ish keys store openai sk-proj-YOUR_KEY_HERE
 
 # 2. Verify storage
-ae keys get openai
+ish keys get openai
 # Output: sk-proj...HERE (masked)
 
 # 3. Test
-echo "What is 2+2?" | ae ai
+echo "What is 2+2?" | ish ai
 
 # 4. Remove from environment
 unset OPENAI_API_KEY
@@ -132,10 +132,10 @@ unset OPENAI_API_KEY
 
 ```bash
 # 1. Store the key
-ae keys store anthropic sk-ant-YOUR_KEY_HERE
+ish keys store anthropic sk-ant-YOUR_KEY_HERE
 
 # 2. Verify storage
-ae keys get anthropic
+ish keys get anthropic
 # Output: sk-ant...HERE (masked)
 
 # 3. Remove from environment
@@ -145,8 +145,8 @@ unset ANTHROPIC_API_KEY
 ### Google (Gemini)
 
 ```bash
-ae keys store google YOUR_GOOGLE_API_KEY
-ae keys get google
+ish keys store google YOUR_GOOGLE_API_KEY
+ish keys get google
 unset GOOGLE_API_KEY
 ```
 
@@ -154,8 +154,8 @@ unset GOOGLE_API_KEY
 
 ```bash
 # Generic pattern
-ae keys store <provider> <api-key>
-ae keys get <provider>
+ish keys store <provider> <api-key>
+ish keys get <provider>
 unset <PROVIDER>_API_KEY
 ```
 
@@ -171,16 +171,16 @@ unset <PROVIDER>_API_KEY
 1. Press `Win + R`
 2. Type `control /name Microsoft.CredentialManager`
 3. Click "Windows Credentials"
-4. Look for entries starting with "aethershell:"
+4. Look for entries starting with "ironshell:"
 
 **Manual Storage** (PowerShell):
 ```powershell
-cmdkey /generic:"aethershell:openai" /user:"openai" /pass:"sk-..."
+cmdkey /generic:"ironshell:openai" /user:"openai" /pass:"sk-..."
 ```
 
 **Manual Retrieval**:
 ```powershell
-cmdkey /list | Select-String "aethershell"
+cmdkey /list | Select-String "ironshell"
 ```
 
 ### macOS
@@ -189,17 +189,17 @@ cmdkey /list | Select-String "aethershell"
 
 **View Credentials**:
 1. Open "Keychain Access" app
-2. Search for "aethershell"
+2. Search for "ironshell"
 3. Double-click to view (requires authentication)
 
 **Manual Storage** (Terminal):
 ```bash
-security add-generic-password -a openai -s "aethershell:openai" -w "sk-..."
+security add-generic-password -a openai -s "ironshell:openai" -w "sk-..."
 ```
 
 **Manual Retrieval**:
 ```bash
-security find-generic-password -a openai -s "aethershell:openai" -w
+security find-generic-password -a openai -s "ironshell:openai" -w
 ```
 
 ### Linux
@@ -214,18 +214,18 @@ security find-generic-password -a openai -s "aethershell:openai" -w
 **View Credentials** (GNOME):
 1. Open "Passwords and Keys" (Seahorse)
 2. Look under "Login" keyring
-3. Find entries starting with "aethershell:"
+3. Find entries starting with "ironshell:"
 
 **Manual Storage** (command line):
 ```bash
 # Requires secret-tool
-secret-tool store --label="AetherShell OpenAI" service aethershell username openai
+secret-tool store --label="IronShell OpenAI" service ironshell username openai
 # Enter password when prompted
 ```
 
 **Manual Retrieval**:
 ```bash
-secret-tool lookup service aethershell username openai
+secret-tool lookup service ironshell username openai
 ```
 
 ---
@@ -236,15 +236,15 @@ secret-tool lookup service aethershell username openai
 
 ```bash
 # Interactive (hides input)
-ae keys store openai
+ish keys store openai
 # Prompt: Enter API key for openai:
 
 # Command line (visible in history - less secure)
-ae keys store openai sk-proj-...
+ish keys store openai sk-proj-...
 
 # From file (most secure for bulk operations)
 cat api_keys.txt | while read provider key; do
-    ae keys store $provider $key
+    ish keys store $provider $key
 done
 ```
 
@@ -252,11 +252,11 @@ done
 
 ```bash
 # View masked key
-ae keys get openai
+ish keys get openai
 # Output: sk-proj...1234
 
 # List all stored keys
-ae keys list
+ish keys list
 # Output:
 # ✓ openai        (stored)
 # ✓ anthropic     (stored)
@@ -266,7 +266,7 @@ ae keys list
 
 ```bash
 # Check if key has valid format
-ae keys validate openai
+ish keys validate openai
 
 # Example output:
 # ✓ API key for 'openai' has valid format
@@ -276,24 +276,24 @@ ae keys validate openai
 
 ```bash
 # Interactive confirmation
-ae keys delete openai
+ish keys delete openai
 # Prompt: Delete API key for 'openai'? [y/N]:
 
 # Skip confirmation
-ae keys delete openai --yes
+ish keys delete openai --yes
 ```
 
 ### Migrate Keys
 
 ```bash
 # Migrate all known providers
-ae keys migrate
+ish keys migrate
 
 # Migrate specific provider
-ae keys migrate openai
+ish keys migrate openai
 
 # Skip confirmation prompts
-ae keys migrate --yes
+ish keys migrate --yes
 ```
 
 ---
@@ -332,10 +332,10 @@ ae keys migrate --yes
 The key might not be stored yet. Try:
 ```bash
 # List what's stored
-ae keys list
+ish keys list
 
 # If nothing is shown, migrate or store manually
-ae keys migrate
+ish keys migrate
 ```
 
 ### "API key validation failed"
@@ -349,22 +349,22 @@ Check the key format:
 
 ```bash
 # 1. Verify key is stored
-ae keys get openai
+ish keys get openai
 
 # 2. Check key format
-ae keys validate openai
+ish keys validate openai
 
 # 3. Test with explicit provider
-export AETHER_AI=openai
-echo "Test" | ae ai
+export IRONSHELL_AI=openai
+echo "Test" | ish ai
 
 # 4. Check logs for errors
-ae --verbose ai "Test query"
+ish --verbose ai "Test query"
 ```
 
 ### Environment Variable Fallback
 
-If keyring access fails, AetherShell automatically falls back to environment variables with a warning:
+If keyring access fails, IronShell automatically falls back to environment variables with a warning:
 
 ```
 [SECURITY WARNING] Retrieved openai API key from environment variable
@@ -387,7 +387,7 @@ unset GOOGLE_API_KEY
 
 1. **Use the credential store** for all API keys
    ```bash
-   ae keys store openai sk-...
+   ish keys store openai sk-...
    ```
 
 2. **Remove environment variables** after migration
@@ -397,18 +397,18 @@ unset GOOGLE_API_KEY
 
 3. **Use interactive storage** when possible (no shell history)
    ```bash
-   ae keys store openai  # Prompts for key
+   ish keys store openai  # Prompts for key
    ```
 
 4. **Regularly rotate keys** and update stored values
    ```bash
-   ae keys delete openai
-   ae keys store openai NEW_KEY
+   ish keys delete openai
+   ish keys store openai NEW_KEY
    ```
 
 5. **Validate keys** after storage
    ```bash
-   ae keys validate openai
+   ish keys validate openai
    ```
 
 ### ❌ DON'T
@@ -422,7 +422,7 @@ unset GOOGLE_API_KEY
 2. **Don't use command-line arguments in scripts**
    ```bash
    # BAD - visible in process list
-   ae keys store openai sk-...
+   ish keys store openai sk-...
    ```
 
 3. **Don't commit keys to version control**
@@ -441,8 +441,8 @@ unset GOOGLE_API_KEY
 5. **Don't use same key across environments**
    ```bash
    # Use separate keys for dev/staging/production
-   ae keys store openai-dev sk-dev-...
-   ae keys store openai-prod sk-prod-...
+   ish keys store openai-dev sk-dev-...
+   ish keys store openai-prod sk-prod-...
    ```
 
 ---
@@ -453,15 +453,15 @@ unset GOOGLE_API_KEY
 
 ```bash
 # Store with custom names
-ae keys store openai-personal sk-proj-...
-ae keys store openai-work sk-proj-...
+ish keys store openai-personal sk-proj-...
+ish keys store openai-work sk-proj-...
 
 # Select the provider; its key comes from that provider's own variable.
-# (There is no AETHER_AI_KEY; the source reads AETHER_AI, AETHER_SECRETS and
+# (There is no IRONSHELL_AI_KEY; the source reads IRONSHELL_AI, IRONSHELL_SECRETS and
 # the provider variables below.)
-export AETHER_AI=openai
+export IRONSHELL_AI=openai
 export OPENAI_API_KEY=sk-...
-ae ai "Query"
+ish ai "Query"
 ```
 
 ### Team Sharing (NOT RECOMMENDED)
@@ -477,7 +477,7 @@ If you must share keys with a team:
 # Example with AWS Secrets Manager
 aws secretsmanager get-secret-value --secret-id openai-key \
   | jq -r .SecretString \
-  | ae keys store openai
+  | ish keys store openai
 ```
 
 ### Automated Deployment
@@ -487,14 +487,14 @@ aws secretsmanager get-secret-value --secret-id openai-key \
 # deploy.sh - Store keys from CI/CD secrets
 
 # Keys injected as CI variables
-ae keys store openai "$CI_OPENAI_KEY"
-ae keys store anthropic "$CI_ANTHROPIC_KEY"
+ish keys store openai "$CI_OPENAI_KEY"
+ish keys store anthropic "$CI_ANTHROPIC_KEY"
 
 # Verify storage
-ae keys list
+ish keys list
 
 # Run application
-ae tui
+ish tui
 ```
 
 ### Backup and Restore
@@ -521,10 +521,10 @@ security import backup.p12 -k ~/Library/Keychains/login.keychain-db
 **Linux** (Secret Service):
 ```bash
 # Export (requires manual re-entry)
-secret-tool search service aethershell
+secret-tool search service ironshell
 
 # Restore
-# Manual ae keys store commands
+# Manual ish keys store commands
 ```
 
 ---
@@ -533,7 +533,7 @@ secret-tool search service aethershell
 
 ### Q: Can I still use environment variables?
 
-**A**: Yes, but it's not recommended. AetherShell falls back to environment variables if keyring access fails, but you'll see security warnings:
+**A**: Yes, but it's not recommended. IronShell falls back to environment variables if keyring access fails, but you'll see security warnings:
 
 ```
 [SECURITY WARNING] Retrieved openai API key from environment variable
@@ -559,8 +559,8 @@ secret-tool search service aethershell
 
 **A**: Simply delete the old key and store the new one:
 ```bash
-ae keys delete openai
-ae keys store openai NEW_KEY
+ish keys delete openai
+ish keys store openai NEW_KEY
 ```
 
 ### Q: Does this work in Docker containers?
@@ -575,9 +575,9 @@ ae keys store openai NEW_KEY
 ## Migration Checklist
 
 - [ ] List current API keys in environment (`env | grep API_KEY`)
-- [ ] Run migration command (`ae keys migrate`)
-- [ ] Verify keys stored (`ae keys list`)
-- [ ] Test AI functionality (`ae tui`)
+- [ ] Run migration command (`ish keys migrate`)
+- [ ] Verify keys stored (`ish keys list`)
+- [ ] Test AI functionality (`ish tui`)
 - [ ] Remove environment variables from shell config
 - [ ] Reload shell configuration
 - [ ] Verify environment clean (`env | grep API_KEY` should be empty)
@@ -598,7 +598,7 @@ If you encounter issues during migration:
 
 2. **Enable verbose logging**:
    ```bash
-   ae --verbose keys store openai
+   ish --verbose keys store openai
    ```
 
 3. **Review security documentation**:

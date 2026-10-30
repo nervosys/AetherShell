@@ -1,7 +1,7 @@
 // E3b -- does "every failure is branchable" hold across the whole catalogue?
 //
 // E3 (`errors.mjs`) measures ten failures an agent actually causes, chosen to
-// be representative, and AetherShell codes all ten. That is a real result about
+// be representative, and IronShell codes all ten. That is a real result about
 // ten cases and it is worth knowing how far it generalises, because a benchmark
 // of hand-picked cases flattering the party who picked them is the criticism
 // `docs/TYPED_SHELL_RESPONSE.md` makes of other people's benchmarks.
@@ -11,8 +11,8 @@
 //
 //   node benches/agentic/uncoded.mjs
 //
-// **Safety.** Every call runs through `ae --agent --policy strict --workspace
-// <jail>` with `AETHER_MAX_NET=0`, in a throwaway directory. The effect gate
+// **Safety.** Every call runs through `ish --agent --policy strict --workspace
+// <jail>` with `IRONSHELL_MAX_NET=0`, in a throwaway directory. The effect gate
 // refuses anything classified dangerous *before the body runs*, so this does
 // not rest on anyone's judgement about which builtins are safe to poke -- it
 // rests on the gate built for exactly that. A policy refusal is coded by
@@ -24,7 +24,7 @@
 //     461  accepted it and answered
 //     285  E_BAD_ARG
 //     142  E_NEEDS_APPROVAL   (the gate, correctly)
-//      96  E_BUDGET_EXCEEDED  (AETHER_MAX_NET=0, correctly)
+//      96  E_BUDGET_EXCEEDED  (IRONSHELL_MAX_NET=0, correctly)
 //      31  E_TOOL_MISSING
 //      12  E_UNKNOWN_BUILTIN
 //       5  E_TOOL_FAILED
@@ -145,11 +145,11 @@ process.on('exit', () => fs.rmSync(JAIL, { recursive: true, force: true }));
 // "accepted it and answered". Found by sweeping the same table in-process,
 // where there is no timeout and the run simply hung on the 15th builtin.
 const run = (code) => {
-    const r = spawnSync('ae', ['--agent', '--policy', 'strict', '--workspace', JAIL, '-c', code], {
+    const r = spawnSync('ish', ['--agent', '--policy', 'strict', '--workspace', JAIL, '-c', code], {
         cwd: JAIL,
         encoding: 'utf8',
         timeout: 10000,
-        env: { ...process.env, ...SCRATCH_HOME, AETHER_MAX_NET: '0' },
+        env: { ...process.env, ...SCRATCH_HOME, IRONSHELL_MAX_NET: '0' },
     });
     const out = ((r.stdout ?? '') + (r.stderr ?? '')).trim();
     // Node reports a timeout kill as SIGTERM with a null status.
@@ -158,17 +158,17 @@ const run = (code) => {
 
 const probe = run('1 + 1');
 if (probe !== '2') {
-    console.error(`! \`ae\` is not answering (got ${JSON.stringify(probe)}); is it on PATH?`);
+    console.error(`! \`ish\` is not answering (got ${JSON.stringify(probe)}); is it on PATH?`);
     process.exit(2);
 }
 
-// The `ae` on PATH must be newer than the sources, or this measures a shell
+// The `ish` on PATH must be newer than the sources, or this measures a shell
 // that no longer exists. Found the hard way: a stale `release/ae` five days
 // behind `src/` reported `head` and `uniq` -- the two the census docstring
 // cites as fixed -- still uncoded, and would have restated a solved problem
 // as an open one. Quoting a number from the wrong binary is the same error
 // as quoting the edit count instead of the sweep, one level further out.
-const AE = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['ae'], {
+const AE = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['ish'], {
     encoding: 'utf8',
 })
     .stdout?.split('\n')[0]
@@ -185,7 +185,7 @@ try {
     }
 } catch (e) {
     // Not being able to check is not the same as being stale, but say so.
-    console.error(`! could not compare \`ae\` against the sources (${e.message});`);
+    console.error(`! could not compare \`ish\` against the sources (${e.message});`);
     console.error('  the numbers below are only as fresh as whatever is on PATH.');
 }
 

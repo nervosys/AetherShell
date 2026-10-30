@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AetherShell Playground</title>
+    <title>IronShell Playground</title>
     <style>
         :root {
             --bg-dark: #1e1e2e;
@@ -304,7 +304,7 @@
     <header>
         <div class="logo">
             <div class="logo-icon">Æ</div>
-            <h1>AetherShell Playground</h1>
+            <h1>IronShell Playground</h1>
             <span class="version" id="version">Loading...</span>
         </div>
         <div class="header-actions">
@@ -321,7 +321,7 @@
                 <span class="keyboard-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run</span>
             </div>
             <div class="panel-content">
-                <textarea id="editor" spellcheck="false" placeholder="// Enter AetherShell code here...
+                <textarea id="editor" spellcheck="false" placeholder="// Enter IronShell code here...
 // Example: [1, 2, 3] | map(fn(x) => x * 2)"></textarea>
             </div>
         </div>
@@ -335,7 +335,7 @@
                 <div id="output">
                     <div class="loading" id="loading">
                         <div class="spinner"></div>
-                        <span>Loading AetherShell WASM...</span>
+                        <span>Loading IronShell WASM...</span>
                     </div>
                 </div>
             </div>
@@ -345,7 +345,7 @@
     <!-- Example snippets -->
     <script>
         const EXAMPLES = {
-            "Hello World": 'print("Hello, AetherShell!")',
+            "Hello World": 'print("Hello, IronShell!")',
             "Pipelines": '[1, 2, 3, 4, 5] | map(fn(x) => x * x) | where(fn(x) => x > 5)',
             "Reduce": '[1, 2, 3, 4, 5] | reduce(fn(a, b) => a + b, 0)',
             "Records": 'let person = { name: "Alice", age: 30 }\nperson.name',
@@ -357,20 +357,20 @@
             "Nested Data": 'let data = [\n  { name: "A", value: 10 },\n  { name: "B", value: 20 }\n]\ndata | map(fn(r) => r.value) | avg',
         };
 
-        // AetherShell WASM instance
-        let aethershell = null;
+        // IronShell WASM instance
+        let ironshell = null;
 
         // Initialize WASM
         async function initWasm() {
             try {
                 // Try to load the WASM module
-                const wasmModule = await import('./pkg/aether_wasm.js');
+                const wasmModule = await import('./pkg/ironshell_wasm.js');
                 await wasmModule.default();
-                aethershell = new wasmModule.AetherWasm();
+                ironshell = new wasmModule.IronShellWasm();
 
                 document.getElementById('loading').style.display = 'none';
-                document.getElementById('version').textContent = `v${aethershell.version()}`;
-                document.getElementById('output').innerHTML = `<div class="output-info">AetherShell v${aethershell.version()} loaded. ${aethershell.builtins().length} builtins available.</div>`;
+                document.getElementById('version').textContent = `v${ironshell.version()}`;
+                document.getElementById('output').innerHTML = `<div class="output-info">IronShell v${ironshell.version()} loaded. ${ironshell.builtins().length} builtins available.</div>`;
 
                 // Update variable count
                 updateVarCount();
@@ -387,7 +387,7 @@
                     </div>
                 `;
                 // Enable simulation mode for preview
-                aethershell = createSimulator();
+                ironshell = createSimulator();
                 document.getElementById('version').textContent = 'v0.1.2 (sim)';
             }
         }
@@ -423,14 +423,14 @@
         }
 
         function updateVarCount() {
-            if (aethershell) {
-                const vars = aethershell.variables();
+            if (ironshell) {
+                const vars = ironshell.variables();
                 document.getElementById('var-count').textContent = `${vars.length} variable${vars.length !== 1 ? 's' : ''}`;
             }
         }
 
         function runCode() {
-            if (!aethershell) return;
+            if (!ironshell) return;
 
             const editor = document.getElementById('editor');
             const code = editor.value.trim();
@@ -443,7 +443,7 @@
             if (loading) loading.remove();
 
             try {
-                const result = aethershell.eval_display(code);
+                const result = ironshell.eval_display(code);
 
                 const entry = document.createElement('div');
                 entry.className = 'output-entry';
@@ -473,8 +473,8 @@
         }
 
         function resetEnv() {
-            if (aethershell) {
-                aethershell.reset();
+            if (ironshell) {
+                ironshell.reset();
                 clearOutput();
                 document.getElementById('output').innerHTML = '<div class="output-info">Environment reset.</div>';
                 updateVarCount();

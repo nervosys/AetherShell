@@ -65,7 +65,7 @@ test("literals are scoped as constants", async () => {
 
 // ── The regression this suite was written for ────────────────────────────
 
-// Every wrapper here is valid AetherShell. An earlier draft used
+// Every wrapper here is valid IronShell. An earlier draft used
 // `fn f() { ... }`, which the parser rejects: `fn` must be followed
 // immediately by `(`, and the language has no named function declarations.
 // Pinning highlighting for a construct nobody can write is worse than not
@@ -237,14 +237,14 @@ test("record keys are properties, not variables", async () => {
 
 // ── The embedded markdown grammar ────────────────────────────────────────
 
-test("the markdown grammar injects aethershell into fenced blocks", async () => {
-  const md = ["# Title", "", "```ae", 'print("x")', "```", ""].join("\n");
+test("the markdown grammar injects ironshell into fenced blocks", async () => {
+  const md = ["# Title", "", "```ish", 'print("x")', "```", ""].join("\n");
   const tokens = await tokenize(md, MARKDOWN_HOST);
   const hit = tokens.find((t) => t.text === "print");
   assert.ok(hit, "the fenced block was not tokenized at all");
   assert.ok(
-    hit.scopes.some((s) => s.includes("aethershell")),
-    `fenced AetherShell got ${JSON.stringify(hit.scopes)} — the injection selector \
+    hit.scopes.some((s) => s.includes("ironshell")),
+    `fenced IronShell got ${JSON.stringify(hit.scopes)} — the injection selector \
 does not match, so code blocks in READMEs render unhighlighted`,
   );
 });

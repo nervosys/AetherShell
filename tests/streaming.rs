@@ -2,8 +2,8 @@
 //! split into ordered `chunk` events so a client consumes rows incrementally and
 //! can early-stop, instead of receiving one atomic `complete`.
 
-use aethershell::agent_api::server::stream_events_from_response;
-use aethershell::agent_api::AgentResponse;
+use iron_shell::agent_api::server::stream_events_from_response;
+use iron_shell::agent_api::AgentResponse;
 use serde_json::json;
 
 fn resp(result: serde_json::Value, result_type: &str) -> AgentResponse {
@@ -60,14 +60,14 @@ fn failure_emits_error_event() {
 }
 
 // ── Streaming *evaluation* (eval_stream): incremental, stage-by-stage ──────────
-use aethershell::value::Value;
+use iron_shell::value::Value;
 
 fn collect_stream(code: &str) -> (usize, Vec<Value>) {
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
     let mut out: Vec<Value> = Vec::new();
     let n = {
         let mut emit = |v: Value| out.push(v);
-        aethershell::eval::eval_stream(code, &mut env, &mut emit).expect("eval_stream")
+        iron_shell::eval::eval_stream(code, &mut env, &mut emit).expect("eval_stream")
     };
     (n, out)
 }
@@ -107,14 +107,14 @@ fn eval_stream_emits_scalar_once() {
 // able — same values, same order. `StreamStats::pulled` is the number that
 // tells them apart, and these tests assert on it.
 
-use aethershell::eval::StreamStats;
+use iron_shell::eval::StreamStats;
 
 fn stream_stats(code: &str) -> (StreamStats, Vec<Value>) {
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
     let mut out: Vec<Value> = Vec::new();
     let stats = {
         let mut emit = |v: Value| out.push(v);
-        aethershell::eval::eval_stream_with_stats(code, &mut env, &mut emit).expect("eval_stream")
+        iron_shell::eval::eval_stream_with_stats(code, &mut env, &mut emit).expect("eval_stream")
     };
     (stats, out)
 }
@@ -155,7 +155,7 @@ fn a_take_never_abandons_a_stage_that_does_something() {
     // `file_exists` is `ReadLocal`, not `Pure`, so the early exit is withheld
     // and every element still runs — the pipeline streams, it just does not
     // abandon the source.
-    use aethershell::safety::{effect_of, Effect};
+    use iron_shell::safety::{effect_of, Effect};
     assert_ne!(
         effect_of("file_exists"),
         Effect::Pure,
@@ -201,9 +201,9 @@ fn a_taken_pipeline_agrees_with_the_eager_evaluator() {
     let code = "let xs = range(0, 40); xs | map(fn(x) => x * 3) | where(fn(y) => y > 10) | take(4)";
     let (_, streamed) = stream_stats(code);
 
-    let mut env = aethershell::env::Env::new();
-    let stmts = aethershell::parser::parse_program(code).expect("parse");
-    let eager = aethershell::eval::eval_program(&stmts, &mut env).expect("eval");
+    let mut env = iron_shell::env::Env::new();
+    let stmts = iron_shell::parser::parse_program(code).expect("parse");
+    let eager = iron_shell::eval::eval_program(&stmts, &mut env).expect("eval");
     let eager = match eager {
         Value::Array(items) => items,
         other => panic!("expected an array, got {other:?}"),
@@ -219,7 +219,7 @@ fn a_taken_pipeline_agrees_with_the_eager_evaluator() {
 // agreed either way, which is why it survived. The second side effect did not.
 
 /// How many bytes a run of `code` appended to its log.
-fn appends_made(tag: &str, run: impl FnOnce(&str, &mut aethershell::env::Env)) -> String {
+fn appends_made(tag: &str, run: impl FnOnce(&str, &mut iron_shell::env::Env)) -> String {
     let dir = std::env::temp_dir().join(format!("ae_stream_once_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("temp dir");
@@ -232,7 +232,7 @@ fn appends_made(tag: &str, run: impl FnOnce(&str, &mut aethershell::env::Env)) -
     // rejects it — under the eager evaluator too, so the error is not what
     // changed here. The number of appends is.
     let code = format!("file_append(\"{p}\", \"x\") | map(fn(r) => r)");
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
     run(&code, &mut env);
 
     let appended = std::fs::read_to_string(&log).unwrap_or_default();
@@ -244,7 +244,7 @@ fn appends_made(tag: &str, run: impl FnOnce(&str, &mut aethershell::env::Env)) -
 fn a_non_array_pipeline_source_runs_only_once() {
     let appended = appends_made("stream", |code, env| {
         let mut sink = |_v: Value| {};
-        let _ = aethershell::eval::eval_stream_with_stats(code, env, &mut sink);
+        let _ = iron_shell::eval::eval_stream_with_stats(code, env, &mut sink);
     });
     assert_eq!(
         appended, "x",
@@ -258,12 +258,12 @@ fn the_streaming_path_appends_no_more_than_the_eager_one() {
     // The claim is not "once" in the abstract, it is "the same as evaluating it
     // normally". Measured against the eager evaluator rather than a constant.
     let eager = appends_made("eager", |code, env| {
-        let stmts = aethershell::parser::parse_program(code).expect("parse");
-        let _ = aethershell::eval::eval_program(&stmts, env);
+        let stmts = iron_shell::parser::parse_program(code).expect("parse");
+        let _ = iron_shell::eval::eval_program(&stmts, env);
     });
     let streamed = appends_made("vs_eager", |code, env| {
         let mut sink = |_v: Value| {};
-        let _ = aethershell::eval::eval_stream_with_stats(code, env, &mut sink);
+        let _ = iron_shell::eval::eval_stream_with_stats(code, env, &mut sink);
     });
     assert_eq!(streamed, eager, "streaming must not double a side effect");
 }
@@ -277,8 +277,8 @@ fn a_pure_stage_from_the_fallback_half_of_the_dispatcher_short_circuits_too() {
     // source. That was fail-safe, so it cost work rather than correctness, and it
     // could not be widened until something in `src/` could say what the fallback
     // served. `builtins::is_dispatched` can.
-    use aethershell::builtins::{is_dispatched, BUILTIN_LOOKUP};
-    use aethershell::safety::{effect_of, Effect};
+    use iron_shell::builtins::{is_dispatched, BUILTIN_LOOKUP};
+    use iron_shell::safety::{effect_of, Effect};
     assert!(
         !BUILTIN_LOOKUP.contains_key("from_json"),
         "this test is about the fallback half; from_json has moved"
@@ -313,7 +313,7 @@ fn an_undispatched_name_still_blocks_the_short_circuit() {
     // answering `false` means *unknown*, never *harmless*. A user-defined
     // function's body is not visible to this walk, so a `take` downstream of one
     // must still read the whole source.
-    use aethershell::builtins::is_dispatched;
+    use iron_shell::builtins::is_dispatched;
     assert!(!is_dispatched("my_own_fn"));
 
     let (stats, out) = stream_stats(
@@ -376,9 +376,9 @@ fn a_reduce_behind_a_streamed_prefix_agrees_with_the_eager_evaluator() {
     let code = "let xs = range(0, 20); xs | map(fn(x) => x + 1) | reduce(fn(a, b) => a + b, 0)";
     let (stats, out) = stream_stats(code);
 
-    let mut env = aethershell::env::Env::new();
-    let stmts = aethershell::parser::parse_program(code).expect("parse");
-    let eager = aethershell::eval::eval_program(&stmts, &mut env).expect("eager eval");
+    let mut env = iron_shell::env::Env::new();
+    let stmts = iron_shell::parser::parse_program(code).expect("parse");
+    let eager = iron_shell::eval::eval_program(&stmts, &mut env).expect("eager eval");
 
     assert_eq!(out, vec![eager], "streaming and eager must agree");
     assert_eq!(stats.emitted, 1, "a fold emits once");
@@ -391,9 +391,9 @@ fn a_uniq_behind_a_streamed_prefix_agrees_with_the_eager_evaluator() {
     let code = "let xs = range(0, 30); xs | map(fn(x) => x % 4) | uniq()";
     let (stats, out) = stream_stats(code);
 
-    let mut env = aethershell::env::Env::new();
-    let stmts = aethershell::parser::parse_program(code).expect("parse");
-    let eager = aethershell::eval::eval_program(&stmts, &mut env).expect("eager eval");
+    let mut env = iron_shell::env::Env::new();
+    let stmts = iron_shell::parser::parse_program(code).expect("parse");
+    let eager = iron_shell::eval::eval_program(&stmts, &mut env).expect("eager eval");
     let expected = match eager {
         Value::Array(v) => v,
         other => vec![other],
@@ -424,7 +424,7 @@ fn an_effectful_prefix_is_not_abandoned_just_because_a_barrier_follows() {
     // The soundness rule has to survive the split: a `take` may only stop the
     // source when everything upstream of it is effect-free, and moving the
     // barrier out of the streamed region must not smuggle that check away.
-    use aethershell::safety::{effect_of, Effect};
+    use iron_shell::safety::{effect_of, Effect};
     assert_ne!(effect_of("file_exists"), Effect::Pure);
 
     let (stats, _out) = stream_stats(

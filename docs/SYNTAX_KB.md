@@ -6,8 +6,8 @@ A persistent knowledge base system for storing, discovering, and sharing syntax 
 
 The Syntax KB provides:
 
-1. **Persistent Storage** - JSON-based storage at `~/.aethershell/syntax_kb.json`
-2. **Built-in Syntaxes** - Pre-loaded definitions for AgenticBinary, AetherShell, and JSON-RPC
+1. **Persistent Storage** - JSON-based storage at `~/.ironshell/syntax_kb.json`
+2. **Built-in Syntaxes** - Pre-loaded definitions for AgenticBinary, IronShell, and JSON-RPC
 3. **AgenticBinary Protocol** - Maximum information density binary encoding for agent communication
 4. **CRUD Operations** - Full create, read, update, delete, and search capabilities
 5. **Thread-Safe Access** - Global singleton with mutex protection
@@ -71,7 +71,7 @@ v2 Response/SYNC:   0b01100110 [len] [payload]
 #### `syntax_get(id)`
 Retrieve a syntax entry by ID.
 
-```aether
+```ironshell
 ab_syntax = syntax_get("ab")
 print(ab_syntax)
 # => {id: "ab", name: "AgenticBinary Protocol", ...}
@@ -80,9 +80,9 @@ print(ab_syntax)
 #### `syntax_list([category])`
 List all syntax IDs, optionally filtered by category.
 
-```aether
+```ironshell
 all_ids = syntax_list()
-print(all_ids)  # => ["ab", "aethershell", "jsonrpc", ...]
+print(all_ids)  # => ["ab", "ironshell", "jsonrpc", ...]
 
 protocols = syntax_list("protocol")
 print(protocols)  # => ["ab", "jsonrpc"]
@@ -99,7 +99,7 @@ print(protocols)  # => ["ab", "jsonrpc"]
 #### `syntax_search(query)`
 Search syntax entries by keyword (searches name, specification, and ID).
 
-```aether
+```ironshell
 results = syntax_search("binary")
 print(results)  # => ["ab"]  (AgenticBinary matches)
 ```
@@ -107,7 +107,7 @@ print(results)  # => ["ab"]  (AgenticBinary matches)
 #### `syntax_add(record)`
 Add a new syntax entry to the knowledge base.
 
-```aether
+```ironshell
 custom_syntax = {
     id: "http",
     name: "HTTP Protocol",
@@ -132,7 +132,7 @@ syntax_add(custom_syntax)
 #### `syntax_categories()`
 List all available syntax categories.
 
-```aether
+```ironshell
 # Note: Zero-arg functions must be called, but empty () may have parsing issues
 # Recommended: Access via pipeline or with explicit arguments
 categories = syntax_categories
@@ -143,7 +143,7 @@ categories = syntax_categories
 #### `ab_encode(msg_type, opcode, payload)`
 Encode an AgenticBinary message.
 
-```aether
+```ironshell
 # Using string names
 ping_bytes = ab_encode("command", "ping", "hello")
 print(ping_bytes)
@@ -184,7 +184,7 @@ collab_bytes = ab_encode("command", "collaborate", "agent_2,agent_3")
 #### `ab_decode(bytes)`
 Decode an AgenticBinary message.
 
-```aether
+```ironshell
 ping_bytes = ab_encode("command", "ping", "hello")
 decoded = ab_decode(ping_bytes)
 print(decoded)
@@ -210,7 +210,7 @@ print(decoded)
 
 ## Multi-Agent Communication Example
 
-```aether
+```ironshell
 # Agent 1 sends a LEARN message
 learn_msg = ab_encode("command", "learn", "syntax:agenticbinary")
 print(ab_decode(learn_msg))
@@ -246,7 +246,7 @@ print(ab_decode(data_msg))
 
 ### Module Structure
 - **Location**: `src/syntax_kb.rs` (650+ lines)
-- **Storage**: `~/.aethershell/syntax_kb.json`
+- **Storage**: `~/.ironshell/syntax_kb.json`
 - **Access**: Global singleton `SYNTAX_KB` with `OnceLock<Mutex>`
 
 ### Data Structures
@@ -258,7 +258,7 @@ print(ab_decode(data_msg))
 
 ### Built-in Syntax Definitions
 1. **AgenticBinary (ab)** - Binary protocol with full specification
-2. **AetherShell** - Shell language reference
+2. **IronShell** - Shell language reference
 3. **JSON-RPC 2.0** - RPC protocol specification
 
 ### Thread Safety
@@ -268,7 +268,7 @@ static SYNTAX_KB: OnceLock<Mutex<SyntaxKB>> = OnceLock::new();
 ```
 
 ### Persistence
-- Auto-loads from `~/.aethershell/syntax_kb.json` on first access
+- Auto-loads from `~/.ironshell/syntax_kb.json` on first access
 - Creates directory structure if needed
 - Saves after each modification via `syntax_add()`
 
@@ -298,7 +298,7 @@ All 4 tests pass:
 
 Run the comprehensive demonstration:
 ```bash
-ae examples/12_syntax_kb.ae
+ish examples/12_syntax_kb.ish
 ```
 
 This showcases:

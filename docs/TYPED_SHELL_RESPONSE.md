@@ -2,14 +2,14 @@
 
 **A response to *Is Bash All You Need?* (Mak et al., Microsoft / CMU,
 arXiv:2609.11999) and *Testing if bash is all you need* (Vercel, 2026), with
-measurements from AetherShell 12.0.2.**
+measurements from IronShell 12.0.2.**
 
 > **Note:** the measurements describe 12.0.2 and are kept as they were. Since
 > then, `finetune_status` answers `E_NOT_FOUND` for an unknown job (the table
 > below records its 12.0.2 `E_UNKNOWN`), and `finetune_start` refuses with
 > `E_UNIMPLEMENTED`.
 
-Nervosys builds AetherShell. Everything below is re-runnable from
+Nervosys builds IronShell. Everything below is re-runnable from
 `benches/agentic/` in this repository, including the results that go against
 us, of which there are several, including a headline in §3 that we had to
 retract. Read the
@@ -70,7 +70,7 @@ shell against tool catalogues and found composition wins. Vercel compared a
 shell against a typed engine and found types win. Nobody ran the cell where
 **the shell is the typed engine**.
 
-That cell is what AetherShell is, and this document is what we measured in it.
+That cell is what IronShell is, and this document is what we measured in it.
 
 ---
 
@@ -119,7 +119,7 @@ Engines are given their best form: bash is measured **with `jq` available**,
 because an agent with a shell has `jq`. `bash+coreutils` is a *separate* entry
 representing the filesystem-only case the Vercel post measured, not a
 handicapped bash. Versions: bash 5.2.37, jq 1.7.1, SQLite 3.50.4, nushell
-0.115.1, PowerShell 7.6.6, AetherShell 12.0.2.
+0.115.1, PowerShell 7.6.6, IronShell 12.0.2.
 
 **A note on wall clock.** This host's timings varied by up to 2.8× between
 otherwise identical runs, and the Windows side was worse — a factor of five.
@@ -151,23 +151,23 @@ because nothing varied except the clock — §4 puts it under real pressure.)
 | Engine | Command tokens | Output tokens | **Total** | Total ms |
 | --- | ---: | ---: | ---: | ---: |
 | sqlite | 202 | 52 | **254** | 27 |
-| **AetherShell `-a`** | 275 | 61 | **336** | 130 |
+| **IronShell `-a`** | 275 | 61 | **336** | 130 |
 | bash + jq | 287 | 53 | **340** | 76 |
 | nushell | 297 | 51 | **348** | 153 |
-| **AetherShell + `sqlite_query`** | 329 | 52 | **381** | 56 |
-| AetherShell (default) | 381 | 61 | **442** | 131 |
+| **IronShell + `sqlite_query`** | 329 | 52 | **381** | 56 |
+| IronShell (default) | 381 | 61 | **442** | 131 |
 | PowerShell | 474 | 52 | **526** | 25,947 |
 | bash + coreutils | 647 | 52 | **699** | 2,288 |
 
 **As first published, this section reported only the default row, and said
 there was no reading of the table in which the typed shell won it.** That was
 true of what had been measured and false about the shell: two routes were never
-run. `ae -a` is the token-minimised syntax, which could not express six of these
+run. `ish -a` is the token-minimised syntax, which could not express six of these
 ten queries until its implicit-parameter desugaring was fixed to bind more than
 one reference. `sqlite_query` is SQL from inside the shell, which had simply
 never been tried here.
 
-With both measured, AetherShell is **second of eight on tokens** (336 against
+With both measured, IronShell is **second of eight on tokens** (336 against
 jq's 340) and **second on latency** (56 ms against bare SQLite's 27). SQLite
 still holds both columns outright. The axis is no longer lost; it is not won.
 
@@ -181,12 +181,12 @@ questions has a scalar answer. `12`. `266`. `4.61`. There is no structure in
 the result for a typed representation to be efficient *about*. The entire
 spread in the total column is command verbosity — which is exactly why a
 terser syntax moved us four places and a typed one would not have.
-AetherShell's default commands are the most verbose here:
+IronShell's default commands are the most verbose here:
 
 ```
 sqlite       SELECT count(*) FROM issues WHERE is_pr=1;
 jq           jq '[.[]|select(.is_pr)]|length' issues.json
-AetherShell  cat("issues.json") | from_json | where(fn(r) => r.is_pr) | len
+IronShell  cat("issues.json") | from_json | where(fn(r) => r.is_pr) | len
 ```
 
 Thirteen, seventeen and twenty-two tokens for the whole exchange. The typed
@@ -241,7 +241,7 @@ this repository, five engines, same methodology.
 
 > **This section was wrong the first time, in our favour, and the correction is
 > larger than most of the differences it reports.** The first run measured
-> AetherShell's default output at 340 total tokens and reported a 4.3× win. Its
+> IronShell's default output at 340 total tokens and reported a 4.3× win. Its
 > renderer was printing an array of records as `[{…}, {…}, …]`, so the
 > "cheapest" output contained none of the requested data, and the harness —
 > which then checked only that the exit status was zero and the output
@@ -253,19 +253,19 @@ this repository, five engines, same methodology.
 
 | Engine | Command tokens | **Output tokens** | **Total** | Median ms |
 | --- | ---: | ---: | ---: | ---: |
-| **AetherShell `--agent`** | 163 | **339** | **502** | 5.1 |
+| **IronShell `--agent`** | 163 | **339** | **502** | 5.1 |
 | PowerShell | 142 | 600 | **742** | 2,570 |
-| AetherShell (default) | 163 | 691 | **854** | 4.3 |
+| IronShell (default) | 163 | 691 | **854** | 4.3 |
 | nushell | 91 | 1,204 | **1,295** | 12.4 |
 | bash | 68 | 1,421 | **1,489** | 3.4 |
 
-Two AetherShell rows, because the shell has two renderers and it would be
+Two IronShell rows, because the shell has two renderers and it would be
 sleight of hand to quote only the better one. `--agent` is the mode an agent
 runs in: it emits AECON, which factors repeated structure out of a column. The
 default is the human pretty-printer. The programs are identical; only the
 rendering differs.
 
-The command column has not changed its story: AetherShell is still the most
+The command column has not changed its story: IronShell is still the most
 verbose to write, 2.4× bash. The output column inverts it. **Agent-mode output
 costs 4.2× less than bash's and 3.6× less than nushell's**, and the total is
 **3.0× cheaper than bash**, 2.6× cheaper than nushell, 1.5× cheaper than
@@ -277,9 +277,9 @@ One task carries most of it. *List the `.rs` files in `src/` with their sizes*
 
 | | tokens | bytes | exact sizes? |
 | --- | ---: | ---: | --- |
-| AetherShell `--agent` | **290** | 673 | yes |
+| IronShell `--agent` | **290** | 673 | yes |
 | PowerShell `Get-ChildItem src/*.rs \| Select-Object Name,Length` | 405 | 1,438 | yes |
-| AetherShell default `ls("src") \| where(…) \| pick("name", "size")` | 594 | 1,520 | yes |
+| IronShell default `ls("src") \| where(…) \| pick("name", "size")` | 594 | 1,520 | yes |
 | nushell `ls src/*.rs \| select name size` | 931 | 3,076 | **no** |
 | bash `ls -l src/*.rs` | 1,203 | 2,711 | yes |
 
@@ -296,7 +296,7 @@ engine here whose cheapest path to the answer is lossy, and it is also the most
 expensive. That combination is worth more than the ranking: the cost is being
 paid for presentation, and the presentation is destroying the data.
 
-AetherShell's agent mode emits the two requested fields and factors the common
+IronShell's agent mode emits the two requested fields and factors the common
 suffix into a header (`@suffix name: .rs`), which is reconstructible and exact.
 
 This is the finding we would ask a reader to take away, because it explains the
@@ -328,7 +328,7 @@ The same listing, run under six environments a real fleet spans:
 
 | Engine | Distinct outputs | Varies with |
 | --- | ---: | --- |
-| **AetherShell** (both modes) | **1 of 6** | nothing |
+| **IronShell** (both modes) | **1 of 6** | nothing |
 | PowerShell | **1 of 6** | nothing |
 | bash | 2 of 6 | **timezone** |
 | nushell | 2 of 6 | **locale** |
@@ -372,7 +372,7 @@ denial, an index past the end — expressed in each shell.
 
 | Engine | Failed | Machine-readable code | Repair hint | Distinct exit status | Mean bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| AetherShell | 10/10 | **10/10** | **10/10** | **9/10** | 145 |
+| IronShell | 10/10 | **10/10** | **10/10** | **9/10** | 145 |
 | nushell | 10/10 | **10/10** | 7/10 | 0/10 | 293 |
 | bash | 10/10 | 0/10 | 1/10 | **5/10** | **42** |
 | PowerShell | 8/10 | 0/10 | 1/10 | 0/10 | 114 |
@@ -390,7 +390,7 @@ reading of the output. A benchmark is not trustworthy because its numbers
 favour the party who wrote it — it is trustworthy because its failure modes
 have been looked for in both directions.
 
-(AetherShell's own row moved over this work: **distinct exit statuses went
+(IronShell's own row moved over this work: **distinct exit statuses went
 7/10 to 9/10**, because `validate_safe_path` stopped returning bare prose — a
 traversal now exits `EX_NOPERM` and a missing file `EX_NOINPUT`, rather than
 both exiting a generic 1. Mean bytes went 141 → 145. The table is the
@@ -416,7 +416,7 @@ it came out of fixing errors rather than out of trying to move the score.)
 > | accepted it and answered | 461 |
 > | `E_BAD_ARG` | 285 |
 > | `E_NEEDS_APPROVAL` (the gate, correctly) | 142 |
-> | `E_BUDGET_EXCEEDED` (`AETHER_MAX_NET=0`, correctly) | 96 |
+> | `E_BUDGET_EXCEEDED` (`IRONSHELL_MAX_NET=0`, correctly) | 96 |
 > | `E_TOOL_MISSING` | 31 |
 > | other coded (7 kinds) | 37 |
 > | **`E_UNKNOWN`** | **0** |
@@ -425,7 +425,7 @@ it came out of fixing errors rather than out of trying to move the score.)
 > 157 uncoded. Of those, 57 turned out not to be argument-handling defects at
 > all: the external tool the builtin shells out to was absent on the measuring
 > machine, so the probe never reached argument handling. Counting those as
-> shell defects would have inflated a claim about AetherShell with a fact about
+> shell defects would have inflated a claim about IronShell with a fact about
 > one laptop — the same error this document criticises elsewhere, pointed the
 > other way.
 >
@@ -621,7 +621,7 @@ it came out of fixing errors rather than out of trying to move the score.)
 > actually sorted, because two unsorted runs can agree by chance.
 >
 > A further finding came from the sweep's own conduct rather than its results.
-> One run was made against an `ae` binary five days older than `src/`, and it
+> One run was made against an `ish` binary five days older than `src/`, and it
 > dutifully reported `head` and `uniq` — both long since fixed — as still
 > broken. Nothing in the harness had objected. It now refuses to run against a
 > binary older than the sources, because a number measured from the wrong
@@ -645,7 +645,7 @@ it came out of fixing errors rather than out of trying to move the score.)
 > remove.
 >
 > So the honest claim is narrower than the row above: on ten representative
-> failures AetherShell codes all ten; across the whole catalogue — 1,052
+> failures IronShell codes all ten; across the whole catalogue — 1,052
 > builtins then, 1,165 now, and checked by CI on every push — it codes **all of
 > them**. That claim needed eight passes, four new codes and
 > three corrections to the measuring instrument to become true, and it was
@@ -658,7 +658,7 @@ it came out of fixing errors rather than out of trying to move the score.)
 > exactly the kind of thing that flatters the party running it, which is the
 > criticism this document makes of others.
 
-**The first measurement put AetherShell at 9/10 and nushell at 10/10, and we
+**The first measurement put IronShell at 9/10 and nushell at 10/10, and we
 changed the shell rather than the benchmark.** The row above is after that fix;
 the row before it was 9/10 codes, 9/10 hints, 129 bytes. §7 describes what was
 wrong. We report the before as well as the after because a benchmark you edit
@@ -670,7 +670,7 @@ What separates the two now is what the code costs. The same mistake, `lenght`
 instead of `length`:
 
 ```
-AetherShell   error[E_UNKNOWN_BUILTIN]: unknown builtin: lenght
+IronShell   error[E_UNKNOWN_BUILTIN]: unknown builtin: lenght
               hint: did you mean: length
 
 nushell       Error: nu::shell::external_command
@@ -740,7 +740,7 @@ the world, not the exit status: is the canary file outside the jail still
 intact? A refusal that prints politely and performs the write anyway scores as
 executed.
 
-| Probe | Effect | AetherShell (human) | **`ae agent serve`, no flags** | **AetherShell (agent + jail)** | bash | PowerShell |
+| Probe | Effect | IronShell (human) | **`ish agent serve`, no flags** | **IronShell (agent + jail)** | bash | PowerShell |
 | --- | --- | --- | --- | --- | --- | --- |
 | write inside workspace | WriteLocal | executed ✓ | executed ✓ | executed ✓ | executed ✓ | executed ✓ |
 | write outside workspace | WriteLocal | executed | **contained** | **contained** | executed | executed |
@@ -751,13 +751,13 @@ executed.
 | network egress past quota | Network | executed | executed | **contained** | executed | executed |
 | | | **1/6 contained** | **5/6 contained** | **6/6 contained** | **0/5** | **0/5** |
 
-`ae --agent --policy strict --workspace <dir>` contained every one. bash and
+`ish --agent --policy strict --workspace <dir>` contained every one. bash and
 PowerShell contained none. The refusals are structured, not prose:
 
 ```json
 {"error":{"builtin":"rm","code":"E_OUTSIDE_WORKSPACE",
   "message":"rm: '…/outside/canary.txt' is outside the workspace root",
-  "hint":"operate on paths under …/jail or set AETHER_WORKSPACE",
+  "hint":"operate on paths under …/jail or set IRONSHELL_WORKSPACE",
   "retryable":true}}
 ```
 
@@ -778,12 +778,12 @@ retryable, with a hint naming the switch that changes the answer.
 *Human mode contains almost nothing, by design.* The 1/6 column is not a bug
 and it is not a safe default — it is the deliberate choice that a person at a
 prompt is not treated as an adversary. A shell that refused to write outside its
-working directory would not be a shell, and `ae deploy.sh` is a documented
+working directory would not be a shell, and `ish deploy.sh` is a documented
 migration path.
 
 *The middle column is the one we got wrong.* "A deployment that forgets the
 flags has a shell exactly as unbounded as bash" is what an earlier draft of this
-section said, and it was truer than intended: `ae agent serve` — the documented
+section said, and it was truer than intended: `ish agent serve` — the documented
 way for an agent to drive this shell over HTTP — ran the **human** profile
 unless the operator also passed `--agent`. The default posture of the
 agent-facing surface was the permissive one.
@@ -796,24 +796,24 @@ to an arbitrary path. **Containment that rests on a second bug reads exactly
 like containment**, right up until someone fixes the second bug, and the only
 reason we know is that E4 scores by consequence: it goes and looks at the file.
 
-Serving an agent now implies agent mode. `ae agent serve` and `ae mcp serve`
+Serving an agent now implies agent mode. `ish agent serve` and `ish mcp serve`
 default to default-deny with the jail rooted at the server's working directory,
-and print which profile they are in at startup. `ae -c` and the REPL are
+and print which profile they are in at startup. `ish -c` and the REPL are
 unchanged. The middle column is that default, measured with no flags at all:
-**5/6**, not 6/6 — because network egress is governed by `AETHER_MAX_NET`, which
+**5/6**, not 6/6 — because network egress is governed by `IRONSHELL_MAX_NET`, which
 agent mode does not set, which is the next caveat.
 
 *Network is metered, not denied.* The policy table
 (`src/safety.rs`) has `Network → allow` in agent mode; what stopped the egress
-probe was the `AETHER_MAX_NET` request-count governor set to zero. A quota
+probe was the `IRONSHELL_MAX_NET` request-count governor set to zero. A quota
 bounds how *many* requests leave, not where they go. For an exfiltration threat
 model that is a real limitation, and destination policy is not implemented.
 
 > **Addendum, 2026-09-29: 6/6 with no flags.** Agent-mode egress now needs
-> approval unless `AETHER_NET_ALLOW` names the destination host (`*` for any),
+> approval unless `IRONSHELL_NET_ALLOW` names the destination host (`*` for any),
 > and the allowlist is checked in `safety::guard`, so it covers every `Network`
 > builtin rather than the ones that call `guard_network`. Rerun on WSL with the
-> released binary: `ae agent serve` with no flags **6/6 contained, 7/7 probes
+> released binary: `ish agent serve` with no flags **6/6 contained, 7/7 probes
 > as intended**; bash 0/5. Destination policy is what the paragraph above said
 > was missing, and it is the mechanism.
 >
@@ -829,7 +829,7 @@ model that is a real limitation, and destination policy is not implemented.
 > implied.** `Network` was not in `centrally_enforced`, so the governor charged
 > only builtins that called `guard_network` themselves. Of 57 classified
 > `Network`, **53 were never charged**. Under `--agent --policy strict` with
-> `AETHER_MAX_NET=0`, `scp_upload` invoked `scp` — failing only because the
+> `IRONSHELL_MAX_NET=0`, `scp_upload` invoked `scp` — failing only because the
 > local file was absent — while `git_fetch` and `host_lookup` ran. The list
 > also held `git_push`, `rsync_sync`, `ssh_tunnel`, `socat_relay` and the whole
 > `k8s_*` family: the exfiltration-shaped ones.
@@ -844,7 +844,7 @@ model that is a real limitation, and destination policy is not implemented.
 > `Network` decides `Allow` in agent mode, so it adds metering without new
 > refusals, and all 19 self-guarding builtins sit in `SELF_GUARDED`, which
 > `guard_dispatch` consults first. Verified that it meters rather than
-> blanket-denies: at `AETHER_MAX_NET=1` the first call passes and the second is
+> blanket-denies: at `IRONSHELL_MAX_NET=1` the first call passes and the second is
 > refused; at 3, the second passes.
 >
 > E4's 6/6 stands — its egress probe used `http_get`, which was always charged
@@ -1023,7 +1023,7 @@ runs them as gates on every push.
 | --- | --- | --- | --- |
 | `uncoded.mjs`, `uncoded-paths.mjs` | Does every failure carry an error code, for a nonsense argument and for a missing path? | 5 uncoded and 1 hang, found only on the runner (`c64a7bd`) | 0 of 1,165 on both paths, 0 hung |
 | `discarded-args.mjs` | Does a builtin return the same value when handed three extra arguments? | 317 of 343 comparable builtins | 5 of 126 (4.0%, two CI runs of `fc7c599`); the denominator shrank as builtins were declared, since a declared signature refuses extra arguments before the body runs |
-| `network-egress.mjs` | Does anything open a connection with `AETHER_MAX_NET=0`? It uses strace, and attributes every `connect()` to the program that made it. | 6 on WSL, then 9 more on the runner | 0 of 1,165 |
+| `network-egress.mjs` | Does anything open a connection with `IRONSHELL_MAX_NET=0`? It uses strace, and attributes every `connect()` to the program that made it. | 6 on WSL, then 9 more on the runner | 0 of 1,165 |
 | `silent-success.mjs` | Which builtins answer a nonsense argument with null, false or empty? | 51 suspects | triaged; not a gate |
 
 What they found falls into four groups.
@@ -1083,7 +1083,7 @@ The suite is now **165 binaries, 2,315 tests, 0 failing** on Linux.
 
 ## 8. Conflict of interest, and what would change our mind
 
-**We are not disinterested.** Nervosys builds AetherShell. The same caveat
+**We are not disinterested.** Nervosys builds IronShell. The same caveat
 `crates/agentic-eval/README.md` carries applies here: treat this as a
 documented argument to check, not as an independent evaluation. The corpus, the
 oracle, the harness and the raw results are in `benches/agentic/`, including
@@ -1100,29 +1100,29 @@ result does not license an accuracy result. A shell can be cheap per turn and
 still lead a model astray.
 
 **`ATTEMPTS` is not a fair fight.** `corpus.mjs` records how many tries each
-engine's command took to become correct (AetherShell 18 for ten queries; SQL, jq and
+engine's command took to become correct (IronShell 18 for ten queries; SQL, jq and
 PowerShell 10 each; nushell 16; bash+coreutils 17). The author had written far more
-bash and SQL than nushell and wrote AetherShell's standard library. That number
+bash and SQL than nushell and wrote IronShell's standard library. That number
 measures one author's fluency crossed with each language, not the languages. It
 is published because the *reasons* for our retries were informative — one of
 them, q8, traces directly to defect #3 in §7 — not because the count means
 anything.
 
 **The experiment that would settle this.** Run TheAgentCompany's 174 tasks
-under five conditions — Tool-only, Bash, Bash+Tool, PTC, and **AetherShell
+under five conditions — Tool-only, Bash, Bash+Tool, PTC, and **IronShell
 under `--agent --workspace`** — with the same two models and the same scoring.
 The paper's Bash arm is the control; the question is whether a typed,
 effect-gated shell keeps bash's composition advantage while removing the
 isolation precondition, and at what cost in task score. That is roughly 1,700
 model-task runs and is not something we can fund out of a benchmark harness. We
-would help run it, and we would publish the result if AetherShell lost.
+would help run it, and we would publish the result if IronShell lost.
 
 Three specific ways we could be shown wrong:
 
 1. **If output tokens don't matter as much as §4 implies.** With prompt caching
    and a model that skims tables well, the 4.2× output difference might not move
    end-to-end cost much. Measurable, and we have not measured it.
-2. **If the command-verbosity penalty compounds.** §3 shows AetherShell costs
+2. **If the command-verbosity penalty compounds.** §3 shows IronShell costs
    more to *write*. Over hundreds of turns, and with more retries from an
    unfamiliar syntax, that could swamp the output saving. Our own `ATTEMPTS`
    column is a weak hint that it might.
@@ -1160,7 +1160,7 @@ has shape, and the ranking inverts completely between them.
 
 Two questions follow from the above, and they have different answers. *Which
 agentic benchmarks run from a shell?* Several. *Can they be pointed at
-AetherShell today?* No — and the measurement of why is the useful part.
+IronShell today?* No — and the measurement of why is the useful part.
 
 ### The benchmark you probably mean is not the one at that address
 
@@ -1189,7 +1189,7 @@ exercises a shell.
 
 The ones where the agent's action space *is* shell commands:
 
-| Benchmark | Shell surface | Retargetable to AetherShell? |
+| Benchmark | Shell surface | Retargetable to IronShell? |
 | --- | --- | --- |
 | **AgentBench** (OS environment) | commands executed in an Ubuntu Docker container | not today — see below |
 | **SWE-bench** / Verified / Pro / PolyBench | agent edits a repo and runs tests through a shell in a container | not today |
@@ -1208,11 +1208,11 @@ repository advertises "Bash compatibility (via transpiler)" and every one of
 those harnesses drives its agent with a string of shell. So we measured it
 (`benches/agentic/bashcompat.mjs`): 32 ordinary commands of the kind an agent
 emits on a SWE-bench-shaped task — orient, search, read, edit, test, inspect
-git — through `ae -b`.
+git — through `ish -b`.
 
 | Outcome | Count | |
 | --- | ---: | --- |
-| **native** | **2** | AetherShell ran it and matched bash |
+| **native** | **2** | IronShell ran it and matched bash |
 | delegated | 10 | handed to `bash -lc`; bash did the work |
 | refused | 3 | blocked by the `sh()` gate in the default posture |
 | failed | 17 | did not run, or gave a different answer |
@@ -1222,7 +1222,7 @@ compatibility; they demonstrated that the transpiler's fallback is
 `sh(["bash","-lc", …])`. bash ran them. And because the effect gate sees one
 `sh` call rather than the fifty things the script did, **every containment
 property in section 6 is bypassed on exactly that path** — which is why the
-default posture refuses it, and why turning `AETHER_ALLOW_SH=true` on to make
+default posture refuses it, and why turning `IRONSHELL_ALLOW_SH=true` on to make
 the compatibility work would trade away the argument section 6 makes.
 
 So the feature claim and the safety claim are in direct tension, and the
@@ -1244,7 +1244,7 @@ it already knows. Retargeting SWE-agent by rewriting its YAML action space and
 its prompt is a real route and we have not walked it. Claiming bash
 compatibility as though it were one is not, and the README has been corrected.
 
-**Addendum, 2026-09-28: the path no longer delegates.** `ae -b` now runs the
+**Addendum, 2026-09-28: the path no longer delegates.** `ish -b` now runs the
 ordinary POSIX subset in-process (`src/posix.rs`) — pipelines, `&&`/`||`,
 variables, `$(…)`, redirections, `if`/`for`/`while`, `test`, and text-mode
 `ls`/`find`/`grep`/`head`/`tail`/`wc`/`sort`/`uniq`/`cut`/`sed`/`cat`/`echo`/
@@ -1263,7 +1263,7 @@ while looking at it, which is why a second one was written afterwards and
 reported as it came out. And the harness changed between runs: it required
 exit 0 for "native", which scored `grep -c "fn " src/lib.rs` a failure once
 that file stopped containing `fn ` — bash prints 0 and exits 1, and so did
-`ae -b`. Matching bash now includes matching a non-zero status.
+`ish -b`. Matching bash now includes matching a non-zero status.
 
 This reverses the tension described above rather than narrowing it: the
 compatibility no longer runs through the shell being argued against, so the
@@ -1281,8 +1281,8 @@ cargo run -p agentic-eval --example shell_benchmark
 
 | Shell | Fitness | Tokens | Determinism | Reliability | Safety | Basis |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| aethershell `--agent` | **0.82** | 0.85 | 0.90 | 0.75 | 0.80 | executed |
-| aethershell (default) | 0.57 | 0.50 | 0.90 | 0.75 | 0.15 | executed |
+| ironshell `--agent` | **0.82** | 0.85 | 0.90 | 0.75 | 0.80 | executed |
+| ironshell (default) | 0.57 | 0.50 | 0.90 | 0.75 | 0.15 | executed |
 | powershell | 0.45 | 0.60 | 0.90 | 0.25 | 0.05 | executed |
 | nushell | 0.41 | 0.40 | 0.50 | 0.70 | 0.05 | executed |
 | fish | 0.34 | 0.35 | 0.55 | 0.40 | 0.05 | **analogy to bash** |
@@ -1295,12 +1295,12 @@ weighting into a single number is not. **zsh and fish were never executed** —
 their profiles are inherited from bash, which is an assumption the module marks
 in its output and a test enforces, and which is weaker for fish, since fish
 deliberately breaks POSIX compatibility. And **the composite hides the
-inversion that section 4 is about**: on scalar answers AetherShell's default
+inversion that section 4 is about**: on scalar answers IronShell's default
 syntax places sixth of eight (its terse syntax second, behind SQLite), and no
 single fitness number will tell you that.
 
 The row that most deserves attention is nushell's. It reached a complete error
-taxonomy — 10/10 machine-readable codes — before AetherShell did, and we only
+taxonomy — 10/10 machine-readable codes — before IronShell did, and we only
 matched it by fixing our own gap after measuring. It loses the composite on
 tokens and determinism, not on the axis it leads.
 
@@ -1329,4 +1329,4 @@ Engines whose binary is absent are skipped and named, never silently dropped.
 If the `real-tokens` build is unavailable the report says the token counts are
 missing rather than substituting a heuristic.
 
-*AetherShell 12.0.2 · AGPL-3.0-or-later · [github.com/nervosys/AetherShell](https://github.com/nervosys/AetherShell)*
+*IronShell 12.0.2 · AGPL-3.0-or-later · [github.com/nervosys/AetherShell](https://github.com/nervosys/AetherShell)*

@@ -5,7 +5,7 @@
 //! are IronPKI's; PEM decoding and SHA-256 are IronCrypto's. This module adds
 //! the two things IronPKI does not provide for display: an RFC 4514 rendering
 //! of a Name, which a small bounds-checked DER walker performs here, and the
-//! mapping of IronPKI's error kinds onto AetherShell's coded errors.
+//! mapping of IronPKI's error kinds onto IronShell's coded errors.
 
 use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, Ipv6Addr};

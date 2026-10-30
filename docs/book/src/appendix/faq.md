@@ -2,13 +2,13 @@
 
 ## General
 
-### What is AetherShell?
+### What is IronShell?
 
-AetherShell is a next-generation shell written in Rust that combines typed functional programming with multimodal AI capabilities. Unlike traditional shells that pass raw text between commands, AetherShell uses structured data types (records, arrays, tables) throughout its pipeline system.
+IronShell is a next-generation shell written in Rust that combines typed functional programming with multimodal AI capabilities. Unlike traditional shells that pass raw text between commands, IronShell uses structured data types (records, arrays, tables) throughout its pipeline system.
 
-### How is AetherShell different from Bash/Zsh?
+### How is IronShell different from Bash/Zsh?
 
-| Feature | Bash/Zsh | AetherShell |
+| Feature | Bash/Zsh | IronShell |
 |---------|----------|-------------|
 | Data model | Raw text | Typed values (Int, Record, Array, ...) |
 | Pipelines | Text streams | Structured data flow |
@@ -17,15 +17,15 @@ AetherShell is a next-generation shell written in Rust that combines typed funct
 | Pattern matching | Case statements | `match` expressions |
 | Error handling | Exit codes | Result types with context |
 
-### Can I use AetherShell as my daily driver?
+### Can I use IronShell as my daily driver?
 
-AetherShell is under active development. It's excellent for data processing, AI automation, and scripting. For interactive daily use, you may want to keep your current shell available while adopting AetherShell incrementally.
+IronShell is under active development. It's excellent for data processing, AI automation, and scripting. For interactive daily use, you may want to keep your current shell available while adopting IronShell incrementally.
 
-### How do I run Bash commands in AetherShell?
+### How do I run Bash commands in IronShell?
 
 Use the `sh` builtin:
 
-```aethershell
+```ironshell
 sh "git status"
 sh "docker ps"
 ```
@@ -36,11 +36,11 @@ sh "docker ps"
 
 Typed pipelines eliminate an entire class of bugs. When `ls` returns an array of records with known fields, `where`, `map`, and `sort_by` can validate their arguments at parse time rather than failing silently at runtime.
 
-### Does AetherShell support loops?
+### Does IronShell support loops?
 
-AetherShell favors functional iteration via `map`, `each`, `reduce`, and `where`. Recursion is supported for looping patterns:
+IronShell favors functional iteration via `map`, `each`, `reduce`, and `where`. Recursion is supported for looping patterns:
 
-```aethershell
+```ironshell
 let countdown = fn(n) => if n > 0 { echo n; countdown(n - 1) } else { echo "done" }
 countdown 5
 ```
@@ -49,7 +49,7 @@ countdown 5
 
 This is a lambda (anonymous function). Lambdas are first-class values — they can be stored in variables, passed to builtins, and returned from functions:
 
-```aethershell
+```ironshell
 let double = fn(x) => x * 2
 [1,2,3] | map(double)   # [2, 4, 6]
 ```
@@ -58,7 +58,7 @@ let double = fn(x) => x * 2
 
 ### Which AI providers are supported?
 
-AetherShell supports six providers via model URIs:
+IronShell supports six providers via model URIs:
 
 - `openai:gpt-4o` — OpenAI
 - `ollama:llama3` — Local Ollama
@@ -75,7 +75,7 @@ For cloud providers (OpenAI), yes — set `OPENAI_API_KEY`. For local providers 
 
 Agents use a ReAct (Reason + Act) loop: they think about the task, choose a tool, execute it, observe the result, and repeat until the goal is met:
 
-```aethershell
+```ironshell
 agent {
   goal: "Find the largest file in the current directory",
   tools: ["ls", "sort_by"],
@@ -87,7 +87,7 @@ agent {
 
 A swarm is a group of AI agents that collaborate on a task. A coordinator routes subtasks to specialized agents, and they share state via a blackboard:
 
-```aethershell
+```ironshell
 swarm {
   goal: "Analyze this project",
   tools: ["ls", "cat", "grep"],
@@ -100,7 +100,7 @@ swarm {
 ### How do I launch the TUI?
 
 ```bash
-ae --tui
+ish --tui
 ```
 
 ### What are the TUI tabs?
@@ -136,7 +136,7 @@ brew install openssl
 Set the provider environment variable:
 
 ```bash
-export AETHER_AI=openai
+export IRONSHELL_AI=openai
 export OPENAI_API_KEY=sk-...
 ```
 

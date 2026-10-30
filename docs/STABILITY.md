@@ -1,4 +1,4 @@
-# AetherShell Stability Policy
+# IronShell Stability Policy
 
 > **Version:** v1.5.0
 > **Last Updated:** February 2026
@@ -9,7 +9,7 @@ This document defines backward compatibility guarantees, deprecation policies, a
 
 ## Current Stability Level
 
-AetherShell is in **pre-release** (v0.x). The language, builtins, and APIs are production-tested but may evolve. Breaking changes are possible between minor versions, but we minimize them and document all changes in CHANGELOG.md.
+IronShell is in **pre-release** (v0.x). The language, builtins, and APIs are production-tested but may evolve. Breaking changes are possible between minor versions, but we minimize them and document all changes in CHANGELOG.md.
 
 | Component           | Stability       | Notes                                                 |
 | ------------------- | --------------- | ----------------------------------------------------- |
@@ -37,13 +37,13 @@ AetherShell is in **pre-release** (v0.x). The language, builtins, and APIs are p
 
 ### What We Guarantee (v0.3+)
 
-1. **Existing AetherShell syntax will continue to parse.** Scripts written for v0.3 will parse in future versions.
+1. **Existing IronShell syntax will continue to parse.** Scripts written for v0.3 will parse in future versions.
 
 2. **Builtin return types are stable.** If `sys.hostname()` returns `Value::Str`, it will always return `Value::Str`. If `ls(".")` returns `Value::Array(Vec<Value::Record>)`, the schema will only gain new fields — never lose or rename existing ones.
 
 3. **Pipeline semantics are stable.** `|`, `map`, `where`, `reduce`, `select` will behave the same way.
 
-4. **CLI interface is stable.** `ae -c 'expr'`, `ae --tui`, `ae script.ae` will continue to work.
+4. **CLI interface is stable.** `ish -c 'expr'`, `ish --tui`, `ish script.ish` will continue to work.
 
 5. **Agent API is additive.** New endpoints and response fields may be added; existing ones won’t be removed or renamed without a deprecation period.
 
@@ -70,7 +70,7 @@ When a feature must change or be removed:
 
 ## Versioning Scheme
 
-AetherShell follows [Semantic Versioning 2.0](https://semver.org/):
+IronShell follows [Semantic Versioning 2.0](https://semver.org/):
 
 - **MAJOR** (x.0.0): Breaking changes to the shell language or public API
 - **MINOR** (0.x.0): New features, new builtins, new modules (backward-compatible)
@@ -85,7 +85,7 @@ AetherShell follows [Semantic Versioning 2.0](https://semver.org/):
 | Language syntax frozen          | ✅      | No syntax changes planned                                                   |
 | Builtin return types documented | ✅      | All builtins return typed Values                                            |
 | Comprehensive rustdoc           | ✅      | All `pub mod` items documented                                              |
-| Migration guide                 | ✅      | Bash/Zsh/PowerShell → AetherShell                                           |
+| Migration guide                 | ✅      | Bash/Zsh/PowerShell → IronShell                                           |
 | Stability policy                | ✅      | This document                                                               |
 | Test coverage > 95% intent      | ✅      | 1,237+ tests, 100% pass rate                                                |
 | Security audit                  | ✅      | Internal audit completed June 2025 (see docs/security/SECURITY_AUDIT_V1.md) |
@@ -119,16 +119,16 @@ After v1.0.0:
 
 ## How to Check Your Version
 
-```ae
+```ish
 sys.version()
 # → "1.5.0"
 ```
 
 ```bash
-ae --version
-# → ae 1.5.0
+ish --version
+# → ish 1.5.0
 ```
 
 ---
 
-*AetherShell — one language, every platform, deterministic typed output.*
+*IronShell — one language, every platform, deterministic typed output.*

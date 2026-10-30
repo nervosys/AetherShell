@@ -32,7 +32,7 @@ per score, for things this library cannot execute — VM isolation strength, a
 wire protocol's interop breadth, a language's ecosystem maturity. They encode
 judgment, not measurement. Two informed people would assign different numbers.
 
-> **Conflict of interest, stated plainly.** Nervosys builds AetherShell,
+> **Conflict of interest, stated plainly.** Nervosys builds IronShell,
 > AetherVM, and SPINE, and those entries currently rank first in the curated
 > VM and web-stack benchmarks below. Those rankings are *our judgment of our
 > own systems*. Treat them as a documented argument to check, not as an
@@ -163,7 +163,7 @@ cargo run -p agentic-eval --example vocabulary_audit  --features real-tokens
 cargo run -p agentic-eval --example keyword_audit     --features real-tokens
 ```
 
-`sigil_audit` measures every AetherShell agentic-mode construct, tests candidate
+`sigil_audit` measures every IronShell agentic-mode construct, tests candidate
 alternative encodings against the incumbent, and records an explicit
 **adopted/rejected** disposition with a reason for each cheaper candidate — so a
 rejected-as-ambiguous encoding is not re-proposed on the next run. It is what

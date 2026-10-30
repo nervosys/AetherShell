@@ -1,4 +1,4 @@
-# MCP Servers Guide for AetherShell
+# MCP Servers Guide for IronShell
 
 > **Note on `agent_with_mcp` examples.** `agent_with_mcp` takes a goal and an
 > array of builtin tool names (an `mcp:` prefix is stripped). It contacts no MCP
@@ -26,9 +26,9 @@
 | **Isolation**      | ❌ Full system access        | ✅ Scoped to allowed paths/resources |
 | **Cross-platform** | ❌ OS-specific commands      | ✅ Consistent API                    |
 
-### What Makes AetherShell's MCP Integration Unique?
+### What Makes IronShell's MCP Integration Unique?
 
-**NO OTHER SHELL HAS THIS!** AetherShell is the only shell where:
+**NO OTHER SHELL HAS THIS!** IronShell is the only shell where:
 - AI agents can use MCP servers natively
 - Multiple MCP servers can run simultaneously
 - Agents can coordinate across different tool providers
@@ -38,14 +38,14 @@
 
 ## 📦 Built-In MCP Servers
 
-AetherShell includes several built-in MCP servers ready to use:
+IronShell includes several built-in MCP servers ready to use:
 
 ### 1. Filesystem Server
 
 Provides safe file operations with path restrictions.
 
 **Configuration:**
-```ae
+```ish
 fs_server := mcp_server_start({
   name: "filesystem",
   type: "builtin",
@@ -78,7 +78,7 @@ fs_server := mcp_server_start({
 - `mcp:delete_file` - Delete file (if not read_only)
 
 **Example Usage:**
-```ae
+```ish
 agent := agent_with_mcp(
   "File organizer",
   ["mcp:read_file", "mcp:list_dir", "mcp:search_files"],
@@ -89,7 +89,7 @@ agent := agent_with_mcp(
 todos := agent.call_mcp_tool("search_files", {
   path: "./src",
   pattern: "TODO:|FIXME:|HACK:",
-  file_types: [".rs", ".ae", ".md"]
+  file_types: [".rs", ".ish", ".md"]
 })
 
 # Organize by priority
@@ -104,7 +104,7 @@ organized := agent.execute({
 Provides Git repository operations.
 
 **Configuration:**
-```ae
+```ish
 git_server := mcp_server_start({
   name: "git",
   type: "builtin",
@@ -134,7 +134,7 @@ git_server := mcp_server_start({
 - `mcp:git_blame` - Show file authors
 
 **Example Usage:**
-```ae
+```ish
 agent := agent_with_mcp(
   "Git assistant",
   ["mcp:git_status", "mcp:git_diff", "mcp:git_log"],
@@ -159,7 +159,7 @@ suggestion := agent.execute({
 Provides Docker container management.
 
 **Configuration:**
-```ae
+```ish
 docker_server := mcp_server_start({
   name: "docker",
   type: "builtin",
@@ -185,7 +185,7 @@ docker_server := mcp_server_start({
 - `mcp:docker_networks` - List networks
 
 **Example Usage:**
-```ae
+```ish
 agent := agent_with_mcp(
   "Container monitor",
   ["mcp:docker_ps", "mcp:docker_stats", "mcp:docker_logs"],
@@ -204,7 +204,7 @@ health := agent.execute({
 Provides web scraping and API access.
 
 **Configuration:**
-```ae
+```ish
 web_server := mcp_server_start({
   name: "web",
   type: "builtin",
@@ -216,7 +216,7 @@ web_server := mcp_server_start({
     ],
     rate_limit: 10,          # Requests per minute
     timeout: 30,             # Seconds
-    user_agent: "AetherShell-MCP/1.0"
+    user_agent: "IronShell-MCP/1.0"
   }
 })
 ```
@@ -228,7 +228,7 @@ web_server := mcp_server_start({
 - `mcp:download_file` - Download files
 
 **Example Usage:**
-```ae
+```ish
 agent := agent_with_mcp(
   "Web researcher",
   ["mcp:fetch_url", "mcp:scrape_page"],
@@ -249,7 +249,7 @@ research := agent.execute({
 ### AWS Server
 
 **Configuration:**
-```ae
+```ish
 aws_server := mcp_server_start({
   name: "aws",
   type: "cloud",
@@ -270,7 +270,7 @@ aws_server := mcp_server_start({
 - **CloudWatch**: `mcp:cloudwatch_get_metrics`, `mcp:cloudwatch_get_logs`
 
 **Example Usage:**
-```ae
+```ish
 # Cost optimization agent
 aws_agent := agent_with_mcp(
   "AWS cost optimizer",
@@ -286,7 +286,7 @@ optimization := aws_agent.execute({
 ### Azure Server
 
 **Configuration:**
-```ae
+```ish
 azure_server := mcp_server_start({
   name: "azure",
   type: "cloud",
@@ -303,7 +303,7 @@ azure_server := mcp_server_start({
 ### Google Cloud Server
 
 **Configuration:**
-```ae
+```ish
 gcp_server := mcp_server_start({
   name: "gcp",
   type: "cloud",
@@ -324,7 +324,7 @@ gcp_server := mcp_server_start({
 ### PostgreSQL Server
 
 **Configuration:**
-```ae
+```ish
 db_server := mcp_server_start({
   name: "postgres",
   type: "database",
@@ -347,7 +347,7 @@ db_server := mcp_server_start({
 - `mcp:db_explain` - Get query execution plan
 
 **Example Usage:**
-```ae
+```ish
 agent := agent_with_mcp(
   "Database analyst",
   ["mcp:db_query", "mcp:db_schema", "mcp:db_explain"],
@@ -425,7 +425,7 @@ if __name__ == "__main__":
 
 ### Register Custom Server
 
-```ae
+```ish
 # Register your custom MCP server
 custom_server := mcp_server_start({
   name: "nlp_tools",
@@ -459,7 +459,7 @@ agent := agent_with_mcp(
 
 ### 1. Use Read-Only Mode
 
-```ae
+```ish
 # GOOD: Read-only for safety
 db_server := mcp_server_start({
   name: "postgres",
@@ -481,7 +481,7 @@ db_server := mcp_server_start({
 
 ### 2. Restrict Paths and Domains
 
-```ae
+```ish
 # GOOD: Specific allowed paths
 fs_server := mcp_server_start({
   name: "filesystem",
@@ -501,7 +501,7 @@ fs_server := mcp_server_start({
 
 ### 3. Use Excluded Patterns
 
-```ae
+```ish
 fs_server := mcp_server_start({
   name: "filesystem",
   config: {
@@ -520,7 +520,7 @@ fs_server := mcp_server_start({
 
 ### 4. Rate Limiting
 
-```ae
+```ish
 web_server := mcp_server_start({
   name: "web",
   config: {
@@ -533,7 +533,7 @@ web_server := mcp_server_start({
 
 ### 5. Safe Mode for Critical Services
 
-```ae
+```ish
 git_server := mcp_server_start({
   name: "git",
   config: {
@@ -549,7 +549,7 @@ git_server := mcp_server_start({
 
 ### Multi-Server Agent
 
-```ae
+```ish
 # Agent with access to multiple MCP servers
 devops_agent := agent_with_mcp(
   "Full-stack DevOps assistant",
@@ -578,7 +578,7 @@ devops_agent := agent_with_mcp(
 
 ### Agent Swarm with MCP
 
-```ae
+```ish
 # Multiple agents sharing MCP servers
 monitoring_swarm := swarm([
   {
@@ -604,7 +604,7 @@ monitoring_swarm := swarm([
 
 ### MCP Server Health Monitoring
 
-```ae
+```ish
 # Monitor all MCP servers
 servers := [fs_server, git_server, docker_server, aws_server, db_server]
 
@@ -626,7 +626,7 @@ servers | map(fn(server) => {
 
 ## 📊 Comparison: MCP vs Alternatives
 
-| Approach         | Safety      | Structure      | Validation | Cross-platform | AetherShell Support |
+| Approach         | Safety      | Structure      | Validation | Cross-platform | IronShell Support |
 | ---------------- | ----------- | -------------- | ---------- | -------------- | ------------------- |
 | **MCP Servers**  | ✅ Excellent | ✅ JSON         | ✅ Yes      | ✅ Yes          | ✅ Native            |
 | Raw Commands     | ❌ Dangerous | ❌ Text parsing | ❌ No       | ❌ OS-specific  | ⚠️ Basic             |
@@ -641,7 +641,7 @@ servers | map(fn(server) => {
 
 ### 1. DevOps Automation
 
-```ae
+```ish
 # Automated deployment pipeline
 deploy_agent := agent_with_mcp(
   "Deployment agent",
@@ -663,7 +663,7 @@ deploy_agent.execute({
 
 ### 2. Security Auditing
 
-```ae
+```ish
 # Security audit agent
 security_agent := agent_with_mcp(
   "Security auditor",
@@ -684,7 +684,7 @@ audit := security_agent.execute({
 
 ### 3. Data Analysis Pipeline
 
-```ae
+```ish
 # Data analysis agent
 analyst_agent := agent_with_mcp(
   "Data analyst",
@@ -710,7 +710,7 @@ analysis := analyst_agent.execute({
 
 ### Enable Logging
 
-```ae
+```ish
 mcp_server_start({
   name: "filesystem",
   config: {...},
@@ -724,7 +724,7 @@ mcp_server_start({
 
 ### Test Tools Manually
 
-```ae
+```ish
 # Test a specific tool
 result := mcp_call_tool(
   server.endpoint,
@@ -736,7 +736,7 @@ print(result)
 
 ### Check Server Status
 
-```ae
+```ish
 status := mcp_server_status(server.endpoint)
 print("Status: ${status.state}")
 print("Uptime: ${status.uptime_seconds}s")
@@ -748,7 +748,7 @@ print("Errors: ${status.error_count}")
 
 ## 📚 Next Steps
 
-1. **Try the examples**: Run `ae examples/16_mcp_servers.ae`
+1. **Try the examples**: Run `ish examples/16_mcp_servers.ish`
 2. **Start simple**: Begin with filesystem or Git server
 3. **Build custom servers**: Create tools specific to your needs
 4. **Deploy production**: Use MCP servers in your workflows
@@ -758,9 +758,9 @@ print("Errors: ${status.error_count}")
 
 ## 🎓 Learn More
 
-- **Examples**: `examples/16_mcp_servers.ae` - Comprehensive MCP server examples
+- **Examples**: `examples/16_mcp_servers.ish` - Comprehensive MCP server examples
 - **Specification**: [MCP Protocol Spec](https://modelcontextprotocol.io)
-- **Community**: Share your MCP servers with the AetherShell community
+- **Community**: Share your MCP servers with the IronShell community
 - **Documentation**: See `docs/AI_PROTOCOLS_FINAL_REPORT.md` for protocol details
 
 ---

@@ -1,6 +1,6 @@
 # DOD Cybersecurity Audit - Executive Summary
 
-**Project**: AetherShell v0.1.0  
+**Project**: IronShell v0.1.0  
 **Audit Date**: October 18, 2025  
 **Auditor**: AI Security Analyst  
 **Classification**: UNCLASSIFIED
@@ -274,7 +274,7 @@ cat "../../../etc/passwd"  # Currently works!
 ## CONCLUSION
 
 ### Current State
-AetherShell has a **strong security foundation** through Rust's memory safety guarantees, but has **critical application-level vulnerabilities** that must be addressed.
+IronShell has a **strong security foundation** through Rust's memory safety guarantees, but has **critical application-level vulnerabilities** that must be addressed.
 
 ### Bottom Line
 - ✅ **Development**: Safe to continue
@@ -302,7 +302,7 @@ The good news: These are fixable in 2-3 weeks with focused effort. The codebase 
 ## CONTACT
 
 **Security Team**: [TO BE ASSIGNED]  
-**Vulnerability Reports**: security@aethershell.dev (TO BE CREATED)  
+**Vulnerability Reports**: security@ironshell.dev (TO BE CREATED)  
 **Emergency**: [TO BE DEFINED]
 
 ---

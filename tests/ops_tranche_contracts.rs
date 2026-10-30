@@ -6,7 +6,7 @@
 //!
 //! - Refusals are argument checks that return before any process starts. They
 //!   run in-process, and each one is asserted to be a refusal, not a call.
-//! - A call that would start one of these tools runs in a child `ae` process
+//! - A call that would start one of these tools runs in a child `ish` process
 //!   whose PATH is an empty directory. The tool is then not found, so the call
 //!   must fail as E_TOOL_MISSING. Nothing is started, and nothing is contacted.
 //! - Cloud and remote-execution calls with valid arguments must answer
@@ -17,10 +17,10 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use aethershell::builtins::{call_with_input, is_dispatched};
-use aethershell::env::Env;
-use aethershell::signature::signature_of;
-use aethershell::value::Value;
+use iron_shell::builtins::{call_with_input, is_dispatched};
+use iron_shell::env::Env;
+use iron_shell::signature::signature_of;
+use iron_shell::value::Value;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -87,9 +87,9 @@ localhost
 ",
         )
         .expect("write payload");
-        std::env::set_var("AETHER_SESSION_DIR", root.join("session"));
-        std::env::set_var("AETHER_WORKSPACE", &root);
-        for var in ["AETHER_MODE", "AETHER_AGENT", "AETHER_POLICY"] {
+        std::env::set_var("IRONSHELL_SESSION_DIR", root.join("session"));
+        std::env::set_var("IRONSHELL_WORKSPACE", &root);
+        for var in ["IRONSHELL_MODE", "IRONSHELL_AGENT", "IRONSHELL_POLICY"] {
             std::env::remove_var(var);
         }
         std::env::set_current_dir(&root).expect("enter workspace");
@@ -413,7 +413,7 @@ fn a_valid_cloud_call_is_not_implemented_and_creates_nothing() {
 #[test]
 fn a_registered_node_is_refused_as_unimplemented_and_an_unknown_one_is_not_found() {
     let mut env = env();
-    aethershell::builtins::call(
+    iron_shell::builtins::call(
         "cluster_add_node",
         vec![s("ops-tranche-node"), s("10.0.0.9:8080")],
         &mut env,
@@ -459,20 +459,20 @@ fn remote_exec_checks_its_command_before_the_node() {
 // Real calls where the tool is absent: E_TOOL_MISSING, never a contact
 // ---------------------------------------------------------------------------
 
-/// Run `ae -c <expr>` in the workspace with an empty PATH. The expression's
+/// Run `ish -c <expr>` in the workspace with an empty PATH. The expression's
 /// stdout is returned, trimmed of quotes.
 fn ae_with_empty_path(expr: &str) -> String {
     let root = workspace();
     let empty = root.join("empty-path");
     std::fs::create_dir_all(&empty).expect("create empty PATH directory");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ae"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ish"))
         .current_dir(&root)
         .env("PATH", &empty)
-        .env("AETHER_SESSION_DIR", root.join("session"))
-        .env("AETHER_WORKSPACE", &root)
-        .env_remove("AETHER_MODE")
-        .env_remove("AETHER_AGENT")
-        .env_remove("AETHER_POLICY")
+        .env("IRONSHELL_SESSION_DIR", root.join("session"))
+        .env("IRONSHELL_WORKSPACE", &root)
+        .env_remove("IRONSHELL_MODE")
+        .env_remove("IRONSHELL_AGENT")
+        .env_remove("IRONSHELL_POLICY")
         .args(["-c", expr])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

@@ -124,7 +124,7 @@ export default function Terminal() {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `aethershell-session-${new Date().toISOString().slice(0, 10)}.txt`
+        a.download = `ironshell-session-${new Date().toISOString().slice(0, 10)}.txt`
         a.click()
         URL.revokeObjectURL(url)
     }
@@ -135,7 +135,7 @@ export default function Terminal() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-text">Terminal</h1>
-                    <p className="text-subtext0 mt-1">Execute AetherShell commands directly</p>
+                    <p className="text-subtext0 mt-1">Execute IronShell commands directly</p>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="ghost" size="sm" onClick={copyOutput}>
@@ -162,7 +162,7 @@ export default function Terminal() {
                         <div className="w-3 h-3 rounded-full bg-yellow/50" />
                         <div className="w-3 h-3 rounded-full bg-green/50" />
                     </div>
-                    <span className="text-sm text-subtext0 ml-2">AetherShell Terminal</span>
+                    <span className="text-sm text-subtext0 ml-2">IronShell Terminal</span>
                     <div className="ml-auto flex items-center gap-2">
                         <div className={clsx(
                             'w-2 h-2 rounded-full',
@@ -184,7 +184,7 @@ export default function Terminal() {
                     {history.length === 0 && (
                         <div className="text-subtext0 mb-4">
                             <pre className="text-mauve">{ASCII_LOGO}</pre>
-                            <p className="mt-4">Welcome to AetherShell Terminal!</p>
+                            <p className="mt-4">Welcome to IronShell Terminal!</p>
                             <p>Type <span className="text-mauve">help</span> for available commands.</p>
                         </div>
                     )}
@@ -225,7 +225,7 @@ export default function Terminal() {
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
                             disabled={isExecuting}
-                            placeholder="Enter AetherShell command..."
+                            placeholder="Enter IronShell command..."
                             className="flex-1 bg-transparent text-text placeholder:text-subtext0 focus:outline-none font-mono"
                             autoComplete="off"
                             spellCheck={false}
@@ -249,7 +249,7 @@ const ASCII_LOGO = `
 `
 
 const HELP_TEXT = `
-AetherShell Terminal - Available Commands
+IronShell Terminal - Available Commands
 
 BASICS:
   let x = 42              Declare a variable

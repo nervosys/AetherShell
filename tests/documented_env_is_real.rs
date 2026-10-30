@@ -2,10 +2,10 @@
 //! shell actually reads.
 //!
 //! `docs/security/SECURITY_COMPLIANCE.md` carried a "Production Security
-//! Settings" block recommending seven variables — `AETHER_SECURITY_LEVEL`,
-//! `AETHER_AUDIT_LOGGING`, `AETHER_RATE_LIMIT_REQUESTS`,
-//! `AETHER_RATE_LIMIT_WINDOW`, `AETHER_COMMAND_WHITELIST`,
-//! `AETHER_MAX_PROMPT_LENGTH`, `AETHER_SESSION_TIMEOUT`. The source read none
+//! Settings" block recommending seven variables — `IRONSHELL_SECURITY_LEVEL`,
+//! `IRONSHELL_AUDIT_LOGGING`, `IRONSHELL_RATE_LIMIT_REQUESTS`,
+//! `IRONSHELL_RATE_LIMIT_WINDOW`, `IRONSHELL_COMMAND_WHITELIST`,
+//! `IRONSHELL_MAX_PROMPT_LENGTH`, `IRONSHELL_SESSION_TIMEOUT`. The source read none
 //! of them. An operator following that document would export all seven,
 //! believe the shell was hardened, and have changed nothing.
 //!
@@ -78,12 +78,12 @@ fn recommended_in(text: &str) -> BTreeSet<String> {
                 .chars()
                 .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
                 .collect();
-            // `AGENT_` joined `AETHER_` after `AGENT_ALLOW_CMDS` was found
+            // `AGENT_` joined `IRONSHELL_` after `AGENT_ALLOW_CMDS` was found
             // documented in the book: the shell reads it, but nothing had been
-            // checking names outside the AETHER_ prefix, so a fabricated one
+            // checking names outside the IRONSHELL_ prefix, so a fabricated one
             // would have passed. Generic names (PATH, OPENAI_API_KEY) stay out
             // of scope -- they are not this shell's configuration surface.
-            if name.starts_with("AETHER_") || name.starts_with("AGENT_") {
+            if name.starts_with("IRONSHELL_") || name.starts_with("AGENT_") {
                 found.insert(name);
             }
         }
@@ -91,7 +91,7 @@ fn recommended_in(text: &str) -> BTreeSet<String> {
     found
 }
 
-/// Every `"AETHER_…"` string literal in the shell's own source.
+/// Every `"IRONSHELL_…"` string literal in the shell's own source.
 fn read_by_source() -> BTreeSet<String> {
     fn walk(dir: &Path, out: &mut String) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -118,7 +118,7 @@ fn read_by_source() -> BTreeSet<String> {
     // `AGENT_ALLOW_CMDS` turned up documented in the book: it is real, but the
     // index had no way to say so, and an invented `AGENT_*` name would have
     // gone unchallenged.
-    for prefix in ["AETHER_", "AGENT_"] {
+    for prefix in ["IRONSHELL_", "AGENT_"] {
         let needle: Vec<char> = prefix.chars().collect();
         let mut i = 0;
         while i + needle.len() <= bytes.len() {
@@ -177,27 +177,27 @@ fn documented_environment_variables_are_read_by_the_shell() {
 /// test above would pass while proving nothing at all.
 #[test]
 fn non_vacuity_the_scanner_and_the_index_both_work() {
-    let sample = "text\n\n```bash\nexport AETHER_MODE=agent\nunset AETHER_ALLOW_SH\n```\n\
-                  prose naming AETHER_SECURITY_LEVEL must be ignored\n";
+    let sample = "text\n\n```bash\nexport IRONSHELL_MODE=agent\nunset IRONSHELL_ALLOW_SH\n```\n\
+                  prose naming IRONSHELL_SECURITY_LEVEL must be ignored\n";
     let found = recommended_in(sample);
     assert!(
-        found.contains("AETHER_MODE") && found.contains("AETHER_ALLOW_SH"),
+        found.contains("IRONSHELL_MODE") && found.contains("IRONSHELL_ALLOW_SH"),
         "the scanner failed to read a shell block: {found:?}"
     );
     assert!(
-        !found.contains("AETHER_SECURITY_LEVEL"),
+        !found.contains("IRONSHELL_SECURITY_LEVEL"),
         "prose outside a shell block must not count as a recommendation"
     );
 
-    let fake = "text\n\n```bash\nexport AETHER_NOT_A_REAL_SETTING=1\n```\n";
+    let fake = "text\n\n```bash\nexport IRONSHELL_NOT_A_REAL_SETTING=1\n```\n";
     assert!(
-        recommended_in(fake).contains("AETHER_NOT_A_REAL_SETTING"),
+        recommended_in(fake).contains("IRONSHELL_NOT_A_REAL_SETTING"),
         "the scanner must catch an invented name"
     );
 
     let known = read_by_source();
     assert!(
-        known.contains("AETHER_MODE") && known.contains("AETHER_WORKSPACE"),
+        known.contains("IRONSHELL_MODE") && known.contains("IRONSHELL_WORKSPACE"),
         "the source index is empty or wrong, so the main test proves nothing"
     );
     assert!(
@@ -215,8 +215,8 @@ export AGENT_NOT_A_REAL_SETTING=1
         "the scanner must catch an invented AGENT_* name too"
     );
     assert!(
-        !known.contains("AETHER_SECURITY_LEVEL"),
-        "AETHER_SECURITY_LEVEL is not read by the source; if this fails the \
+        !known.contains("IRONSHELL_SECURITY_LEVEL"),
+        "IRONSHELL_SECURITY_LEVEL is not read by the source; if this fails the \
          variable was implemented and the documentation should be restored"
     );
 }

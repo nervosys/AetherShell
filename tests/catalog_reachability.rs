@@ -24,8 +24,8 @@
 //! instead of consulting a hand-copied list of the fallback names, which had
 //! drifted 27 entries out of date the moment it was needed.
 
-use aethershell::agent_api::{ontology_describe_json, ontology_manifest_json};
-use aethershell::builtins::BUILTIN_LOOKUP;
+use iron_shell::agent_api::{ontology_describe_json, ontology_manifest_json};
+use iron_shell::builtins::BUILTIN_LOOKUP;
 use serde_json::Value as J;
 
 /// Every builtin name the ontology describes, walked category by category --
@@ -64,7 +64,7 @@ fn reachable(name: &str) -> bool {
     // `ontology_*` family -- were reported as unreachable. Every one of them
     // runs. A test guarding against a second source of truth should not itself
     // be one; `is_dispatched` covers both halves by construction.
-    aethershell::builtins::is_dispatched(name)
+    iron_shell::builtins::is_dispatched(name)
         // The catalog carries a few display-cased names whose lookup entry is
         // lowercase; treat a case-insensitive hit as reachable, since the
         // dispatcher resolves them.
@@ -119,7 +119,7 @@ fn the_destructive_builtins_are_reachable_and_declared() {
     // The specific shape of the `rm` bug: `effect_of` classifies a name the
     // dispatcher does not have, so policy appears to govern an operation no
     // caller can invoke. Coverage that governs nothing reads as coverage.
-    use aethershell::safety::{effect_is_declared, effect_of, Effect};
+    use iron_shell::safety::{effect_is_declared, effect_of, Effect};
     for name in BUILTIN_LOOKUP.keys() {
         if effect_of(name) == Effect::Destructive {
             assert!(

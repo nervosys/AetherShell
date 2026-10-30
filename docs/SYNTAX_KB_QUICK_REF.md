@@ -3,7 +3,7 @@
 ## Builtins
 
 ### Knowledge Base Operations
-```aether
+```ironshell
 # Get syntax entry
 syntax_get("ab")           # Returns full AgenticBinary protocol details
 
@@ -25,7 +25,7 @@ syntax_add({
 ```
 
 ### AgenticBinary Encoding
-```aether
+```ironshell
 # Encode message - returns byte array
 bytes = ab_encode("command", "ping", "hello")
 # => [0, 5, 104, 101, 108, 108, 111]
@@ -70,7 +70,7 @@ decoded = ab_decode(bytes)
 ## Multi-Agent Patterns
 
 ### Agent Handshake
-```aether
+```ironshell
 # Agent 1 → Agent 2
 learn_msg = ab_encode("command", "learn", "syntax:ab")
 
@@ -79,7 +79,7 @@ ack_msg = ab_encode("response", "ack", "learned:ab")
 ```
 
 ### Task Delegation
-```aether
+```ironshell
 # Coordinator → Worker
 task = ab_encode("command", "delegate", "task:analyze_data")
 
@@ -89,7 +89,7 @@ result = ab_encode("response", "data", "result:success")
 ```
 
 ### Collaboration
-```aether
+```ironshell
 # Agent 1 → Multiple agents
 collab = ab_encode("command", "collaborate", "agent_2,agent_3")
 ```
@@ -116,7 +116,7 @@ Payload:
 ## Examples
 
 ### Basic Encoding/Decoding
-```aether
+```ironshell
 # Encode
 ping = ab_encode("command", "ping", "test")
 print(ping)  # [0, 4, 116, 101, 115, 116]
@@ -128,13 +128,13 @@ print(decoded.payload)    # "test"
 ```
 
 ### Using Numeric Codes
-```aether
+```ironshell
 # Same as ab_encode("query", "data", "request")
 bytes = ab_encode(1, 4, "request")
 ```
 
 ### Custom Syntax Entry
-```aether
+```ironshell
 syntax_add({
     id: "graphql",
     name: "GraphQL",
@@ -149,7 +149,7 @@ print(graphql.specification)
 ```
 
 ### Full Agent Workflow
-```aether
+```ironshell
 # Agent discovery
 protocols = syntax_list("protocol")
 print(protocols)  # ["ab", "jsonrpc", "graphql"]
@@ -172,14 +172,14 @@ print(ab_decode(msg4))
 ```
 
 ## Storage
-- Location: `~/.aethershell/syntax_kb.json`
+- Location: `~/.ironshell/syntax_kb.json`
 - Format: JSON
 - Auto-created on first use
 - Persists across sessions
 
 ## Built-in Syntaxes
 1. **ab** - AgenticBinary Protocol
-2. **aethershell** - AetherShell Language
+2. **ironshell** - IronShell Language
 3. **jsonrpc** - JSON-RPC 2.0
 
 ## Tips

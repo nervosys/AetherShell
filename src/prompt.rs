@@ -1,4 +1,4 @@
-//! Prompt rendering engine for AetherShell.
+//! Prompt rendering engine for IronShell.
 //!
 //! `PromptConfig` has always carried a `format` string documenting `{cwd}`,
 //! `{git_branch}` and friends, but nothing ever expanded it — the REPL printed a
@@ -6,7 +6,7 @@
 //! families users actually ask for:
 //!
 //! - **fish-inspired** (`style = "fish"`) — a single compact line with the path
-//!   abbreviated the way fish does it (`~/d/n/c/AetherShell`), the git branch
+//!   abbreviated the way fish does it (`~/d/n/c/IronShell`), the git branch
 //!   inline, and a status-colored arrow. No background fills, no glyph
 //!   dependencies beyond what a normal font has.
 //! - **oh-my-posh-inspired** (`style = "powerline"`) — filled segment blocks
@@ -19,8 +19,8 @@
 //! # Example
 //!
 //! ```
-//! use aethershell::prompt::{PromptContext, PromptStyle, render_left};
-//! use aethershell::config::PromptConfig;
+//! use iron_shell::prompt::{PromptContext, PromptStyle, render_left};
+//! use iron_shell::config::PromptConfig;
 //!
 //! let cfg = PromptConfig { style: "fish".into(), ..Default::default() };
 //! let ctx = PromptContext::for_test("/home/ada/dev/proj", "ada", "box");
@@ -38,7 +38,7 @@ use std::path::Path;
 /// prompt instead of an error at every keystroke.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptStyle {
-    /// `æ❯` — the historical AetherShell prompt.
+    /// `æ❯` — the historical IronShell prompt.
     Classic,
     /// fish-like: abbreviated path, inline git, status-colored arrow.
     Fish,
@@ -245,10 +245,10 @@ fn palette() -> CustomColors {
 /// final component is always kept in full.
 ///
 /// ```
-/// use aethershell::prompt::abbreviate_path;
+/// use iron_shell::prompt::abbreviate_path;
 /// assert_eq!(
-///     abbreviate_path("/home/ada/dev/nervosys/cli/AetherShell", "/home/ada", true, 0),
-///     "~/d/n/c/AetherShell"
+///     abbreviate_path("/home/ada/dev/nervosys/cli/IronShell", "/home/ada", true, 0),
+///     "~/d/n/c/IronShell"
 /// );
 /// ```
 pub fn abbreviate_path(cwd: &str, home: &str, abbreviate: bool, max_segments: usize) -> String {
@@ -446,7 +446,7 @@ fn terminal_columns() -> u16 {
 /// Format a command duration the way fish does: `1.2s`, `3m14s`, `1h02m`.
 ///
 /// ```
-/// use aethershell::prompt::format_duration;
+/// use iron_shell::prompt::format_duration;
 /// assert_eq!(format_duration(1_250), "1.2s");
 /// assert_eq!(format_duration(194_000), "3m14s");
 /// ```
@@ -737,7 +737,7 @@ fn render_classic(cfg: &PromptConfig, ctx: &PromptContext) -> String {
     )
 }
 
-/// fish-inspired: `~/d/n/AetherShell  master ❯`.
+/// fish-inspired: `~/d/n/IronShell  master ❯`.
 ///
 /// One line, no background fills, path abbreviated, git inline, and the arrow
 /// carrying the exit status as color — the details that make fish's prompt
@@ -1006,7 +1006,7 @@ mod tests {
     fn ctx() -> PromptContext {
         PromptContext {
             colors: false,
-            ..PromptContext::for_test("/home/ada/dev/nervosys/cli/AetherShell", "ada", "box")
+            ..PromptContext::for_test("/home/ada/dev/nervosys/cli/IronShell", "ada", "box")
         }
     }
 
@@ -1014,12 +1014,12 @@ mod tests {
     fn abbreviates_like_fish() {
         assert_eq!(
             abbreviate_path(
-                "/home/ada/dev/nervosys/cli/AetherShell",
+                "/home/ada/dev/nervosys/cli/IronShell",
                 "/home/ada",
                 true,
                 0
             ),
-            "~/d/n/c/AetherShell"
+            "~/d/n/c/IronShell"
         );
     }
 
@@ -1046,8 +1046,8 @@ mod tests {
     #[test]
     fn hidden_directories_keep_their_dot() {
         assert_eq!(
-            abbreviate_path("/home/ada/.config/aether/themes", "/home/ada", true, 0),
-            "~/.c/a/themes"
+            abbreviate_path("/home/ada/.config/ironshell/themes", "/home/ada", true, 0),
+            "~/.c/i/themes"
         );
     }
 
@@ -1102,7 +1102,7 @@ mod tests {
             detached: false,
         });
         let out = render_fish(&cfg("fish"), &c);
-        assert!(out.contains("~/d/n/c/AetherShell"), "got {out}");
+        assert!(out.contains("~/d/n/c/IronShell"), "got {out}");
         assert!(out.contains("master"), "got {out}");
     }
 
@@ -1131,7 +1131,7 @@ mod tests {
         let mut config = cfg("powerline");
         config.segments = vec!["cwd".into(), "git".into()];
         let out = render_powerline(&config, &c);
-        assert!(out.contains("~/d/n/c/AetherShell"), "got {out}");
+        assert!(out.contains("~/d/n/c/IronShell"), "got {out}");
         assert!(out.contains("master"), "got {out}");
         assert!(out.contains(&config.powerline_separator), "got {out}");
     }
@@ -1165,7 +1165,7 @@ mod tests {
         config.format = "{user}@{host} {cwd} {symbol}".into();
         let out = render_left(&config, &ctx());
         assert!(out.contains("ada@box"), "got {out}");
-        assert!(out.contains("~/d/n/c/AetherShell"), "got {out}");
+        assert!(out.contains("~/d/n/c/IronShell"), "got {out}");
         assert!(out.contains('❯'), "got {out}");
     }
 

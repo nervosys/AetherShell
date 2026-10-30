@@ -22,12 +22,12 @@
 //! that rejection by stripping the envelope and presenting the remains as a
 //! legacy ciphertext.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 fn call(name: &str, args: Vec<&str>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(
+    iron_shell::builtins::call(
         name,
         args.into_iter()
             .map(|a| Value::Str(a.to_string()))
@@ -228,7 +228,7 @@ fn encrypting_the_same_value_twice_gives_different_ciphertext() {
 #[test]
 fn stripping_the_envelope_does_not_reach_the_unauthenticated_path() {
     let _g = fips_lock();
-    std::env::remove_var("AETHER_CRYPTO_LEGACY_DECRYPT");
+    std::env::remove_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT");
     let ct = encrypt("payload", "pw");
     let bare = ct.splitn(4, '.').nth(3).expect("body").to_string();
 
@@ -245,7 +245,7 @@ fn stripping_the_envelope_does_not_reach_the_unauthenticated_path() {
         err.message
     );
     assert!(
-        err.hint.contains("AETHER_CRYPTO_LEGACY_DECRYPT"),
+        err.hint.contains("IRONSHELL_CRYPTO_LEGACY_DECRYPT"),
         "the refusal must name the one switch that recovers genuinely old data, \
          otherwise it reads as data loss: {}",
         err.hint
@@ -282,7 +282,7 @@ fn encryption_is_available_on_every_platform() {
 
 // ── The FIPS key-derivation path (AS-2026-08) ────────────────────────────
 
-/// Under `AETHER_FIPS` the key is derived with PBKDF2-HMAC-SHA256 rather than
+/// Under `IRONSHELL_FIPS` the key is derived with PBKDF2-HMAC-SHA256 rather than
 /// Argon2id, so the whole chain is SP 800-132 / FIPS 197 approved. The
 /// envelope records which, because the mode a ciphertext was written under is
 /// not the mode it will be read under.
@@ -290,9 +290,9 @@ fn encryption_is_available_on_every_platform() {
 fn the_fips_mode_uses_an_approved_kdf_and_says_so() {
     let _g = fips_lock();
     // Serialised against the other env-mutating test in this file.
-    std::env::set_var("AETHER_FIPS", "1");
+    std::env::set_var("IRONSHELL_FIPS", "1");
     let ct = encrypt("secret", "pw");
-    std::env::remove_var("AETHER_FIPS");
+    std::env::remove_var("IRONSHELL_FIPS");
 
     assert!(
         ct.starts_with("AE1F."),
@@ -309,13 +309,13 @@ fn the_fips_mode_uses_an_approved_kdf_and_says_so() {
 #[test]
 fn default_ciphertext_stays_readable_in_fips_mode() {
     let _g = fips_lock();
-    std::env::remove_var("AETHER_FIPS");
+    std::env::remove_var("IRONSHELL_FIPS");
     let ct = encrypt("secret", "pw");
     assert!(ct.starts_with("AE1."), "expected the Argon2id tag: {ct:?}");
 
-    std::env::set_var("AETHER_FIPS", "1");
+    std::env::set_var("IRONSHELL_FIPS", "1");
     let out = call("crypto_decrypt", vec![&ct, "pw"]);
-    std::env::remove_var("AETHER_FIPS");
+    std::env::remove_var("IRONSHELL_FIPS");
     match out {
         Ok(Value::Str(pt)) => assert_eq!(pt, "secret"),
         other => panic!("turning FIPS on stranded existing ciphertext: {other:?}"),
@@ -327,9 +327,9 @@ fn the_two_kdfs_produce_different_keys_for_the_same_password() {
     let _g = fips_lock();
     // Not a security property in itself — a guard that the FIPS branch is
     // actually taken rather than silently falling through to Argon2id.
-    std::env::set_var("AETHER_FIPS", "1");
+    std::env::set_var("IRONSHELL_FIPS", "1");
     let fips = encrypt("x", "pw");
-    std::env::remove_var("AETHER_FIPS");
+    std::env::remove_var("IRONSHELL_FIPS");
     let plain = encrypt("x", "pw");
     assert_ne!(&fips[..4], &plain[..4], "both envelopes carry the same tag");
 }

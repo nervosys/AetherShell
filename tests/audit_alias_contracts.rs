@@ -16,7 +16,7 @@
 //! passed, and the builtin then followed it. `safety::is_audit_artifact` now
 //! also compares the resolved path and, on Unix, the file's identity. The
 //! "Wrote through" comments record which cases were open.
-use aethershell::{builtins::call, env::Env, value::Value};
+use iron_shell::{builtins::call, env::Env, value::Value};
 use std::{os::unix::fs::MetadataExt, os::unix::fs::PermissionsExt, path::PathBuf, sync::Mutex};
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -33,20 +33,20 @@ impl Fixture {
         let root = root.canonicalize().unwrap();
         let keys = [
             "NO_COLOR",
-            "AETHER_MODE",
-            "AETHER_AGENT",
-            "AETHER_WORKSPACE",
-            "AETHER_POLICY",
-            "AETHER_AUDIT_LOG",
-            "AETHER_AUDIT_KEY",
-            "AETHER_AUDIT_KEY_FILE",
-            "AETHER_AUDIT_SINK",
-            "AETHER_MAX_FILES",
-            "AETHER_FIPS",
-            "AETHER_NET_ALLOW",
-            "AETHER_MAX_NET",
-            "AETHER_MAX_OPS",
-            "AETHER_MAX_PROCS",
+            "IRONSHELL_MODE",
+            "IRONSHELL_AGENT",
+            "IRONSHELL_WORKSPACE",
+            "IRONSHELL_POLICY",
+            "IRONSHELL_AUDIT_LOG",
+            "IRONSHELL_AUDIT_KEY",
+            "IRONSHELL_AUDIT_KEY_FILE",
+            "IRONSHELL_AUDIT_SINK",
+            "IRONSHELL_MAX_FILES",
+            "IRONSHELL_FIPS",
+            "IRONSHELL_NET_ALLOW",
+            "IRONSHELL_MAX_NET",
+            "IRONSHELL_MAX_OPS",
+            "IRONSHELL_MAX_PROCS",
         ];
         let fixture = Self {
             root,
@@ -58,9 +58,9 @@ impl Fixture {
         for key in keys {
             std::env::remove_var(key);
         }
-        std::env::set_var("AETHER_AUDIT_LOG", fixture.root.join("audit.log"));
+        std::env::set_var("IRONSHELL_AUDIT_LOG", fixture.root.join("audit.log"));
         std::env::set_var("NO_COLOR", "1");
-        std::env::set_var("AETHER_AUDIT_KEY", "11".repeat(32));
+        std::env::set_var("IRONSHELL_AUDIT_KEY", "11".repeat(32));
         fixture
     }
     fn path(&self, name: &str) -> String {
@@ -70,7 +70,7 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        while aethershell::tx::rollback().is_ok() {}
+        while iron_shell::tx::rollback().is_ok() {}
         for (key, value) in &self.vars {
             match value {
                 Some(v) => std::env::set_var(key, v),
@@ -229,7 +229,7 @@ fn every_file_writer_refuses_audit_aliases_and_leaves_the_log_alone() {
         let builtin = label.split_whitespace().next().unwrap();
         let fixture = Fixture::new();
         let mut env = Env::default();
-        std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+        std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
         let audit = fixture.path("audit.log");
         std::fs::write(&audit, "known audit entry\n").unwrap();
         std::fs::set_permissions(&audit, std::fs::Permissions::from_mode(0o640)).unwrap();

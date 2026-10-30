@@ -1,4 +1,4 @@
-//! Plugin system for AetherShell extensibility
+//! Plugin system for IronShell extensibility
 //!
 //! This module provides a comprehensive plugin architecture that allows:
 //! - Custom AI backends
@@ -6,7 +6,7 @@
 //! - Custom file handlers
 //! - Custom transport protocols
 //! - Dynamic library loading (.dll/.so/.dylib)
-//! - Script-based plugins (.ae files)
+//! - Script-based plugins (.ish files)
 //! - Hot-reloading support
 //! - Plugin marketplace integration
 //!
@@ -58,8 +58,8 @@ pub struct PluginMetadata {
     pub description: String,
     /// Categories this plugin provides (ai_backend, builtin, handler, etc.)
     pub categories: Vec<PluginCategory>,
-    /// Minimum AetherShell version required
-    pub min_aether_version: String,
+    /// Minimum IronShell version required
+    pub min_ironshell_version: String,
     /// Plugin dependencies (other plugin IDs)
     pub dependencies: Vec<String>,
     /// Plugin homepage/repository URL
@@ -95,13 +95,13 @@ pub enum PluginCategory {
 /// Plugin source type
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum PluginSource {
-    /// Built into AetherShell
+    /// Built into IronShell
     Builtin,
     /// Loaded from a TOML manifest
     Manifest(PathBuf),
     /// Loaded from a dynamic library
     DynamicLibrary(PathBuf),
-    /// Loaded from an AetherShell script
+    /// Loaded from an IronShell script
     Script(PathBuf),
     /// Installed from marketplace
     Marketplace { registry: String, package: String },
@@ -304,17 +304,17 @@ impl DynamicPlugin {
     }
 
     /// Security gate for native plugin loading, reading the runtime policy from the
-    /// environment: `AETHER_PLUGINS=off` (kill switch), `AETHER_PLUGIN_ALLOW=<dir1;dir2>`
-    /// (allowlisted path prefixes), `AETHER_MODE=agent` (default-deny). See
+    /// environment: `IRONSHELL_PLUGINS=off` (kill switch), `IRONSHELL_PLUGIN_ALLOW=<dir1;dir2>`
+    /// (allowlisted path prefixes), `IRONSHELL_MODE=agent` (default-deny). See
     /// [`Self::is_load_permitted`].
     fn authorize_load(path: &Path) -> Result<()> {
-        let plugins_off = std::env::var("AETHER_PLUGINS")
+        let plugins_off = std::env::var("IRONSHELL_PLUGINS")
             .map(|v| v.eq_ignore_ascii_case("off") || v == "0")
             .unwrap_or(false);
-        let agent_mode = std::env::var("AETHER_MODE")
+        let agent_mode = std::env::var("IRONSHELL_MODE")
             .map(|m| m.eq_ignore_ascii_case("agent"))
             .unwrap_or(false);
-        let allow = std::env::var("AETHER_PLUGIN_ALLOW").unwrap_or_default();
+        let allow = std::env::var("IRONSHELL_PLUGIN_ALLOW").unwrap_or_default();
         let allow_roots: Vec<&str> = allow.split(';').collect();
         let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
 
@@ -324,20 +324,20 @@ impl DynamicPlugin {
             Err(crate::safety::policy_deny(
                 "plugin",
                 format!(
-                    "native plugin loading is disabled (AETHER_PLUGINS=off): {}",
+                    "native plugin loading is disabled (IRONSHELL_PLUGINS=off): {}",
                     path.display()
                 ),
-                "unset AETHER_PLUGINS=off to allow native plugin loading",
+                "unset IRONSHELL_PLUGINS=off to allow native plugin loading",
             ))
         } else {
             Err(crate::safety::policy_deny(
                 "plugin",
                 format!(
                     "refusing to load native plugin in agent mode (arbitrary code execution): {} — \
-                     allow an audited directory via AETHER_PLUGIN_ALLOW=<dir>",
+                     allow an audited directory via IRONSHELL_PLUGIN_ALLOW=<dir>",
                     path.display()
                 ),
-                "run outside agent mode, or allow the directory with AETHER_PLUGIN_ALLOW",
+                "run outside agent mode, or allow the directory with IRONSHELL_PLUGIN_ALLOW",
             ))
         }
     }
@@ -359,8 +359,8 @@ impl DynamicPlugin {
         // Get the init function
         let init_fn: libloading::Symbol<PluginInitFn> = unsafe {
             library
-                .get(b"aether_plugin_init")
-                .context("Plugin missing aether_plugin_init function")?
+                .get(b"ironshell_plugin_init")
+                .context("Plugin missing ironshell_plugin_init function")?
         };
 
         // Initialize the plugin
@@ -489,7 +489,7 @@ impl Drop for DynamicPlugin {
     fn drop(&mut self) {
         // Try to call deinit if available
         if let Ok(deinit_fn) =
-            unsafe { self.library.get::<PluginDeinitFn>(b"aether_plugin_deinit") }
+            unsafe { self.library.get::<PluginDeinitFn>(b"ironshell_plugin_deinit") }
         {
             unsafe {
                 deinit_fn(self.vtable);
@@ -500,7 +500,7 @@ impl Drop for DynamicPlugin {
 
 // ===================== Script-based Plugin =====================
 
-/// A plugin defined in AetherShell script (.ae file)
+/// A plugin defined in IronShell script (.ish file)
 #[derive(Debug, Clone)]
 pub struct ScriptPlugin {
     metadata: PluginMetadata,
@@ -514,7 +514,7 @@ pub struct ScriptPlugin {
 }
 
 impl ScriptPlugin {
-    /// Load a script plugin from a .ae file
+    /// Load a script plugin from a .ish file
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path).context("Failed to read script plugin")?;
 
@@ -530,7 +530,7 @@ impl ScriptPlugin {
             author: "Unknown".to_string(),
             description: String::new(),
             categories: vec![PluginCategory::Builtin],
-            min_aether_version: "0.1.0".to_string(),
+            min_ironshell_version: "0.1.0".to_string(),
             dependencies: vec![],
             homepage: None,
             license: None,
@@ -749,8 +749,8 @@ impl PluginRegistry {
             transports: HashMap::new(),
             load_paths: Vec::new(),
             marketplaces: vec![MarketplaceRegistry {
-                name: "AetherShell Official".to_string(),
-                url: "https://plugins.aethershell.io/api/v1".to_string(),
+                name: "IronShell Official".to_string(),
+                url: "https://plugins.ironshell.io/api/v1".to_string(),
                 enabled: true,
             }],
             dependency_graph: HashMap::new(),
@@ -771,26 +771,26 @@ impl PluginRegistry {
         // User plugin directory
         if let Some(home) = dirs::home_dir() {
             self.load_paths
-                .push(home.join(".aethershell").join("plugins"));
+                .push(home.join(".ironshell").join("plugins"));
         }
 
         // XDG data directory
         if let Some(data_dir) = dirs::data_dir() {
             self.load_paths
-                .push(data_dir.join("aethershell").join("plugins"));
+                .push(data_dir.join("ironshell").join("plugins"));
         }
 
         // System plugin directory (Unix-like)
         #[cfg(unix)]
         self.load_paths
-            .push(PathBuf::from("/usr/share/aethershell/plugins"));
+            .push(PathBuf::from("/usr/share/ironshell/plugins"));
 
         // System plugin directory (Windows)
         #[cfg(windows)]
         if let Some(program_data) = std::env::var_os("ProgramData") {
             self.load_paths.push(
                 PathBuf::from(program_data)
-                    .join("AetherShell")
+                    .join("IronShell")
                     .join("plugins"),
             );
         }
@@ -1003,7 +1003,7 @@ impl PluginRegistry {
                                 results.push(self.load_dynamic_plugin(&path));
                             }
                             // Script plugins
-                            "ae" => {
+                            "ish" => {
                                 results.push(self.load_script_plugin(&path));
                             }
                             // Manifest files
@@ -1438,10 +1438,10 @@ impl FileHandlerPlugin for JsonFileHandler {
             id: "builtin.json".to_string(),
             name: "JSON File Handler".to_string(),
             version: "1.0.0".to_string(),
-            author: "AetherShell Team".to_string(),
+            author: "IronShell Team".to_string(),
             description: "Native JSON file reading and writing".to_string(),
             categories: vec![PluginCategory::FileHandler],
-            min_aether_version: "0.1.0".to_string(),
+            min_ironshell_version: "0.1.0".to_string(),
             dependencies: vec![],
             homepage: None,
             license: Some("Apache-2.0".to_string()),
@@ -1481,10 +1481,10 @@ impl FileHandlerPlugin for CsvFileHandler {
             id: "builtin.csv".to_string(),
             name: "CSV File Handler".to_string(),
             version: "1.0.0".to_string(),
-            author: "AetherShell Team".to_string(),
+            author: "IronShell Team".to_string(),
             description: "Native CSV file reading and writing".to_string(),
             categories: vec![PluginCategory::FileHandler],
-            min_aether_version: "0.1.0".to_string(),
+            min_ironshell_version: "0.1.0".to_string(),
             dependencies: vec![],
             homepage: None,
             license: Some("Apache-2.0".to_string()),
@@ -1556,10 +1556,10 @@ impl FileHandlerPlugin for TomlFileHandler {
             id: "builtin.toml".to_string(),
             name: "TOML File Handler".to_string(),
             version: "1.0.0".to_string(),
-            author: "AetherShell Team".to_string(),
+            author: "IronShell Team".to_string(),
             description: "Native TOML file reading and writing".to_string(),
             categories: vec![PluginCategory::FileHandler],
-            min_aether_version: "0.1.0".to_string(),
+            min_ironshell_version: "0.1.0".to_string(),
             dependencies: vec![],
             homepage: None,
             license: Some("Apache-2.0".to_string()),
@@ -1591,7 +1591,7 @@ impl FileHandlerPlugin for TomlFileHandler {
 
 // ===================== Value Conversion Helpers =====================
 
-/// Convert JSON value to AetherShell Value
+/// Convert JSON value to IronShell Value
 fn json_to_value(json: serde_json::Value) -> Value {
     match json {
         serde_json::Value::Null => Value::Null,
@@ -1617,7 +1617,7 @@ fn json_to_value(json: serde_json::Value) -> Value {
     }
 }
 
-/// Convert AetherShell Value to JSON value
+/// Convert IronShell Value to JSON value
 fn value_to_json(value: &Value) -> serde_json::Value {
     match value {
         Value::Null => serde_json::Value::Null,
@@ -1659,7 +1659,7 @@ fn value_to_json(value: &Value) -> serde_json::Value {
     }
 }
 
-/// Convert TOML value to AetherShell Value
+/// Convert TOML value to IronShell Value
 pub(crate) fn toml_to_value(toml: toml::Value) -> Value {
     match toml {
         toml::Value::Boolean(b) => Value::Bool(b),
@@ -1678,7 +1678,7 @@ pub(crate) fn toml_to_value(toml: toml::Value) -> Value {
     }
 }
 
-/// Convert AetherShell Value to TOML value
+/// Convert IronShell Value to TOML value
 fn value_to_toml(value: &Value) -> toml::Value {
     match value {
         Value::Null => toml::Value::String("null".to_string()),
@@ -1762,8 +1762,8 @@ pub fn bi_plugin_info(plugin_id: &str) -> Value {
             rec.insert("author".to_string(), Value::Str(meta.author));
             rec.insert("description".to_string(), Value::Str(meta.description));
             rec.insert(
-                "min_aether_version".to_string(),
-                Value::Str(meta.min_aether_version),
+                "min_ironshell_version".to_string(),
+                Value::Str(meta.min_ironshell_version),
             );
             rec.insert(
                 "categories".to_string(),
@@ -1866,11 +1866,11 @@ pub fn call_manifest_builtin(name: &str, args: Vec<Value>, input: Option<Value>)
 /// [`DynamicPlugin::is_load_permitted`]): the kill switch refuses them, and in
 /// agent mode they need an allowlisted directory.
 fn authorize_manifest_code(manifest: &Path) -> Result<()> {
-    let plugins_off = std::env::var("AETHER_PLUGINS")
+    let plugins_off = std::env::var("IRONSHELL_PLUGINS")
         .map(|v| v.eq_ignore_ascii_case("off") || v == "0")
         .unwrap_or(false);
     let agent_mode = crate::safety::current_mode() == crate::safety::Mode::Agent;
-    let allow = std::env::var("AETHER_PLUGIN_ALLOW").unwrap_or_default();
+    let allow = std::env::var("IRONSHELL_PLUGIN_ALLOW").unwrap_or_default();
     let allow_roots: Vec<&str> = allow.split(';').collect();
     let canon = std::fs::canonicalize(manifest).unwrap_or_else(|_| manifest.to_path_buf());
     if DynamicPlugin::is_load_permitted(&canon, plugins_off, &allow_roots, agent_mode) {
@@ -1882,7 +1882,7 @@ fn authorize_manifest_code(manifest: &Path) -> Result<()> {
             "refusing to define [builtins] code from {} (plugins disabled, or agent mode without an allowlist)",
             manifest.display()
         ),
-        "set AETHER_PLUGIN_ALLOW=<dir> to allow an audited directory, or unset AETHER_PLUGINS=off",
+        "set IRONSHELL_PLUGIN_ALLOW=<dir> to allow an audited directory, or unset IRONSHELL_PLUGINS=off",
     ))
 }
 
@@ -1923,7 +1923,7 @@ fn parse_manifest_builtins(table: &toml::Value) -> Result<Vec<(String, crate::as
         let src = value.as_str().ok_or_else(|| {
             crate::safety::bad_arg(
                 "plugin_load",
-                &format!("[builtins] {name}: a string of AetherShell source"),
+                &format!("[builtins] {name}: a string of IronShell source"),
                 "not a string",
             )
         })?;
@@ -1953,7 +1953,7 @@ fn parse_manifest_builtins(table: &toml::Value) -> Result<Vec<(String, crate::as
 /// author = "Author Name"
 /// description = "Plugin description"
 /// categories = ["Builtin"]
-/// min_aether_version = "0.1.0"
+/// min_ironshell_version = "0.1.0"
 ///
 /// [builtins]
 /// # Each entry is one lambda literal; its name becomes callable
@@ -2025,7 +2025,7 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
         ));
     }
 
-    // [builtins] entries are AetherShell lambda literals, and a manifest that
+    // [builtins] entries are IronShell lambda literals, and a manifest that
     // defines code is gated like a native plugin load. Parsing comes first, so a
     // bad entry refuses the whole manifest before anything is registered.
     let builtins = match manifest.get("builtins") {
@@ -2057,7 +2057,7 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
         .unwrap_or("");
 
     let min_version = plugin_section
-        .get("min_aether_version")
+        .get("min_ironshell_version")
         .and_then(|v| v.as_str())
         .unwrap_or("0.1.0");
 
@@ -2119,7 +2119,7 @@ pub fn load_plugin_from_manifest(path: &str) -> Result<Value> {
         author: author.to_string(),
         description: description.to_string(),
         categories: categories_arr,
-        min_aether_version: min_version.to_string(),
+        min_ironshell_version: min_version.to_string(),
         dependencies,
         homepage,
         license,
@@ -2820,7 +2820,7 @@ let triple = fn(x) => x * 3
 
         // Write to temp file
         let temp_dir = std::env::temp_dir();
-        let temp_file = temp_dir.join("test_plugin.ae");
+        let temp_file = temp_dir.join("test_plugin.ish");
         std::fs::write(&temp_file, content).unwrap();
 
         // Load it
@@ -2846,7 +2846,7 @@ let triple = fn(x) => x * 3
             author: "Author".to_string(),
             description: "Desc".to_string(),
             categories: vec![PluginCategory::Builtin],
-            min_aether_version: "0.1.0".to_string(),
+            min_ironshell_version: "0.1.0".to_string(),
             dependencies: vec![],
             homepage: Some("https://example.com".to_string()),
             license: Some("MIT".to_string()),

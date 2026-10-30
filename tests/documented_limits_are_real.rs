@@ -24,7 +24,7 @@
 //!     is compared, so a renamed constant fails loudly instead of silently
 //!     matching nothing.
 
-use aethershell::os_tools::{OSToolsDatabase, SafetyLevel};
+use iron_shell::os_tools::{OSToolsDatabase, SafetyLevel};
 use std::path::{Path, PathBuf};
 
 const SWARMS: &str = "docs/book/src/ai/swarms.md";

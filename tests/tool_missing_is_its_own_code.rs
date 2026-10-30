@@ -12,7 +12,7 @@
 //! says the one thing that helps: install the tool. No correction to the call
 //! will.
 
-use aethershell::safety::ErrorCode;
+use iron_shell::safety::ErrorCode;
 
 /// A tool no machine running this suite will have installed.
 const ABSENT: &str = "definitely-not-installed-94117";
@@ -44,7 +44,7 @@ fn the_code_carries_the_right_contract() {
 
 #[test]
 fn the_error_names_the_tool_and_what_to_do() {
-    let err = aethershell::safety::tool_missing("fmt_python", ABSENT, "No such file or directory");
+    let err = iron_shell::safety::tool_missing("fmt_python", ABSENT, "No such file or directory");
     let msg = err.to_string();
 
     assert!(msg.contains("E_TOOL_MISSING"), "not coded: {msg}");
@@ -69,10 +69,10 @@ fn a_builtin_whose_tool_is_absent_reports_it() {
     // End to end, through the real dispatcher. `black` is a Python formatter;
     // if it happens to be installed here this asserts nothing, so the test says
     // so rather than passing quietly.
-    let mut env = aethershell::env::Env::new();
-    let out = aethershell::builtins::call(
+    let mut env = iron_shell::env::Env::new();
+    let out = iron_shell::builtins::call(
         "black",
-        vec![aethershell::value::Value::Str(".".into())],
+        vec![iron_shell::value::Value::Str(".".into())],
         &mut env,
     );
     match out {

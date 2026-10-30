@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { extRoot, tokenize, expandSnippet } from "./tokenize.mjs";
 
 const snippets = JSON.parse(
-  readFileSync(join(extRoot, "snippets", "aethershell.json"), "utf8"),
+  readFileSync(join(extRoot, "snippets", "ironshell.json"), "utf8"),
 );
 const entries = Object.entries(snippets);
 
@@ -110,7 +110,7 @@ test("snippet bodies do not use keywords the language lacks", () => {
     for (const kw of absent) {
       assert.ok(
         !body.includes(kw),
-        `${name}: body contains "${kw.trim()}", which AetherShell has no keyword for`,
+        `${name}: body contains "${kw.trim()}", which IronShell has no keyword for`,
       );
     }
   }

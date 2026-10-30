@@ -1,6 +1,6 @@
 # Agentic shell benchmarks
 
-Four experiments comparing AetherShell against bash, PowerShell, nushell, jq and
+Four experiments comparing IronShell against bash, PowerShell, nushell, jq and
 SQLite on the terms that decide an AI agent's bill and its blast radius. They
 exist to answer two specific published claims:
 
@@ -34,10 +34,10 @@ experiment that would close the gap.
 | | File | What it does |
 | --- | --- | --- |
 | **E1** | `corpus.mjs`, `run.mjs` | Ten queries over 500 real GitHub issues, in six engines, against an oracle. Replicates the Vercel post's setup. |
-| **E2** | `shellops.mjs` | Eight ordinary repository operations — the per-turn cost of the shell itself, in two AetherShell render modes. |
+| **E2** | `shellops.mjs` | Eight ordinary repository operations — the per-turn cost of the shell itself, in two IronShell render modes. |
 | **E3** | `errors.mjs` | Ten induced failures per shell: exit status, machine-readable code, repair hint, byte cost. |
 | **E3b** | `uncoded.mjs` | The same question as E3, asked of all 1,052 catalogued builtins instead of ten chosen ones: how many report a failure an agent can branch on? |
-| **E4** | `safety.mjs` | Seven dangerous operations, scored by whether the file outside the jail actually changed. One arm is a live `ae agent serve` with no flags, because that is the surface an agent really drives. |
+| **E4** | `safety.mjs` | Seven dangerous operations, scored by whether the file outside the jail actually changed. One arm is a live `ish agent serve` with no flags, because that is the surface an agent really drives. |
 | **E5** | `environment.mjs` | The same listing under six locales, timezones and terminal widths: do the bytes change? |
 | **E6** | `bashcompat.mjs` | Thirty-two everyday bash one-liners through the compatibility transpiler: how many run unchanged? |
 | **E7** | `e7.mjs`, `e7-prompts/`, `PREREGISTERED_E7.md` | **Harness ready; not yet run against a model.** Does a model write a borrowed syntax (SQL, jq) correctly on the first attempt more often than an invented one? Pre-registered before the numbers exist, because it can falsify a direction this project is invested in. |
@@ -58,7 +58,7 @@ node benches/agentic/e7.mjs /tmp/aebench --replay      # E7 harness check, no mo
 node benches/agentic/e7.mjs /tmp/aebench --provider anthropic   # E7 for real
 ```
 
-Requires `ae` on PATH plus whichever comparators are installed; engines whose
+Requires `ish` on PATH plus whichever comparators are installed; engines whose
 binary is absent are skipped and named, never silently dropped. Token counts
 come from this repository's `tokens_of` example built with
 `--features real-tokens`; if that build is unavailable the report says the
@@ -66,17 +66,17 @@ counts are missing rather than substituting a heuristic.
 
 ## Three things to hold against these numbers
 
-**The author is not disinterested.** Nervosys builds AetherShell. The same
+**The author is not disinterested.** Nervosys builds IronShell. The same
 caveat `crates/agentic-eval/README.md` carries applies here: treat this as a
 documented argument to check, not as an independent evaluation. Everything
 needed to re-run it is in this directory, including the losses.
 
 **`ATTEMPTS` is not a fair fight.** `corpus.mjs` records how many tries each
 engine's command took to become correct. The author had written far more bash
-and SQL than nushell, and wrote AetherShell's standard library. That number
+and SQL than nushell, and wrote IronShell's standard library. That number
 measures one author's fluency crossed with each language, not the languages.
 It is reported because the *reasons* for the retries are informative — which
-they are for AetherShell, in the wrong direction; see the findings section of
+they are for IronShell, in the wrong direction; see the findings section of
 the response document.
 
 **Every engine here is given its best form.** bash is measured with `jq`
@@ -91,7 +91,7 @@ filesystem-only case, not a handicapped bash.
 generated markdown reports, the raw per-measurement JSON for all four
 experiments, and the E2 transcript so a reader can check that every engine was
 asked the same question and gave the same answer. Platform: Debian on WSL2,
-24 cores, AetherShell 12.0.2, median of 11 runs.
+24 cores, IronShell 12.0.2, median of 11 runs.
 
 ## E2 has an oracle, and the oracle has a self-check
 
@@ -99,7 +99,7 @@ An earlier version of this file argued that E2 needed no oracle, because its
 tasks have no single canonical rendering and the question is what a turn
 *costs*. That argument was wrong and it produced a wrong published number.
 
-AetherShell's renderer was printing an array of records as `[{…}, {…}, …]`.
+IronShell's renderer was printing an array of records as `[{…}, {…}, …]`.
 E2's check was `exit == 0 && output non-empty`, so that scored as correct — at
 316 bytes against bash's 2,650, and it was reported as a 7.9× advantage. The
 316 bytes contained none of the requested data. **An output-size comparison is
@@ -111,7 +111,7 @@ has stopped answering.
 contain. It is a content check rather than an equality check, because the
 engines legitimately encode the same facts differently:
 
-| | bash | AetherShell `--agent` | nushell |
+| | bash | IronShell `--agent` | nushell |
 | --- | --- | --- | --- |
 | `src/agent.rs`, 27260 bytes | `27260` | `27260` under `@suffix name: .rs` | `27.2 kB` |
 
@@ -147,6 +147,6 @@ out of a missing package. With `sqlite3` installed, all five arms replay
 
 The prompts in `e7-prompts/` are hashed into every result file. A run whose
 hash differs from an earlier run is a different experiment and is reported
-separately. The ontology the AetherShell arms receive is generated at run time
+separately. The ontology the IronShell arms receive is generated at run time
 from the shell under test, not pasted into the prompts, so the reference
 material and the shell cannot drift apart.

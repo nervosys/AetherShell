@@ -1,5 +1,5 @@
-Write the command in **AetherShell's agentic syntax**, run as `ae -a -c '<command>'`.
-Output only the command itself (not the `ae -a -c` wrapper).
+Write the command in **IronShell's agentic syntax**, run as `ish -a -c '<command>'`.
+Output only the command itself (not the `ish -a -c` wrapper).
 
 The data is `issues.json`, a JSON array of 500 objects with this shape:
 
@@ -16,7 +16,7 @@ The data is `issues.json`, a JSON array of 500 objects with this shape:
 `state` is `"open"` or `"closed"`. `is_pr` is a boolean. `labels` is an array of
 strings, possibly empty.
 
-AetherShell is a typed shell: values flow through `|` as structured data, not
+IronShell is a typed shell: values flow through `|` as structured data, not
 text. Lambdas are written `fn(x) => expr`. Read the file with `cat("issues.json")`
 and parse it with `from_json`.
 

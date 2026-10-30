@@ -1,12 +1,12 @@
-# AetherShell TUI Visual Guide
+# IronShell TUI Visual Guide
 
-**Launch TUI Mode**: `ae tui`
+**Launch TUI Mode**: `ish tui`
 
 ## 🎨 TUI Interface Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 🚀 AetherShell TUI v0.1.0                      [Chat] [Agents] [MCP]│
+│ 🚀 IronShell TUI v0.1.0                      [Chat] [Agents] [MCP]│
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                       │
 │  ┌─────────────────────────────────────────────────────────────┐   │
@@ -410,19 +410,19 @@ The TUI uses semantic colors:
 
 ```bash
 # Basic TUI
-ae tui
+ish tui
 
 # TUI with specific script
-ae tui demos/tui_chat_demo.ae
+ish tui demos/tui_chat_demo.ish
 
 # TUI with agent swarm
-ae tui demos/tui_agent_swarm_demo.ae
+ish tui demos/tui_agent_swarm_demo.ish
 
 # TUI with MCP servers
-ae tui demos/tui_mcp_demo.ae
+ish tui demos/tui_mcp_demo.ish
 
 # TUI with multimodal
-ae tui demos/tui_multimodal_demo.ae
+ish tui demos/tui_multimodal_demo.ish
 ```
 
 ---
@@ -439,4 +439,4 @@ ae tui demos/tui_multimodal_demo.ae
 
 ---
 
-**Ready to explore?** Try: `ae tui demos/tui_chat_demo.ae` 🚀
+**Ready to explore?** Try: `ish tui demos/tui_chat_demo.ish` 🚀

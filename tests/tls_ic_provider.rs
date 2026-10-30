@@ -10,7 +10,7 @@ fn suite_ids(suites: &[rustls::SupportedCipherSuite]) -> Vec<rustls::CipherSuite
 
 #[test]
 fn install_provider_makes_ic_rustls_the_default() {
-    aethershell::tls::install_provider();
+    iron_shell::tls::install_provider();
     let installed = CryptoProvider::get_default().expect("a default provider is installed");
     let expected = ic_rustls::provider();
     assert_eq!(
@@ -21,8 +21,8 @@ fn install_provider_makes_ic_rustls_the_default() {
 
 #[test]
 fn install_provider_is_idempotent() {
-    aethershell::tls::install_provider();
-    aethershell::tls::install_provider();
+    iron_shell::tls::install_provider();
+    iron_shell::tls::install_provider();
     assert!(CryptoProvider::get_default().is_some());
     // A second explicit install is refused rather than replacing the default.
     assert!(CryptoProvider::install_default(ic_rustls::provider()).is_err());
@@ -30,7 +30,7 @@ fn install_provider_is_idempotent() {
 
 #[test]
 fn reqwest_clients_build_on_the_installed_provider() {
-    aethershell::tls::install_provider();
+    iron_shell::tls::install_provider();
     reqwest::blocking::Client::builder()
         .build()
         .expect("blocking client builds");

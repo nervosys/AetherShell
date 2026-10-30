@@ -2,18 +2,18 @@
 //! swarm builtins.
 //!
 //! Every test that touches the journal takes `JOURNAL_LOCK` and runs against a
-//! temporary `AETHER_SESSION_DIR`, so none of them reads or writes the real
+//! temporary `IRONSHELL_SESSION_DIR`, so none of them reads or writes the real
 //! journal. The agent and swarm cases are all refusals: each one is turned away
 //! by its declaration or by the argument parser before a run starts, so no
 //! model is ever called.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::eval::eval_program;
-use aethershell::journal;
-use aethershell::parser::parse_program;
-use aethershell::signature::signature_of;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::eval::eval_program;
+use iron_shell::journal;
+use iron_shell::parser::parse_program;
+use iron_shell::signature::signature_of;
+use iron_shell::value::Value;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
@@ -34,8 +34,8 @@ impl Session {
         let dir = std::env::temp_dir().join(format!("ae_fb_sess_{tag}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("state")).expect("temp session dir");
-        std::env::set_var("AETHER_JOURNAL", "on");
-        std::env::set_var("AETHER_SESSION_DIR", dir.join("state"));
+        std::env::set_var("IRONSHELL_JOURNAL", "on");
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir.join("state"));
         journal::clear();
         Self { dir, _lock: lock }
     }
@@ -48,8 +48,8 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         journal::clear();
-        std::env::remove_var("AETHER_JOURNAL");
-        std::env::remove_var("AETHER_SESSION_DIR");
+        std::env::remove_var("IRONSHELL_JOURNAL");
+        std::env::remove_var("IRONSHELL_SESSION_DIR");
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }

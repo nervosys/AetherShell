@@ -1,9 +1,10 @@
 [workspace]
-members = [".", "crates/aethershell-lsp", "crates/agentic-eval"]
+members = [".", "crates/iron-shell-lsp", "crates/agentic-eval"]
 exclude = ["web", "integrations/python"]
 
 [package]
-name = "aethershell"
+name = "iron-shell"
+default-run = "ish"
 version = "12.0.2"
 edition = "2021"
 authors = ["Nervosys <contact@nervosys.ai>"]
@@ -30,11 +31,11 @@ exclude = [
     "test-scripts/",
     "website/",
     "web/",
-    "/FEATURE_DEMO.ae",
-    "/demo_all_features.ae",
-    "/demo_new_features.ae",
-    "/temp_test.ae",
-    "/test_assignment.ae",
+    "/FEATURE_DEMO.ish",
+    "/demo_all_features.ish",
+    "/demo_new_features.ish",
+    "/temp_test.ish",
+    "/test_assignment.ish",
     "/temp_section.md",
     "deny.toml",
     "DIRECTORY_OVERVIEW.md",
@@ -52,7 +53,7 @@ exclude = [
     # keep it out of the permanent crates.io archive.
     ".mailmap",
     # The cross-compilation linker mapping must NOT ship: on a native aarch64
-    # machine `cargo install aethershell` would pick it up and demand
+    # machine `cargo install iron-shell` would pick it up and demand
     # `aarch64-linux-gnu-gcc`, which such a host has no reason to have.
     ".cargo/",
     ".clinerules",
@@ -114,12 +115,17 @@ web = [
 ]
 
 [lib]
-name = "aethershell"
+name = "iron_shell"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ae"
+name = "ish"
 path = "src/main.rs"
+
+# `ae`, the name before the rename, kept for existing scripts and agent configs.
+[[bin]]
+name = "ae"
+path = "src/bin/ae.rs"
 
 [[bin]]
 name = "aimodel"
@@ -178,7 +184,7 @@ sha1 = "0.10"  # already locked as a transitive dependency; hashing is in-proces
 # end to end.
 hmac = "0.12"
 # PBKDF2 (SP 800-132) is IronCrypto's too. Argon2id is the default; PBKDF2 lets
-# a deployment running under AETHER_FIPS have an all-approved chain rather than
+# a deployment running under IRONSHELL_FIPS have an all-approved chain rather than
 # one documented exception (AS-2026-08).
 url = "2.5"
 urlencoding = "2.1"
@@ -322,7 +328,7 @@ web-sys = { version = "0.3", features = [
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 # Four-axis agentic evaluation (token efficiency, determinism, reliability, safety)
-# applied to AetherShell's real engine in examples/agentic_eval.rs + the matching test.
+# applied to IronShell's real engine in examples/agentic_eval.rs + the matching test.
 agentic-eval = { path = "crates/agentic-eval", version = "0.14" }
 
 [[bench]]
@@ -356,12 +362,17 @@ license-file = ["LICENSE", "0"]
 section = "utils"
 priority = "optional"
 extended-description = """\
-AetherShell is a next-generation shell combining typed functional pipelines \
+IronShell is a next-generation shell combining typed functional pipelines \
 with multi-modal AI agents. Features include Hindley-Milner type inference, \
 structured data pipelines, multi-provider LLM support, agent swarms, \
 TUI interface, MCP server, and bash compatibility."""
 depends = "$auto"
 assets = [
+    [
+        "target/release/ish",
+        "usr/bin/ish",
+        "755",
+    ],
     [
         "target/release/ae",
         "usr/bin/ae",
@@ -374,20 +385,21 @@ assets = [
     ],
     [
         "README.md",
-        "usr/share/doc/aethershell/README.md",
+        "usr/share/doc/ironshell/README.md",
         "644",
     ],
     [
         "LICENSE",
-        "usr/share/doc/aethershell/LICENSE",
+        "usr/share/doc/ironshell/LICENSE",
         "644",
     ],
 ]
 
 [package.metadata.generate-rpm]
 assets = [
+    { source = "target/release/ish", dest = "/usr/bin/ish", mode = "755" },
     { source = "target/release/ae", dest = "/usr/bin/ae", mode = "755" },
     { source = "target/release/aimodel", dest = "/usr/bin/aimodel", mode = "755" },
-    { source = "README.md", dest = "/usr/share/doc/aethershell/README.md", mode = "644" },
-    { source = "LICENSE", dest = "/usr/share/doc/aethershell/LICENSE", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/ironshell/README.md", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/ironshell/LICENSE", mode = "644" },
 ]

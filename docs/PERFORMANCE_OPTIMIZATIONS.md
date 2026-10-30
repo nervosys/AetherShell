@@ -1,6 +1,6 @@
-# AetherShell Performance Optimizations
+# IronShell Performance Optimizations
 
-This document summarizes the comprehensive latency reduction optimizations implemented in AetherShell.
+This document summarizes the comprehensive latency reduction optimizations implemented in IronShell.
 
 ## Overview
 
@@ -208,4 +208,4 @@ All optimizations maintain full backward compatibility:
 
 ---
 
-**Total System Impact**: These optimizations provide substantial performance improvements across all major AetherShell subsystems while maintaining full functional compatibility and type safety.
+**Total System Impact**: These optimizations provide substantial performance improvements across all major IronShell subsystems while maintaining full functional compatibility and type safety.

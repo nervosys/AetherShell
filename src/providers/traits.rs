@@ -1,7 +1,7 @@
 //! Universal LLM Provider Traits
 //!
 //! Defines the core traits and interfaces that all LLM providers must implement,
-//! enabling AetherShell to seamlessly switch between any AI backend.
+//! enabling IronShell to seamlessly switch between any AI backend.
 
 use async_trait::async_trait;
 use futures::Stream;

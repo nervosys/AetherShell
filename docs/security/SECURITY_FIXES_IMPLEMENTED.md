@@ -1,5 +1,5 @@
 # Security Fixes Implemented
-## AetherShell v0.1.0 - October 29, 2025
+## IronShell v0.1.0 - October 29, 2025
 
 **Based on Red Team Security Audit Report** (`SECURITY_AUDIT_RED_TEAM.md`)
 
@@ -1054,18 +1054,18 @@ The following LOW-severity issues remain as best-practice improvements (non-bloc
 
 ### New Environment Variables
 
-> **Not implemented.** None of `AETHER_MAX_FILE_SIZE_MB`,
-> `AETHER_MAX_MEMORY_MB`, `AETHER_HTTPS_ONLY` or `AETHER_HTTP_TIMEOUT` is read
+> **Not implemented.** None of `IRONSHELL_MAX_FILE_SIZE_MB`,
+> `IRONSHELL_MAX_MEMORY_MB`, `IRONSHELL_HTTPS_ONLY` or `IRONSHELL_HTTP_TIMEOUT` is read
 > by the source. In particular there is no in-process memory bound: that is an
 > open audit finding, not a setting.
 
 **Resource limits that do exist:**
 ```bash
-export AETHER_MAX_OPS=100000     # evaluator operations
-export AETHER_MAX_FILES=1000     # files touched
-export AETHER_MAX_NET=0          # network calls
-export AETHER_MAX_PROCS=0        # subprocesses
-export AETHER_TIMEOUT_MS=30000   # wall-clock per run
+export IRONSHELL_MAX_OPS=100000     # evaluator operations
+export IRONSHELL_MAX_FILES=1000     # files touched
+export IRONSHELL_MAX_NET=0          # network calls
+export IRONSHELL_MAX_PROCS=0        # subprocesses
+export IRONSHELL_TIMEOUT_MS=30000   # wall-clock per run
 ```
 
 ---
@@ -1076,22 +1076,22 @@ export AETHER_TIMEOUT_MS=30000   # wall-clock per run
 
 ```bash
 # 1. Run under the agent policy, with writes jailed to a workspace
-export AETHER_MODE=agent
-export AETHER_WORKSPACE=/srv/work
+export IRONSHELL_MODE=agent
+export IRONSHELL_WORKSPACE=/srv/work
 
 # 2. Bound resources
-export AETHER_MAX_OPS=100000
-export AETHER_MAX_PROCS=0
+export IRONSHELL_MAX_OPS=100000
+export IRONSHELL_MAX_PROCS=0
 
 # 3. Configure the command allowlist
 export AGENT_ALLOW_CMDS=ls,cat,git,grep
 
 # 4. Require a writable, keyed audit log
-export AETHER_AUDIT_REQUIRED=1
-export AETHER_AUDIT_KEY_FILE=/etc/aether/audit.key
+export IRONSHELL_AUDIT_REQUIRED=1
+export IRONSHELL_AUDIT_KEY_FILE=/etc/ironshell/audit.key
 
-# Note: RUST_LOG is honoured by the language server (aethershell-lsp).
-# The `ae` binary does not read it.
+# Note: RUST_LOG is honoured by the language server (iron-shell-lsp).
+# The `ish` binary does not read it.
 ```
 
 ### Docker Security
@@ -1109,8 +1109,8 @@ LABEL security.no-new-privileges="true"
 
 # Resource limits. Memory is bounded by the container, not by the shell --
 # there is no in-process allocation cap.
-ENV AETHER_MAX_OPS=100000
-ENV AETHER_MAX_FILES=1000
+ENV IRONSHELL_MAX_OPS=100000
+ENV IRONSHELL_MAX_FILES=1000
 ```
 
 ---

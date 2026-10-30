@@ -1,27 +1,27 @@
-//! PowerShell → Aether Shell transpiler (compat mode).
+//! PowerShell → IronShell Shell transpiler (compat mode).
 //!
 //! This is a pragmatic, line-oriented transpiler for a *useful subset* of PowerShell:
 //!   - simple commands (cmdlets), args, and pipelines (`|`)
 //!   - single quotes:  'literal string'
-//!   - double quotes:  expand $V and ${V} as Aether string interpolations `${V}`
+//!   - double quotes:  expand $V and ${V} as IronShell string interpolations `${V}`
 //!   - $VAR as a standalone arg becomes an identifier `VAR`
 //!   - simple assignments: $NAME = value  →  let NAME = <expr>
-//!   - common cmdlets mapped to Aether builtins
+//!   - common cmdlets mapped to IronShell builtins
 //!
 //! Fallback: if a line contains constructs we don't yet handle,
 //! we emit:  sh(["pwsh","-c", "<original line>"])
 //!
-//! Output: Aether source as a String.
+//! Output: IronShell source as a String.
 
 use anyhow::Result;
 
-/// Transpile a whole PowerShell script (multi-line) to Aether code.
+/// Transpile a whole PowerShell script (multi-line) to IronShell code.
 /// Multi-line blocks (if/foreach/for/while/switch/try/function/class) are
 /// accumulated and emitted as a single `sh(["pwsh","-c","..."])` call rather
 /// than falling back line-by-line.
 pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
     let mut out = String::new();
-    out.push_str("// Transpiled from PowerShell \u{2192} Aether (compat mode)\n");
+    out.push_str("// Transpiled from PowerShell \u{2192} IronShell (compat mode)\n");
 
     let mut in_multiline_string = false;
     let mut multiline_buffer = String::new();
@@ -122,8 +122,8 @@ pub fn transpile_powershell_to_ae(src: &str) -> Result<String> {
         // Try to parse as a pipeline of commands
         match parse_ps_pipeline(line) {
             Ok(cmds) if !cmds.is_empty() => {
-                let aether_line = render_ps_pipeline(&cmds);
-                out.push_str(&aether_line);
+                let ironshell_line = render_ps_pipeline(&cmds);
+                out.push_str(&ironshell_line);
                 out.push('\n');
             }
             _ => {
@@ -653,7 +653,7 @@ fn render_ps_command(cmd: &PsCommand) -> String {
         Token::Splat(s) => format!("@{}", s),
     };
 
-    // Map common PowerShell cmdlets to Aether builtins
+    // Map common PowerShell cmdlets to IronShell builtins
     if let Some(mapped) = map_ps_cmdlet(&cmdlet_name) {
         let args_str = render_ps_args(&cmd.args);
         if args_str.is_empty() {
@@ -672,7 +672,7 @@ fn render_ps_command(cmd: &PsCommand) -> String {
 }
 
 fn render_ps_args(args: &[Token]) -> String {
-    // Convert PowerShell args to Aether function args
+    // Convert PowerShell args to IronShell function args
     let mut result = Vec::new();
     let mut i = 0;
 
@@ -758,7 +758,7 @@ Cmdlet mapping
 ============================================================================= */
 
 fn map_ps_cmdlet(name: &str) -> Option<&'static str> {
-    // Map common PowerShell cmdlets to Aether builtins
+    // Map common PowerShell cmdlets to IronShell builtins
     // Case-insensitive matching — uses module.func dot notation for consistency
     match name.to_lowercase().as_str() {
         // Output
@@ -1033,7 +1033,7 @@ mod tests {
     fn test_pipeline() {
         let result =
             transpile_powershell_to_ae("Get-Process | Where-Object { $_.CPU -gt 10 }").unwrap();
-        // Should transpile to Aether pipeline or fall back if script blocks not supported
+        // Should transpile to IronShell pipeline or fall back if script blocks not supported
         assert!(
             result.contains("where") || result.contains("sh(") || result.contains("pwsh"),
             "Expected pipeline transpilation or fallback, got: {}",

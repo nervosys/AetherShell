@@ -7,7 +7,7 @@ the same arguments as [`agent`](./agents.md) and delegates to the same
 single-agent loop. `ai::agents::swarm::run_sync` is one line — it calls
 `ai::agents::run_sync`.
 
-```aethershell
+```ironshell
 swarm("Analyze this project thoroughly", ["ls", "cat", "grep"], 12)
 ```
 
@@ -34,9 +34,9 @@ goal — see [Creating Agents](./agents.md#each-call-starts-fresh).
 
 Both builtins honour an environment variable for the model URI:
 
-```aethershell
-set_env("AETHER_AGENT_MODEL_URI", "openai:gpt-4o")
-set_env("AETHER_SWARM_AGENT_MODEL_URI", "ollama:llama3")
+```ironshell
+set_env("IRONSHELL_AGENT_MODEL_URI", "openai:gpt-4o")
+set_env("IRONSHELL_SWARM_AGENT_MODEL_URI", "ollama:llama3")
 ```
 
 See [Workflows](./workflows.md) for the orchestration surface, which is
@@ -51,7 +51,7 @@ so a `model:` entry has no effect.
 Tools are the builtins the agent may call. Name them individually, or as an
 array:
 
-```aethershell
+```ironshell
 agent("Find large files", ["ls", "cat", "grep"])
 ```
 
@@ -59,7 +59,7 @@ An **empty array gives the agent no tools at all**, not every tool. Tool names
 are resolved one by one against the registry, so an empty list resolves to an
 empty toolset and the agent can only answer from the model.
 
-```aethershell
+```ironshell
 agent("Analyze the project", [])   # no tools; the model answers unaided
 ```
 
@@ -80,7 +80,7 @@ export AGENT_ALLOW_CMDS=ls,cat,grep,wc
 
 The list is read once, when the security configuration is first built. Setting
 it from inside a running shell with `set_env` only takes effect if no command
-has been validated yet, so prefer exporting it before starting `ae`.
+has been validated yet, so prefer exporting it before starting `ish`.
 
 ### Measured limits
 
@@ -96,7 +96,7 @@ has been validated yet, so prefer exporting it before starting `ae`.
 - **Memory** — 512 MB, **on Linux and macOS only**. The Windows
   `configure_sandbox` is a documented no-op: Job Object sandboxing is a TODO,
   so on Windows you get the timeout and the output cap and nothing else.
-- **No shell escape** — the `sh` builtin is gated behind `AETHER_ALLOW_SH=true`
+- **No shell escape** — the `sh` builtin is gated behind `IRONSHELL_ALLOW_SH=true`
   and is unavailable by default.
 
 ## Agents with MCP tools
@@ -106,7 +106,7 @@ has been validated yet, so prefer exporting it before starting `ae`.
 argument is refused with `E_UNIMPLEMENTED`, so the call below is refused as
 written:
 
-```aethershell
+```ironshell
 agent_with_mcp("Analyze repository", ["ls", "cat"])                     # works
 agent_with_mcp("Analyze repository", ["ls", "cat"], "http://localhost:9090")  # E_UNIMPLEMENTED
 ```
@@ -119,7 +119,7 @@ passes the same dispatch guard as any other builtin call. Note that
 
 ### Code review
 
-```aethershell
+```ironshell
 agent({
   goal: "Review src/main.rs for potential bugs, style issues, and missing error handling",
   tools: ["cat", "grep", "wc"],
@@ -129,7 +129,7 @@ agent({
 
 ### Project analysis
 
-```aethershell
+```ironshell
 agent({
   goal: "Describe this Rust project: structure, dependencies, and test coverage",
   tools: ["ls", "cat", "grep", "find", "wc", "fs_tree"],
@@ -143,7 +143,7 @@ agent({
 export AGENT_ALLOW_CMDS=ls,cat,grep,git
 ```
 
-```aethershell
+```ironshell
 agent({
   goal: "Summarize all changes since the last release tag",
   tools: ["git_log", "git_diff", "cat"],

@@ -1,11 +1,11 @@
 # Removal of := Operator
 
 **Date:** October 18, 2025  
-**Change:** Removed the `:=` operator completely from AetherShell
+**Change:** Removed the `:=` operator completely from IronShell
 
 ## Summary
 
-The `:=` operator has been removed to simplify the language syntax. AetherShell now uses only `=` for variable assignments and declarations.
+The `:=` operator has been removed to simplify the language syntax. IronShell now uses only `=` for variable assignments and declarations.
 
 ## Rationale
 
@@ -26,7 +26,7 @@ The `:=` operator has been removed to simplify the language syntax. AetherShell 
 
 ### Before (Three Syntaxes)
 
-```ae
+```ish
 // Immutable
 x = 42
 x := 42           // REMOVED
@@ -40,7 +40,7 @@ let mut x = 42
 
 ### After (Two Syntaxes)
 
-```ae
+```ish
 // Immutable
 x = 42            // Simple and recommended
 let x = 42        // Explicit
@@ -111,17 +111,17 @@ if peek2 == Some(Tok::Equal) { ... }
 
 ### For Users
 
-If you have existing AetherShell code using `:=`, simply replace it with `=`:
+If you have existing IronShell code using `:=`, simply replace it with `=`:
 
 **Before:**
-```ae
+```ish
 name := "Alice"
 count := 42
 mut total := 100
 ```
 
 **After:**
-```ae
+```ish
 name = "Alice"
 count = 42
 mut total = 100
@@ -135,7 +135,7 @@ You can use a simple find-and-replace:
 
 Or with PowerShell:
 ```powershell
-Get-ChildItem *.ae -Recurse | ForEach-Object {
+Get-ChildItem *.ish -Recurse | ForEach-Object {
     (Get-Content $_.FullName -Raw) -replace ' := ', ' = ' | 
     Set-Content $_.FullName -NoNewline
 }
@@ -152,10 +152,10 @@ Get-ChildItem *.ae -Recurse | ForEach-Object {
 
 ### Test Coverage
 
-**Created:** `temp/test_no_colonequal.ae`
+**Created:** `temp/test_no_colonequal.ish`
 
 Tests all syntax without `:=`:
-```ae
+```ish
 // Immutable
 x = 42
 let y = 100
@@ -170,7 +170,7 @@ let mut total = 50
 ### Example Updates
 
 **Fixed Files:**
-- `examples/18_mutable_variables.ae` - Changed `mut total := 100` to `mut total = 100`
+- `examples/18_mutable_variables.ish` - Changed `mut total := 100` to `mut total = 100`
 
 **All Other Examples:** Already using `=` syntax
 
@@ -214,18 +214,18 @@ Most popular languages use `=` for assignment:
 - Rust: `let x = 42`
 - Swift: `var x = 42` or `let x = 42`
 
-AetherShell now aligns with the majority pattern.
+IronShell now aligns with the majority pattern.
 
 ### Consistency
 
 Before (inconsistent):
-```ae
+```ish
 x = 42      // Assignment operator
 x := 42     // Different operator, same effect?
 ```
 
 After (consistent):
-```ae
+```ish
 x = 42      // Always use =
 let x = 42  // Add 'let' when explicit
 ```
@@ -261,18 +261,18 @@ This is a **breaking change** for code using `:=` operator.
 
 | Language        | Immutable      | Mutable          | Notes            |
 | --------------- | -------------- | ---------------- | ---------------- |
-| **AetherShell** | `x = 42`       | `mut x = 42`     | Simple and clear |
+| **IronShell** | `x = 42`       | `mut x = 42`     | Simple and clear |
 | Rust            | `let x = 42`   | `let mut x = 42` | Explicit         |
 | Python          | `x = 42`       | `x = 42`         | No distinction   |
 | JavaScript      | `const x = 42` | `let x = 42`     | Keyword-based    |
 | Go              | `x := 42`      | `var x = 42`     | Uses `:=`        |
 | Swift           | `let x = 42`   | `var x = 42`     | Keyword-based    |
 
-AetherShell is **most similar to Python** in simplicity, while maintaining explicit mutability like Rust.
+IronShell is **most similar to Python** in simplicity, while maintaining explicit mutability like Rust.
 
 ## Conclusion
 
-Successfully removed the `:=` operator from AetherShell!
+Successfully removed the `:=` operator from IronShell!
 
 ### Key Achievements
 

@@ -27,7 +27,7 @@
 //! textual shape, and types that make an unescaped value a compile error. Each
 //! layer caught something the others could not.
 
-use aethershell::safety::{
+use iron_shell::safety::{
     applescript_quote, ps_bare_number, ps_join, ps_quote, reject_option_like,
     reject_sqlite_dot_command,
 };
@@ -296,7 +296,7 @@ fn ordinary_paths_are_accepted() {
 // a plain `echo` and the real `start` form. The builtin was classified
 // `Network` (the `web_*` prefix rule), which is not centrally enforced, and it
 // was not in `SELF_GUARDED` — so in agent mode it was default-allow, unmetered,
-// and outside the `AETHER_NET_ALLOW` egress allowlist.
+// and outside the `IRONSHELL_NET_ALLOW` egress allowlist.
 //
 // The primary fix is structural and lives at the call site: the Windows branch
 // no longer uses a shell, because `&` is the query-string separator and a
@@ -321,7 +321,7 @@ fn a_url_scheme_outside_the_web_set_is_refused() {
         "ftp://ftp.example.com/pub/",
     ] {
         assert!(
-            aethershell::safety::reject_unsafe_url("web_open_url", url).is_err(),
+            iron_shell::safety::reject_unsafe_url("web_open_url", url).is_err(),
             "{url} dispatches to a registered handler that is not a browser"
         );
     }
@@ -335,7 +335,7 @@ fn a_url_carrying_a_control_character_is_refused() {
         "http://x\u{0}y",
     ] {
         assert!(
-            aethershell::safety::reject_unsafe_url("web_open_url", url).is_err(),
+            iron_shell::safety::reject_unsafe_url("web_open_url", url).is_err(),
             "a newline separates commands in every shell and cannot appear in a URL"
         );
     }
@@ -347,7 +347,7 @@ fn an_option_like_url_is_refused() {
     // and `open -a <app>` launches an arbitrary application.
     for url in ["-a/Applications/Calculator.app", "--version", "-"] {
         assert!(
-            aethershell::safety::reject_unsafe_url("web_open_url", url).is_err(),
+            iron_shell::safety::reject_unsafe_url("web_open_url", url).is_err(),
             "{url} is parsed as an option by open/xdg-open"
         );
     }
@@ -365,7 +365,7 @@ fn ordinary_urls_still_open() {
         "HTTPS://EXAMPLE.COM",
     ] {
         assert!(
-            aethershell::safety::reject_unsafe_url("web_open_url", url).is_ok(),
+            iron_shell::safety::reject_unsafe_url("web_open_url", url).is_ok(),
             "{url} is an ordinary URL and must still open"
         );
     }
@@ -378,7 +378,7 @@ fn a_bare_path_is_refused_rather_than_dispatched() {
     // a viewer. A URL-opening builtin should say so rather than guess.
     for url in ["report.html", r"C:\Users\x\payload.hta", "/etc/passwd", ""] {
         assert!(
-            aethershell::safety::reject_unsafe_url("web_open_url", url).is_err(),
+            iron_shell::safety::reject_unsafe_url("web_open_url", url).is_err(),
             "{url:?} has no scheme"
         );
     }

@@ -2,17 +2,17 @@
 //! op is refused by the workspace jail must leave the disk untouched, open no
 //! transaction, and need no rollback.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-// The transaction journal and AETHER_WORKSPACE are process-global; serialize.
+// The transaction journal and IRONSHELL_WORKSPACE are process-global; serialize.
 static LOCK: Mutex<()> = Mutex::new(());
 
 fn call(name: &str, args: Vec<Value>) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 fn s(x: &str) -> Value {
@@ -47,12 +47,12 @@ fn get_str(v: &Value, key: &str) -> String {
 }
 
 /// Clear any transaction left active by an earlier failure, and reset the
-/// mode so a leaked AETHER_MODE cannot change how `apply` runs.
+/// mode so a leaked IRONSHELL_MODE cannot change how `apply` runs.
 fn reset_tx() {
-    std::env::remove_var("AETHER_MODE");
+    std::env::remove_var("IRONSHELL_MODE");
     for _ in 0..16 {
-        let mut env = aethershell::env::Env::new();
-        if aethershell::builtins::call("tx_rollback", vec![], &mut env).is_err() {
+        let mut env = iron_shell::env::Env::new();
+        if iron_shell::builtins::call("tx_rollback", vec![], &mut env).is_err() {
             break;
         }
     }
@@ -69,14 +69,14 @@ fn fixture(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
     for d in [&ws, &outside, &session] {
         std::fs::create_dir_all(d).unwrap();
     }
-    std::env::set_var("AETHER_WORKSPACE", &ws);
-    std::env::set_var("AETHER_SESSION_DIR", &session);
+    std::env::set_var("IRONSHELL_WORKSPACE", &ws);
+    std::env::set_var("IRONSHELL_SESSION_DIR", &session);
     (base, ws, outside)
 }
 
 fn teardown(base: &PathBuf) {
-    std::env::remove_var("AETHER_WORKSPACE");
-    std::env::remove_var("AETHER_SESSION_DIR");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
+    std::env::remove_var("IRONSHELL_SESSION_DIR");
     let _ = std::fs::remove_dir_all(base);
 }
 

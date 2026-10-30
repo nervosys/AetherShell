@@ -182,19 +182,19 @@ pub fn run(env: &mut Env) -> Result<()> {
     Ok(())
 }
 
-/// One-liner (e.g. `ae -c 'code'`)
+/// One-liner (e.g. `ish -c 'code'`)
 pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
     match eval_line(env, code) {
         Ok(v) => {
-            let budget = std::env::var("AE_TOKEN_BUDGET")
+            let budget = std::env::var("IRONSHELL_TOKEN_BUDGET")
                 .ok()
                 .and_then(|s| s.parse::<usize>().ok())
                 .filter(|m| *m > 0);
-            // Deterministic mode (`--deterministic` / AE_DETERMINISTIC) takes
+            // Deterministic mode (`--deterministic` / IRONSHELL_DETERMINISTIC) takes
             // precedence over every other renderer: canonical, byte-stable JSON for
             // snapshot tests / caching / diffs. The whole value is emitted (budget
             // is intentionally not applied — reproducibility wants the full result).
-            let deterministic = std::env::var("AE_DETERMINISTIC")
+            let deterministic = std::env::var("IRONSHELL_DETERMINISTIC")
                 .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
                 .unwrap_or(false);
             if deterministic {
@@ -213,7 +213,7 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
                 }
                 return Ok(0);
             }
-            // Human path: apply an output token budget when AE_TOKEN_BUDGET is set
+            // Human path: apply an output token budget when IRONSHELL_TOKEN_BUDGET is set
             // (e.g. via `--budget`), then pretty-print.
             let v = match budget {
                 Some(max) => crate::builtins::budget_value(&v, max, 0),
@@ -304,7 +304,7 @@ fn print_eval_error(e: &anyhow::Error, color: bool) {
             }
             if let Some(a) = &se.approval {
                 eprintln!(
-                    "  {} re-run with AETHER_APPROVE={}  (or call approve(\"{}\"))",
+                    "  {} re-run with IRONSHELL_APPROVE={}  (or call approve(\"{}\"))",
                     "approve:".cyan().bold(),
                     a.token,
                     a.token
@@ -317,7 +317,7 @@ fn print_eval_error(e: &anyhow::Error, color: bool) {
             }
             if let Some(a) = &se.approval {
                 eprintln!(
-                    "  approve: re-run with AETHER_APPROVE={}  (or call approve(\"{}\"))",
+                    "  approve: re-run with IRONSHELL_APPROVE={}  (or call approve(\"{}\"))",
                     a.token, a.token
                 );
             }
@@ -340,7 +340,7 @@ pub fn eval_line(env: &mut Env, code: &str) -> Result<Value> {
 /// Should rendered values carry ANSI colour?
 ///
 /// The config alone is not enough to answer this: until 10.0.1 it *was* the
-/// whole answer, so `ae -c '1 + 2' > out` wrote `\x1b[38;2;180;142;173m3\x1b[39m`
+/// whole answer, so `ish -c '1 + 2' > out` wrote `\x1b[38;2;180;142;173m3\x1b[39m`
 /// into the file. Anything consuming the shell's output — a pipe, a
 /// `$(...)` capture, the Homebrew formula's own `assert_equal "3"` — got
 /// escape codes it did not ask for.

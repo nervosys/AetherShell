@@ -23,8 +23,8 @@
 //! They are `#[ignore]`d only if `sqlite3` is missing, which is checked at
 //! runtime rather than assumed.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -40,7 +40,7 @@ fn have_sqlite3() -> bool {
 
 fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
+    iron_shell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
 }
 
 fn s(v: &str) -> Value {
@@ -52,10 +52,10 @@ fn s(v: &str) -> Value {
 fn fixture(tag: &str) -> PathBuf {
     let ws = std::env::temp_dir().join("ae_sqli");
     std::fs::create_dir_all(&ws).unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &ws);
-    std::env::remove_var("AETHER_POLICY");
-    aethershell::safety::set_principal(None);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &ws);
+    std::env::remove_var("IRONSHELL_POLICY");
+    iron_shell::safety::set_principal(None);
 
     let db = ws.join(format!("{tag}.sqlite"));
     let _ = std::fs::remove_file(&db);
@@ -87,7 +87,7 @@ fn victim_survives(db: &PathBuf) -> bool {
 /// reported two clean results it had not earned; only `db_sqlite_insert` was
 /// reachable, and it was the one that failed.
 fn dispatched(name: &str) -> bool {
-    aethershell::builtins::is_dispatched(name)
+    iron_shell::builtins::is_dispatched(name)
 }
 
 #[test]
@@ -404,7 +404,7 @@ fn a_legitimate_json_import_still_works() {
 
 #[test]
 fn a_column_type_cannot_close_the_statement() {
-    use aethershell::safety::sql_column_type;
+    use iron_shell::safety::sql_column_type;
     for payload in [
         "TEXT); DROP TABLE users; --",
         "TEXT, x TEXT); ATTACH DATABASE '/tmp/e' AS e; --",
@@ -426,7 +426,7 @@ fn a_column_type_cannot_close_the_statement() {
 fn the_ordinary_column_types_still_work() {
     // The half that keeps the fix from being a ban. If these stop working the
     // builtin is unusable and the "fix" is a removal in disguise.
-    use aethershell::safety::sql_column_type;
+    use iron_shell::safety::sql_column_type;
     for spec in [
         "TEXT",
         "text",
@@ -459,7 +459,7 @@ fn a_parenthesised_expression_is_refused_and_the_error_says_where_to_go() {
     // `CHECK(...)` and `REFERENCES t(c)` are legitimate SQL that this cannot
     // judge, so they are refused rather than half-parsed. The refusal is only
     // defensible because there is somewhere else to go, and the hint says so.
-    use aethershell::safety::sql_column_type;
+    use iron_shell::safety::sql_column_type;
     for spec in ["TEXT CHECK(length(x) < 10)", "INTEGER REFERENCES users(id)"] {
         let e = sql_column_type("db_sqlite_create", spec)
             .expect_err("a parenthesised expression must be refused");
@@ -474,7 +474,7 @@ fn a_parenthesised_expression_is_refused_and_the_error_says_where_to_go() {
 
 #[test]
 fn the_size_suffix_is_digits_only() {
-    use aethershell::safety::sql_column_type;
+    use iron_shell::safety::sql_column_type;
     assert!(sql_column_type("b", "VARCHAR(255)").is_ok());
     assert!(sql_column_type("b", "VARCHAR(x)").is_err());
     assert!(sql_column_type("b", "VARCHAR(255;DROP)").is_err());
@@ -484,7 +484,7 @@ fn the_size_suffix_is_digits_only() {
 
 #[test]
 fn an_empty_type_is_refused_rather_than_silently_dropped() {
-    use aethershell::safety::sql_column_type;
+    use iron_shell::safety::sql_column_type;
     assert!(sql_column_type("b", "").is_err());
     assert!(sql_column_type("b", "   ").is_err());
 }
@@ -493,7 +493,7 @@ fn an_empty_type_is_refused_rather_than_silently_dropped() {
 fn a_quoted_default_cannot_end_early() {
     // `DEFAULT ''` is accepted, so the literal form has to be exact: a token
     // carrying an interior quote could close and start something else.
-    use aethershell::safety::sql_column_type;
+    use iron_shell::safety::sql_column_type;
     assert!(sql_column_type("b", "TEXT DEFAULT 'ok'").is_ok());
     // SQL's own escape for a quote. Refused rather than parsed: the accepted
     // form is a literal with no interior quote at all, which is a narrower rule
@@ -519,8 +519,8 @@ fn a_file_that_is_not_a_database_is_refused_not_run_as_sql() {
     let _g = ENV.lock().unwrap_or_else(|e| e.into_inner());
     let ws = std::env::temp_dir().join("ae_sqli");
     std::fs::create_dir_all(&ws).unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &ws);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &ws);
     let notes = ws.join("notes.txt");
     std::fs::write(&notes, "select 1;\n").unwrap();
     let n = notes.to_string_lossy().into_owned();
@@ -542,8 +542,8 @@ fn a_file_that_is_not_a_database_is_refused_not_run_as_sql() {
             other => ran.push(format!("{name}: {other:?}")),
         }
     }
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_WORKSPACE");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
     assert_eq!(std::fs::read_to_string(&notes).unwrap(), "select 1;\n");
     let _ = std::fs::remove_file(&notes);
     assert!(ran.is_empty(), "not refused:\n{}", ran.join("\n"));

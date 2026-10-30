@@ -1,13 +1,13 @@
-# 📚 AetherShell Documentation Index
+# 📚 IronShell Documentation Index
 
-Welcome to the AetherShell documentation! This index provides a comprehensive guide to all available documentation organized by category.
+Welcome to the IronShell documentation! This index provides a comprehensive guide to all available documentation organized by category.
 
 ## 🚀 Getting Started
 
 | Document                                 | Description                                         |
 | ---------------------------------------- | --------------------------------------------------- |
 | [README.md](../README.md)                | Main project overview and quick start guide         |
-| [QUICK_REFERENCE.md](QUICK_REFERENCE.md) | Quick reference for AetherShell syntax and commands |
+| [QUICK_REFERENCE.md](QUICK_REFERENCE.md) | Quick reference for IronShell syntax and commands |
 | [TUI_GUIDE.md](TUI_GUIDE.md)             | Complete guide to the Terminal User Interface       |
 | [PROMPT_GUIDE.md](PROMPT_GUIDE.md)       | Prompt styles (fish, oh-my-posh) and line editing   |
 | [EXAMPLES](../examples/)                 | Working examples and demonstrations                 |
@@ -64,7 +64,7 @@ Welcome to the AetherShell documentation! This index provides a comprehensive gu
 
 | Document                                           | Description                               |
 | -------------------------------------------------- | ----------------------------------------- |
-| [WHY_AETHERSHELL.md](WHY_AETHERSHELL.md)           | Why choose AetherShell over alternatives  |
+| [WHY_IRONSHELL.md](WHY_IRONSHELL.md)           | Why choose IronShell over alternatives  |
 | [SHELL_COMPARISON.md](SHELL_COMPARISON.md)         | Detailed comparison with other shells     |
 | [COMPETITIVE_ANALYSIS.md](COMPETITIVE_ANALYSIS.md) | Comprehensive competitive analysis        |
 | [COMPETITIVE_SUMMARY.md](COMPETITIVE_SUMMARY.md)   | Executive summary of competitive position |

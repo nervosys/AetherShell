@@ -1,4 +1,4 @@
-# AetherShell Cybersecurity Audit Report
+# IronShell Cybersecurity Audit Report
 ## Department of Defense Security Standards Compliance
 
 **Report Date**: October 18, 2025  
@@ -10,7 +10,7 @@
 
 ## EXECUTIVE SUMMARY
 
-This comprehensive security audit evaluates AetherShell against Department of Defense (DOD) cybersecurity standards including:
+This comprehensive security audit evaluates IronShell against Department of Defense (DOD) cybersecurity standards including:
 - **NIST SP 800-53** (Security and Privacy Controls)
 - **DISA STIG** (Security Technical Implementation Guide)  
 - **NIST Cybersecurity Framework**
@@ -128,7 +128,7 @@ struct SecureConfig {
 impl SecureConfig {
     fn load() -> Result<Self> {
         // Read from secure keystore (Windows: Credential Manager, Linux: Secret Service)
-        let key = read_from_keystore("aethershell/openai_key")?;
+        let key = read_from_keystore("ironshell/openai_key")?;
         Ok(Self {
             openai_key: Some(Secret::new(key)),
         })
@@ -268,12 +268,12 @@ Found **35+ instances** of `.unwrap()` and `.expect()` that can cause panic and 
 ```rust
 // tests/ai_agents_comprehensive.rs line 105
 unsafe {
-    std::env::set_var("AETHER_AGENT_MODEL_URI", "stub");
+    std::env::set_var("IRONSHELL_AGENT_MODEL_URI", "stub");
 }
 let mut env = Env::default();
 let result = run_sync("Test", &["print"], 2, true, &mut env);
 unsafe {
-    std::env::remove_var("AETHER_AGENT_MODEL_URI");  // Can panic
+    std::env::remove_var("IRONSHELL_AGENT_MODEL_URI");  // Can panic
 }
 
 // src/builtins.rs line 661
@@ -310,13 +310,13 @@ let api_key = self.api_key.as_ref()
 - **Severity**: HIGH (CVSS 8.6)
 - **CWE**: CWE-89 (SQL Injection)
 - **DISA STIG**: CAT I (if implemented)
-- **Location**: `examples/16_mcp_servers.ae`, MCP documentation
+- **Location**: `examples/16_mcp_servers.ish`, MCP documentation
 
 **Finding**:
 Documentation and examples show planned database integration without prepared statements:
 
-```ae
-// examples/16_mcp_servers.ae line 289
+```ish
+// examples/16_mcp_servers.ish line 289
 query_result = db_agent.execute({
   task: "Analyze user growth trends over the last 6 months",
   tools: ["mcp:db_query"]  // NO PARAMETERIZATION SHOWN
@@ -482,11 +482,11 @@ fn bi_agent(args: Vec<Value>, input: Option<Value>, env: &mut Env) -> Result<Val
 ```rust
 // tests/ai_agents_comprehensive.rs line 105, 110
 unsafe {
-    std::env::set_var("AETHER_AGENT_MODEL_URI", "stub");
+    std::env::set_var("IRONSHELL_AGENT_MODEL_URI", "stub");
 }
 // ... test code ...
 unsafe {
-    std::env::remove_var("AETHER_AGENT_MODEL_URI");
+    std::env::remove_var("IRONSHELL_AGENT_MODEL_URI");
 }
 ```
 
@@ -504,13 +504,13 @@ use serial_test::serial;
 #[serial]  // Ensure tests run sequentially
 fn test_agent_model_env_variable() {
     // Use test-specific environment
-    std::env::set_var("AETHER_AGENT_MODEL_URI_TEST", "stub");
+    std::env::set_var("IRONSHELL_AGENT_MODEL_URI_TEST", "stub");
     
     let mut env = Env::default();
     let result = run_sync("Test", &["print"], 2, true, &mut env);
     
     // Guaranteed cleanup with Drop
-    let _guard = EnvCleanup::new("AETHER_AGENT_MODEL_URI_TEST");
+    let _guard = EnvCleanup::new("IRONSHELL_AGENT_MODEL_URI_TEST");
     
     assert!(result.is_ok());
 }
@@ -1335,7 +1335,7 @@ ignore = []
 ## CONCLUSION
 
 ### Current State
-AetherShell demonstrates **strong foundational security** through Rust's memory safety guarantees, but has **critical application-level vulnerabilities** that must be addressed before production deployment.
+IronShell demonstrates **strong foundational security** through Rust's memory safety guarantees, but has **critical application-level vulnerabilities** that must be addressed before production deployment.
 
 ### Risk Summary
 - **Memory Safety**: ✅ Excellent (Rust compiler)
@@ -1394,7 +1394,7 @@ AetherShell demonstrates **strong foundational security** through Rust's memory 
 3. Legal/Compliance: [TO BE ASSIGNED]
 
 ### Vulnerability Disclosure
-- Email: security@aethershell.dev (TO BE CREATED)
+- Email: security@ironshell.dev (TO BE CREATED)
 - PGP Key: [TO BE GENERATED]
 - Response SLA: 72 hours
 

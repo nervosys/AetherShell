@@ -12,8 +12,8 @@
 //! looks safe to every consumer of `effect_of`, including the agent-facing
 //! ontology's `x-effect` annotation.
 
-use aethershell::builtins::BUILTIN_LOOKUP;
-use aethershell::safety::{effect_of, Effect};
+use iron_shell::builtins::BUILTIN_LOOKUP;
+use iron_shell::safety::{effect_of, Effect};
 
 /// Name fragments that assert a side effect. Deliberately narrow: each one is a
 /// verb an implementation has to *act* on, not a noun that merely mentions state.

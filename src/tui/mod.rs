@@ -1,4 +1,4 @@
-//! Terminal User Interface for AetherShell
+//! Terminal User Interface for IronShell
 //!
 //! This module provides a rich TUI experience for interacting with multi-modal LLMs
 //! and managing AI agent swarms. Features include:

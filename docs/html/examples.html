@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Examples - AetherShell Documentation</title>
+    <title>Examples - IronShell Documentation</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -20,7 +20,7 @@
 <body>
     <nav class="sidebar">
         <div class="logo">
-            <h1>🚀 AetherShell</h1>
+            <h1>🚀 IronShell</h1>
             <p class="version">v1.0.0</p>
         </div>
         <ul class="nav-menu">
@@ -79,16 +79,16 @@
         <section id="basics" class="feature-section">
             <h2>Basics Examples</h2>
 
-            <h3>00_hello.ae - Hello World</h3>
-            <pre><code>// Your first AetherShell program
-print("Hello, AetherShell!")
+            <h3>00_hello.ish - Hello World</h3>
+            <pre><code>// Your first IronShell program
+print("Hello, IronShell!")
 
 // With variables
 name = "World"
 print("Hello, ${name}!")</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/00_hello.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/00_hello.ish</code></p>
 
-            <h3>01_pipelines.ae - Pipeline Operations</h3>
+            <h3>01_pipelines.ish - Pipeline Operations</h3>
             <pre><code>// Double all numbers
 [1, 2, 3, 4, 5]
 | map(fn(x) => x * 2)
@@ -106,9 +106,9 @@ range(1, 11)
 | map(fn(x) => x * x)
 | reduce(fn(a,b) => a + b, 0)
 | print  // 220</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/01_pipelines.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/01_pipelines.ish</code></p>
 
-            <h3>02_tables.ae - Working with Tables</h3>
+            <h3>02_tables.ish - Working with Tables</h3>
             <pre><code>// File listing as table
 files = ls(".")
 
@@ -122,9 +122,9 @@ print(names)
 // Count by type
 dirs = files | where(fn(f) => f.type == "directory") | len
 print("Directories: ${dirs}")</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/02_tables.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/02_tables.ish</code></p>
 
-            <h3>03_http.ae - HTTP Requests</h3>
+            <h3>03_http.ish - HTTP Requests</h3>
             <pre><code>// Simple GET request
 response = http_get("https://api.github.com/zen")
 print(response)
@@ -134,9 +134,9 @@ print(response)
 | http_get
 | json_parse
 | fn(data) => print("Stars: ${data.stargazers_count}")</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/03_http.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/03_http.ish</code></p>
 
-            <h3>04_match.ae - Pattern Matching</h3>
+            <h3>04_match.ish - Pattern Matching</h3>
             <pre><code>// Match expression
 classify = fn(x) => match {
     1 => "one",
@@ -152,23 +152,23 @@ print(classify(5))  // "many"
 [1, 2, 3, 4, 5]
 | map(classify)
 | print  // ["one", "two", "three", "many", "many"]</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/04_match.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/04_match.ish</code></p>
         </section>
 
         <section id="ai-agents" class="feature-section">
             <h2>AI & Agent Examples</h2>
 
-            <h3>05_ai.ae - AI Model Usage</h3>
+            <h3>05_ai.ish - AI Model Usage</h3>
             <pre><code>// Set AI provider
-export AETHER_AI=openai
+export IRONSHELL_AI=openai
 export OPENAI_API_KEY=sk-...
 
 // Simple AI query (conceptual)
 // response = ai_query("What is 2+2?")
 // print(response)</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/05_ai.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/05_ai.ish</code></p>
 
-            <h3>06_agent.ae - Single Agent</h3>
+            <h3>06_agent.ish - Single Agent</h3>
             <pre><code>// Deploy agent with goal
 result = agent(
     "Count all Rust source files in src/",
@@ -184,9 +184,9 @@ analysis = agent(
     3
 )
 print(analysis)</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/06_agent.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/06_agent.ish</code></p>
 
-            <h3>07_uri_types.ae - Model URIs</h3>
+            <h3>07_uri_types.ish - Model URIs</h3>
             <pre><code>// Different AI providers via URIs
 openai_model = "openai:gpt-4o-mini"
 ollama_model = "ollama:llama3"
@@ -195,41 +195,41 @@ compat_model = "compat:mixtral"
 // Use specific model (conceptual)
 // result = ai_query("Hello", openai_model)
 // local_result = ai_query("Hello", ollama_model)</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/07_uri_types.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/07_uri_types.ish</code></p>
         </section>
 
         <section id="tui" class="feature-section">
             <h2>TUI Examples</h2>
 
-            <h3>09_tui_multimodal.ae - Multi-Modal TUI</h3>
+            <h3>09_tui_multimodal.ish - Multi-Modal TUI</h3>
             <pre><code>// Launch TUI with multi-modal support
 // Handles images, audio, video in terminal
 
 // Run with:
-// ae tui examples/09_tui_multimodal.ae</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae tui examples/09_tui_multimodal.ae</code></p>
+// ish tui examples/09_tui_multimodal.ish</code></pre>
+            <p class="example-run"><strong>Run:</strong> <code>ish tui examples/09_tui_multimodal.ish</code></p>
 
-            <h3>10_tui_agent_swarm.ae - Agent Swarm TUI</h3>
+            <h3>10_tui_agent_swarm.ish - Agent Swarm TUI</h3>
             <pre><code>// Interactive agent swarm visualization
 // Shows multiple agents coordinating tasks
 
 // Run with:
-// ae tui examples/10_tui_agent_swarm.ae</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae tui examples/10_tui_agent_swarm.ae</code></p>
+// ish tui examples/10_tui_agent_swarm.ish</code></pre>
+            <p class="example-run"><strong>Run:</strong> <code>ish tui examples/10_tui_agent_swarm.ish</code></p>
 
-            <h3>21_tui_chat.ae - Chat Interface</h3>
+            <h3>21_tui_chat.ish - Chat Interface</h3>
             <pre><code>// Interactive chat with AI models
 // TUI-based conversation interface
 
 // Run with:
-// ae tui examples/21_tui_chat.ae</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae tui examples/21_tui_chat.ae</code></p>
+// ish tui examples/21_tui_chat.ish</code></pre>
+            <p class="example-run"><strong>Run:</strong> <code>ish tui examples/21_tui_chat.ish</code></p>
         </section>
 
         <section id="syntax-kb" class="feature-section">
             <h2>Syntax KB Examples</h2>
 
-            <h3>12_syntax_kb.ae - Knowledge Base Basics</h3>
+            <h3>12_syntax_kb.ish - Knowledge Base Basics</h3>
             <pre><code>// Retrieve AgenticBinary protocol
 ab_spec = syntax_get("ab")
 print("Protocol: ${ab_spec.name}")
@@ -265,9 +265,9 @@ syntax_add(custom)
 // Verify
 retrieved = syntax_get("myproto")
 print("Added: ${retrieved.name}")</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/12_syntax_kb.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/12_syntax_kb.ish</code></p>
 
-            <h3>13_agent_coordination.ae - Multi-Agent Workflow</h3>
+            <h3>13_agent_coordination.ish - Multi-Agent Workflow</h3>
             <pre><code>// Complete 10-phase agent coordination example
 // 4 agents: Coordinator + 3 Workers
 // 17 messages exchanged
@@ -327,13 +327,13 @@ print("\n=== Phase 10: Summary ===")
 print("Total messages: 17")
 print("Agents: 4 (1 coordinator + 3 workers)")
 print("Success rate: 95%")</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/13_agent_coordination.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/13_agent_coordination.ish</code></p>
         </section>
 
         <section id="mcp" class="feature-section">
             <h2>MCP (Model Context Protocol) Examples</h2>
 
-            <h3>15_mcp_basic.ae - MCP Basics</h3>
+            <h3>15_mcp_basic.ish - MCP Basics</h3>
             <pre><code>// List available MCP servers
 servers = mcp_servers()
 print("Available MCP servers:")
@@ -352,9 +352,9 @@ print(status)
 // Clear cache
 mcp_cache_clear()
 print("Cache cleared")</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/15_mcp_basic.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/15_mcp_basic.ish</code></p>
 
-            <h3>16_mcp_servers.ae - MCP Server Integration</h3>
+            <h3>16_mcp_servers.ish - MCP Server Integration</h3>
             <pre><code>// Discover and connect to MCP servers
 servers = mcp_servers()
 
@@ -363,13 +363,13 @@ servers = mcp_servers()
 //     | where(fn(s) => contains(s.capabilities, "filesystem"))
 
 print("Filesystem-capable servers found")</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/16_mcp_servers.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/16_mcp_servers.ish</code></p>
         </section>
 
         <section id="advanced" class="feature-section">
             <h2>Advanced Examples</h2>
 
-            <h3>14_typed_pipelines.ae - Type-Safe Pipelines</h3>
+            <h3>14_typed_pipelines.ish - Type-Safe Pipelines</h3>
             <pre><code>// Demonstrate type inference in pipelines
 
 // Pipeline preserves types
@@ -390,9 +390,9 @@ adult_names = users
     | map(fn(u) => u.name)
     | join(", ")
 print("Adults: ${adult_names}")</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/14_typed_pipelines.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/14_typed_pipelines.ish</code></p>
 
-            <h3>18_mutable_variables.ae - Mutability Patterns</h3>
+            <h3>18_mutable_variables.ish - Mutability Patterns</h3>
             <pre><code>// Immutable (default)
 x = 10
 print("Immutable x: ${x}")
@@ -417,9 +417,9 @@ print("Counter: ${counter}")  // 15
 functional_sum = range(1, 6)
     | reduce(fn(a,b) => a + b, 0)
 print("Functional: ${functional_sum}")  // 15</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/18_mutable_variables.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/18_mutable_variables.ish</code></p>
 
-            <h3>99_comprehensive_test.ae - Full Feature Test</h3>
+            <h3>99_comprehensive_test.ish - Full Feature Test</h3>
             <pre><code>// Comprehensive test of all features
 // - Variables (immutable & mutable)
 // - Pipelines
@@ -432,11 +432,11 @@ print("Functional: ${functional_sum}")  // 15</code></pre>
 // - AgenticBinary
 // - Syntax KB
 
-print("=== Comprehensive AetherShell Test ===")
+print("=== Comprehensive IronShell Test ===")
 
 // Run all feature tests...
 // (See file for complete implementation)</code></pre>
-            <p class="example-run"><strong>Run:</strong> <code>ae examples/99_comprehensive_test.ae</code></p>
+            <p class="example-run"><strong>Run:</strong> <code>ish examples/99_comprehensive_test.ish</code></p>
         </section>
 
         <section class="feature-section">
@@ -444,30 +444,30 @@ print("=== Comprehensive AetherShell Test ===")
 
             <h3>Basic Execution</h3>
             <pre><code># Run an example
-ae examples/01_pipelines.ae
+ish examples/01_pipelines.ish
 
 # Run with REPL
-ae
-> load("examples/02_tables.ae")</code></pre>
+ish
+> load("examples/02_tables.ish")</code></pre>
 
             <h3>TUI Mode</h3>
             <pre><code># Launch TUI
-ae tui
+ish tui
 
 # Run specific TUI example
-ae tui examples/21_tui_chat.ae</code></pre>
+ish tui examples/21_tui_chat.ish</code></pre>
 
             <h3>With Environment Variables</h3>
             <pre><code># Set AI provider
-export AETHER_AI=openai
+export IRONSHELL_AI=openai
 export OPENAI_API_KEY=sk-...
 
 # Run AI example
-ae examples/06_agent.ae
+ish examples/06_agent.ish
 
 # Allow specific agent tools
 export AGENT_ALLOW_CMDS=ls,find,grep,cat
-ae examples/13_agent_coordination.ae</code></pre>
+ish examples/13_agent_coordination.ish</code></pre>
         </section>
 
         <section class="feature-section">
@@ -483,87 +483,87 @@ ae examples/13_agent_coordination.ae</code></pre>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><code>00_hello.ae</code></td>
+                        <td><code>00_hello.ish</code></td>
                         <td>Hello World</td>
                         <td>Beginner</td>
                     </tr>
                     <tr>
-                        <td><code>01_pipelines.ae</code></td>
+                        <td><code>01_pipelines.ish</code></td>
                         <td>Pipeline Operations</td>
                         <td>Beginner</td>
                     </tr>
                     <tr>
-                        <td><code>02_tables.ae</code></td>
+                        <td><code>02_tables.ish</code></td>
                         <td>Table Processing</td>
                         <td>Beginner</td>
                     </tr>
                     <tr>
-                        <td><code>03_http.ae</code></td>
+                        <td><code>03_http.ish</code></td>
                         <td>HTTP Requests</td>
                         <td>Beginner</td>
                     </tr>
                     <tr>
-                        <td><code>04_match.ae</code></td>
+                        <td><code>04_match.ish</code></td>
                         <td>Pattern Matching</td>
                         <td>Beginner</td>
                     </tr>
                     <tr>
-                        <td><code>05_ai.ae</code></td>
+                        <td><code>05_ai.ish</code></td>
                         <td>AI Models</td>
                         <td>Intermediate</td>
                     </tr>
                     <tr>
-                        <td><code>06_agent.ae</code></td>
+                        <td><code>06_agent.ish</code></td>
                         <td>Single Agent</td>
                         <td>Intermediate</td>
                     </tr>
                     <tr>
-                        <td><code>07_uri_types.ae</code></td>
+                        <td><code>07_uri_types.ish</code></td>
                         <td>Model URIs</td>
                         <td>Intermediate</td>
                     </tr>
                     <tr>
-                        <td><code>09_tui_multimodal.ae</code></td>
+                        <td><code>09_tui_multimodal.ish</code></td>
                         <td>Multi-Modal TUI</td>
                         <td>Advanced</td>
                     </tr>
                     <tr>
-                        <td><code>10_tui_agent_swarm.ae</code></td>
+                        <td><code>10_tui_agent_swarm.ish</code></td>
                         <td>Agent Swarm TUI</td>
                         <td>Advanced</td>
                     </tr>
                     <tr>
-                        <td><code>12_syntax_kb.ae</code></td>
+                        <td><code>12_syntax_kb.ish</code></td>
                         <td>Syntax KB</td>
                         <td>Intermediate</td>
                     </tr>
                     <tr>
-                        <td><code>13_agent_coordination.ae</code></td>
+                        <td><code>13_agent_coordination.ish</code></td>
                         <td>Multi-Agent</td>
                         <td>Advanced</td>
                     </tr>
                     <tr>
-                        <td><code>14_typed_pipelines.ae</code></td>
+                        <td><code>14_typed_pipelines.ish</code></td>
                         <td>Type Safety</td>
                         <td>Intermediate</td>
                     </tr>
                     <tr>
-                        <td><code>15_mcp_basic.ae</code></td>
+                        <td><code>15_mcp_basic.ish</code></td>
                         <td>MCP Basics</td>
                         <td>Intermediate</td>
                     </tr>
                     <tr>
-                        <td><code>18_mutable_variables.ae</code></td>
+                        <td><code>18_mutable_variables.ish</code></td>
                         <td>Mutability</td>
                         <td>Beginner</td>
                     </tr>
                     <tr>
-                        <td><code>21_tui_chat.ae</code></td>
+                        <td><code>21_tui_chat.ish</code></td>
                         <td>Chat TUI</td>
                         <td>Intermediate</td>
                     </tr>
                     <tr>
-                        <td><code>99_comprehensive_test.ae</code></td>
+                        <td><code>99_comprehensive_test.ish</code></td>
                         <td>Full Test</td>
                         <td>Advanced</td>
                     </tr>
@@ -577,7 +577,7 @@ ae examples/13_agent_coordination.ae</code></pre>
     </main>
 
     <footer>
-        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+        <p>&copy; 2025 IronShell. Built with Rust 🦀</p>
     </footer>
 
     <style>

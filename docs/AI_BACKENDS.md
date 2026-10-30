@@ -1,6 +1,6 @@
 # AI Backend Configuration Guide
 
-AetherShell supports multiple AI inference backends, allowing you to run AI models locally or connect to cloud services.
+IronShell supports multiple AI inference backends, allowing you to run AI models locally or connect to cloud services.
 
 ## Supported Backends
 
@@ -8,12 +8,12 @@ AetherShell supports multiple AI inference backends, allowing you to run AI mode
 
 ```bash
 # Environment variables
-export AETHER_AI=openai
+export IRONSHELL_AI=openai
 export OPENAI_API_KEY=sk-your-key-here
 export OPENAI_MODEL=gpt-4o-mini  # Optional, default: gpt-4o-mini
 
 # Or use model URI directly
-ae 'ai("openai:gpt-4o-mini", "Hello, world!")'
+ish 'ai("openai:gpt-4o-mini", "Hello, world!")'
 ```
 
 **API Endpoint**: `https://api.openai.com/v1`  
@@ -29,12 +29,12 @@ ollama serve
 ollama pull llama3
 
 # Environment variables
-export AETHER_AI=ollama
+export IRONSHELL_AI=ollama
 export OLLAMA_HOST=http://localhost:11434  # Default
 export OLLAMA_MODEL=llama3  # Optional
 
-# Use in AetherShell
-ae 'ai("ollama:llama3", "Hello, world!")'
+# Use in IronShell
+ish 'ai("ollama:llama3", "Hello, world!")'
 ```
 
 **Default Endpoint**: `http://localhost:11434`  
@@ -52,12 +52,12 @@ python -m vllm.entrypoints.openai.api_server \
     --port 8000
 
 # Environment variables
-export AETHER_AI=vllm
+export IRONSHELL_AI=vllm
 export VLLM_URL=http://localhost:8000/v1  # Default
 export VLLM_MODEL=meta-llama/Llama-3-8B-Instruct
 
-# Use in AetherShell
-ae 'ai("vllm:meta-llama/Llama-3-8B-Instruct", "Hello, world!")'
+# Use in IronShell
+ish 'ai("vllm:meta-llama/Llama-3-8B-Instruct", "Hello, world!")'
 ```
 
 **Default Endpoint**: `http://localhost:8000/v1`  
@@ -79,12 +79,12 @@ llama.cpp provides efficient inference optimized for CPUs and Apple Silicon.
     --ctx-size 4096
 
 # Environment variables
-export AETHER_AI=llamacpp
+export IRONSHELL_AI=llamacpp
 export LLAMACPP_URL=http://localhost:8080/v1  # Default
 export LLAMACPP_MODEL=model  # Default
 
-# Use in AetherShell
-ae 'ai("llamacpp:model", "Hello, world!")'
+# Use in IronShell
+ish 'ai("llamacpp:model", "Hello, world!")'
 ```
 
 **Default Endpoint**: `http://localhost:8080/v1`  
@@ -104,11 +104,11 @@ docker run --gpus all -p 8080:80 \
     --model-id mistralai/Mixtral-8x7B-Instruct-v0.1
 
 # Environment variables
-export AETHER_AI=tgi
+export IRONSHELL_AI=tgi
 export TGI_URL=http://localhost:8080  # Default
 
-# Use in AetherShell
-ae 'ai("tgi:mixtral", "Hello, world!")'
+# Use in IronShell
+ish 'ai("tgi:mixtral", "Hello, world!")'
 ```
 
 **Default Endpoint**: `http://localhost:8080`  
@@ -120,12 +120,12 @@ For any server that implements the OpenAI API format (LocalAI, FastChat, etc.).
 
 ```bash
 # Environment variables
-export AETHER_AI=compat
-export AETHER_COMPAT_BASE=http://localhost:8000/v1
-export AETHER_COMPAT_MODEL=mixtral
+export IRONSHELL_AI=compat
+export IRONSHELL_COMPAT_BASE=http://localhost:8000/v1
+export IRONSHELL_COMPAT_MODEL=mixtral
 
-# Use in AetherShell
-ae 'ai("compat:mixtral", "Hello, world!")'
+# Use in IronShell
+ish 'ai("compat:mixtral", "Hello, world!")'
 ```
 
 ## Usage Examples
@@ -134,17 +134,17 @@ ae 'ai("compat:mixtral", "Hello, world!")'
 
 ```bash
 # Using environment variable
-export AETHER_AI=ollama
-ae 'ai("What is the capital of France?")'
+export IRONSHELL_AI=ollama
+ish 'ai("What is the capital of France?")'
 
 # Using model URI (overrides env)
-ae 'ai("vllm:meta-llama/Llama-3-8B", "What is 2+2?")'
+ish 'ai("vllm:meta-llama/Llama-3-8B", "What is 2+2?")'
 ```
 
 ### In Scripts
 
-```aether
-# examples/ai_backends.ae
+```ironshell
+# examples/ai_backends.ish
 
 # OpenAI
 let openai_response = ai("openai:gpt-4o-mini", "Explain quantum computing")
@@ -163,7 +163,7 @@ print(openai_response)
 
 ### Agent with Specific Backend
 
-```aether
+```ironshell
 # Use vLLM for a specific agent
 let result = agent("vllm:meta-llama/Llama-3-8B", "Analyze this data", {
     tools: ["search", "calculate"]
@@ -172,7 +172,7 @@ let result = agent("vllm:meta-llama/Llama-3-8B", "Analyze this data", {
 
 ### Multi-Agent Swarm with Different Backends
 
-```aether
+```ironshell
 let agents = [
     {
         name: "researcher",
@@ -196,33 +196,33 @@ let result = agent_swarm(agents, "Build a web scraper")
 
 ## Configuration Priority
 
-AetherShell resolves AI backends in this order:
+IronShell resolves AI backends in this order:
 
 1. **Model URI in function call**: `ai("vllm:model", "prompt")`
-2. **AETHER_MODEL_URI environment variable**: `export AETHER_MODEL_URI=vllm:model`
-3. **AETHER_AI environment variable**: `export AETHER_AI=vllm`
-4. **Auto-detection**: `export AETHER_AI=auto` (automatically finds available backends)
+2. **IRONSHELL_MODEL_URI environment variable**: `export IRONSHELL_MODEL_URI=vllm:model`
+3. **IRONSHELL_AI environment variable**: `export IRONSHELL_AI=vllm`
+4. **Auto-detection**: `export IRONSHELL_AI=auto` (automatically finds available backends)
 5. **Default**: `stub` (for testing)
 
 ## Automatic Backend Detection
 
-AetherShell can automatically detect and use available AI backends:
+IronShell can automatically detect and use available AI backends:
 
 ### Using Auto-Detection
 
 ```bash
 # Enable auto-detection via environment variable
-export AETHER_AI=auto
-ae 'ai("What is 2+2?")'  # Automatically uses best available backend
+export IRONSHELL_AI=auto
+ish 'ai("What is 2+2?")'  # Automatically uses best available backend
 
 # Or use detection functions in scripts
-ae 'let backend = ai_detect(); ai(backend, "Hello!")'
+ish 'let backend = ai_detect(); ai(backend, "Hello!")'
 ```
 
 ### Detection Functions
 
 **`ai_backends()`** - List all available backends:
-```aether
+```ironshell
 let backends = ai_backends()
 backends | foreach(fn(b) => {
     print("Backend:", b.name, "Available:", b.available)
@@ -231,7 +231,7 @@ backends | foreach(fn(b) => {
 ```
 
 **`ai_detect()`** - Auto-select best available backend:
-```aether
+```ironshell
 let backend = ai_detect()
 print("Using:", backend)  # e.g., "ollama:llama3" or "vllm:model"
 ai(backend, "Hello!")
@@ -249,7 +249,7 @@ Auto-detection checks backends in this order (prefers local over cloud):
 
 ### Example: Conditional Backend Selection
 
-```aether
+```ironshell
 # Get all available backends
 let backends = ai_backends()
 
@@ -273,7 +273,7 @@ ai(backend, "Hello!")
 
 Each backend object returned by `ai_backends()` contains:
 
-```aether
+```ironshell
 {
     name: "Ollama",                    # Human-readable name
     provider: "Ollama",                # Provider type
@@ -289,19 +289,19 @@ Store API keys securely using the OS credential store:
 
 ```bash
 # Store OpenAI key
-ae ai keys store openai --key sk-your-key-here
+ish ai keys store openai --key sk-your-key-here
 
 # Store Anthropic key
-ae ai keys store anthropic --key your-key
+ish ai keys store anthropic --key your-key
 
 # List stored keys
-ae ai keys list
+ish ai keys list
 
 # Get a key (shows masked version)
-ae ai keys get openai
+ish ai keys get openai
 
 # Delete a key
-ae ai keys delete openai
+ish ai keys delete openai
 ```
 
 Keys are stored in:
@@ -334,9 +334,9 @@ curl http://localhost:8080/health      # llama.cpp
 
 ```bash
 # Show the available backends and which provider is selected.
-# (There is no AETHER_DEBUG; the source reads no such variable.)
-ae 'ai_backends()'
-echo "${AETHER_AI:-unset - the default provider is used}"
+# (There is no IRONSHELL_DEBUG; the source reads no such variable.)
+ish 'ai_backends()'
+echo "${IRONSHELL_AI:-unset - the default provider is used}"
 ```
 
 ### Port Conflicts
@@ -346,7 +346,7 @@ Default ports:
 - vLLM: 8000
 - llama.cpp: 8080
 - TGI: 8080
-- ae ai serve: 8080
+- ish ai serve: 8080
 
 Change ports if conflicts occur:
 
@@ -362,12 +362,12 @@ export LLAMACPP_URL=http://localhost:8081/v1
 
 ## MCP Server Integration
 
-AetherShell can automatically detect and integrate MCP (Model Context Protocol) servers to provide AI agents with tool access.
+IronShell can automatically detect and integrate MCP (Model Context Protocol) servers to provide AI agents with tool access.
 
 ### Detecting MCP Servers
 
 **`mcp_servers()`** - List all available MCP servers:
-```aether
+```ironshell
 let servers = mcp_servers()
 print("Found", len(servers), "MCP servers")
 
@@ -379,7 +379,7 @@ servers | foreach(fn(s) => {
 ```
 
 **`mcp_detect(endpoint?)`** - Find specific or any MCP server:
-```aether
+```ironshell
 # Find specific server
 let fs_server = mcp_detect("http://localhost:3001")
 
@@ -389,7 +389,7 @@ let any_server = mcp_detect()
 
 ### Default MCP Server Endpoints
 
-AetherShell checks these ports automatically:
+IronShell checks these ports automatically:
 
 - `3001` - Filesystem server
 - `3002` - Git server
@@ -402,7 +402,7 @@ AetherShell checks these ports automatically:
 
 Combine auto-detected AI backends with MCP servers:
 
-```aether
+```ironshell
 # 1. Detect both AI and MCP
 let backend = ai_detect()
 let servers = mcp_servers()
@@ -421,7 +421,7 @@ let agent_config = {
 
 ### Example: Complete Integration
 
-```aether
+```ironshell
 # Detect available resources
 let ai_backends = ai_backends()
 let mcp_servers = mcp_servers()
@@ -459,4 +459,4 @@ agent(
 - [Text Generation Inference](https://huggingface.co/docs/text-generation-inference)
 - [OpenAI API Reference](https://platform.openai.com/docs/api-reference)
 - [MCP Servers Guide](MCP_SERVERS_GUIDE.md) - Detailed MCP server documentation
-- [Example: AI + MCP Integration](../examples/14_ai_mcp_integration.ae)
+- [Example: AI + MCP Integration](../examples/14_ai_mcp_integration.ish)

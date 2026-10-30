@@ -1,5 +1,5 @@
 """
-Tests for AetherShell Python SDK - Distributed
+Tests for IronShell Python SDK - Distributed
 """
 
 import asyncio
@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, AsyncMock
 
-from aethershell.distributed import (
+from ironshell.distributed import (
     ServiceRegistry,
     ServiceInfo,
     LeaderElection,

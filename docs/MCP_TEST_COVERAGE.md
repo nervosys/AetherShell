@@ -2,7 +2,7 @@
 
 ## Summary
 
-Successfully created comprehensive test suite and examples for the MCP server detection feature integrated into AetherShell.
+Successfully created comprehensive test suite and examples for the MCP server detection feature integrated into IronShell.
 
 ## Test Suite
 
@@ -53,7 +53,7 @@ Total time: 188.58s (includes network timeouts)
 
 ## Example Scripts
 
-### 1. `examples/15_mcp_basic.ae` - Basic Detection
+### 1. `examples/15_mcp_basic.ish` - Basic Detection
 
 **Purpose**: Simple MCP server detection demonstration
 
@@ -65,7 +65,7 @@ Total time: 188.58s (includes network timeouts)
 
 **Usage**:
 ```bash
-ae examples/15_mcp_basic.ae
+ish examples/15_mcp_basic.ish
 ```
 
 **Output Example**:
@@ -78,7 +78,7 @@ To start MCP servers:
   ...
 ```
 
-### 2. `examples/16_mcp_tools.ae` - Tool Enumeration
+### 2. `examples/16_mcp_tools.ish` - Tool Enumeration
 
 **Purpose**: List and inspect tools from MCP servers
 
@@ -90,7 +90,7 @@ To start MCP servers:
 
 **Usage**:
 ```bash
-ae examples/16_mcp_tools.ae
+ish examples/16_mcp_tools.ish
 ```
 
 **Output Example**:
@@ -102,7 +102,7 @@ Example tools: read_file, write_file, list_dir, search
 Usage: agent("task", ai_detect(), fs.tools)
 ```
 
-### 3. `examples/17_complete_integration.ae` - Full Integration
+### 3. `examples/17_complete_integration.ish` - Full Integration
 
 **Purpose**: Complete AI + MCP integration demonstration
 
@@ -119,7 +119,7 @@ Usage: agent("task", ai_detect(), fs.tools)
 
 **Usage**:
 ```bash
-ae examples/17_complete_integration.ae
+ish examples/17_complete_integration.ish
 ```
 
 **Output Example**:
@@ -138,7 +138,7 @@ Pattern 2: Agent without tools
 ...
 ```
 
-### 4. `examples/18_mcp_conditional.ae` - Conditional Selection
+### 4. `examples/18_mcp_conditional.ish` - Conditional Selection
 
 **Purpose**: Shows conditional server selection based on availability
 
@@ -150,7 +150,7 @@ Pattern 2: Agent without tools
 
 **Usage**:
 ```bash
-ae examples/18_mcp_conditional.ae
+ish examples/18_mcp_conditional.ish
 ```
 
 **Output Example**:
@@ -181,7 +181,7 @@ Conditional Usage Patterns:
 ```
 
 **Example**:
-```aethershell
+```ironshell
 let servers = mcp_servers()
 servers | foreach(fn(s) => print(s.name + ": " + len(s.tools) + " tools"))
 ```
@@ -194,7 +194,7 @@ servers | foreach(fn(s) => print(s.name + ": " + len(s.tools) + " tools"))
 - `endpoint` (optional): Specific endpoint to check
 
 **Example**:
-```aethershell
+```ironshell
 // Get first available server
 let server = mcp_detect()
 
@@ -223,7 +223,7 @@ Each endpoint expects the MCP protocol at `/mcp/v1/tools`.
 
 MCP detection works seamlessly with AI backend detection:
 
-```aethershell
+```ironshell
 // Auto-detect both systems
 let ai_model = ai_detect()       // "ollama:codellama:7b"
 let mcp = mcp_detect()           // First available server
@@ -254,7 +254,7 @@ agent("Analyze files", ai_model, mcp.tools)
 
 ## Syntax Notes
 
-AetherShell requires specific syntax patterns:
+IronShell requires specific syntax patterns:
 
 ✅ **Working**:
 - `foreach(fn(s) => ...)` for iteration
@@ -281,11 +281,11 @@ To fully test the MCP integration:
 
 2. **Run Detection**:
    ```bash
-   ae examples/15_mcp_basic.ae
+   ish examples/15_mcp_basic.ish
    ```
 
 3. **Use with Agents**:
-   ```aethershell
+   ```ironshell
    let server = mcp_detect("http://localhost:3001")
    agent("List files in current directory", ai_detect(), server.tools)
    ```
@@ -294,10 +294,10 @@ To fully test the MCP integration:
 
 ### Created Files:
 - ✅ `tests/mcp_detection.rs` (300+ lines, 20 tests)
-- ✅ `examples/15_mcp_basic.ae` (30 lines)
-- ✅ `examples/16_mcp_tools.ae` (30 lines)
-- ✅ `examples/17_complete_integration.ae` (80 lines)
-- ✅ `examples/18_mcp_conditional.ae` (50 lines)
+- ✅ `examples/15_mcp_basic.ish` (30 lines)
+- ✅ `examples/16_mcp_tools.ish` (30 lines)
+- ✅ `examples/17_complete_integration.ish` (80 lines)
+- ✅ `examples/18_mcp_conditional.ish` (50 lines)
 
 ### Previously Modified (From MCP Integration):
 - `src/ai.rs` - Added McpServerInfo struct and detection functions

@@ -462,7 +462,7 @@ cargo build --bins
 **Result**: ✅ Compiled successfully in 59.97s
 
 **Binary Status**:
-- `ae` (main shell): ✅ Builds
+- `ish` (main shell): ✅ Builds
 - `aimodel` (model manager): ✅ Builds
 
 ---
@@ -513,7 +513,7 @@ export OPENAI_MODEL="gpt-4o-mini"  # Default model
 **Optional - Path Security**:
 ```bash
 # Customize via code (not environment)
-use aethershell::security::{configure_path_security, PathSecurityConfig};
+use iron_shell::security::{configure_path_security, PathSecurityConfig};
 
 configure_path_security(PathSecurityConfig {
     allowed_base_dirs: vec![PathBuf::from("/home/user/projects")],
@@ -825,7 +825,7 @@ Error: cat: failed to read file: "nonexistent"
 
 ## Contact
 
-**Security Questions**: [security@aethershell.dev](mailto:security@aethershell.dev)  
+**Security Questions**: [security@ironshell.dev](mailto:security@ironshell.dev)  
 **Vulnerability Reports**: See security.txt (to be created)  
 **Documentation**: docs/security/README.md
 

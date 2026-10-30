@@ -1,9 +1,9 @@
 [package]
-name = "aether_wasm"
+name = "ironshell_wasm"
 version = "1.2.0"
 edition = "2021"
 authors = ["Nervosys <contact@nervosys.ai>"]
-description = "AetherShell WebAssembly bindings for browser execution"
+description = "IronShell WebAssembly bindings for browser execution"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/nervosys/AetherShell"
 
@@ -17,7 +17,7 @@ crate-type = ["cdylib", "rlib"]
 wasm-bindgen = "0.2"
 once_cell = "1"
 js-sys = "0.3"
-aethershell = { path = "../", default-features = false, features = ["web"] }
+iron-shell = { path = "../", default-features = false, features = ["web"] }
 
 [dependencies.web-sys]
 version = "0.3"

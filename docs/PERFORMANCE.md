@@ -1,10 +1,10 @@
-# AetherShell Performance Guide
+# IronShell Performance Guide
 
-This document describes how to benchmark and optimize AetherShell performance.
+This document describes how to benchmark and optimize IronShell performance.
 
 ## Benchmark Suite
 
-AetherShell includes comprehensive benchmarks using [Criterion](https://bheisler.github.io/criterion.rs/book/).
+IronShell includes comprehensive benchmarks using [Criterion](https://bheisler.github.io/criterion.rs/book/).
 
 ### Available Benchmarks
 
@@ -110,7 +110,7 @@ cargo flamegraph --bench pipeline_performance -- --bench
 
 ```bash
 cargo build --release
-perf record target/release/ae -c "[1,2,3] | map(fn(x) => x * 2)"
+perf record target/release/ish -c "[1,2,3] | map(fn(x) => x * 2)"
 perf report
 ```
 
@@ -118,7 +118,7 @@ perf report
 
 ```bash
 cargo build --release
-instruments -t "Time Profiler" target/release/ae -c "..."
+instruments -t "Time Profiler" target/release/ish -c "..."
 ```
 
 ## Performance Targets

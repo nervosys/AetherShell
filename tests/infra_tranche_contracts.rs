@@ -4,7 +4,7 @@
 //!
 //! * Terraform runs only in a fresh temporary directory whose one configuration
 //!   is `output "x" { value = 1 }`: no providers, so nothing is reached. Every
-//!   terraform call is made by a child `ae` whose workspace is that directory,
+//!   terraform call is made by a child `ish` whose workspace is that directory,
 //!   with TF_DATA_DIR and TF_CLI_CONFIG_FILE inside it. A directory outside the
 //!   workspace is never run, and the tests check that by looking for the state
 //!   a run would have written there.
@@ -21,10 +21,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::signature::signature_of;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::signature::signature_of;
+use iron_shell::value::Value;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -142,14 +142,14 @@ fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::Joi
     })
 }
 
-/// Run `ae -c <expr>` in the fixture's workspace, with both tools pointed inside
+/// Run `ish -c <expr>` in the fixture's workspace, with both tools pointed inside
 /// the fixture. Stdout and stderr come back together.
 fn ae(fx: &Fixture, mode: Option<&str>, expr: &str) -> Run {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ae"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ish"));
     cmd.current_dir(&fx.workspace)
         .args(["-c", expr])
-        .env("AETHER_SESSION_DIR", &fx.session)
-        .env("AETHER_WORKSPACE", &fx.workspace)
+        .env("IRONSHELL_SESSION_DIR", &fx.session)
+        .env("IRONSHELL_WORKSPACE", &fx.workspace)
         .env("KUBECONFIG", &fx.kubeconfig)
         .env("HELM_CONFIG_HOME", fx.helm_home.join("config"))
         .env("HELM_CACHE_HOME", fx.helm_home.join("cache"))
@@ -158,14 +158,14 @@ fn ae(fx: &Fixture, mode: Option<&str>, expr: &str) -> Run {
         .env("TF_CLI_CONFIG_FILE", &fx.tf_rc)
         .env("TF_IN_AUTOMATION", "1")
         .env("CHECKPOINT_DISABLE", "1")
-        .env_remove("AETHER_MODE")
-        .env_remove("AETHER_AGENT")
-        .env_remove("AETHER_POLICY")
+        .env_remove("IRONSHELL_MODE")
+        .env_remove("IRONSHELL_AGENT")
+        .env_remove("IRONSHELL_POLICY")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(mode) = mode {
-        cmd.env("AETHER_MODE", mode);
+        cmd.env("IRONSHELL_MODE", mode);
     }
     let mut child = cmd.spawn().expect("spawn ae");
     let out = drain(child.stdout.take());
@@ -212,7 +212,7 @@ fn helm_present() -> bool {
     installed("helm", &["version", "--short"])
 }
 
-/// A path written into an `ae` string literal: forward slashes, no quotes.
+/// A path written into an `ish` string literal: forward slashes, no quotes.
 fn path_literal(path: &Path) -> String {
     path.display().to_string().replace('\\', "/")
 }
@@ -479,7 +479,7 @@ fn piped_input_is_refused_by_every_builtin_in_the_tranche() {
 }
 
 // ---------------------------------------------------------------------------
-// Through the `ae` binary: terraform in a temporary workspace only.
+// Through the `ish` binary: terraform in a temporary workspace only.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -652,7 +652,7 @@ fn terraform_failures_are_coded_with_the_tools_own_words() {
 }
 
 // ---------------------------------------------------------------------------
-// Through the `ae` binary: helm against the dead server only.
+// Through the `ish` binary: helm against the dead server only.
 // ---------------------------------------------------------------------------
 
 #[test]

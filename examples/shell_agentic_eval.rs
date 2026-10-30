@@ -1,6 +1,6 @@
-//! Benchmark AetherShell against Bash / Zsh / Fish / Nushell / PowerShell across
+//! Benchmark IronShell against Bash / Zsh / Fish / Nushell / PowerShell across
 //! the four `agentic-eval` axes — token efficiency, safety, determinism, reliability
-//! — driving the standalone `agentic-eval` crate with AetherShell's *real* tokenizer
+//! — driving the standalone `agentic-eval` crate with IronShell's *real* tokenizer
 //! and engine. This is the cross-shell proof that the library works on real data.
 //!
 //!   cargo run --example shell_agentic_eval --features real-tokens   (exact cl100k)
@@ -13,25 +13,25 @@
 //!     console table is *display-only* and not contractually parseable (widths
 //!     truncate, culture/locale-dependent), so an agent that needs the data uses the
 //!     shell's structured form — `ConvertTo-Json -Compress` (PowerShell), `to json -r`
-//!     (Nushell), AECON (AetherShell). POSIX shells have no structured mode, so their
+//!     (Nushell), AECON (IronShell). POSIX shells have no structured mode, so their
 //!     raw text is what the agent is forced to parse. JSON repeats every key on every
 //!     row; AECON emits keys once — that is where the ≥2× edge over PowerShell comes
 //!     from. Fully cross-shell and objective.
 //!   • Safety — `agentic_eval::assess_safety` of a task that reads, writes, deletes,
 //!     and execs. A traditional shell applies *no* agent policy (everything just
-//!     runs = `Mode::Human`, allow-all); AetherShell's agent mode gates the
+//!     runs = `Mode::Human`, allow-all); IronShell's agent mode gates the
 //!     dangerous classes (`Mode::Agent`). The grade is the fraction of dangerous
 //!     blast radius that's gated. Cross-shell.
-//!   • Determinism / reliability — proven for AetherShell directly via
+//!   • Determinism / reliability — proven for IronShell directly via
 //!     `assess_determinism` (real canonical render) and `assess_reliability` (real
 //!     parse+eval). Traditional shells lack these by construction (locale/width/ANSI
 //!     text; unstructured errors), noted as capability gaps rather than re-measured.
 
-use aethershell::builtins::{est_token_count, render_canonical};
-use aethershell::env::Env;
-use aethershell::eval::eval_program;
-use aethershell::parser::parse_program;
-use aethershell::safety::SafetyError;
+use iron_shell::builtins::{est_token_count, render_canonical};
+use iron_shell::env::Env;
+use iron_shell::eval::eval_program;
+use iron_shell::parser::parse_program;
+use iron_shell::safety::SafetyError;
 
 use agentic_eval::{
     assess_cache, assess_determinism, assess_error_quality, assess_exfiltration,
@@ -53,7 +53,7 @@ struct Task {
 }
 
 const SHELLS: &[&str] = &[
-    "aethershell",
+    "ironshell",
     "bash",
     "zsh",
     "fish",
@@ -69,7 +69,7 @@ const CORPUS: &[Task] = &[
         scalar: false,
         variants: &[
             Variant {
-                shell: "aethershell",
+                shell: "ironshell",
                 command: r#"ls("./src") | pick("name", "size")"#,
                 output: "name\tsize\nmain.rs\t1846\nlib.rs\t2310\nast.rs\t512",
             },
@@ -111,7 +111,7 @@ const CORPUS: &[Task] = &[
         scalar: false,
         variants: &[
             Variant {
-                shell: "aethershell",
+                shell: "ironshell",
                 command: r#"proc.list() | pick("pid", "name", "cpu")"#,
                 output: "cpu\tname\tpid\n0.4\tinit\t1\n2.1\tsshd\t640\n5.3\tnode\t1875",
             },
@@ -156,7 +156,7 @@ const CORPUS: &[Task] = &[
         scalar: true,
         variants: &[
             Variant {
-                shell: "aethershell",
+                shell: "ironshell",
                 command: r#"json.parse(http.get(url)).stargazers_count"#,
                 output: "4213",
             },
@@ -192,7 +192,7 @@ const CORPUS: &[Task] = &[
         scalar: false,
         variants: &[
             Variant {
-                shell: "aethershell",
+                shell: "ironshell",
                 command: r#"sys.disks() | pick("mount", "avail")"#,
                 output: "avail\tmount\n21474836480\t/\n5368709120\t/boot\n107374182400\t/home",
             },
@@ -335,7 +335,7 @@ fn rows_tokens(command: &str, output: &str) -> usize {
 
 /// Safety assessment for a shell: a representative agent task that reads, writes,
 /// deletes, and execs. Traditional shells apply no agent policy (everything runs =
-/// allow-all = `Mode::Human`); AetherShell's agent mode gates the dangerous classes.
+/// allow-all = `Mode::Human`); IronShell's agent mode gates the dangerous classes.
 /// Returns the full report (`.grade` for display, `.score` for the composite).
 fn shell_safety(shell: &str) -> agentic_eval::SafetyReport {
     let effects = [
@@ -344,7 +344,7 @@ fn shell_safety(shell: &str) -> agentic_eval::SafetyReport {
         Effect::Destructive,
         Effect::Exec,
     ];
-    let mode = if shell == "aethershell" {
+    let mode = if shell == "ironshell" {
         Mode::Agent
     } else {
         Mode::Human
@@ -382,11 +382,11 @@ impl AxisScore {
 }
 
 /// A reliably-parseable `n`-row file listing for `shell`, mirroring the corpus: AECON
-/// (AetherShell), compact JSON (Nushell/PowerShell), `ls -l` text (POSIX shells).
+/// (IronShell), compact JSON (Nushell/PowerShell), `ls -l` text (POSIX shells).
 /// Drives the per-item output-scaling measurement.
 fn listing_rows(shell: &str, n: usize) -> String {
     match shell {
-        "aethershell" => aecon_rows(n),
+        "ironshell" => aecon_rows(n),
         "nushell" => {
             let mut s = String::from("[");
             for i in 0..n {
@@ -424,10 +424,10 @@ fn shell_per_item(shell: &str) -> f64 {
     assess_scaling(&[10, 50, 100], |n| listing_rows(shell, n), est_token_count).per_item
 }
 
-/// Reversibility score for `shell`: AetherShell's destructive ops are rollback-backed
+/// Reversibility score for `shell`: IronShell's destructive ops are rollback-backed
 /// (transactions / plan-apply); traditional shells' `rm`/`dd` are irreversible.
 fn shell_reversibility(shell: &str) -> f64 {
-    let reversible = shell == "aethershell";
+    let reversible = shell == "ironshell";
     assess_reversibility(&[(Effect::Destructive, reversible)]).score
 }
 
@@ -437,13 +437,13 @@ fn main() {
     } else {
         "heuristic (use --features real-tokens for exact BPE)"
     };
-    println!("AetherShell vs traditional shells — measured with the agentic-eval crate");
+    println!("IronShell vs traditional shells — measured with the agentic-eval crate");
     println!("Tokenizer: {tokenizer}\n");
 
-    let ae_tokens = shell_tokens("aethershell").max(1);
+    let ae_tokens = shell_tokens("ironshell").max(1);
     println!(
         "{:<13}{:>9}{:>11}{:>9}",
-        "shell", "tokens", "vs aether", "safety"
+        "shell", "tokens", "vs ironshell", "safety"
     );
     println!("{}", "-".repeat(42));
     for s in SHELLS {
@@ -459,14 +459,14 @@ fn main() {
 
     // Per-task breakdown vs PowerShell — shows the efficiency comes from the output
     // an agent must parse, not from cherry-picking. Each shell is scored on its
-    // *reliably-parseable* output: AECON (AetherShell), ConvertTo-Json (PowerShell).
-    println!("\nPer-task, AetherShell vs PowerShell (reliably-parseable output):");
+    // *reliably-parseable* output: AECON (IronShell), ConvertTo-Json (PowerShell).
+    println!("\nPer-task, IronShell vs PowerShell (reliably-parseable output):");
     println!(
         "  {:<22}{:>8}{:>8}{:>9}",
-        "task", "aether", "pwsh", "vs pwsh"
+        "task", "ironshell", "pwsh", "vs pwsh"
     );
     for t in CORPUS {
-        let (Some(ae), Some(ps)) = (task_tokens(t, "aethershell"), task_tokens(t, "powershell"))
+        let (Some(ae), Some(ps)) = (task_tokens(t, "ironshell"), task_tokens(t, "powershell"))
         else {
             continue;
         };
@@ -480,7 +480,7 @@ fn main() {
             tag
         );
     }
-    let ae_struct = shell_tokens_structured("aethershell").max(1);
+    let ae_struct = shell_tokens_structured("ironshell").max(1);
     let ps_struct = shell_tokens_structured("powershell");
     println!(
         "  {:<22}{:>8}{:>8}{:>7.2}x  <- multi-row results (the agentic norm)",
@@ -490,7 +490,7 @@ fn main() {
         ps_struct as f64 / ae_struct as f64,
     );
 
-    // The honest spread: AetherShell's edge over PowerShell depends entirely on which
+    // The honest spread: IronShell's edge over PowerShell depends entirely on which
     // output an agent parses. All three forms below are measured with the real
     // tokenizer over the same N-row listing, generated programmatically.
     //   • table   = Format-Table / Select-Object display rendering — compact but
@@ -504,10 +504,10 @@ fn main() {
     let ps_jsonc =
         "Get-ChildItem ./src/*.rs | Select-Object Name, Length | ConvertTo-Json -Compress";
     let ps_json = "Get-ChildItem ./src/*.rs | Select-Object Name, Length | ConvertTo-Json";
-    println!("\nScale — N-row listing, AetherShell (AECON) vs PowerShell's three output forms:");
+    println!("\nScale — N-row listing, IronShell (AECON) vs PowerShell's three output forms:");
     println!(
         "  {:>5}{:>8} | {:>7}{:>7} | {:>7}{:>7} | {:>7}{:>7}",
-        "rows", "aether", "table", "vs", "json-c", "vs", "json", "vs"
+        "rows", "ironshell", "table", "vs", "json-c", "vs", "json", "vs"
     );
     for n in [3usize, 10, 25, 50, 100] {
         let ae = rows_tokens(ae_cmd, &aecon_rows(n)).max(1);
@@ -530,7 +530,7 @@ fn main() {
         "  (table = display-only, not reliably parseable; json-c/json are. AECON is parseable.)"
     );
 
-    // Determinism + reliability — proven for AetherShell directly via agentic-eval.
+    // Determinism + reliability — proven for IronShell directly via agentic-eval.
     let det = assess_determinism(8, || {
         let mut env = Env::new();
         let v = eval_program(
@@ -556,7 +556,7 @@ fn main() {
         }
     });
 
-    println!("\nDeterminism & reliability (agentic-eval, measured on AetherShell's engine):");
+    println!("\nDeterminism & reliability (agentic-eval, measured on IronShell's engine):");
     println!("  determinism : {det}");
     println!("  reliability : {rel}");
     println!(
@@ -571,7 +571,7 @@ fn main() {
     //   reliab  = pass/actionable rate             + graded error actionability
     //   safety  = dangerous blast-radius gated     + dangerous-effect reversibility
     // tok/scal/saf are measured for every shell; det/rel/err/rev are measured on
-    // AetherShell's engine and a structural capability for the rest (per the README).
+    // IronShell's engine and a structural capability for the rest (per the README).
     let min_tokens = SHELLS
         .iter()
         .map(|s| shell_tokens(s))
@@ -585,7 +585,7 @@ fn main() {
         .max(1e-9);
     let ae_det = if det.deterministic { 1.0 } else { 0.0 };
     let ae_rel = (rel.pass_rate + rel.actionable_rate) / 2.0;
-    // AetherShell's graded error actionability, measured over representative argument
+    // IronShell's graded error actionability, measured over representative argument
     // errors (the dominant agent failure mode) — each a structured E_BAD_ARG.
     let ae_errq = assess_error_quality(&["env(123)", "len()", r#"upper(1,2,3)"#], |code| {
         let mut env = Env::new();
@@ -612,7 +612,7 @@ fn main() {
             let scaling = best_per_item / shell_per_item(s).max(1e-9);
             // Traditional shells: no byte-stable output, no branchable results; errors
             // are prose with (at best) a message+location — no machine code or fix.
-            let (determ, reliab, err_quality) = if *s == "aethershell" {
+            let (determ, reliab, err_quality) = if *s == "ironshell" {
                 (ae_det, ae_rel, ae_errq)
             } else {
                 (0.0, 0.0, 0.5)
@@ -665,19 +665,19 @@ fn main() {
         "  (tok=total-token eff, scal=output per-item eff, det=determinism, rel=pass/actionable,\n\
          \x20  err=error actionability, saf=blast-radius gated, rev=reversibility. Composite = mean\n\
          \x20  of 4 axes: token=(tok+scal)/2, determinism, reliab=(rel+err)/2, safety=(saf+rev)/2.\n\
-         \x20  tok/scal/saf measured for every shell; det/rel/err/rev measured for AetherShell,\n\
+         \x20  tok/scal/saf measured for every shell; det/rel/err/rev measured for IronShell,\n\
          \x20  structural capability for the rest.)"
     );
 
     // v0.6 context metrics (not folded into the composite): task-level exfiltration
     // exposure is shell-invariant for the same effects; prompt-cache headroom depends
-    // on deterministic output, which only AetherShell guarantees.
+    // on deterministic output, which only IronShell guarantees.
     let exfil = assess_exfiltration(&[Effect::ReadLocal, Effect::Network]);
     let cache = assess_cache(900, 100, 20); // 90%-stable prefix over a 20-turn session
     println!("\nv0.6 context metrics:");
     println!(
-        "  exfiltration : a read+network task exposes risk {:.2} for ANY shell; only AetherShell\n\
-         \x20  can bound it (agent-mode gating + AETHER_NET_ALLOW egress allowlist).",
+        "  exfiltration : a read+network task exposes risk {:.2} for ANY shell; only IronShell\n\
+         \x20  can bound it (agent-mode gating + IRONSHELL_NET_ALLOW egress allowlist).",
         exfil.risk
     );
     println!(
@@ -687,7 +687,7 @@ fn main() {
     );
 
     println!(
-        "\nFinding: across {} tasks AetherShell is the most token-efficient ({:.1}x–{:.1}x cheaper\n\
+        "\nFinding: across {} tasks IronShell is the most token-efficient ({:.1}x–{:.1}x cheaper\n\
          than the others on this corpus), the only shell whose agent-mode policy bounds blast\n\
          radius (safety grade A vs F), and — proven on its own engine — deterministic and reliably\n\
          structured. Versus PowerShell specifically, the token ratio depends on which output an\n\
@@ -696,7 +696,7 @@ fn main() {
          form). AECON encodes column keys once; JSON repeats them per row, so the gap widens\n\
          with result size. Reproduce: cargo run --example shell_agentic_eval --features real-tokens",
         CORPUS.len(),
-        SHELLS.iter().filter(|s| **s != "aethershell").map(|s| shell_tokens(s) as f64 / ae_tokens as f64).fold(f64::INFINITY, f64::min),
+        SHELLS.iter().filter(|s| **s != "ironshell").map(|s| shell_tokens(s) as f64 / ae_tokens as f64).fold(f64::INFINITY, f64::min),
         SHELLS.iter().map(|s| shell_tokens(s) as f64 / ae_tokens as f64).fold(0.0, f64::max),
     );
 }

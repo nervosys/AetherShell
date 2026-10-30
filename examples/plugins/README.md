@@ -1,6 +1,6 @@
-# Example Plugins for AetherShell
+# Example Plugins for IronShell
 
-This directory contains example plugins that demonstrate the AetherShell plugin system.
+This directory contains example plugins that demonstrate the IronShell plugin system.
 
 ## Plugins
 
@@ -8,7 +8,7 @@ This directory contains example plugins that demonstrate the AetherShell plugin 
 
 A simple "Hello World" plugin demonstrating basic builtin functions.
 
-```aether
+```ironshell
 plugin_load("examples/plugins/hello-plugin/plugin.toml")
 hello("World")  # => "Hello, World!"
 ```
@@ -17,7 +17,7 @@ hello("World")  # => "Hello, World!"
 
 Mathematical utility functions including factorial, fibonacci, and prime checking.
 
-```aether
+```ironshell
 plugin_load("examples/plugins/math-utils/plugin.toml")
 factorial(5)  # => 120
 fibonacci(10)  # => 55
@@ -28,7 +28,7 @@ is_even(42)  # => true
 
 String manipulation utilities for common transformations.
 
-```aether
+```ironshell
 plugin_load("examples/plugins/string-utils/plugin.toml")
 title_case("hello world")  # => "Hello World"
 snake_case("Hello World")  # => "hello_world"
@@ -36,7 +36,7 @@ snake_case("Hello World")  # => "hello_world"
 
 ## Loading Plugins
 
-```aether
+```ironshell
 # Load a single plugin
 plugin_load("examples/plugins/hello-plugin/plugin.toml")
 

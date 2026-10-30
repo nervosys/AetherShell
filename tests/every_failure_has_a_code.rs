@@ -8,7 +8,7 @@
 //!
 //!   * **Parse errors carried no code at all.** They arrived as
 //!     `error: found 1 error(s): unexpected token Eof at line 1, column 27`.
-//!     It was the one failure in ten where AetherShell had nothing for an
+//!     It was the one failure in ten where IronShell had nothing for an
 //!     agent to switch on, and nushell — which codes all ten — was ahead of us
 //!     because of it.
 //!   * **The `sh()` refusal was filed under `E_UNKNOWN`**, with the hint
@@ -23,10 +23,10 @@
 //! differ between the native and wasm builds. It renders the same JSON, so an
 //! agent cannot tell them apart.
 
-use aethershell::parser::{parse_program, ParseError};
+use iron_shell::parser::{parse_program, ParseError};
 
 /// Environment mutation is process-global, so the two tests that set
-/// AETHER_ALLOW_SH must not overlap. A file-local mutex is the right scope:
+/// IRONSHELL_ALLOW_SH must not overlap. A file-local mutex is the right scope:
 /// other test binaries are separate processes and cannot see this one's
 /// environment. Serialising with `--test-threads=1` instead would weaken every
 /// other test in the file for the sake of two.
@@ -134,13 +134,13 @@ fn a_parse_error_is_retryable_because_rewriting_the_source_can_fix_it() {
 #[cfg(feature = "native")]
 #[test]
 fn the_sh_refusal_is_a_policy_denial_not_an_unknown_failure() {
-    use aethershell::safety::SafetyError;
+    use iron_shell::safety::SafetyError;
 
     let _guard = SH_ENV.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_ALLOW_SH");
+    std::env::remove_var("IRONSHELL_ALLOW_SH");
 
-    let e = aethershell::security::validate_sh_allowed()
-        .expect_err("sh must be refused with AETHER_ALLOW_SH unset");
+    let e = iron_shell::security::validate_sh_allowed()
+        .expect_err("sh must be refused with IRONSHELL_ALLOW_SH unset");
     let se = e
         .downcast_ref::<SafetyError>()
         .unwrap_or_else(|| panic!("the sh refusal is not structured: {e}"));
@@ -151,7 +151,7 @@ fn the_sh_refusal_is_a_policy_denial_not_an_unknown_failure() {
         "a policy refusal must not invite a retry"
     );
     assert!(
-        se.hint.contains("AETHER_ALLOW_SH"),
+        se.hint.contains("IRONSHELL_ALLOW_SH"),
         "the hint must name the switch that changes the answer: {}",
         se.hint
     );
@@ -166,10 +166,10 @@ fn the_sh_refusal_is_a_policy_denial_not_an_unknown_failure() {
 #[test]
 fn the_sh_gate_still_opens_when_it_is_told_to() {
     let _guard = SH_ENV.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("AETHER_ALLOW_SH", "true");
-    let allowed = aethershell::security::validate_sh_allowed().is_ok();
-    std::env::remove_var("AETHER_ALLOW_SH");
-    assert!(allowed, "AETHER_ALLOW_SH=true must still enable sh()");
+    std::env::set_var("IRONSHELL_ALLOW_SH", "true");
+    let allowed = iron_shell::security::validate_sh_allowed().is_ok();
+    std::env::remove_var("IRONSHELL_ALLOW_SH");
+    assert!(allowed, "IRONSHELL_ALLOW_SH=true must still enable sh()");
 }
 
 // ── non-vacuity ─────────────────────────────────────────────────────────

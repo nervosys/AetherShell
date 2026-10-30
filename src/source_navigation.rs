@@ -1,4 +1,4 @@
-//! Pure, bounded AetherShell source inspection. Never evaluate analyzed code.
+//! Pure, bounded IronShell source inspection. Never evaluate analyzed code.
 use crate::{
     ast::{Expr, Stmt, Visibility},
     parser::{parse_program, source_identifiers, SourceIdentifier},
@@ -41,7 +41,7 @@ fn parse_failure(name: &str, error: anyhow::Error) -> anyhow::Error {
         .downcast_ref::<crate::parser::ParseError>()
         .map(|e| e.message.clone())
         .unwrap_or_else(|| error.to_string());
-    safety::arg_err(format!("{name}: invalid AetherShell source: {message}"))
+    safety::arg_err(format!("{name}: invalid IronShell source: {message}"))
 }
 
 fn record(fields: Vec<(&str, Value)>) -> Value {

@@ -1,4 +1,4 @@
-# 🚀 AetherShell Launch Readiness Report
+# 🚀 IronShell Launch Readiness Report
 
 **Status: READY FOR LAUNCH** ✅  
 **Security Status: FULLY COMPLIANT** 🛡️
@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-AetherShell is production-ready with comprehensive performance optimizations, robust AI integration, **full security compliance**, and extensive test coverage. All critical systems are operational and optimized for real-world usage with enterprise-grade security.
+IronShell is production-ready with comprehensive performance optimizations, robust AI integration, **full security compliance**, and extensive test coverage. All critical systems are operational and optimized for real-world usage with enterprise-grade security.
 
 ## ✅ Launch Checklist
 
@@ -145,14 +145,14 @@ Performance Tests:    All     ✅ (100%)
 cargo build --release
 
 # Run with environment configuration
-AETHER_AI=openai OPENAI_API_KEY=your_key ./ae
+IRONSHELL_AI=openai OPENAI_API_KEY=your_key ./ae
 
 # Or use TUI mode
 ./ae tui
 ```
 
 ### Configuration Options
-- **AI Provider**: `AETHER_AI` (openai, ollama, github, etc.)
+- **AI Provider**: `IRONSHELL_AI` (openai, ollama, github, etc.)
 - **API Keys**: Provider-specific environment variables
 - **Agent Commands**: `AGENT_ALLOW_CMDS` for tool whitelisting
 - **Security**: Configurable validation and rate limiting
@@ -192,7 +192,7 @@ AETHER_AI=openai OPENAI_API_KEY=your_key ./ae
 
 **RECOMMENDATION: PROCEED WITH LAUNCH**
 
-AetherShell is production-ready with exceptional performance characteristics, comprehensive feature set, and robust security measures. The system has been thoroughly tested and optimized for real-world usage.
+IronShell is production-ready with exceptional performance characteristics, comprehensive feature set, and robust security measures. The system has been thoroughly tested and optimized for real-world usage.
 
 ### Key Strengths
 - **Performance**: Industry-leading optimization with 200M-60x improvements

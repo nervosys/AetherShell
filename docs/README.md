@@ -1,6 +1,6 @@
-# AetherShell Documentation
+# IronShell Documentation
 
-Welcome to the AetherShell documentation! This directory contains comprehensive guides, references, and deep dives into all aspects of AetherShell.
+Welcome to the IronShell documentation! This directory contains comprehensive guides, references, and deep dives into all aspects of IronShell.
 
 ## 📚 Start Here
 
@@ -10,15 +10,15 @@ Welcome to the AetherShell documentation! This directory contains comprehensive 
 One-page guide covering all syntax, patterns, and features. Perfect for quick lookups!
 
 **[Type System Guide](TYPE_SYSTEM_GUIDE.md)** 📖  
-Complete guide to AetherShell's type system, explaining when to use `:=` (inference) vs `=` (explicit types).
+Complete guide to IronShell's type system, explaining when to use `:=` (inference) vs `=` (explicit types).
 
 ### For Experienced Developers
 
-**[Why AetherShell?](WHY_AETHERSHELL.md)**  
-Philosophy, design decisions, and what makes AetherShell unique.
+**[Why IronShell?](WHY_IRONSHELL.md)**  
+Philosophy, design decisions, and what makes IronShell unique.
 
 **[Competitive Analysis](COMPETITIVE_ANALYSIS.md)**  
-How AetherShell compares to Nushell, PowerShell, Oil Shell, and other modern shells.
+How IronShell compares to Nushell, PowerShell, Oil Shell, and other modern shells.
 
 ### For AI Features
 
@@ -34,8 +34,8 @@ Implementation details for A2A (Agent-to-Agent) and NANDA (Negotiation) protocol
 - **[Quick Reference](QUICK_REFERENCE.md)** - One-page syntax and pattern reference
 - **[Type System Guide](TYPE_SYSTEM_GUIDE.md)** - Deep dive into type inference and explicit types
 
-### Understanding AetherShell
-- **[Why AetherShell?](WHY_AETHERSHELL.md)** - Philosophy and unique value proposition
+### Understanding IronShell
+- **[Why IronShell?](WHY_IRONSHELL.md)** - Philosophy and unique value proposition
 - **[Competitive Analysis](COMPETITIVE_ANALYSIS.md)** - Comparison with modern shells
 
 ### AI & Infrastructure
@@ -69,16 +69,16 @@ Implementation details for A2A (Agent-to-Agent) and NANDA (Negotiation) protocol
 
 ### Pipelines
 - [Quick Reference - Pipelines](QUICK_REFERENCE.md#core-syntax)
-- [Typed Pipelines Example](../examples/14_typed_pipelines.ae)
+- [Typed Pipelines Example](../examples/14_typed_pipelines.ish)
 
 ### Multi-Agent Systems
 - [Quick Reference - Agents](QUICK_REFERENCE.md#agents)
-- [Multi-Agent Example](../examples/12_multi_agent_orchestration.ae)
+- [Multi-Agent Example](../examples/12_multi_agent_orchestration.ish)
 - [A2A Protocol](AI_PROTOCOLS_FINAL_REPORT.md#a2a-agent-to-agent-communication)
 
 ### MCP Integration
 - [MCP Servers Guide](MCP_SERVERS_GUIDE.md)
-- [MCP Servers Example](../examples/16_mcp_servers.ae)
+- [MCP Servers Example](../examples/16_mcp_servers.ish)
 
 ## 🚀 VS Code Extension
 

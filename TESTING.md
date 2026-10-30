@@ -1,13 +1,13 @@
-# AetherShell Testing Strategy
+# IronShell Testing Strategy
 
-This document outlines the comprehensive testing approach for AetherShell's syntax and function library.
+This document outlines the comprehensive testing approach for IronShell's syntax and function library.
 
 ## Overview
 
-AetherShell testing is organized into **four layers**:
+IronShell testing is organized into **four layers**:
 
 1. **Unit Tests** - Rust tests for individual components (`tests/*.rs`)
-2. **Syntax Tests** - `.ae` scripts testing language constructs (`tests/coverage/*.ae`)
+2. **Syntax Tests** - `.ish` scripts testing language constructs (`tests/coverage/*.ish`)
 3. **Integration Tests** - End-to-end tests combining multiple features
 4. **Coverage Tests** - Systematic tests ensuring all builtins and features are covered
 
@@ -22,23 +22,23 @@ cargo test --test builtins_coverage --test theme_coverage --test builtins --test
 # Run just the coverage tests
 cargo test --test builtins_coverage --test theme_coverage
 
-# Run a single .ae test file
-.\target\debug\ae.exe tests/coverage/syntax_comprehensive.ae
+# Run a single .ish test file
+.\target\debug\ish.exe tests/coverage/syntax_comprehensive.ish
 
-# Run all .ae coverage tests (PowerShell)
-Get-ChildItem tests/coverage/*.ae | ForEach-Object { .\target\debug\ae.exe $_.FullName }
+# Run all .ish coverage tests (PowerShell)
+Get-ChildItem tests/coverage/*.ish | ForEach-Object { .\target\debug\ish.exe $_.FullName }
 ```
 
 ---
 
 ## Known Parser Quirks
 
-When writing `.ae` test files, be aware of these parser behaviors:
+When writing `.ish` test files, be aware of these parser behaviors:
 
 ### Pipeline Assignment Followed by Another Assignment
 Pipeline expressions assigned to variables must be parenthesized if followed by another assignment:
 
-```aethershell
+```ironshell
 # ❌ FAILS - Parser error
 x = [1,2,3] | reverse
 y = first(x)
@@ -51,7 +51,7 @@ y = first(x)
 ### Pipeline-Only Builtins
 Some builtins only accept pipeline input, not function-call syntax:
 
-```aethershell
+```ironshell
 # ❌ FAILS
 flatten([[1],[2]])
 any([1,2,3], fn(x) => x > 1)
@@ -64,9 +64,9 @@ any([1,2,3], fn(x) => x > 1)
 Pipeline-only builtins: `flatten`, `reverse`, `slice`, `any`, `all`
 
 ### Lambda Parameters
-AetherShell requires at least one parameter for lambdas (no zero-param lambdas):
+IronShell requires at least one parameter for lambdas (no zero-param lambdas):
 
-```aethershell
+```ironshell
 # ❌ FAILS
 constant = fn() => 42
 
@@ -84,15 +84,15 @@ All AST constructs from `src/ast.rs` must be tested:
 
 | Category          | Constructs                                                                    | Test File                                |
 | ----------------- | ----------------------------------------------------------------------------- | ---------------------------------------- |
-| **Literals**      | `Int`, `Float`, `String`, `Bool`, `Null`                                      | `tests/coverage/syntax_comprehensive.ae` |
-| **Collections**   | `Array`, `Record`                                                             | `tests/coverage/syntax_comprehensive.ae` |
-| **Operators**     | `+`, `-`, `*`, `/`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `\|\|` | `tests/coverage/syntax_comprehensive.ae` |
-| **Unary**         | `-x`, `!x`                                                                    | `tests/coverage/syntax_comprehensive.ae` |
-| **Lambdas**       | `fn(x) => expr`, multi-param                                                  | `tests/coverage/syntax_comprehensive.ae` |
-| **Pipelines**     | `x \| f`, `x \| f(args)`                                                      | `tests/coverage/syntax_comprehensive.ae` |
-| **Match**         | `match x { ... }`, guards, patterns                                           | `tests/coverage/syntax_comprehensive.ae` |
-| **Variables**     | `let x = ...`, `let mut x = ...`                                              | `tests/coverage/syntax_comprehensive.ae` |
-| **Member Access** | `record.field`                                                                | `tests/coverage/syntax_comprehensive.ae` |
+| **Literals**      | `Int`, `Float`, `String`, `Bool`, `Null`                                      | `tests/coverage/syntax_comprehensive.ish` |
+| **Collections**   | `Array`, `Record`                                                             | `tests/coverage/syntax_comprehensive.ish` |
+| **Operators**     | `+`, `-`, `*`, `/`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `\|\|` | `tests/coverage/syntax_comprehensive.ish` |
+| **Unary**         | `-x`, `!x`                                                                    | `tests/coverage/syntax_comprehensive.ish` |
+| **Lambdas**       | `fn(x) => expr`, multi-param                                                  | `tests/coverage/syntax_comprehensive.ish` |
+| **Pipelines**     | `x \| f`, `x \| f(args)`                                                      | `tests/coverage/syntax_comprehensive.ish` |
+| **Match**         | `match x { ... }`, guards, patterns                                           | `tests/coverage/syntax_comprehensive.ish` |
+| **Variables**     | `let x = ...`, `let mut x = ...`                                              | `tests/coverage/syntax_comprehensive.ish` |
+| **Member Access** | `record.field`                                                                | `tests/coverage/syntax_comprehensive.ish` |
 
 ### 2. Builtin Function Coverage
 
@@ -319,15 +319,15 @@ All **143+ builtins** organized by category:
 ```
 tests/
 ├── *.rs                    # Rust integration tests
-├── feature_*.ae            # Language feature tests (syntax)
+├── feature_*.ish            # Language feature tests (syntax)
 ├── scripts/
 │   ├── builtins/          # Builtin function tests
-│   │   └── test_*.ae      # Individual builtin tests
+│   │   └── test_*.ish      # Individual builtin tests
 │   └── integration/       # Complex integration tests
-│       └── test_*.ae      # End-to-end scenarios
+│       └── test_*.ish      # End-to-end scenarios
 └── coverage/              # NEW: Systematic coverage tests
-    ├── builtins_*.ae      # Category-based builtin tests
-    └── syntax_*.ae        # Complete syntax coverage
+    ├── builtins_*.ish      # Category-based builtin tests
+    └── syntax_*.ish        # Complete syntax coverage
 ```
 
 ### Running Tests
@@ -339,10 +339,10 @@ cargo test
 # Run specific test file
 cargo test --test smoke
 
-# Run feature tests via ae binary
-./target/debug/ae tests/feature_00_comprehensive.ae
+# Run feature tests via ish binary
+./target/debug/ish tests/feature_00_comprehensive.ish
 
-# Run all .ae tests (via test runner)
+# Run all .ish tests (via test runner)
 ./scripts/run_ae_tests.sh
 ```
 
@@ -350,11 +350,11 @@ cargo test --test smoke
 
 ## Test Assertions
 
-AetherShell tests use `print()` with visual checkmarks for manual verification.
+IronShell tests use `print()` with visual checkmarks for manual verification.
 
 For automated testing, use the `assert` pattern:
 
-```aethershell
+```ironshell
 # Manual assertion pattern
 result = 1 + 1
 match result == 2 {
@@ -391,25 +391,25 @@ match type_of(result) {
 ## Implementation Plan
 
 ### Phase 1: Syntax Coverage (Priority: High)
-1. ✅ `feature_00_comprehensive.ae` - All features overview
-2. ✅ `feature_01_literals.ae` through `feature_12_builtins.ae`
+1. ✅ `feature_00_comprehensive.ish` - All features overview
+2. ✅ `feature_01_literals.ish` through `feature_12_builtins.ish`
 3. ⬜ Add edge cases and error handling tests
 
 ### Phase 2: Core Builtins (Priority: High)
-1. ⬜ Create `tests/coverage/builtins_core.ae` (0-29)
-2. ⬜ Create `tests/coverage/builtins_string.ae` (34-42)
-3. ⬜ Create `tests/coverage/builtins_array.ae` (43-49)
-4. ⬜ Create `tests/coverage/builtins_math.ae` (50-57)
+1. ⬜ Create `tests/coverage/builtins_core.ish` (0-29)
+2. ⬜ Create `tests/coverage/builtins_string.ish` (34-42)
+3. ⬜ Create `tests/coverage/builtins_array.ish` (43-49)
+4. ⬜ Create `tests/coverage/builtins_math.ish` (50-57)
 
 ### Phase 3: Domain Builtins (Priority: Medium)
-1. ⬜ Create `tests/coverage/builtins_nn.ae` (72-82)
-2. ⬜ Create `tests/coverage/builtins_evolution.ae` (83-92)
-3. ⬜ Create `tests/coverage/builtins_rl.ae` (93-107)
+1. ⬜ Create `tests/coverage/builtins_nn.ish` (72-82)
+2. ⬜ Create `tests/coverage/builtins_evolution.ish` (83-92)
+3. ⬜ Create `tests/coverage/builtins_rl.ish` (93-107)
 
 ### Phase 4: Integration Builtins (Priority: Medium)
-1. ⬜ Create `tests/coverage/builtins_mcp.ae` (117-122)
-2. ⬜ Create `tests/coverage/builtins_tools.ae` (108-116)
-3. ⬜ Create `tests/coverage/builtins_config.ae` (137-143)
+1. ⬜ Create `tests/coverage/builtins_mcp.ish` (117-122)
+2. ⬜ Create `tests/coverage/builtins_tools.ish` (108-116)
+3. ⬜ Create `tests/coverage/builtins_config.ish` (137-143)
 
 ### Phase 5: Automated Test Runner (Priority: High)
 1. ⬜ Create `scripts/run_tests.ps1` for Windows
@@ -439,7 +439,7 @@ cargo test builtin  # All builtin tests
 
 When adding new features:
 
-1. Add syntax test to appropriate `feature_*.ae` file
+1. Add syntax test to appropriate `feature_*.ish` file
 2. Add Rust unit test if function is in library
 3. Add integration test for complex interactions
 4. Update this document with coverage status

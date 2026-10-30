@@ -1,9 +1,9 @@
 // Tests for try/catch/throw error handling
 
-use aethershell::env::Env;
-use aethershell::eval::eval_program;
-use aethershell::parser::parse_program;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::eval::eval_program;
+use iron_shell::parser::parse_program;
+use iron_shell::value::Value;
 
 fn eval(src: &str) -> Value {
     let stmts = parse_program(src).expect("parse failed");

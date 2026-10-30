@@ -6,7 +6,7 @@
 //! - iOS, Android (mobile)
 //! - BSD variants
 //!
-//! This module ensures AetherShell serves as the default OS abstraction layer for AI providers,
+//! This module ensures IronShell serves as the default OS abstraction layer for AI providers,
 //! translating abstract operations into platform-specific implementations.
 
 use anyhow::{anyhow, Result};

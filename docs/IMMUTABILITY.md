@@ -1,6 +1,6 @@
-# Immutability in AetherShell
+# Immutability in IronShell
 
-AetherShell enforces **immutability by default** for all variables, following functional programming best practices. This design choice improves code safety, predictability, and maintainability.
+IronShell enforces **immutability by default** for all variables, following functional programming best practices. This design choice improves code safety, predictability, and maintainability.
 
 ## Overview
 
@@ -12,7 +12,7 @@ AetherShell enforces **immutability by default** for all variables, following fu
 
 ### Immutable Variables (Default)
 
-```aethershell
+```ironshell
 # Simple assignment - immutable
 x = 42
 name = "Alice"
@@ -27,7 +27,7 @@ x = 43  # This creates a NEW binding (shadowing), not reassignment
 
 ### Mutable Variables
 
-```aethershell
+```ironshell
 # Using 'mut' keyword
 mut counter = 0
 counter = counter + 1  # OK - counter is mutable
@@ -39,11 +39,11 @@ total = total - 20  # OK - total is mutable
 
 ## Shadowing vs Reassignment
 
-AetherShell distinguishes between **shadowing** (creating a new binding) and **reassignment** (modifying an existing variable).
+IronShell distinguishes between **shadowing** (creating a new binding) and **reassignment** (modifying an existing variable).
 
 ### Shadowing (Always Allowed)
 
-```aethershell
+```ironshell
 x = 42      # First binding
 x = 100     # Creates NEW binding, shadows the first
 
@@ -52,7 +52,7 @@ x = 100     # Creates NEW binding, shadows the first
 
 ### Reassignment (Only for Mutable Variables)
 
-```aethershell
+```ironshell
 # Immutable - cannot reassign
 x = 42
 # x = 100 would create new binding (shadow), not reassign
@@ -79,7 +79,7 @@ Aligns with functional programming paradigms that emphasize immutable data and p
 ## Common Patterns
 
 ### Counter Pattern
-```aethershell
+```ironshell
 mut clicks = 0
 print("Clicks: ${clicks}")
 clicks = clicks + 1
@@ -87,7 +87,7 @@ print("After click: ${clicks}")
 ```
 
 ### Accumulator Pattern
-```aethershell
+```ironshell
 mut sum = 0
 numbers = [10, 20, 30, 40, 50]
 
@@ -98,7 +98,7 @@ sum = sum + 20
 ```
 
 ### State Machine
-```aethershell
+```ironshell
 mut state = "idle"
 mut attempts = 0
 
@@ -110,7 +110,7 @@ state = "connected"
 ```
 
 ### Progress Tracking
-```aethershell
+```ironshell
 mut progress = 0.0
 mut status = "Starting"
 
@@ -121,7 +121,7 @@ status = "Loading"
 
 ## Error Messages
 
-When attempting to reassign an immutable variable, AetherShell provides clear guidance:
+When attempting to reassign an immutable variable, IronShell provides clear guidance:
 
 ```
 Cannot reassign immutable variable 'x'. Use 'let mut x' to make it mutable.
@@ -147,16 +147,16 @@ The immutability system is validated by 6 comprehensive tests:
 
 ## Migration from Pre-Immutability Code
 
-If you have existing AetherShell code that assumes mutability:
+If you have existing IronShell code that assumes mutability:
 
 **Before:**
-```aethershell
+```ironshell
 x = 42
 x = 100  # Worked as reassignment
 ```
 
 **After:**
-```aethershell
+```ironshell
 # Option 1: Use mutable variable
 mut x = 42
 x = 100  # Shadowing with new declaration
@@ -168,6 +168,6 @@ x = 100  # Creates new binding, shadows old one
 
 ## See Also
 
-- [Mutable Variables Example](../examples/18_mutable_variables.ae) - Comprehensive examples
+- [Mutable Variables Example](../examples/18_mutable_variables.ish) - Comprehensive examples
 - [Quick Reference](../docs/QUICK_REFERENCE.md) - Syntax reference
 - [Type System](../docs/TYPE_SYSTEM.md) - Type system documentation

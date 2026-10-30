@@ -1,6 +1,6 @@
 // E3f -- network egress under a zero network budget.
 //
-// `AETHER_MAX_NET=0` is how an operator says "this agent may not use the
+// `IRONSHELL_MAX_NET=0` is how an operator says "this agent may not use the
 // network". It is enforced by the effect gate, which charges the network
 // budget for every builtin classified `Network` -- and only for those. A
 // builtin that reaches the network while classified `pure` is not charged,
@@ -49,10 +49,10 @@ process.on('exit', () => fs.rmSync(JAIL, { recursive: true, force: true }));
 const ENV = {
     ...process.env,
     ...SCRATCH_HOME,
-    AETHER_MAX_NET: '0',
-    AETHER_AI: 'irongate',
+    IRONSHELL_MAX_NET: '0',
+    IRONSHELL_AI: 'irongate',
     // Agents run headless. With a display, clipboard builtins start an X11
-    // helper that outlives `ae`, and strace waits on it forever.
+    // helper that outlives `ish`, and strace waits on it forever.
     DISPLAY: '',
     WAYLAND_DISPLAY: '',
 };
@@ -67,12 +67,12 @@ const traced = (code, env = ENV, agent = true) => {
         'setsid',
         ['timeout', '-k', '2', '15',
          'strace', '-f', '-qq', '-e', 'trace=connect,%process', '-o', TRACE,
-         'ae', ...(agent ? ['--agent', '--policy', 'strict', '--workspace', JAIL] : []), '-c', code],
+         'ish', ...(agent ? ['--agent', '--policy', 'strict', '--workspace', JAIL] : []), '-c', code],
         { cwd: JAIL, stdio: 'ignore', timeout: 30000, env },
     );
     try { process.kill(-r.pid, 'SIGKILL'); } catch { /* group already gone */ }
     const log = fs.existsSync(TRACE) ? fs.readFileSync(TRACE, 'utf8') : '';
-    // A connection is only actionable once we know WHO made it: `ae` itself,
+    // A connection is only actionable once we know WHO made it: `ish` itself,
     // or a program it started (a CLI asked for its version that phones home).
     // Map every pid to the last program it exec'd, falling back to its parent.
     // strace 6 pads the pid column (`168   execve(...)`), so the pid is
@@ -125,7 +125,7 @@ const control = traced(
     `sh("curl -s --max-time 2 http://127.0.0.1:9/")`,
     // sh() is refused unless explicitly allowed -- the right default, and
     // lifted here for the control call only.
-    { ...process.env, AETHER_ALLOW_SH: 'true' },
+    { ...process.env, IRONSHELL_ALLOW_SH: 'true' },
     false,
 );
 if (control.inet.length === 0) {
@@ -140,14 +140,14 @@ if (!control.inet.every(({ prog }) => prog === 'curl')) {
 }
 console.log(`control: tracer sees egress (${control.inet.length} connect() by curl on the control call)`);
 
-const list = spawnSync('ae', ['-c', 'json.stringify(ontology_manifest())'], {
+const list = spawnSync('ish', ['-c', 'json.stringify(ontology_manifest())'], {
     encoding: 'utf8',
 });
 const cats = JSON.parse(list.stdout).categories.map((c) => (typeof c === 'string' ? c : c.category));
 const names = new Set();
 for (const cat of cats) {
     try {
-        const d = spawnSync('ae', ['-c', `json.stringify(ontology_describe(${JSON.stringify(cat)}))`], {
+        const d = spawnSync('ish', ['-c', `json.stringify(ontology_describe(${JSON.stringify(cat)}))`], {
             encoding: 'utf8',
         });
         for (const b of JSON.parse(d.stdout).builtins ?? []) names.add(b.name);
@@ -175,7 +175,7 @@ for (const name of [...names].sort()) {
     if (++done % 200 === 0) process.stderr.write(`  ${done}/${names.size}\n`);
 }
 
-console.log(`\n${leaks.length} builtin(s) opened a network connection with AETHER_MAX_NET=0:`);
+console.log(`\n${leaks.length} builtin(s) opened a network connection with IRONSHELL_MAX_NET=0:`);
 for (const l of leaks) console.log(`  ${l.replace('\t', '  ->  ')}`);
 fs.writeFileSync('network-egress.txt', `${leaks.join('\n')}\n`);
 

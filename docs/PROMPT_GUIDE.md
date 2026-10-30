@@ -1,6 +1,6 @@
 # Prompt & Line Editing Guide
 
-AetherShell's interactive prompt is configurable in `~/.config/aether/config.toml`
+IronShell's interactive prompt is configurable in `~/.config/ironshell/config.toml`
 under `[prompt]`. Four built-in styles ship out of the box, plus a `custom` style
 that expands a format string of your own.
 
@@ -14,13 +14,13 @@ symbol = "❯"
 
 ### `classic` (default)
 
-The historical AetherShell prompt: `æ❯`, with the `æ` colored green on success
+The historical IronShell prompt: `æ❯`, with the `æ` colored green on success
 and red after a failed command.
 
 ### `fish`
 
 ```
-~/d/n/c/AetherShell on  master● 1.2s [1] ❯
+~/d/n/c/IronShell on  master● 1.2s [1] ❯
 ```
 
 One line, no background fills, and no font requirements beyond the branch glyph.
@@ -36,7 +36,7 @@ when nonzero.
 ### `powerline` (oh-my-posh style)
 
 ```
-  ~/d/n/c/AetherShell   master   3m14s 
+  ~/d/n/c/IronShell   master   3m14s 
 ```
 
 Filled segment blocks joined by powerline separators, each with its own
@@ -154,8 +154,8 @@ w  = "where"          # also expands after a pipe: ls(".")|w <space>
 | `Ctrl-C`              | Abandon the line                  |
 | `Ctrl-D`              | Exit (on an empty line)           |
 
-When stdin is not a terminal — pipes, CI, `ae < script.ae` — the editor falls
+When stdin is not a terminal — pipes, CI, `ish < script.ish` — the editor falls
 back to plain buffered reads, so non-interactive behavior is unchanged.
 
-History is persisted to `$XDG_DATA_HOME/aether/history` and honors the
+History is persisted to `$XDG_DATA_HOME/ironshell/history` and honors the
 `[history]` settings (`enabled`, `ignore_duplicates`, `ignore_space`).

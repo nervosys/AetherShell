@@ -24,8 +24,8 @@ if (!repo) { console.error('usage: environment.mjs <repo-root>'); process.exit(2
 // The listing task from E2: an array of records, the shape an agent re-reads
 // most and the one with the most room to vary.
 const ENGINES = {
-    aethershell: { bin: 'ae', argv: ['-c', 'ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | pick("name", "size")'] },
-    'aethershell (agent)': { bin: 'ae', argv: ['--agent', '-c', 'ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | pick("name", "size")'] },
+    ironshell: { bin: 'ish', argv: ['-c', 'ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | pick("name", "size")'] },
+    'ironshell (agent)': { bin: 'ish', argv: ['--agent', '-c', 'ls("src") | where(fn(f) => ends_with(f.name, ".rs")) | pick("name", "size")'] },
     bash: { bin: 'bash', argv: ['-c', 'ls -l src/*.rs'] },
     pwsh: { bin: 'pwsh', argv: ['-NoProfile', '-Command', 'Get-ChildItem src/*.rs | Select-Object Name,Length'] },
     nushell: { bin: 'nu', argv: ['-n', '-c', 'ls src/*.rs | select name size'] },

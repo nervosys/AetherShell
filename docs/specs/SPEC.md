@@ -15,7 +15,7 @@ cargo run
 
 In the REPL:
 
-```ae
+```ish
 print "hello, ae"
 ls "." | print
 http_get "https://api.github.com" | print
@@ -25,7 +25,7 @@ http_get "https://api.github.com" | print
 
 ## 0. Elevator Pitch
 
-Aether (`au`) is a next‑gen shell & scripting language:
+IronShell (`au`) is a next‑gen shell & scripting language:
 
 * **Typed pipelines** (arrays, records, tables, not just text)
 * **Memory & type safety** (runtime in Rust, HM type inference)
@@ -50,7 +50,7 @@ Aether (`au`) is a next‑gen shell & scripting language:
 
 * Line comments use `#` (shell style, preferred) or `//` (C-style, for compatibility):
 
-```ae
+```ish
 # This is a comment (preferred style)
 print("hello")  # Inline comments work too
 // C-style comments also work
@@ -62,7 +62,7 @@ print("hello")  # Inline comments work too
 
 * `|` pipes typed values between functions.
 
-```ae
+```ish
 ls "." | where fn(r)=>r.type=="file" | take 5
 ```
 
@@ -70,7 +70,7 @@ ls "." | where fn(r)=>r.type=="file" | take 5
 
 * Simple `=` for type inference (recommended):
 
-```ae
+```ish
 files = ls "."           // files: Table (type inferred)
 count = 42               // count: Int
 items = [1, 2, 3]        // items: Array<Int>
@@ -78,27 +78,27 @@ items = [1, 2, 3]        // items: Array<Int>
 
 * Mutable variables:
 
-```ae
+```ish
 mut counter = 0          // Mutable
 mut total = 100          // Also mutable
 ```
 
 * Alternative syntax with explicit `let`:
 
-```ae
+```ish
 let files = ls "."       // Using let keyword
 let mut total: Int = 0   // Mutable with type annotation
 ```
 
 ### 2.3 Lambdas
 
-```ae
+```ish
 [1,2,3] | map fn(x)=>x*2
 ```
 
 ### 2.4 Pattern Matching
 
-```ae
+```ish
 match status {
   200..=299 => print "ok",
   404       => warn  "not found",
@@ -120,7 +120,7 @@ match status {
 
 ### 2.7 Grouping & Aggregation
 
-```ae
+```ish
 ls "." | group "type" | agg "count"
 ls "." | group "type" | agg "sum" "size"
 ```
@@ -130,7 +130,7 @@ ls "." | group "type" | agg "sum" "size"
 * **`http_get URL`** → `{url,status,headers,body}`
 * **`http`** → `http METHOD URL [headers] [query] [body]`
 
-```ae
+```ish
 http "GET" "https://api.github.com" {"User-Agent":"au"}
 ```
 
@@ -139,7 +139,7 @@ http "GET" "https://api.github.com" {"User-Agent":"au"}
 * **`ai(prompt)`** → structured call (providers: `stub|openai|ollama`)
 * **`agent(goal, tools, steps, dry_run)`** → LLM plan + tool execution
 
-```ae
+```ish
 read_text "README.md" | ai "summarize"
 agent "list big files" ["ls","!"] 3 true
 ```
@@ -162,19 +162,19 @@ call       := primary ("(" args? ")")? ;
 
 ### Arrays & Reduce
 
-```ae
+```ish
 [1,2,3,4] | map fn(x)=>x*x | reduce fn(a,b)=>a+b 0
 ```
 
 ### Table Filtering
 
-```ae
+```ish
 ls "." | where fn(r)=>r.type=="file" | select "name" "size" | sort "size" true | take 5
 ```
 
 ### Join
 
-```ae
+```ish
 a := ls "src"
 b := find "." ".rs"
 a | join b "name" "name" left | take 10
@@ -182,20 +182,20 @@ a | join b "name" "name" left | take 10
 
 ### Group & Aggregate
 
-```ae
+```ish
 ls "." | group "type" | agg "count"
 ```
 
 ### HTTP
 
-```ae
+```ish
 resp := http_get "https://api.github.com"
 resp.status
 ```
 
 ### AI & Agent
 
-```ae
+```ish
 read_text "README.md" | ai "summarize as bullets"
 agent "repo tidy" ["ls","!"] 3
 ```
@@ -208,4 +208,4 @@ agent "repo tidy" ["ls","!"] 3
 * Exhaustiveness checks for matches
 * Streaming AI tokens
 
-**Aether Shell**: clean Bash/Fish‑like syntax, Go‑like clarity, Rust‑like safety, Julia‑like macros, and AI‑augmented workflows.
+**IronShell Shell**: clean Bash/Fish‑like syntax, Go‑like clarity, Rust‑like safety, Julia‑like macros, and AI‑augmented workflows.

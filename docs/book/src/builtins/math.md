@@ -7,7 +7,7 @@ Math builtins operate on numeric values (Int and Float). They handle type promot
 ### `floor`
 Round down to the nearest integer.
 
-```aethershell
+```ironshell
 floor 3.7     # 3
 floor -2.3    # -3
 floor 5       # 5 (no-op for Int)
@@ -16,7 +16,7 @@ floor 5       # 5 (no-op for Int)
 ### `ceil`
 Round up to the nearest integer.
 
-```aethershell
+```ironshell
 ceil 3.2      # 4
 ceil -2.7     # -2
 ceil 5        # 5 (no-op for Int)
@@ -25,7 +25,7 @@ ceil 5        # 5 (no-op for Int)
 ### `round`
 Round to the nearest integer (half rounds up).
 
-```aethershell
+```ironshell
 round 3.5     # 4
 round 3.4     # 3
 round -2.5    # -2
@@ -36,7 +36,7 @@ round -2.5    # -2
 ### `abs`
 Return the absolute (non-negative) value.
 
-```aethershell
+```ironshell
 abs -42       # 42
 abs 3.14      # 3.14
 abs -99.9     # 99.9
@@ -47,7 +47,7 @@ abs -99.9     # 99.9
 ### `sqrt`
 Return the square root as a Float.
 
-```aethershell
+```ironshell
 sqrt 16       # 4.0
 sqrt 2        # 1.4142135623730951
 ```
@@ -55,7 +55,7 @@ sqrt 2        # 1.4142135623730951
 ### `pow`
 Raise a number to a power.
 
-```aethershell
+```ironshell
 pow 2 10      # 1024
 pow 3.0 0.5   # 1.7320508075688772 (same as sqrt 3)
 ```
@@ -65,7 +65,7 @@ pow 3.0 0.5   # 1.7320508075688772 (same as sqrt 3)
 ### `min`
 Return the smaller of two values, or the minimum of an array.
 
-```aethershell
+```ironshell
 min 3 7       # 3
 [5, 2, 8, 1] | min   # 1
 ```
@@ -73,7 +73,7 @@ min 3 7       # 3
 ### `max`
 Return the larger of two values, or the maximum of an array.
 
-```aethershell
+```ironshell
 max 3 7       # 7
 [5, 2, 8, 1] | max   # 8
 ```
@@ -85,7 +85,7 @@ These also appear in [Collections](collections.md) since they operate on arrays:
 ### `sum`
 Sum all numeric elements of an array.
 
-```aethershell
+```ironshell
 [1, 2, 3, 4, 5] | sum     # 15
 range 1 101 | sum           # 5050
 ```
@@ -93,7 +93,7 @@ range 1 101 | sum           # 5050
 ### `avg` / `mean`
 Compute the arithmetic mean.
 
-```aethershell
+```ironshell
 [10, 20, 30] | avg          # 20.0
 [1.5, 2.5, 3.0] | mean      # 2.3333333333333335
 ```
@@ -101,7 +101,7 @@ Compute the arithmetic mean.
 ### `product`
 Multiply all elements together.
 
-```aethershell
+```ironshell
 [1, 2, 3, 4, 5] | product   # 120 (5!)
 range 1 11 | product         # 3628800 (10!)
 ```
@@ -120,7 +120,7 @@ Standard arithmetic operators work on both Int and Float:
 
 **Type promotion**: When mixing Int and Float, the result is Float:
 
-```aethershell
+```ironshell
 3 + 2.0       # 5.0 (Float)
 10 / 3        # 3   (Int division)
 10 / 3.0      # 3.3333... (Float division)
@@ -141,7 +141,7 @@ Standard arithmetic operators work on both Int and Float:
 
 ### Statistical Summary
 
-```aethershell
+```ironshell
 let data = [23, 45, 12, 67, 34, 89, 11, 56]
 
 let stats = {
@@ -158,7 +158,7 @@ echo stats
 
 ### File Size Analysis
 
-```aethershell
+```ironshell
 let sizes = ls "src" | map(fn(f) => f.size)
 
 echo "Total: ${sum sizes} bytes"
@@ -169,7 +169,7 @@ echo "Smallest: ${min sizes} bytes"
 
 ### Fibonacci Sequence
 
-```aethershell
+```ironshell
 range 0 10 | reduce(fn(acc, _) => {
   let n = len acc
   if n < 2 { push acc (n) }
@@ -180,7 +180,7 @@ range 0 10 | reduce(fn(acc, _) => {
 
 ### Distance Calculation
 
-```aethershell
+```ironshell
 let p1 = { x: 3.0, y: 4.0 }
 let p2 = { x: 7.0, y: 1.0 }
 let dist = sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2))
@@ -189,7 +189,7 @@ echo dist    # 5.0
 
 ### Percentage Breakdown
 
-```aethershell
+```ironshell
 ls "src"
   | where(fn(f) => !f.is_dir)
   | map(fn(f) => { name: f.name, size: f.size })

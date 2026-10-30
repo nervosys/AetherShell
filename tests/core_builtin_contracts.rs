@@ -16,12 +16,12 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use aethershell::builtins::call_with_input;
-use aethershell::env::Env;
-use aethershell::signature::signature_of;
-use aethershell::value::Value;
+use iron_shell::builtins::call_with_input;
+use iron_shell::env::Env;
+use iron_shell::signature::signature_of;
+use iron_shell::value::Value;
 
-/// cwd and AETHER_ALLOW_SH are process-global; tests that change them take this.
+/// cwd and IRONSHELL_ALLOW_SH are process-global; tests that change them take this.
 static GLOBAL: Mutex<()> = Mutex::new(());
 
 fn global() -> std::sync::MutexGuard<'static, ()> {
@@ -29,12 +29,12 @@ fn global() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// A fresh directory for one test. The undo journal is kept out of the
-/// repository by pointing AETHER_SESSION_DIR at a sibling directory.
+/// repository by pointing IRONSHELL_SESSION_DIR at a sibling directory.
 fn scratch(tag: &str) -> PathBuf {
     static SESSION: std::sync::Once = std::sync::Once::new();
     SESSION.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_core_session_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
     let dir = std::env::temp_dir().join(format!("ae_core_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -272,7 +272,7 @@ fn me() -> String {
 #[test]
 fn sh_reports_a_malformed_call_before_the_opt_in() {
     let _g = global();
-    std::env::remove_var("AETHER_ALLOW_SH");
+    std::env::remove_var("IRONSHELL_ALLOW_SH");
     refused("sh", vec![Value::Array(vec![])], "E_BAD_ARG");
     refused("sh", vec![s("echo 'open")], "E_BAD_ARG");
     refused("sh", vec![Value::Array(vec![Value::Int(1)])], "E_BAD_ARG");
@@ -288,13 +288,13 @@ fn sh_reports_a_malformed_call_before_the_opt_in() {
 #[test]
 fn sh_runs_a_program_directly_and_keeps_its_exit_status() {
     let _g = global();
-    std::env::set_var("AETHER_ALLOW_SH", "true");
+    std::env::set_var("IRONSHELL_ALLOW_SH", "true");
     let good = run("sh", vec![Value::Array(vec![s(&me()), s("--list")])]);
     let bad = run(
         "sh",
         vec![Value::Array(vec![s(&me()), s("--no-such-flag-zq")])],
     );
-    std::env::remove_var("AETHER_ALLOW_SH");
+    std::env::remove_var("IRONSHELL_ALLOW_SH");
 
     let good = good.expect("sh ran the test binary");
     assert_eq!(field(&good, "success"), &Value::Bool(true), "{good:?}");

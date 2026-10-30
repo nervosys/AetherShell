@@ -1,6 +1,6 @@
 //! Primitives the shipped examples assumed existed, and mostly did not.
 //!
-//! Running every `.ae` file in the repository turned up four gaps that were
+//! Running every `.ish` file in the repository turned up four gaps that were
 //! not bugs in the examples but genuine holes in the language:
 //!
 //!   * no way to convert a value to a string — 41 example sites called a
@@ -10,13 +10,13 @@
 //!   * an async lambda could not see its enclosing scope, so it could not call
 //!     a function defined next to it.
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 fn run(src: &str) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    let stmts = aethershell::parser::parse_program(src)?;
-    aethershell::eval::eval_program(&stmts, &mut env)
+    let stmts = iron_shell::parser::parse_program(src)?;
+    iron_shell::eval::eval_program(&stmts, &mut env)
 }
 
 fn s(src: &str) -> String {

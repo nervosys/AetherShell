@@ -15,8 +15,8 @@
 #[path = "support/disposable.rs"]
 mod disposable;
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
@@ -39,12 +39,12 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call_piped(name: &str, args: Vec<Value>, input: Value) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call_with_input(name, args, Some(input), &mut env)
+    iron_shell::builtins::call_with_input(name, args, Some(input), &mut env)
 }
 
 /// The coded refusal an error carries: the first `E_` token in its text.
@@ -236,10 +236,10 @@ fn aeacct_transaction_refuses_each_change() {
     struct Rollback;
     impl Drop for Rollback {
         fn drop(&mut self) {
-            let _ = aethershell::tx::rollback();
+            let _ = iron_shell::tx::rollback();
         }
     }
-    aethershell::tx::begin().expect("begin a transaction");
+    iron_shell::tx::begin().expect("begin a transaction");
     let _rollback = Rollback;
     for (name, args) in valid_calls() {
         expect_code(call(name, args), "E_POLICY_DENY");
@@ -276,7 +276,7 @@ fn aeacct_macos_every_valid_call_needs_root_and_changes_nothing() {
 /// must refuse outside the disposable distro.
 #[test]
 fn aeacct_guard_refuses_outside_the_disposable_distro() {
-    if std::env::var("AETHER_DISPOSABLE").as_deref() == Ok("1") {
+    if std::env::var("IRONSHELL_DISPOSABLE").as_deref() == Ok("1") {
         return; // inside the runner, the ignored tests below are the check
     }
     assert!(std::panic::catch_unwind(disposable::require).is_err());

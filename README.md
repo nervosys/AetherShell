@@ -4,9 +4,9 @@
 
 <p align="center">
   <a href="https://github.com/nervosys/AetherShell/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nervosys/AetherShell/ci.yml?style=flat-square&logo=github&label=CI" alt="CI"></a>
-  <a href="https://crates.io/crates/aethershell"><img src="https://img.shields.io/crates/v/aethershell.svg?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
-  <a href="https://crates.io/crates/aethershell"><img src="https://img.shields.io/crates/d/aethershell?style=flat-square&color=orange&label=downloads" alt="Downloads"></a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=admercs.aethershell"><img src="https://img.shields.io/visual-studio-marketplace/v/admercs.aethershell?style=flat-square&logo=visual-studio-code&label=VS%20Code" alt="VS Code"></a>
+  <a href="https://crates.io/crates/iron-shell"><img src="https://img.shields.io/crates/v/iron-shell.svg?style=flat-square&logo=rust&color=orange" alt="Crates.io"></a>
+  <a href="https://crates.io/crates/iron-shell"><img src="https://img.shields.io/crates/d/iron-shell?style=flat-square&color=orange&label=downloads" alt="Downloads"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=admercs.ironshell"><img src="https://img.shields.io/visual-studio-marketplace/v/admercs.ironshell?style=flat-square&logo=visual-studio-code&label=VS%20Code" alt="VS Code"></a>
   <a href="https://github.com/nervosys/AetherShell/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/nervosys/AetherShell/stargazers"><img src="https://img.shields.io/github/stars/nervosys/AetherShell?style=flat-square&color=yellow" alt="Stars"></a>
 </p>
@@ -39,7 +39,7 @@ into a composite on a **0–10 scale**. Real GPT-4 cl100k tokenizer; reproduce w
 
 | Shell | tok | scal | det | rel | err | saf | rev | **Composite (0–10)** |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| **AetherShell** | 10.0 | 10.0 | 10.0 | 7.0 | 10.0 | 10.0 | 10.0 | **9.6** |
+| **IronShell** | 10.0 | 10.0 | 10.0 | 7.0 | 10.0 | 10.0 | 10.0 | **9.6** |
 | Nushell | 7.1 | 6.4 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **2.3** |
 | PowerShell | 5.9 | 6.4 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **2.2** |
 | Bash / Zsh / Fish | 3.6 | 2.6 | 0.0 | 0.0 | 5.0 | 0.0 | 0.0 | **1.4** |
@@ -48,10 +48,10 @@ Sub-metrics: **tok** total-token efficiency · **scal** output per-item scaling 
 determinism · **rel** pass/actionable · **err** error actionability · **saf** blast-radius
 gated · **rev** reversibility. Each axis is the mean of its sub-metrics; the composite is
 the mean of the four axes. `tok`/`scal`/`saf` are measured for every shell; `det`/`rel`/
-`err`/`rev` are measured on AetherShell's engine and a structural capability for the rest
+`err`/`rev` are measured on IronShell's engine and a structural capability for the rest
 (traditional shells have no byte-stable output, branchable errors, or rollback).
 
-AetherShell leads on token cost (**~2.8× fewer than POSIX shells**, **2.4–3× vs
+IronShell leads on token cost (**~2.8× fewer than POSIX shells**, **2.4–3× vs
 PowerShell's default JSON**) and is the only shell with deterministic typed output,
 machine-branchable errors, effect-gated safety, and transactional rollback. Full
 methodology, per-task token tables, and capability matrices are in
@@ -64,7 +64,7 @@ methodology, per-task token tables, and capability matrices are in
 ### Install
 
 ```bash
-cargo install aethershell          # from crates.io
+cargo install iron-shell          # from crates.io
 ```
 
 <details>
@@ -74,18 +74,18 @@ cargo install aethershell          # from crates.io
 # Homebrew
 # (the formula lives in this repository, so tap it by URL)
 brew tap nervosys/aethershell https://github.com/nervosys/AetherShell
-brew install nervosys/aethershell/aethershell
+brew install nervosys/aethershell/ironshell
 
 # From source
 git clone https://github.com/nervosys/AetherShell && cd AetherShell
-cargo install --path . --bin ae
+cargo install --path . --bin ish
 
 # Prebuilt binaries for Linux, macOS and Windows
 # https://github.com/nervosys/AetherShell/releases
 ```
 
-Editor support: `code --install-extension admercs.aethershell`, or
-`cursor --install-extension admercs.aethershell` for Cursor, VSCodium and other
+Editor support: `code --install-extension admercs.ironshell`, or
+`cursor --install-extension admercs.ironshell` for Cursor, VSCodium and other
 forks.
 
 </details>
@@ -93,24 +93,28 @@ forks.
 ### Run it
 
 ```bash
-ae                     # REPL
-ae script.ae           # run a script
-ae -c 'expr'           # evaluate one expression
-ae tui                 # full-screen interactive mode
+ish                     # REPL
+ish script.ish           # run a script
+ish -c 'expr'           # evaluate one expression
+ish tui                 # full-screen interactive mode
 ```
+
+IronShell was called AetherShell before 14.0.0. The `ae` command is still
+installed as an alias of `ish`. Scripts must be renamed from `.ae` to `.ish`, and
+variables from `AETHER_*` to `IRONSHELL_*`; the old names are no longer read.
 
 Three flags matter more than the rest, and they are what make this shell
 different from the one you are using now:
 
 ```bash
-ae --agent             # default-deny: destructive effects need approval
-ae --workspace ./sbx   # confine writes and deletes to one directory
-ae --deterministic     # byte-stable canonical JSON, for diffs and snapshots
+ish --agent             # default-deny: destructive effects need approval
+ish --workspace ./sbx   # confine writes and deletes to one directory
+ish --deterministic     # byte-stable canonical JSON, for diffs and snapshots
 ```
 
 ### Your first five minutes
 
-```aethershell
+```ironshell
 1 + 2                                    # 3
 "hello" | upper                          # "HELLO"
 [1, 2, 3] | map(fn(x) => x * 2)          # [2, 4, 6]
@@ -123,7 +127,7 @@ Two things to know straight away.
 **A builtin used as a value needs its parentheses.** `ls()` returns an array of
 records; bare `ls` returns null.
 
-```aethershell
+```ironshell
 ls() | first | keys
 # ["ext", "is_dir", "modified", "name", "path", "size"]
 ```
@@ -131,7 +135,7 @@ ls() | first | keys
 **Pipelines carry typed values, not text.** There is nothing to parse, so there
 is nothing to parse wrongly:
 
-```aethershell
+```ironshell
 ls(".") | where(fn(f) => f.size > 1024) | map(fn(f) => f.name) | take(5)
 ```
 
@@ -166,13 +170,13 @@ PowerShell you already have.
 
 **Find the five largest files under `src/`**
 
-```aethershell
+```ironshell
 ls("src") | sort_by("size") | reverse | take(5) | map(fn(f) => f.name)
 ```
 
 **Fetch JSON and pull one field out**
 
-```aethershell
+```ironshell
 http_get("https://api.github.com/repos/nervosys/AetherShell")
   | from_json
   | keys
@@ -183,7 +187,7 @@ can branch on, not a line you have to grep.
 
 **Write a file and read it back**
 
-```aethershell
+```ironshell
 file_write("notes.txt", "hello")
 # {bytes: 5, lines: 1, path: "notes.txt", success: true}
 
@@ -193,18 +197,18 @@ cat("notes.txt")                          # "hello"
 **Run an agent against your own shell, safely**
 
 ```bash
-export AETHER_AI=ollama                   # or openai, compat, irongate
+export IRONSHELL_AI=ollama                   # or openai, compat, irongate
 export AGENT_ALLOW_CMDS=ls,cat,grep       # default-deny until you say otherwise
-ae --agent --workspace ./sandbox
+ish --agent --workspace ./sandbox
 ```
 
-```aethershell
+```ironshell
 agent("Find every TODO under src/", ["ls", "grep", "cat"])
 ```
 
 **Orchestrate several steps**
 
-```aethershell
+```ironshell
 let t = workflow_pipeline("audit", [
   {id: "scan",  run: "grep", args: ["TODO", "src"], output: "$.hits"},
   {id: "count", run: "len",  input: "$.hits"}
@@ -216,9 +220,9 @@ workflow_execute(workflow_create(t, {input: null}))
 **Keep a tamper-evident record of what ran**
 
 ```bash
-export AETHER_AUDIT_LOG=./audit.log
-export AETHER_AUDIT_KEY_FILE=./audit.key
-ae --agent --workspace ./sandbox script.ae
+export IRONSHELL_AUDIT_LOG=./audit.log
+export IRONSHELL_AUDIT_KEY_FILE=./audit.key
+ish --agent --workspace ./sandbox script.ish
 ```
 
 Every operation is appended to an HMAC-SHA256 chain. A rewritten entry fails
@@ -235,7 +239,7 @@ Every snippet below is executable as written.
 
 ### Values
 
-```aethershell
+```ironshell
 42                          # Int
 3.14                        # Float
 "text"                      # String
@@ -246,7 +250,7 @@ true                        # Bool
 
 ### Bindings
 
-```aethershell
+```ironshell
 let x = 42                  # immutable
 let mut n = 1               # mutable
 n = n + 1                   # 2
@@ -257,7 +261,7 @@ let name = "world"
 
 ### Operators
 
-```aethershell
+```ironshell
 1 + 2      1 - 2      2 * 3      10 / 4      # 2.5 — division is exact
 10 % 3                                        # 1
 1 == 1     1 != 2     1 < 2      2 >= 2
@@ -270,7 +274,7 @@ true || false            # true
 
 ### Functions
 
-```aethershell
+```ironshell
 let double = fn(x) => x * 2
 double(21)                  # 42
 
@@ -282,7 +286,7 @@ add(2, 3)                   # 5
 
 The pipe passes a value, so each stage receives whatever the last one produced.
 
-```aethershell
+```ironshell
 [1, 2, 3]    | map(fn(x) => x * 2)         # [2, 4, 6]
 [1, 2, 3, 4] | where(fn(x) => x > 2)       # [3, 4]
 [1, 2, 3, 4] | reduce(fn(a, b) => a + b, 0)  # 10
@@ -301,7 +305,7 @@ range(1, 5)                                # [1, 2, 3, 4]
 
 ### Strings
 
-```aethershell
+```ironshell
 "hello"      | upper                       # "HELLO"
 "  padded  " | trim                        # "padded"
 "hello"      | contains("ell")             # true
@@ -312,7 +316,7 @@ range(1, 5)                                # [1, 2, 3, 4]
 
 ### Records
 
-```aethershell
+```ironshell
 let p = {name: "ada", age: 36}
 p.name                      # "ada"
 p | keys                    # ["age", "name"]
@@ -320,7 +324,7 @@ p | keys                    # ["age", "name"]
 
 ### Control flow
 
-```aethershell
+```ironshell
 if 1 > 0 { "yes" } else { "no" }           # "yes"
 
 match n {
@@ -336,7 +340,7 @@ let result = try { cat("missing.txt") } catch { "fallback" }
 
 Related builtins are also reachable by a dotted name:
 
-```aethershell
+```ironshell
 file.exists("config.toml")  # {exists: true, is_file: true, is_dir: false, path: ...}
 file.read("config.toml")
 sys.hostname()              # "heimdall"
@@ -347,7 +351,7 @@ math.sqrt(9.0)              # 3
 
 ### The system
 
-```aethershell
+```ironshell
 pwd()                       # "/home/you"
 hostname()                  # "heimdall"
 platform()                  # "linux"
@@ -357,7 +361,7 @@ exists("/etc/hostname")     # {exists: true, is_file: true, ...}
 
 ### JSON
 
-```aethershell
+```ironshell
 {a: 1} | to_json            # "{\"a\":1}"
 from_json("{\"a\":1}")      # {a: 1}   — a Record, not a string
 ```
@@ -369,7 +373,7 @@ thing as a compact, categorised index.
 
 ## 🤖 AI Coding Assistants
 
-AI coding tools like **Claude Code**, **ChatGPT**, **Cursor**, **Windsurf**, and **VS Code Copilot** can leverage AetherShell for **reliable, cross-platform OS operations**.
+AI coding tools like **Claude Code**, **ChatGPT**, **Cursor**, **Windsurf**, and **VS Code Copilot** can leverage IronShell for **reliable, cross-platform OS operations**.
 
 ### The Problem
 
@@ -386,9 +390,9 @@ Get-ChildItem             # PowerShell
 
 This forces AI tools to detect the OS, generate platform-specific commands, and handle edge cases—leading to errors and inconsistent behavior.
 
-### The Solution: AetherShell as Universal Runtime
+### The Solution: IronShell as Universal Runtime
 
-```ae
+```ish
 # Same command works everywhere: Windows, macOS, Linux
 ls("./src")                              # => [{name, size, modified, ...}]
 file.read("config.json")                 # => String content
@@ -399,7 +403,7 @@ proc.list() | where(fn(p) => p.cpu > 10) # => High CPU processes
 
 ### Benefits for AI Coding Tools
 
-| Capability            | Without AetherShell           | With AetherShell                 |
+| Capability            | Without IronShell           | With IronShell                 |
 | --------------------- | ----------------------------- | -------------------------------- |
 | **Cross-platform**    | Generate 3+ variants          | Single command                   |
 | **File editing**      | Escape hell (`sed`, heredocs) | `file.replace()`, `file.patch()` |
@@ -410,9 +414,9 @@ proc.list() | where(fn(p) => p.cpu > 10) # => High CPU processes
 
 ### Integration Example
 
-An AI assistant can execute AetherShell commands directly:
+An AI assistant can execute IronShell commands directly:
 
-```ae
+```ish
 # AI discovers system state
 sys.cpu_info()           # => {cores: 8, model: "Apple M2"}
 sys.mem_info()           # => {total: 16384, used: 8192}
@@ -441,7 +445,7 @@ ls("./src")
 
 AI assistants can discover available operations:
 
-```ae
+```ish
 mcp.tools()              # List all 130+ MCP-compatible tools
 help()                   # list every builtin (takes no arguments)
 file                     # => {read, write, exists, copy, move, patch, ...}
@@ -453,7 +457,7 @@ This enables AI tools to understand what operations are available and use them c
 
 ## AI Agents
 
-```ae
+```ish
 # Simple query
 ai("Explain recursion in one sentence")
 
@@ -490,14 +494,14 @@ swarm({
 
 ## Agentic-First: token economy, safety, transactions, self-healing
 
-AetherShell is optimized end-to-end for AI agents. Four things matter to an agent
+IronShell is optimized end-to-end for AI agents. Four things matter to an agent
 that a human shell ignores: how many **tokens** the output costs, whether an action
 is **safe**, whether a mistake can be **undone**, and whether a failed call tells the
 agent enough to **fix it**.
 
 ### Compact, lossless output (AECON)
 
-Set `AETHER_MODE=agent` and every tabular result renders as **AECON** — a
+Set `IRONSHELL_MODE=agent` and every tabular result renders as **AECON** — a
 header-once format that emits each column name once, factors constant columns into
 a single `@const` line, dictionary-encodes string columns with repeats
 (`@dict`), delta-encodes large slowly-varying integers (`@delta`), factors a
@@ -513,7 +517,7 @@ and **~2.4–3× vs the default `ConvertTo-Json`** an agent gets without flags (
 with the real GPT-4 cl100k tokenizer; the gap widens with row count).
 
 ```sh
-AETHER_MODE=agent ae -c '[{name:"a",size:1,kind:"x"},{name:"b",size:2,kind:"x"}]'
+IRONSHELL_MODE=agent ish -c '[{name:"a",size:1,kind:"x"},{name:"b",size:2,kind:"x"}]'
 # name	size
 # @const kind=x
 # a	1
@@ -556,7 +560,7 @@ pipeline. Agent mode (`--agent`) default-denies dangerous effect classes behind
 content-bound approval tokens; a **workspace jail** (`--workspace`) confines writes
 and deletes; a **hash-chained audit log** records every effecting action tamper-evidently;
 **RBAC** grants bypass approval but never the jail (and can be loaded from a config
-file at startup via `AETHER_RBAC_CONFIG`); **every** failure surfaces as a structured,
+file at startup via `IRONSHELL_RBAC_CONFIG`); **every** failure surfaces as a structured,
 branchable `E_*` error — not just argument errors, but anything that fails, down to a
 catch-all `E_UNKNOWN` — rendered as legible prose for humans. `safety_status()` reports
 the live envelope.
@@ -590,9 +594,9 @@ harmless" with "nobody looked". `ontology_describe` now carries `effect_declared
 false` on exactly the builtins where the label is a default:
 
 ```console
-$ ae -c 'ontology_describe("sh")'      # classified
+$ ish -c 'ontology_describe("sh")'      # classified
 effect: "exec"
-$ ae -c 'ontology_describe("upper")'   # defaulted
+$ ish -c 'ontology_describe("upper")'   # defaulted
 effect: "pure", effect_declared: false
 ```
 
@@ -600,9 +604,9 @@ effect: "pure", effect_declared: false
 prefixes, AWS keys, JWTs, PEM blocks, URL credentials, `key=secret` forms) are
 redacted from agent output *and* the audit log, and reading a secret-named env var
 returns an opaque `[REDACTED:NAME]` handle — so credentials never reach the model's
-context or persist to disk (opt out with `AETHER_REDACT=off` / `AETHER_SECRETS=allow`).
-**Resource governors** (opt-in: `AETHER_MAX_OPS`/`AETHER_MAX_FILES`/`AETHER_MAX_PROCS`/
-`AETHER_MAX_NET`/`AETHER_TIMEOUT_MS`) bound a run's blast radius at the same `guard()`
+context or persist to disk (opt out with `IRONSHELL_REDACT=off` / `IRONSHELL_SECRETS=allow`).
+**Resource governors** (opt-in: `IRONSHELL_MAX_OPS`/`IRONSHELL_MAX_FILES`/`IRONSHELL_MAX_PROCS`/
+`IRONSHELL_MAX_NET`/`IRONSHELL_TIMEOUT_MS`) bound a run's blast radius at the same `guard()`
 chokepoint — a runaway agent loop is stopped with `E_BUDGET_EXCEEDED` rather than
 running unbounded.
 
@@ -682,7 +686,7 @@ effect/approval model, so there is no single-number benchmark to run there.
 ### Result handles: the tokens you never send
 
 Encoding a result more cheaply has a floor. Not sending it does not. On the
-agent path a result over `AETHER_HANDLE_BYTES` (default 2048 rendered bytes)
+agent path a result over `IRONSHELL_HANDLE_BYTES` (default 2048 rendered bytes)
 stays server-side and comes back as a reference:
 
 ```
@@ -706,7 +710,7 @@ single multiplier describes it — which is why both rows are shown. The saving 
 determined entirely by how much of a result you discard; across a mixed task
 corpus it ranges from **2× to 7000×** (`cargo test --test agent_task_cost --
 --nocapture`). Nothing is lost: `handle(id)` returns exactly what was computed,
-and the preview states how many items it omits. `AETHER_HANDLE_BYTES=0` restores
+and the preview states how many items it omits. `IRONSHELL_HANDLE_BYTES=0` restores
 whole results. Human output is untouched.
 
 ### Reversible sessions: undo instead of ask
@@ -717,8 +721,8 @@ prior contents of the files it may touch are captured; `undo(n)` puts them back
 and `journal()` shows what was recorded.
 
 ```
-$ ae --agent -c 'file_write("notes.txt", "clobbered")'
-$ ae --agent -c 'undo()'
+$ ish --agent -c 'file_write("notes.txt", "clobbered")'
+$ ish --agent -c 'undo()'
 {complete=true failed=0 removed=0 restored=1 skipped=0 …}
 ```
 
@@ -727,9 +731,9 @@ directory tree is not captured, an oversized file is not held — each is record
 as an explicit irreversible entry and `complete: false` comes back while any
 remain. A partial undo that claimed success would be worse than no undo, because
 it turns a recoverable situation into one you believe you have already recovered
-from. Agent-mode only (`AETHER_JOURNAL=on|off` forces it); handles and the
+from. Agent-mode only (`IRONSHELL_JOURNAL=on|off` forces it); handles and the
 journal both survive across processes, which matters because the SDK runs
-`ae -c …` per call.
+`ish -c …` per call.
 
 ### Return shapes: compose instead of discover
 
@@ -766,14 +770,14 @@ written by hand to match each shell's usual format rather than captured from a
 run. Executed measurements — real processes, real bytes, answers checked against
 an oracle — are in [`benches/agentic/`](benches/agentic/), and the argument built
 on them is [docs/TYPED_SHELL_RESPONSE.md](docs/TYPED_SHELL_RESPONSE.md). On eight
-ordinary repository operations there, AetherShell's agent mode costs **3.0× fewer
+ordinary repository operations there, IronShell's agent mode costs **3.0× fewer
 total tokens than bash** (502 vs 1,489) and **4.2× fewer output tokens** (339 vs
 1,421); on a ten-query corpus whose every answer is a scalar, its default syntax
-comes **sixth of eight** and its token-minimised syntax (`ae -a`) **second**,
+comes **sixth of eight** and its token-minimised syntax (`ish -a`) **second**,
 behind SQLite. Both numbers are worth having, and the second is why
 this table is not the whole story.
 
-| Task | AetherShell | Bash | Zsh | Fish | Nushell | PowerShell |
+| Task | IronShell | Bash | Zsh | Fish | Nushell | PowerShell |
 |---|--:|--:|--:|--:|--:|--:|
 | list files (name, size) | **19** | 78 | 78 | 78 | 108 | 29 |
 | processes (pid, name, cpu) | **26** | 138 | 138 | 138 | 124 | 41 |
@@ -782,20 +786,20 @@ this table is not the whole story.
 
 Totals (command + output) over the 4 tasks:
 
-| Shell | cmd | out | total | vs AetherShell |
+| Shell | cmd | out | total | vs IronShell |
 |---|--:|--:|--:|--:|
-| **AetherShell** | 48 | 70 | **118** | 1.00× |
+| **IronShell** | 48 | 70 | **118** | 1.00× |
 | Bash / Zsh / Fish | 28 | 303 | 331 | 2.81× |
 | Nushell | 34 | 341 | 375 | 3.18× |
 | PowerShell | 55 | 105 | 160 | 1.36× |
 
-**The honest PowerShell spread** — AetherShell's edge over PowerShell depends entirely
+**The honest PowerShell spread** — IronShell's edge over PowerShell depends entirely
 on *which output an agent parses*, and (for JSON) grows with row count because AECON
 emits each column name once while JSON repeats every key on every row. A plain
 `name,size` listing, every form token-counted with real cl100k
 (`cargo run --example shell_agentic_eval --features real-tokens`):
 
-| Rows | AetherShell (AECON) | PS `Format-Table`\* | PS `ConvertTo-Json -Compress` | PS `ConvertTo-Json` (default) |
+| Rows | IronShell (AECON) | PS `Format-Table`\* | PS `ConvertTo-Json -Compress` | PS `ConvertTo-Json` (default) |
 |--:|--:|--:|--:|--:|
 | 3 | 35 (1.00×) | 48 (1.37×) | 58 (1.66×) | 85 (2.43×) |
 | 25 | 189 (1.00×) | 224 (1.19×) | 300 (1.59×) | 547 (2.89×) |
@@ -819,16 +823,16 @@ Bash / Zsh 5.9 / Fish 4.0.2 via WSL Debian, Nushell 0.113, PowerShell 7 — each
 listing the **same** 5-file directory and token-counted with real cl100k, confirms
 the pattern (and real `ls -l` is even more verbose than the representative output):
 
-| Shell (live capture) | listing tokens | vs AetherShell |
+| Shell (live capture) | listing tokens | vs IronShell |
 |---|--:|--:|
-| **AetherShell (AECON)** | 33 | 1.00× |
+| **IronShell (AECON)** | 33 | 1.00× |
 | PowerShell (`Format-Table Name,Length`) | 44 | 1.33× |
 | Bash / Zsh / Fish (`ls -l`) | 128 | 3.88× |
 | Nushell (boxed table) | 231 | 7.00× |
 
 ### Reliability (capability comparison)
 
-| Property | Bash | Zsh | Fish | Nushell | PowerShell | AetherShell |
+| Property | Bash | Zsh | Fish | Nushell | PowerShell | IronShell |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
 | Typed structured output (not text to re-parse) | ✗ | ✗ | ✗ | ✓ | ~ | ✓ |
 | Deterministic output (no locale/width/ANSI variance) | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
@@ -845,7 +849,7 @@ across OS/locale; `canonical` gives byte-stable JSON for snapshot tests and cach
 
 ### Safety (capability comparison)
 
-| Capability | Bash | Zsh | Fish | Nushell | PowerShell | AetherShell |
+| Capability | Bash | Zsh | Fish | Nushell | PowerShell | IronShell |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
 | Effect taxonomy (pure → privileged) gating | ✗ | ✗ | ✗ | ✗ | ~ | ✓ |
 | Default-deny dangerous ops behind approval | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (`--agent`) |
@@ -860,7 +864,7 @@ across OS/locale; `canonical` gives byte-stable JSON for snapshot tests and cach
 | Effect tagging enforced by a CI lint | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (by name *and* by body evidence) |
 
 No traditional shell offers transactional rollback or effect-gated approval — a
-mistaken `rm -rf` is irreversible. In AetherShell a file-effecting batch can be
+mistaken `rm -rf` is irreversible. In IronShell a file-effecting batch can be
 planned, approved, attempted, and **rolled back atomically**.
 
 > Token numbers reproduce with `cargo run --example shell_bench --features real-tokens`.
@@ -874,28 +878,28 @@ The [composite scorecard](#agentic-benchmark) at the top rolls the four axes int
 number; here is the token-and-safety detail it builds on — each shell scored on its
 **reliably-parseable** output (`cargo run --example shell_agentic_eval --features real-tokens`):
 
-| Shell | Tokens (4 tasks) | vs AetherShell | Safety grade |
+| Shell | Tokens (4 tasks) | vs IronShell | Safety grade |
 |---|--:|--:|:-:|
-| **AetherShell** | **118** | **1.00×** | **A** |
+| **IronShell** | **118** | **1.00×** | **A** |
 | Nushell | 166 | 1.41× | F |
 | PowerShell | 199 | 1.69× | F |
 | Bash / Zsh / Fish | 331 | 2.81× | F |
 
 This scoreboard scores each shell on its **reliably-parseable** output — Nushell
 `to json -r`, PowerShell `ConvertTo-Json -Compress`, raw text for the POSIX shells
-(which have no structured mode), AECON for AetherShell. That's why Nushell and
+(which have no structured mode), AECON for IronShell. That's why Nushell and
 PowerShell land closer here than in the display-output per-task table above (their
 pretty tables are compact but not reliably parseable). Against PowerShell's *default*
 `ConvertTo-Json` the per-row ratio is **2.4–3×** (see the spread table above); the
 ≥2× threshold holds there, not against the hand-compacted `-Compress` form.
 
 *Tokens* = command + output, summed over the 4 tasks (real cl100k BPE via
-`agentic_eval::evaluate_with` + AetherShell's tokenizer). *Safety grade* is
-`agentic_eval::assess_safety` of a read/write/delete/exec task: AetherShell's agent
+`agentic_eval::evaluate_with` + IronShell's tokenizer). *Safety grade* is
+`agentic_eval::assess_safety` of a read/write/delete/exec task: IronShell's agent
 mode gates the dangerous classes (blast radius bounded → **A**); a traditional shell
 applies no agent policy, so everything runs ungated (→ **F**).
 
-The same harness verifies the other two axes directly on AetherShell's engine:
+The same harness verifies the other two axes directly on IronShell's engine:
 **determinism** — `assess_determinism` over the canonical renderer returns
 *deterministic (1 distinct / 8 runs)*; **reliability** — `assess_reliability` over
 representative programs returns *pass 60% / actionable 80%* (a wrong-typed arg is a
@@ -907,13 +911,13 @@ construction (locale/width/ANSI-variant text; unstructured errors).
 The **0–10 composite scorecard is at the [top of this README](#agentic-benchmark)**.
 Rubric: each axis is the mean of its sub-metrics and the composite the mean of the four
 axes; `tok`/`scal`/`saf` are measured for every shell, `det`/`rel`/`err`/`rev` on
-AetherShell's engine and a structural capability for the rest. AetherShell's `rel` is
+IronShell's engine and a structural capability for the rest. IronShell's `rel` is
 **7.0, not 10** — the corpus includes intentional-failure programs, so it's held honest
 rather than rounded up.
 
 Two further v0.6 metrics are reported as context (not folded into the composite):
-**exfiltration risk** (0.60 for a read+network task — *shell-invariant*; only AetherShell
-can bound it via gating + the `AETHER_NET_ALLOW` egress allowlist) and **prompt-cache**
+**exfiltration risk** (0.60 for a read+network task — *shell-invariant*; only IronShell
+can bound it via gating + the `IRONSHELL_NET_ALLOW` egress allowlist) and **prompt-cache**
 headroom. That second figure used to be given as *a 90%-stable prefix is ~4.1× cheaper
 over 20 turns*, which was modelled rather than measured. Measured
 (`cargo test --test prefix_stability --features real-tokens -- --nocapture`), a realistic
@@ -928,7 +932,7 @@ result forfeits most of the prefix.
 
 ## Reliable File Editing for LLMs
 
-Traditional shells (Bash, PowerShell) make multi-line text operations error-prone for LLMs due to escaping, quoting, and command injection issues. AetherShell provides **structured file editing** that LLMs can use reliably:
+Traditional shells (Bash, PowerShell) make multi-line text operations error-prone for LLMs due to escaping, quoting, and command injection issues. IronShell provides **structured file editing** that LLMs can use reliably:
 
 ### The Problem with Traditional Shells
 
@@ -942,9 +946,9 @@ line2' file.txt                          # Fails with quotes, backslashes, $vars
 $content = Get-Content file.txt          # Race conditions, encoding issues
 ```
 
-### AetherShell: Structured, Reliable Operations
+### IronShell: Structured, Reliable Operations
 
-```ae
+```ish
 # Simple string replacement (handles any content)
 file.replace("config.rs", 
     "const DEBUG: bool = false;",
@@ -981,7 +985,7 @@ file.replace("template.html",
 
 ### Why This Matters for AI Agents
 
-| Operation                     | Bash/PowerShell      | AetherShell                    |
+| Operation                     | Bash/PowerShell      | IronShell                    |
 | ----------------------------- | -------------------- | ------------------------------ |
 | Multi-line insert             | ❌ Escape hell        | ✅ Native strings               |
 | Special chars (`$`, `"`, `\`) | ❌ Breaks commands    | ✅ Just works                   |
@@ -989,7 +993,7 @@ file.replace("template.html",
 | Structured results            | ❌ Exit codes only    | ✅ `{success, applied, failed}` |
 | Unicode/encoding              | ❌ Platform-dependent | ✅ UTF-8 always                 |
 
-```ae
+```ish
 # AI agent can safely edit any file
 agent({
     goal: "Add error handling to all functions",
@@ -1001,26 +1005,26 @@ agent({
 
 ## Shell Migration (Transpilers)
 
-AetherShell includes built-in transpilers for **Bash**, **Zsh**, and **PowerShell** — making adoption seamless. Run existing scripts directly or pipe shell code through `ae`:
+IronShell includes built-in transpilers for **Bash**, **Zsh**, and **PowerShell** — making adoption seamless. Run existing scripts directly or pipe shell code through `ish`:
 
 ```bash
 # Run legacy scripts directly (auto-detected by extension)
-ae deploy.sh              # Bash → AetherShell
-ae setup.zsh              # Zsh  → AetherShell
-ae provision.ps1          # PowerShell → AetherShell
+ish deploy.sh              # Bash → IronShell
+ish setup.zsh              # Zsh  → IronShell
+ish provision.ps1          # PowerShell → IronShell
 
 # Explicit mode flags
-ae --bash -c 'ls -la | grep .rs | wc -l'
-ae --zsh  -c 'typeset -A config; config=(host localhost port 8080)'
-ae --pwsh -c 'Get-ChildItem -Recurse | Where-Object {\$_.Length -gt 1MB}'
+ish --bash -c 'ls -la | grep .rs | wc -l'
+ish --zsh  -c 'typeset -A config; config=(host localhost port 8080)'
+ish --pwsh -c 'Get-ChildItem -Recurse | Where-Object {\$_.Length -gt 1MB}'
 
 # Pipe shell code via stdin
-echo 'for f in *.log; do wc -l \$f; done' | ae --bash
+echo 'for f in *.log; do wc -l \$f; done' | ish --bash
 ```
 
 ### What Gets Transpiled
 
-| Shell Construct                       | AetherShell Output            |
+| Shell Construct                       | IronShell Output            |
 | ------------------------------------- | ----------------------------- |
 | `ls -la`                              | `ls("-la")`                   |
 | `grep "pattern" file`                 | `grep("pattern", "file")`    |
@@ -1034,62 +1038,62 @@ echo 'for f in *.log; do wc -l \$f; done' | ae --bash
 | `Get-ChildItem` (PS)                  | `ls()`                        |
 | `Write-Host` (PS)                     | `print()`                     |
 
-The transpilers map **100+ commands** per shell to native AetherShell builtins, with block accumulation for multi-line constructs and fallback to `sh()` for anything unsupported.
+The transpilers map **100+ commands** per shell to native IronShell builtins, with block accumulation for multi-line constructs and fallback to `sh()` for anything unsupported.
 
 ---
 
 ## Protocols
 
-AetherShell implements four agentic protocols:
+IronShell implements four agentic protocols:
 
 ### MCP (Model Context Protocol)
-```ae
+```ish
 mcp.tools()                              # List 130+ tools
 mcp.call("git", {command: "status"})     # Execute tool
 mcp.connect("http://localhost:3001")     # Connect to server
 ```
-AetherShell is also an **MCP _server_**: every builtin is exposed as an MCP tool
+IronShell is also an **MCP _server_**: every builtin is exposed as an MCP tool
 (annotated with its `x-effect` class) over HTTP, or as a strict **JSON-RPC 2.0 stdio**
-server — `ae --agent mcp stdio` — with every `tools/call` routed through the same
+server — `ish --agent mcp stdio` — with every `tools/call` routed through the same
 policy / jail / approval / audit, so any MCP client gets the full typed surface and
 the safety model with zero bespoke integration.
 
-**The HTTP servers require a bearer token.** Both `ae mcp serve` and the agent API
+**The HTTP servers require a bearer token.** Both `ish mcp serve` and the agent API
 mint one at startup and print it; every route except `/health` needs it:
 
 ```console
-$ ae mcp serve
+$ ish mcp serve
 MCP bearer token: _4hQtKJGyPyP8bl6tp2iHzoottkROCbqpPAxFIIMa3w
 $ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3001/mcp/v1/tools
 ```
 
-Set `AETHER_API_TOKEN` to supply your own. This is not ceremony: the server
+Set `IRONSHELL_API_TOKEN` to supply your own. This is not ceremony: the server
 executes builtins, so an unauthenticated one lets any web page the user visits
 drive it from their browser — loopback is no defence, since the browser is on
 the same machine. For the same reason `--cors` is off by default, and binding a
-non-loopback address is **refused** unless `AETHER_ALLOW_REMOTE_BIND=true`:
+non-loopback address is **refused** unless `IRONSHELL_ALLOW_REMOTE_BIND=true`:
 
 ```console
-$ ae mcp serve --host 0.0.0.0
+$ ish mcp serve --host 0.0.0.0
 Error: refusing to bind 0.0.0.0 - this server executes builtins over plaintext
 HTTP ... prefer an SSH tunnel or a reverse proxy terminating TLS.
 ```
 
 ### A2A (Agent-to-Agent)
-```ae
+```ish
 a2a.send("analyzer", {task: "review", files: ls("./src")})
 a2a.receive("analyzer")
 ```
 
 ### A2UI (Agent-to-User Interface)
-```ae
+```ish
 a2ui.notify("Task complete", "success")
 a2ui.progress("Processing", 0.75)
 a2ui.confirm("Deploy to production?")
 ```
 
 ### NANDA (Consensus)
-```ae
+```ish
 nanda.propose("deployment", {version: "2.0", threshold: 0.7})
 nanda.vote("proposal_id", true)
 ```
@@ -1097,11 +1101,11 @@ nanda.vote("proposal_id", true)
 
 ## External Integrations
 
-Connect AetherShell to external LLM providers and MCP tool servers.
+Connect IronShell to external LLM providers and MCP tool servers.
 
 ### External LLMs
 
-```ae
+```ish
 # Auto-detect best available backend
 model = ai.detect()                      # => "ollama:llama3.2:3b"
 ai.backends()                            # List all available providers
@@ -1127,7 +1131,7 @@ ai("compat:local-model", "Process this request")
 
 ### External MCP Tools (e.g., SiliconMonitor)
 
-```ae
+```ish
 # List available MCP servers
 mcp.servers()
 
@@ -1139,7 +1143,7 @@ print(monitor.tools)                     # => ["cpu_usage", "memory_info", ...]
 
 # Create agent with external tool access
 # The second argument is the tool list, not a model. Pick the model with
-# AETHER_AGENT_MODEL_URI; a model string here would be read as a tool name.
+# IRONSHELL_AGENT_MODEL_URI; a model string here would be read as a tool name.
 agent(
     "Monitor system health and alert on high CPU usage",
     monitor.tools,                       # Give agent access to metrics
@@ -1169,7 +1173,7 @@ agent.with_mcp("Check system health", monitor.tools, "http://localhost:3006")
 | ------------------- | ---------------------------------------- |
 | `OPENAI_API_KEY`    | OpenAI API key                           |
 | `ANTHROPIC_API_KEY` | Anthropic Claude API key                 |
-| `AETHER_AI`         | Default AI provider (`openai`, `ollama`) |
+| `IRONSHELL_AI`         | Default AI provider (`openai`, `ollama`) |
 | `OLLAMA_HOST`       | Ollama server URL (default: localhost)   |
 | `VLLM_API_BASE`     | vLLM server endpoint                     |
 | `COMPAT_API_BASE`   | Custom OpenAI-compatible endpoint        |
@@ -1177,7 +1181,7 @@ agent.with_mcp("Check system health", monitor.tools, "http://localhost:3006")
 
 ### Advanced AI Features
 
-```ae
+```ish
 # Cost-based routing — automatically pick cheapest provider
 ai_add_route({condition: "cost_under", max_cost_per_1k: 0.01, provider: "ollama"})
 
@@ -1202,7 +1206,7 @@ ai_registry_stats()                        # Provider latency, success rate, p95
 
 ## Enterprise
 
-```ae
+```ish
 # Login. Prompts for the password when it is omitted (terminal only -- it will
 # not read one off a pipe), stores it as Argon2id, and sets the acting
 # principal only after verifying it.
@@ -1222,7 +1226,7 @@ rbac.check("alice", "config.toml", "write")
 
 # Logging in and granting permissions are `Privileged`, so they are *denied* in
 # agent mode: an agent that can acquire authority on its own has none. Its
-# principal comes from AETHER_PRINCIPAL or .ae/rbac.toml, chosen by whoever
+# principal comes from IRONSHELL_PRINCIPAL or .ironshell/rbac.toml, chosen by whoever
 # launched it.
 
 # Audit logging
@@ -1238,7 +1242,7 @@ sso.auth(callback_data)   # refused with E_UNIMPLEMENTED: the callback is not ve
 
 ## ML Built-ins
 
-```ae
+```ish
 # Neural networks
 net = nn.create("policy", [8, 16, 4])
 output = nn.forward(net, [0.1, 0.2, ...])
@@ -1266,19 +1270,19 @@ cargo build --release --bins
 cargo test
 
 # TUI
-ae tui
+ish tui
 
 # VS Code extension
-code --install-extension admercs.aethershell
+code --install-extension admercs.ironshell
 ```
 
 ### Project Structure
 
-```ae
+```ish
 src/
   main.rs          # Entry point
   eval.rs          # Expression evaluator
-  parser.rs        # AetherShell syntax parser
+  parser.rs        # IronShell syntax parser
   builtins.rs      # 1,100+ builtin functions
   modules.rs       # Module system (file, sys, net, ...)
   ai.rs            # AI provider integration
@@ -1292,7 +1296,7 @@ src/
 
 ## AI Context & Discoverability
 
-AetherShell ships AI-readable metadata for discovery by Claude, ChatGPT, Copilot, and other AI assistants:
+IronShell ships AI-readable metadata for discovery by Claude, ChatGPT, Copilot, and other AI assistants:
 
 | File                                                                 | Standard                        | Purpose                                 |
 | -------------------------------------------------------------------- | ------------------------------- | --------------------------------------- |
@@ -1312,9 +1316,9 @@ Dual-licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-
 ---
 
 <p align="center">
-  <strong>AetherShell</strong> - The OS interface for agentic AI<br>
+  <strong>IronShell</strong> - The OS interface for agentic AI<br>
   <a href="https://github.com/nervosys/AetherShell">GitHub</a> |
-  <a href="https://crates.io/crates/aethershell">Crates.io</a> |
+  <a href="https://crates.io/crates/iron-shell">Crates.io</a> |
   <a href="https://nervosys.github.io/AetherShell/book/">Documentation</a> |
   <a href="https://github.com/nervosys/AetherShell/issues">Issues</a>
 </p>

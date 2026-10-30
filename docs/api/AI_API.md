@@ -325,8 +325,8 @@ Get storage statistics for downloaded models.
   "total_size_bytes": 13249974272,
   "cache_size": "1.5 GB",
   "cache_size_bytes": 1610612736,
-  "data_directory": "/home/user/.local/share/aethershell",
-  "config_directory": "/home/user/.config/aethershell",
+  "data_directory": "/home/user/.local/share/ironshell",
+  "config_directory": "/home/user/.config/ironshell",
   "format_breakdown": { "GGUF": 3, "SafeTensors": 2 }
 }
 ```

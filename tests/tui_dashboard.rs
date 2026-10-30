@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tui_dashboard_tests {
-    use aethershell::tui::app::{App, AppMode, MessageRole};
+    use iron_shell::tui::app::{App, AppMode, MessageRole};
 
     #[test]
     fn test_export_to_markdown() {
@@ -12,7 +12,7 @@ mod tui_dashboard_tests {
 
         let markdown = app.export_to_markdown();
 
-        assert!(markdown.contains("# AetherShell Conversation Export"));
+        assert!(markdown.contains("# IronShell Conversation Export"));
         assert!(markdown.contains("👤 User"));
         assert!(markdown.contains("🤖 Assistant"));
         assert!(markdown.contains("Hello"));

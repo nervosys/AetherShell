@@ -1,10 +1,10 @@
-//! Agentic token-efficiency benchmark: AetherShell vs Bash, Zsh, Fish, Nushell,
+//! Agentic token-efficiency benchmark: IronShell vs Bash, Zsh, Fish, Nushell,
 //! and PowerShell (see docs/AGENTIC_FIRST_DESIGN.md §4/§6).
 //!
 //! For an AI agent, a shell interaction costs tokens twice: the **command** it
 //! writes, and the **output** it must read back. Traditional shells return
 //! unstructured, formatting-heavy, non-deterministic *text* (headers, padding,
-//! permission strings, box-drawing); AetherShell returns compact, typed,
+//! permission strings, box-drawing); IronShell returns compact, typed,
 //! deterministic structured data (AECON). The output is the dominant term, and
 //! it's where structured output wins.
 //!
@@ -21,7 +21,7 @@
 //! **For measurements, use `benches/agentic/` instead.** That harness runs the
 //! real binaries, captures the real bytes, and checks every answer against an
 //! oracle before counting it — which matters more than it sounds: the first
-//! version of *that* harness had no content check, and scored AetherShell's
+//! version of *that* harness had no content check, and scored IronShell's
 //! output at 316 bytes against bash's 2,650 when the 316 bytes were forty-five
 //! elided placeholders containing no data. A representative-output benchmark
 //! cannot make that mistake, because it never asks the shell anything; it also
@@ -32,8 +32,8 @@
 //!   cargo run --example shell_bench            (heuristic)
 //!   node benches/agentic/run-shellops.mjs . /tmp/aebench 11   (executed)
 
-use aethershell::builtins::est_token_count as toks;
-use aethershell::value::Value;
+use iron_shell::builtins::est_token_count as toks;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 /// One shell's idiomatic command for a task and the output an agent reads back.
@@ -50,7 +50,7 @@ struct Task {
 
 /// Display order for the per-shell summary.
 const SHELLS: &[&str] = &[
-    "aethershell",
+    "ironshell",
     "bash",
     "zsh",
     "fish",
@@ -64,7 +64,7 @@ const CORPUS: &[Task] = &[
         name: "list files (name,size)",
         variants: &[
             Variant {
-                shell: "aethershell",
+                shell: "ironshell",
                 command: r#"ls("./src") | pick("name", "size")"#,
                 output: "name\tsize\nmain.rs\t1846\nlib.rs\t2310\nast.rs\t512",
             },
@@ -112,7 +112,7 @@ const CORPUS: &[Task] = &[
         name: "processes (pid,name,cpu)",
         variants: &[
             Variant {
-                shell: "aethershell",
+                shell: "ironshell",
                 command: r#"proc.list() | pick("pid", "name", "cpu")"#,
                 output: "cpu\tname\tpid\n0.4\tinit\t1\n2.1\tsshd\t640\n5.3\tnode\t1875",
             },
@@ -163,7 +163,7 @@ const CORPUS: &[Task] = &[
         name: "json field (scalar)",
         variants: &[
             Variant {
-                shell: "aethershell",
+                shell: "ironshell",
                 command: r#"json.parse(http.get(url)).stargazers_count"#,
                 output: "4213",
             },
@@ -199,7 +199,7 @@ const CORPUS: &[Task] = &[
         name: "disk usage (mount,free)",
         variants: &[
             Variant {
-                shell: "aethershell",
+                shell: "ironshell",
                 command: r#"sys.disks() | pick("mount", "avail")"#,
                 output: "avail\tmount\n21474836480\t/\n5368709120\t/boot\n107374182400\t/home",
             },
@@ -271,7 +271,7 @@ fn scale_comparison() {
         })
         .collect();
 
-    // AetherShell: the *real* aecon output (@const owner/group, @dict perm).
+    // IronShell: the *real* aecon output (@const owner/group, @dict perm).
     let arr = Value::Array(
         rows.iter()
             .map(|(n, s, p)| {
@@ -285,8 +285,8 @@ fn scale_comparison() {
             })
             .collect(),
     );
-    let mut env = aethershell::env::Env::new();
-    let aecon_out = match aethershell::builtins::call("aecon", vec![arr], &mut env) {
+    let mut env = iron_shell::env::Env::new();
+    let aecon_out = match iron_shell::builtins::call("aecon", vec![arr], &mut env) {
         Ok(Value::Str(s)) => s,
         _ => String::new(),
     };
@@ -412,7 +412,7 @@ fn scale_comparison() {
     let (a, p, n, j) = (toks(&aecon_out), toks(&ps), toks(&nu), toks(&js));
     let a = a.max(1);
     println!("\nAt scale — a realistic 50-row listing (5 cols: @const + @dict factoring); output tokens:");
-    println!("  aethershell (aecon)              {:>6}   1.00x", a);
+    println!("  ironshell (aecon)              {:>6}   1.00x", a);
     println!(
         "  powershell (Format-Table*)       {:>6}{:>7.2}x",
         p,
@@ -451,7 +451,7 @@ fn main() {
     } else {
         "labeled heuristic (use --features real-tokens for real BPE)"
     };
-    println!("AetherShell agentic token-efficiency vs traditional shells");
+    println!("IronShell agentic token-efficiency vs traditional shells");
     println!("Tokenizer: {tokenizer}\n");
 
     // Per-task output-token comparison (output is the dominant agent cost).
@@ -476,8 +476,8 @@ fn main() {
         println!();
     }
 
-    // Per-shell totals (command + output) and ratio vs AetherShell.
-    let (ae_cmd, ae_out) = shell_totals("aethershell");
+    // Per-shell totals (command + output) and ratio vs IronShell.
+    let (ae_cmd, ae_out) = shell_totals("ironshell");
     let ae_total = (ae_cmd + ae_out).max(1);
     println!(
         "\nPer-shell TOTAL across {} tasks (command + output tokens):",
@@ -485,7 +485,7 @@ fn main() {
     );
     println!(
         "{:<14}{:>8}{:>8}{:>8}{:>12}",
-        "shell", "cmd", "out", "total", "vs aether"
+        "shell", "cmd", "out", "total", "vs ironshell"
     );
     println!("{}", "-".repeat(50));
     for s in SHELLS {

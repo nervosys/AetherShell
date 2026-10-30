@@ -11,9 +11,9 @@
 //!   is empty; it must be refused from its header, never decoded
 //! - not_an_image.txt: a text file
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn fixture(name: &str) -> String {

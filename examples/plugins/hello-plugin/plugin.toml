@@ -1,14 +1,14 @@
 # Hello World Plugin
-# A simple demonstration of the AetherShell plugin system
+# A simple demonstration of the IronShell plugin system
 
 [plugin]
 id = "hello-plugin"
 name = "Hello World Plugin"
 version = "1.0.0"
-author = "AetherShell Team"
+author = "IronShell Team"
 description = "A simple hello world plugin demonstrating the plugin system"
 categories = ["Builtin"]
-min_aether_version = "0.1.0"
+min_ironshell_version = "0.1.0"
 dependencies = []
 
 # Plugin configuration (optional)

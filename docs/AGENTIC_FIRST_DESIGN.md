@@ -1,6 +1,6 @@
-# AetherShell — Agentic-First Design
+# IronShell — Agentic-First Design
 
-> **Goal:** make AetherShell the shell with the best token-efficiency, reliability,
+> **Goal:** make IronShell the shell with the best token-efficiency, reliability,
 > features, and safety for AI agents in the world — without sacrificing the
 > human experience.
 >
@@ -11,14 +11,14 @@
 
 ## 0. Thesis: two surfaces, two objective functions, one core
 
-AetherShell is consumed by two very different operators with *different cost
-functions*, and the current design tries to serve both with one knob (the `.aeg`
+IronShell is consumed by two very different operators with *different cost
+functions*, and the current design tries to serve both with one knob (the `.ishg`
 transpiler). That is the root mistake to correct.
 
 | Surface | Operator | Optimize for | Tolerates |
 | --- | --- | --- | --- |
-| **`.ae` (human surface)** | A person at a REPL / writing scripts | **Reliability & legibility** — readable, unambiguous, great errors, deterministic | More keystrokes |
-| **Agent surface** | An LLM over the API / `.aeg` / MCP | **Token-efficiency & safety** — minimal total tokens per *successful* task, provably bounded blast radius | Terseness that's hard for humans to author by hand |
+| **`.ish` (human surface)** | A person at a REPL / writing scripts | **Reliability & legibility** — readable, unambiguous, great errors, deterministic | More keystrokes |
+| **Agent surface** | An LLM over the API / `.ishg` / MCP | **Token-efficiency & safety** — minimal total tokens per *successful* task, provably bounded blast radius | Terseness that's hard for humans to author by hand |
 
 Both surfaces compile to **one shared core**: lexer → AST → evaluator → typed
 `Value` → ontology. The core owns the things that must be identical for both —
@@ -26,7 +26,7 @@ deterministic typed output, structured errors, the effect/safety model, and the
 introspection ontology. The surfaces differ only in *syntax* and *defaults*.
 
 ```
-        ┌────────────── human .ae syntax ──────────────┐   objective: reliability
+        ┌────────────── human .ish syntax ──────────────┐   objective: reliability
         │   readable names · grammar-level parsing      │
         └───────────────────────┬───────────────────────┘
                                  │
@@ -43,7 +43,7 @@ introspection ontology. The surfaces differ only in *syntax* and *defaults*.
         └─────────────────────────────────────────────────┘
 ```
 
-The current `.aeg` transpiler (`src/transpile/agentic.rs`) is the *seed* of the
+The current `.ishg` transpiler (`src/transpile/agentic.rs`) is the *seed* of the
 agent surface — but its compression strategy is unproven and its implementation
 is a reliability liability (see §2.2). We will **measure before we commit** (§4).
 
@@ -81,7 +81,7 @@ These are genuine assets and the design builds on them, not over them:
 
 ### 2.1 Token efficiency optimizes the wrong axis
 
-The `.aeg` syntax compresses **input characters** via a memorized cipher: 26
+The `.ishg` syntax compresses **input characters** via a memorized cipher: 26
 single-letter builtins (`a`=all, `b`=flatten, `c`=cat…), 92 module sigils
 (`F`=file, `DK`=docker…), 152 function abbreviations (`file.r`→`file.read`).
 
@@ -89,7 +89,7 @@ But an agent's cost per task is:
 
 ```
 total_tokens = standing_context        (teach the model the surface — paid every context)
-             + input_tokens            (what the agent writes)      ← .aeg targets only this
+             + input_tokens            (what the agent writes)      ← .ishg targets only this
              + output_tokens           (what the agent reads back)  ← usually the largest
              + retry_tokens            (re-do failed cycles)        ← ambiguity amplifies this
 ```
@@ -100,7 +100,7 @@ Three problems:
    `read`, `get`, `where`, `file` as *single tokens*. `m`, `F.r`, `w~` save
    *characters*, not necessarily *tokens*. The advertised "60–70%" is a character
    ratio, not a token ratio.
-2. **The cipher inflates standing context.** To emit valid `.aeg` the model must
+2. **The cipher inflates standing context.** To emit valid `.ishg` the model must
    carry the BUILTIN_SHORT / MODULE_MAP / FUNC_ABBREV tables in context (the
    `AGENTS.md` dump is multiple KB). That fixed tax is re-sent every turn.
 3. **The cipher inflates retries.** `b`→flatten is not a mapping the model has a
@@ -137,7 +137,7 @@ Other reliability gaps:
 
 | Operation | Path check | Confirm | Audit | Dry-run | Policy |
 | --- | --- | --- | --- | --- | --- |
-| `sh()` exec | — | — | eprintln only | — | `AETHER_ALLOW_SH` (binary) |
+| `sh()` exec | — | — | eprintln only | — | `IRONSHELL_ALLOW_SH` (binary) |
 | `rm`/`rmdir` (`builtins.rs:34651`) | **none** | none | none | none | none |
 | `proc.kill` (`:15880`) | n/a | none | none | none | none |
 | `db.delete`, `docker.rm` | none | none | none | none | none |
@@ -165,7 +165,7 @@ Other reliability gaps:
 3. **Optimize total tokens per *successful* task**, not characters per call.
    Spend on output economy and retry-elimination before input golf.
 4. **Safety is a property of the *value*, not the syntax.** Effects are typed and
-   travel with the builtin, so any surface (REPL, API, MCP, `.aeg`) is equally
+   travel with the builtin, so any surface (REPL, API, MCP, `.ishg`) is equally
    safe.
 5. **Default-deny for the dangerous classes in agent mode; default-allow with
    great errors for humans.** Same engine, different policy.
@@ -191,7 +191,7 @@ Token numbers below are from a **real GPT-4 tokenizer** (cl100k_base via
 `tiktoken-rs`, vocab embedded in-crate; run `cargo run --example token_bench
 --features bench-tokenizer`). Char / standing-context / reliability are exact.
 
-| Metric | Cipher (`.aeg`) | Legible | Note |
+| Metric | Cipher (`.ishg`) | Legible | Note |
 | --- | --- | --- | --- |
 | Input, chars | 272 | 492 | 45% char savings (not the advertised 60–70%) |
 | Input, **real cl100k tokens** | 135 | 184 | **only 27% token savings** — and *0%* on several tasks (`read file` 6/6, `sys host echo` 9/9): legible names tokenize as cheaply as the cipher |
@@ -205,14 +205,14 @@ a *character* ratio — the *token* saving is only 27% (zero on several tasks,
 because BPE encodes `file.read`/`sys.hostname` as cheaply as `F.r`/`S.h()`) and
 goes net-negative once standing context counts. Input is the smallest of the three
 live cost terms.
-→ **Commit the agent surface to legible-first; keep `.aeg` cipher as opt-in
+→ **Commit the agent surface to legible-first; keep `.ishg` cipher as opt-in
 legacy; invest the token budget in output economy (§6.2) + progressive ontology
 disclosure (§5.4).** ✅ Done — exactly the work carried out in §5–§9.
 
 ### 4.0b Cross-shell comparison (`examples/shell_bench.rs`)
 
 An agent pays tokens for the **command** it writes *and* the **output it reads
-back**. Traditional shells return verbose, non-deterministic text; AetherShell
+back**. Traditional shells return verbose, non-deterministic text; IronShell
 returns compact typed AECON. Counted with the real cl100k tokenizer
 (`cargo run --example shell_bench --features real-tokens`) over 4 tasks (list
 files, processes, JSON field, disk usage), counting command + output.
@@ -225,9 +225,9 @@ directionally the same and smaller: 2.9× against bash on total tokens for eight
 repository operations, not the ~2.8× shown here for four representative ones,
 and *sixth of eight* on a corpus whose every answer is a scalar.
 
-| Shell | cmd tok | output tok | total | vs AetherShell |
+| Shell | cmd tok | output tok | total | vs IronShell |
 | --- | --- | --- | --- | --- |
-| **aethershell** | 48 | 70 | **118** | 1.00× |
+| **ironshell** | 48 | 70 | **118** | 1.00× |
 | bash / zsh / fish | 28 | 303 | 331 | 2.81× |
 | nushell | 34 | 341 | 375 | 3.18× |
 | powershell | 55 | 105 | 160 | 1.36× |
@@ -244,7 +244,7 @@ a low-cardinality `perm` column with 3 distinct values as real listings have
 
 | Output format (50 rows) | tokens | vs AECON |
 | --- | --- | --- |
-| **aethershell (aecon)** | 470 | 1.00× |
+| **ironshell (aecon)** | 470 | 1.00× |
 | powershell `Format-Table` | 821 | 1.75× |
 | powershell `ConvertTo-Json` | 1447 | **3.08×** |
 | nushell (boxed table) | 1402 | 2.98× |
@@ -259,7 +259,7 @@ flags — AECON is **~3.1×** cheaper on this constant-heavy listing (2.4–3× 
 -Compress` the edge narrows to **~1.6×**, and against the (unparseable) `Format-Table`
 it's only **~1.4×**. The ≥2× claim is true and measured, but specifically against the
 default JSON serialization — which is the honest comparison since AECON is also
-AetherShell's *default* output. Four structural levers, all deterministic and all
+IronShell's *default* output. Four structural levers, all deterministic and all
 applied only where they're a measured *token* win:
 **constant-factoring** (cardinality-1 columns → one `@const` line);
 **dictionary encoding** (low-cardinality, multi-token string columns → one
@@ -283,22 +283,22 @@ and AECON is deterministic where the shell text formats are not.
 
 The measure-first principle is now generalized into a **standalone, reusable
 library** — `crates/agentic-eval` — that scores any program for agentic use across
-all four axes this design optimizes, and it is **applied to AetherShell's shipped
+all four axes this design optimizes, and it is **applied to IronShell's shipped
 engine** (`examples/agentic_eval.rs` + `tests/agentic_eval_integration.rs`):
 
-- **Token efficiency** — AetherShell's own `est_token_count` (exact cl100k under
-  `--features real-tokens`) fills the library's `AgentCost` for the legible `.ae`
-  surface vs. the `.aeg` cipher, charging the cipher its real `describe_ontology`
+- **Token efficiency** — IronShell's own `est_token_count` (exact cl100k under
+  `--features real-tokens`) fills the library's `AgentCost` for the legible `.ish`
+  surface vs. the `.ishg` cipher, charging the cipher its real `describe_ontology`
   standing-context tax. Over a 30-turn session the legible form wins
   (~1.1k vs ~6.1k tokens) — the cipher's standing tax dwarfs its per-line input edge.
-- **Determinism** — the library runs AetherShell's `render_canonical` repeatedly and
+- **Determinism** — the library runs IronShell's `render_canonical` repeatedly and
   confirms byte-stable output (sorted keys, shortest-round-trip floats):
   `{ b: 2.0, a: 1, items: [3,1,2] }` → `{"a":1,"b":2,"items":[3,1,2]}`, identical
   across runs.
 - **Reliability** — representative programs are run through the real parser+evaluator
   and classified; a wrong-typed arg (`env(123)`) surfaces as a structured,
   branchable `E_BAD_ARG` (an *actionable* failure, not a dead end).
-- **Safety** — AetherShell's `safety::effect_of(builtin)` is mapped into the library's
+- **Safety** — IronShell's `safety::effect_of(builtin)` is mapped into the library's
   effect taxonomy and scored under the agent policy: every dangerous builtin
   (`rm`/`sh`/`proc_kill`) is approval-gated, so the blast radius is **bounded (grade
   A)**.
@@ -311,12 +311,12 @@ re-measurable against the real engine by an independent, reusable tool.
 
 ### 4.1 Harness
 
-A new crate-internal tool `ae bench tokens` (or `cargo run -p ae-bench`) that, for
+A new crate-internal tool `ish bench tokens` (or `cargo run -p ae-bench`) that, for
 a fixed corpus of **real agent task transcripts** (10–20 multi-step tasks: file
 edits, pipelines, http+json, container ops, error-and-retry loops), renders each
 task three ways and counts tokens with a real tokenizer:
 
-- **Variant A — cipher:** current `.aeg`.
+- **Variant A — cipher:** current `.ishg`.
 - **Variant B — legible:** readable names + the genuinely-useful terse forms
   (native `|` pipe, `|.field` projection, `~`/`fn` lambdas) but no
   cipher tables.
@@ -353,7 +353,7 @@ in `docs/` so the choice is auditable and re-runnable as tokenizers evolve.
 > `?scrutinee { arms }` match prefix (`Tok::Question` → `parse_match`), and a real
 > `if cond { then } else { else }` expression (`parse_if_expr`, desugars to a
 > boolean match — the legible conditional, chosen over the `^` cipher since `^` is
-> already `Pow`). The implicit `~.field` cipher stays in the `.aeg` transpiler —
+> already `Pow`). The implicit `~.field` cipher stays in the `.ishg` transpiler —
 > the legible grammar uses an explicit parameter.
 
 ### 4.3 Regardless of winner: move terseness into the grammar
@@ -361,12 +361,12 @@ in `docs/` so the choice is auditable and re-runnable as tokenizers evolve.
 Whatever syntax wins, the agent surface must be parsed by the **real
 lexer/parser** as grammar productions — *not* by string-substitution passes. Kill
 the 10-pass pipeline (§2.2). Terse tokens the parser understands cannot be
-mis-expanded by pass ordering. The `.aeg` transpiler becomes, at most, a thin
+mis-expanded by pass ordering. The `.ishg` transpiler becomes, at most, a thin
 legacy shim that emits canonical AST.
 
 > **STATUS (Phase 5 — Stage 1 landed).** The transpiler's integration tests
 > (`tests/transpile_agentic.rs`, 121 tests) are now **behavior assertions** — they
-> eval the transpiled `.ae` (for self-contained forms) or assert the
+> eval the transpiled `.ish` (for self-contained forms) or assert the
 > spacing-tolerant semantic mapping (for external/IO forms), instead of checking
 > the transpiler's exact internal text. This decouples the tests from the
 > transpiler's representation so the pipeline can be replaced without rewriting
@@ -391,7 +391,7 @@ legacy shim that emits canonical AST.
 > is retired. `transpile_line` is now a **single left-to-right `scan`** (plus two
 > statement-prefix handlers, `try_for_each`/`try_assignment`) that protects
 > string/backtick literals inline and maps each cipher form directly to legible
-> `.ae`, recursing into nested constructs — a terse token can no longer be
+> `.ish`, recursing into nested constructs — a terse token can no longer be
 > mis-expanded by pass ordering. All 14 `expand_*`/`preprocess_ultra` functions
 > (~2,000 lines) were deleted and their internals-testing unit tests replaced with
 > a slim end-to-end + ontology-integrity suite. Two historical ordering quirks are
@@ -410,7 +410,7 @@ legacy shim that emits canonical AST.
 > `null` for non-finite/non-serializable values, correct escaping. Tests assert
 > byte-stability and insertion-order independence (`tests/reliability.rs`). The
 > lossless counterpart to `aecon` (§6.2). ✅ **Wired as the default render under
-> `--deterministic` / `AE_DETERMINISTIC`** (`repl::run_one` → `render_canonical`),
+> `--deterministic` / `IRONSHELL_DETERMINISTIC`** (`repl::run_one` → `render_canonical`),
 > taking precedence over both the agent AECON renderer and the human pretty-printer
 > — the whole value is emitted as canonical JSON (budget intentionally not applied,
 > since reproducibility wants the full result). `deterministic_mode_renders_canonical_json`
@@ -549,7 +549,7 @@ otherwise — so token counts are *exact*, not estimated, when the feature is on
 Per call the Agent API records `tokens_in` / `tokens_out` /
 `tokens_total` and exposes them under `AgentResponse.metadata.token_accounting`
 (injected in `process_request`; ✅ implemented). The CLI `--budget N` flag sets
-`AE_TOKEN_BUDGET`, which the REPL applies via `budget_value` so every result is
+`IRONSHELL_TOKEN_BUDGET`, which the REPL applies via `budget_value` so every result is
 paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
 `sess_usage(id)` (dispatch 1125) — running `tokens_in`/`tokens_out`/`tokens_total`/
 `evals` for a stateful session. ✅ `ai_usage()`/`ai_cost()` are wired to the live
@@ -559,17 +559,17 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
 > `tokens` (estimate), and `budget(value, max_tokens, cursor?)` (row paging with
 > `next_cursor`/`elided`/`page_tokens` + lossless string truncation with an
 > explicit elision marker; dispatch 1109/1110/1118; see `tests/output_economy.rs`).
-> The CLI `--budget`/`AE_TOKEN_BUDGET` flag applies `budget` automatically to every
+> The CLI `--budget`/`IRONSHELL_TOKEN_BUDGET` flag applies `budget` automatically to every
 > result, and `AgentResponse.metadata.token_accounting` carries per-call
 > `tokens_in/out/total`.
 
 ### 6.2 Output budgeting + compact format (the biggest real win)
 
-- **`--budget N` / `AE_TOKEN_BUDGET`.** Every result renders to ≤ N tokens.
+- **`--budget N` / `IRONSHELL_TOKEN_BUDGET`.** Every result renders to ≤ N tokens.
   Over budget → head+tail rows, an explicit `…(987 more rows)` elision marker, and
   a stable **`cursor`** the agent passes to page. *Never silently lossy* — always
   states what was dropped (a safety property too).
-- **AECON — Aether Compact Object Notation.** For a homogeneous `Table`/array of
+- **AECON — IronShell Compact Object Notation.** For a homogeneous `Table`/array of
   records, emit field names *once* as a header, then positional rows. Typed,
   deterministic, ~CSV-of-records density with JSON fidelity. This is where the
   honest 50–70% *output*-token savings live — the dominant cost term. ✅
@@ -642,7 +642,7 @@ paged/truncated to fit (✅ implemented). ✅ Per-session aggregation lands via
   decides to `budget` (page), `aecon` (compact), or skip. Maximal information per
   token (`tests/output_economy.rs`).
 - ✅ **AECON is the default render in agent mode — on every surface.** Under
-  `AETHER_MODE=agent` (or `AETHER_AGENT=1`) the output-token savings happen
+  `IRONSHELL_MODE=agent` (or `IRONSHELL_AGENT=1`) the output-token savings happen
   *automatically* instead of requiring an explicit `| aecon`:
     - **CLI / REPL** (`repl::run_one`) renders every result through
       `builtins::render_agent` — compact, deterministic AECON, no ANSI. A bare
@@ -740,7 +740,7 @@ one-off env-var gates.
 
 ### 7.1 Policy engine (default-deny for dangerous classes in agent mode)
 
-A declarative policy (`.ae/policy.toml`, env, or API-supplied), evaluated against
+A declarative policy (`.ironshell/policy.toml`, env, or API-supplied), evaluated against
 each call's effect class (§5.3):
 
 ```toml
@@ -754,7 +754,7 @@ Privileged  = "deny"
 ```
 
 Humans default to `allow` with great errors; agents default as above. This
-subsumes `AGENT_ALLOW_CMDS` and `AETHER_ALLOW_SH` into one model and **activates
+subsumes `AGENT_ALLOW_CMDS` and `IRONSHELL_ALLOW_SH` into one model and **activates
 the dormant RBAC** (`src/auth.rs`) as the principal/role source for policy.
 
 ### 7.2 Approval protocol (human- or supervisor-in-the-loop)
@@ -803,9 +803,9 @@ shell."
   agent mode. All limits are opt-in via env — unset = unlimited, so existing runs
   are unaffected until configured — and a breach returns the structured
   `E_BUDGET_EXCEEDED` (non-retryable) so an agent stops rather than loops:
-  `AETHER_MAX_OPS` (total guarded ops), `AETHER_MAX_FILES` (WriteLocal +
-  Destructive), `AETHER_MAX_PROCS` (Process + Exec), `AETHER_MAX_NET` (Network —
-  egress request count), and `AETHER_TIMEOUT_MS` (wall-clock since the first guarded
+  `IRONSHELL_MAX_OPS` (total guarded ops), `IRONSHELL_MAX_FILES` (WriteLocal +
+  Destructive), `IRONSHELL_MAX_PROCS` (Process + Exec), `IRONSHELL_MAX_NET` (Network —
+  egress request count), and `IRONSHELL_TIMEOUT_MS` (wall-clock since the first guarded
   op, checked at each guard boundary). Counters tally *attempts* at the boundary (an
   op later denied by jail/policy still counts — the envelope bounds what the agent
   may try, the strictly-safe reading). The network cap is enforced by routing the
@@ -817,15 +817,15 @@ shell."
   `guard()` with the `Network` effect via the `guard_network` helper — which
   also brings them under the audit log. (`Network` was policy-`allow`, metered
   and audited without prompting. Since 2026-09-28 agent mode asks for approval
-  unless `AETHER_NET_ALLOW` names the host, or is `*`; the allowlist is checked
+  unless `IRONSHELL_NET_ALLOW` names the host, or is `*`; the allowlist is checked
   in `guard()` itself, so it covers every `Network` builtin rather than the ones
   that call `guard_network`. This closed E4's one uncontained default case.) `governor_status()` reports counts/limits/elapsed (also
   folded into `safety_status()`); `governor_reset()` starts a fresh envelope. Verified
-  by 6 unit tests + an end-to-end test (a 2nd `rm` under `AETHER_MAX_FILES=1` returns
+  by 6 unit tests + an end-to-end test (a 2nd `rm` under `IRONSHELL_MAX_FILES=1` returns
   `E_BUDGET_EXCEEDED`, file untouched). (Output-bytes is covered separately by
-  `--budget`/`AE_TOKEN_BUDGET` paging.)
+  `--budget`/`IRONSHELL_TOKEN_BUDGET` paging.)
 - ✅ **Secret hygiene.** Two deterministic defenses in `src/safety.rs`, opt-out via
-  `AETHER_REDACT=off`:
+  `IRONSHELL_REDACT=off`:
     - **Shape redaction** (`redact_str`/`redact_json`/`builtins::redact_value`) scrubs
       known secret *shapes* — provider key prefixes (`sk-`/`sk-ant-`, `ghp_`/`gho_`…,
       `xox*-`, `AIza…`, Stripe `sk_live`/`rk_test`), AWS access-key ids (`AKIA…`),
@@ -842,7 +842,7 @@ shell."
       to avoid `KEYBOARD`/`MONKEY`) returns an opaque `[REDACTED:NAME]` handle from
       `env`/`sys.env`/`env.var`/`env.vars` *before the value enters the program's
       value space* — unless the operator permits clear reads with
-      `AETHER_SECRETS=allow`. Human mode is never gated (a person reading their own
+      `IRONSHELL_SECRETS=allow`. Human mode is never gated (a person reading their own
       env wants the value — legibility). Closes the credential-in-env / secret-in-
       output exposure. Verified by 6 unit tests + a 4-test end-to-end suite
       (`tests/secret_hygiene.rs`): render, env-gating, and audit-log surfaces.
@@ -851,7 +851,7 @@ shell."
 
 ## 8. Human surface — reliability
 
-The `.ae` surface keeps readable, unambiguous syntax and gains:
+The `.ish` surface keeps readable, unambiguous syntax and gains:
 
 - **Grammar-level everything** — no transpiler passes; the same parser the agent
   surface uses, so the two can never semantically diverge.
@@ -881,7 +881,7 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
 - ✅ **Great errors with `hint`** — humans benefit from the same structured errors,
   rendered richly. The human REPL unpacks an uncaught `SafetyError` into legible prose
   — `error[CODE]: message`, an indented `hint:` line, and (for an approvable action)
-  the exact `AETHER_APPROVE=…` re-run incantation — instead of dumping the JSON form
+  the exact `IRONSHELL_APPROVE=…` re-run incantation — instead of dumping the JSON form
   (`repl::print_eval_error`). **Agent mode keeps the raw JSON** so `code`/`hint`/
   `approval` survive for programmatic branching. One structured error, two renderings.
 - **Determinism on demand** — `--deterministic` available to humans too (for
@@ -930,7 +930,7 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   `dest` path; both endpoints are jailed and snapshotted so a copy/move rolls back
   cleanly). ✅ **Landed**: `plan_diff(ops)` renders what a plan would change — per-file added/removed line counts and the lines themselves, capped with the elided count reported. A separate builtin rather than a field on `plan()`, because a diff is unbounded where a summary is not and the convention here is progressive disclosure.
 - ✅ **Be an MCP server, not just a client.** `McpServer::list_builtin_tools`
-  exposes every AetherShell builtin as an MCP tool annotated with its `x-effect`
+  exposes every IronShell builtin as an MCP tool annotated with its `x-effect`
   class; `McpServer::call_builtin` routes calls through `builtins::call` so the
   same policy/approval/jail/audit applies — any MCP-speaking agent gets the full
   typed surface *and* the safety model with zero bespoke integration
@@ -940,7 +940,7 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
   falls back to `call_builtin` for builtin names, so they're callable over the
   server with full gating. ✅ **Strict stdio JSON-RPC transport** (the canonical MCP
   transport): `McpServer::serve_stdio` runs a JSON-RPC 2.0 loop over stdin/stdout
-  (`ae [--agent] mcp stdio`) handling `initialize`/`tools/list`/`tools/call`/`ping`,
+  (`ish [--agent] mcp stdio`) handling `initialize`/`tools/list`/`tools/call`/`ping`,
   routing every call through `call_builtin` (so policy/jail/approval/audit apply) and
   echoing JSON-RPC ids; notifications get no reply. The per-request dispatch
   (`McpServer::handle_rpc`) is unit-tested for all methods + the error/notification
@@ -981,7 +981,7 @@ The `.ae` surface keeps readable, unambiguous syntax and gains:
 | **3** | **Safety core (headline)** | Policy engine + workspace jail (§7.1/7.4); approval protocol (§7.2); hash-chained audit (§7.5); wire RBAC | `src/security.rs`, `src/auth.rs`, `src/builtins.rs` (rm/kill/sh/db/docker), `src/agent_api.rs` |
 | **4** | **Token economy** | 🟡 First slice: `aecon(value)` compact rendering + `tokens(value)` estimate builtins (§6.2, tests prove AECON < JSON on homogeneous records) + `budget()` paging/truncation (§6.2) + `ontology_manifest`/`ontology_describe` progressive disclosure (§5.4, >4× cheaper than full dump) + CLI `--budget N` flag (REPL applies `budget_value`) + per-call `token_accounting` in `AgentResponse.metadata`. **Core complete.** ✅ **Per-session aggregation landed**: `sess_usage(id)` returns `{evals, tokens_in, tokens_out, tokens_total}` | `src/builtins.rs`, `src/agent_api.rs`, `tests/output_economy.rs`, `src/value.rs`, `src/metrics.rs`, `src/main.rs` |
 | **5** | **Grammar unification** | ✅ Landed (bar §4.3's optional shim): `|.field` projection (with `.a.b` chains) now parsed by the real grammar (`parser::parse_pipe`) + SI suffixes in the lexer + `~x: body` lambda + `?match` prefix + `if`-expression — all additive (`tests/grammar.rs`). Transpiler retirement began with 2 passes (`expand_si_suffixes`, `expand_match`), whose golden tests migrated to behavior assertions (`eval_aeg` harness) with ONTOLOGY examples updated to pass-through — and then finished wholesale, see below. Recipe: remove the call → `#[allow(dead_code)]` the fn → behavior-migrate the affected text tests → update ONTOLOGY examples. (Lesson: text-coupled golden tests make each retirement cost real migration — SI touched 4 test sites + 2 ontology examples.) ✅ **The 10-pass transpiler is retired** — see §4.3 (PHASE 5 COMPLETE): all 14 `expand_*`/`preprocess_ultra` functions were deleted and `transpile_line` is a single left-to-right `scan`. ✅ **Boundary type-checking landed** (§8). *This row said "in progress, 2 passes retired" and listed `expand_lambdas`/`expand_pipelines` as remaining long after both were deleted — the stale text outlived the code by two sessions, which is why `tests/grammar_vs_transpiler.rs` now pins the division mechanically instead of in prose.* *Remaining:* only §4.3's aspiration that the transpiler become a thin shim emitting canonical AST, which §4.3 itself recommends deferring (measure-first: high-risk, low-value on a deprecated surface). Note `>`-as-pipe is the awkward blocker — `[1,2,3] > len()` parses as a *comparison*, so the same text means different programs on the two surfaces, and removing the transpiler without a grammar production would change meaning silently rather than fail loudly | `src/parser.rs`, `src/typecheck.rs`, `src/transpile/agentic.rs` |
-| **6** | **Agentic features** | ✅ Transactions/checkpoints (`tx_*` + savepoints) + Plan/Apply (`plan`/`apply`, ops `write`/`append`/`rm`/`mkdir`/`copy`/`move`) + builtins-as-MCP-tools (`McpServer::list_builtin_tools`/`call_builtin`) + **stateful sessions** (`sess_*`) + chunked **streaming execute** landed. ✅ **stdio JSON-RPC transport landed** (`ae mcp stdio`); ✅ **transaction nesting works** (`tx_begin` twice reports `depth: 2`). ✅ **true stage-by-stage streaming *evaluation*** (`eval_stream`) and ✅ **short-circuiting `take(n)`** — a satisfied `take` abandons the source unread (withheld when an upstream stage is not `Pure`), measured by `StreamStats::pulled` rather than asserted; the purity walk reads **both halves of the dispatcher** (`builtins::is_dispatched`), where it used to ask `BUILTIN_LOOKUP` alone and treat the ~113 fallback-`match` names as unknown. ✅ **whole-collection stages no longer poison the pipeline** — a barrier ends the streamable region instead of disqualifying it, so a `take` ahead of a `sort` still stops the source (`pulled` 1000 → 3). *Remaining:* a pipeline whose *first* stage is a barrier still falls back (nothing to stream, a buffer to pay), and a non-array source has nothing to stream by definition | `src/tx.rs`, `src/builtins.rs`, `src/agent_api.rs`, `src/mcp.rs`, `src/ai_api/server.rs` |
+| **6** | **Agentic features** | ✅ Transactions/checkpoints (`tx_*` + savepoints) + Plan/Apply (`plan`/`apply`, ops `write`/`append`/`rm`/`mkdir`/`copy`/`move`) + builtins-as-MCP-tools (`McpServer::list_builtin_tools`/`call_builtin`) + **stateful sessions** (`sess_*`) + chunked **streaming execute** landed. ✅ **stdio JSON-RPC transport landed** (`ish mcp stdio`); ✅ **transaction nesting works** (`tx_begin` twice reports `depth: 2`). ✅ **true stage-by-stage streaming *evaluation*** (`eval_stream`) and ✅ **short-circuiting `take(n)`** — a satisfied `take` abandons the source unread (withheld when an upstream stage is not `Pure`), measured by `StreamStats::pulled` rather than asserted; the purity walk reads **both halves of the dispatcher** (`builtins::is_dispatched`), where it used to ask `BUILTIN_LOOKUP` alone and treat the ~113 fallback-`match` names as unknown. ✅ **whole-collection stages no longer poison the pipeline** — a barrier ends the streamable region instead of disqualifying it, so a `take` ahead of a `sort` still stops the source (`pulled` 1000 → 3). *Remaining:* a pipeline whose *first* stage is a barrier still falls back (nothing to stream, a buffer to pay), and a non-array source has nothing to stream by definition | `src/tx.rs`, `src/builtins.rs`, `src/agent_api.rs`, `src/mcp.rs`, `src/ai_api/server.rs` |
 
 | **7** | **Self-healing** | ✅ Structured-by-default at the builtin boundary (`safety::ensure_structured`, new codes `E_UNKNOWN_BUILTIN`/`E_UNKNOWN`, `ErrorCode::retryable()`); `did_you_mean` over the live builtin table; `diagnose(error)` minimal repair context (1139); `try_repair(code)` rollback-bracketed attempts (1140); `agentic_eval::repair` harness + a **measured** repair rate filling §11's placeholder. ✅ **Model-driven strategy landed** (`tests/repair_rate.rs`): the same harness, given only the error facts and the builtin's declared signature. Proven on the wrong-argument corpus where the mechanical strategy scores 0 by design, using a deterministic stand-in so the *plumbing* is verified without a model in CI; the live scoring skips loudly when no backend is configured, because a repair rate reported without a model is a number nobody measured. An unparseable reply counts as no-repair, never as success; ✅ **module paths already resolve**: `file.raed("x")` returns `E_UNKNOWN_FIELD` with `did you mean: read` | `src/safety.rs`, `src/builtins.rs`, `crates/agentic-eval/src/repair.rs`, `tests/self_healing.rs`, `tests/repair_rate.rs` |
 
@@ -1001,7 +1001,7 @@ of structured errors rather than building or measuring it.
   Linux/macOS/Windows for the determinism test corpus.
 - **Safety:** 100% of `Destructive`/`Exec`/`Privileged` calls gated by
   policy+approval; 100% effecting-call audit coverage; tamper-evident chain
-  verified by a `ae audit verify` check.
+  verified by a `ish audit verify` check.
 - **Self-correction:** ✅ **measured, not assumed** (`tests/repair_rate.rs`, built on
   the reusable `agentic_eval::repair` harness). The placeholder here read `≥X%` for
   as long as this document existed, because the pillar was inferred from the presence
@@ -1156,7 +1156,7 @@ of structured errors rather than building or measuring it.
   thousand builtins at once and is a product decision, not a bug fix.
 - **Approval UX latency** for interactive humans — mitigate with policy presets
   ("trust this workspace") and session-scoped grants.
-- **Backward compatibility:** existing `.aeg` scripts must keep working; the
+- **Backward compatibility:** existing `.ishg` scripts must keep working; the
   transpiler-to-shim path (Phase 5) must be behavior-preserving, gated by the
   existing `tests/transpile_agentic.rs` corpus plus golden tests.
 
@@ -1207,7 +1207,7 @@ regressions).
   an agent can check what it may do *before* acting.
 
 **Behaviour by default:** human mode is unchanged (default-allow, no audit file —
-zero regression). Agent mode (`AETHER_MODE=agent`) gates `Destructive`/`Exec`/
+zero regression). Agent mode (`IRONSHELL_MODE=agent`) gates `Destructive`/`Exec`/
 `Process` behind approval, denies `Privileged`, jails filesystem writes to the
 workspace, and writes the audit chain.
 
@@ -1215,25 +1215,25 @@ workspace, and writes the audit chain.
 
 | Var | Effect |
 | --- | --- |
-| `AETHER_MODE=agent` (or `AETHER_AGENT=1`) | Select the agent surface (default-deny dangerous classes). |
-| `AETHER_POLICY=permissive` | Agent mode behaves like human mode (allow all). |
-| `AETHER_WORKSPACE=<dir>` | Workspace jail root (also enables the jail in human mode). |
-| `AETHER_APPROVE=<token[,token…]>` | Pre-approve the listed bound approval tokens. |
-| `AETHER_APPROVE_ALL=1` | Blanket-approve all approvable actions (trusted automation). |
-| `AETHER_AUDIT_LOG=<file>` | Audit log path (defaults to `<workspace>/.ae/audit.log` in agent mode). |
-| `AETHER_AUDIT_REQUIRED=1` | Fail the guarded op if the audit write fails (default: best-effort + warn). |
-| `AETHER_REDACT=off` | Disable secret-shape redaction of agent output and audit entries (default: on). |
-| `AETHER_SECRETS=allow` | Permit clear reads of secret-named env vars in agent mode (default: return a `[REDACTED:NAME]` handle). |
-| `AETHER_MAX_OPS=<n>` | Resource governor: max total guarded operations per run (agent mode; unset = unlimited). |
-| `AETHER_MAX_FILES=<n>` | Resource governor: max filesystem ops (WriteLocal + Destructive). |
-| `AETHER_MAX_PROCS=<n>` | Resource governor: max process/exec ops (Process + Exec). |
-| `AETHER_MAX_NET=<n>` | Resource governor: max network egress operations (Network). |
-| `AETHER_TIMEOUT_MS=<ms>` | Resource governor: wall-clock budget since the first guarded op (checked at each guard boundary). |
+| `IRONSHELL_MODE=agent` (or `IRONSHELL_AGENT=1`) | Select the agent surface (default-deny dangerous classes). |
+| `IRONSHELL_POLICY=permissive` | Agent mode behaves like human mode (allow all). |
+| `IRONSHELL_WORKSPACE=<dir>` | Workspace jail root (also enables the jail in human mode). |
+| `IRONSHELL_APPROVE=<token[,token…]>` | Pre-approve the listed bound approval tokens. |
+| `IRONSHELL_APPROVE_ALL=1` | Blanket-approve all approvable actions (trusted automation). |
+| `IRONSHELL_AUDIT_LOG=<file>` | Audit log path (defaults to `<workspace>/.ironshell/audit.log` in agent mode). |
+| `IRONSHELL_AUDIT_REQUIRED=1` | Fail the guarded op if the audit write fails (default: best-effort + warn). |
+| `IRONSHELL_REDACT=off` | Disable secret-shape redaction of agent output and audit entries (default: on). |
+| `IRONSHELL_SECRETS=allow` | Permit clear reads of secret-named env vars in agent mode (default: return a `[REDACTED:NAME]` handle). |
+| `IRONSHELL_MAX_OPS=<n>` | Resource governor: max total guarded operations per run (agent mode; unset = unlimited). |
+| `IRONSHELL_MAX_FILES=<n>` | Resource governor: max filesystem ops (WriteLocal + Destructive). |
+| `IRONSHELL_MAX_PROCS=<n>` | Resource governor: max process/exec ops (Process + Exec). |
+| `IRONSHELL_MAX_NET=<n>` | Resource governor: max network egress operations (Network). |
+| `IRONSHELL_TIMEOUT_MS=<ms>` | Resource governor: wall-clock budget since the first guarded op (checked at each guard boundary). |
 
-CLI flags set these directly (no env export needed): `--agent` → `AETHER_MODE=agent`,
-`--workspace <DIR>` → `AETHER_WORKSPACE`, `--policy <p>` → `AETHER_POLICY`,
-`--budget N` → `AE_TOKEN_BUDGET`. E.g. `ae --agent --workspace . script.ae`.
-Verified end-to-end (`ae --agent -c 'safety_status()'` reports `mode: "agent"`).
+CLI flags set these directly (no env export needed): `--agent` → `IRONSHELL_MODE=agent`,
+`--workspace <DIR>` → `IRONSHELL_WORKSPACE`, `--policy <p>` → `IRONSHELL_POLICY`,
+`--budget N` → `IRONSHELL_TOKEN_BUDGET`. E.g. `ish --agent --workspace . script.ish`.
+Verified end-to-end (`ish --agent -c 'safety_status()'` reports `mode: "agent"`).
 
 ### Immediate next steps (remaining Phase 3)
 
@@ -1274,9 +1274,9 @@ Verified end-to-end (`ae --agent -c 'safety_status()'` reports `mode: "agent"`).
   - ✅ **Startup config loading.** `RbacManager::from_config_str` parses a TOML
     [`RbacConfig`] (roles with permissions + inheritance, principals with role
     assignments + direct grants); `safety::init_rbac_from_env()` (called from
-    `main`) loads it from `AETHER_RBAC_CONFIG` (or `<workspace>/.ae/rbac.toml` if
+    `main`) loads it from `IRONSHELL_RBAC_CONFIG` (or `<workspace>/.ironshell/rbac.toml` if
     present), installs the manager, and sets the acting principal (from
-    `AETHER_PRINCIPAL`, else the config's `principal`). So the authorization model
+    `IRONSHELL_PRINCIPAL`, else the config's `principal`). So the authorization model
     is configured from a file at boot, not just via in-shell `rbac_*` calls
     (`auth::tests::test_rbac_from_config_str`,
     `tests/safety.rs::rbac_config_loaded_at_startup_authorizes_principal`).

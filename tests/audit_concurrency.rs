@@ -3,7 +3,7 @@
 //! The chain is per-process state — `seq` and `last_hash` live in memory — so
 //! two shells appending to one file interleave two independent chains. That is
 //! not an exotic configuration: in agent mode the log defaults to
-//! `<workspace>/.ae/audit.log`, so two agents in one workspace share it by
+//! `<workspace>/.ironshell/audit.log`, so two agents in one workspace share it by
 //! default.
 //!
 //! Probing that case found three problems, in increasing order of seriousness:
@@ -78,15 +78,15 @@ impl Shared {
         let src: String = (0..n)
             .map(|i| format!("file_write(\"{tag}{i}.txt\", \"x\")\n"))
             .collect();
-        let script = self.dir.join(format!("{tag}.ae"));
+        let script = self.dir.join(format!("{tag}.ish"));
         std::fs::write(&script, src).expect("write script");
         Command::new(ae())
             .arg("--deterministic")
             .arg(&script)
             .current_dir(&self.dir)
-            .env("AETHER_MODE", "agent")
-            .env("AETHER_WORKSPACE", &self.dir)
-            .env("AETHER_AUDIT_LOG", self.log())
+            .env("IRONSHELL_MODE", "agent")
+            .env("IRONSHELL_WORKSPACE", &self.dir)
+            .env("IRONSHELL_AUDIT_LOG", self.log())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
@@ -216,7 +216,7 @@ fn a_single_writer_still_produces_one_valid_chain() {
         "a single writer should number its entries 1..n with no gaps"
     );
 
-    let n = aethershell::safety::verify_audit_with(&shared.log(), None)
+    let n = iron_shell::safety::verify_audit_with(&shared.log(), None)
         .expect("a single writer's log must verify");
     assert_eq!(n, 10);
 }
@@ -238,7 +238,7 @@ fn relabelling_a_writer_id_is_detected_as_tampering() {
     w.wait().expect("writer");
 
     assert_eq!(
-        aethershell::safety::verify_audit_with(&shared.log(), None).expect("clean log verifies"),
+        iron_shell::safety::verify_audit_with(&shared.log(), None).expect("clean log verifies"),
         3
     );
 
@@ -250,7 +250,7 @@ fn relabelling_a_writer_id_is_detected_as_tampering() {
     lines[0] = serde_json::to_string(&first).expect("reserialize");
     std::fs::write(shared.log(), lines.join("\n") + "\n").expect("write log");
 
-    let err = aethershell::safety::verify_audit_with(&shared.log(), None)
+    let err = iron_shell::safety::verify_audit_with(&shared.log(), None)
         .expect_err("a relabelled writer id must not verify");
     assert!(
         err.contains("tampered") || err.contains("mismatch"),

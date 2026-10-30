@@ -3,11 +3,11 @@
 //!
 //! These use real files in temp directories, because the claim is about the
 //! filesystem. Each test gets its own session directory through
-//! `AETHER_SESSION_DIR`, so nothing leaks into the developer's own journal. The
+//! `IRONSHELL_SESSION_DIR`, so nothing leaks into the developer's own journal. The
 //! journal is process-global, so the tests are serialised by the lock below.
 
-use aethershell::journal;
-use aethershell::value::Value;
+use iron_shell::journal;
+use iron_shell::value::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -24,8 +24,8 @@ impl Session {
         let dir = std::env::temp_dir().join(format!("ae_session_{tag}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("state")).expect("temp dir");
-        std::env::set_var("AETHER_JOURNAL", "on");
-        std::env::set_var("AETHER_SESSION_DIR", dir.join("state"));
+        std::env::set_var("IRONSHELL_JOURNAL", "on");
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir.join("state"));
         journal::clear();
         Self { dir }
     }
@@ -37,20 +37,20 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         journal::clear();
-        std::env::remove_var("AETHER_JOURNAL");
-        std::env::remove_var("AETHER_SESSION_DIR");
+        std::env::remove_var("IRONSHELL_JOURNAL");
+        std::env::remove_var("IRONSHELL_SESSION_DIR");
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
 fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
 }
 
 fn call_piped(name: &str, args: Vec<Value>, input: Value) -> Result<Value, String> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call_with_input(name, args, Some(input), &mut env)
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call_with_input(name, args, Some(input), &mut env)
         .map_err(|e| e.to_string())
 }
 
@@ -76,14 +76,14 @@ fn write_file(p: &str, text: &str) {
     .expect("file_write should succeed");
 }
 
-/// Run `ae -c <code>` as a separate process, with the same session directory.
+/// Run `ish -c <code>` as a separate process, with the same session directory.
 /// A separate process is the only honest test of persistence: it cannot see
 /// this process's memory.
 fn run_ae(session_dir: &Path, code: &str) -> std::process::Output {
-    std::process::Command::new(env!("CARGO_BIN_EXE_ae"))
+    std::process::Command::new(env!("CARGO_BIN_EXE_ish"))
         .args(["-c", code])
-        .env("AETHER_JOURNAL", "on")
-        .env("AETHER_SESSION_DIR", session_dir)
+        .env("IRONSHELL_JOURNAL", "on")
+        .env("IRONSHELL_SESSION_DIR", session_dir)
         .output()
         .expect("spawn ae")
 }
@@ -231,7 +231,7 @@ fn session_end_counts_irreversible_steps_it_forgets() {
     // A step that cannot be captured (a network call, say) is recorded as
     // irreversible, and the end of the session must say it was there. A call
     // that fails is rolled back, so this is recorded directly.
-    journal::record_irreversible("net_send", aethershell::safety::Effect::Network, "sent");
+    journal::record_irreversible("net_send", iron_shell::safety::Effect::Network, "sent");
 
     let ended = call("session_end", vec![]).expect("session_end");
     assert_eq!(field(&ended, "kept"), Value::Int(1));
@@ -247,7 +247,7 @@ fn persistence_survives_a_new_process() {
     let p = s.path("persist.txt");
     std::fs::write(&p, "v1").expect("seed");
 
-    // Forward slashes: a backslash in an AetherShell string is an escape.
+    // Forward slashes: a backslash in an IronShell string is an escape.
     let p_literal = p.replace('\\', "/");
     let wrote = run_ae(&state, &format!(r#"file_write("{p_literal}", "v2")"#));
     assert!(
@@ -346,7 +346,7 @@ fn a_refused_call_changes_nothing() {
 
 #[test]
 fn examples_and_module_aliases_execute_with_their_effects() {
-    use aethershell::safety::Effect;
+    use iron_shell::safety::Effect;
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _s = Session::new("examples");
     // Rewinding and ending a session write files (recorded contents put
@@ -358,14 +358,14 @@ fn examples_and_module_aliases_execute_with_their_effects() {
         ("session_history", "session.history", Effect::Pure),
         ("session_end", "session.end", Effect::WriteLocal),
     ] {
-        assert_eq!(aethershell::safety::effect_of(name), effect, "{name}");
-        for (code, expected) in aethershell::signature::signature_of(name).unwrap().examples {
+        assert_eq!(iron_shell::safety::effect_of(name), effect, "{name}");
+        for (code, expected) in iron_shell::signature::signature_of(name).unwrap().examples {
             for source in [code.to_string(), code.replacen(name, alias, 1)] {
-                let mut env = aethershell::env::Env::default();
-                env.register_module("session", aethershell::modules::session_module());
-                let statements = aethershell::parser::parse_program(&source).unwrap();
+                let mut env = iron_shell::env::Env::default();
+                env.register_module("session", iron_shell::modules::session_module());
+                let statements = iron_shell::parser::parse_program(&source).unwrap();
                 assert_eq!(
-                    aethershell::eval::eval_program(&statements, &mut env)
+                    iron_shell::eval::eval_program(&statements, &mut env)
                         .unwrap()
                         .to_display_string(),
                     *expected,

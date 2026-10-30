@@ -4,27 +4,27 @@
 //! Pure: every call here is in-process, with no network, launcher or file
 //! access. The parser and evaluator are unit-tested in `src/web_xpath.rs`.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::sync::{Mutex, Once};
 
 fn isolate() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_web_xpath_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
 }
 
-/// `AETHER_MODE` is process-global; every call takes this lock.
+/// `IRONSHELL_MODE` is process-global; every call takes this lock.
 static MODE_LOCK: Mutex<()> = Mutex::new(());
 
 fn call(args: Vec<Value>) -> anyhow::Result<Value> {
     let _guard = MODE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     isolate();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     let mut env = Env::new();
     builtins::call("web_xpath", args, &mut env)
 }
@@ -302,7 +302,7 @@ fn a_refusal_names_the_unsupported_part() {
 
 #[test]
 fn oversized_html_is_a_budget_refusal_before_parsing() {
-    let big = "a".repeat(aethershell::web_xpath::MAX_HTML_BYTES + 1);
+    let big = "a".repeat(iron_shell::web_xpath::MAX_HTML_BYTES + 1);
     let r = call(vec![text(&big), text("//a")]);
     assert_eq!(code_of(&r), "E_BUDGET_EXCEEDED", "{r:?}");
 }
@@ -319,7 +319,7 @@ fn more_than_the_result_cap_is_refused_not_truncated() {
 
 #[test]
 fn nesting_deeper_than_the_cap_is_a_budget_refusal() {
-    let deep = "<p>".repeat(aethershell::web_xpath::MAX_DEPTH + 1);
+    let deep = "<p>".repeat(iron_shell::web_xpath::MAX_DEPTH + 1);
     let r = call(vec![text(&deep), text("//p")]);
     assert_eq!(code_of(&r), "E_BUDGET_EXCEEDED", "{r:?}");
 }
@@ -340,8 +340,8 @@ fn type_errors_and_arity_are_bad_arg() {
 fn piped_input_is_refused() {
     let _guard = MODE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     isolate();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     let mut env = Env::new();
     let r = builtins::call_with_input(
         "web_xpath",

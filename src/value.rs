@@ -1,4 +1,4 @@
-//! Runtime value model for Aether Shell.
+//! Runtime value model for IronShell Shell.
 //!
 //! - Strong, ergonomic `Value` with helpers (`type_name`, accessors).
 //! - Pretty-printing with color via `crossterm` (tables, records, arrays).

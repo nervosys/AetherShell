@@ -1,4 +1,4 @@
-# AetherShell v1.0.0 Security Audit Report
+# IronShell v1.0.0 Security Audit Report
 
 **Date**: June 2025
 **Auditor**: Internal (automated + manual review)
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-This report documents a comprehensive security audit of AetherShell v0.3.1 (pre-1.0) covering dependency vulnerabilities, source code analysis, architecture review, and CI/CD pipeline assessment. The audit identified **11 findings** (3 CRITICAL, 6 HIGH, 1 MEDIUM, 1 INFO), all of which have been remediated.
+This report documents a comprehensive security audit of IronShell v0.3.1 (pre-1.0) covering dependency vulnerabilities, source code analysis, architecture review, and CI/CD pipeline assessment. The audit identified **11 findings** (3 CRITICAL, 6 HIGH, 1 MEDIUM, 1 INFO), all of which have been remediated.
 
 ### Risk Summary
 
@@ -54,7 +54,7 @@ This report documents a comprehensive security audit of AetherShell v0.3.1 (pre-
 
 - **bytes**: Updated 1.11.0 -> 1.11.1 via `cargo update`
 - **time**: Updated 0.3.46 -> 0.3.47 via `cargo update`
-- **lru**: Cannot update (pinned by ratatui dependency chain). Risk accepted — AetherShell uses LRU in single-threaded TUI context only; unsound `Send`/`Sync` not exploitable.
+- **lru**: Cannot update (pinned by ratatui dependency chain). Risk accepted — IronShell uses LRU in single-threaded TUI context only; unsound `Send`/`Sync` not exploitable.
 
 ### 1.3 Post-Fix Status
 
@@ -81,8 +81,8 @@ $ cargo audit
 - **CWE**: CWE-78 (OS Command Injection)
 - **CVSS**: 9.1
 - **Location**: `src/builtins.rs`, `bi_sh`
-- **Description**: The `sh()` builtin executes arbitrary shell commands with no access control. Any AetherShell script or agent could invoke `sh("rm -rf /")` without restriction.
-- **Remediation**: Gated behind `AETHER_ALLOW_SH=true` environment variable via `validate_sh_allowed()`. Added audit logging (`eprintln!("[SECURITY] sh() executed...")`). Disabled by default.
+- **Description**: The `sh()` builtin executes arbitrary shell commands with no access control. Any IronShell script or agent could invoke `sh("rm -rf /")` without restriction.
+- **Remediation**: Gated behind `IRONSHELL_ALLOW_SH=true` environment variable via `validate_sh_allowed()`. Added audit logging (`eprintln!("[SECURITY] sh() executed...")`). Disabled by default.
 - **Status**: ✅ REMEDIATED
 
 ### CRITICAL-003: Timeout Not Enforced in External Tools

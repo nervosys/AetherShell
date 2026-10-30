@@ -1,6 +1,6 @@
 //! Enumerate migration coverage without invoking any builtin.
-use aethershell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
-use aethershell::signature::{signature_of, SIGNATURES};
+use iron_shell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
+use iron_shell::signature::{signature_of, SIGNATURES};
 use std::collections::BTreeMap;
 
 fn main() {

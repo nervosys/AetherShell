@@ -2,7 +2,7 @@
 //!
 //! Each builtin here either keeps real in-process state or refuses with a coded
 //! error. None of these tests opens a socket, reaches a model, or runs a command:
-//! the subprocess checks run `ae` with a hard deadline, a disposable workspace and
+//! the subprocess checks run `ish` with a hard deadline, a disposable workspace and
 //! session directory, and a network budget of zero where a model call could start.
 
 use std::collections::BTreeMap;
@@ -11,9 +11,9 @@ use std::process::{Command, Stdio};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 /// The builtins below share process-wide tables (proposals, workspaces, sessions,
 /// the A2A registry). Each test holds this lock so none sees another's state.
@@ -532,23 +532,23 @@ fn job_submit_refuses_and_issues_no_id() {
     assert_eq!(ok("job_list", vec![]), Value::Array(vec![]));
 }
 
-// ── subprocess: the guards hold inside a real `ae` run ──────────────────────
+// ── subprocess: the guards hold inside a real `ish` run ──────────────────────
 
-/// Run `ae -c <code>` with a hard deadline, disposable state, and the given
+/// Run `ish -c <code>` with a hard deadline, disposable state, and the given
 /// environment. Returns (succeeded, stdout + stderr, lower-cased).
 fn run_ae(code: &str, dir: &std::path::Path, extra: &[(&str, &str)]) -> (bool, String) {
     let session_dir = dir.join("sessions");
     let workspace = dir.join("ws");
     std::fs::create_dir_all(&session_dir).expect("create session dir");
     std::fs::create_dir_all(&workspace).expect("create workspace dir");
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ae"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ish"));
     cmd.arg("-c")
         .arg(code)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .env("AETHER_SESSION_DIR", &session_dir)
-        .env("AETHER_WORKSPACE", &workspace);
+        .env("IRONSHELL_SESSION_DIR", &session_dir)
+        .env("IRONSHELL_WORKSPACE", &workspace);
     for (k, v) in extra {
         cmd.env(k, v);
     }
@@ -591,7 +591,7 @@ fn agent_mode_gates_a_write_made_inside_a_session() {
     let outside_ae = outside.to_string_lossy().replace('\\', "/");
     let code =
         format!("sess_eval(sess_open().session, \"file.write(\\\"{outside_ae}\\\", \\\"x\\\")\")");
-    let (succeeded, out) = run_ae(&code, &dir, &[("AETHER_MODE", "agent")]);
+    let (succeeded, out) = run_ae(&code, &dir, &[("IRONSHELL_MODE", "agent")]);
     assert!(!succeeded, "agent mode must refuse the write: {out}");
     assert!(
         out.contains("outside") || out.contains("e_outside_workspace"),
@@ -612,7 +612,7 @@ fn agent_with_mcp_stops_at_the_network_budget_before_any_model_call() {
     let (succeeded, out) = run_ae(
         "agent_with_mcp(\"hello\", [\"now\"])",
         &dir,
-        &[("AETHER_MODE", "agent"), ("AETHER_MAX_NET", "0")],
+        &[("IRONSHELL_MODE", "agent"), ("IRONSHELL_MAX_NET", "0")],
     );
     assert!(!succeeded, "the run must be refused: {out}");
     assert!(

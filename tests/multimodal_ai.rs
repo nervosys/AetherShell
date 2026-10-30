@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod multimodal_ai_tests {
-    use aethershell::ai::{
+    use iron_shell::ai::{
         complete_multimodal_sync, MultiModalContent, MultiModalLlmBackend, MultiModalMessage,
     };
 
@@ -126,8 +126,8 @@ mod multimodal_ai_tests {
         // This should use the stub backend and return a response
         let result = complete_multimodal_sync(&messages);
 
-        // If AETHER_AI is not set, the result may be an error
-        if std::env::var("AETHER_AI").is_err() {
+        // If IRONSHELL_AI is not set, the result may be an error
+        if std::env::var("IRONSHELL_AI").is_err() {
             // Skip assertion if AI not configured
             return;
         }

@@ -6,8 +6,8 @@
 //! choosing how much to trust `x-effect: pure` cannot tell them apart, and the
 //! difference is exactly the one that matters to it.
 
-use aethershell::builtins::BUILTIN_LOOKUP;
-use aethershell::safety::{effect_is_declared, effect_of, Effect};
+use iron_shell::builtins::BUILTIN_LOOKUP;
+use iron_shell::safety::{effect_is_declared, effect_of, Effect};
 
 #[test]
 fn a_declared_effect_and_the_fallthrough_are_distinguishable() {
@@ -85,7 +85,7 @@ fn the_ontology_flags_only_the_undeclared_and_absence_means_declared() {
     // of +9.2%, measured) and only one direction is actionable. But it means
     // *absence carries meaning*, which is exactly the kind of convention that
     // rots into "the field is missing, so who knows" without a test.
-    use aethershell::agent_api::ontology_describe_json;
+    use iron_shell::agent_api::ontology_describe_json;
 
     let unclassified = ontology_describe_json("upper");
     assert_eq!(unclassified["effect"], "pure");
@@ -113,7 +113,7 @@ fn the_readers_reclassified_from_pure_report_read_local() {
     // The 55 found by body evidence. Spot-checked here so a future edit to the
     // match cannot quietly return them to `pure` -- which would restore the
     // claim that `ls` is referentially transparent.
-    use aethershell::safety::{effect_of, Effect};
+    use iron_shell::safety::{effect_of, Effect};
     for name in [
         "ls", "cat", "head", "tail", "grep", "wc", "fs_stat", "env_var",
     ] {

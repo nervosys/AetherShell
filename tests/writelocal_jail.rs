@@ -43,10 +43,10 @@
 //! known ones to it, and the count of names relying on their bodies is asserted
 //! so it is a measured number rather than an assumption.
 
-use aethershell::builtins::{self, BUILTIN_LOOKUP, FALLBACK_BUILTINS};
-use aethershell::env::Env;
-use aethershell::safety::{effect_of, Effect, SELF_GUARDED};
-use aethershell::value::Value;
+use iron_shell::builtins::{self, BUILTIN_LOOKUP, FALLBACK_BUILTINS};
+use iron_shell::env::Env;
+use iron_shell::safety::{effect_of, Effect, SELF_GUARDED};
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -67,8 +67,8 @@ impl Jail {
         std::fs::create_dir_all(&workspace).expect("workspace");
         let victim = base.join(format!("ae_wlj_victim_{tag}_{}.txt", std::process::id()));
         std::fs::write(&victim, "original\n").expect("seed the victim");
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_WORKSPACE", &workspace);
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
         Self { workspace, victim }
     }
     fn victim_intact(&self) -> bool {
@@ -78,8 +78,8 @@ impl Jail {
 
 impl Drop for Jail {
     fn drop(&mut self) {
-        std::env::remove_var("AETHER_WORKSPACE");
-        std::env::remove_var("AETHER_MODE");
+        std::env::remove_var("IRONSHELL_WORKSPACE");
+        std::env::remove_var("IRONSHELL_MODE");
         let _ = std::fs::remove_file(&self.victim);
         let _ = std::fs::remove_dir_all(&self.workspace);
     }
@@ -337,11 +337,11 @@ fn file_move_finds_a_relative_source_in_the_workspace() {
     let code = result
         .as_ref()
         .err()
-        .and_then(|e| e.downcast_ref::<aethershell::safety::SafetyError>())
+        .and_then(|e| e.downcast_ref::<iron_shell::safety::SafetyError>())
         .map(|s| s.code);
     assert_ne!(
         code,
-        Some(aethershell::safety::ErrorCode::NotFound),
+        Some(iron_shell::safety::ErrorCode::NotFound),
         "{result:?}"
     );
 }

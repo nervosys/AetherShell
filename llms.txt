@@ -1,16 +1,16 @@
-# AetherShell
+# IronShell
 
 > One language, every platform, deterministic typed output — the shell built for AI agents.
 
 Current source version: 12.0.2. Next planned release: 13.0.0. The ontology currently lists 1,172 builtins, with 1,438 callable names including aliases.
 
-AetherShell (`ae`) is a shell and scripting language written in Rust that eliminates the brittle text-parsing layer between AI agents and operating systems. Traditional shells (Bash, PowerShell, Zsh) produce unstructured output that varies by OS version, locale, and tool installation, making agent workflows non-deterministic. AetherShell replaces this with typed, structured data flows using Hindley-Milner type inference — every command returns deterministic Records, Arrays, and Tables, not raw text. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable. It provides 1,100+ builtins across 108 modules, native AI agents with multi-modal support, and the MCP/A2A/A2UI/NANDA agentic protocols.
+IronShell (`ish`) is a shell and scripting language written in Rust that eliminates the brittle text-parsing layer between AI agents and operating systems. Traditional shells (Bash, PowerShell, Zsh) produce unstructured output that varies by OS version, locale, and tool installation, making agent workflows non-deterministic. IronShell replaces this with typed, structured data flows using Hindley-Milner type inference — every command returns deterministic Records, Arrays, and Tables, not raw text. An ontology built into the shell makes commands, their arguments, and their return types machine-discoverable. It provides 1,100+ builtins across 108 modules, native AI agents with multi-modal support, and the MCP/A2A/A2UI/NANDA agentic protocols.
 
 ## Quick Links
 
 - Repository: https://github.com/nervosys/AetherShell
-- Crate: https://crates.io/crates/aethershell
-- VS Code: https://marketplace.visualstudio.com/items?itemName=admercs.aethershell
+- Crate: https://crates.io/crates/iron-shell
+- VS Code: https://marketplace.visualstudio.com/items?itemName=admercs.ironshell
 - License: AGPL-3.0-or-later (commercial license available)
 - Full AI context: https://raw.githubusercontent.com/nervosys/AetherShell/master/llms-full.txt
 - Agent API spec: https://raw.githubusercontent.com/nervosys/AetherShell/master/.well-known/openapi.yaml
@@ -43,26 +43,26 @@ AetherShell (`ae`) is a shell and scripting language written in Rust that elimin
 ## Installation
 
 ```bash
-cargo install aethershell
+cargo install iron-shell
 ```
 
 ## Usage
 
 ```bash
-ae                           # REPL
-ae tui                       # Interactive TUI
-ae script.ae                 # Run script
-ae -c 'expr'                 # Evaluate expression
-ae assist "query"            # AI assistant
-ae agent serve               # Start Agent API server on :3002
-ae --bash script.sh          # Transpile Bash → AetherShell
-ae --zsh  script.zsh         # Transpile Zsh  → AetherShell
-ae --pwsh script.ps1         # Transpile PowerShell → AetherShell
-ae script.sh                 # Auto-detect shell by extension
-ae --bash script.sh          # Transpile Bash → AetherShell
-ae --zsh  script.zsh         # Transpile Zsh  → AetherShell
-ae --pwsh script.ps1         # Transpile PowerShell → AetherShell
-ae script.sh                 # Auto-detect shell by extension
+ish                           # REPL
+ish tui                       # Interactive TUI
+ish script.ish                 # Run script
+ish -c 'expr'                 # Evaluate expression
+ish assist "query"            # AI assistant
+ish agent serve               # Start Agent API server on :3002
+ish --bash script.sh          # Transpile Bash → IronShell
+ish --zsh  script.zsh         # Transpile Zsh  → IronShell
+ish --pwsh script.ps1         # Transpile PowerShell → IronShell
+ish script.sh                 # Auto-detect shell by extension
+ish --bash script.sh          # Transpile Bash → IronShell
+ish --zsh  script.zsh         # Transpile Zsh  → IronShell
+ish --pwsh script.ps1         # Transpile PowerShell → IronShell
+ish script.sh                 # Auto-detect shell by extension
 ```
 
 ## For AI Agents

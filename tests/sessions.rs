@@ -2,11 +2,11 @@
 //! across `session_eval` calls in one environment, so an agent accrues state
 //! without re-sending prior context.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 
 fn call(name: &str, args: Vec<Value>) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 fn s(x: &str) -> Value {
@@ -58,8 +58,8 @@ fn session_persists_bindings_across_calls() {
         Value::Record(m) => assert_eq!(m.get("closed"), Some(&Value::Bool(true))),
         other => panic!("expected record, got {other:?}"),
     }
-    let mut env = aethershell::env::Env::new();
-    let after = aethershell::builtins::call("sess_eval", vec![s(&id), s("1")], &mut env);
+    let mut env = iron_shell::env::Env::new();
+    let after = iron_shell::builtins::call("sess_eval", vec![s(&id), s("1")], &mut env);
     assert!(after.is_err(), "eval on a closed session should error");
 }
 
@@ -77,8 +77,8 @@ fn distinct_sessions_are_isolated() {
 
     call("sess_eval", vec![s(&id1), s("let y = 7")]);
     // y is not defined in session 2.
-    let mut env = aethershell::env::Env::new();
-    let cross = aethershell::builtins::call("sess_eval", vec![s(&id2), s("y")], &mut env);
+    let mut env = iron_shell::env::Env::new();
+    let cross = iron_shell::builtins::call("sess_eval", vec![s(&id2), s("y")], &mut env);
     assert!(
         !matches!(cross, Ok(Value::Int(7))),
         "session 2 must not see session 1's binding"
@@ -100,7 +100,7 @@ fn get_session(m: &std::collections::BTreeMap<String, Value>) -> String {
 
 #[test]
 fn agent_api_call_drives_stateful_sessions() {
-    use aethershell::agent_api::{process_request, AgentRequest};
+    use iron_shell::agent_api::{process_request, AgentRequest};
     use serde_json::json;
 
     let open = process_request(&AgentRequest::Call {
@@ -140,7 +140,7 @@ fn agent_api_call_drives_stateful_sessions() {
 
 #[test]
 fn agent_api_call_drives_plan() {
-    use aethershell::agent_api::{process_request, AgentRequest};
+    use iron_shell::agent_api::{process_request, AgentRequest};
     use serde_json::json;
 
     // plan takes a single arg: the ops array. (Human mode → plan only reviews.)

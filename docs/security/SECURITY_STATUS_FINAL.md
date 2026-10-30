@@ -1,4 +1,4 @@
-# AetherShell Security Status - Final Report
+# IronShell Security Status - Final Report
 **Date**: October 29, 2025  
 **Version**: v0.1.0  
 **Status**: ✅ **PRODUCTION READY**
@@ -7,7 +7,7 @@
 
 ## 🎯 Executive Summary
 
-AetherShell has successfully completed a comprehensive security hardening initiative based on the Red Team Security Audit. All blocking security vulnerabilities have been resolved, with significant additional hardening beyond initial requirements.
+IronShell has successfully completed a comprehensive security hardening initiative based on the Red Team Security Audit. All blocking security vulnerabilities have been resolved, with significant additional hardening beyond initial requirements.
 
 ### Final Metrics
 
@@ -271,12 +271,12 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 # Security Configuration
 export AGENT_ALLOW_CMDS=ls,cat,grep,find,git
-export AETHER_MODE=agent
-export AETHER_WORKSPACE=/srv/work
-export AETHER_MAX_FILES=1000
+export IRONSHELL_MODE=agent
+export IRONSHELL_WORKSPACE=/srv/work
+export IRONSHELL_MAX_FILES=1000
 
 # Audit Logging
-export AETHER_AUDIT_LOG=/var/log/aether/audit.json
+export IRONSHELL_AUDIT_LOG=/var/log/ironshell/audit.json
 ```
 
 ### Monitoring Setup

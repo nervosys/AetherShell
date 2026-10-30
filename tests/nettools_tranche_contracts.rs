@@ -8,13 +8,13 @@
 //! loopback listener that a test starts itself. Every refusal is decided before
 //! a tool runs. Nothing attaches a tracer to a process this file did not start,
 //! reads a system journal, runs nmap against a host, or runs logrotate on a
-//! system configuration. Tests that spawn `ae` give it a 30 s deadline and a
+//! system configuration. Tests that spawn `ish` give it a 30 s deadline and a
 //! closed stdin, and the only programs run are this test binary and the
 //! `top_snapshot` process table read.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -31,7 +31,7 @@ fn base() -> PathBuf {
     std::env::temp_dir().join(format!("ae_nettools_{}", std::process::id()))
 }
 
-/// The workspace every test uses, set through `AETHER_WORKSPACE` before the first
+/// The workspace every test uses, set through `IRONSHELL_WORKSPACE` before the first
 /// call, so child processes inherit it too.
 fn isolate() {
     static ONCE: Once = Once::new();
@@ -39,8 +39,8 @@ fn isolate() {
         let _ = std::fs::remove_dir_all(base());
         let ws = base().join("ws");
         std::fs::create_dir_all(&ws).expect("workspace");
-        std::env::set_var("AETHER_SESSION_DIR", base().join("session"));
-        std::env::set_var("AETHER_WORKSPACE", &ws);
+        std::env::set_var("IRONSHELL_SESSION_DIR", base().join("session"));
+        std::env::set_var("IRONSHELL_WORKSPACE", &ws);
     });
 }
 
@@ -49,7 +49,7 @@ fn workspace() -> PathBuf {
     base().join("ws")
 }
 
-/// `AETHER_MODE` is process-global, so every in-process call takes this lock.
+/// `IRONSHELL_MODE` is process-global, so every in-process call takes this lock.
 static MODE_LOCK: Mutex<()> = Mutex::new(());
 
 fn locked() -> std::sync::MutexGuard<'static, ()> {
@@ -59,8 +59,8 @@ fn locked() -> std::sync::MutexGuard<'static, ()> {
 /// A call in human mode, the mode in which the coded refusals below are reached.
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     isolate();
     let mut env = Env::new();
     builtins::call(name, args, &mut env)
@@ -68,8 +68,8 @@ fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
 
 fn piped(name: &str, args: Vec<Value>, input: Value) -> anyhow::Result<Value> {
     let _guard = locked();
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     isolate();
     let mut env = Env::new();
     builtins::call_with_input(name, args, Some(input), &mut env)
@@ -638,7 +638,7 @@ fn serve(replies: Vec<Reply>) -> Loopback {
     Loopback { port, handle }
 }
 
-// ── `ae` as a child process, with a hard deadline and a closed stdin ─────
+// ── `ish` as a child process, with a hard deadline and a closed stdin ─────
 
 fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
@@ -650,16 +650,16 @@ fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> JoinHandle<Vec<u8>> {
     })
 }
 
-/// Run `expr` through the `ae` binary in `dir`, optionally with `path_dir` as
+/// Run `expr` through the `ish` binary in `dir`, optionally with `path_dir` as
 /// its whole PATH, and return stdout and stderr together.
 fn ae(dir: &Path, expr: &str, path_dir: Option<&Path>) -> String {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ae"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ish"));
     cmd.current_dir(dir)
-        .env("AETHER_SESSION_DIR", dir.join("session"))
-        .env("AETHER_WORKSPACE", dir)
-        .env_remove("AETHER_MODE")
-        .env_remove("AETHER_AGENT")
-        .env_remove("AETHER_POLICY")
+        .env("IRONSHELL_SESSION_DIR", dir.join("session"))
+        .env("IRONSHELL_WORKSPACE", dir)
+        .env_remove("IRONSHELL_MODE")
+        .env_remove("IRONSHELL_AGENT")
+        .env_remove("IRONSHELL_POLICY")
         .args(["-c", expr])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

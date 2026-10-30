@@ -14,9 +14,9 @@
 //! Windows) through the same helpers the builtins use.
 
 #[cfg(unix)]
-use aethershell::env::Env;
+use iron_shell::env::Env;
 #[cfg(unix)]
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -53,7 +53,7 @@ fn code_of(e: &anyhow::Error) -> String {
 #[cfg(unix)]
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 /// A payload of `LARGE_PAYLOAD` bytes made of short text lines.
@@ -130,7 +130,7 @@ fn legacy_decrypt_of_a_payload_over_one_mib_round_trips() {
         "the ciphertext must exceed a pipe buffer to exercise the deadlock"
     );
 
-    std::env::set_var("AETHER_CRYPTO_LEGACY_DECRYPT", "1");
+    std::env::set_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT", "1");
     let got = bounded("legacy crypto_decrypt", {
         let ciphertext = ciphertext.clone();
         move || {
@@ -140,7 +140,7 @@ fn legacy_decrypt_of_a_payload_over_one_mib_round_trips() {
             )
         }
     });
-    std::env::remove_var("AETHER_CRYPTO_LEGACY_DECRYPT");
+    std::env::remove_var("IRONSHELL_CRYPTO_LEGACY_DECRYPT");
 
     match got {
         Ok(Value::Str(text)) => assert!(
@@ -186,7 +186,7 @@ fn scheduler_tool_runner_passes_a_payload_over_one_mib_through() {
     let expected = count_x(&payload);
     let (tool, args) = COPY_TOOL;
     let got = bounded("scheduler run_tool", move || {
-        aethershell::builtins::__test_scheduler_run_tool(tool, args, Some(&payload))
+        iron_shell::builtins::__test_scheduler_run_tool(tool, args, Some(&payload))
     });
     let output = got.unwrap_or_else(|e| panic!("run_tool refused a large payload: {e}"));
     assert!(
@@ -207,7 +207,7 @@ fn scheduler_tool_runner_refuses_output_past_its_bound() {
     let payload = copy_payload(17 * 1024 * 1024);
     let (tool, args) = COPY_TOOL;
     let got = bounded("scheduler run_tool", move || {
-        aethershell::builtins::__test_scheduler_run_tool(tool, args, Some(&payload))
+        iron_shell::builtins::__test_scheduler_run_tool(tool, args, Some(&payload))
     });
     match got {
         Err(e) => assert_eq!(code_of(&e), "E_BUDGET_EXCEEDED", "{e}"),
@@ -229,7 +229,7 @@ fn scheduler_tool_runner_kills_a_tool_past_its_deadline() {
     let (tool, args): (&str, &[&str]) = ("ping", &["-n", "40", "127.0.0.1"]);
     let started = Instant::now();
     let got = bounded("scheduler run_tool deadline", move || {
-        aethershell::builtins::__test_scheduler_run_tool(tool, args, None)
+        iron_shell::builtins::__test_scheduler_run_tool(tool, args, None)
     });
     let elapsed = started.elapsed();
     match got {
@@ -250,7 +250,7 @@ fn account_spawn_passes_a_payload_over_one_mib_through() {
     let payload = large_text();
     let expected = payload.clone();
     let got = bounded("account spawn", move || {
-        aethershell::builtins::__test_accounts_spawn("cat", &[], Some(&payload))
+        iron_shell::builtins::__test_accounts_spawn("cat", &[], Some(&payload))
     });
     let output = got.unwrap_or_else(|e| panic!("account spawn refused a large payload: {e}"));
     assert!(output.status.success());
@@ -263,7 +263,7 @@ fn account_spawn_passes_a_payload_over_one_mib_through() {
 fn account_spawn_is_refused_off_linux_with_a_large_payload() {
     let payload = large_text();
     let got = bounded("account spawn", move || {
-        aethershell::builtins::__test_accounts_spawn("cat", &[], Some(&payload))
+        iron_shell::builtins::__test_accounts_spawn("cat", &[], Some(&payload))
     });
     match got {
         Err(e) => assert_eq!(code_of(&e), "E_UNIMPLEMENTED", "{e}"),

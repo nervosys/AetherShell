@@ -32,7 +32,7 @@ const have = (bin) => {
     return r.status === 0 || r.status === 1; // sqlite3 --version exits 0; be lenient
 };
 
-// BENCH_ENGINES=aethershell,bash+jq restricts the run. `bash+coreutils` spawns
+// BENCH_ENGINES=ironshell,bash+jq restricts the run. `bash+coreutils` spawns
 // roughly 2,000 processes per query and dominates the wall clock, so a timing
 // re-run of the fast engines is worth being able to ask for on its own.
 const only = process.env.BENCH_ENGINES?.split(',').map((s) => s.trim()).filter(Boolean);

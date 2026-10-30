@@ -14,9 +14,9 @@
 #[path = "support/disposable.rs"]
 mod disposable;
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 #[cfg(target_os = "linux")]

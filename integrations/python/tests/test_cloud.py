@@ -1,5 +1,5 @@
 """
-Tests for AetherShell Python SDK - Cloud Platform
+Tests for IronShell Python SDK - Cloud Platform
 """
 
 import pytest
@@ -8,7 +8,7 @@ import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
-from aethershell.cloud import (
+from ironshell.cloud import (
     CloudProvider,
     FunctionConfig,
     DeploymentConfig,
@@ -25,7 +25,7 @@ from aethershell.cloud import (
 SAMPLE_AGENT_CODE = '''
 def create_agent(runtime):
     """Create the agent for this function"""
-    from aethershell import Agent
+    from ironshell import Agent
     return Agent(
         name="test-agent",
         model="openai:gpt-4o-mini",
@@ -70,7 +70,7 @@ class TestLambdaRuntime:
         assert "lambda_handler" in handler
         assert "def create_agent" in handler
         assert "asyncio.run" in handler
-        assert "AetherRuntime" in handler
+        assert "IronShellRuntime" in handler
     
     def test_generate_deployment_sam_template(self):
         """Generates SAM template"""
@@ -106,7 +106,7 @@ class TestLambdaRuntime:
         runtime = LambdaRuntime()
         reqs = runtime.get_requirements()
         
-        assert any("aethershell" in r for r in reqs)
+        assert any("ironshell" in r for r in reqs)
         assert any("boto3" in r for r in reqs)
 
 
@@ -157,7 +157,7 @@ class TestAzureFunctionsRuntime:
         runtime = AzureFunctionsRuntime()
         reqs = runtime.get_requirements()
         
-        assert any("aethershell" in r for r in reqs)
+        assert any("ironshell" in r for r in reqs)
         assert any("azure-functions" in r for r in reqs)
 
 
@@ -208,7 +208,7 @@ class TestGCPFunctionsRuntime:
         runtime = GCPFunctionsRuntime()
         reqs = runtime.get_requirements()
         
-        assert any("aethershell" in r for r in reqs)
+        assert any("ironshell" in r for r in reqs)
         assert any("functions-framework" in r for r in reqs)
 
 
@@ -290,7 +290,7 @@ class TestKnativeRuntime:
         runtime = KnativeRuntime()
         reqs = runtime.get_requirements()
         
-        assert any("aethershell" in r for r in reqs)
+        assert any("ironshell" in r for r in reqs)
         assert any("fastapi" in r for r in reqs)
         assert any("uvicorn" in r for r in reqs)
 

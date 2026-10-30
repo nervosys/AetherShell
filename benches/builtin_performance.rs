@@ -1,6 +1,6 @@
-use aethershell::builtins::call_with_input;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call_with_input;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::BTreeMap;
 
@@ -55,12 +55,12 @@ fn benchmark_array_functions(c: &mut Criterion) {
         });
 
         // Create a simple lambda for any/all tests
-        let lambda_gt_500 = Value::Lambda(aethershell::value::Lambda {
+        let lambda_gt_500 = Value::Lambda(iron_shell::value::Lambda {
             params: vec!["x".to_string()],
-            body: Box::new(aethershell::ast::Expr::Binary {
-                op: aethershell::ast::BinOp::Gt,
-                left: Box::new(aethershell::ast::Expr::Ident("x".to_string())),
-                right: Box::new(aethershell::ast::Expr::LitInt(500)),
+            body: Box::new(iron_shell::ast::Expr::Binary {
+                op: iron_shell::ast::BinOp::Gt,
+                left: Box::new(iron_shell::ast::Expr::Ident("x".to_string())),
+                right: Box::new(iron_shell::ast::Expr::LitInt(500)),
             }),
             // References only its own parameter, so nothing is free to capture.
             captured: Default::default(),

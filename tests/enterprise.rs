@@ -1,7 +1,7 @@
 // tests/enterprise.rs - Enterprise features tests (RBAC, Audit, SSO, Compliance, Fine-tuning)
-use aethershell::builtins::call;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 // ===================== RBAC Tests =====================
 

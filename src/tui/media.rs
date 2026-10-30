@@ -211,7 +211,7 @@ impl AudioPlayer {
     pub fn play(&self, path: &str) -> Result<()> {
         Err(anyhow::anyhow!(
             "audio playback is not implemented (requested {path:?}); \
-             AetherShell has no audio backend compiled in"
+             IronShell has no audio backend compiled in"
         ))
     }
 

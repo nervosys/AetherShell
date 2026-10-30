@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AetherShell Security Audit Script
+IronShell Security Audit Script
 Comprehensive security compliance verification
 """
 
@@ -247,7 +247,7 @@ class SecurityAudit:
     
     def run_comprehensive_audit(self):
         """Run all security audits"""
-        print("🛡️  Starting AetherShell Security Audit...")
+        print("🛡️  Starting IronShell Security Audit...")
         print("=" * 50)
         
         self.audit_unsafe_code()

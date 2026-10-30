@@ -5,7 +5,7 @@
 //! character panicked the evaluator:
 //!
 //! ```text
-//! thread 'aether-eval' panicked at src/value.rs:470:
+//! thread 'ironshell-eval' panicked at src/value.rs:470:
 //! end byte index 80 is not a char boundary; it is inside '─' (bytes 79..82)
 //! ```
 //!

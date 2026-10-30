@@ -1,10 +1,10 @@
-# AetherShell Integration Plan
+# IronShell Integration Plan
 
-Strategic roadmap for integrating AetherShell into operating systems, web browsers, and AI applications.
+Strategic roadmap for integrating IronShell into operating systems, web browsers, and AI applications.
 
 ## Executive Summary
 
-AetherShell's unique combination of typed pipelines, multimodal AI, and agent frameworks positions it as an ideal integration target for modern computing platforms. This plan outlines three integration vectors:
+IronShell's unique combination of typed pipelines, multimodal AI, and agent frameworks positions it as an ideal integration target for modern computing platforms. This plan outlines three integration vectors:
 
 1. **OS Integration** - Native shell replacement and system-level AI assistant
 2. **Browser Integration** - WebAssembly-powered terminal and AI command interface
@@ -28,22 +28,22 @@ Timeline: Q1-Q2 2026
 | ------------------ | ------------------------------------------------------------- | ------- |
 | Terminal Emulator  | Windows Terminal integration via JSON fragment                | Planned |
 | PowerShell Interop | Seamless PS cmdlet execution via `transpile/bash.rs` patterns | Planned |
-| COM Automation     | Expose AetherShell as COM server for Office/Windows apps      | Planned |
+| COM Automation     | Expose IronShell as COM server for Office/Windows apps      | Planned |
 | Windows Sandbox    | AI agent sandboxing via Windows Sandbox API                   | Planned |
 | WSL Bridge         | Bidirectional communication with WSL2 environments            | Planned |
 
 **Registry Integration:**
 ```registry
-[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\ae.exe]
-@="C:\\Program Files\\AetherShell\\ae.exe"
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\ish.exe]
+@="C:\\Program Files\\IronShell\\ish.exe"
 ```
 
 **Windows Terminal Profile:**
 ```json
 {
-  "name": "AetherShell",
-  "commandline": "ae.exe --tui",
-  "icon": "ms-appx:///Assets/aether-icon.png",
+  "name": "IronShell",
+  "commandline": "ish.exe --tui",
+  "icon": "ms-appx:///Assets/ironshell-icon.png",
   "startingDirectory": "%USERPROFILE%"
 }
 ```
@@ -58,9 +58,9 @@ Timeline: Q2 2026
 | --------------------- | ------------------------------------------------ | ------- |
 | Default Shell         | `/etc/shells` registration, `chsh` compatibility | Planned |
 | Spotlight Integration | Expose `ai` builtin via Spotlight Suggestions    | Planned |
-| Shortcuts App         | AetherShell actions for Shortcuts automation     | Planned |
+| Shortcuts App         | IronShell actions for Shortcuts automation     | Planned |
 | Terminal.app Profile  | Native terminal profile with AI keybindings      | Planned |
-| Homebrew Formula      | `brew install aethershell` distribution          | Planned |
+| Homebrew Formula      | `brew install ironshell` distribution          | Planned |
 
 **Shell Registration:**
 ```bash
@@ -68,7 +68,7 @@ Timeline: Q2 2026
 /usr/local/bin/ae
 
 # LaunchAgent for AI services
-~/Library/LaunchAgents/com.nervosys.aethershell.plist
+~/Library/LaunchAgents/com.nervosys.ironshell.plist
 ```
 
 #### Linux Integration
@@ -80,15 +80,15 @@ Timeline: Q1 2026
 | Component       | Description                                      | Status  |
 | --------------- | ------------------------------------------------ | ------- |
 | Login Shell     | PAM module for session initialization            | Planned |
-| Systemd Service | `aether-ai.service` for background AI operations | Planned |
+| Systemd Service | `ironshell-ai.service` for background AI operations | Planned |
 | D-Bus Interface | IPC for desktop environment integration          | Planned |
-| XDG Compliance  | Config in `~/.config/aethershell/`               | Planned |
+| XDG Compliance  | Config in `~/.config/ironshell/`               | Planned |
 | Package Formats | .deb, .rpm, .pkg.tar.zst, Flatpak, Snap          | Planned |
 
 **Systemd Service:**
 ```ini
 [Unit]
-Description=AetherShell AI Background Service
+Description=IronShell AI Background Service
 After=network.target
 
 [Service]
@@ -116,7 +116,7 @@ WantedBy=default.target
 │         └────────────────┼─────────────────────┘             │
 │                          │                                   │
 │                    ┌─────▼─────┐                            │
-│                    │ AetherShell│                            │
+│                    │ IronShell│                            │
 │                    │  AI Layer  │                            │
 │                    ├───────────┤                            │
 │                    │ • Agents  │                            │
@@ -187,7 +187,7 @@ Timeline: Q4 2026
 │  └──────────────────────────┼──────────────────────────┘    │
 │                             │                                │
 │  ┌──────────────────────────▼──────────────────────────┐    │
-│  │              AetherShell WASM Module                 │    │
+│  │              IronShell WASM Module                 │    │
 │  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌────────┐  │    │
 │  │  │  Parser │  │  Eval   │  │Builtins │  │   AI   │  │    │
 │  │  │         │  │         │  │ (safe)  │  │ Client │  │    │
@@ -213,10 +213,10 @@ wasm = ["wasm-bindgen", "js-sys", "web-sys"]
 
 **JavaScript Bindings:**
 ```typescript
-// aethershell.d.ts
+// ironshell.d.ts
 declare module '@nervosys/aethershell' {
-  export class AetherShell {
-    constructor(config?: AetherConfig);
+  export class IronShell {
+    constructor(config?: IronShellConfig);
     
     // Core evaluation
     eval(code: string): Promise<Value>;
@@ -234,7 +234,7 @@ declare module '@nervosys/aethershell' {
     pipe(input: Value, ...operations: string[]): Promise<Value>;
   }
   
-  export interface AetherConfig {
+  export interface IronShellConfig {
     aiProvider?: 'openai' | 'ollama' | 'browser';
     sandboxLevel?: 'strict' | 'permissive';
     maxMemoryMB?: number;
@@ -248,7 +248,7 @@ declare module '@nervosys/aethershell' {
 ```json
 {
   "manifest_version": 3,
-  "name": "AetherShell",
+  "name": "IronShell",
   "version": "0.2.0",
   "description": "AI-powered shell for the browser",
   "permissions": [
@@ -264,12 +264,12 @@ declare module '@nervosys/aethershell' {
   },
   "action": {
     "default_popup": "popup.html",
-    "default_icon": "icons/aether-48.png"
+    "default_icon": "icons/ironshell-48.png"
   },
   "commands": {
     "open-terminal": {
       "suggested_key": { "default": "Ctrl+Shift+A" },
-      "description": "Open AetherShell terminal"
+      "description": "Open IronShell terminal"
     },
     "ai-assist": {
       "suggested_key": { "default": "Ctrl+Shift+I" },
@@ -283,7 +283,7 @@ declare module '@nervosys/aethershell' {
 
 | Feature          | Description                          | Implementation            |
 | ---------------- | ------------------------------------ | ------------------------- |
-| Terminal Overlay | Full AetherShell in browser popup    | WASM + xterm.js           |
+| Terminal Overlay | Full IronShell in browser popup    | WASM + xterm.js           |
 | Page Scripting   | `page_select`, `page_click` builtins | content script injection  |
 | AI on Selection  | Right-click → AI actions             | context menu + ai builtin |
 | Form Automation  | Agent-driven form filling            | DOM manipulation tools    |
@@ -313,19 +313,19 @@ declare module '@nervosys/aethershell' {
 ```typescript
 // vscode extension for web
 import * as vscode from 'vscode';
-import { AetherShell } from '@nervosys/aethershell';
+import { IronShell } from '@nervosys/aethershell';
 
 export function activate(context: vscode.ExtensionContext) {
-  const shell = new AetherShell({ aiProvider: 'browser' });
+  const shell = new IronShell({ aiProvider: 'browser' });
   
   // Terminal provider
   const terminalProvider = vscode.window.registerTerminalProfileProvider(
-    'aethershell.terminal',
+    'ironshell.terminal',
     {
       provideTerminalProfile: () => ({
         options: {
-          name: 'AetherShell',
-          pty: new AetherShellPty(shell)
+          name: 'IronShell',
+          pty: new IronShellPty(shell)
         }
       })
     }
@@ -333,7 +333,7 @@ export function activate(context: vscode.ExtensionContext) {
   
   // AI command palette
   context.subscriptions.push(
-    vscode.commands.registerCommand('aethershell.ai', async () => {
+    vscode.commands.registerCommand('ironshell.ai', async () => {
       const input = await vscode.window.showInputBox({
         prompt: 'Ask AI...'
       });
@@ -347,7 +347,7 @@ export function activate(context: vscode.ExtensionContext) {
 ```
 
 **JupyterLab Extension:**
-- AetherShell kernel for notebook execution
+- IronShell kernel for notebook execution
 - AI cell magic: `%%ai explain this code`
 - Pipeline visualization widget
 
@@ -368,7 +368,7 @@ export function activate(context: vscode.ExtensionContext) {
 │  └──────────────────────┬──────────────────────────────┘    │
 │                         │                                    │
 │  ┌──────────────────────▼──────────────────────────────┐    │
-│  │              AetherShell Agent Layer                 │    │
+│  │              IronShell Agent Layer                 │    │
 │  │  ┌─────────────────────────────────────────────┐    │    │
 │  │  │              Agent Orchestrator              │    │    │
 │  │  │  ┌─────────┐  ┌─────────┐  ┌─────────────┐  │    │    │
@@ -402,13 +402,13 @@ export function activate(context: vscode.ExtensionContext) {
 
 ```rust
 // Rust SDK for AI apps
-pub struct AetherRuntime {
+pub struct IronShellRuntime {
     env: Env,
     agents: HashMap<String, Agent>,
     mcp_servers: Vec<McpClient>,
 }
 
-impl AetherRuntime {
+impl IronShellRuntime {
     /// Create a new agent with specified capabilities
     pub fn create_agent(&mut self, config: AgentConfig) -> AgentHandle;
     
@@ -428,9 +428,9 @@ impl AetherRuntime {
 
 ```python
 # Python SDK
-from aethershell import AetherRuntime, Agent, Swarm
+from ironshell import IronShellRuntime, Agent, Swarm
 
-runtime = AetherRuntime()
+runtime = IronShellRuntime()
 
 # Create specialized agents
 researcher = runtime.create_agent(
@@ -459,14 +459,14 @@ result = await runtime.run_swarm(
 **LangChain Tool:**
 ```python
 from langchain.tools import BaseTool
-from aethershell import AetherRuntime
+from ironshell import IronShellRuntime
 
-class AetherShellTool(BaseTool):
-    name = "aethershell"
-    description = "Execute AetherShell commands with typed pipelines"
+class IronShellTool(BaseTool):
+    name = "ironshell"
+    description = "Execute IronShell commands with typed pipelines"
     
     def __init__(self):
-        self.runtime = AetherRuntime()
+        self.runtime = IronShellRuntime()
     
     def _run(self, command: str) -> str:
         result = self.runtime.eval(command)
@@ -475,7 +475,7 @@ class AetherShellTool(BaseTool):
 # Usage in LangChain
 from langchain.agents import initialize_agent
 agent = initialize_agent(
-    tools=[AetherShellTool()],
+    tools=[IronShellTool()],
     llm=llm,
     agent="zero-shot-react-description"
 )
@@ -484,28 +484,28 @@ agent = initialize_agent(
 **LlamaIndex Tool Spec:**
 ```python
 from llama_index.tools import FunctionTool
-from aethershell import AetherRuntime
+from ironshell import IronShellRuntime
 
-runtime = AetherRuntime()
+runtime = IronShellRuntime()
 
-def aether_pipeline(code: str) -> str:
-    """Execute an AetherShell pipeline and return structured results."""
+def ironshell_pipeline(code: str) -> str:
+    """Execute an IronShell pipeline and return structured results."""
     return runtime.eval(code).to_json()
 
-aether_tool = FunctionTool.from_defaults(
-    fn=aether_pipeline,
-    name="aether_pipeline",
+ironshell_tool = FunctionTool.from_defaults(
+    fn=ironshell_pipeline,
+    name="ironshell_pipeline",
     description="Run typed data pipelines with AI integration"
 )
 ```
 
 ### 3.3 Model Context Protocol (MCP) Server
 
-AetherShell as an MCP server exposes its capabilities to any MCP-compatible AI:
+IronShell as an MCP server exposes its capabilities to any MCP-compatible AI:
 
 ```json
 {
-  "name": "aethershell",
+  "name": "ironshell",
   "version": "0.2.0",
   "capabilities": {
     "tools": true,
@@ -521,7 +521,7 @@ AetherShell as an MCP server exposes its capabilities to any MCP-compatible AI:
   "tools": [
     {
       "name": "eval",
-      "description": "Evaluate AetherShell code",
+      "description": "Evaluate IronShell code",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -566,14 +566,14 @@ AetherShell as an MCP server exposes its capabilities to any MCP-compatible AI:
 {
   "functions": [
     {
-      "name": "aethershell_eval",
-      "description": "Execute AetherShell code with typed pipelines and AI builtins",
+      "name": "ironshell_eval",
+      "description": "Execute IronShell code with typed pipelines and AI builtins",
       "parameters": {
         "type": "object",
         "properties": {
           "code": {
             "type": "string",
-            "description": "AetherShell code to execute"
+            "description": "IronShell code to execute"
           },
           "timeout_ms": {
             "type": "integer",
@@ -584,7 +584,7 @@ AetherShell as an MCP server exposes its capabilities to any MCP-compatible AI:
       }
     },
     {
-      "name": "aethershell_agent",
+      "name": "ironshell_agent",
       "description": "Create and run an AI agent with specified goal and tools",
       "parameters": {
         "type": "object",
@@ -621,7 +621,7 @@ AetherShell as an MCP server exposes its capabilities to any MCP-compatible AI:
 | 3-4   | Browser Package   | npm package `@nervosys/aethershell`   |
 | 5-6   | Linux Packages    | .deb, .rpm, AUR package               |
 | 7-8   | Python SDK        | PyPI package with agent orchestration |
-| 9-10  | MCP Server        | AetherShell as MCP tool provider      |
+| 9-10  | MCP Server        | IronShell as MCP tool provider      |
 | 11-12 | Integration Tests | Cross-platform test suite             |
 
 ### Q2 2026
@@ -645,7 +645,7 @@ AetherShell as an MCP server exposes its capabilities to any MCP-compatible AI:
 | Week | Milestone               | Deliverables                       |
 | ---- | ----------------------- | ---------------------------------- |
 | 1-6  | Advanced OS Integration | eBPF (Linux), deeper Windows hooks |
-| 7-12 | Cloud Platform          | Hosted AetherShell runtime         |
+| 7-12 | Cloud Platform          | Hosted IronShell runtime         |
 
 ---
 
@@ -663,7 +663,7 @@ AetherShell as an MCP server exposes its capabilities to any MCP-compatible AI:
 
 ```
 ┌─────────┐     ┌─────────────┐     ┌─────────────┐
-│  User   │────▶│ AetherShell │────▶│  AI Provider│
+│  User   │────▶│ IronShell │────▶│  AI Provider│
 └─────────┘     └─────────────┘     └─────────────┘
      │                │                    │
      │  1. Auth       │  2. Token          │
@@ -693,7 +693,7 @@ AetherShell as an MCP server exposes its capabilities to any MCP-compatible AI:
 ## Appendix: File Structure for Integrations
 
 ```
-AetherShell/
+IronShell/
 ├── src/                      # Core Rust implementation
 ├── web/                      # Existing WASM foundation
 │   ├── Cargo.toml
@@ -709,7 +709,7 @@ AetherShell/
 │   │   └── content/
 │   ├── python/               # Python SDK
 │   │   ├── pyproject.toml
-│   │   ├── aethershell/
+│   │   ├── ironshell/
 │   │   └── tests/
 │   ├── node/                 # Node.js bindings
 │   │   ├── package.json
@@ -739,7 +739,7 @@ AetherShell/
 
 ## References
 
-- [AetherShell Documentation](./README.md)
+- [IronShell Documentation](./README.md)
 - [A2A Protocol](./src/ai/a2a.rs)
 - [A2UI Protocol](./src/ai/a2ui.rs)
 - [MCP Specification](https://modelcontextprotocol.io/)

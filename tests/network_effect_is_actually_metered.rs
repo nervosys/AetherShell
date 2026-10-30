@@ -5,7 +5,7 @@
 //! HTTP timeout and the probe killed it at 10. Chasing that turned up
 //! something worse than a hang.
 //!
-//! Under `--agent --policy strict` with `AETHER_MAX_NET=0`,
+//! Under `--agent --policy strict` with `IRONSHELL_MAX_NET=0`,
 //! `marketplace_search("x")` exited **0** after a 20-second round trip to
 //! packages.nervosys.ai. An agent with networking budgeted to zero could still
 //! make an outbound request.
@@ -28,7 +28,7 @@
 //! That is the lower bound its own documentation names, with a real instance
 //! attached.
 
-use aethershell::safety::{effect_is_declared, effect_of, Effect};
+use iron_shell::safety::{effect_is_declared, effect_of, Effect};
 
 /// The marketplace builtins that reach `packages.nervosys.ai`.
 const REACHES_REGISTRY: &[&str] = &[
@@ -59,13 +59,13 @@ fn every_builtin_that_reaches_the_registry_is_classified_network() {
 
 #[test]
 fn every_network_builtin_is_metered_not_just_the_ones_that_opted_in() {
-    // `Network` used not to be centrally enforced, so `AETHER_MAX_NET`
+    // `Network` used not to be centrally enforced, so `IRONSHELL_MAX_NET`
     // governed only the builtins that happened to call `guard_network`
     // themselves. Of 57 classified `Network`, 53 were never charged.
     //
     // The hole was invisible because the builtin everyone reaches for was the
     // one that worked: `http_get` self-guards. `scp_upload` did not -- under
-    // `--agent --policy strict` with `AETHER_MAX_NET=0` it invoked `scp`, and
+    // `--agent --policy strict` with `IRONSHELL_MAX_NET=0` it invoked `scp`, and
     // failed only because the local file was absent.
     //
     // These are builtins that do *not* call `guard_network`, so they are
@@ -75,8 +75,8 @@ fn every_network_builtin_is_metered_not_just_the_ones_that_opted_in() {
     // Each is called with arguments its declared signature accepts: a declared
     // builtin refuses a short call before the dispatcher reaches the meter, so
     // an empty call would test the arity check instead.
-    let s = |v: &str| aethershell::value::Value::Str(v.into());
-    let not_self_guarded: Vec<(&str, Vec<aethershell::value::Value>)> = vec![
+    let s = |v: &str| iron_shell::value::Value::Str(v.into());
+    let not_self_guarded: Vec<(&str, Vec<iron_shell::value::Value>)> = vec![
         ("scp_upload", vec![s("x.txt"), s("host:/tmp/x.txt")]),
         ("git_fetch", vec![]),
         ("host_lookup", vec![s("example.com")]),
@@ -85,10 +85,10 @@ fn every_network_builtin_is_metered_not_just_the_ones_that_opted_in() {
 
     let jail = std::env::temp_dir().join(format!("ae_netall_{}", std::process::id()));
     std::fs::create_dir_all(&jail).expect("jail");
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_POLICY", "strict");
-    std::env::set_var("AETHER_WORKSPACE", &jail);
-    std::env::set_var("AETHER_MAX_NET", "0");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_POLICY", "strict");
+    std::env::set_var("IRONSHELL_WORKSPACE", &jail);
+    std::env::set_var("IRONSHELL_MAX_NET", "0");
 
     for (name, args) in not_self_guarded {
         assert_eq!(
@@ -96,8 +96,8 @@ fn every_network_builtin_is_metered_not_just_the_ones_that_opted_in() {
             Effect::Network,
             "{name} must be classified Network for the central path to charge it"
         );
-        let mut env = aethershell::env::Env::new();
-        let out = aethershell::builtins::call(name, args, &mut env);
+        let mut env = iron_shell::env::Env::new();
+        let out = iron_shell::builtins::call(name, args, &mut env);
         let msg = match out {
             Ok(v) => panic!("{name} ran with a zero network budget and answered {v:?}"),
             Err(e) => e.to_string(),
@@ -116,16 +116,16 @@ fn a_zero_network_budget_refuses_the_registry_call() {
     // The end-to-end property. Runs in-process, so the env is this test's own.
     let jail = std::env::temp_dir().join(format!("ae_net_{}", std::process::id()));
     std::fs::create_dir_all(&jail).expect("jail");
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_POLICY", "strict");
-    std::env::set_var("AETHER_WORKSPACE", &jail);
-    std::env::set_var("AETHER_MAX_NET", "0");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_POLICY", "strict");
+    std::env::set_var("IRONSHELL_WORKSPACE", &jail);
+    std::env::set_var("IRONSHELL_MAX_NET", "0");
 
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
     let started = std::time::Instant::now();
-    let out = aethershell::builtins::call(
+    let out = iron_shell::builtins::call(
         "marketplace_search",
-        vec![aethershell::value::Value::Str("x".into())],
+        vec![iron_shell::value::Value::Str("x".into())],
         &mut env,
     );
     let elapsed = started.elapsed();
@@ -148,11 +148,11 @@ fn a_zero_network_budget_refuses_the_registry_call() {
 
     // Non-vacuity: the budget must not refuse everything. A pure builtin in
     // the same process, same env, still works.
-    let mut env2 = aethershell::env::Env::new();
+    let mut env2 = iron_shell::env::Env::new();
     assert!(
-        aethershell::builtins::call(
+        iron_shell::builtins::call(
             "upper",
-            vec![aethershell::value::Value::Str("ok".into())],
+            vec![iron_shell::value::Value::Str("ok".into())],
             &mut env2
         )
         .is_ok(),

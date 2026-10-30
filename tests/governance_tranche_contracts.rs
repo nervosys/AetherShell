@@ -8,9 +8,9 @@
 //! the workspace, the caches and the config directory) lives under a fresh temp
 //! directory; no test touches the real user data.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -19,17 +19,17 @@ static LOCK: Mutex<()> = Mutex::new(());
 
 /// Variables that change what these builtins do. Cleared before each test.
 const ENV_KEYS: &[&str] = &[
-    "AETHER_MODE",
-    "AETHER_WORKSPACE",
-    "AETHER_AUDIT_LOG",
-    "AETHER_AUDIT_KEY",
-    "AETHER_AUDIT_KEY_FILE",
-    "AETHER_MAX_NET",
-    "AETHER_POLICY",
-    "AETHER_NET_ALLOW",
-    "AETHER_PRINCIPAL",
-    "AETHER_REGISTRY_TOKEN",
-    "AETHERSHELL_TOKEN",
+    "IRONSHELL_MODE",
+    "IRONSHELL_WORKSPACE",
+    "IRONSHELL_AUDIT_LOG",
+    "IRONSHELL_AUDIT_KEY",
+    "IRONSHELL_AUDIT_KEY_FILE",
+    "IRONSHELL_MAX_NET",
+    "IRONSHELL_POLICY",
+    "IRONSHELL_NET_ALLOW",
+    "IRONSHELL_PRINCIPAL",
+    "IRONSHELL_REGISTRY_TOKEN",
+    "IRONSHELL_TOKEN",
 ];
 
 /// Exclusive use of the process environment, and a fresh scratch root.
@@ -47,9 +47,9 @@ fn world(tag: &str) -> World {
         std::env::remove_var(k);
     }
     for (k, sub) in [
-        ("AETHER_DATA_HOME", "data"),
-        ("AETHER_CONFIG_HOME", "config"),
-        ("AETHER_CACHE_HOME", "cache"),
+        ("IRONSHELL_DATA_HOME", "data"),
+        ("IRONSHELL_CONFIG_HOME", "config"),
+        ("IRONSHELL_CACHE_HOME", "cache"),
         ("HOME", "home"),
         ("XDG_CACHE_HOME", "cache"),
         ("LOCALAPPDATA", "local"),
@@ -57,15 +57,15 @@ fn world(tag: &str) -> World {
     ] {
         std::env::set_var(k, root.join(sub));
     }
-    std::env::set_var("AETHER_WORKSPACE", root.join("ws"));
-    aethershell::safety::set_principal(None);
+    std::env::set_var("IRONSHELL_WORKSPACE", root.join("ws"));
+    iron_shell::safety::set_principal(None);
     World { _lock: lock, root }
 }
 
 /// Agent mode for the rest of the test, inside the scratch workspace.
 fn agent(w: &World) {
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", w.root.join("ws"));
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", w.root.join("ws"));
 }
 
 fn call_v(name: &str, args: Vec<Value>) -> Result<Value, String> {
@@ -336,7 +336,7 @@ fn audit_log_refuses_bad_severity_empty_action_and_control_characters() {
 fn audit_log_assertions_reach_the_chained_log_and_tampering_is_caught() {
     let w = world("audit_chain");
     let log = w.root.join("gov-audit.log");
-    std::env::set_var("AETHER_AUDIT_LOG", &log);
+    std::env::set_var("IRONSHELL_AUDIT_LOG", &log);
 
     let logged = call_v(
         "audit_log",
@@ -376,7 +376,7 @@ fn audit_log_assertions_reach_the_chained_log_and_tampering_is_caught() {
         why.contains("tampered") || why.contains("mismatch"),
         "{why}"
     );
-    std::env::remove_var("AETHER_AUDIT_LOG");
+    std::env::remove_var("IRONSHELL_AUDIT_LOG");
 }
 
 #[test]
@@ -409,7 +409,7 @@ fn audit_tail_refuses_bad_counts_and_tells_absent_from_unreadable() {
     refused_with(call_v("audit_tail", vec![]), "E_BAD_STATE");
 
     let log = w.root.join("tail.log");
-    std::env::set_var("AETHER_AUDIT_LOG", &log);
+    std::env::set_var("IRONSHELL_AUDIT_LOG", &log);
     assert_eq!(
         call_v("audit_tail", vec![Value::Int(5)]),
         Ok(Value::Array(Vec::new())),
@@ -420,7 +420,7 @@ fn audit_tail_refuses_bad_counts_and_tells_absent_from_unreadable() {
         Value::Array(entries) => assert_eq!(entries.len(), 1),
         other => panic!("expected an array, got {other:?}"),
     }
-    std::env::remove_var("AETHER_AUDIT_LOG");
+    std::env::remove_var("IRONSHELL_AUDIT_LOG");
 }
 
 #[test]
@@ -659,7 +659,7 @@ fn publish_of_a_file_outside_the_workspace_is_refused_before_any_request() {
 fn network_marketplace_calls_are_refused_by_the_budget_in_agent_mode() {
     let w = world("net_budget");
     agent(&w);
-    std::env::set_var("AETHER_MAX_NET", "0");
+    std::env::set_var("IRONSHELL_MAX_NET", "0");
     refused_with(
         call_v("marketplace_search", vec![s("gov")]),
         "E_BUDGET_EXCEEDED",
@@ -684,7 +684,7 @@ fn network_marketplace_calls_are_refused_by_the_budget_in_agent_mode() {
         call_v("marketplace_update", vec![]),
         Ok(Value::Array(Vec::new()))
     );
-    std::env::remove_var("AETHER_MAX_NET");
+    std::env::remove_var("IRONSHELL_MAX_NET");
 }
 
 #[test]
@@ -781,7 +781,7 @@ fn update_checks_its_arguments_and_installed_state_before_any_request() {
 #[test]
 fn registry_download_refuses_a_name_that_is_not_one_path_segment() {
     let _w = world("registry_names");
-    let client = aethershell::packages::RegistryClient::default();
+    let client = iron_shell::packages::RegistryClient::default();
     for (name, version) in [
         ("../escape", "1.0.0"),
         ("/abs", "1.0.0"),
@@ -822,7 +822,7 @@ fn registry_archives_with_links_or_escaping_entries_are_refused() {
             .finish()
             .expect("gzip");
     }
-    let client = aethershell::packages::RegistryClient::default();
+    let client = iron_shell::packages::RegistryClient::default();
     let err = client
         .extract_tarball(&link_path, &dest)
         .expect_err("a link entry must be refused");

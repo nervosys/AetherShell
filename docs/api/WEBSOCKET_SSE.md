@@ -1,6 +1,6 @@
 # WebSocket & SSE Streaming Reference
 
-AetherShell provides real-time communication via WebSocket for bidirectional agent orchestration and Server-Sent Events (SSE) for streaming execution results.
+IronShell provides real-time communication via WebSocket for bidirectional agent orchestration and Server-Sent Events (SSE) for streaming execution results.
 
 ---
 

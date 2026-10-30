@@ -1,4 +1,4 @@
-//! A redirection in `ae -b` writes where the guard looked, and can be undone.
+//! A redirection in `ish -b` writes where the guard looked, and can be undone.
 //!
 //! In agent mode the guard resolved a relative redirection target against the
 //! workspace, but the write handed the bare name to the OS, which resolved it
@@ -6,7 +6,7 @@
 //! and the shell wrote another:
 //!
 //! ```text
-//! $ cd /tmp/outside && AETHER_MODE=agent AETHER_WORKSPACE=/ws ae t.sh   # echo x > f.txt
+//! $ cd /tmp/outside && IRONSHELL_MODE=agent IRONSHELL_WORKSPACE=/ws ish t.sh   # echo x > f.txt
 //! # /tmp/outside/f.txt written; /ws/f.txt untouched
 //! ```
 //!
@@ -42,22 +42,22 @@ impl Dirs {
         d
     }
 
-    /// Runs `ae` in agent mode from the directory outside the workspace.
+    /// Runs `ish` in agent mode from the directory outside the workspace.
     fn ae(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_ae"))
+        Command::new(env!("CARGO_BIN_EXE_ish"))
             .args(args)
             .current_dir(&self.outside)
             .env("NO_COLOR", "1")
-            .env("AETHER_MODE", "agent")
-            .env("AETHER_WORKSPACE", &self.workspace)
-            .env("AETHER_SESSION_DIR", &self.session)
-            .env("AETHER_JOURNAL", "on")
-            .env("AETHER_ALLOW_SH", "")
+            .env("IRONSHELL_MODE", "agent")
+            .env("IRONSHELL_WORKSPACE", &self.workspace)
+            .env("IRONSHELL_SESSION_DIR", &self.session)
+            .env("IRONSHELL_JOURNAL", "on")
+            .env("IRONSHELL_ALLOW_SH", "")
             .output()
             .expect("run ae")
     }
 
-    /// Writes `body` as a script outside the workspace and runs it with `ae`.
+    /// Writes `body` as a script outside the workspace and runs it with `ish`.
     fn script(&self, name: &str, body: &str) -> Output {
         let path = self.outside.join(name);
         std::fs::write(&path, body).unwrap();

@@ -1,6 +1,6 @@
 # Installation
 
-This guide covers installing AetherShell on your system.
+This guide covers installing IronShell on your system.
 
 ## Requirements
 
@@ -10,14 +10,14 @@ This guide covers installing AetherShell on your system.
 
 ## Install with Cargo
 
-The recommended way to install AetherShell:
+The recommended way to install IronShell:
 
 ```bash
-cargo install aethershell
+cargo install iron-shell
 ```
 
 This installs two binaries:
-- `ae` - The main AetherShell executable
+- `ish` - The main IronShell executable
 - `aimodel` - AI model management CLI
 
 ## Install from Source
@@ -30,7 +30,7 @@ cd AetherShell
 cargo build --release
 
 # Add to PATH
-cp target/release/ae ~/.local/bin/
+cp target/release/ish ~/.local/bin/
 cp target/release/aimodel ~/.local/bin/
 ```
 
@@ -42,45 +42,45 @@ Download pre-built binaries from the [releases page](https://github.com/nervosys
 
 ```bash
 # Intel Mac
-curl -LO https://github.com/nervosys/AetherShell/releases/latest/download/aethershell-x86_64-apple-darwin.tar.gz
-tar xzf aethershell-x86_64-apple-darwin.tar.gz
+curl -LO https://github.com/nervosys/AetherShell/releases/latest/download/ironshell-x86_64-apple-darwin.tar.gz
+tar xzf ironshell-x86_64-apple-darwin.tar.gz
 
 # Apple Silicon
-curl -LO https://github.com/nervosys/AetherShell/releases/latest/download/aethershell-aarch64-apple-darwin.tar.gz
-tar xzf aethershell-aarch64-apple-darwin.tar.gz
+curl -LO https://github.com/nervosys/AetherShell/releases/latest/download/ironshell-aarch64-apple-darwin.tar.gz
+tar xzf ironshell-aarch64-apple-darwin.tar.gz
 ```
 
 ### Linux
 
 ```bash
-curl -LO https://github.com/nervosys/AetherShell/releases/latest/download/aethershell-x86_64-unknown-linux-gnu.tar.gz
-tar xzf aethershell-x86_64-unknown-linux-gnu.tar.gz
+curl -LO https://github.com/nervosys/AetherShell/releases/latest/download/ironshell-x86_64-unknown-linux-gnu.tar.gz
+tar xzf ironshell-x86_64-unknown-linux-gnu.tar.gz
 ```
 
 ### Windows
 
-Download `aethershell-x86_64-pc-windows-msvc.zip` from releases and extract to a directory in your PATH.
+Download `ironshell-x86_64-pc-windows-msvc.zip` from releases and extract to a directory in your PATH.
 
 ## Verify Installation
 
 ```bash
-ae --version
-# AetherShell 0.2.0
+ish --version
+# IronShell 0.2.0
 
-ae --help
+ish --help
 ```
 
 ## VS Code Extension
 
-Install the AetherShell extension for syntax highlighting and IDE features:
+Install the IronShell extension for syntax highlighting and IDE features:
 
 ```bash
-code --install-extension admercs.aethershell
+code --install-extension admercs.ironshell
 ```
 
-Or search for "AetherShell" in the VS Code marketplace.
+Or search for "IronShell" in the VS Code marketplace.
 
 ## Next Steps
 
-- [Quick Start](./quick-start.md) - Your first AetherShell commands
+- [Quick Start](./quick-start.md) - Your first IronShell commands
 - [Configuration](./configuration.md) - Set up AI providers and preferences

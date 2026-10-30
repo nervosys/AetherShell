@@ -1,4 +1,4 @@
-use aethershell::{
+use iron_shell::{
     ast::Expr,
     builtins::{call, call_with_input},
     env::Env,
@@ -298,10 +298,10 @@ fn testing_contracts_reject_surplus_arguments_and_pipeline_input() {
 #[test]
 fn declared_testing_examples_run_through_the_language() {
     for name in ["test_snapshot", "test_generate"] {
-        let sig = aethershell::signature::signature_of(name).unwrap();
+        let sig = iron_shell::signature::signature_of(name).unwrap();
         for (code, expected) in sig.examples {
-            let statements = aethershell::parser::parse_program(code).unwrap();
-            let result = aethershell::eval::eval_program(&statements, &mut Env::default()).unwrap();
+            let statements = iron_shell::parser::parse_program(code).unwrap();
+            let result = iron_shell::eval::eval_program(&statements, &mut Env::default()).unwrap();
             assert_eq!(result.to_display_string(), *expected, "{code}");
         }
     }
@@ -609,16 +609,16 @@ fn report_declaration_examples_and_module_aliases_execute_as_pure_operations() {
         ("test_skipped", "test.skipped"),
     ] {
         assert_eq!(
-            aethershell::safety::effect_of(name),
-            aethershell::safety::Effect::Pure
+            iron_shell::safety::effect_of(name),
+            iron_shell::safety::Effect::Pure
         );
-        let signature = aethershell::signature::signature_of(name).unwrap();
+        let signature = iron_shell::signature::signature_of(name).unwrap();
         for (code, expected) in signature.examples {
             for source in [code.to_string(), code.replacen(name, alias, 1)] {
-                let statements = aethershell::parser::parse_program(&source).unwrap();
+                let statements = iron_shell::parser::parse_program(&source).unwrap();
                 let mut env = Env::default();
-                env.register_module("test", aethershell::modules::test_module());
-                let result = aethershell::eval::eval_program(&statements, &mut env).unwrap();
+                env.register_module("test", iron_shell::modules::test_module());
+                let result = iron_shell::eval::eval_program(&statements, &mut env).unwrap();
                 assert_eq!(result.to_display_string(), *expected, "{source}");
             }
         }

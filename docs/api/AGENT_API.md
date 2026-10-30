@@ -1,6 +1,6 @@
 # Agent API Reference
 
-The Agent API provides a structured JSON-based HTTP interface for AI agents to interact with AetherShell. Instead of generating shell code, AI agents use typed JSON requests to execute builtins, pipelines, and evaluations.
+The Agent API provides a structured JSON-based HTTP interface for AI agents to interact with IronShell. Instead of generating shell code, AI agents use typed JSON requests to execute builtins, pipelines, and evaluations.
 
 **Default server:** `http://127.0.0.1:3002`
 
@@ -17,13 +17,13 @@ Authorization: Bearer <token>
 Start the server one of three ways:
 
 ```sh
-aethershell agent-api serve                    # generates a token, prints it at startup
-AETHER_API_TOKEN=<token> aethershell agent-api serve
-aethershell agent-api serve --token <token>    # visible in the process list; prefer the env var
+ironshell agent-api serve                    # generates a token, prints it at startup
+IRONSHELL_API_TOKEN=<token> ironshell agent-api serve
+ironshell agent-api serve --token <token>    # visible in the process list; prefer the env var
 ```
 
 There is deliberately no way to run with authentication disabled.
-`POST /api/v1/eval` evaluates arbitrary AetherShell code, which can spawn
+`POST /api/v1/eval` evaluates arbitrary IronShell code, which can spawn
 processes, so an unauthenticated listener is remote code execution for anyone
 who can reach the port. With CORS enabled (the default), that includes any web
 page the user happens to visit while the server is running — the browser will
@@ -44,7 +44,7 @@ Request/response routes are cancelled with **408 Request Timeout** after
 `--request-timeout` seconds (default `300`):
 
 ```sh
-aethershell agent-api serve --request-timeout 60
+ironshell agent-api serve --request-timeout 60
 ```
 
 `0` disables the deadline. Prefer raising it: without one, a single
@@ -95,7 +95,7 @@ Universal entry point. Accepts any `AgentRequest` variant via the `action` discr
 | --------------- | -------------------------------------- | ----------------------------- |
 | `call`          | `builtin: string`, `args: any`         | Execute a single builtin      |
 | `pipeline`      | `steps: PipelineStep[]`, `input?: any` | Execute a pipeline            |
-| `eval`          | `code: string`                         | Evaluate raw AetherShell code |
+| `eval`          | `code: string`                         | Evaluate raw IronShell code |
 | `describe`      | `builtin: string`                      | Get builtin metadata          |
 | `list_builtins` | `category?: string`                    | List available builtins       |
 | `schema`        | `format?: SchemaFormat`                | Get language ontology/schema  |
@@ -175,7 +175,7 @@ Execute a multi-step pipeline.
 
 ### POST `/api/v1/eval`
 
-Evaluate raw AetherShell code.
+Evaluate raw IronShell code.
 
 **Request body:**
 ```json
@@ -274,7 +274,7 @@ Describe a single builtin with full metadata, parameters, examples, and JSON sch
 
 ### GET `/api/v1/types`
 
-Returns all AetherShell type definitions (Int, Float, String, Array, Record, Lambda, etc.) with JSON equivalents and field definitions.
+Returns all IronShell type definitions (Int, Float, String, Array, Record, Lambda, etc.) with JSON equivalents and field definitions.
 
 ---
 
@@ -465,7 +465,7 @@ Publish an agent definition. Broadcasts an `agent_published` event.
 ```json
 {
   "status": "healthy",
-  "service": "aethershell-agent-api",
+  "service": "ironshell-agent-api",
   "version": "0.x.x",
   "features": { "websocket": true, "sse_streaming": true, "orchestration": true },
   "supported_agents": ["openai", "claude", "gemini", ...],

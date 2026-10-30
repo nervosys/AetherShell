@@ -1,11 +1,11 @@
-# AetherShell Examples Test Report
+# IronShell Examples Test Report
 **Date**: October 19, 2025  
 **Tested Version**: v0.1.0  
 **Test Environment**: Windows, PowerShell  
 
 ## Executive Summary
 
-Tested all 19 example files (00-18.ae) to determine which work with current features and which require additional implementation.
+Tested all 19 example files (00-18.ish) to determine which work with current features and which require additional implementation.
 
 **Results**:
 - ✅ **Working**: 4 examples (21%)
@@ -23,7 +23,7 @@ Tested all 19 example files (00-18.ae) to determine which work with current feat
 
 ## Test Results by Example
 
-### ✅ **00_hello.ae** - WORKING
+### ✅ **00_hello.ish** - WORKING
 **Status**: ✅ Fully functional  
 **Features Used**: print, variables, string interpolation, external commands  
 **Output**:
@@ -36,7 +36,7 @@ Bool(false)
 
 ---
 
-### ❌ **01_pipelines.ae** - BROKEN
+### ❌ **01_pipelines.ish** - BROKEN
 **Status**: ❌ Pipeline parsing issue  
 **Features Used**: Arrays, map, reduce, where, take, print  
 **Error**:
@@ -47,7 +47,7 @@ Error: where requires array input, got Str("20")
 **Issue**: Pipeline breaks across blank lines. The newline between `map` and `reduce` causes the pipeline to terminate, so the second pipeline receives the wrong input type.
 
 **File Content**:
-```aethershell
+```ironshell
 [1,2,3,4]
   | map fn(x) => x * 2
 
@@ -59,7 +59,7 @@ Error: where requires array input, got Str("20")
 
 ---
 
-### ❌ **02_tables.ae** - BROKEN
+### ❌ **02_tables.ish** - BROKEN
 **Status**: ❌ Syntax error  
 **Features Used**: ls, where, select, sort, group_by, agg  
 **Error**:
@@ -69,7 +69,7 @@ Error: unknown character: .
 **Issue**: Field access syntax `r.type` not implemented in parser.
 
 **File Content**:
-```aethershell
+```ironshell
 ls "."
   | where fn(r) => r.type == "file"  // <-- .type syntax fails
 ```
@@ -78,21 +78,21 @@ ls "."
 
 ---
 
-### ❓ **03_http.ae** - UNTESTED
+### ❓ **03_http.ish** - UNTESTED
 **Status**: ❓ Not tested (requires network)  
 **Features Used**: http builtins  
 **Notes**: Requires network access and HTTP implementation. Not tested in this run.
 
 ---
 
-### ❌ **04_match.ae** - BROKEN
+### ❌ **04_match.ish** - BROKEN
 **Status**: ❌ Missing feature  
 **Features Used**: Some/None, match expression  
 **Error**: Expected parse error for `match` keyword  
 **Issue**: Pattern matching not implemented.
 
 **File Content**:
-```aethershell
+```ironshell
 value = Some(42)
 
 match value {
@@ -106,21 +106,21 @@ match value {
 
 ---
 
-### ❓ **05_ai.ae** - UNTESTED
+### ❓ **05_ai.ish** - UNTESTED
 **Status**: ❓ Not tested (requires API keys)  
 **Features Used**: AI backends (OpenAI, Ollama)  
 **Notes**: Requires OPENAI_API_KEY or local Ollama. Not tested in this run.
 
 ---
 
-### ❓ **06_agent.ae** - UNTESTED
+### ❓ **06_agent.ish** - UNTESTED
 **Status**: ❓ Not tested (requires AI)  
 **Features Used**: agent builtin  
 **Notes**: Requires AI configuration. Not tested in this run.
 
 ---
 
-### ❓ **07_uri_types.ae** - UNTESTED
+### ❓ **07_uri_types.ish** - UNTESTED
 **Status**: ❓ Not tested  
 **Features Used**: URI-based model selection  
 **Notes**: Requires AI backends. Not tested in this run.
@@ -128,69 +128,69 @@ match value {
 ---
 
 ### ❌ **08_transpiler.bash** - N/A
-**Status**: ❌ Not AetherShell code  
-**Notes**: This is a bash script demonstrating transpiler, not an AetherShell example to run directly.
+**Status**: ❌ Not IronShell code  
+**Notes**: This is a bash script demonstrating transpiler, not an IronShell example to run directly.
 
 ---
 
-### ❓ **09_tui_multimodal.ae** - UNTESTED
+### ❓ **09_tui_multimodal.ish** - UNTESTED
 **Status**: ❓ Not tested (requires TUI + AI)  
 **Features Used**: TUI mode with multimodal AI  
 **Notes**: Requires `--tui` flag and AI configuration.
 
 ---
 
-### ❓ **10_tui_agent_swarm.ae** - UNTESTED
+### ❓ **10_tui_agent_swarm.ish** - UNTESTED
 **Status**: ❓ Not tested (requires TUI + AI)  
 **Features Used**: TUI agent swarm  
 **Notes**: Requires `--tui` flag and AI configuration.
 
 ---
 
-### ❓ **11_tui_showcase.ae** - UNTESTED
+### ❓ **11_tui_showcase.ish** - UNTESTED
 **Status**: ❓ Not tested (requires TUI + AI)  
 **Features Used**: Full TUI capabilities  
 **Notes**: Requires `--tui` flag and AI configuration.
 
 ---
 
-### ❓ **12_multi_agent_orchestration.ae** - UNTESTED
+### ❓ **12_multi_agent_orchestration.ish** - UNTESTED
 **Status**: ❓ Not tested (requires AI)  
 **Features Used**: Agent coordination  
 **Notes**: Requires AI configuration.
 
 ---
 
-### ❓ **13_multimodal_ai.ae** - UNTESTED
+### ❓ **13_multimodal_ai.ish** - UNTESTED
 **Status**: ❓ Not tested (requires AI)  
 **Features Used**: Multimodal AI (images, audio)  
 **Notes**: Requires AI configuration and media files.
 
 ---
 
-### ❌ **14_typed_pipelines.ae** - BROKEN
-**Status**: ❌ Likely broken (uses same syntax as 02_tables.ae)  
+### ❌ **14_typed_pipelines.ish** - BROKEN
+**Status**: ❌ Likely broken (uses same syntax as 02_tables.ish)  
 **Features Used**: Typed pipelines with field access  
 **Expected Issue**: Dot notation syntax `.field` not implemented.  
-**Notes**: Not tested but expected to fail based on 02_tables.ae results.
+**Notes**: Not tested but expected to fail based on 02_tables.ish results.
 
 ---
 
-### ❓ **15_ai_protocols.ae** - UNTESTED
+### ❓ **15_ai_protocols.ish** - UNTESTED
 **Status**: ❓ Not tested (requires AI)  
 **Features Used**: AI protocol features  
 **Notes**: Requires AI configuration.
 
 ---
 
-### ❓ **16_mcp_servers.ae** - UNTESTED
+### ❓ **16_mcp_servers.ish** - UNTESTED
 **Status**: ❓ Not tested (requires MCP)  
 **Features Used**: Model Context Protocol servers  
 **Notes**: Requires MCP setup and possibly DB features (relates to SQL injection TODO).
 
 ---
 
-### ⚠️ **17_syntax_showcase.ae** - PARTIAL
+### ⚠️ **17_syntax_showcase.ish** - PARTIAL
 **Status**: ⚠️ Mostly working with minor issues  
 **Features Used**: Variables, functions, string interpolation, pipelines  
 **Output**: Successful with some interpolation errors in higher-order functions  
@@ -203,7 +203,7 @@ Quadruple 5 = ${quadruple(5)} [error: unsupported op Mul on Int(5) an…
 
 ---
 
-### ✅ **18_mutable_variables.ae** - WORKING
+### ✅ **18_mutable_variables.ish** - WORKING
 **Status**: ✅ Fully functional  
 **Features Used**: Mutable variables (`mut`), state management  
 **Output**: Perfect execution with all patterns working:
@@ -261,7 +261,7 @@ Quadruple 5 = ${quadruple(5)} [error: unsupported op Mul on Int(5) an…
 
 #### 1. Implement Dot Notation for Field Access
 **Issue**: `r.field` syntax not recognized  
-**Impact**: Breaks 02_tables.ae, 14_typed_pipelines.ae  
+**Impact**: Breaks 02_tables.ish, 14_typed_pipelines.ish  
 **Current Workaround**: Use bracket notation `r["field"]`  
 **Effort**: Medium (parser + evaluator changes)  
 **Files to Modify**: `src/parser.rs`, `src/eval.rs`, possibly `src/ast.rs`
@@ -281,7 +281,7 @@ Quadruple 5 = ${quadruple(5)} [error: unsupported op Mul on Int(5) an…
 
 #### 2. Fix Multi-line Pipeline Parsing
 **Issue**: Blank lines break pipelines  
-**Impact**: Breaks 01_pipelines.ae  
+**Impact**: Breaks 01_pipelines.ish  
 **Current Workaround**: Remove blank lines from pipelines  
 **Effort**: Low (parser whitespace handling)  
 **Files to Modify**: `src/parser.rs`
@@ -295,7 +295,7 @@ Parser needs to treat blank lines as whitespace when inside a pipeline context, 
 
 #### 3. Implement Pattern Matching
 **Issue**: `match` keyword not implemented  
-**Impact**: Breaks 04_match.ae  
+**Impact**: Breaks 04_match.ish  
 **Effort**: High (AST + parser + evaluator)  
 **Already Tracked**: TODO #3 "Implement Pattern Matching"
 
@@ -304,28 +304,28 @@ Parser needs to treat blank lines as whitespace when inside a pipeline context, 
 ## Testing Recommendations
 
 ### Immediate Testing (Can Do Now)
-1. ✅ Test 00_hello.ae ← Done
-2. ✅ Test 18_mutable_variables.ae ← Done
-3. ✅ Test 17_syntax_showcase.ae ← Done
-4. Test 01_pipelines.ae after fixing multi-line issue
-5. Test 02_tables.ae after implementing dot notation
+1. ✅ Test 00_hello.ish ← Done
+2. ✅ Test 18_mutable_variables.ish ← Done
+3. ✅ Test 17_syntax_showcase.ish ← Done
+4. Test 01_pipelines.ish after fixing multi-line issue
+5. Test 02_tables.ish after implementing dot notation
 
 ### AI/Network Testing (Requires Setup)
 1. Set `OPENAI_API_KEY` environment variable
-2. Test 05_ai.ae, 06_agent.ae, 07_uri_types.ae
+2. Test 05_ai.ish, 06_agent.ish, 07_uri_types.ish
 3. Set `AGENT_ALLOW_CMDS=ls,cat,find,git` for agent examples
-4. Test 03_http.ae with network access
+4. Test 03_http.ish with network access
 
 ### TUI Testing (Requires Interactive Mode)
 1. Run with `--tui` flag
-2. Test 09_tui_multimodal.ae
-3. Test 10_tui_agent_swarm.ae
-4. Test 11_tui_showcase.ae
+2. Test 09_tui_multimodal.ish
+3. Test 10_tui_agent_swarm.ish
+4. Test 11_tui_showcase.ish
 
 ### Advanced Testing (Requires Additional Setup)
 1. Setup local Ollama for local AI testing
-2. Setup MCP servers for 16_mcp_servers.ae
-3. Prepare media files for 13_multimodal_ai.ae
+2. Setup MCP servers for 16_mcp_servers.ish
+3. Prepare media files for 13_multimodal_ai.ish
 
 ---
 
@@ -336,17 +336,17 @@ Create a new test suite in `tests/examples_smoke.rs`:
 ```rust
 #[test]
 fn test_example_00_hello() {
-    // Run 00_hello.ae and verify output
+    // Run 00_hello.ish and verify output
 }
 
 #[test]
 fn test_example_18_mutable() {
-    // Run 18_mutable_variables.ae and verify output
+    // Run 18_mutable_variables.ish and verify output
 }
 
 #[test]
 fn test_example_17_syntax() {
-    // Run 17_syntax_showcase.ae and verify no panics
+    // Run 17_syntax_showcase.ish and verify no panics
 }
 
 // Mark as ignored until features are implemented

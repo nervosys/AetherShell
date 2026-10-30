@@ -17,9 +17,9 @@
 //!   Priority is read back through proc_priority, which reads Get-Process; no
 //!   independent Windows check is used for it.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 #[cfg(target_os = "linux")]
 #[path = "support/disposable.rs"]

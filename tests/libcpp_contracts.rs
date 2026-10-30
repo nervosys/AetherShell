@@ -4,9 +4,9 @@
 //!
 //! Nothing here changes system state.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 fn code_of(err: &anyhow::Error) -> String {
     let msg = err.to_string();

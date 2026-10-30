@@ -3,7 +3,7 @@
 #
 # Builds the named test binaries in the developer's own Linux distro, as the
 # developer, then runs only those binaries as root inside the disposable
-# distro, with AETHER_DISPOSABLE=1 and --ignored. The tests themselves refuse
+# distro, with IRONSHELL_DISPOSABLE=1 and --ignored. The tests themselves refuse
 # to run without that variable AND the /etc/ae-disposable marker, so neither
 # a plain `cargo test` nor this script pointed at the wrong distro can create
 # users, mount filesystems or install packages on a real machine.
@@ -54,6 +54,6 @@ for exe in $exes; do
     echo "### $name"
     MSYS_NO_PATHCONV=1 wsl.exe -d "$disposable" -u root systemd-run --scope --quiet \
         -p MemoryMax="$memory_max" -p MemorySwapMax=0 \
-        env AETHER_DISPOSABLE=1 timeout 1800 "$stage/$name" --ignored --test-threads=1 || status=1
+        env IRONSHELL_DISPOSABLE=1 timeout 1800 "$stage/$name" --ignored --test-threads=1 || status=1
 done
 exit $status

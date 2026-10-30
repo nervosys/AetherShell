@@ -1,4 +1,4 @@
-use aethershell::{
+use iron_shell::{
     builtins::{call, call_with_input},
     env::Env,
     value::Value,
@@ -16,20 +16,20 @@ impl Fixture {
         let root = root.canonicalize().unwrap();
         let keys = [
             "NO_COLOR",
-            "AETHER_MODE",
-            "AETHER_AGENT",
-            "AETHER_WORKSPACE",
-            "AETHER_POLICY",
-            "AETHER_AUDIT_LOG",
-            "AETHER_AUDIT_KEY",
-            "AETHER_AUDIT_KEY_FILE",
-            "AETHER_AUDIT_SINK",
-            "AETHER_MAX_FILES",
-            "AETHER_FIPS",
-            "AETHER_NET_ALLOW",
-            "AETHER_MAX_NET",
-            "AETHER_MAX_OPS",
-            "AETHER_MAX_PROCS",
+            "IRONSHELL_MODE",
+            "IRONSHELL_AGENT",
+            "IRONSHELL_WORKSPACE",
+            "IRONSHELL_POLICY",
+            "IRONSHELL_AUDIT_LOG",
+            "IRONSHELL_AUDIT_KEY",
+            "IRONSHELL_AUDIT_KEY_FILE",
+            "IRONSHELL_AUDIT_SINK",
+            "IRONSHELL_MAX_FILES",
+            "IRONSHELL_FIPS",
+            "IRONSHELL_NET_ALLOW",
+            "IRONSHELL_MAX_NET",
+            "IRONSHELL_MAX_OPS",
+            "IRONSHELL_MAX_PROCS",
         ];
         let fixture = Self {
             root,
@@ -41,9 +41,9 @@ impl Fixture {
         for key in keys {
             std::env::remove_var(key);
         }
-        std::env::set_var("AETHER_AUDIT_LOG", fixture.root.join("audit.log"));
+        std::env::set_var("IRONSHELL_AUDIT_LOG", fixture.root.join("audit.log"));
         std::env::set_var("NO_COLOR", "1");
-        std::env::set_var("AETHER_AUDIT_KEY", "11".repeat(32));
+        std::env::set_var("IRONSHELL_AUDIT_KEY", "11".repeat(32));
         fixture
     }
     fn path(&self, name: &str) -> String {
@@ -52,7 +52,7 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        while aethershell::tx::rollback().is_ok() {}
+        while iron_shell::tx::rollback().is_ok() {}
         for (key, value) in &self.vars {
             match value {
                 Some(v) => std::env::set_var(key, v),
@@ -125,7 +125,7 @@ fn chown_guards_paths_and_codes_a_denied_transaction_change() {
     let mut env = Env::default();
     let path = fixture.path("input");
     std::fs::write(&path, "unchanged").unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     // Inside a transaction a Unix chown is journaled (tests/tx_metadata_contracts.rs
     // rolls one back as root); giving a file to root without privilege is the
     // operating system's refusal, coded. Windows has no chown at all.
@@ -144,17 +144,17 @@ fn chown_guards_paths_and_codes_a_denied_transaction_change() {
     } else {
         Value::Int(0)
     };
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     if let Some(expected) = refused {
         code(
             call("fs_chown", vec![s("input"), owner.clone()], &mut env),
             expected,
         );
     }
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     let jail = fixture.root.join("jail");
     std::fs::create_dir(&jail).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", jail);
+    std::env::set_var("IRONSHELL_WORKSPACE", jail);
     code(
         call("fs_chown", vec![s(&path), owner], &mut env),
         "E_OUTSIDE_WORKSPACE",
@@ -188,7 +188,7 @@ fn chown_on_windows_takes_account_names_not_numeric_ids() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let path = fixture.path("input");
     std::fs::write(&path, "unchanged").unwrap();
     code(
@@ -229,7 +229,7 @@ fn chown_native_calls_preserve_omitted_group_and_code_missing_files() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let path = fixture.path("-owned");
     std::fs::write(&path, "unchanged").unwrap();
     let before = std::fs::metadata(&path).unwrap();
@@ -270,7 +270,7 @@ fn chown_native_calls_preserve_omitted_group_and_code_missing_files() {
     let jail = fixture.root.join("jail");
     std::fs::create_dir(&jail).unwrap();
     std::os::unix::fs::symlink(&path, jail.join("alias")).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", jail);
+    std::env::set_var("IRONSHELL_WORKSPACE", jail);
     code(
         call(
             "fs_chown",
@@ -279,7 +279,7 @@ fn chown_native_calls_preserve_omitted_group_and_code_missing_files() {
         ),
         "E_OUTSIDE_WORKSPACE",
     );
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let audit = fixture.root.join("audit.log");
     if !audit.exists() {
         std::fs::write(&audit, "owned audit fixture").unwrap();
@@ -299,7 +299,7 @@ fn structured_edits_support_aliases_pipes_and_descending_operation_order() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let path = fixture.path("input");
     let batch = Value::Array(vec![
         edit_record(vec![("op", s("delete")), ("line", Value::Int(1))]),
@@ -536,7 +536,7 @@ fn structured_edits_code_read_failures_guard_aliases_and_roll_back() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let path = fixture.path("input");
     let edit = edit_record(vec![
         ("op", s("replace")),
@@ -562,17 +562,17 @@ fn structured_edits_code_read_failures_guard_aliases_and_roll_back() {
         "E_BUDGET_EXCEEDED",
     );
     std::fs::write(&path, "a\r\nb").unwrap();
-    let unrelated = path.clone() + ".aether_tmp";
+    let unrelated = path.clone() + ".ironshell_tmp";
     std::fs::write(&unrelated, "keep").unwrap();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     call("file_edit", vec![s("input"), edit.clone()], &mut env).unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "new\nb\n");
     assert_eq!(std::fs::read_to_string(&unrelated).unwrap(), "keep");
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb");
     let jail = fixture.root.join("jail");
     std::fs::create_dir(&jail).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", jail);
+    std::env::set_var("IRONSHELL_WORKSPACE", jail);
     for name in ["file_edit", "edit_file", "text_edit"] {
         code(
             call(name, vec![s(&path), edit.clone()], &mut env),
@@ -586,7 +586,7 @@ fn chmod_validates_modes_and_preserves_platform_permission_semantics() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let path = fixture.path("input");
     std::fs::write(&path, "unchanged").unwrap();
     let original = std::fs::metadata(&path).unwrap().permissions();
@@ -669,7 +669,7 @@ fn chmod_codes_missing_paths_guards_aliases_and_journals_transaction_changes() {
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     code(
         call("chmod", vec![s("missing"), Value::Int(420)], &mut env),
         "E_NOT_FOUND",
@@ -678,18 +678,18 @@ fn chmod_codes_missing_paths_guards_aliases_and_journals_transaction_changes() {
     let original = std::fs::metadata(&path).unwrap().permissions();
     // Inside a transaction a mode change is journaled, not refused: rollback restores
     // the pre-image (commit 1b55800 replaced the old E_UNIMPLEMENTED refusal).
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     for name in ["fs_chmod", "chmod"] {
         assert_eq!(
             call(name, vec![s("input"), Value::Int(0)], &mut env).unwrap(),
             Value::Bool(true)
         );
     }
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
     let jail = fixture.root.join("jail");
     std::fs::create_dir(&jail).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", jail);
+    std::env::set_var("IRONSHELL_WORKSPACE", jail);
     for name in ["fs_chmod", "chmod"] {
         code(
             call(name, vec![s(&path), Value::Int(0)], &mut env),
@@ -704,11 +704,11 @@ fn hard_links_share_binary_content_and_roll_back_new_destinations() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let source = fixture.path("source");
     let dest = fixture.path("link");
     std::fs::write(&source, [0, 255, 128]).unwrap();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     assert_eq!(
         call("fs_link", vec![s("source"), s("link")], &mut env).unwrap(),
         Value::Bool(true)
@@ -717,7 +717,7 @@ fn hard_links_share_binary_content_and_roll_back_new_destinations() {
     // A real hard link shares bytes; an independent copy would fail this.
     std::fs::write(&source, "changed").unwrap();
     assert_eq!(std::fs::read_to_string(&dest).unwrap(), "changed");
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert!(!std::path::Path::new(&dest).exists());
     // Creating a link journals its destination, not arbitrary later source writes.
     assert_eq!(std::fs::read_to_string(&source).unwrap(), "changed");
@@ -727,7 +727,7 @@ fn hard_links_refuse_invalid_calls_and_existing_destinations_without_snapshottin
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let source = fixture.path("source");
     let dest = fixture.path("dest");
     std::fs::write(&source, "source").unwrap();
@@ -758,7 +758,7 @@ fn hard_links_refuse_invalid_calls_and_existing_destinations_without_snapshottin
     assert_eq!(std::fs::read_to_string(&dest).unwrap(), "prior");
     let directory = fixture.root.join("directory");
     std::fs::create_dir(&directory).unwrap();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     code(
         call(
             "fs_link",
@@ -768,7 +768,7 @@ fn hard_links_refuse_invalid_calls_and_existing_destinations_without_snapshottin
         "E_BAD_ARG",
     );
     std::fs::write(directory.join("later"), "keep").unwrap();
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(
         std::fs::read_to_string(directory.join("later")).unwrap(),
         "keep"
@@ -822,7 +822,7 @@ fn hard_links_guard_both_source_and_new_destination() {
     let outside = fixture.root.join("outside");
     std::fs::write(&inside, "inside").unwrap();
     std::fs::write(&outside, "outside").unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
     code(
         call(
             "fs_link",
@@ -883,7 +883,7 @@ fn delete_lines_preserves_aliases_ranges_and_literal_selectors() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let path = fixture.path("input");
     for name in ["file_delete_lines", "delete_lines", "remove_lines"] {
         std::fs::write(&path, "a\r\nb\r\nc").unwrap();
@@ -1028,7 +1028,7 @@ fn delete_lines_refuses_malformed_selections_without_modifying_files() {
         "E_BAD_ARG",
     );
     // The legacy predictable temporary name is an unrelated file.
-    let unrelated = path.clone() + ".aether_tmp";
+    let unrelated = path.clone() + ".ironshell_tmp";
     std::fs::write(&unrelated, "keep").unwrap();
     call("delete_lines", vec![s(&path), Value::Int(1)], &mut env).unwrap();
     assert_eq!(std::fs::read_to_string(unrelated).unwrap(), "keep");
@@ -1039,7 +1039,7 @@ fn delete_lines_codes_read_failures_guards_paths_and_supports_rollback() {
     let fixture = Fixture::new();
     let mut env = Env::default();
     let path = fixture.path("input");
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     code(
         call("delete_lines", vec![s("missing"), Value::Int(1)], &mut env),
         "E_NOT_FOUND",
@@ -1060,14 +1060,14 @@ fn delete_lines_codes_read_failures_guards_paths_and_supports_rollback() {
         "E_BUDGET_EXCEEDED",
     );
     std::fs::write(&path, "a\r\nb").unwrap();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     call("remove_lines", vec![s("input"), Value::Int(1)], &mut env).unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "b\n");
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb");
     let jail = fixture.root.join("jail");
     std::fs::create_dir(&jail).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", jail);
+    std::env::set_var("IRONSHELL_WORKSPACE", jail);
     for name in ["file_delete_lines", "delete_lines", "remove_lines"] {
         code(
             call(name, vec![s(&path), Value::Int(1)], &mut env),
@@ -1075,9 +1075,9 @@ fn delete_lines_codes_read_failures_guards_paths_and_supports_rollback() {
         );
     }
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "a\r\nb");
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_POLICY", "strict");
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_POLICY", "strict");
     code(
         call("delete_lines", vec![s("input"), Value::Int(1)], &mut env),
         "E_NEEDS_APPROVAL",
@@ -1089,7 +1089,7 @@ fn file_copy_aliases_preserve_binary_bytes_and_resolve_workspace_paths() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let bytes = [0, 255, 128, 10];
     std::fs::write(fixture.path("input"), bytes).unwrap();
     for name in ["file_copy", "copy_file", "cp"] {
@@ -1227,8 +1227,8 @@ fn file_copy_imports_outside_sources_and_rolls_back_directory_merges() {
     std::fs::create_dir(&dest).unwrap();
     std::fs::write(dest.join("existing"), "old").unwrap();
     std::fs::write(dest.join("unrelated"), "keep").unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
-    aethershell::tx::begin().unwrap();
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
+    iron_shell::tx::begin().unwrap();
     let result = diff_record(call("copy_file", vec![s(&source), s("merged")], &mut env).unwrap());
     assert_eq!(result["bytes"], Value::Int(14));
     assert_eq!(
@@ -1236,7 +1236,7 @@ fn file_copy_imports_outside_sources_and_rolls_back_directory_merges() {
         "replacement"
     );
     std::fs::write(dest.join("after_copy"), "unrelated later write").unwrap();
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(
         std::fs::read_to_string(dest.join("existing")).unwrap(),
         "old"
@@ -1250,9 +1250,9 @@ fn file_copy_imports_outside_sources_and_rolls_back_directory_merges() {
         std::fs::read_to_string(dest.join("unrelated")).unwrap(),
         "keep"
     );
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     call("cp", vec![s(&source), s("new_tree")], &mut env).unwrap();
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert!(!workspace.join("new_tree").exists());
     code(
         call(
@@ -1334,7 +1334,7 @@ fn file_backup_preserves_binary_content_and_supports_both_call_forms() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let source = fixture.path("input");
     let bytes = [0, 0xff, 0x80, 10];
     std::fs::write(&source, bytes).unwrap();
@@ -1348,8 +1348,8 @@ fn file_backup_preserves_binary_content_and_supports_both_call_forms() {
         call_with_input(name, vec![s(".save")], Some(s("input")), &mut env).unwrap();
         assert_eq!(std::fs::read(source.clone() + ".save").unwrap(), bytes);
         assert_eq!(
-            aethershell::safety::effect_of(name),
-            aethershell::safety::Effect::WriteLocal
+            iron_shell::safety::effect_of(name),
+            iron_shell::safety::Effect::WriteLocal
         );
     }
 }
@@ -1409,8 +1409,8 @@ fn file_backup_jails_paths_and_rolls_back_new_and_existing_destinations() {
     std::fs::write(&outside, "secret").unwrap();
     std::fs::write(workspace.join("input"), "new").unwrap();
     std::fs::write(workspace.join("input.bak"), "prior").unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
     for name in ["file_backup", "backup_file"] {
         code(
             call(name, vec![s(&outside)], &mut env),
@@ -1418,14 +1418,14 @@ fn file_backup_jails_paths_and_rolls_back_new_and_existing_destinations() {
         );
         assert!(!std::path::Path::new(&(outside.clone() + ".bak")).exists());
     }
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     call("file_backup", vec![s("input")], &mut env).unwrap();
     call_with_input("backup_file", vec![s(".save")], Some(s("input")), &mut env).unwrap();
     assert_eq!(
         std::fs::read_to_string(workspace.join("input.bak")).unwrap(),
         "new"
     );
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(
         std::fs::read_to_string(workspace.join("input.bak")).unwrap(),
         "prior"
@@ -1441,7 +1441,7 @@ fn file_backup_codes_read_and_copy_failures_and_bounds_source_size() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     code(
         call("file_backup", vec![s(&fixture.path("missing"))], &mut env),
         "E_NOT_FOUND",
@@ -1464,18 +1464,18 @@ fn file_backup_codes_read_and_copy_failures_and_bounds_source_size() {
     let source = fixture.path("input");
     std::fs::write(&source, "original").unwrap();
     std::fs::create_dir(source.clone() + ".bak").unwrap();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     code(call("file_backup", vec![s(&source)], &mut env), "E_BAD_ARG");
     let later = std::path::PathBuf::from(source.clone() + ".bak").join("later");
     std::fs::write(&later, "unrelated").unwrap();
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::read_to_string(&later).unwrap(), "unrelated");
     assert_eq!(std::fs::read_to_string(&source).unwrap(), "original");
     assert!(!std::fs::read_dir(&fixture.root).unwrap().any(|e| e
         .unwrap()
         .file_name()
         .to_string_lossy()
-        .starts_with(".aether_tmp_")));
+        .starts_with(".ironshell_tmp_")));
 }
 #[test]
 fn file_backup_preserves_source_permissions() {
@@ -1526,7 +1526,7 @@ fn file_backup_preserves_source_permissions() {
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with(".aether_tmp_")));
+            .starts_with(".ironshell_tmp_")));
     }
 }
 fn pager_file(file: bool) -> Value {
@@ -1545,8 +1545,8 @@ fn bat_reads_literal_plain_files_and_guards_both_aliases() {
     std::fs::write(workspace.join("-plain"), "a\r\né\r\n").unwrap();
     let outside = fixture.path("outside");
     std::fs::write(&outside, "secret").unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
     for name in ["bat", "bat_view"] {
         assert_eq!(
             call(name, vec![s("-plain")], &mut env).unwrap(),
@@ -1566,8 +1566,8 @@ fn bat_reads_literal_plain_files_and_guards_both_aliases() {
             "E_BAD_ARG",
         );
         assert_eq!(
-            aethershell::safety::effect_of(name),
-            aethershell::safety::Effect::ReadLocal
+            iron_shell::safety::effect_of(name),
+            iron_shell::safety::Effect::ReadLocal
         );
     }
 }
@@ -1615,8 +1615,8 @@ fn pager_validates_options_and_guards_resolved_file_reads() {
     std::fs::write(workspace.join("input"), "a\r\nb\r\n").unwrap();
     let outside = fixture.path("outside");
     std::fs::write(&outside, "secret").unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
     for name in ["less", "pager"] {
         assert_eq!(
             call(name, vec![s("input"), pager_file(true)], &mut env).unwrap(),
@@ -1775,15 +1775,15 @@ fn file_diff_declares_and_guards_both_actual_read_targets() {
     std::fs::write(workspace.join("b"), "b").unwrap();
     let outside = fixture.path("outside");
     std::fs::write(&outside, "secret").unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
-    std::env::set_var("AETHER_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
+    std::env::set_var("IRONSHELL_MODE", "agent");
     let mut env = Env::default();
     for name in ["file_diff", "diff_files"] {
         assert_eq!(
-            aethershell::safety::effect_of(name),
-            aethershell::safety::Effect::ReadLocal
+            iron_shell::safety::effect_of(name),
+            iron_shell::safety::Effect::ReadLocal
         );
-        assert!(aethershell::safety::effect_is_declared(name));
+        assert!(iron_shell::safety::effect_is_declared(name));
         code(
             call(name, vec![s("a"), s(&outside)], &mut env),
             "E_OUTSIDE_WORKSPACE",
@@ -1946,16 +1946,16 @@ fn sd_refuses_invalid_regex_types_and_conflicting_input() {
 fn sd_is_declared_pure_and_runs_under_strict_agent_policy() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_POLICY", "strict");
-    std::env::set_var("AETHER_MAX_FILES", "0");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_POLICY", "strict");
+    std::env::set_var("IRONSHELL_MAX_FILES", "0");
     let mut env = Env::default();
     for name in ["sd", "sd_replace"] {
         assert_eq!(
-            aethershell::safety::effect_of(name),
-            aethershell::safety::Effect::Pure
+            iron_shell::safety::effect_of(name),
+            iron_shell::safety::Effect::Pure
         );
-        assert!(aethershell::safety::effect_is_declared(name));
+        assert!(iron_shell::safety::effect_is_declared(name));
         assert_eq!(
             call(name, vec![s("a+"), s("x"), s("aaa")], &mut env).unwrap(),
             s("x")
@@ -2075,10 +2075,10 @@ fn sed_refuses_bad_options_regex_and_conflicts_without_writing() {
 fn sed_file_mode_resolves_paths_and_rolls_back_atomic_edits() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     std::fs::write(fixture.root.join("input"), "aba").unwrap();
     let mut env = Env::default();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     let result = call(
         "sed",
         vec![s("a"), s("x"), s("input"), sed_options(false, true)],
@@ -2107,7 +2107,7 @@ fn sed_file_mode_resolves_paths_and_rolls_back_atomic_edits() {
         std::fs::read_to_string(fixture.root.join("input")).unwrap(),
         "xby"
     );
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("input")).unwrap(),
         "aba"
@@ -2116,7 +2116,7 @@ fn sed_file_mode_resolves_paths_and_rolls_back_atomic_edits() {
         .unwrap()
         .file_name()
         .to_string_lossy()
-        .starts_with(".aether_tmp_")));
+        .starts_with(".ironshell_tmp_")));
 }
 #[test]
 fn sed_file_mode_jails_aliases_and_bounds_reads() {
@@ -2126,8 +2126,8 @@ fn sed_file_mode_jails_aliases_and_bounds_reads() {
     std::fs::write(&outside, "original").unwrap();
     let workspace = fixture.root.join("workspace");
     std::fs::create_dir(&workspace).unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
     let mut env = Env::default();
     for name in ["sed", "sed_replace"] {
         code(
@@ -2548,7 +2548,7 @@ fn tee_overwrites_appends_and_formats_data_in_both_forms_and_aliases() {
         .unwrap()
         .file_name()
         .to_string_lossy()
-        .starts_with(".aether_tmp_")));
+        .starts_with(".ironshell_tmp_")));
 }
 #[test]
 fn malformed_tee_options_are_refused_without_clobbering() {
@@ -2595,8 +2595,8 @@ fn tee_jails_new_destinations_and_resolves_relative_paths_to_workspace() {
     let fixture = Fixture::new();
     let workspace = fixture.root.join("workspace");
     std::fs::create_dir(&workspace).unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &workspace);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
     let mut env = Env::default();
     for name in ["tee", "tee_output"] {
         code(
@@ -2615,12 +2615,12 @@ fn tee_jails_new_destinations_and_resolves_relative_paths_to_workspace() {
 fn tee_snapshots_overwrites_appends_and_new_files_for_rollback() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let path = fixture.path("existing");
     let new = fixture.path("new");
     std::fs::write(&path, "original").unwrap();
     let mut env = Env::default();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     call("tee", vec![s(&path), s("replacement")], &mut env).unwrap();
     call(
         "tee",
@@ -2629,7 +2629,7 @@ fn tee_snapshots_overwrites_appends_and_new_files_for_rollback() {
     )
     .unwrap();
     call("tee", vec![s(&new), s("created")], &mut env).unwrap();
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
     assert!(!std::path::Path::new(&new).exists());
 }
@@ -2727,7 +2727,7 @@ fn symlink_guards_referred_targets_and_journals_transactions() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let destination = fixture.path("link");
     let outside = fixture.root.parent().unwrap().join("outside-target");
     code(
@@ -2758,7 +2758,7 @@ fn symlink_guards_referred_targets_and_journals_transactions() {
     // rollback removes it and leaves the target alone. The target exists so that
     // Windows, which needs a link kind, can resolve it.
     std::fs::write(fixture.path("target"), "kept").unwrap();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     let created = call("fs_symlink", vec![s("target"), s(&destination)], &mut env);
     match &created {
         Ok(value) => assert_eq!(value, &Value::Bool(true)),
@@ -2771,7 +2771,7 @@ fn symlink_guards_referred_targets_and_journals_transactions() {
         #[cfg(not(windows))]
         Err(error) => panic!("{error}"),
     }
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert!(std::fs::symlink_metadata(&destination).is_err());
     assert_eq!(
         std::fs::read_to_string(fixture.path("target")).unwrap(),
@@ -2839,7 +2839,7 @@ fn symlink_unix_preserves_dangling_targets_and_protects_audit_aliases() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let destination = fixture.path("link");
     assert!(matches!(
         call("fs_symlink", vec![s("missing"), s(&destination)], &mut env).unwrap(),
@@ -2905,7 +2905,7 @@ fn permission_checks_report_metadata_and_resolve_workspace_paths() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let path = fixture.path("input");
     std::fs::write(&path, "owned").unwrap();
     let original = std::fs::metadata(&path).unwrap().permissions();
@@ -2973,7 +2973,7 @@ fn permission_set_guards_and_audits_its_own_name_and_journals_transactions() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let mut env = Env::default();
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let path = fixture.path("input");
     std::fs::write(&path, "owned").unwrap();
     code(
@@ -2983,16 +2983,16 @@ fn permission_set_guards_and_audits_its_own_name_and_journals_transactions() {
     // Inside a transaction the mode change is journaled, not refused (commit 1b55800):
     // rollback restores the pre-image.
     let original = std::fs::metadata(&path).unwrap().permissions();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     assert_eq!(
         call("perm_set", vec![s("input"), Value::Int(0o400)], &mut env).unwrap(),
         Value::Bool(true)
     );
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     assert_eq!(std::fs::metadata(&path).unwrap().permissions(), original);
     let jail = fixture.root.join("jail");
     std::fs::create_dir(&jail).unwrap();
-    std::env::set_var("AETHER_WORKSPACE", &jail);
+    std::env::set_var("IRONSHELL_WORKSPACE", &jail);
     code(
         call("perm_set", vec![s(&path), Value::Int(0o600)], &mut env),
         "E_OUTSIDE_WORKSPACE",
@@ -3238,7 +3238,7 @@ fn password_hashes_use_stored_salts_and_bounded_parameters() {
         ),
         "E_BUDGET_EXCEEDED",
     );
-    std::env::set_var("AETHER_FIPS", "1");
+    std::env::set_var("IRONSHELL_FIPS", "1");
     code(
         call(
             "crypto_password_verify",
@@ -3439,8 +3439,8 @@ fn scheduler_lifecycle_is_gated_before_native_backend_access() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     let mut env = Env::new();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_POLICY", "strict");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_POLICY", "strict");
     #[cfg(windows)]
     for name in ["cron_remove", "cron_enable", "cron_disable"] {
         code(call(name, vec![s("*")], &mut env), "E_BAD_ARG");
@@ -3456,7 +3456,7 @@ fn scheduler_lifecycle_is_gated_before_native_backend_access() {
         code(
             call(
                 name,
-                vec![s("@daily echo AetherShell-owned-fixture")],
+                vec![s("@daily echo IronShell-owned-fixture")],
                 &mut env,
             ),
             "E_NEEDS_APPROVAL",
@@ -3471,7 +3471,7 @@ fn scheduler_lifecycle_is_gated_before_native_backend_access() {
         (
             "at_remove",
             vec![s(if cfg!(windows) {
-                "AetherShell-at-12345678-1234-4234-8234-123456789012"
+                "IronShell-at-12345678-1234-4234-8234-123456789012"
             } else {
                 "12"
             })],
@@ -3562,7 +3562,7 @@ fn tcp_binary_transfer_eof_timeout_and_handle_lifecycle() {
     use std::time::Duration;
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let server = std::thread::spawn(move || {
@@ -3661,7 +3661,7 @@ fn tcp_contracts_policy_and_transactions_gate_actual_peer() {
     use std::time::Duration;
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
     let mut env = Env::default();
     for args in [
         vec![],
@@ -3704,20 +3704,20 @@ fn tcp_contracts_policy_and_transactions_gate_actual_peer() {
         Value::Int(listener.local_addr().unwrap().port() as i64),
         Value::Int(50),
     ];
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     code(
         call("net_connect", args.clone(), &mut env),
         "E_UNIMPLEMENTED",
     );
-    aethershell::tx::rollback().unwrap();
-    std::env::set_var("AETHER_NET_ALLOW", "192.0.2.1");
+    iron_shell::tx::rollback().unwrap();
+    std::env::set_var("IRONSHELL_NET_ALLOW", "192.0.2.1");
     code(call("net_connect", args.clone(), &mut env), "E_POLICY_DENY");
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
     let handle = call("net_connect", args, &mut env).unwrap();
     let (mut peer, _) = listener.accept().unwrap();
     peer.set_read_timeout(Some(Duration::from_millis(30)))
         .unwrap();
-    std::env::set_var("AETHER_NET_ALLOW", "192.0.2.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "192.0.2.1");
     code(
         call("net_send", vec![handle.clone(), s("denied")], &mut env),
         "E_POLICY_DENY",
@@ -3732,13 +3732,13 @@ fn tcp_contracts_policy_and_transactions_gate_actual_peer() {
     );
     let mut byte = [0];
     assert!(peer.read(&mut byte).is_err());
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
-    aethershell::tx::begin().unwrap();
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
+    iron_shell::tx::begin().unwrap();
     code(
         call("net_send", vec![handle.clone(), s("denied")], &mut env),
         "E_UNIMPLEMENTED",
     );
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     peer.write_all(&[99]).unwrap();
     call("net_recv", vec![handle.clone()], &mut env).unwrap();
     call("net_close", vec![handle], &mut env).unwrap();
@@ -3753,7 +3753,7 @@ fn tcp_one_shot_listener_accepts_and_releases_port_on_timeout() {
     use std::time::{Duration, Instant};
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
     let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = reservation.local_addr().unwrap();
     drop(reservation);
@@ -3824,7 +3824,7 @@ fn tcp_handle_budget_releases_capacity_and_close_interrupts_reader() {
     use std::time::{Duration, Instant};
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
     struct Handles(Vec<Value>);
     impl Drop for Handles {
         fn drop(&mut self) {
@@ -3904,7 +3904,7 @@ fn tcp_waits_respect_short_and_expired_evaluation_deadlines() {
     }
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let mut env = Env::default();
     let args = vec![
@@ -3915,13 +3915,13 @@ fn tcp_waits_respect_short_and_expired_evaluation_deadlines() {
     let handle = call("net_connect", args.clone(), &mut env).unwrap();
     let _peer = listener.accept().unwrap().0;
     {
-        let _deadline = aethershell::safety::enter_deadline(Duration::from_millis(20));
+        let _deadline = iron_shell::safety::enter_deadline(Duration::from_millis(20));
         let started = Instant::now();
         short_deadline(call("net_recv", vec![handle.clone()], &mut env));
         assert!(started.elapsed() < Duration::from_secs(1));
     }
     {
-        let _deadline = aethershell::safety::enter_deadline(Duration::ZERO);
+        let _deadline = iron_shell::safety::enter_deadline(Duration::ZERO);
         code(
             call("net_recv", vec![handle.clone()], &mut env),
             "E_BUDGET_EXCEEDED",
@@ -3937,7 +3937,7 @@ fn tcp_waits_respect_short_and_expired_evaluation_deadlines() {
     let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = reservation.local_addr().unwrap().port();
     drop(reservation);
-    let _deadline = aethershell::safety::enter_deadline(Duration::from_millis(20));
+    let _deadline = iron_shell::safety::enter_deadline(Duration::from_millis(20));
     let started = Instant::now();
     short_deadline(call(
         "net_listen",
@@ -3950,8 +3950,8 @@ fn tcp_waits_respect_short_and_expired_evaluation_deadlines() {
 fn source_navigation_inspects_real_bindings_references_and_signatures_without_effects() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &fixture.root);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
     let mut env = Env::default();
     let source="# side in a comment\nside = fn(x) => file.write(\"must-not-exist\", x); other = fn(y) => side(y); literal = \"side\"; result = other(1)";
     let Value::Array(definitions) =
@@ -4285,8 +4285,8 @@ fn project_scripts_reads_json_jsonc_python_and_cargo_without_running_commands() 
         .unwrap()
         .contains("project_scripts"));
     assert_eq!(
-        aethershell::safety::effect_of("project_scripts"),
-        aethershell::safety::Effect::ReadLocal
+        iron_shell::safety::effect_of("project_scripts"),
+        iron_shell::safety::Effect::ReadLocal
     );
 }
 
@@ -4351,8 +4351,8 @@ fn project_scripts_refuses_malformed_missing_and_oversized_manifests_without_par
     );
     let jail = fixture.root.join("jail");
     std::fs::create_dir(&jail).unwrap();
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_WORKSPACE", &jail);
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_WORKSPACE", &jail);
     code(
         call("project_scripts", vec![s(&path)], &mut env),
         "E_OUTSIDE_WORKSPACE",
@@ -4465,8 +4465,8 @@ fn ed25519_generated_keys_sign_binary_and_language_examples() {
         Value::Bool(true)
     );
     for source in ["typeof(crypto_sign(crypto_generate_key(\"ed25519\"), \"example\"))", "key = crypto_generate_key(\"ed25519\"); signed = crypto_sign(key, \"example\"); crypto_verify_signature(signed.public_key, \"example\", signed.signature)"] {
-        let statements = aethershell::parser::parse_program(source).unwrap();
-        let result = aethershell::eval::eval_program(&statements, &mut Env::default()).unwrap();
+        let statements = iron_shell::parser::parse_program(source).unwrap();
+        let result = iron_shell::eval::eval_program(&statements, &mut Env::default()).unwrap();
         assert!(result == s("Record") || result == Value::Bool(true));
     }
 }
@@ -4571,7 +4571,7 @@ fn ed25519_rejects_bad_encodings_arguments_and_inconsistent_keys() {
 fn ed25519_fips_policy_refuses_unvalidated_backend() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
-    std::env::set_var("AETHER_FIPS", "1");
+    std::env::set_var("IRONSHELL_FIPS", "1");
     let mut env = Env::default();
     let (private, public, signature) = ed_fixture();
     for (name, args) in [

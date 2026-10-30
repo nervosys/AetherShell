@@ -1,6 +1,6 @@
-# Copilot Instructions for AetherShell
+# Copilot Instructions for IronShell
 
-AetherShell is a shell built for AI agents. Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies across OS versions, locales, and tool installations — making agent workflows fundamentally brittle. AetherShell eliminates this by providing a single cross-platform language where every command returns deterministic, typed output. An ontology built into the shell makes commands, arguments, and return types machine-discoverable without documentation scraping or prompt engineering. Written in Rust, it combines typed functional pipelines with multimodal AI capabilities.
+IronShell is a shell built for AI agents. Traditional shells (Bash, PowerShell, Zsh) produce unstructured text that varies across OS versions, locales, and tool installations — making agent workflows fundamentally brittle. IronShell eliminates this by providing a single cross-platform language where every command returns deterministic, typed output. An ontology built into the shell makes commands, arguments, and return types machine-discoverable without documentation scraping or prompt engineering. Written in Rust, it combines typed functional pipelines with multimodal AI capabilities.
 
 ## Core Architecture
 
@@ -15,10 +15,10 @@ AetherShell is a shell built for AI agents. Traditional shells (Bash, PowerShell
 
 - **`ast.rs`**: Core AST definitions (Stmt, Expr, BinOp) - modify here for language extensions
 - **`eval.rs`**: Expression evaluator - handles all runtime semantics
-- **`parser.rs`**: AetherShell syntax → AST (distinct from bash transpilation)
+- **`parser.rs`**: IronShell syntax → AST (distinct from bash transpilation)
 - **`value.rs`**: Runtime value system with Record/Array/Lambda types
 - **`builtins.rs`**: Shell builtins that return structured data (ls → Table, not text)
-- **`transpile/bash.rs`**: Bash compatibility layer - separate from native AetherShell
+- **`transpile/bash.rs`**: Bash compatibility layer - separate from native IronShell
 
 ### AI Integration Architecture
 
@@ -33,7 +33,7 @@ AetherShell is a shell built for AI agents. Traditional shells (Bash, PowerShell
 ### Build & Test
 
 ```bash
-cargo build --bins              # Builds both `ae` and `aimodel` binaries
+cargo build --bins              # Builds both `ish` and `aimodel` binaries
 cargo test                      # Comprehensive test suite including AI features
 cargo run -- --tui             # Launch TUI mode for development testing
 cargo run --bin aimodel        # AI model management CLI
@@ -99,19 +99,19 @@ builtin_bad() -> Value::String("raw text output")
 - **Bash compatibility**: `transpile/bash.rs` (keep separate from native features)
 - **Zsh compatibility**: `transpile/zsh.rs` (Zsh-specific constructs, 100+ command mappings)
 - **PowerShell compatibility**: `transpile/powershell.rs` (cmdlet mappings, brace-based blocks)
-- **Agentic syntax**: `transpile/agentic.rs` (token-minimized AI agent syntax, `.aeg` files)
+- **Agentic syntax**: `transpile/agentic.rs` (token-minimized AI agent syntax, `.ishg` files)
 
 ## Environment Setup
 
 Set these for full AI functionality:
 
-- `AETHER_AI=openai` (default AI provider)
+- `IRONSHELL_AI=openai` (default AI provider)
 - `OPENAI_API_KEY=...` (or other provider keys)
 - `AGENT_ALLOW_CMDS=ls,git,cat` (whitelist for agent tool use)
 
 ## AI Discoverability Files
 
-AetherShell includes structured metadata files for AI model discovery:
+IronShell includes structured metadata files for AI model discovery:
 
 - **`llms.txt`**: Short AI-readable summary following the [llms.txt standard](https://llmstxt.org)
 - **`llms-full.txt`**: Complete AI context with syntax, modules, API, and architecture

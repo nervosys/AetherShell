@@ -1,8 +1,8 @@
 # Contributor License Agreement (CLA)
 
-## AetherShell — Nervosys
+## IronShell — Nervosys
 
-Thank you for your interest in contributing to **AetherShell**, a project maintained by **Nervosys** ("We", "Us", or "the Project").
+Thank you for your interest in contributing to **IronShell**, a project maintained by **Nervosys** ("We", "Us", or "the Project").
 
 By submitting a contribution (including but not limited to code, documentation, bug fixes, or other materials) to this project, you ("Contributor") agree to the following terms:
 
@@ -23,7 +23,7 @@ You hereby grant to Nervosys and recipients of software distributed by Nervosys 
 
 ## 4. Dual-License Authorization
 
-You understand and agree that AetherShell is dual-licensed under:
+You understand and agree that IronShell is dual-licensed under:
 - The **GNU Affero General Public License v3.0 or later** (AGPL-3.0-or-later) for open source use
 - A **commercial license** offered by Nervosys for proprietary and enterprise use
 

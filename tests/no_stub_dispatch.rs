@@ -24,7 +24,7 @@
 //! rows by their shape, and requires that no name in `BUILTIN_LOOKUP` point at
 //! one.
 
-use aethershell::builtins::BUILTIN_LOOKUP;
+use iron_shell::builtins::BUILTIN_LOOKUP;
 use std::collections::{BTreeMap, BTreeSet};
 
 fn source() -> String {

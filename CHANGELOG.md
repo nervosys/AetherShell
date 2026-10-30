@@ -1,17 +1,39 @@
 # Changelog
 
-All notable changes to AetherShell will be documented in this file.
+All notable changes to IronShell will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **AetherShell is now IronShell.** This is a clean break: the old names are no
+  longer read. The crate is `iron-shell` (library `iron_shell`), the LSP crate
+  `iron-shell-lsp` and the Python package `ironshell`. The binary is `ish`, and
+  `ae` is still installed as an alias of it. Scripts are `.ish` (agentic syntax
+  `.ishg`), environment variables are `IRONSHELL_*` (`AE_TOKEN_BUDGET` and
+  `AE_DETERMINISTIC` are now `IRONSHELL_TOKEN_BUDGET` and
+  `IRONSHELL_DETERMINISTIC`), and the workspace state directory is `.ironshell/`.
+  The user config, data and cache directories, and the OS keyring entries that
+  hold API keys, are now named `ironshell`. To migrate, rename `.ae` files and
+  `AETHER_*` variables, move a workspace's `.ae/` to `.ironshell/`, and store keys
+  again with `ish keys store`. Service units and apt source files created by the
+  shell are now prefixed `ironshell-` instead of `ae-`. Existing ones are not
+  renamed, and the shell no longer recognises them as its own; the same holds
+  for cron entries it disabled, now marked `# ironshell-disabled:`. Native
+  plugins must export `ironshell_plugin_init` and `ironshell_plugin_deinit`, the
+  MCP server reports itself as `ironshell-mcp`, and generated LLM tool names are
+  prefixed `ironshell_`. Data formats are unchanged: ciphertext from
+  `crypto_encrypt` and the key ids in signed audit logs keep their original
+  labels, so both still verify.
+
 ### Added
 
 - **RSA and ECDSA signatures**: `crypto_sign` now signs with ECDSA P-256 (SHA-256) and P-384 (SHA-384), with ASN.1 DER signatures, and RSA PKCS#1 v1.5 with SHA-256, as well as Ed25519, from a PKCS#8 `PRIVATE KEY`, a PKCS#1 `RSA PRIVATE KEY` or a SEC1 `EC PRIVATE KEY` PEM; the record's `algorithm` names which. ECDSA signatures are deterministic (RFC 6979), so signing the same data with the same key twice gives the same bytes. `crypto_verify_signature` takes the raw public key `crypto_sign` returns or a `BEGIN PUBLIC KEY` PEM. Both run in-process on IronCrypto (`ironcrypto` 0.3.2), behind a strict bounds-checked DER reader. RSA keys must be 2048 to 4096 bits, for signing and verifying. `tests/crypto_sign_interop.rs` checks that `openssl dgst -sha256 -verify` accepts the signatures, and unit tests check that openssl's signatures, and the RFC 8032 Ed25519 vector, verify here.
 - **`web_xpath`**: queries HTML or simple XML with a subset of XPath 1.0, implemented in-tree with no new crate (`src/web_xpath.rs`): elements come back as their outer HTML, attributes and text as decoded values. Unsupported expressions such as `count()` or `following-sibling::` are refused with E_BAD_ARG; it was E_UNIMPLEMENTED before.
-- **`sudo_exec` on Windows**: runs argv directly, with no shell, only when the AetherShell process is already elevated; an unelevated process is refused with E_POLICY_DENY, since Windows elevates only through a UAC prompt, which AetherShell never shows.
+- **`sudo_exec` on Windows**: runs argv directly, with no shell, only when the IronShell process is already elevated; an unelevated process is refused with E_POLICY_DENY, since Windows elevates only through a UAC prompt, which IronShell never shows.
 - **`pkg_list` on dnf, yum and Homebrew**: on RPM systems `pkg_list` reads
   `rpm -qa` (the version carries the epoch when the package has one, and
   multilib duplicates of the same version are kept once), and on macOS it reads
@@ -34,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   map/filter did not move consistently there
   (`benches/agentic/results/perf-2026-10-27.md`). All of these are in-process
   figures; no CLI startup or Agent API speedup is claimed.
-- **`ae -b` runs POSIX shell in-process** (`src/posix.rs`): pipelines, `&&`/`||`,
+- **`ish -b` runs POSIX shell in-process** (`src/posix.rs`): pipelines, `&&`/`||`,
   variables, `$(…)`, redirections, `if`/`for`/`while`, `test`, and GNU-compatible
   text utilities. Other commands run as the real program through `guard_exec`,
   never via `bash -c`. E6: 2 of 32 → 32 of 32 byte-identical to bash, and 32 of
@@ -57,10 +79,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arm is 3.5× cheaper than bash in total (was 3.0×).
 - **Warm sessions answer in under a millisecond**: `sql`/`sql_value` keep each
   file's loaded database between calls (invalidated by size or mtime), so an
-  agent on `ae mcp stdio` pays 0.47 ms per query against 20-26 ms for `ae -c`
+  agent on `ish mcp stdio` pays 0.47 ms per query against 20-26 ms for `ish -c`
   and 7-15 ms for a `sqlite3` process per query
   (`benches/agentic/results/latency-warm.md`).
-- **`ae --explain` / `explain_effects(code)`**: every call in a program, its
+- **`ish --explain` / `explain_effects(code)`**: every call in a program, its
   effect class and the agent-mode decision, without running it.
 
 ### Performance
@@ -71,11 +93,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   variables, elements moved rather than copied through `map`/`where`, and
   indexed signature and effect lookups. `benches/agentic/results/perf-2026-09-29.md`.
 
-- The first `ae agent schema` or Agent API schema request lists each PATH
+- The first `ish agent schema` or Agent API schema request lists each PATH
   directory once and resolves the CLI tools from that listing, the way the
   `which` crate would, then runs the `--version` probes on eight threads. On a
   Windows host with 108 PATH entries, resolving the 95 tools fell from about
-  15 s to 0.2 s, and `ae agent schema` in a release build from 17.5 to
+  15 s to 0.2 s, and `ish agent schema` in a release build from 17.5 to
   3.4-3.8 s; the rest is the probes themselves. Detection results and their
   order are unchanged.
 
@@ -115,12 +137,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Cryptography runs on IronCrypto.** Signing, verification, key generation, AES-256-GCM (`crypto_encrypt`/`crypto_decrypt`), Argon2id and PBKDF2 (`crypto_password_hash`/`crypto_password_verify` and the auth store), SHA-256/384/512, HMAC-SHA-2, the secret comparisons and the random bytes for keys, nonces and salts now come from IronCrypto (`ironcrypto` 0.3.2, pure Rust, no dependencies), and the certificate builtins from IronSocketLayer's X.509 (`ironsocketlayer` 0.7.1, over IronPKI). TLS in reqwest and tungstenite uses IronCrypto's rustls provider (`ic-rustls` 0.3.2), so ring is no longer built (only the optional `candle` feature still reaches it, through hf-hub's ureq), and the aes-gcm, argon2 and pbkdf2 crates are gone. Envelopes and password hashes written by earlier releases still decrypt and verify, checked against fixtures made with the old crates, and new ones are byte-compatible with them. The visible differences: MD5 and SHA-1 keep their own crates, because IronCrypto leaves both out on purpose; they are reached only by those names and by internal non-security keys. The visible differences:
-  - `crypto_generate_key` runs in-process on every OS: `rsa` with 2048 (the default), 3072 or 4096 bits, anything else E_BAD_ARG (8192 was accepted before); `ec` is P-256; `ed25519`. The private key comes back as a PKCS#8 `PRIVATE KEY` PEM, where openssl gave PKCS#1 or SEC1. Under `AETHER_FIPS` every key generation is E_FIPS_DISALLOWED.
+  - `crypto_generate_key` runs in-process on every OS: `rsa` with 2048 (the default), 3072 or 4096 bits, anything else E_BAD_ARG (8192 was accepted before); `ec` is P-256; `ed25519`. The private key comes back as a PKCS#8 `PRIVATE KEY` PEM, where openssl gave PKCS#1 or SEC1. Under `IRONSHELL_FIPS` every key generation is E_FIPS_DISALLOWED.
   - `crypto_cert_info` returns an Array of Records, one per certificate in the PEM or DER input, with subject, issuer, their common names, serial, validity as RFC 3339 strings and Unix seconds, DNS, IP and URI names, `is_ca`, `self_issued`, public key algorithm and size, signature algorithm, SHA-256 fingerprint and extension count. It returned openssl's text before. A block it cannot parse is E_BAD_ARG naming its index; over 1000 certificates is E_BUDGET_EXCEEDED.
   - `crypto_cert_verify` checks the chain in the file (leaf first) against the system trust store for TLS server use, without a host name. A set `SSL_CERT_FILE` is the whole store; one that cannot be read or holds no usable certificate is E_NOT_FOUND, and the system bundle is not tried in its place, so a mistyped private-CA bundle cannot quietly widen trust to every public CA. Unset, the store is the usual Unix bundle or Git for Windows' bundle, not the Windows certificate store or the macOS keychain, and with none of them it is E_NOT_FOUND too, where it answered `false`. A key or algorithm the verifier does not implement (an RSA key over 4096 bits) is E_UNIMPLEMENTED; an invalid, expired or untrusted chain is still `false`.
-  - The opt-in legacy AES-256-CBC decrypt (`AETHER_CRYPTO_LEGACY_DECRYPT=1`) runs in-process, reproducing `openssl enc -aes-256-cbc -pbkdf2` (PBKDF2-HMAC-SHA256, 10,000 rounds); it needed `openssl` on PATH, and was E_TOOL_MISSING without it.
+  - The opt-in legacy AES-256-CBC decrypt (`IRONSHELL_CRYPTO_LEGACY_DECRYPT=1`) runs in-process, reproducing `openssl enc -aes-256-cbc -pbkdf2` (PBKDF2-HMAC-SHA256, 10,000 rounds); it needed `openssl` on PATH, and was E_TOOL_MISSING without it.
   - The `openssl_*` builtins still run the `openssl` program, since they are its wrappers; no other crypto builtin does.
-  - For crates that link `aethershell`: reqwest is built with `rustls-tls-webpki-roots-no-provider`, so a reqwest client of your own panics with "No provider set" unless you call `aethershell::tls::install_provider()` first or enable a provider feature such as reqwest's `rustls-tls`.
+  - For crates that link `ironshell`: reqwest is built with `rustls-tls-webpki-roots-no-provider`, so a reqwest client of your own panics with "No provider set" unless you call `iron_shell::tls::install_provider()` first or enable a provider feature such as reqwest's `rustls-tls`.
 
 - `platform_network_interfaces` on Windows lists the adapters, each with
   `name`, `state`, `mac` and `addresses` as on Linux. It called `wmic`, which
@@ -133,18 +155,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Microsoft Windows [Version 10.0.26200.9711]`, whose wording changes with
   the display language.
 
-- **Agent-mode network egress needs approval** unless `AETHER_NET_ALLOW` names
+- **Agent-mode network egress needs approval** unless `IRONSHELL_NET_ALLOW` names
   the host (`*` restores the old metered-allow). The allowlist is now enforced in
   `safety::guard` for every `Network` builtin, accepts `,` as well as `;`, and
   refuses with `E_POLICY_DENY` instead of an uncoded string.
-- **`ae mcp stdio`, `ae agent execute` and `ae agent interactive` imply agent
-  mode**, as `agent serve` and `mcp serve` already did. `AETHER_MODE` overrides.
+- **`ish mcp stdio`, `ish agent execute` and `ish agent interactive` imply agent
+  mode**, as `agent serve` and `mcp serve` already did. `IRONSHELL_MODE` overrides.
 - **`sql` / `sqlite_query` / `db_sqlite_query` are read-only** and classed
   `ReadLocal` (were `Exec`). Use `db_sqlite_exec` to modify a database. A query
   SQLite cannot parse is `E_BAD_ARG` with the schema in the hint.
 - **Error codes.** `E_DECRYPT_UNAUTHENTICATED` is folded into `E_DECRYPT_FAILED`
   (exit 65): every way `crypto_decrypt` can refuse, including legacy ciphertext
-  without `AETHER_CRYPTO_LEGACY_DECRYPT=1`, is now one branchable code. New
+  without `IRONSHELL_CRYPTO_LEGACY_DECRYPT=1`, is now one branchable code. New
   `E_CRYPTO_FAILED` (exit 70) and `E_FIPS_DISALLOWED` (exit 77) replace errors
   that named a code only in their prose. An external tool stopped at its
   deadline is `E_BUDGET_EXCEEDED`, no longer reported as a failure to start.
@@ -156,7 +178,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `E_BUDGET_EXCEEDED`.
 - **Agent mode does not read the clipboard.** `clipboard_get`,
   `clipboard_get_image` and `clipboard_history` are `E_POLICY_DENY`, with
-  nothing read, unless `AETHER_SECRETS=allow` or `AETHER_POLICY=permissive`: a
+  nothing read, unless `IRONSHELL_SECRETS=allow` or `IRONSHELL_POLICY=permissive`: a
   copied password has no shape for redaction to catch. `clipboard_types` is
   not gated.
 
@@ -183,7 +205,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `group_add`/`del`/`mod` through `dscl` and `dseditgroup`
   (accounts created disabled; uid and gid below 501, `_` names, the running
   user and `SUDO_USER` are `E_POLICY_DENY`; not root is `E_OS_DENIED`);
-  `svc_create`/`svc_delete` as `/Library/LaunchDaemons/com.aethershell.<name>.plist`
+  `svc_create`/`svc_delete` as `/Library/LaunchDaemons/com.ironshell.<name>.plist`
   with `launchctl bootstrap`/`bootout`, deleting only daemons it created
   (`start` without `enable` is `E_BAD_ARG`); `platform_libcpp` reads libc++'s
   version from the LC_ID_DYLIB command of the copy dyld maps from the shared
@@ -239,15 +261,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inside a transaction. `repl_broadcast` is still `E_UNIMPLEMENTED`: no
   session is held open, so there are no peers to send to.
 - A plugin manifest's `[builtins]` entries are callable. Each is one
-  AetherShell lambda literal, run in a fresh module environment, so every
+  IronShell lambda literal, run in a fresh module environment, so every
   builtin it calls passes its own guard. A plugin builtin is classed `Exec`,
   so agent mode asks for approval per call, and a manifest that defines code is
-  gated like a native plugin (`AETHER_PLUGINS=off` refuses it; agent mode needs
-  `AETHER_PLUGIN_ALLOW`). A name a core builtin serves, a value that is not
+  gated like a native plugin (`IRONSHELL_PLUGINS=off` refuses it; agent mode needs
+  `IRONSHELL_PLUGIN_ALLOW`). A name a core builtin serves, a value that is not
   one lambda, or a name another plugin provides is refused before anything is
   registered; `plugin_unload` removes the entries. The Agent API calls them
   through the same dispatcher, and `GET /api/v1/builtins/<name>` describes one
-  with its `Exec` effect, as `explain_effects` and `ae --explain` do (the
+  with its `Exec` effect, as `explain_effects` and `ish --explain` do (the
   body itself is not analysed). Loading one had been refused with
   `E_UNIMPLEMENTED`.
 - `net_connections` and `net_ports` on Windows failed on any host with a
@@ -258,7 +280,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows system administration, each tested only on a disposable runner
   (`.github/workflows/disposable-host.yml`, manual):
   `svc_create` and `svc_delete` use the Service Control Manager. The service
-  is `ae-<name>`, its binary must be an absolute existing `.exe`, and
+  is `ironshell-<name>`, its binary must be an absolute existing `.exe`, and
   `svc_delete` removes only a service that `svc_create` made (it carries a
   marker in its description). `user_add`, `user_del`, `user_mod`,
   `user_passwd`, `user_lock`, `user_unlock`, `group_add`, `group_del` and
@@ -341,7 +363,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decompressor is not installed (bsdtar has these built in), the names-only
   check remains.
 
-- **`ae -b` sorts by bytes when the named locale is missing**: glibc's `ls`
+- **`ish -b` sorts by bytes when the named locale is missing**: glibc's `ls`
   and `sort` fall back to byte order when `LANG` names a locale the host never
   generated, but the in-process POSIX `ls`, `sort` and glob expansion kept
   sorting as that locale would. On Linux the collation is now used only when
@@ -380,7 +402,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session called `workshop` when there is no `work`, so `tmux_send` could
   type into, and `tmux_attach` attach to, a session the caller did not name.
   `tmux_kill`, `tmux_attach` and `tmux_send` now match the name exactly.
-- **The HTTP servers shut down cleanly**: `ae agent serve`, the MCP server and
+- **The HTTP servers shut down cleanly**: `ish agent serve`, the MCP server and
   the AI model API server stop accepting on Ctrl-C (or SIGTERM on Unix), let
   open requests finish, and close what is still open after 10 seconds, so an
   SSE stream cannot keep the process alive. Before, a request in flight was
@@ -429,12 +451,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run off the async workers under the evaluation deadline, and the server
   handles at most 64 requests at once.
 - **The RBAC config and the audit key file cannot be written by a guarded
-  builtin** (security): `ae` loads `AETHER_RBAC_CONFIG` (else
-  `<workspace>/.ae/rbac.toml`) at startup, and the SDK starts one process
-  per call, so a jailed `file_write` to it governed the next call. `.ae` was
-  covered only while the audit log lived in it; with `AETHER_AUDIT_LOG`
+  builtin** (security): `ish` loads `IRONSHELL_RBAC_CONFIG` (else
+  `<workspace>/.ironshell/rbac.toml`) at startup, and the SDK starts one process
+  per call, so a jailed `file_write` to it governed the next call. `.ish` was
+  covered only while the audit log lived in it; with `IRONSHELL_AUDIT_LOG`
   elsewhere, an agent could write itself a role table. The config, its
-  default `.ae` directory and the file named by `AETHER_AUDIT_KEY_FILE` are
+  default `.ironshell` directory and the file named by `IRONSHELL_AUDIT_KEY_FILE` are
   now refused with `E_OUTSIDE_WORKSPACE`, aliases included
   (`tests/governance_file_contracts.rs`, which failed before the fix).
 - **A symlink refused for lack of privilege is `E_OS_DENIED`** (Windows):
@@ -634,10 +656,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now enabled.
 
 - **Homebrew install instructions**: the README and website said
-  `brew install nervosys/tap/aethershell`, but no `nervosys/homebrew-tap`
+  `brew install nervosys/tap/ironshell`, but no `nervosys/homebrew-tap`
   repository exists, so that command could not work. The formula lives in this
   repository, and the instructions now tap it by URL: `brew tap nervosys/aethershell https://github.com/nervosys/AetherShell`, then
-  `brew install nervosys/aethershell/aethershell`.
+  `brew install nervosys/aethershell/ironshell`.
 - Security: in agent mode, `undo`, `rewind`, `session_undo` and `session_redo`
   could rewrite or delete a file outside the workspace. The journal persists
   per working directory, so a step recorded in human mode was replayed by a

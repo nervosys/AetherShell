@@ -115,7 +115,7 @@ impl SecureApiConfig {
         use keyring::Entry;
 
         let entry =
-            Entry::new(service, "aethershell").context("Failed to access OS credential store")?;
+            Entry::new(service, "ironshell").context("Failed to access OS credential store")?;
 
         let api_key = entry.get_password().with_context(|| {
             format!(
@@ -155,7 +155,7 @@ impl SecureApiConfig {
         use keyring::Entry;
 
         let entry =
-            Entry::new(service, "aethershell").context("Failed to access OS credential store")?;
+            Entry::new(service, "ironshell").context("Failed to access OS credential store")?;
 
         entry
             .set_password(api_key)
@@ -174,7 +174,7 @@ impl SecureApiConfig {
         use keyring::Entry;
 
         let entry =
-            Entry::new(service, "aethershell").context("Failed to access OS credential store")?;
+            Entry::new(service, "ironshell").context("Failed to access OS credential store")?;
 
         entry
             .delete_password()

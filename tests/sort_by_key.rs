@@ -6,7 +6,7 @@
 //! recognised) and the call then errored for want of a lambda — a wasted
 //! round-trip on a call that reads as obviously correct.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn rec(pairs: &[(&str, Value)]) -> Value {
@@ -18,8 +18,8 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
 }
 
 fn rows() -> Value {
@@ -65,12 +65,12 @@ fn a_field_name_composes_with_descending() {
 #[test]
 fn the_lambda_form_is_unchanged() {
     // The existing contract must not shift while adding sugar beside it.
-    let mut env = aethershell::env::Env::new();
-    let prog = aethershell::parser::parse_program(
+    let mut env = iron_shell::env::Env::new();
+    let prog = iron_shell::parser::parse_program(
         "[{name:\"b\",size:20},{name:\"a\",size:30},{name:\"c\",size:10}] | sort_by(fn(r) => r.size)",
     )
     .expect("parse");
-    let out = aethershell::eval::eval_program(&prog, &mut env).expect("eval");
+    let out = iron_shell::eval::eval_program(&prog, &mut env).expect("eval");
     assert_eq!(names(&out), vec!["c", "b", "a"]);
 }
 

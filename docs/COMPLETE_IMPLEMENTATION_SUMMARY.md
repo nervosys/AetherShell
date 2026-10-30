@@ -12,7 +12,7 @@ Successfully implemented **ALL requested P0 features** in a single session:
 2. ✅ **Multi-line Pipeline Fix** - Root cause identified and documented
 3. ✅ **Pattern Matching** - Complete with guards, constructors, destructuring
 4. ✅ **Examples Smoke Test Suite** - 18 automated tests
-5. ✅ **Examples Updates** - Fixed 02_tables.ae and 04_match.ae
+5. ✅ **Examples Updates** - Fixed 02_tables.ish and 04_match.ish
 
 **Test Results**: 
 - Unit tests: **25/25 passing** (100%)
@@ -66,14 +66,14 @@ Successfully implemented **ALL requested P0 features** in a single session:
 
 **After**: 
 ```bash
-$ ae temp/test_dot.ae
+$ ish temp/test_dot.ish
 user = { name: "Alice", age: 30 }
 user.name  // => "Alice"
 user.age   // => 30
 ```
 
 **Examples Updated**:
-- `02_tables.ae`: Changed `r.type` to `r.is_dir` (corrected field names)
+- `02_tables.ish`: Changed `r.type` to `r.is_dir` (corrected field names)
 
 ---
 
@@ -84,7 +84,7 @@ user.age   // => 30
 **Problem**: Word-call syntax greedily consumes tokens across statement boundaries.
 
 **Example**:
-```aethershell
+```ironshell
 [1,2,3] | map fn(x) => x * 2 | print
 [5,4,3] | map fn(x) => x + 1 | print
 ```
@@ -178,8 +178,8 @@ pub enum Pattern {
 
 ### Testing
 
-**Example 04_match.ae**:
-```aethershell
+**Example 04_match.ish**:
+```ironshell
 value = Some(42)
 
 match value {
@@ -192,7 +192,7 @@ match value {
 **Output**: `"big: 42"` ✅
 
 **Advanced Patterns**:
-```aethershell
+```ironshell
 // Array destructuring
 match [1, 2, 3] {
   [a, b, c] => print("three: ${a}, ${b}, ${c}"),
@@ -228,13 +228,13 @@ All work correctly!
 **Test Structure**:
 ```rust
 fn run_example(name: &str) -> Result<String, String> {
-    // Execute ae.exe on example file
+    // Execute ish.exe on example file
     // Return stdout on success or error message
 }
 
 #[test]
 fn test_example_XX_name() {
-    let output = run_example("XX_name.ae").expect("should work");
+    let output = run_example("XX_name.ish").expect("should work");
     assert!(output.contains("expected text"));
 }
 
@@ -264,20 +264,20 @@ fn test_example_YY_broken() {
 
 ## 5. Examples Updates
 
-### 02_tables.ae
+### 02_tables.ish
 **Fixed**: Field access to use correct `ls` builtin output fields
 - Changed: `r.type` → `r.is_dir`  
 - Changed: Group by `"type"` → `"is_dir"`
 
 **Status**: First pipeline works (where + select), second fails on missing `group_by` builtin (expected)
 
-### 04_match.ae
+### 04_match.ish
 **Fixed**: Constructor syntax
 - Changed: `None` → `None()` (all constructors need parentheses)
 
 **Status**: Fully working! Matches `Some(42)` with guard `if x > 40`
 
-### 01_pipelines.ae
+### 01_pipelines.ish
 **Status**: Known limitation - simplified to single-line pipelines, but still affected by word-call issue. Documented in EXAMPLES_TEST_REPORT.md.
 
 ---
@@ -301,9 +301,9 @@ fn test_example_YY_broken() {
 - ✅ `src/parser.rs`
 - ✅ `src/eval.rs`
 - ✅ `src/typecheck.rs`
-- ✅ `examples/02_tables.ae`
-- ✅ `examples/04_match.ae`
-- ✅ `examples/01_pipelines.ae`
+- ✅ `examples/02_tables.ish`
+- ✅ `examples/04_match.ish`
+- ✅ `examples/01_pipelines.ish`
 
 ### New Files Created
 
@@ -336,15 +336,15 @@ test result: ok. 5 passed; 0 failed; 13 ignored
 ```
 
 **Working Examples Verified**:
-- ✅ 00_hello.ae - Passes all assertions
-- ✅ 04_match.ae - Passes all assertions
-- ✅ 17_syntax_showcase.ae - Passes all assertions
-- ✅ 18_mutable_variables.ae - Passes all assertions
-- ✅ 02_tables.ae - Partial (expected failure on missing builtins)
+- ✅ 00_hello.ish - Passes all assertions
+- ✅ 04_match.ish - Passes all assertions
+- ✅ 17_syntax_showcase.ish - Passes all assertions
+- ✅ 18_mutable_variables.ish - Passes all assertions
+- ✅ 02_tables.ish - Partial (expected failure on missing builtins)
 
 ### Build Status
 ```
-Compiling aethershell v0.1.0
+Compiling ironshell v0.1.0
 Finished `dev` profile in 20s
 ```
 - ✅ 0 errors
@@ -478,11 +478,11 @@ Creating smoke tests AFTER implementation revealed:
 1. **Fix Word-Call Parsing** (MEDIUM effort, HIGH impact)
    - Make newlines significant in specific contexts
    - Or require explicit semicolons
-   - Would fix 01_pipelines.ae and improve DX
+   - Would fix 01_pipelines.ish and improve DX
 
 2. **Implement Missing Builtins** (LOW effort, MEDIUM impact)
    - `group_by`, `agg` for data processing
-   - Would enable 02_tables.ae fully
+   - Would enable 02_tables.ish fully
    - Referenced in examples but not implemented
 
 3. **Pattern Match Exhaustiveness** (MEDIUM effort, LOW impact)
@@ -544,4 +544,4 @@ Successfully implemented **ALL requested P0 features** in a single focused sessi
 
 **Project Status**: **Ready for beta testing** with documented limitations.
 
-The AetherShell now has a solid foundation for typed, functional, AI-native shell programming with modern pattern matching and field access syntax!
+The IronShell now has a solid foundation for typed, functional, AI-native shell programming with modern pattern matching and field access syntax!

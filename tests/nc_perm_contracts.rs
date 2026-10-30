@@ -1,6 +1,6 @@
 //! Contracts for nc_listen (one-shot TCP listener) and perm_check's execute
 //! mode. Env-mutating tests share one lock; the process env is restored on drop.
-use aethershell::{
+use iron_shell::{
     builtins::{call, call_with_input},
     env::Env,
     value::Value,
@@ -17,10 +17,10 @@ static LOCK: Mutex<()> = Mutex::new(());
 
 const ENV_KEYS: [&str; 6] = [
     "NO_COLOR",
-    "AETHER_WORKSPACE",
-    "AETHER_AUDIT_LOG",
-    "AETHER_AUDIT_KEY",
-    "AETHER_NET_ALLOW",
+    "IRONSHELL_WORKSPACE",
+    "IRONSHELL_AUDIT_LOG",
+    "IRONSHELL_AUDIT_KEY",
+    "IRONSHELL_NET_ALLOW",
     "PATHEXT",
 ];
 
@@ -45,9 +45,9 @@ impl Fixture {
             std::env::remove_var(key);
         }
         std::env::set_var("NO_COLOR", "1");
-        std::env::set_var("AETHER_WORKSPACE", &fixture.root);
-        std::env::set_var("AETHER_AUDIT_LOG", fixture.root.join("audit.log"));
-        std::env::set_var("AETHER_AUDIT_KEY", "11".repeat(32));
+        std::env::set_var("IRONSHELL_WORKSPACE", &fixture.root);
+        std::env::set_var("IRONSHELL_AUDIT_LOG", fixture.root.join("audit.log"));
+        std::env::set_var("IRONSHELL_AUDIT_KEY", "11".repeat(32));
         fixture
     }
 
@@ -58,7 +58,7 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        while aethershell::tx::rollback().is_ok() {}
+        while iron_shell::tx::rollback().is_ok() {}
         for (key, value) in &self.vars {
             match value {
                 Some(v) => std::env::set_var(key, v),
@@ -119,7 +119,7 @@ fn record(value: Value) -> std::collections::BTreeMap<String, Value> {
 fn nc_listen_reads_one_client_to_eof_and_reports_it() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
     let port = free_port();
     let sender = client(port, b"hello".to_vec());
     let mut env = Env::default();
@@ -144,7 +144,7 @@ fn nc_listen_reads_one_client_to_eof_and_reports_it() {
 fn nc_listen_truncates_at_the_byte_limit_and_says_so() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
     let port = free_port();
     let sender = client(port, b"abcdefghij".to_vec());
     let mut env = Env::default();
@@ -174,7 +174,7 @@ fn nc_listen_truncates_at_the_byte_limit_and_says_so() {
 fn nc_listen_exact_limit_is_not_truncated() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
     let port = free_port();
     let sender = client(port, b"abcd".to_vec());
     let mut env = Env::default();
@@ -203,7 +203,7 @@ fn nc_listen_exact_limit_is_not_truncated() {
 fn nc_listen_without_a_client_is_a_timeout_in_bounded_time() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
-    std::env::set_var("AETHER_NET_ALLOW", "127.0.0.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
     let port = free_port();
     let started = Instant::now();
     let mut env = Env::default();
@@ -223,7 +223,7 @@ fn nc_listen_bind_address_and_peer_pass_network_policy() {
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _fixture = Fixture::new();
     // Loopback is not allowed by this policy, so the bind is refused before listening.
-    std::env::set_var("AETHER_NET_ALLOW", "10.255.255.1");
+    std::env::set_var("IRONSHELL_NET_ALLOW", "10.255.255.1");
     let port = free_port();
     let mut env = Env::default();
     assert!(call(

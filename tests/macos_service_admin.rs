@@ -10,8 +10,8 @@
 
 #![cfg(target_os = "macos")]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
@@ -42,7 +42,7 @@ fn record(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>, env: &mut Env) -> anyhow::Result<Value> {
-    aethershell::builtins::call(name, args, env)
+    iron_shell::builtins::call(name, args, env)
 }
 
 fn code(result: anyhow::Result<Value>, expected: &str) {
@@ -74,7 +74,7 @@ fn disposable() -> bool {
 }
 
 fn label_of(name: &str) -> String {
-    format!("com.aethershell.{name}")
+    format!("com.ironshell.{name}")
 }
 
 fn plist_of(label: &str) -> String {
@@ -205,7 +205,7 @@ fn malformed_service_calls_are_refused_before_the_system_is_touched() {
 fn service_changes_are_refused_inside_a_transaction() {
     let _lock = LOCK.lock().unwrap();
     let mut env = Env::default();
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     let refused = [
         call(
             "svc_create",
@@ -214,7 +214,7 @@ fn service_changes_are_refused_inside_a_transaction() {
         ),
         call("svc_delete", vec![s("svc-tx")], &mut env),
     ];
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     for result in refused {
         code(result, "E_POLICY_DENY");
     }
@@ -251,7 +251,7 @@ fn create_writes_a_root_owned_plist_and_bootstraps_it_without_starting_it() {
 
     // The file: marker comment, label, argv, RunAtLoad false, no Disabled key.
     let body = std::fs::read_to_string(&plist).expect("the plist was written");
-    assert!(body.contains("Created by AetherShell svc_create"), "{body}");
+    assert!(body.contains("Created by IronShell svc_create"), "{body}");
     assert!(!body.contains("<key>Disabled</key>"), "{body}");
     assert_eq!(plutil_raw(&plist, "Label"), label);
     assert_eq!(plutil_raw(&plist, "ProgramArguments.0"), SLEEP);
@@ -393,7 +393,7 @@ fn delete_of_a_missing_service_is_not_found_and_an_unknown_account_is_not_found(
 
 #[test]
 #[ignore = "disposable macOS host, as root: set AE_DISPOSABLE_HOST=1"]
-fn a_daemon_not_created_by_aethershell_is_never_replaced_or_removed() {
+fn a_daemon_not_created_by_ironshell_is_never_replaced_or_removed() {
     if !disposable() {
         return;
     }
@@ -403,7 +403,7 @@ fn a_daemon_not_created_by_aethershell_is_never_replaced_or_removed() {
     let _cleanup = Cleanup(vec![label.clone()]);
     let mut env = Env::default();
 
-    // A plain LaunchDaemon with no AetherShell marker, loaded by hand.
+    // A plain LaunchDaemon with no IronShell marker, loaded by hand.
     let plain = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>Label</key>\n\t<string>{label}</string>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>{SLEEP}</string>\n\t\t<string>600</string>\n\t</array>\n</dict>\n</plist>\n"
     );

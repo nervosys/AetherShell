@@ -1,8 +1,8 @@
 //! Tests for advanced AI builtins (RAG, Knowledge Graphs, Semantic Caching)
 
-use aethershell::builtins::call;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 /// Serializes every test in this file.
 ///
@@ -836,7 +836,7 @@ fn test_rag_workflow() {
     call(
         "rag_index",
         vec![
-            Value::Str("AetherShell is a next-generation shell written in Rust.".to_string()),
+            Value::Str("IronShell is a next-generation shell written in Rust.".to_string()),
             Value::Str("intro.txt".to_string()),
         ],
         &mut env,
@@ -856,7 +856,7 @@ fn test_rag_workflow() {
     // 2. Query
     let query_result = call(
         "rag_query",
-        vec![Value::Str("What is AetherShell?".to_string())],
+        vec![Value::Str("What is IronShell?".to_string())],
         &mut env,
     )
     .unwrap();
@@ -892,11 +892,11 @@ fn test_knowledge_graph_workflow() {
     )
     .unwrap();
 
-    let aether = call(
+    let ironshell = call(
         "kg_add",
         vec![
             Value::Str("Project".to_string()),
-            Value::Str("AetherShell".to_string()),
+            Value::Str("IronShell".to_string()),
         ],
         &mut env,
     )
@@ -908,7 +908,7 @@ fn test_knowledge_graph_workflow() {
         panic!("Expected Record");
     };
 
-    let aether_id = if let Value::Record(rec) = aether {
+    let ironshell_id = if let Value::Record(rec) = ironshell {
         rec.get("entity_id").cloned().unwrap()
     } else {
         panic!("Expected Record");
@@ -917,7 +917,7 @@ fn test_knowledge_graph_workflow() {
     // 2. Add relation
     call(
         "kg_relate",
-        vec![aether_id, rust_id, Value::Str("written_in".to_string())],
+        vec![ironshell_id, rust_id, Value::Str("written_in".to_string())],
         &mut env,
     )
     .unwrap();

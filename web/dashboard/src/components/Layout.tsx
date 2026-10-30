@@ -62,7 +62,7 @@ export default function Layout() {
                             <span className="text-base font-bold text-lg">Æ</span>
                         </div>
                         <div>
-                            <h1 className="font-semibold text-text">AetherShell</h1>
+                            <h1 className="font-semibold text-text">IronShell</h1>
                             <span className="text-xs text-subtext0">Dashboard</span>
                         </div>
                     </div>

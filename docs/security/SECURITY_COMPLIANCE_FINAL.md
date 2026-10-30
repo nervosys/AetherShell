@@ -1,4 +1,4 @@
-# 🛡️ AetherShell Full Security Compliance Report
+# 🛡️ IronShell Full Security Compliance Report
 
 **STATUS: ✅ FULLY COMPLIANT** 
 
@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-AetherShell has achieved **full security compliance** with all industry standards and best practices. Comprehensive security testing, code auditing, and hardening measures have been implemented and validated.
+IronShell has achieved **full security compliance** with all industry standards and best practices. Comprehensive security testing, code auditing, and hardening measures have been implemented and validated.
 
 ## ✅ Security Compliance Checklist
 
@@ -164,17 +164,17 @@ pub fn validate_ai_prompt(prompt: &str) -> Result<String> {
 ### Security Configuration
 ```bash
 # Production security environment.
-# (An earlier revision listed AETHER_SECURITY_LEVEL, AETHER_AUDIT_LOGGING,
-# AETHER_RATE_LIMIT_REQUESTS, AETHER_MAX_PROMPT_LENGTH,
-# AETHER_COMMAND_WHITELIST and AETHER_SESSION_TIMEOUT. The source reads none
+# (An earlier revision listed IRONSHELL_SECURITY_LEVEL, IRONSHELL_AUDIT_LOGGING,
+# IRONSHELL_RATE_LIMIT_REQUESTS, IRONSHELL_MAX_PROMPT_LENGTH,
+# IRONSHELL_COMMAND_WHITELIST and IRONSHELL_SESSION_TIMEOUT. The source reads none
 # of them; exporting them hardened nothing.)
-export AETHER_MODE=agent
-export AETHER_WORKSPACE=/srv/work
-export AETHER_AUDIT_REQUIRED=1
-export AETHER_AUDIT_KEY_FILE=/etc/aether/audit.key
+export IRONSHELL_MODE=agent
+export IRONSHELL_WORKSPACE=/srv/work
+export IRONSHELL_AUDIT_REQUIRED=1
+export IRONSHELL_AUDIT_KEY_FILE=/etc/ironshell/audit.key
 export AGENT_ALLOW_CMDS="ls,cat,grep,find"
-export AETHER_MAX_OPS=100000
-export AETHER_TIMEOUT_MS=30000
+export IRONSHELL_MAX_OPS=100000
+export IRONSHELL_TIMEOUT_MS=30000
 ```
 
 ### Monitoring and Alerting
@@ -225,7 +225,7 @@ All identified findings have been **resolved** or **documented as acceptable**:
 
 **FINAL SECURITY STATUS: ✅ FULLY COMPLIANT**
 
-AetherShell meets or exceeds all industry security standards and is certified ready for production deployment with the highest security confidence level.
+IronShell meets or exceeds all industry security standards and is certified ready for production deployment with the highest security confidence level.
 
 ### Security Assurance Level
 - **Confidence Level**: 99%

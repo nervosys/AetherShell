@@ -1,16 +1,16 @@
 # Marketplace
 
-The AetherShell Marketplace is a registry for sharing and discovering pre-built AI agents.
+The IronShell Marketplace is a registry for sharing and discovering pre-built AI agents.
 
 ## Browsing
 
 ### Search
 
-```aethershell
+```ironshell
 # Search for agents
 marketplace_search "code review"
 # [
-#   { name: "code-reviewer", author: "aethershell", version: "1.0.0", downloads: 500 },
+#   { name: "code-reviewer", author: "ironshell", version: "1.0.0", downloads: 500 },
 #   { name: "pr-analyzer", author: "community", version: "0.8.0", downloads: 120 },
 #   ...
 # ]
@@ -30,7 +30,7 @@ The web dashboard provides a visual marketplace browser at the **Marketplace** t
 
 ## Installing Agents
 
-```aethershell
+```ironshell
 marketplace_install "code-reviewer"
 marketplace_install "code-reviewer" "1.0.0"    # Specific version
 ```
@@ -51,7 +51,7 @@ curl -X POST http://localhost:3000/api/v1/marketplace/install \
 
 ## Uninstalling
 
-```aethershell
+```ironshell
 marketplace_uninstall "code-reviewer"
 ```
 
@@ -59,7 +59,7 @@ marketplace_uninstall "code-reviewer"
 
 Share your agents with the community:
 
-```aethershell
+```ironshell
 marketplace_publish {
   name: "my-agent",
   description: "Analyzes Rust code for common patterns",
@@ -100,7 +100,7 @@ The `RegistryClient` manages local state:
 
 - **Search**: Full-text search against the registry (local fallback when offline)
 - **Install**: Downloads agent config and registers locally
-- **Cache**: Installed agents stored in `~/.aethershell/marketplace/`
+- **Cache**: Installed agents stored in `~/.ironshell/marketplace/`
 
 ## Dashboard Integration
 

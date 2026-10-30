@@ -55,12 +55,12 @@ pub enum Shell {
     Fish,
     PowerShell,
     Nushell,
-    /// AetherShell in its default (human) rendering.
-    AetherShell,
-    /// AetherShell under `--agent --workspace`: AECON output, effect gating on.
+    /// IronShell in its default (human) rendering.
+    IronShell,
+    /// IronShell under `--agent --workspace`: AECON output, effect gating on.
     /// Profiled separately because the two differ on three of the four axes,
     /// and quoting only the better one would be sleight of hand.
-    AetherShellAgent,
+    IronShellAgent,
 }
 
 impl Shell {
@@ -72,8 +72,8 @@ impl Shell {
             Shell::Fish,
             Shell::PowerShell,
             Shell::Nushell,
-            Shell::AetherShell,
-            Shell::AetherShellAgent,
+            Shell::IronShell,
+            Shell::IronShellAgent,
         ]
     }
 
@@ -85,8 +85,8 @@ impl Shell {
             Shell::Fish => "fish",
             Shell::PowerShell => "powershell",
             Shell::Nushell => "nushell",
-            Shell::AetherShell => "aethershell",
-            Shell::AetherShellAgent => "aethershell-agent",
+            Shell::IronShell => "ironshell",
+            Shell::IronShellAgent => "ironshell-agent",
         }
     }
 
@@ -98,8 +98,8 @@ impl Shell {
             "fish" => Some(Shell::Fish),
             "powershell" | "pwsh" | "ps" => Some(Shell::PowerShell),
             "nushell" | "nu" => Some(Shell::Nushell),
-            "aethershell" | "ae" => Some(Shell::AetherShell),
-            "aethershell-agent" | "ae-agent" | "aeagent" => Some(Shell::AetherShellAgent),
+            "ironshell" | "ish" | "ae" => Some(Shell::IronShell),
+            "ironshell-agent" | "ae-agent" | "aeagent" => Some(Shell::IronShellAgent),
             _ => None,
         }
     }
@@ -229,7 +229,7 @@ pub fn profile(shell: Shell) -> ShellProfile {
             // `Select-Object` returns the two fields asked for.
             token_efficiency: 0.60,
             // E5: 1 of 6 distinct outputs, stable across every environment
-            // varied. Ties AetherShell on this axis.
+            // varied. Ties IronShell on this axis.
             determinism: 0.90,
             // E3: 8/10 failures actually failed — two returned exit 0 with an
             // empty or zero result, which is the worst shape available.
@@ -239,7 +239,7 @@ pub fn profile(shell: Shell) -> ShellProfile {
             measured: true,
             evidence: vec![
                 "E2: 735 tokens for eight tabular answers, second cheapest — typed objects, and Select-Object emits the fields requested",
-                "E5: byte-stable across all six locale/timezone/width environments, tying AetherShell",
+                "E5: byte-stable across all six locale/timezone/width environments, tying IronShell",
                 "E3: only 8/10 induced failures failed at all; a missing field and an out-of-range index both returned exit 0",
                 "E3: 0/10 machine-readable codes, 0/10 distinct exit statuses",
                 "E4: 0/5 contained",
@@ -263,8 +263,8 @@ pub fn profile(shell: Shell) -> ShellProfile {
             safety: 0.05,
             measured: true,
             evidence: vec![
-                "E3: 10/10 machine-readable codes (nu::shell::division_by_zero and the like) — it got to a full error taxonomy before AetherShell did",
-                "E3: 294 mean bytes per failure, 2.1x AetherShell and 7x bash, most of it source-span art that is valuable to a human and pure cost to a model",
+                "E3: 10/10 machine-readable codes (nu::shell::division_by_zero and the like) — it got to a full error taxonomy before IronShell did",
+                "E3: 294 mean bytes per failure, 2.1x IronShell and 7x bash, most of it source-span art that is valuable to a human and pure cost to a model",
                 "E2: 1,274 tokens for eight tabular answers — more expensive than bash, on box-drawing and column padding",
                 "E5: size column is locale-formatted — 27.2 kB under C, 27,2 kB under de_DE — and rounded to three significant figures, so it is both unstable and lossy",
                 "E4: 0/5 contained; typed values, no effect model",
@@ -272,7 +272,7 @@ pub fn profile(shell: Shell) -> ShellProfile {
             ],
         },
 
-        Shell::AetherShell => ShellProfile {
+        Shell::IronShell => ShellProfile {
             shell,
             // E2: 842 tokens in the human rendering, 1.7x cheaper than bash.
             // E1: 448, fourth of six — scalar answers give typing nothing to do.
@@ -289,11 +289,11 @@ pub fn profile(shell: Shell) -> ShellProfile {
                 "E5: byte-stable across all six environments",
                 "E3: 10/10 codes and 10/10 repair hints at 141 mean bytes, but 0/10 distinct exit statuses — everything exits 1",
                 "E4: 1/6 contained in human mode, and that one is `sh()` being off, not a gate firing. Containment is opt-in; a deployment that forgets the flags is as unbounded as bash",
-                "E6: `ae -b` ran 1 of 32 ordinary bash commands natively — the documented Bash-compatibility feature does not carry a shell-native benchmark",
+                "E6: `ish -b` ran 1 of 32 ordinary bash commands natively — the documented Bash-compatibility feature does not carry a shell-native benchmark",
             ],
         },
 
-        Shell::AetherShellAgent => ShellProfile {
+        Shell::IronShellAgent => ShellProfile {
             shell,
             // E2: 497 tokens, cheapest measured; output alone 334 against
             // bash's 1,395.
@@ -408,8 +408,8 @@ mod tests {
             Shell::Bash,
             Shell::Nushell,
             Shell::PowerShell,
-            Shell::AetherShell,
-            Shell::AetherShellAgent,
+            Shell::IronShell,
+            Shell::IronShellAgent,
         ] {
             assert!(s.measured(), "{} was executed and should say so", s.name());
         }
@@ -441,30 +441,30 @@ mod tests {
         // bash contained nothing (E4) and must score near zero on safety;
         // agent mode contained everything and must score high.
         assert!(profile(Shell::Bash).safety < 0.2);
-        assert!(profile(Shell::AetherShellAgent).safety >= 0.75);
+        assert!(profile(Shell::IronShellAgent).safety >= 0.75);
         // nushell beat everything on error codes (E3) and must lead the
         // POSIX shells on reliability.
         assert!(profile(Shell::Nushell).reliability > profile(Shell::Bash).reliability);
-        // AetherShell's human renderer is more expensive than its agent mode
+        // IronShell's human renderer is more expensive than its agent mode
         // (E2: 842 vs 497) and must score lower on tokens.
         assert!(
-            profile(Shell::AetherShell).token_efficiency
-                < profile(Shell::AetherShellAgent).token_efficiency
+            profile(Shell::IronShell).token_efficiency
+                < profile(Shell::IronShellAgent).token_efficiency
         );
         // E1 is the result that goes against us: on scalar answers we are
         // fourth of six. Nothing in this module may imply otherwise by
         // scoring the human renderer above nushell on tokens.
         assert!(
-            profile(Shell::AetherShell).token_efficiency > profile(Shell::Nushell).token_efficiency,
-            "E2 has AetherShell's human renderer cheaper than nushell; if that \
+            profile(Shell::IronShell).token_efficiency > profile(Shell::Nushell).token_efficiency,
+            "E2 has IronShell's human renderer cheaper than nushell; if that \
              changes, update the score and the evidence together"
         );
     }
 
     #[test]
     fn comparison_is_antisymmetric() {
-        let ab = compare_shells(Shell::AetherShellAgent, Shell::Bash);
-        let ba = compare_shells(Shell::Bash, Shell::AetherShellAgent);
+        let ab = compare_shells(Shell::IronShellAgent, Shell::Bash);
+        let ba = compare_shells(Shell::Bash, Shell::IronShellAgent);
         assert!((ab.fitness + ba.fitness).abs() < 1e-9);
         assert!(ab.safety > 0.0, "agent mode contains more than bash (E4)");
     }

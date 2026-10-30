@@ -28,7 +28,7 @@
 //! possible in one careless step. That is a legitimate choice behind a trusted
 //! boundary, so it warns rather than refuses — but it must not be silent.
 
-use aethershell::ai_api::config::{is_loopback, resolve_auth_requirement};
+use iron_shell::ai_api::config::{is_loopback, resolve_auth_requirement};
 
 #[test]
 fn an_absent_flag_cannot_switch_configured_auth_off() {

@@ -105,7 +105,7 @@ pub struct App {
     pub media_list_state: ListState,
     pub tab_index: usize,
 
-    // AetherShell environment
+    // IronShell environment
     pub env: Env,
 
     // Configuration
@@ -145,9 +145,9 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         // Use configured AI provider or show warning
-        let default_model = std::env::var("AETHER_AI").unwrap_or_else(|_| {
-            eprintln!("Warning: AETHER_AI not set. AI features will not work.");
-            eprintln!("Set AETHER_AI=openai|ollama|compat to enable AI.");
+        let default_model = std::env::var("IRONSHELL_AI").unwrap_or_else(|_| {
+            eprintln!("Warning: IRONSHELL_AI not set. AI features will not work.");
+            eprintln!("Set IRONSHELL_AI=openai|ollama|compat to enable AI.");
             String::new()
         });
 
@@ -174,7 +174,7 @@ impl App {
         media_list_state.select(Some(0));
 
         // Get current model from env
-        let current_model = std::env::var("AETHER_AI").unwrap_or_default();
+        let current_model = std::env::var("IRONSHELL_AI").unwrap_or_default();
 
         Ok(App {
             should_quit: false,
@@ -310,9 +310,9 @@ impl App {
                 MessageRole::Assistant,
                 "⚠️ AI not configured.\n\n\
                 Set environment variables and restart:\n\
-                • OpenAI: $env:AETHER_AI=\"openai\"; $env:OPENAI_API_KEY=\"sk-...\"\n\
-                • Ollama: $env:AETHER_AI=\"ollama\" (run 'ollama serve' first)\n\
-                • Compatible: $env:AETHER_AI=\"compat\"; $env:AETHER_COMPAT_BASE=\"http://...\""
+                • OpenAI: $env:IRONSHELL_AI=\"openai\"; $env:OPENAI_API_KEY=\"sk-...\"\n\
+                • Ollama: $env:IRONSHELL_AI=\"ollama\" (run 'ollama serve' first)\n\
+                • Compatible: $env:IRONSHELL_AI=\"compat\"; $env:IRONSHELL_COMPAT_BASE=\"http://...\""
                     .to_string(),
             );
             return Ok(());
@@ -558,7 +558,7 @@ impl App {
     /// Export conversation to markdown format
     pub fn export_to_markdown(&self) -> String {
         let mut output = String::new();
-        output.push_str("# AetherShell Conversation Export\n\n");
+        output.push_str("# IronShell Conversation Export\n\n");
         output.push_str(&format!(
             "**Exported:** {}\n",
             chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")

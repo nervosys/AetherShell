@@ -1,7 +1,7 @@
 //! Which cipher forms the **grammar** understands, and which are transpiler-only.
 //!
 //! §4.3's goal is that the agent surface be parsed by the real lexer/parser, with
-//! the `.aeg` transpiler reduced to at most a thin legacy shim. Phase 5 retired
+//! the `.ishg` transpiler reduced to at most a thin legacy shim. Phase 5 retired
 //! the 10-pass pipeline to a single tokenizing `scan`, and several forms
 //! (`|.field` projection, SI suffixes, `~x: body`, `?match`, `if`-expressions)
 //! moved into the grammar for real.
@@ -17,13 +17,13 @@
 //! adopted must parse. Either way, moving one across the line makes a test here
 //! fail and say so, rather than leaving a paragraph quietly wrong.
 
-use aethershell::env::Env;
-use aethershell::transpile::agentic::transpile_agentic_to_ae;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::transpile::agentic::transpile_agentic_to_ae;
+use iron_shell::value::Value;
 
 /// Does the real grammar accept this source on its own?
 fn grammar_accepts(src: &str) -> bool {
-    aethershell::parser::parse_program(src).is_ok()
+    iron_shell::parser::parse_program(src).is_ok()
 }
 
 /// Evaluate `src` through the real grammar with **no** transpiler in front of it.
@@ -31,17 +31,17 @@ fn grammar_accepts(src: &str) -> bool {
 /// `Err` covers both "the parser has no production for this" and "it parsed but
 /// meant something the evaluator rejected".
 fn direct_eval(src: &str) -> Result<Value, String> {
-    let stmts = aethershell::parser::parse_program(src).map_err(|e| e.to_string())?;
+    let stmts = iron_shell::parser::parse_program(src).map_err(|e| e.to_string())?;
     let mut env = Env::new();
-    aethershell::eval::eval_program(&stmts, &mut env).map_err(|e| e.to_string())
+    iron_shell::eval::eval_program(&stmts, &mut env).map_err(|e| e.to_string())
 }
 
-/// Evaluate through the transpiler, the way the `.aeg` surface actually runs.
+/// Evaluate through the transpiler, the way the `.ishg` surface actually runs.
 fn eval_aeg(src: &str) -> Value {
     let ae = transpile_agentic_to_ae(src).expect("transpile");
-    let stmts = aethershell::parser::parse_program(&ae).expect("parse transpiled output");
+    let stmts = iron_shell::parser::parse_program(&ae).expect("parse transpiled output");
     let mut env = Env::new();
-    aethershell::eval::eval_program(&stmts, &mut env).expect("eval")
+    iron_shell::eval::eval_program(&stmts, &mut env).expect("eval")
 }
 
 #[test]

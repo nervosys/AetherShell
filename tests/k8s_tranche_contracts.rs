@@ -1,7 +1,7 @@
 //! Contracts for the k8s_* builtins.
 //!
 //! No test here reaches a cluster. The user's kubeconfig is never read: every
-//! kubectl call a test makes runs in a child `ae` process whose `KUBECONFIG`
+//! kubectl call a test makes runs in a child `ish` process whose `KUBECONFIG`
 //! names a temporary file, with one context and one server,
 //! https://127.0.0.1:1, where nothing listens. kubectl therefore fails at
 //! once with a connection error, or the call fails as E_TOOL_MISSING when
@@ -15,10 +15,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::signature::signature_of;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::signature::signature_of;
+use iron_shell::value::Value;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -94,23 +94,23 @@ fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::Joi
     })
 }
 
-/// Run `ae -c <expr>` in the fixture's workspace, against the dead kubeconfig,
-/// with an optional AETHER_MODE. Stdout and stderr come back together.
+/// Run `ish -c <expr>` in the fixture's workspace, against the dead kubeconfig,
+/// with an optional IRONSHELL_MODE. Stdout and stderr come back together.
 fn ae(fx: &Fixture, mode: Option<&str>, expr: &str) -> Run {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ae"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ish"));
     cmd.current_dir(&fx.workspace)
         .args(["-c", expr])
         .env("KUBECONFIG", &fx.kubeconfig)
-        .env("AETHER_SESSION_DIR", &fx.session)
-        .env("AETHER_WORKSPACE", &fx.workspace)
-        .env_remove("AETHER_MODE")
-        .env_remove("AETHER_AGENT")
-        .env_remove("AETHER_POLICY")
+        .env("IRONSHELL_SESSION_DIR", &fx.session)
+        .env("IRONSHELL_WORKSPACE", &fx.workspace)
+        .env_remove("IRONSHELL_MODE")
+        .env_remove("IRONSHELL_AGENT")
+        .env_remove("IRONSHELL_POLICY")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(mode) = mode {
-        cmd.env("AETHER_MODE", mode);
+        cmd.env("IRONSHELL_MODE", mode);
     }
     let mut child = cmd.spawn().expect("spawn ae");
     let out = drain(child.stdout.take());
@@ -147,7 +147,7 @@ fn kubectl_present() -> bool {
         .unwrap_or(false)
 }
 
-/// A path written into an `ae` string literal: forward slashes, no quotes.
+/// A path written into an `ish` string literal: forward slashes, no quotes.
 fn path_literal(path: &Path) -> String {
     path.display().to_string().replace('\\', "/")
 }
@@ -265,7 +265,7 @@ fn kubectl_spellings_are_declared_under_the_k8s_name() {
 }
 
 // ---------------------------------------------------------------------------
-// Through the `ae` binary, against the dead server.
+// Through the `ish` binary, against the dead server.
 // ---------------------------------------------------------------------------
 
 #[test]

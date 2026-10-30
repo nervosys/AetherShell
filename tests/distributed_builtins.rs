@@ -1,8 +1,8 @@
 //! Tests for distributed computing builtins
 
-use aethershell::builtins::call;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 // ===================== Cluster Management Tests =====================
 

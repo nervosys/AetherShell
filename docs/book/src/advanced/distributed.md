@@ -1,6 +1,6 @@
 # Distributed Computing
 
-AetherShell has a node registry, a local in-memory consensus tally and a
+IronShell has a node registry, a local in-memory consensus tally and a
 local `aggregate_results` over an Array. Work that would go to other machines
 is not implemented in this build: job submission and remote execution refuse
 with `E_UNIMPLEMENTED`, and no node is contacted by the cluster builtins.
@@ -9,7 +9,7 @@ with `E_UNIMPLEMENTED`, and no node is contacted by the cluster builtins.
 
 ### Creating a Cluster
 
-```aethershell
+```ironshell
 cluster_create("my-cluster")
 # {name: "my-cluster", status: "created", node_count: 0, created_at: …}
 ```
@@ -21,7 +21,7 @@ that does not record which cluster they belong to.
 
 ### Adding Nodes
 
-```aethershell
+```ironshell
 cluster_add_node("node-1", "192.168.1.10:3000")
 cluster_add_node("node-2", "192.168.1.11:3000", ["compute"])
 
@@ -35,7 +35,7 @@ so it is registered, not online, and no heartbeat is checked.
 
 ### Cluster Status
 
-```aethershell
+```ironshell
 cluster_status()
 # {total_nodes, online_nodes, busy_nodes, total_jobs, pending_jobs,
 #  running_jobs, average_load}
@@ -46,7 +46,7 @@ cluster_status()
 
 ### Node Management
 
-```aethershell
+```ironshell
 cluster_nodes()
 # [ {id: "node-1", address: "192.168.1.10:3000", load: 0.0, status: …}, … ]
 
@@ -61,7 +61,7 @@ Job submission is not implemented in this build. `job_submit` (alias `submit`)
 has no executor behind it, so it refuses with `E_UNIMPLEMENTED`. No job is
 queued and nothing runs:
 
-```aethershell
+```ironshell
 try { job_submit("build", "cargo test") } catch e { e.error.code }
 # "E_UNIMPLEMENTED"
 ```
@@ -72,7 +72,7 @@ try { job_submit("build", "cargo test") } catch e { e.error.code }
 this build nothing adds to it, because `job_submit` refuses, so the table is
 empty:
 
-```aethershell
+```ironshell
 job_list()
 # []
 
@@ -87,7 +87,7 @@ job_status("job-abc123")    # an unknown id is E_NOT_FOUND
 > node and command are checked first: a node that is not registered is
 > `E_NOT_FOUND`, and a valid call is refused as above.
 
-```aethershell
+```ironshell
 try { remote_exec("node-1", "ls src") } catch e { e.error.code }
 # "E_UNIMPLEMENTED" for a registered node, "E_NOT_FOUND" for an unknown one
 
@@ -100,7 +100,7 @@ ssh_exec "user@192.168.1.10" "ls src | wc -l"
 `aggregate_results` combines an Array that is already in hand. It does not
 collect anything from nodes:
 
-```aethershell
+```ironshell
 aggregate_results([1, 2, 3], "sum")    # adds finite numbers
 [1, 2, 3] | aggregate_results("sum")   # the piped form takes the strategy only
 aggregate_results(["a", "b"])          # concat, the default, returns the Array
@@ -118,7 +118,7 @@ process. Two limits apply before you rely on it. Nothing identifies a voter, so
 the electorate is the caller's assertion. And the tally is in memory only: it is
 gone when the process exits. Nothing is sent to other agents.
 
-```aethershell
+```ironshell
 # Open a proposal: a name, and a Record that sets its threshold and electorate
 let p = nanda_propose("deploy-v2", {threshold: 0.66, electorate: 3})
 

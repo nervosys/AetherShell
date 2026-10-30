@@ -1,4 +1,4 @@
-//! Security module for AetherShell
+//! Security module for IronShell
 //!
 //! This module provides comprehensive security controls for:
 //! - Path validation and traversal prevention (CVSS 8.2)
@@ -435,8 +435,8 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     };
 
     // Path containment (the "workspace jail") applies ONLY when sandboxing is
-    // active: agent mode, an explicitly-set `AETHER_WORKSPACE`, or
-    // explicitly-configured `allowed_base_dirs`. In plain human mode AetherShell is
+    // active: agent mode, an explicitly-set `IRONSHELL_WORKSPACE`, or
+    // explicitly-configured `allowed_base_dirs`. In plain human mode IronShell is
     // a normal interactive shell and may access any path that is canonicalizable,
     // null-byte-free, and not blocked by an explicit pattern — exactly like
     // bash/zsh/fish. The null-byte, length, blocked-pattern, and symlink checks
@@ -444,7 +444,7 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     let explicit_bases = !config.allowed_base_dirs.is_empty();
     let sandboxed = explicit_bases
         || crate::safety::current_mode() == crate::safety::Mode::Agent
-        || std::env::var("AETHER_WORKSPACE").is_ok();
+        || std::env::var("IRONSHELL_WORKSPACE").is_ok();
     if !sandboxed {
         return Ok(canonical);
     }
@@ -453,8 +453,8 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     let allowed_bases: Vec<PathBuf> = if explicit_bases {
         config.allowed_base_dirs.clone()
     } else {
-        // Agent mode / AETHER_WORKSPACE: confine to the workspace root (which
-        // resolves AETHER_WORKSPACE, defaulting to the current directory).
+        // Agent mode / IRONSHELL_WORKSPACE: confine to the workspace root (which
+        // resolves IRONSHELL_WORKSPACE, defaulting to the current directory).
         vec![crate::safety::workspace_root()]
     };
 
@@ -892,16 +892,16 @@ pub fn validate_integer_param(value: i64, field_name: &str) -> Result<i64> {
 
 /// Check whether shell command execution is allowed.
 ///
-/// The sh() builtin is gated behind AETHER_ALLOW_SH=true.
+/// The sh() builtin is gated behind IRONSHELL_ALLOW_SH=true.
 pub fn validate_sh_allowed() -> Result<()> {
-    match std::env::var("AETHER_ALLOW_SH") {
+    match std::env::var("IRONSHELL_ALLOW_SH") {
         Ok(val) if val == "true" || val == "1" || val == "yes" => Ok(()),
         _ => Err(crate::safety::policy_deny(
             "sh",
             "sh() is disabled for security: it executes arbitrary system \
              commands with no sandboxing",
             "prefer a typed builtin (cat, proc_list, http_get, …); to allow \
-             arbitrary execution anyway, set AETHER_ALLOW_SH=true before \
+             arbitrary execution anyway, set IRONSHELL_ALLOW_SH=true before \
              starting the shell",
         )),
     }
@@ -1066,7 +1066,7 @@ pub fn validate_http_url(builtin: &str, url_str: &str) -> Result<String> {
     // Every refusal below was bare prose, and `http_get` wrapped it in a
     // label, so an SSRF refusal reached an agent as E_UNKNOWN "URL
     // validation failed". The catalogue probes never saw it: they run with
-    // AETHER_MAX_NET=0, and the network budget stops every network builtin
+    // IRONSHELL_MAX_NET=0, and the network budget stops every network builtin
     // before it gets this far.
     let parsed = url::Url::parse(url_str)
         .map_err(|e| crate::safety::bad_arg(builtin, "an absolute http(s) URL", &e.to_string()))?;
@@ -1455,7 +1455,7 @@ pub fn sanitize_path_in_error(path: &str) -> String {
 /// # Example
 ///
 /// ```rust
-/// use aethershell::security::sanitize_tui_output;
+/// use iron_shell::security::sanitize_tui_output;
 /// let malicious = "\x1b]0;Hack\x07\x1b[2J\x1b[HCleared!";
 /// let safe = sanitize_tui_output(malicious);
 /// assert_eq!(safe, "Cleared!");
@@ -1567,7 +1567,7 @@ mod tests {
     #[test]
     fn test_path_validation_basic() {
         // `validate_safe_path` consults `safety::current_mode()`, which reads
-        // the process-global `AETHER_MODE`. Several `safety` tests set that to
+        // the process-global `IRONSHELL_MODE`. Several `safety` tests set that to
         // "agent" while they run, which switches the workspace jail on and makes
         // even `.` fail here. Take the same lock those tests use so the two
         // cannot interleave. (Without this the test fails intermittently — it

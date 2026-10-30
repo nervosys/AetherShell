@@ -1,10 +1,10 @@
 # Web Scraping
 
-Examples of web scraping and data extraction with AetherShell.
+Examples of web scraping and data extraction with IronShell.
 
 ## Basic Page Fetching
 
-```aethershell
+```ironshell
 # Fetch a page
 let page = http_get "https://example.com"
 echo page.status     # 200
@@ -17,7 +17,7 @@ echo text
 
 ## Scraping with Selectors
 
-```aethershell
+```ironshell
 # Scrape article titles
 let titles = web_scrape "https://news.ycombinator.com" "a.storylink"
 titles | take 10 | each(fn(t) => echo t.text)
@@ -25,7 +25,7 @@ titles | take 10 | each(fn(t) => echo t.text)
 
 ## API-Based Scraping
 
-```aethershell
+```ironshell
 # GitHub repository stats
 let repos = ["rust-lang/rust", "tokio-rs/tokio", "serde-rs/serde"]
 
@@ -44,7 +44,7 @@ repos | map(fn(repo) => {
 
 ### HTML to Markdown
 
-```aethershell
+```ironshell
 let html = (http_get "https://blog.example.com/post/1").body
 let md = web_html_to_markdown html
 file_write "post.md" md
@@ -52,7 +52,7 @@ file_write "post.md" md
 
 ### Extract Emails
 
-```aethershell
+```ironshell
 let page = (http_get "https://example.com/contact").body
 let emails = web_extract_emails page
 echo emails   # ["info@example.com", "support@example.com"]
@@ -60,14 +60,14 @@ echo emails   # ["info@example.com", "support@example.com"]
 
 ### Extract Links
 
-```aethershell
+```ironshell
 let links = web_scrape "https://example.com" "a[href]"
 links | map(fn(a) => a.href) | where(fn(h) => starts_with h "https://") | unique
 ```
 
 ## Download Pipeline
 
-```aethershell
+```ironshell
 # Download multiple files
 let urls = [
   "https://data.example.com/dataset1.csv",
@@ -85,7 +85,7 @@ urls | each(fn(url) => {
 
 ## URL Health Checking
 
-```aethershell
+```ironshell
 let urls = cat "urls.txt" | split "\n" | where(fn(u) => len(u) > 0)
 
 let results = urls | map(fn(url) => {
@@ -101,13 +101,13 @@ broken | each(fn(r) => echo "  ✗ ${r.url} (${r.status})")
 
 ## Paginated API
 
-```aethershell
+```ironshell
 # Fetch all pages from a paginated API
 let all_items = []
 let page = 1
 let has_more = true
 
-# Note: AetherShell supports while loops via recursion
+# Note: IronShell supports while loops via recursion
 let fetch_page = fn(page, acc) => {
   let data = web_json_get "https://api.example.com/items?page=${page}&limit=100"
   let items = concat acc data.items
@@ -124,7 +124,7 @@ echo "Total items: ${len all_items}"
 
 ## RSS Feed Parsing
 
-```aethershell
+```ironshell
 let feed = (http_get "https://blog.example.com/feed.xml").body
 let items = web_xpath feed "//item"
 

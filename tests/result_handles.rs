@@ -5,7 +5,7 @@
 //! summary that loses information is not a handle, it is truncation with better
 //! manners.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
@@ -31,13 +31,13 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 fn try_call(name: &str, args: Vec<Value>) -> Result<Value, String> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).map_err(|e| e.to_string())
 }
 
 /// A result big enough that sending it whole is the wrong thing to do.
@@ -63,13 +63,13 @@ fn big_table(n: i64) -> Value {
 }
 
 fn render(v: &Value) -> String {
-    aethershell::builtins::render_agent(v, None).expect("agent render")
+    iron_shell::builtins::render_agent(v, None).expect("agent render")
 }
 
 #[test]
 fn a_large_result_is_rendered_as_a_handle_not_as_data() {
     let _g = lock();
-    aethershell::handles::clear();
+    iron_shell::handles::clear();
     let out = render(&big_table(400));
     assert!(out.starts_with("@handle "), "expected a handle:\n{out}");
     assert!(out.contains("@shape array<record{"), "shape stated:\n{out}");
@@ -82,10 +82,10 @@ fn the_handle_is_lossless() {
     let _g = lock();
     // The load-bearing property. Everything else is an optimisation; this is
     // what makes it safe to apply automatically.
-    aethershell::handles::clear();
+    iron_shell::handles::clear();
     let original = big_table(400);
     render(&original);
-    let id = aethershell::handles::list()[0].id.clone();
+    let id = iron_shell::handles::list()[0].id.clone();
     let recovered = call("handle", vec![Value::Str(id)]);
     assert_eq!(
         recovered, original,
@@ -117,7 +117,7 @@ fn the_handle_costs_far_less_than_the_data_and_the_gap_widens_with_size() {
     // claim honest about which number belongs to which payload.
     let mut ratios = Vec::new();
     for n in [400, 2000] {
-        aethershell::handles::clear();
+        iron_shell::handles::clear();
         let v = big_table(n);
         let whole = match call("aecon", vec![v.clone()]) {
             Value::Str(s) => s,
@@ -146,7 +146,7 @@ fn a_preview_states_how_much_it_omits() {
     let _g = lock();
     // A preview that reads like a complete result is how silent truncation
     // misleads. The count must be present and correct.
-    aethershell::handles::clear();
+    iron_shell::handles::clear();
     let out = render(&big_table(400));
     assert!(out.contains("@omitted 397"), "omission stated:\n{out}");
 }
@@ -155,7 +155,7 @@ fn a_preview_states_how_much_it_omits() {
 fn a_small_result_is_returned_whole() {
     let _g = lock();
     // Handles must not tax the common case: below the threshold nothing changes.
-    aethershell::handles::clear();
+    iron_shell::handles::clear();
     let small = big_table(3);
     let out = render(&small);
     assert!(
@@ -163,7 +163,7 @@ fn a_small_result_is_returned_whole() {
         "small results stay whole:\n{out}"
     );
     assert!(
-        aethershell::handles::list().is_empty(),
+        iron_shell::handles::list().is_empty(),
         "a small result must not consume a handle"
     );
 }
@@ -173,11 +173,11 @@ fn a_giant_string_is_not_handled_because_it_could_not_be_narrowed() {
     let _g = lock();
     // Saving tokens by handing back a reference the agent cannot query would
     // trade a cost for a dead end.
-    aethershell::handles::clear();
+    iron_shell::handles::clear();
     let out = render(&Value::Array(vec![Value::Str("x".repeat(50_000))]));
     let _ = out;
     let huge = Value::Str("x".repeat(50_000));
-    let rendered = aethershell::builtins::render_agent(&huge, None).expect("render");
+    let rendered = iron_shell::builtins::render_agent(&huge, None).expect("render");
     assert!(
         !rendered.starts_with("@handle"),
         "an opaque blob is sent as-is"
@@ -187,7 +187,7 @@ fn a_giant_string_is_not_handled_because_it_could_not_be_narrowed() {
 #[test]
 fn handles_lists_what_is_live_without_the_data() {
     let _g = lock();
-    aethershell::handles::clear();
+    iron_shell::handles::clear();
     render(&big_table(400));
     render(&big_table(500));
     let listed = call("handles", vec![]);
@@ -210,7 +210,7 @@ fn an_unknown_handle_is_an_actionable_error_not_a_null() {
     let _g = lock();
     // Returning null would be indistinguishable from an empty result, and a
     // handle from a previous process is exactly the case an agent will hit.
-    aethershell::handles::clear();
+    iron_shell::handles::clear();
     let err = try_call("handle", vec![Value::Str("h99".into())])
         .expect_err("an unknown handle must error");
     assert!(err.contains("h99"), "names the id: {err}");
@@ -223,9 +223,9 @@ fn an_unknown_handle_is_an_actionable_error_not_a_null() {
 #[test]
 fn dropping_a_handle_reports_whether_it_existed() {
     let _g = lock();
-    aethershell::handles::clear();
+    iron_shell::handles::clear();
     render(&big_table(400));
-    let id = aethershell::handles::list()[0].id.clone();
+    let id = iron_shell::handles::list()[0].id.clone();
     assert_eq!(
         call("handle_drop", vec![Value::Str(id.clone())]),
         Value::Bool(true)
@@ -239,11 +239,11 @@ fn dropping_a_handle_reports_whether_it_existed() {
 #[test]
 fn a_handle_survives_into_a_separate_process() {
     // The case that matters most, and the easiest to fake: the Python SDK runs
-    // `ae -e <code>` per call, so a handle minted by one call is resolved by a
+    // `ish -e <code>` per call, so a handle minted by one call is resolved by a
     // *different process*. An in-memory store makes the feature useless for its
     // main consumer.
     //
-    // This runs the real `ae` binary twice. Clearing a static and calling back
+    // This runs the real `ish` binary twice. Clearing a static and calling back
     // in would prove only that the loader runs — it says nothing about a
     // process boundary, which is the thing in question.
     let _g = lock();
@@ -251,11 +251,11 @@ fn a_handle_survives_into_a_separate_process() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("session dir");
 
-    let ae = env!("CARGO_BIN_EXE_ae");
+    let ae = env!("CARGO_BIN_EXE_ish");
     let run = |code: &str| -> String {
         let out = std::process::Command::new(ae)
             .args(["--agent", "-c", code])
-            .env("AETHER_SESSION_DIR", &dir)
+            .env("IRONSHELL_SESSION_DIR", &dir)
             .output()
             .expect("run ae");
         String::from_utf8_lossy(&out.stdout).into_owned()

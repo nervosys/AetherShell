@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Built-in Functions - AetherShell Documentation</title>
+    <title>Built-in Functions - IronShell Documentation</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/ayu-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -20,7 +20,7 @@
 <body>
     <nav class="sidebar">
         <div class="logo">
-            <h1>🚀 AetherShell</h1>
+            <h1>🚀 IronShell</h1>
             <p class="version">v1.0.0</p>
         </div>
         <ul class="nav-menu">
@@ -252,7 +252,7 @@ all_docs = find("docs", "*.md")
                 <h3><code>grep(path, pattern)</code></h3>
                 <p><span class="badge">Index: 18</span> <span class="badge badge-success">Pipeline</span></p>
                 <p><strong>Description:</strong> Search file for lines matching pattern</p>
-                <pre><code>matches = grep("README.md", "AetherShell")
+                <pre><code>matches = grep("README.md", "IronShell")
 
 // Pipeline mode
 "log.txt" | grep("ERROR")</code></pre>
@@ -435,7 +435,7 @@ type_of([1,2,3])  // "Array"
                 <h3><code>replace(str, from, to)</code></h3>
                 <p><span class="badge">Index: 39</span> <span class="badge badge-success">Pipeline</span></p>
                 <p><strong>Description:</strong> Replace all occurrences</p>
-                <pre><code>replaced = replace("hello world", "world", "AetherShell")
+                <pre><code>replaced = replace("hello world", "world", "IronShell")
 
 // Pipeline mode
 "foo bar foo" | replace("foo", "baz")  // "baz bar baz"</code></pre>
@@ -888,7 +888,7 @@ map([1,2,3], fn(x) => x * 2)
     </main>
 
     <footer>
-        <p>&copy; 2025 AetherShell. Built with Rust 🦀</p>
+        <p>&copy; 2025 IronShell. Built with Rust 🦀</p>
     </footer>
 
     <style>

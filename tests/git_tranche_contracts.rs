@@ -3,7 +3,7 @@
 //! Each test builds its own repository in a temporary directory and never
 //! touches the checkout this test runs from. The builtins act on the process
 //! working directory (or a directory argument), so they are driven through
-//! the real `ae` binary with its working directory set to that repository;
+//! the real `ish` binary with its working directory set to that repository;
 //! every child has a 30 second deadline and a non-interactive stdin. Effects
 //! are checked with the git command line, never with the builtin's own
 //! answer.
@@ -16,9 +16,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use aethershell::builtins::call_with_input;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call_with_input;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -123,11 +123,11 @@ impl Fixture {
         repo
     }
 
-    /// Run `ae -c <expr>` in `cwd` with a hard deadline.
+    /// Run `ish -c <expr>` in `cwd` with a hard deadline.
     fn ae(&self, cwd: &Path, expr: &str) -> Run {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_ae"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_ish"))
             .current_dir(cwd)
-            .env("AETHER_SESSION_DIR", &self.session)
+            .env("IRONSHELL_SESSION_DIR", &self.session)
             .env("GIT_CONFIG_GLOBAL", &self.global)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .args(["-c", expr])

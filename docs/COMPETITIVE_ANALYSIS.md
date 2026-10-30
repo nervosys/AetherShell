@@ -1,4 +1,4 @@
-# AetherShell Competitive Analysis
+# IronShell Competitive Analysis
 
 **Date**: October 15, 2025  
 **Version**: 1.0  
@@ -8,13 +8,13 @@
 
 ## Executive Summary
 w
-AetherShell occupies a unique position in the shell ecosystem by combining:
+IronShell occupies a unique position in the shell ecosystem by combining:
 1. **Typed functional programming** (like Nushell)
 2. **Multi-modal AI integration** (beyond Warp AI, GitHub Copilot CLI)
-3. **Multi-agent orchestration** (unique to AetherShell)
+3. **Multi-agent orchestration** (unique to IronShell)
 4. **Bash compatibility** (via transpiler)
 
-**Key Finding**: No competing product offers the combination of typed data pipelines, multi-agent AI coordination, and protocol-based agent communication that AetherShell provides.
+**Key Finding**: No competing product offers the combination of typed data pipelines, multi-agent AI coordination, and protocol-based agent communication that IronShell provides.
 
 ---
 
@@ -29,7 +29,7 @@ AetherShell occupies a unique position in the shell ecosystem by combining:
 │                                                              │
 │  Modern Shells        AI Terminals       Hybrid/Multi-Agent  │
 │  ┌─────────────┐    ┌──────────────┐     ┌───────────────┐   │
-│  │ • Nushell   │    │ • Warp       │     │ • AetherShell │   │
+│  │ • Nushell   │    │ • Warp       │     │ • IronShell │   │
 │  │ • PowerShell│    │ • Fig        │     └───────────────┘   │
 │  │ • Oil Shell │    │ • Copilot CLI│                         │
 │  │ • Elvish    │    │ • AI Shell   │                         │
@@ -55,7 +55,7 @@ Nushell is a modern, cross-platform shell that treats data as structured tables 
 #### Strengths
 ✅ **Mature structured data handling** - Tables, records, lists as first-class types  
 ✅ **Large plugin ecosystem** - 50+ official plugins  
-✅ **Strong type system** - Similar to AetherShell's Value system  
+✅ **Strong type system** - Similar to IronShell's Value system  
 ✅ **Active community** - 30k+ GitHub stars, regular releases  
 ✅ **Excellent documentation** - Comprehensive book and examples  
 ✅ **Cross-platform** - Windows, macOS, Linux support  
@@ -70,21 +70,21 @@ Nushell is a modern, cross-platform shell that treats data as structured tables 
 
 #### Feature Comparison
 
-| Feature                          | Nushell        | AetherShell      | Winner        |
+| Feature                          | Nushell        | IronShell      | Winner        |
 | -------------------------------- | -------------- | ---------------- | ------------- |
 | Structured data (tables/records) | ✅ Native       | ✅ Native         | 🤝 Tie         |
-| Type system                      | ✅ Strong       | ✅ Hindley-Milner | ⭐ AetherShell |
+| Type system                      | ✅ Strong       | ✅ Hindley-Milner | ⭐ IronShell |
 | Pipeline composition             | ✅ Excellent    | ✅ Excellent      | 🤝 Tie         |
-| AI integration                   | ❌ None         | ✅ Multi-provider | ⭐ AetherShell |
-| Multi-agent orchestration        | ❌ None         | ✅ Full support   | ⭐ AetherShell |
-| Bash compatibility               | ⚠️ Limited      | ✅ Transpiler     | ⭐ AetherShell |
+| AI integration                   | ❌ None         | ✅ Multi-provider | ⭐ IronShell |
+| Multi-agent orchestration        | ❌ None         | ✅ Full support   | ⭐ IronShell |
+| Bash compatibility               | ⚠️ Limited      | ✅ Transpiler     | ⭐ IronShell |
 | Plugin ecosystem                 | ✅ Mature (50+) | ⚠️ Growing        | ⭐ Nushell     |
 | Documentation                    | ✅ Excellent    | ✅ Good           | ⭐ Nushell     |
 | Community size                   | ✅ Large        | ⚠️ New            | ⭐ Nushell     |
-| Multi-modal (image/video)        | ❌ None         | ✅ Full support   | ⭐ AetherShell |
-| MCP protocol                     | ❌ None         | ✅ Full support   | ⭐ AetherShell |
-| A2A messaging                    | ❌ None         | ✅ Full support   | ⭐ AetherShell |
-| NANDA negotiation                | ❌ None         | ✅ Full support   | ⭐ AetherShell |
+| Multi-modal (image/video)        | ❌ None         | ✅ Full support   | ⭐ IronShell |
+| MCP protocol                     | ❌ None         | ✅ Full support   | ⭐ IronShell |
+| A2A messaging                    | ❌ None         | ✅ Full support   | ⭐ IronShell |
+| NANDA negotiation                | ❌ None         | ✅ Full support   | ⭐ IronShell |
 
 #### Code Comparison
 
@@ -93,19 +93,19 @@ Nushell is a modern, cross-platform shell that treats data as structured tables 
 ls | where size > 1kb | select name size | sort-by size
 ```
 
-**AetherShell** - Same operation with AI enhancement:
-```aether
+**IronShell** - Same operation with AI enhancement:
+```ironshell
 ls "." | where(fn(r) => r.size > 1000) | select("name", "size") | sort_by("size")
 # Plus AI: Ask "What are the largest files?" and get intelligent analysis
 ```
 
 #### Market Position
 - **Nushell**: Established modern shell for power users who want structured data
-- **AetherShell**: Next-gen shell for AI-assisted workflows and multi-agent coordination
+- **IronShell**: Next-gen shell for AI-assisted workflows and multi-agent coordination
 
 #### Verdict
 **Winner for basic shell tasks**: Nushell (maturity, ecosystem)  
-**Winner for AI/agent workflows**: AetherShell (unique capabilities)
+**Winner for AI/agent workflows**: IronShell (unique capabilities)
 
 ---
 
@@ -138,20 +138,20 @@ Warp is a modern GPU-accelerated terminal with AI command suggestions and team c
 
 #### Feature Comparison
 
-| Feature                   | Warp             | AetherShell           | Winner        |
+| Feature                   | Warp             | IronShell           | Winner        |
 | ------------------------- | ---------------- | --------------------- | ------------- |
 | AI command suggestions    | ✅ Yes            | ✅ Yes                 | 🤝 Tie         |
-| AI agents                 | ❌ None           | ✅ Full support        | ⭐ AetherShell |
-| Multi-agent swarms        | ❌ None           | ✅ Full support        | ⭐ AetherShell |
-| Structured data pipelines | ❌ Text-based     | ✅ Typed values        | ⭐ AetherShell |
+| AI agents                 | ❌ None           | ✅ Full support        | ⭐ IronShell |
+| Multi-agent swarms        | ❌ None           | ✅ Full support        | ⭐ IronShell |
+| Structured data pipelines | ❌ Text-based     | ✅ Typed values        | ⭐ IronShell |
 | UI/UX polish              | ✅ Excellent      | ⚠️ Terminal-based      | ⭐ Warp        |
-| Open source               | ❌ Proprietary    | ✅ Open source         | ⭐ AetherShell |
-| Cross-platform            | ⚠️ Mac/Linux only | ✅ Win/Mac/Linux       | ⭐ AetherShell |
-| Offline mode              | ⚠️ Limited        | ✅ Full (local models) | ⭐ AetherShell |
+| Open source               | ❌ Proprietary    | ✅ Open source         | ⭐ IronShell |
+| Cross-platform            | ⚠️ Mac/Linux only | ✅ Win/Mac/Linux       | ⭐ IronShell |
+| Offline mode              | ⚠️ Limited        | ✅ Full (local models) | ⭐ IronShell |
 | Team collaboration        | ✅ Native         | ❌ Not yet             | ⭐ Warp        |
 | GPU rendering             | ✅ Yes            | ❌ Standard terminal   | ⭐ Warp        |
-| MCP protocol              | ❌ None           | ✅ Full support        | ⭐ AetherShell |
-| Multi-modal AI            | ⚠️ Limited        | ✅ Image/audio/video   | ⭐ AetherShell |
+| MCP protocol              | ❌ None           | ✅ Full support        | ⭐ IronShell |
+| Multi-modal AI            | ⚠️ Limited        | ✅ Image/audio/video   | ⭐ IronShell |
 
 #### Use Case Comparison
 
@@ -160,7 +160,7 @@ Warp is a modern GPU-accelerated terminal with AI command suggestions and team c
 - Teams sharing workflows and commands
 - macOS/Linux users who prefer polished UI
 
-**AetherShell** - Best for:
+**IronShell** - Best for:
 - AI-driven automation and multi-agent workflows
 - Data processing with typed pipelines
 - Windows users needing AI shell capabilities
@@ -168,7 +168,7 @@ Warp is a modern GPU-accelerated terminal with AI command suggestions and team c
 
 #### Verdict
 **Winner for UX**: Warp (GPU rendering, polish)  
-**Winner for AI capabilities**: AetherShell (agents, multi-modal, protocols)
+**Winner for AI capabilities**: IronShell (agents, multi-modal, protocols)
 
 ---
 
@@ -199,22 +199,22 @@ GitHub Copilot for CLI provides AI-powered command suggestions and explanations 
 
 #### Feature Comparison
 
-| Feature                     | Copilot CLI      | AetherShell               | Winner        |
+| Feature                     | Copilot CLI      | IronShell               | Winner        |
 | --------------------------- | ---------------- | ------------------------- | ------------- |
 | Natural language → commands | ✅ Excellent      | ✅ Good                    | ⭐ Copilot CLI |
 | Command explanations        | ✅ Excellent      | ✅ Via AI                  | 🤝 Tie         |
-| Shell replacement           | ❌ No (extension) | ✅ Yes (full shell)        | ⭐ AetherShell |
-| Structured data handling    | ❌ Text only      | ✅ Typed values            | ⭐ AetherShell |
-| AI agents                   | ❌ None           | ✅ Full support            | ⭐ AetherShell |
-| Multi-agent coordination    | ❌ None           | ✅ NANDA protocol          | ⭐ AetherShell |
-| Cost                        | ❌ $10-19/month   | ✅ Free (use own API keys) | ⭐ AetherShell |
+| Shell replacement           | ❌ No (extension) | ✅ Yes (full shell)        | ⭐ IronShell |
+| Structured data handling    | ❌ Text only      | ✅ Typed values            | ⭐ IronShell |
+| AI agents                   | ❌ None           | ✅ Full support            | ⭐ IronShell |
+| Multi-agent coordination    | ❌ None           | ✅ NANDA protocol          | ⭐ IronShell |
+| Cost                        | ❌ $10-19/month   | ✅ Free (use own API keys) | ⭐ IronShell |
 | GitHub integration          | ✅ Native         | ⚠️ Via git commands        | ⭐ Copilot CLI |
-| Offline capability          | ❌ Cloud only     | ✅ Local models (Ollama)   | ⭐ AetherShell |
-| Multi-modal                 | ❌ None           | ✅ Full support            | ⭐ AetherShell |
+| Offline capability          | ❌ Cloud only     | ✅ Local models (Ollama)   | ⭐ IronShell |
+| Multi-modal                 | ❌ None           | ✅ Full support            | ⭐ IronShell |
 
 #### Verdict
 **Winner for GitHub users**: Copilot CLI (native integration)  
-**Winner for standalone shell**: AetherShell (full shell environment)
+**Winner for standalone shell**: IronShell (full shell environment)
 
 ---
 
@@ -247,18 +247,18 @@ PowerShell is Microsoft's object-oriented automation framework and shell, cross-
 
 #### Feature Comparison
 
-| Feature            | PowerShell      | AetherShell      | Winner        |
+| Feature            | PowerShell      | IronShell      | Winner        |
 | ------------------ | --------------- | ---------------- | ------------- |
 | Object pipelines   | ✅ .NET objects  | ✅ Typed values   | 🤝 Tie         |
 | Enterprise tools   | ✅ Extensive     | ⚠️ Growing        | ⭐ PowerShell  |
-| AI integration     | ❌ None          | ✅ Multi-provider | ⭐ AetherShell |
-| Multi-agent        | ❌ None          | ✅ Full support   | ⭐ AetherShell |
-| Syntax conciseness | ⚠️ Verbose       | ✅ Functional     | ⭐ AetherShell |
+| AI integration     | ❌ None          | ✅ Multi-provider | ⭐ IronShell |
+| Multi-agent        | ❌ None          | ✅ Full support   | ⭐ IronShell |
+| Syntax conciseness | ⚠️ Verbose       | ✅ Functional     | ⭐ IronShell |
 | Module ecosystem   | ✅ Huge          | ⚠️ Growing        | ⭐ PowerShell  |
 | Windows automation | ✅ Best-in-class | ⚠️ Basic          | ⭐ PowerShell  |
-| Learning curve     | ⚠️ Steep         | ✅ Moderate       | ⭐ AetherShell |
-| Performance        | ⚠️ .NET overhead | ✅ Rust native    | ⭐ AetherShell |
-| Multi-modal        | ❌ None          | ✅ Full support   | ⭐ AetherShell |
+| Learning curve     | ⚠️ Steep         | ✅ Moderate       | ⭐ IronShell |
+| Performance        | ⚠️ .NET overhead | ✅ Rust native    | ⭐ IronShell |
+| Multi-modal        | ❌ None          | ✅ Full support   | ⭐ IronShell |
 
 #### Code Comparison
 
@@ -267,14 +267,14 @@ PowerShell is Microsoft's object-oriented automation framework and shell, cross-
 Get-ChildItem | Where-Object {$_.Length -gt 1KB} | Select-Object Name,Length | Sort-Object Length
 ```
 
-**AetherShell**:
-```aether
+**IronShell**:
+```ironshell
 ls "." | where(fn(r) => r.size > 1000) | select("name", "size") | sort_by("size")
 ```
 
 #### Verdict
 **Winner for enterprise Windows**: PowerShell (ecosystem, tools)  
-**Winner for modern workflows**: AetherShell (concise, AI-driven)
+**Winner for modern workflows**: IronShell (concise, AI-driven)
 
 ---
 
@@ -305,19 +305,19 @@ Fish is a user-friendly command-line shell with autosuggestions and syntax highl
 
 #### Feature Comparison
 
-| Feature           | Fish            | AetherShell      | Winner        |
+| Feature           | Fish            | IronShell      | Winner        |
 | ----------------- | --------------- | ---------------- | ------------- |
 | User-friendliness | ✅ Excellent     | ✅ Good           | ⭐ Fish        |
-| Autosuggestions   | ✅ History-based | ✅ AI-powered     | ⭐ AetherShell |
-| Structured data   | ❌ Text only     | ✅ Typed values   | ⭐ AetherShell |
-| AI integration    | ❌ None          | ✅ Multi-provider | ⭐ AetherShell |
+| Autosuggestions   | ✅ History-based | ✅ AI-powered     | ⭐ IronShell |
+| Structured data   | ❌ Text only     | ✅ Typed values   | ⭐ IronShell |
+| AI integration    | ❌ None          | ✅ Multi-provider | ⭐ IronShell |
 | Setup complexity  | ✅ Zero config   | ⚠️ Some setup     | ⭐ Fish        |
-| Scripting power   | ⚠️ Limited       | ✅ Functional     | ⭐ AetherShell |
-| Multi-agent       | ❌ None          | ✅ Full support   | ⭐ AetherShell |
+| Scripting power   | ⚠️ Limited       | ✅ Functional     | ⭐ IronShell |
+| Multi-agent       | ❌ None          | ✅ Full support   | ⭐ IronShell |
 
 #### Verdict
 **Winner for beginners**: Fish (zero config, friendly)  
-**Winner for power users**: AetherShell (AI, structured data)
+**Winner for power users**: IronShell (AI, structured data)
 
 ---
 
@@ -345,7 +345,7 @@ Oil Shell aims to improve bash with better error handling and a modern scripting
 
 #### Verdict
 **Winner for bash migration**: Oil Shell (compatibility)  
-**Winner for innovation**: AetherShell (AI, agents, protocols)
+**Winner for innovation**: IronShell (AI, agents, protocols)
 
 ---
 
@@ -370,7 +370,7 @@ Elvish is an expressive shell with functional programming features and structure
 ❌ **Limited ecosystem** - Few plugins/extensions  
 
 #### Verdict
-**Similar philosophy to AetherShell**, but without AI or agent features.
+**Similar philosophy to IronShell**, but without AI or agent features.
 
 ---
 
@@ -397,7 +397,7 @@ AI Shell converts natural language to shell commands using GPT models.
 
 #### Verdict
 **Narrow use case**: AI Shell is a tool, not a shell environment.  
-**Full environment**: AetherShell provides complete shell + AI features.
+**Full environment**: IronShell provides complete shell + AI features.
 
 ---
 
@@ -424,13 +424,13 @@ Fig provided autocomplete and AI suggestions for existing shells (bash, zsh, etc
 
 #### Verdict
 **Transitioning product**: Fig's features moving to AWS ecosystem.  
-**Independent alternative**: AetherShell provides similar AI without cloud dependency.
+**Independent alternative**: IronShell provides similar AI without cloud dependency.
 
 ---
 
 ## Feature Matrix - All Competitors
 
-| Feature                       | AetherShell | Nushell | Warp    | Copilot CLI | PowerShell | Fish    | Oil        | Elvish  | AI Shell |
+| Feature                       | IronShell | Nushell | Warp    | Copilot CLI | PowerShell | Fish    | Oil        | Elvish  | AI Shell |
 | ----------------------------- | ----------- | ------- | ------- | ----------- | ---------- | ------- | ---------- | ------- | -------- |
 | **Core Shell Features**       |
 | Structured data pipelines     | ✅           | ✅       | ❌       | ❌           | ✅          | ❌       | ❌          | ✅       | ❌        |
@@ -467,12 +467,12 @@ Legend:
 
 ---
 
-## Unique Differentiators of AetherShell
+## Unique Differentiators of IronShell
 
 ### 1. **Multi-Agent Orchestration** 🥇
-**AetherShell is the ONLY shell with native multi-agent support.**
+**IronShell is the ONLY shell with native multi-agent support.**
 
-```aether
+```ironshell
 # No competitor can do this:
 swarm([
   {id: "analyzer", model: "gpt-4", role: "Analyze data"},
@@ -482,17 +482,17 @@ swarm([
 ```
 
 ### 2. **Multi-Modal AI** 🥇
-**AetherShell is the ONLY shell with native image/audio/video processing.**
+**IronShell is the ONLY shell with native image/audio/video processing.**
 
-```aether
+```ironshell
 ai("Describe this image", {images: ["screenshot.png"]})
 ai("Transcribe this", {audio: ["meeting.mp3"]})
 ```
 
 ### 3. **Agent Communication Protocols** 🥇
-**AetherShell is the ONLY shell with A2A and NANDA protocols.**
+**IronShell is the ONLY shell with A2A and NANDA protocols.**
 
-```aether
+```ironshell
 # A2A: Agents communicate with each other
 agent1.send_message(agent2, "Task complete")
 agent1.broadcast("Status update")
@@ -503,18 +503,18 @@ coordinator.vote(negotiation_id, agent_id, Accept)
 ```
 
 ### 4. **Model Context Protocol (MCP)** 🥇
-**AetherShell is one of the first shells with full MCP support.**
+**IronShell is one of the first shells with full MCP support.**
 
-```aether
+```ironshell
 # MCP: Standardized tool calling for AI agents
-mcp_tool("fetch_url", {url: "https://api.example.com"})
-mcp_tool("read_file", {path: "data.json"})
+mcp_call("fetch_url", {url: "https://api.example.com"})
+mcp_call("read_file", {path: "data.json"})
 ```
 
 ### 5. **Typed Functional Pipelines + AI** 🥇
 **No shell combines Hindley-Milner type inference with AI agents.**
 
-```aether
+```ironshell
 # Type-safe pipelines with AI assistance
 [1,2,3] 
   | map(fn(x) => x * 2) 
@@ -522,7 +522,7 @@ mcp_tool("read_file", {path: "data.json"})
 ```
 
 ### 6. **Bash Transpiler** 🥈
-**Only AetherShell and Oil Shell offer bash compatibility.**
+**Only IronShell and Oil Shell offer bash compatibility.**
 
 ```bash
 # Run bash scripts directly
@@ -539,25 +539,25 @@ mcp_tool("read_file", {path: "data.json"})
 - Need multi-agent coordination
 - Want to experiment with agent communication
 - Require multi-modal AI capabilities
-- **Best Choice**: AetherShell (unique features)
+- **Best Choice**: IronShell (unique features)
 
 #### 2. **Data Engineers & Analysts** (Primary)
 - Process structured data in pipelines
 - Need type safety for data transformations
 - Want AI assistance for complex queries
-- **Best Choices**: AetherShell, Nushell
+- **Best Choices**: IronShell, Nushell
 
 #### 3. **DevOps & Automation Engineers** (Secondary)
 - Automate complex workflows
 - Need AI for intelligent decision-making
 - Require structured data handling
-- **Best Choices**: AetherShell, PowerShell
+- **Best Choices**: IronShell, PowerShell
 
 #### 4. **General Developers** (Secondary)
 - Daily terminal use with AI assistance
 - Want better UX than bash
 - Need cross-platform support
-- **Best Choices**: Warp, Fish, AetherShell
+- **Best Choices**: Warp, Fish, IronShell
 
 #### 5. **Enterprise Windows Admins** (Not Primary)
 - Manage Windows/Azure infrastructure
@@ -569,7 +569,7 @@ mcp_tool("read_file", {path: "data.json"})
 
 ## Competitive Advantages
 
-### ✅ AetherShell Wins On:
+### ✅ IronShell Wins On:
 
 1. **Innovation** - Most advanced AI features
 2. **Multi-agent capabilities** - Unique offering
@@ -582,7 +582,7 @@ mcp_tool("read_file", {path: "data.json"})
 9. **No subscription required** - Use your own API keys
 10. **Modern Rust** - Performance + safety
 
-### ⚠️ AetherShell Needs Improvement:
+### ⚠️ IronShell Needs Improvement:
 
 1. **Ecosystem maturity** - Fewer plugins than PowerShell/Nushell
 2. **Community size** - New project, smaller community
@@ -609,8 +609,8 @@ mcp_tool("read_file", {path: "data.json"})
    - Engage with academic community
 
 3. **Create migration guides**
-   - "From bash to AetherShell"
-   - "From Nushell to AetherShell"
+   - "From bash to IronShell"
+   - "From Nushell to IronShell"
    - "Integrating with existing shells"
 
 4. **Expand documentation**
@@ -664,7 +664,7 @@ mcp_tool("read_file", {path: "data.json"})
 ### High Threats
 
 1. **Microsoft integrating AI into PowerShell**
-   - Risk: PowerShell gets AI features, reduces AetherShell differentiation
+   - Risk: PowerShell gets AI features, reduces IronShell differentiation
    - Mitigation: Focus on multi-agent and protocol innovations PowerShell won't prioritize
 
 2. **Warp adding agent features**
@@ -678,7 +678,7 @@ mcp_tool("read_file", {path: "data.json"})
 ### Medium Threats
 
 1. **Nushell adding AI plugins**
-   - Risk: Mature ecosystem + AI could attract AetherShell users
+   - Risk: Mature ecosystem + AI could attract IronShell users
    - Mitigation: Multi-agent and protocol features Nushell won't easily replicate
 
 2. **GitHub Copilot CLI expanding features**
@@ -695,13 +695,13 @@ mcp_tool("read_file", {path: "data.json"})
 
 ## Summary: Competitive Position
 
-### AetherShell's Market Position
+### IronShell's Market Position
 
 ```
                     High AI Capabilities
                            ▲
                            │
-                           │  🎯 AetherShell
+                           │  🎯 IronShell
                            │  (Multi-agent, Protocols)
                            │
       Warp AI ◄──────────  │  ──────────► ?
@@ -723,7 +723,7 @@ mcp_tool("read_file", {path: "data.json"})
 
 ### Unique Value Proposition
 
-**AetherShell is the world's first shell with:**
+**IronShell is the world's first shell with:**
 - Multi-agent orchestration
 - Agent-to-agent communication protocols
 - Negotiation and consensus frameworks
@@ -734,9 +734,9 @@ mcp_tool("read_file", {path: "data.json"})
 
 ### Recommended Positioning Statement
 
-> **"AetherShell: The First Multi-Agent Shell"**
+> **"IronShell: The First Multi-Agent Shell"**
 >
-> While other shells add AI as an afterthought, AetherShell is built from the ground up for the age of AI agents. Coordinate multiple AI models, process multi-modal data, and orchestrate complex agent workflows—all in a type-safe, functional environment.
+> While other shells add AI as an afterthought, IronShell is built from the ground up for the age of AI agents. Coordinate multiple AI models, process multi-modal data, and orchestrate complex agent workflows—all in a type-safe, functional environment.
 >
 > Not just a shell with AI. A platform for intelligent automation.
 
@@ -744,7 +744,7 @@ mcp_tool("read_file", {path: "data.json"})
 
 ## Conclusion
 
-AetherShell occupies a **unique and defensible position** in the shell ecosystem:
+IronShell occupies a **unique and defensible position** in the shell ecosystem:
 
 ✅ **Unmatched AI capabilities** - Multi-agent, multi-modal, protocols  
 ✅ **Modern architecture** - Rust, typed, functional  
@@ -756,9 +756,9 @@ AetherShell occupies a **unique and defensible position** in the shell ecosystem
 - Competing with well-funded proprietary products
 - Educating market on multi-agent benefits
 
-**Verdict**: AetherShell has a **5-10 year head start** on multi-agent features. The question is whether it can build a community and ecosystem before competitors catch up.
+**Verdict**: IronShell has a **5-10 year head start** on multi-agent features. The question is whether it can build a community and ecosystem before competitors catch up.
 
-**Recommendation**: Focus on the AI researcher and early adopter segments, build showcase demos, and establish AetherShell as the **de facto standard for multi-agent shell workflows**.
+**Recommendation**: Focus on the AI researcher and early adopter segments, build showcase demos, and establish IronShell as the **de facto standard for multi-agent shell workflows**.
 
 ---
 

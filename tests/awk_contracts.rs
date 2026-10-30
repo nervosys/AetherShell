@@ -14,7 +14,7 @@
 #[path = "support/disposable.rs"]
 mod disposable;
 
-use aethershell::{
+use iron_shell::{
     builtins::{call, call_with_input},
     env::Env,
     value::Value,

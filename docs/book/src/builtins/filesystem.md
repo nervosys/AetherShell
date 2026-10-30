@@ -7,7 +7,7 @@ File system builtins return structured data, making file operations composable i
 ### `ls` / `list`
 List directory contents. Returns `Array[Record]` with file metadata.
 
-```aethershell
+```ironshell
 ls "."
 # [
 #   { name: "main.rs", path: "./main.rs", size: 2048, modified: "...", is_dir: false, extension: "rs" },
@@ -22,7 +22,7 @@ ls "src" | where(fn(f) => f.extension == "rs" && f.size > 1024) | sort_by "size"
 ### `cat`
 Read the entire contents of a file as a string.
 
-```aethershell
+```ironshell
 let content = cat "README.md"
 echo content
 
@@ -33,21 +33,21 @@ cat "data.csv" | split "\n" | take 5
 ### `read_text`
 Read a file as text (alias-like behavior to `cat`).
 
-```aethershell
+```ironshell
 let cfg = read_text "config.toml"
 ```
 
 ### `head`
 Read the first N lines of a file.
 
-```aethershell
+```ironshell
 head "log.txt" 10    # First 10 lines
 ```
 
 ### `tail`
 Read the last N lines of a file.
 
-```aethershell
+```ironshell
 tail "log.txt" 20    # Last 20 lines
 ```
 
@@ -56,7 +56,7 @@ tail "log.txt" 20    # Last 20 lines
 ### `grep`
 Search for a pattern in file(s). Returns `Array[Record]` with match details.
 
-```aethershell
+```ironshell
 grep "TODO" "src/"
 # [
 #   { file: "src/main.rs", line: 42, content: "// TODO: refactor this", match: "TODO" },
@@ -70,7 +70,7 @@ grep "unwrap" "src/" | map(fn(m) => m.file) | unique | len
 ### `find`
 Find files matching criteria recursively.
 
-```aethershell
+```ironshell
 find "." "*.rs"
 # ["./src/main.rs", "./src/lib.rs", "./tests/eval.rs", ...]
 ```
@@ -78,7 +78,7 @@ find "." "*.rs"
 ### `wc`
 Word/line/character count. Returns a Record.
 
-```aethershell
+```ironshell
 wc "README.md"
 # { lines: 150, words: 892, chars: 5431 }
 ```
@@ -88,14 +88,14 @@ wc "README.md"
 ### `sort`
 Sort lines of input alphabetically.
 
-```aethershell
+```ironshell
 cat "names.txt" | sort
 ```
 
 ### `uniq`
 Remove adjacent duplicate lines (typically used after `sort`).
 
-```aethershell
+```ironshell
 cat "words.txt" | sort | uniq
 ```
 
@@ -104,7 +104,7 @@ cat "words.txt" | sort | uniq
 ### `file_write` / `write_file`
 Write content to a file, creating it if needed, overwriting if it exists.
 
-```aethershell
+```ironshell
 file_write "output.txt" "Hello, world!\n"
 
 # Write data as JSON
@@ -115,14 +115,14 @@ file_write "data.json" (json_stringify data)
 ### `file_append` / `append_file`
 Append content to the end of a file.
 
-```aethershell
+```ironshell
 file_append "log.txt" "New log entry\n"
 ```
 
 ### `file_insert` / `insert_lines`
 Insert content at a specific line number.
 
-```aethershell
+```ironshell
 file_insert "config.txt" 5 "new_setting = true"
 ```
 
@@ -131,14 +131,14 @@ file_insert "config.txt" 5 "new_setting = true"
 ### `file_replace` / `str_replace_in_file`
 Replace text in a file.
 
-```aethershell
+```ironshell
 file_replace "config.toml" "debug = false" "debug = true"
 ```
 
 ### `file_patch` / `patch_file`
 Apply a structured patch to a file.
 
-```aethershell
+```ironshell
 file_patch "main.rs" [
   { line: 10, old: "let x = 1;", new: "let x = 2;" }
 ]
@@ -147,14 +147,14 @@ file_patch "main.rs" [
 ### `file_edit` / `edit_file`
 Perform line-based edits on a file.
 
-```aethershell
+```ironshell
 file_edit "src/lib.rs" { delete_lines: [5, 6], insert: { 10: "// new comment" } }
 ```
 
 ### `file_delete_lines` / `delete_lines`
 Remove specific lines from a file.
 
-```aethershell
+```ironshell
 file_delete_lines "output.txt" 3 5    # Remove lines 3-5
 ```
 
@@ -163,7 +163,7 @@ file_delete_lines "output.txt" 3 5    # Remove lines 3-5
 ### `file_copy` / `cp`
 Copy a file or directory.
 
-```aethershell
+```ironshell
 file_copy "src/main.rs" "backup/main.rs"
 cp "data/" "data_backup/"
 ```
@@ -171,7 +171,7 @@ cp "data/" "data_backup/"
 ### `file_move` / `mv`
 Move or rename a file or directory.
 
-```aethershell
+```ironshell
 file_move "old_name.txt" "new_name.txt"
 mv "temp/output.csv" "results/final.csv"
 ```
@@ -179,14 +179,14 @@ mv "temp/output.csv" "results/final.csv"
 ### `file_mkdir` / `mkdir`
 Create a directory (and parents if needed).
 
-```aethershell
+```ironshell
 mkdir "output/reports/2024"
 ```
 
 ### `file_exists` / `exists`
 Check whether a file or directory exists.
 
-```aethershell
+```ironshell
 if (file_exists "config.toml") {
   echo "Config found"
 } else {
@@ -197,14 +197,14 @@ if (file_exists "config.toml") {
 ### `file_diff`
 Compare two files and return their differences.
 
-```aethershell
+```ironshell
 file_diff "v1.txt" "v2.txt"
 ```
 
 ### `file_backup`
 Create a timestamped backup copy of a file.
 
-```aethershell
+```ironshell
 file_backup "important.db"
 # Creates important.db.20240115_143022.bak
 ```
@@ -212,7 +212,7 @@ file_backup "important.db"
 ### `pwd`
 Return the current working directory as a string.
 
-```aethershell
+```ironshell
 echo (pwd)     # /home/user/project
 ```
 
@@ -221,7 +221,7 @@ echo (pwd)     # /home/user/project
 ### `fs_stat` / `stat`
 Get detailed file metadata.
 
-```aethershell
+```ironshell
 fs_stat "main.rs"
 # { size: 2048, modified: "...", created: "...", permissions: "rw-r--r--", ... }
 ```
@@ -229,7 +229,7 @@ fs_stat "main.rs"
 ### `fs_glob` / `glob`
 Find files matching a glob pattern.
 
-```aethershell
+```ironshell
 fs_glob "src/**/*.rs"
 # ["src/main.rs", "src/lib.rs", "src/eval.rs", ...]
 ```
@@ -237,14 +237,14 @@ fs_glob "src/**/*.rs"
 ### `fs_tree` / `tree`
 Display directory structure as a tree.
 
-```aethershell
+```ironshell
 fs_tree "src" 2    # Depth limit of 2
 ```
 
 ### `fs_du` / `du`
 Disk usage for a path.
 
-```aethershell
+```ironshell
 fs_du "target"
 # { total: 524288000, files: 1234 }
 ```
@@ -252,7 +252,7 @@ fs_du "target"
 ### `fs_df` / `df`
 Disk space information for mounted filesystems.
 
-```aethershell
+```ironshell
 fs_df
 # [{ mount: "/", total: 500000000000, used: 250000000000, available: 250000000000 }, ...]
 ```
@@ -260,7 +260,7 @@ fs_df
 ### `fs_walk`
 Recursively walk a directory tree, returning all entries.
 
-```aethershell
+```ironshell
 fs_walk "src" | where(fn(f) => f.extension == "rs") | len
 # 15
 ```
@@ -268,21 +268,21 @@ fs_walk "src" | where(fn(f) => f.extension == "rs") | len
 ### `fs_symlink`
 Create a symbolic link.
 
-```aethershell
+```ironshell
 fs_symlink "target_path" "link_path"
 ```
 
 ### `fs_readlink`
 Read the target of a symbolic link.
 
-```aethershell
+```ironshell
 fs_readlink "link_path"    # "/actual/target/path"
 ```
 
 ### `fs_realpath`
 Resolve a path to its absolute canonical form.
 
-```aethershell
+```ironshell
 fs_realpath "../src/main.rs"
 # "/home/user/project/src/main.rs"
 ```
@@ -290,7 +290,7 @@ fs_realpath "../src/main.rs"
 ### `fs_tempfile` / `fs_tempdir`
 Create temporary files or directories.
 
-```aethershell
+```ironshell
 let tmp = fs_tempfile
 file_write tmp "scratch data"
 
@@ -301,7 +301,7 @@ let tmpdir = fs_tempdir
 ### `fs_watch` / `fs_unwatch`
 Watch a path for filesystem changes.
 
-```aethershell
+```ironshell
 fs_watch "src/" fn(event) => {
   echo "Changed: ${event.path} (${event.kind})"
 }
@@ -311,7 +311,7 @@ fs_unwatch "src/"
 
 ## Pipeline Examples
 
-```aethershell
+```ironshell
 # Find the 10 largest files recursively
 fs_walk "."
   | where(fn(f) => !f.is_dir)

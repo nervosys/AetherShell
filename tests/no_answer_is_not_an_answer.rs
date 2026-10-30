@@ -6,12 +6,12 @@
 //! record was accepted. The record had been stringified and looked up as a
 //! name, found nothing, and reported that nothing as the answer.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn code_of(e: &anyhow::Error) -> String {
@@ -188,8 +188,8 @@ fn no_virtualenv_is_null_like_any_unset_variable() {
 }
 
 fn eval(code: &str) -> anyhow::Result<Value> {
-    let stmts = aethershell::parser::parse_program(code)?;
-    aethershell::eval::eval_program(&stmts, &mut aethershell::env::Env::new())
+    let stmts = iron_shell::parser::parse_program(code)?;
+    iron_shell::eval::eval_program(&stmts, &mut iron_shell::env::Env::new())
 }
 
 /// `each` ran its action with `let _ =`, so a failing side effect left it
@@ -511,7 +511,7 @@ fn a_checkpoint_keeps_the_work_it_checkpoints() {
     git(&dir, &["commit", "-q", "-m", "init"]).unwrap();
     std::fs::write(dir.join("tracked.txt"), "work in progress\n").unwrap();
 
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_ae"))
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_ish"))
         .current_dir(&dir)
         .args(["-c", r#"session_checkpoint("cp")"#])
         .output()
@@ -548,7 +548,7 @@ fn a_helper_only_names_builtins_that_exist() {
                 panic!()
             };
             assert!(
-                aethershell::builtins::is_dispatched(name),
+                iron_shell::builtins::is_dispatched(name),
                 "suggest named {name}"
             );
         }
@@ -560,7 +560,7 @@ fn a_helper_only_names_builtins_that_exist() {
     for n in names {
         let Value::Str(n) = n else { panic!() };
         assert!(
-            aethershell::builtins::is_dispatched(&n),
+            iron_shell::builtins::is_dispatched(&n),
             "complete named {n}"
         );
     }

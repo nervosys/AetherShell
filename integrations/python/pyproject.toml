@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aethershell"
+name = "ironshell"
 version = "1.5.1"
-description = "AetherShell - AI-powered typed shell with workflow orchestration and cloud deployment"
+description = "IronShell - AI-powered typed shell with workflow orchestration and cloud deployment"
 readme = "README.md"
 license = { text = "AGPL-3.0-or-later" }
 authors = [{ name = "nervosys", email = "contact@nervosys.ai" }]

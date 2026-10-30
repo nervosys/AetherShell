@@ -1,12 +1,12 @@
 # Functions and Lambdas
 
-AetherShell treats functions as first-class values using lambda syntax. Lambdas can be passed to pipelines, stored in variables, and composed freely.
+IronShell treats functions as first-class values using lambda syntax. Lambdas can be passed to pipelines, stored in variables, and composed freely.
 
 ## Lambda Syntax
 
 The basic form is `fn(params) => body`:
 
-```ae
+```ish
 let double = fn(x) => x * 2
 let add = fn(a, b) => a + b
 let greet = fn() => "hello"
@@ -14,7 +14,7 @@ let greet = fn() => "hello"
 
 Lambdas are expressions — they return the value of their body:
 
-```ae
+```ish
 double(5)      # => 10
 add(3, 4)      # => 7
 greet()        # => "hello"
@@ -22,7 +22,7 @@ greet()        # => "hello"
 
 ## Multi-Parameter Lambdas
 
-```ae
+```ish
 let clamp = fn(value, lo, hi) =>
     if value < lo { lo }
     else if value > hi { hi }
@@ -34,13 +34,13 @@ clamp(-5, 0, 10)    # => 0
 
 ## Calling Conventions
 
-AetherShell supports multiple ways to call functions:
+IronShell supports multiple ways to call functions:
 
 ### Parenthesized Calls
 
 Standard function calling:
 
-```ae
+```ish
 double(5)
 add(3, 4)
 ```
@@ -49,7 +49,7 @@ add(3, 4)
 
 At the top level, functions can be called without parentheses (shell-style):
 
-```ae
+```ish
 print "hello"          # equivalent to print("hello")
 echo "world"           # equivalent to echo("world")
 cd "/home"             # equivalent to cd("/home")
@@ -61,7 +61,7 @@ cd "/home"             # equivalent to cd("/home")
 
 Functions can receive input through the pipe operator:
 
-```ae
+```ish
 5 | double             # => 10
 [1, 2, 3] | double     # => [2, 4, 6] (auto-maps over arrays)
 ```
@@ -70,14 +70,14 @@ Functions can receive input through the pipe operator:
 
 When a **1-parameter lambda** receives an **Array** through a pipeline, it automatically maps over each element:
 
-```ae
+```ish
 [1, 2, 3] | fn(x) => x * 2           # => [2, 4, 6]
 ["a", "b"] | fn(s) => s + "!"        # => ["a!", "b!"]
 ```
 
 A single (non-array) value is passed directly:
 
-```ae
+```ish
 5 | fn(x) => x * 2    # => 10
 ```
 
@@ -85,7 +85,7 @@ A single (non-array) value is passed directly:
 
 Callback functions used with `map` and `where` can accept a second parameter for the index:
 
-```ae
+```ish
 ["a", "b", "c"] | map fn(item, i) => "${i}: ${item}"
 # => ["0: a", "1: b", "2: c"]
 ```
@@ -94,7 +94,7 @@ Callback functions used with `map` and `where` can accept a second parameter for
 
 Lambdas capture variables from the enclosing environment by reference. Variables are resolved at call time:
 
-```ae
+```ish
 let multiplier = 3
 let scale = fn(x) => x * multiplier
 scale(10)              # => 30
@@ -106,7 +106,7 @@ scale(10)              # => 30
 
 Async lambdas create futures that must be awaited:
 
-```ae
+```ish
 let fetch_data = async fn(url) => http_get(url)
 let future = fetch_data("https://api.example.com/data")
 let result = await future
@@ -116,7 +116,7 @@ let result = await future
 
 Lambdas can reference themselves through their binding name:
 
-```ae
+```ish
 let factorial = fn(n) =>
     if n <= 1 { 1 }
     else { n * factorial(n - 1) }
@@ -130,7 +130,7 @@ This works because variable lookup happens at evaluation time, so `factorial` re
 
 Functions that take or return functions:
 
-```ae
+```ish
 let apply_twice = fn(f, x) => f(f(x))
 apply_twice(fn(x) => x + 1, 0)    # => 2
 
@@ -143,7 +143,7 @@ add5(10)    # => 15
 
 Builtin functions can be referenced and passed around:
 
-```ae
+```ish
 let my_sort = sort
 [3, 1, 2] | my_sort    # => [1, 2, 3]
 ```
@@ -152,13 +152,13 @@ let my_sort = sort
 
 ### Pipeline with inline lambda
 
-```ae
+```ish
 ls "." | where fn(f) => f.size > 1000 | map fn(f) => f.name
 ```
 
 ### Compose transformations
 
-```ae
+```ish
 let transform = fn(data) =>
     data
     | where fn(r) => r.active
@@ -168,6 +168,6 @@ let transform = fn(data) =>
 
 ### Reduce / fold
 
-```ae
+```ish
 [1, 2, 3, 4, 5] | reduce fn(acc, x) => acc + x, 0    # => 15
 ```

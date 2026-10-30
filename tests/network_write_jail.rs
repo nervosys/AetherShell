@@ -25,12 +25,12 @@
 //! is deliberate — if the jail's policy is later loosened, this test should
 //! follow it rather than fossilise today's answer.
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::sync::Mutex;
 
-/// `AETHER_MODE` and `AETHER_WORKSPACE` are process-global.
+/// `IRONSHELL_MODE` and `IRONSHELL_WORKSPACE` are process-global.
 static LOCK: Mutex<()> = Mutex::new(());
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
@@ -49,21 +49,21 @@ impl Jail {
         std::fs::create_dir_all(&workspace).expect("workspace");
         let outside = base.join(format!("ae_netjail_out_{tag}_{}.bin", std::process::id()));
         let _ = std::fs::remove_file(&outside);
-        std::env::set_var("AETHER_MODE", "agent");
-        std::env::set_var("AETHER_WORKSPACE", &workspace);
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_WORKSPACE", &workspace);
         // Agent-mode egress with no allowlist asks for approval, and that
         // refusal comes before the output path is ever looked at. Allowing the
         // test's own never-resolving host keeps the jail the thing under test.
-        std::env::set_var("AETHER_NET_ALLOW", "example.invalid");
+        std::env::set_var("IRONSHELL_NET_ALLOW", "example.invalid");
         Self { workspace, outside }
     }
 }
 
 impl Drop for Jail {
     fn drop(&mut self) {
-        std::env::remove_var("AETHER_WORKSPACE");
-        std::env::remove_var("AETHER_MODE");
-        std::env::remove_var("AETHER_NET_ALLOW");
+        std::env::remove_var("IRONSHELL_WORKSPACE");
+        std::env::remove_var("IRONSHELL_MODE");
+        std::env::remove_var("IRONSHELL_NET_ALLOW");
         let _ = std::fs::remove_file(&self.outside);
         let _ = std::fs::remove_dir_all(&self.workspace);
     }
@@ -215,7 +215,7 @@ fn an_upload_is_deliberately_not_jailed_and_this_is_the_note_saying_so() {
     //
     // If reads are ever jailed, `is_filesystem()` is the one place to change and
     // this test is the marker that says `web_upload_file` should follow.
-    use aethershell::safety::Effect;
+    use iron_shell::safety::Effect;
     assert!(
         !Effect::ReadLocal.is_filesystem(),
         "reads are unjailed by design; if that changes, jail web_upload_file too"

@@ -4,7 +4,7 @@
 
 ## Overview
 
-AetherShell implements comprehensive dependency security scanning to detect and address:
+IronShell implements comprehensive dependency security scanning to detect and address:
 - Known security vulnerabilities (CVEs)
 - Unmaintained dependencies
 - License compliance issues
@@ -176,7 +176,7 @@ git commit --no-verify
 
 ## Reporting Security Issues
 
-### For AetherShell Vulnerabilities
+### For IronShell Vulnerabilities
 
 **Email**: security@nervosys.ai  
 **PGP Key**: (See SECURITY.md)

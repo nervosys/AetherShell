@@ -17,9 +17,9 @@ must be reported separately — the runner refuses to merge them.
 | `common.md` | all | The task framing and output contract, identical across arms |
 | `sql.md` | SQL | the table schema only |
 | `jq.md` | jq | the JSON schema only |
-| `aethershell.md` | AetherShell (default) | schema + generated ontology |
-| `agentic.md` | AetherShell (agentic) | schema + generated ontology + cheatsheet |
-| `agentic-nocheat.md` | AetherShell (agentic, control) | schema + generated ontology |
+| `ironshell.md` | IronShell (default) | schema + generated ontology |
+| `agentic.md` | IronShell (agentic) | schema + generated ontology + cheatsheet |
+| `agentic-nocheat.md` | IronShell (agentic, control) | schema + generated ontology |
 
 `{{ONTOLOGY}}` is substituted at run time from the *live* `ontology_describe`
 output for the corpus working set, not from a copy pasted here. That is

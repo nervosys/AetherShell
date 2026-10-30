@@ -2,7 +2,7 @@
 
 ## Issues Discovered
 
-The example files (00-16.ae) had systematic problems that prevented them from running:
+The example files (00-16.ish) had systematic problems that prevented them from running:
 
 1. **Comment Syntax Mismatch**: Examples used `#` for comments, but the language only supports `//`
 2. **Parser Bug**: The `//` comment syntax was declared in a standalone lexer.rs file that was NEVER USED - the parser has its own inline lexer that didn't handle comments at all
@@ -12,7 +12,7 @@ The example files (00-16.ae) had systematic problems that prevented them from ru
 
 ### 1. Fixed All Example Files (17 files)
 - Changed all `#` comments to `//` comments
-- Applied to: 00-16.ae (17 example files)
+- Applied to: 00-16.ish (17 example files)
 - Method: Python regex replacement to preserve shebangs (`#!/`)
 
 ### 2. Added Comment Support to Parser
@@ -102,10 +102,10 @@ fn peek_ahead(&self, offset: usize) -> Option<Tok> {
 ## Examples Status
 
 ### Working Examples:
-- ✅ 00_hello.ae - Basic execution and external commands
-- ✅ 01_pipelines.ae - Partially works (some runtime issues)
-- ✅ 02_tables.ae - Should work
-- ✅ 03_http.ae - Should work
+- ✅ 00_hello.ish - Basic execution and external commands
+- ✅ 01_pipelines.ish - Partially works (some runtime issues)
+- ✅ 02_tables.ish - Should work
+- ✅ 03_http.ish - Should work
 
 ### Examples with Known Issues (not addressed):
 - ⚠️ String interpolation doesn't work: `${var}` prints literally
@@ -117,7 +117,7 @@ These issues are separate from the syntax problems and represent unimplemented f
 ## Files Modified
 
 1. `src/parser.rs` - Added comment handling and `:=` syntax
-2. `examples/*.ae` (17 files) - Fixed comment syntax
+2. `examples/*.ish` (17 files) - Fixed comment syntax
 3. `src/lexer.rs` - Fixed (but this file is NOT used by the parser!)
 
 ## Notes

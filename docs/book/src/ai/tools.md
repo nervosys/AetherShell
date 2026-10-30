@@ -1,6 +1,6 @@
 # Tool Use
 
-An agent is only as useful as the things it can actually run. AetherShell ships
+An agent is only as useful as the things it can actually run. IronShell ships
 a catalogue of external OS tools — `grep`, `curl`, `git`, and so on — each with a
 description, a parameter list, the platforms it runs on, and a safety level. The
 same catalogue backs both the agent loop and the `tool_*` builtins below, so
@@ -8,7 +8,7 @@ what an agent can reach is exactly what you can inspect from the prompt.
 
 ## Listing the catalogue
 
-```aethershell
+```ironshell
 tool_list() | len
 # 198
 
@@ -22,7 +22,7 @@ tool_list() | first
 `tool_search` takes a query and returns the tools recommended for it,
 falling back to a plain name and description match when nothing is recommended:
 
-```aethershell
+```ironshell
 tool_search("http") | len
 # 7
 ```
@@ -30,7 +30,7 @@ tool_search("http") | len
 `tool_info` returns the full record for one tool, including its parameters and
 worked examples:
 
-```aethershell
+```ironshell
 tool_info("ls")
 # {category: FileSystem, command: ls, common_args: [len=3],
 #  description: List directory contents, examples: [len=1], name: ls,
@@ -43,21 +43,21 @@ tool_info("ls")
 `tool_schema` renders the catalogue as OpenAI-style function schemas, ready to
 hand to a model that supports tool calling:
 
-```aethershell
+```ironshell
 tool_schema() | first
 # {function: {…}, type: function}
 ```
 
 ## Running a tool
 
-```aethershell
+```ironshell
 tool_exec(<name>, [args], [allow_dangerous])
 ```
 
 `tool_execute` is an alias for the same builtin. Only the name is required;
 `args` may be an array of strings or a single string.
 
-```aethershell
+```ironshell
 tool_exec("git", ["status", "--short"])
 ```
 
@@ -71,7 +71,7 @@ Two things can stop a call, and both report rather than guess:
   `Critical`. Of the 198 catalogued tools, 131 are `Safe`, 49 are `Caution`, 14
   are `Dangerous` and 4 are `Critical`:
 
-  ```aethershell
+  ```ironshell
   tool_list() | where(fn(t) => t.safety == "Dangerous") | len
   # 14
   ```
@@ -80,7 +80,7 @@ Two things can stop a call, and both report rather than guess:
   outright unless the third argument is `true`, and the refusal names the level
   rather than failing vaguely:
 
-  ```aethershell
+  ```ironshell
   tool_exec("iptables", ["-L"])
   # error[E_UNKNOWN]: Tool execution failed: Tool 'iptables' has safety level
   # Critical. Set allow_dangerous=true to execute.
@@ -91,19 +91,19 @@ Two things can stop a call, and both report rather than guess:
 
 ## Over MCP
 
-`ae mcp stdio` serves the shell as an MCP server. `tools/list` returns **three**
+`ish mcp stdio` serves the shell as an MCP server. `tools/list` returns **three**
 tools, not one per builtin:
 
 | Tool | Purpose |
 | --- | --- |
 | `ontology_manifest` | the categories, with counts and effect classes |
 | `ontology_describe` | expand a category into its builtins, or one builtin into full detail |
-| `aether` | invoke a builtin by name |
+| `ironshell` | invoke a builtin by name |
 
 That is deliberate. Advertising several hundred tool schemas would spend an
 agent's context before it had read a single result; the manifest is the compact
 index and detail is fetched for the slice actually needed. Every builtin is
-reachable through `aether`, and every call goes through the same safety model
+reachable through `ironshell`, and every call goes through the same safety model
 as one typed at the prompt.
 
 `tool_exec` also passes through the ordinary execution guard, so agent mode's

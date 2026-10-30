@@ -7,14 +7,14 @@
 //! waiting out their timeout or answering for a user who is not there.
 //!
 //! Nothing here starts a server, listens on any address, or connects to an MCP
-//! server. The only child processes are `ae` itself, each with a hard deadline,
+//! server. The only child processes are `ish` itself, each with a hard deadline,
 //! and their home directory is a temporary one this test writes.
 
-use aethershell::builtins::{call, call_with_input, is_dispatched};
-use aethershell::env::Env;
-use aethershell::safety::SafetyError;
-use aethershell::signature::signature_of;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input, is_dispatched};
+use iron_shell::env::Env;
+use iron_shell::safety::SafetyError;
+use iron_shell::signature::signature_of;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -52,7 +52,7 @@ fn env() -> Env {
     static ISOLATED: std::sync::Once = std::sync::Once::new();
     ISOLATED.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_mcp_tranche_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
     Env::new()
 }
@@ -260,7 +260,7 @@ fn mcp_server_start_declares_a_server_and_starts_none() {
         .map(|h| h.to_display_string())
         .unwrap_or_default();
     assert!(
-        hint.contains("ae mcp serve"),
+        hint.contains("ish mcp serve"),
         "the hint does not name the real server: {hint}"
     );
 }
@@ -359,9 +359,9 @@ fn a2ui_display_calls_queue_without_waiting_for_a_ui() {
     assert!(started.elapsed() < Duration::from_secs(10));
 }
 
-// ── child processes: the ae binary, with a deadline and a temporary home ──
+// ── child processes: the ish binary, with a deadline and a temporary home ──
 
-/// Run `ae -c <expr>` with a temporary home and a hard deadline.
+/// Run `ish -c <expr>` with a temporary home and a hard deadline.
 ///
 /// Returns whether it exited 0 inside 30 seconds (it is killed otherwise), the
 /// text it printed to stdout and stderr, and how long it ran.
@@ -375,7 +375,7 @@ fn run_ae(expr: &str, home: &Path) -> (bool, String, Duration) {
     let out = std::fs::File::create(&out_path).expect("stdout file");
     let err = std::fs::File::create(&err_path).expect("stderr file");
     let started = Instant::now();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ae"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ish"))
         .arg("-c")
         .arg(expr)
         .env("HOME", home)
@@ -383,7 +383,7 @@ fn run_ae(expr: &str, home: &Path) -> (bool, String, Duration) {
         .env("APPDATA", home)
         .env("LOCALAPPDATA", home)
         .env("XDG_CONFIG_HOME", home)
-        .env("AETHER_SESSION_DIR", home.join("session"))
+        .env("IRONSHELL_SESSION_DIR", home.join("session"))
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err))

@@ -12,7 +12,7 @@
 //! The tree tests also start a child under a parent this test owns. That child
 //! is not a `Child`, so it is killed by pid through a guard as well.
 
-use aethershell::{
+use iron_shell::{
     builtins::{call, call_with_input},
     env::Env,
     value::Value,
@@ -34,12 +34,12 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 /// Sets the environment this file needs and restores nothing: every test
 /// sets it the same way, and the audit log lives in the temp directory.
 fn sandbox() {
-    for key in ["AETHER_MODE", "AETHER_AGENT", "AETHER_POLICY"] {
+    for key in ["IRONSHELL_MODE", "IRONSHELL_AGENT", "IRONSHELL_POLICY"] {
         std::env::remove_var(key);
     }
     let log = std::env::temp_dir().join(format!("proc_kill_audit_{}.log", std::process::id()));
-    std::env::set_var("AETHER_AUDIT_LOG", log);
-    std::env::set_var("AETHER_AUDIT_KEY", "22".repeat(32));
+    std::env::set_var("IRONSHELL_AUDIT_LOG", log);
+    std::env::set_var("IRONSHELL_AUDIT_KEY", "22".repeat(32));
 }
 
 fn kill(args: Vec<Value>) -> anyhow::Result<Value> {

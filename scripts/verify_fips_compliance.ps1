@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
 # FIPS 140-2 Compliance Verification Script
-# Verifies AetherShell's cryptographic dependencies and configuration
+# Verifies IronShell's cryptographic dependencies and configuration
 
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  FIPS 140-2 COMPLIANCE VERIFICATION" -ForegroundColor Cyan
@@ -168,7 +168,7 @@ Write-Host "`nPass Rate: $passRate%" -ForegroundColor $(if ($passRate -ge 90) { 
 
 if ($compliance.Failed -eq 0 -and $compliance.Warnings -le 1) {
     Write-Host "`n✓ FIPS 140-2 COMPLIANCE: VERIFIED" -ForegroundColor Green -BackgroundColor Black
-    Write-Host "  AetherShell uses FIPS-approved algorithms and libraries.`n" -ForegroundColor Green
+    Write-Host "  IronShell uses FIPS-approved algorithms and libraries.`n" -ForegroundColor Green
     exit 0
 }
 elseif ($compliance.Failed -eq 0) {

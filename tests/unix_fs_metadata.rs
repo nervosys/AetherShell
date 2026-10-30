@@ -3,7 +3,7 @@
 //! file builtins. Every test works in its own scratch directory under the system
 //! temp dir, with the workspace jail pointed at it, and removes it on the way out.
 
-use aethershell::{builtins::call, env::Env, safety::SafetyError, value::Value};
+use iron_shell::{builtins::call, env::Env, safety::SafetyError, value::Value};
 use std::collections::BTreeMap;
 use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -24,20 +24,20 @@ impl Scratch {
         let session = root.join("session");
         std::fs::create_dir_all(&session).unwrap();
         let keys = [
-            "AETHER_WORKSPACE",
-            "AETHER_SESSION_DIR",
-            "AETHER_AUDIT_LOG",
-            "AETHER_AUDIT_KEY",
+            "IRONSHELL_WORKSPACE",
+            "IRONSHELL_SESSION_DIR",
+            "IRONSHELL_AUDIT_LOG",
+            "IRONSHELL_AUDIT_KEY",
             "NO_COLOR",
         ];
         let saved = keys
             .iter()
             .map(|k| (*k, std::env::var_os(k)))
             .collect::<Vec<_>>();
-        std::env::set_var("AETHER_WORKSPACE", &root);
-        std::env::set_var("AETHER_SESSION_DIR", &session);
-        std::env::set_var("AETHER_AUDIT_LOG", root.join("audit.log"));
-        std::env::set_var("AETHER_AUDIT_KEY", "11".repeat(32));
+        std::env::set_var("IRONSHELL_WORKSPACE", &root);
+        std::env::set_var("IRONSHELL_SESSION_DIR", &session);
+        std::env::set_var("IRONSHELL_AUDIT_LOG", root.join("audit.log"));
+        std::env::set_var("IRONSHELL_AUDIT_KEY", "11".repeat(32));
         std::env::set_var("NO_COLOR", "1");
         Self { root, saved }
     }

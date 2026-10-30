@@ -1,13 +1,13 @@
-# 🚀 AetherShell - Clean Project Directory
+# 🚀 IronShell - Clean Project Directory
 
 **Status**: ✅ **PRODUCTION READY** | 🛡️ **SECURITY COMPLIANT** | 📊 **PERFORMANCE OPTIMIZED**
 
 ## 📁 Root Directory Structure
 
-The AetherShell project directory has been organized for maximum clarity and maintainability:
+The IronShell project directory has been organized for maximum clarity and maintainability:
 
 ```
-AetherShell/
+IronShell/
 ├── 📄 README.md               # 👈 Start here! Main project overview
 ├── 📄 Cargo.toml              # Rust project configuration
 ├── 📄 PROJECT_STRUCTURE.md    # Detailed project organization

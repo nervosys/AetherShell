@@ -5,9 +5,9 @@
 //! Every call runs on a thread with a 60 s hard bound, so a regression that
 //! hangs fails the test instead of hanging the run.
 
-use aethershell::model_plane::vault_run_within;
-use aethershell::providers::ontology::tool_version_within;
-use aethershell::safety::output_with_timeout;
+use iron_shell::model_plane::vault_run_within;
+use iron_shell::providers::ontology::tool_version_within;
+use iron_shell::safety::output_with_timeout;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc;
@@ -183,7 +183,7 @@ fn a_tool_stopped_at_its_deadline_is_a_budget_error_not_a_failure_to_start() {
     // output_with_timeout reports its deadline as TimedOut; callers hand that
     // to spawn_error, which used to call it "could not start" (E_TOOL_FAILED).
     let e = std::io::Error::new(std::io::ErrorKind::TimedOut, "deadline");
-    let err = aethershell::safety::spawn_error("probe", "tool", &e).to_string();
+    let err = iron_shell::safety::spawn_error("probe", "tool", &e).to_string();
     assert!(err.contains("\"code\":\"E_BUDGET_EXCEEDED\""), "{err}");
 }
 

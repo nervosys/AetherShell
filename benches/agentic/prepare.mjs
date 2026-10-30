@@ -5,7 +5,7 @@
 // blog post compared, so every engine reads the same facts in the shape its
 // own idiom expects:
 //
-//   issues.json    one JSON array          (jq, AetherShell, pwsh, nushell)
+//   issues.json    one JSON array          (jq, IronShell, pwsh, nushell)
 //   issues/*.json  one pretty file each    (the "filesystem agent")
 //   issues.db      SQLite, labels as JSON  (the SQL agent)
 //

@@ -14,8 +14,8 @@
 
 #![cfg(windows)]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -52,7 +52,7 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call_ok(name: &str, args: Vec<Value>) -> Value {
@@ -196,11 +196,11 @@ struct AuditSandbox {
 }
 
 const SANDBOX_KEYS: &[&str] = &[
-    "AETHER_MODE",
-    "AETHER_AGENT",
-    "AETHER_POLICY",
-    "AETHER_AUDIT_LOG",
-    "AETHER_AUDIT_KEY",
+    "IRONSHELL_MODE",
+    "IRONSHELL_AGENT",
+    "IRONSHELL_POLICY",
+    "IRONSHELL_AUDIT_LOG",
+    "IRONSHELL_AUDIT_KEY",
 ];
 
 impl AuditSandbox {
@@ -213,8 +213,8 @@ impl AuditSandbox {
             std::env::remove_var(key);
         }
         let log = unique_path("audit.log");
-        std::env::set_var("AETHER_AUDIT_LOG", &log);
-        std::env::set_var("AETHER_AUDIT_KEY", "11".repeat(32));
+        std::env::set_var("IRONSHELL_AUDIT_LOG", &log);
+        std::env::set_var("IRONSHELL_AUDIT_KEY", "11".repeat(32));
         Self { saved, log }
     }
 }

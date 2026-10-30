@@ -9,7 +9,7 @@
 //! The failure is *closed* (an error, and `Value::Error` is falsy), so this is a
 //! correctness bug rather than a vulnerability. It still matters for the
 //! security-relevant modules: `perm.acl_get` and the `sso.*` calls are in the
-//! allowlist below, meaning AetherShell advertises an access-control surface it
+//! allowlist below, meaning IronShell advertises an access-control surface it
 //! does not implement. Nothing should be written that depends on those
 //! returning a meaningful answer.
 //!
@@ -24,9 +24,9 @@
 //! it should only ever shrink. Wiring up or withdrawing an entry means deleting
 //! its line here.
 
-use aethershell::builtins::BUILTIN_LOOKUP;
-use aethershell::modules::all_modules;
-use aethershell::value::Value;
+use iron_shell::builtins::BUILTIN_LOOKUP;
+use iron_shell::modules::all_modules;
+use iron_shell::value::Value;
 
 /// Builtins reachable through the fallback `match` at the end of
 /// `builtins::call` but absent from `BUILTIN_LOOKUP`.

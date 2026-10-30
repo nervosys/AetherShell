@@ -8,9 +8,9 @@
 //! host, with `cargo test --test windows_winget_admin -- --ignored` and that
 //! variable set.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -215,11 +215,11 @@ fn package_changes_are_refused_inside_a_transaction() {
     struct Rollback;
     impl Drop for Rollback {
         fn drop(&mut self) {
-            while aethershell::tx::rollback().is_ok() {}
+            while iron_shell::tx::rollback().is_ok() {}
         }
     }
     let _rollback = Rollback;
-    aethershell::tx::begin().expect("begin transaction");
+    iron_shell::tx::begin().expect("begin transaction");
     let text = refusal("pkg_install", vec![strs(&[PACKAGE])]);
     assert!(text.contains("E_UNIMPLEMENTED"), "{text}");
     assert!(text.contains("cannot be rolled back"), "{text}");

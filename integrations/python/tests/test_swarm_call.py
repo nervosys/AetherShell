@@ -1,6 +1,6 @@
-"""Tests for the AetherShell code the SDK generates for swarms.
+"""Tests for the IronShell code the SDK generates for swarms.
 
-These check the generated string, not a running `ae`: the eval call is mocked
+These check the generated string, not a running `ish`: the eval call is mocked
 and the code it receives is inspected. The shape asserted here is the one the
 `swarm` builtin accepts (src/builtins.rs, parse_agent_call and agent_config):
 a config record {goal, tools, max_steps, dry_run}.
@@ -11,11 +11,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from aethershell import Agent, AetherRuntime, Swarm, _build_swarm_code
+from ironshell import Agent, IronShellRuntime, Swarm, _build_swarm_code
 
 
 def _runtime_returning(value):
-    runtime = MagicMock(spec=AetherRuntime)
+    runtime = MagicMock(spec=IronShellRuntime)
     runtime.eval.return_value = value
     return runtime
 

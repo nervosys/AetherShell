@@ -1,14 +1,14 @@
 # String Utilities Plugin
-# Additional string manipulation functions for AetherShell
+# Additional string manipulation functions for IronShell
 
 [plugin]
 id = "string-utils"
 name = "String Utilities"
 version = "1.0.0"
-author = "AetherShell Team"
+author = "IronShell Team"
 description = "Additional string manipulation functions for common transformations"
 categories = ["Builtin"]
-min_aether_version = "0.1.0"
+min_ironshell_version = "0.1.0"
 dependencies = []
 
 [builtins]

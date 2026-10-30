@@ -1,7 +1,7 @@
-//! Agentic AI Callable API for AetherShell
+//! Agentic AI Callable API for IronShell
 //!
 //! This module provides a structured JSON-based API for AI agents to interact
-//! with AetherShell without needing to generate multi-line code blocks.
+//! with IronShell without needing to generate multi-line code blocks.
 //!
 //! Features:
 //! - Single-call builtin execution
@@ -11,8 +11,8 @@
 //!
 //! # AI Agent Integration
 //!
-//! Instead of generating brittle AetherShell code:
-//! ```ae
+//! Instead of generating brittle IronShell code:
+//! ```ish
 //! let files = ls(".")
 //! files | where(fn(f) => f.size > 1000) | map(fn(f) => f.name)
 //! ```
@@ -59,7 +59,7 @@ pub enum AgentRequest {
         #[serde(default)]
         input: Option<JsonValue>,
     },
-    /// Execute raw AetherShell code (escape hatch)
+    /// Execute raw IronShell code (escape hatch)
     Eval { code: String },
     /// Get information about a builtin
     Describe { builtin: String },
@@ -376,7 +376,7 @@ fn annotate_token_accounting(request: &AgentRequest, resp: &mut AgentResponse) {
 
 /// Execute a single builtin call
 fn execute_call(builtin: &str, args: &JsonValue) -> AgentResponse {
-    // Convert JSON args to AetherShell code
+    // Convert JSON args to IronShell code
     let code = match args_to_code(builtin, args) {
         Ok(c) => c,
         Err(e) => {
@@ -536,13 +536,13 @@ fn response_from_value(value: Value, code: &str) -> AgentResponse {
     let result_type = value_type_name(&value);
     // Agent mode mirrors the CLI default: tabular results (Array/Table,
     // where keys would otherwise repeat per row) are returned as compact
-    // AECON text instead of verbose JSON, paged to AE_TOKEN_BUDGET when
+    // AECON text instead of verbose JSON, paged to IRONSHELL_TOKEN_BUDGET when
     // set. Scalars/records/strings stay native JSON (a bare number must
     // not become a quoted string). Non-agent consumers are unchanged.
     if crate::safety::current_mode() == crate::safety::Mode::Agent
         && matches!(value, Value::Array(_) | Value::Table(_))
     {
-        let budget = std::env::var("AE_TOKEN_BUDGET")
+        let budget = std::env::var("IRONSHELL_TOKEN_BUDGET")
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
             .filter(|m| *m > 0);
@@ -567,7 +567,7 @@ fn response_from_value(value: Value, code: &str) -> AgentResponse {
     }
 }
 
-/// Execute raw AetherShell code
+/// Execute raw IronShell code
 fn execute_eval(code: &str) -> AgentResponse {
     // Arbitrary source: the module namespaces must be bound, or every
     // `file.read(…)`/`sys.hostname()` in it fails as a field access on Null.
@@ -600,12 +600,12 @@ fn execute_eval(code: &str) -> AgentResponse {
 
 /// The description of a manifest builtin of a loaded plugin. The manifest
 /// declares no signature, parameters or examples, so the entry says only that
-/// the name exists, that its body is arbitrary AetherShell, and the effect the
+/// the name exists, that its body is arbitrary IronShell, and the effect the
 /// dispatch gate applies to it (`Exec`, which agent mode approves per call).
 fn plugin_builtin_response(name: &str) -> AgentResponse {
     let definition = BuiltinDefinition {
         name: name.to_string(),
-        description: "A builtin provided by a loaded plugin; its body is arbitrary AetherShell"
+        description: "A builtin provided by a loaded plugin; its body is arbitrary IronShell"
             .to_string(),
         category: "Plugin".to_string(),
         signature: format!("{name}(...)"),
@@ -791,7 +791,7 @@ fn get_type_info(type_name: Option<&str>) -> AgentResponse {
 // Helper Functions
 // ============================================================================
 
-/// Convert JSON arguments to AetherShell code
+/// Convert JSON arguments to IronShell code
 fn args_to_code(builtin: &str, args: &JsonValue) -> Result<String> {
     match args {
         JsonValue::Null => Ok(format!("{}()", builtin)),
@@ -850,7 +850,7 @@ fn predicate_to_lambda(predicate: &str) -> String {
     }
 }
 
-/// Convert JSON value to AetherShell literal syntax
+/// Convert JSON value to IronShell literal syntax
 fn json_to_ae_literal(val: &JsonValue) -> String {
     match val {
         JsonValue::Null => "None".to_string(),
@@ -871,7 +871,7 @@ fn json_to_ae_literal(val: &JsonValue) -> String {
     }
 }
 
-/// Convert AetherShell Value to JSON
+/// Convert IronShell Value to JSON
 fn value_to_json(value: &Value) -> JsonValue {
     match value {
         Value::Null => JsonValue::Null,
@@ -949,7 +949,7 @@ pub fn build_language_ontology() -> LanguageOntology {
     LanguageOntology {
         ontology_version: "1.0.0".to_string(),
         language: LanguageInfo {
-            name: "AetherShell".to_string(),
+            name: "IronShell".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             description: "A typed functional shell with multi-modal AI capabilities".to_string(),
             paradigms: vec![
@@ -2976,7 +2976,7 @@ fn ontology_tools(ontology: &LanguageOntology, format: ToolFormat, prefix: &str)
 
 /// Build OpenAI function calling schema
 fn build_openai_schema(ontology: &LanguageOntology) -> JsonValue {
-    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "aethershell_");
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "ironshell_");
 
     json!({
         "format": "openai_function_calling",
@@ -2988,13 +2988,13 @@ fn build_openai_schema(ontology: &LanguageOntology) -> JsonValue {
             "o3", "o3-mini", "o4-mini"
         ],
         "tools": tools,
-        "instructions": "Use these tools to execute AetherShell operations. Each tool corresponds to an AetherShell builtin function."
+        "instructions": "Use these tools to execute IronShell operations. Each tool corresponds to an IronShell builtin function."
     })
 }
 
 /// Build Anthropic Claude tool use schema
 fn build_claude_schema(ontology: &LanguageOntology) -> JsonValue {
-    let tools = ontology_tools(ontology, ToolFormat::Anthropic, "aethershell_");
+    let tools = ontology_tools(ontology, ToolFormat::Anthropic, "ironshell_");
 
     json!({
         "format": "anthropic_tool_use",
@@ -3006,13 +3006,13 @@ fn build_claude_schema(ontology: &LanguageOntology) -> JsonValue {
             "claude-3-opus", "claude-3-sonnet", "claude-3-haiku"
         ],
         "tools": tools,
-        "instructions": "Use these tools to execute AetherShell operations. Results are returned as JSON."
+        "instructions": "Use these tools to execute IronShell operations. Results are returned as JSON."
     })
 }
 
 /// Build Google Gemini function declaration schema
 fn build_gemini_schema(ontology: &LanguageOntology) -> JsonValue {
-    let function_declarations = ontology_tools(ontology, ToolFormat::Google, "aethershell_");
+    let function_declarations = ontology_tools(ontology, ToolFormat::Google, "ironshell_");
 
     json!({
         "format": "gemini_function_calling",
@@ -3023,7 +3023,7 @@ fn build_gemini_schema(ontology: &LanguageOntology) -> JsonValue {
             "gemini-1.5-pro", "gemini-1.5-flash"
         ],
         "function_declarations": function_declarations,
-        "instructions": "Use these functions to execute AetherShell operations."
+        "instructions": "Use these functions to execute IronShell operations."
     })
 }
 
@@ -3063,7 +3063,7 @@ fn build_compact_ontology(ontology: &LanguageOntology) -> JsonValue {
         .collect();
 
     json!({
-        "lang": "AetherShell",
+        "lang": "IronShell",
         "ver": ontology.language.version,
         "ontology_ver": ontology.ontology_version,
         "types": ["Int", "Float", "String", "Bool", "Array", "Record", "Lambda", "Table", "Option"],
@@ -3091,7 +3091,7 @@ fn build_compact_ontology(ontology: &LanguageOntology) -> JsonValue {
 
 /// Build Meta Llama function calling schema
 fn build_llama_schema(ontology: &LanguageOntology) -> JsonValue {
-    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "aethershell_");
+    let tools = ontology_tools(ontology, ToolFormat::OpenAI, "ironshell_");
 
     json!({
         "format": "llama_function_calling",
@@ -3103,8 +3103,8 @@ fn build_llama_schema(ontology: &LanguageOntology) -> JsonValue {
             "llama-3.1-405b", "llama-3.1-70b", "llama-3.1-8b"
         ],
         "tools": tools,
-        "system_prompt": "You are an assistant with access to AetherShell tools. Use them to help users with shell operations, data processing, and AI tasks.",
-        "instructions": "Call tools using JSON format. Tool names are prefixed with 'aethershell_'."
+        "system_prompt": "You are an assistant with access to IronShell tools. Use them to help users with shell operations, data processing, and AI tasks.",
+        "instructions": "Call tools using JSON format. Tool names are prefixed with 'ironshell_'."
     })
 }
 
@@ -3124,7 +3124,7 @@ fn build_mistral_schema(ontology: &LanguageOntology) -> JsonValue {
         ],
         "tools": tools,
         "tool_choice": "auto",
-        "instructions": "Use these tools to execute AetherShell operations. Results are returned as JSON."
+        "instructions": "Use these tools to execute IronShell operations. Results are returned as JSON."
     })
 }
 
@@ -3142,7 +3142,7 @@ fn build_cohere_schema(ontology: &LanguageOntology) -> JsonValue {
             "command-nightly"
         ],
         "tools": tools,
-        "instructions": "Use these tools to execute AetherShell operations. Call tools by name with appropriate parameters."
+        "instructions": "Use these tools to execute IronShell operations. Call tools by name with appropriate parameters."
     })
 }
 
@@ -3159,7 +3159,7 @@ fn build_grok_schema(ontology: &LanguageOntology) -> JsonValue {
             "grok-2-1212"
         ],
         "tools": tools,
-        "instructions": "Use these tools to execute AetherShell operations. Results are returned as JSON."
+        "instructions": "Use these tools to execute IronShell operations. Results are returned as JSON."
     })
 }
 
@@ -3179,7 +3179,7 @@ fn build_deepseek_schema(ontology: &LanguageOntology) -> JsonValue {
         ],
         "tools": tools,
         "reasoning_support": true,
-        "instructions": "Use these tools to execute AetherShell operations. For complex tasks, use chain-of-thought reasoning."
+        "instructions": "Use these tools to execute IronShell operations. For complex tasks, use chain-of-thought reasoning."
     })
 }
 
@@ -3222,7 +3222,7 @@ fn build_bedrock_schema(ontology: &LanguageOntology) -> JsonValue {
         "toolConfig": {
             "tools": tool_config
         },
-        "instructions": "Use toolUse blocks in your response to invoke AetherShell tools."
+        "instructions": "Use toolUse blocks in your response to invoke IronShell tools."
     })
 }
 
@@ -3258,7 +3258,7 @@ fn build_qwen_schema(ontology: &LanguageOntology) -> JsonValue {
             "qwq-32b", "qvq-72b-preview"
         ],
         "tools": tools,
-        "instructions": "Use these tools to execute AetherShell operations. Compatible with DashScope API."
+        "instructions": "Use these tools to execute IronShell operations. Compatible with DashScope API."
     })
 }
 
@@ -3992,7 +3992,7 @@ pub mod server {
         /// `None` means "generate one at startup and print it", which is the
         /// safe default. It is deliberately not possible to configure the server
         /// with no authentication at all: `/api/v1/eval` evaluates arbitrary
-        /// AetherShell code, so an unauthenticated listener is remote code
+        /// IronShell code, so an unauthenticated listener is remote code
         /// execution for anyone who can reach the port — including, when CORS is
         /// enabled, any web page the user happens to visit while the server is
         /// running.
@@ -4322,7 +4322,7 @@ pub mod server {
             );
         }
 
-        println!("🤖 AetherShell Agent API starting on http://{}", addr);
+        println!("🤖 IronShell Agent API starting on http://{}", addr);
         if config.auth_token.is_none() {
             println!("   Auth token (generated): {}", token);
         } else {
@@ -4342,9 +4342,9 @@ pub mod server {
             }
             other => {
                 println!(
-                    "⚠  Safety: {other:?} mode (AETHER_MODE set explicitly) — the effect
+                    "⚠  Safety: {other:?} mode (IRONSHELL_MODE set explicitly) — the effect
                      ⚠  gate and the workspace jail are OFF for a surface that evaluates
-                     ⚠  arbitrary code. Unset AETHER_MODE to get the agent profile."
+                     ⚠  arbitrary code. Unset IRONSHELL_MODE to get the agent profile."
                 );
             }
         }
@@ -4815,7 +4815,7 @@ pub mod server {
     async fn handle_health() -> impl IntoResponse {
         Json(json!({
             "status": "healthy",
-            "service": "aethershell-agent-api",
+            "service": "ironshell-agent-api",
             "version": env!("CARGO_PKG_VERSION"),
             "features": {
                 "websocket": true,

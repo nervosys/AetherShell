@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a new feature for AetherShell
+about: Suggest a new feature for IronShell
 title: '[FEATURE] '
 labels: enhancement
 assignees: ''
@@ -13,7 +13,7 @@ A clear description of the problem or use case this feature would address.
 Describe the feature you'd like to see.
 
 ## Example Usage
-```aether
+```ironshell
 # Show how the feature would be used
 let result = new_feature(args)
 ```
@@ -24,7 +24,7 @@ Other solutions you've considered and why this approach is preferred.
 ## Additional Context
 - Does this relate to any existing issues?
 - Are there similar features in other shells?
-- How would this fit with AetherShell's design philosophy?
+- How would this fit with IronShell's design philosophy?
 
 ## Willingness to Contribute
 - [ ] I would be willing to implement this feature

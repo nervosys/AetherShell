@@ -1,10 +1,10 @@
 /**
- * Markdown-it plugin for AetherShell syntax highlighting in VS Code Markdown Preview
+ * Markdown-it plugin for IronShell syntax highlighting in VS Code Markdown Preview
  */
 
 import type MarkdownIt from 'markdown-it';
 
-// AetherShell syntax highlighting rules
+// IronShell syntax highlighting rules
 const KEYWORDS = ['let', 'fn', 'match', 'if', 'else', 'true', 'false', 'null', 'Some', 'None'];
 const BUILTINS = [
     // Core
@@ -37,7 +37,7 @@ function escapeHtml(str: string): string {
         .replace(/"/g, '&quot;');
 }
 
-function highlightAetherShell(code: string): string {
+function highlightIronShell(code: string): string {
     const lines = code.split('\n');
     const highlightedLines: string[] = [];
 
@@ -128,11 +128,11 @@ export function activate(): { extendMarkdownIt: (md: MarkdownIt) => MarkdownIt }
                 const token = tokens[idx];
                 const info = token.info ? token.info.trim().toLowerCase() : '';
 
-                // Check if this is an AetherShell code block
-                if (info === 'ae' || info === 'aether' || info === 'aethershell') {
+                // Check if this is an IronShell code block
+                if (info === 'ish' || info === 'ironshell') {
                     const code = token.content;
-                    const highlighted = highlightAetherShell(code);
-                    return `<pre class="aethershell-code"><code class="language-aethershell">${highlighted}</code></pre>`;
+                    const highlighted = highlightIronShell(code);
+                    return `<pre class="ironshell-code"><code class="language-ironshell">${highlighted}</code></pre>`;
                 }
 
                 // Fall back to default renderer

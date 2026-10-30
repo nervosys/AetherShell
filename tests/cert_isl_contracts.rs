@@ -10,9 +10,9 @@
 //! verify reads the trust store from SSL_CERT_FILE, which is process-wide, so
 //! every test that sets it holds ENV_LOCK and restores it.
 
-use aethershell::builtins::call;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::call;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -131,7 +131,7 @@ impl Drop for Scratch {
 /// The session directory every test uses, so no test touches a real journal.
 fn isolated_env() -> Env {
     let session = std::env::temp_dir().join("ae-cert-isl-session");
-    std::env::set_var("AETHER_SESSION_DIR", &session);
+    std::env::set_var("IRONSHELL_SESSION_DIR", &session);
     Env::new()
 }
 

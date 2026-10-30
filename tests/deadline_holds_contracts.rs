@@ -152,7 +152,7 @@ fn output_with_timeout_kills_a_silent_child_at_its_deadline() {
     let (result, elapsed) = bounded("output_with_timeout", move || {
         let mut cmd = std::process::Command::new(stand.program);
         cmd.args(&stand.argv);
-        aethershell::safety::output_with_timeout(cmd, 2)
+        iron_shell::safety::output_with_timeout(cmd, 2)
     });
     let err = match result {
         Ok(out) => panic!(
@@ -174,7 +174,7 @@ fn output_with_timeout_is_not_held_by_a_grandchild_on_its_pipes() {
     let (result, elapsed) = bounded("output_with_timeout", move || {
         let mut cmd = std::process::Command::new(stand.program);
         cmd.args(&stand.argv);
-        aethershell::safety::output_with_timeout(cmd, 10)
+        iron_shell::safety::output_with_timeout(cmd, 10)
     });
     let out = match result {
         Ok(out) => out,
@@ -199,7 +199,7 @@ fn output_with_timeout_refuses_output_past_its_cap() {
     let (result, _) = bounded("output_with_timeout", || {
         let mut cmd = std::process::Command::new("sh");
         cmd.args(["-c", "head -c 70000000 /dev/zero"]);
-        aethershell::safety::output_with_timeout(cmd, 60)
+        iron_shell::safety::output_with_timeout(cmd, 60)
     });
     let err = match result {
         Ok(out) => panic!(
@@ -208,7 +208,7 @@ fn output_with_timeout_refuses_output_past_its_cap() {
         ),
         Err(e) => e,
     };
-    let coded = aethershell::safety::io_budget_error(&err)
+    let coded = iron_shell::safety::io_budget_error(&err)
         .unwrap_or_else(|| panic!("the refusal should carry a coded error: {err}"));
     assert_eq!(code_of(&coded.to_string()), "E_BUDGET_EXCEEDED", "{coded}");
 }
@@ -222,7 +222,7 @@ fn an_agent_step_that_stays_silent_is_killed_with_a_budget_error() {
     let stand = silent_child();
     let (result, elapsed) = bounded("the agent step runner", move || {
         let argv: Vec<&str> = stand.argv.iter().map(String::as_str).collect();
-        aethershell::agent::__test_execute_step(stand.program, &argv, 2)
+        iron_shell::agent::__test_execute_step(stand.program, &argv, 2)
     });
     let err = match result {
         Ok(()) => panic!("a silent step should time out"),
@@ -244,7 +244,7 @@ fn an_agent_step_is_not_held_by_a_grandchild_on_its_pipes() {
     let stand = grandchild_child();
     let (result, elapsed) = bounded("the agent step runner", move || {
         let argv: Vec<&str> = stand.argv.iter().map(String::as_str).collect();
-        aethershell::agent::__test_execute_step(stand.program, &argv, 10)
+        iron_shell::agent::__test_execute_step(stand.program, &argv, 10)
     });
     if let Err(e) = result {
         panic!("the child exited 0, the step should finish: {e:#}");
@@ -264,7 +264,7 @@ fn kubectl_is_killed_at_its_deadline_with_a_budget_error() {
     let stand = silent_child();
     let (result, elapsed) = bounded("kubectl", move || {
         let argv: Vec<&str> = stand.argv.iter().map(String::as_str).collect();
-        aethershell::builtins::__test_kubectl_run(stand.program, &argv, 1024 * 1024, 2)
+        iron_shell::builtins::__test_kubectl_run(stand.program, &argv, 1024 * 1024, 2)
     });
     let err = match result {
         Ok(text) => panic!("a silent tool should time out, it printed {text:?}"),
@@ -286,7 +286,7 @@ fn kubectl_is_not_held_by_a_grandchild_on_its_pipes() {
     let stand = grandchild_child();
     let (result, elapsed) = bounded("kubectl", move || {
         let argv: Vec<&str> = stand.argv.iter().map(String::as_str).collect();
-        aethershell::builtins::__test_kubectl_run(stand.program, &argv, 1024 * 1024, 10)
+        iron_shell::builtins::__test_kubectl_run(stand.program, &argv, 1024 * 1024, 10)
     });
     let text = match result {
         Ok(text) => text,
@@ -312,7 +312,7 @@ fn an_external_tool_that_stays_silent_is_killed_with_a_budget_error() {
     let dir = write_tool("silent", &stand, 2);
     let tool_dir = dir.clone();
     let (result, elapsed) = bounded("the external tool runner", move || {
-        let registry = aethershell::external_tools::ExternalToolRegistry::new();
+        let registry = iron_shell::external_tools::ExternalToolRegistry::new();
         let name = registry
             .register_from_path(&tool_dir)
             .expect("the manifest registers");
@@ -340,7 +340,7 @@ fn an_external_tool_is_not_held_by_a_grandchild_on_its_pipes() {
     let dir = write_tool("grandchild", &stand, 10);
     let tool_dir = dir.clone();
     let (result, elapsed) = bounded("the external tool runner", move || {
-        let registry = aethershell::external_tools::ExternalToolRegistry::new();
+        let registry = iron_shell::external_tools::ExternalToolRegistry::new();
         let name = registry
             .register_from_path(&tool_dir)
             .expect("the manifest registers");

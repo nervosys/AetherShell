@@ -2,7 +2,7 @@
 
 ## Overview
 
-Model Context Protocol (MCP) servers provide tools and capabilities that can be used by AI agents in AetherShell. This guide will help you set up, configure, and use MCP servers effectively.
+Model Context Protocol (MCP) servers provide tools and capabilities that can be used by AI agents in IronShell. This guide will help you set up, configure, and use MCP servers effectively.
 
 ## What are MCP Servers?
 
@@ -20,7 +20,7 @@ MCP servers are standalone services that expose tools and capabilities to AI age
 
 ### 1. Check for Available Servers
 
-```aethershell
+```ironshell
 // Detect all available MCP servers
 let servers = mcp_servers()
 print("Found " + len(servers) + " MCP server(s)")
@@ -33,7 +33,7 @@ servers | foreach(fn(s) =>
 
 ### 2. Detect Specific Server
 
-```aethershell
+```ironshell
 // Find filesystem server
 let fs = mcp_detect("http://localhost:3001")
 
@@ -43,7 +43,7 @@ let any_server = mcp_detect()
 
 ### 3. Use with AI Agents
 
-```aethershell
+```ironshell
 // Auto-detect both AI backend and MCP server
 let model = ai_detect()
 let server = mcp_detect()
@@ -116,7 +116,7 @@ python filesystem_server.py
 
 ### 1. File Management
 
-```aethershell
+```ironshell
 // Setup
 let fs = mcp_detect("http://localhost:3001")
 let model = ai_detect()
@@ -129,7 +129,7 @@ agent("Create project documentation", model, fs.tools)
 
 ### 2. Git Operations
 
-```aethershell
+```ironshell
 // Setup
 let git = mcp_detect("http://localhost:3002")
 let model = ai_detect()
@@ -142,7 +142,7 @@ agent("Check for merge conflicts", model, git.tools)
 
 ### 3. Multi-Server Workflows
 
-```aethershell
+```ironshell
 // Setup multiple servers
 let fs = mcp_detect("http://localhost:3001")
 let git = mcp_detect("http://localhost:3002")
@@ -155,7 +155,7 @@ agent("Prepare release: update files and commit", model, all_tools)
 
 ### 4. Conditional Server Usage
 
-```aethershell
+```ironshell
 // Detect available servers
 let servers = mcp_servers()
 
@@ -173,7 +173,7 @@ match len(servers | where(fn(s) => s.endpoint == "http://localhost:3001")) {
 
 ### Server Health Check
 
-```aethershell
+```ironshell
 // Check if server is responding
 let server = mcp_detect("http://localhost:3001")
 match server {
@@ -189,7 +189,7 @@ match server {
 
 ### Tool Discovery
 
-```aethershell
+```ironshell
 // Discover all available tools across servers
 let all_servers = mcp_servers()
 let all_tools = []
@@ -211,7 +211,7 @@ print("Total unique tools: " + len(all_tools))
 
 Always check server availability before use:
 
-```aethershell
+```ironshell
 let servers = mcp_servers()
 print("Available servers: " + len(servers))
 
@@ -229,7 +229,7 @@ servers | foreach(fn(s) => {
 
 Provide fallbacks when servers aren't available:
 
-```aethershell
+```ironshell
 // Try MCP server first, fallback to built-in commands
 let fs = mcp_detect("http://localhost:3001")
 match fs {
@@ -251,7 +251,7 @@ match fs {
 - **Access Control**: Implement authentication if needed
 - **Resource Limits**: Set appropriate timeouts and limits
 
-```aethershell
+```ironshell
 // Validate tools before use
 let server = mcp_detect("http://localhost:3001")
 let safe_tools = server.tools | where(fn(t) => 
@@ -266,7 +266,7 @@ agent("Safe file analysis", ai_detect(), safe_tools)
 - **Selective Tools**: Only use required tools
 - **Timeout Management**: Set appropriate timeouts
 
-```aethershell
+```ironshell
 // Cache server detection results
 let cached_servers = mcp_servers()
 
@@ -287,7 +287,7 @@ agent("Read-only file analysis", ai_detect(), read_tools)
 docker-compose up -d mcp-filesystem mcp-git
 
 # Verify servers are running
-ae examples/15_mcp_basic.ae
+ish examples/15_mcp_basic.ish
 ```
 
 ### Production Environment
@@ -329,7 +329,7 @@ services:
 ### Common Issues
 
 1. **Server Not Found**
-   ```aethershell
+   ```ironshell
    // Check if server is running
    let servers = mcp_servers()
    match len(servers) {
@@ -344,7 +344,7 @@ services:
    - Ensure server accepts connections from localhost
 
 3. **No Tools Available**
-   ```aethershell
+   ```ironshell
    let server = mcp_detect("http://localhost:3001")
    match len(server.tools) {
        0 => print("Server running but no tools available"),
@@ -354,7 +354,7 @@ services:
 
 ### Debug Commands
 
-```aethershell
+```ironshell
 // Comprehensive MCP diagnostics
 print("=== MCP Diagnostics ===")
 
@@ -403,7 +403,7 @@ if __name__ == "__main__":
 
 ### Multi-Agent Coordination
 
-```aethershell
+```ironshell
 // Setup multiple agents with different server combinations
 let fs = mcp_detect("http://localhost:3001")
 let git = mcp_detect("http://localhost:3002")
@@ -430,10 +430,10 @@ let coordinator = agent("Coordinate file and git analysis", model, fs.tools + gi
 ## Resources
 
 - **MCP Specification**: [https://modelcontextprotocol.io](https://modelcontextprotocol.io)
-- **Server Examples**: `examples/15_mcp_basic.ae` through `examples/18_mcp_conditional.ae`
+- **Server Examples**: `examples/15_mcp_basic.ish` through `examples/18_mcp_conditional.ish`
 - **API Documentation**: `docs/AI_BACKENDS.md` and `docs/AI_MCP_INTEGRATION.md`
 - **Test Suite**: `tests/mcp_detection.rs` for implementation examples
 
 ---
 
-For additional help, use `help` in AetherShell to see all available MCP functions and their usage patterns.
+For additional help, use `help` in IronShell to see all available MCP functions and their usage patterns.

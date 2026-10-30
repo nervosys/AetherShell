@@ -206,7 +206,7 @@ COMPRESSION:
             }),
             metadata: [
                 ("version".to_string(), "1.0.0".to_string()),
-                ("author".to_string(), "AetherShell".to_string()),
+                ("author".to_string(), "IronShell".to_string()),
                 ("created".to_string(), "2025-11-07".to_string()),
                 (
                     "purpose".to_string(),
@@ -219,13 +219,13 @@ COMPRESSION:
         })
         .ok();
 
-        // AetherShell Syntax
+        // IronShell Syntax
         self.add_entry(SyntaxEntry {
-            id: "aethershell".to_string(),
-            name: "AetherShell Language".to_string(),
+            id: "ironshell".to_string(),
+            name: "IronShell Language".to_string(),
             category: SyntaxCategory::Language,
             specification: r#"
-AetherShell Syntax Reference
+IronShell Syntax Reference
 
 TYPES:
   Int, Float, String, Bool, Array, Record, Lambda, Null, Uri, Table

@@ -15,7 +15,7 @@ const MP = h.load('markdownPreview');
 
 function actionsFor(text, range) {
     h.reset();
-    const provider = new CA.AetherShellCodeActionProvider();
+    const provider = new CA.IronShellCodeActionProvider();
     return (
         provider.provideCodeActions(
             h.doc(text),
@@ -72,9 +72,9 @@ test('the plugin returns the markdown-it instance it was given', () => {
     assert.equal(returned, md, 'VS Code uses the return value; dropping it disables the plugin');
 });
 
-test('an aethershell fence renders without throwing and keeps its content', () => {
+test('an ironshell fence renders without throwing and keeps its content', () => {
     const md = MP.activate().extendMarkdownIt(require('markdown-it')());
-    const html = md.render('```aethershell\nlet x = 1 | map(fn(y) => y)\n```\n');
+    const html = md.render('```ironshell\nlet x = 1 | map(fn(y) => y)\n```\n');
     assert.match(html, /let/, 'the code content vanished from the rendered output');
     assert.ok(html.length > 20, 'the fence rendered to almost nothing');
 });

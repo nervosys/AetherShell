@@ -1,0 +1,51 @@
+[package]
+name = "iron-shell-lsp"
+version = "12.0.2"
+edition = "2021"
+description = "Language Server Protocol implementation for IronShell — diagnostics, completion, hover, and symbols for .ish scripts."
+license = "AGPL-3.0-or-later"
+authors = ["Nervosys <contact@nervosys.ai>"]
+repository = "https://github.com/nervosys/AetherShell"
+homepage = "https://github.com/nervosys/AetherShell/tree/master/crates/iron-shell-lsp"
+documentation = "https://docs.rs/iron-shell-lsp"
+readme = "README.md"
+keywords = ["lsp", "shell", "language-server", "ironshell", "ide"]
+categories = ["development-tools", "command-line-utilities"]
+rust-version = "1.88"
+
+[[bin]]
+name = "iron-shell-lsp"
+path = "src/main.rs"
+
+[dependencies]
+# LSP implementation
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }
+
+# Async runtime
+async-trait = "0.1"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# IronShell core - use native feature explicitly
+iron-shell = { version = "12.0.2", path = "../..", default-features = false, features = [
+    "native",
+] }
+
+# Utilities
+dashmap = "5.5"
+ropey = "1.6"
+lsp-types = "0.94"
+url = "2.5"
+regex = "1.10"

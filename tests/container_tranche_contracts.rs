@@ -5,7 +5,7 @@
 //!
 //! - Refusals are argument checks that return before any process starts, so
 //!   they run in-process. Each one is asserted to be a refusal, not a call.
-//! - A call that would start docker or podman runs in a child `ae` process
+//! - A call that would start docker or podman runs in a child `ish` process
 //!   whose DOCKER_HOST and CONTAINER_HOST name an endpoint that does not exist.
 //!   The call must then fail as a coded tool failure, or as E_TOOL_MISSING where
 //!   the CLI is absent. A bare Null, false or empty answer fails the test.
@@ -18,10 +18,10 @@ use std::process::{Command, Stdio};
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
-use aethershell::builtins::{call_with_input, is_dispatched};
-use aethershell::env::Env;
-use aethershell::signature::signature_of;
-use aethershell::value::Value;
+use iron_shell::builtins::{call_with_input, is_dispatched};
+use iron_shell::env::Env;
+use iron_shell::signature::signature_of;
+use iron_shell::value::Value;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -58,8 +58,8 @@ fn isolate() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_container_tranche_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
-        for var in ["AETHER_MODE", "AETHER_AGENT", "AETHER_POLICY"] {
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
+        for var in ["IRONSHELL_MODE", "IRONSHELL_AGENT", "IRONSHELL_POLICY"] {
             std::env::remove_var(var);
         }
     });
@@ -304,7 +304,7 @@ impl Fixture {
     }
 
     /// The fixture path with forward slashes, for use inside an ae string.
-    fn ae_path(&self, file: &str) -> String {
+    fn ish_path(&self, file: &str) -> String {
         self.root.join(file).to_string_lossy().replace('\\', "/")
     }
 }
@@ -331,20 +331,20 @@ fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::Joi
     })
 }
 
-/// Run `ae -c <expr>` in `fixture` with the engine pointed at nowhere, and with
+/// Run `ish -c <expr>` in `fixture` with the engine pointed at nowhere, and with
 /// `extra_env` applied last. Hard deadline: the child is killed after 30 s.
 fn ae_child(fixture: &Fixture, expr: &str, extra_env: &[(&str, String)]) -> Run {
     let endpoint = unreachable_endpoint();
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ae"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ish"));
     cmd.current_dir(&fixture.root)
-        .env("AETHER_SESSION_DIR", fixture.root.join("session"))
+        .env("IRONSHELL_SESSION_DIR", fixture.root.join("session"))
         .env("DOCKER_HOST", &endpoint)
         .env("CONTAINER_HOST", &endpoint)
         .env("DOCKER_CONFIG", fixture.root.join("docker-config"))
         .env_remove("DOCKER_CONTEXT")
-        .env_remove("AETHER_MODE")
-        .env_remove("AETHER_AGENT")
-        .env_remove("AETHER_POLICY");
+        .env_remove("IRONSHELL_MODE")
+        .env_remove("IRONSHELL_AGENT")
+        .env_remove("IRONSHELL_POLICY");
     for (key, value) in extra_env {
         cmd.env(key, value);
     }
@@ -389,8 +389,8 @@ fn caught_code(fixture: &Fixture, call: &str) -> String {
 #[test]
 fn every_container_call_fails_coded_when_the_engine_is_unreachable() {
     let fixture = Fixture::new("unreachable");
-    let ctx = fixture.ae_path("");
-    let payload = fixture.ae_path("payload.txt");
+    let ctx = fixture.ish_path("");
+    let payload = fixture.ish_path("payload.txt");
     let calls: Vec<(&str, String)> = vec![
         (
             "docker_build",
@@ -471,7 +471,7 @@ fn every_container_call_fails_coded_when_the_engine_is_unreachable() {
 fn docker_outside_path_override() -> Option<PathBuf> {
     let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
     let mut dirs = vec![PathBuf::from(&root).join("System32"), PathBuf::from(&root)];
-    if let Some(dir) = PathBuf::from(env!("CARGO_BIN_EXE_ae")).parent() {
+    if let Some(dir) = PathBuf::from(env!("CARGO_BIN_EXE_ish")).parent() {
         dirs.push(dir.to_path_buf());
     }
     dirs.into_iter()

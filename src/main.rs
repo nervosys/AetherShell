@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::io::{self, Read};
 
-use aethershell::{env::Env, modules, transpile};
+use iron_shell::{env::Env, modules, transpile};
 use clap::{Parser, Subcommand};
 
 /// Create an environment with all builtin modules pre-registered
@@ -12,8 +12,8 @@ fn create_env_with_modules() -> Env {
 }
 
 #[derive(Parser)]
-#[command(name = "ae")]
-#[command(about = "Aether Shell - A typed functional shell with multi-modal AI")]
+#[command(name = "ish")]
+#[command(about = "IronShell Shell - A typed functional shell with multi-modal AI")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(args_conflicts_with_subcommands = true)]
 struct Cli {
@@ -97,7 +97,7 @@ enum Commands {
         command: AgentApiCommands,
     },
 
-    /// AI assistant - natural language to AetherShell transpilation
+    /// AI assistant - natural language to IronShell transpilation
     #[command(visible_alias = "ai-assist")]
     Assist {
         /// Natural language query (reads from stdin if not provided)
@@ -212,9 +212,9 @@ enum McpCommands {
     /// Serve over stdio as a strict JSON-RPC 2.0 MCP server (the canonical MCP
     /// transport). Every builtin is callable, through three advertised tools
     /// rather than as several hundred schemas: `ontology_manifest` indexes the
-    /// categories, `ontology_describe` expands one, and `aether` invokes a
+    /// categories, `ontology_describe` expands one, and `ironshell` invokes a
     /// builtin by name. Every call is routed through the safety model, in
-    /// agent mode unless `AETHER_MODE` says otherwise.
+    /// agent mode unless `IRONSHELL_MODE` says otherwise.
     Stdio,
 }
 
@@ -232,7 +232,7 @@ enum AgentApiCommands {
         #[arg(long)]
         cors: bool,
         /// Bearer token required by every endpoint except /health. Omit to have
-        /// one generated and printed at startup. Prefer AETHER_API_TOKEN over
+        /// one generated and printed at startup. Prefer IRONSHELL_API_TOKEN over
         /// this flag, so the token stays out of the process list.
         #[arg(long)]
         token: Option<String>,
@@ -275,7 +275,7 @@ enum AgentApiCommands {
 }
 
 fn main() -> Result<()> {
-    aethershell::tls::install_provider();
+    iron_shell::tls::install_provider();
     // Everything runs on a thread with a large stack (finding 13). The
     // interpreter recurses through `eval_expr` for nested calls, and on the
     // default main-thread stack — 1 MB on Windows — that overflowed and aborted
@@ -287,7 +287,7 @@ fn main() -> Result<()> {
     // argument errors on the real main thread, so their exit codes and output
     // are unchanged.
     let cli = Cli::parse();
-    aethershell::safety::with_eval_stack(move || run(cli))
+    iron_shell::safety::with_eval_stack(move || run(cli))
 }
 
 /// Whether this invocation exists to serve an AI agent rather than a person.
@@ -295,10 +295,10 @@ fn main() -> Result<()> {
 /// The subcommands whose only caller is an agent qualify: the two HTTP
 /// servers, the MCP stdio transport (what an MCP client such as a desktop
 /// assistant launches), and the agent API's `execute` and `interactive`, which
-/// read agent requests as JSON. `ae mcp stdio` was left out when the servers
+/// read agent requests as JSON. `ish mcp stdio` was left out when the servers
 /// were covered, so the canonical MCP transport kept the permissive profile.
 ///
-/// A one-shot `ae -c` may well be run *by* an agent, but it is equally the way
+/// A one-shot `ish -c` may well be run *by* an agent, but it is equally the way
 /// a person and every shell script invoke the shell, so it keeps the human
 /// profile and `--agent` stays the way to ask for the other one.
 fn serves_an_agent(cmd: &Option<Commands>) -> bool {
@@ -317,16 +317,16 @@ fn serves_an_agent(cmd: &Option<Commands>) -> bool {
 fn run(cli: Cli) -> Result<()> {
     // An output token budget applies to all eval/print paths via the REPL.
     if let Some(n) = cli.budget {
-        std::env::set_var("AE_TOKEN_BUDGET", n.to_string());
+        std::env::set_var("IRONSHELL_TOKEN_BUDGET", n.to_string());
     }
     // Safety flags set the env vars the safety layer reads (see src/safety.rs).
     if cli.agent {
-        std::env::set_var("AETHER_MODE", "agent");
+        std::env::set_var("IRONSHELL_MODE", "agent");
     }
     if let Some(ws) = &cli.workspace {
-        std::env::set_var("AETHER_WORKSPACE", ws);
+        std::env::set_var("IRONSHELL_WORKSPACE", ws);
     }
-    // `ae agent serve` and `ae mcp serve` exist for one purpose: to let an AI
+    // `ish agent serve` and `ish mcp serve` exist for one purpose: to let an AI
     // agent drive this shell. They ran with the *human* safety profile unless
     // the operator also remembered `--agent`, which meant the default posture
     // of the two agent-facing surfaces was the permissive one.
@@ -340,35 +340,35 @@ fn run(cli: Cli) -> Result<()> {
     //
     // So serving an agent now implies agent mode — default-deny on dangerous
     // effect classes, and the workspace jail rooted at the server's working
-    // directory. This changes nothing for `ae -c`, `ae script.ae` or the REPL;
+    // directory. This changes nothing for `ish -c`, `ish script.ish` or the REPL;
     // a human shell that refused to write outside its cwd would not be a shell.
-    // An operator who wants the old posture sets `AETHER_MODE` explicitly,
+    // An operator who wants the old posture sets `IRONSHELL_MODE` explicitly,
     // which is honoured here and announced at startup either way.
-    if serves_an_agent(&cli.subcommand) && std::env::var_os("AETHER_MODE").is_none() {
-        std::env::set_var("AETHER_MODE", "agent");
+    if serves_an_agent(&cli.subcommand) && std::env::var_os("IRONSHELL_MODE").is_none() {
+        std::env::set_var("IRONSHELL_MODE", "agent");
     }
     if let Some(p) = &cli.policy {
-        std::env::set_var("AETHER_POLICY", p);
+        std::env::set_var("IRONSHELL_POLICY", p);
     }
     if cli.deterministic {
-        std::env::set_var("AE_DETERMINISTIC", "1");
+        std::env::set_var("IRONSHELL_DETERMINISTIC", "1");
     }
     // Load the RBAC manager + acting principal from config at startup, if
-    // configured (AETHER_RBAC_CONFIG / <workspace>/.ae/rbac.toml / AETHER_PRINCIPAL).
-    aethershell::safety::init_rbac_from_env();
+    // configured (IRONSHELL_RBAC_CONFIG / <workspace>/.ironshell/rbac.toml / IRONSHELL_PRINCIPAL).
+    iron_shell::safety::init_rbac_from_env();
 
     // Handle subcommands
     if let Some(cmd) = cli.subcommand {
         return match cmd {
             Commands::Tui => {
-                aethershell::tui::run()?;
+                iron_shell::tui::run()?;
                 Ok(())
             }
-            Commands::Ai { command } => aethershell::serve::run_then_release(
+            Commands::Ai { command } => iron_shell::serve::run_then_release(
                 tokio::runtime::Runtime::new()?,
                 handle_ai_command(command),
             ),
-            Commands::Mcp { command } => aethershell::serve::run_then_release(
+            Commands::Mcp { command } => iron_shell::serve::run_then_release(
                 tokio::runtime::Runtime::new()?,
                 handle_mcp_command(command),
             ),
@@ -426,7 +426,7 @@ fn run(cli: Cli) -> Result<()> {
                 buf
             }
         };
-        let report = aethershell::explain::explain(&code)?;
+        let report = iron_shell::explain::explain(&code)?;
         println!("{}", serde_json::to_string_pretty(&report.to_json())?);
         return Ok(());
     }
@@ -471,7 +471,7 @@ fn run(cli: Cli) -> Result<()> {
 }
 
 async fn handle_ai_command(command: AiCommands) -> Result<()> {
-    use aethershell::ai_api::*;
+    use iron_shell::ai_api::*;
 
     match command {
         AiCommands::Serve { host, port, cors } => {
@@ -551,7 +551,7 @@ async fn handle_ai_command(command: AiCommands) -> Result<()> {
 }
 
 async fn handle_keys_action(action: KeysAction) -> Result<()> {
-    use aethershell::secure_config::SecureApiConfig;
+    use iron_shell::secure_config::SecureApiConfig;
     use std::io::Write;
 
     match action {
@@ -598,8 +598,8 @@ async fn handle_keys_action(action: KeysAction) -> Result<()> {
 }
 
 async fn handle_mcp_command(command: McpCommands) -> Result<()> {
-    use aethershell::mcp::{server::*, McpServer};
-    use aethershell::os_tools::SafetyLevel;
+    use iron_shell::mcp::{server::*, McpServer};
+    use iron_shell::os_tools::SafetyLevel;
 
     match command {
         McpCommands::Serve {
@@ -626,7 +626,7 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
                 enable_cors: cors,
                 // Same source as the agent API's token, so one env var covers
                 // both servers; `None` mints one and prints it at startup.
-                auth_token: std::env::var("AETHER_API_TOKEN")
+                auth_token: std::env::var("IRONSHELL_API_TOKEN")
                     .ok()
                     .filter(|t| !t.trim().is_empty()),
                 safety_level,
@@ -669,7 +669,7 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
 }
 
 fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
-    use aethershell::agent_api::{self, AgentRequest};
+    use iron_shell::agent_api::{self, AgentRequest};
     use std::io::{BufRead, Write};
 
     match command {
@@ -682,10 +682,10 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
         } => {
             #[cfg(feature = "native")]
             {
-                // The flag wins, but AETHER_API_TOKEN is the documented path:
+                // The flag wins, but IRONSHELL_API_TOKEN is the documented path:
                 // an argv token is visible to every other process on the box.
                 let auth_token = token.or_else(|| {
-                    std::env::var("AETHER_API_TOKEN")
+                    std::env::var("IRONSHELL_API_TOKEN")
                         .ok()
                         .filter(|t| !t.trim().is_empty())
                 });
@@ -707,9 +707,9 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
                 // unauthenticated-adjacent caller can reach.
                 let rt = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
-                    .thread_stack_size(aethershell::safety::EVAL_STACK_SIZE)
+                    .thread_stack_size(iron_shell::safety::EVAL_STACK_SIZE)
                     .build()?;
-                aethershell::serve::run_then_release(
+                iron_shell::serve::run_then_release(
                     rt,
                     agent_api::server::start_agent_api_server(config),
                 )
@@ -781,7 +781,7 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
             Ok(())
         }
         AgentApiCommands::Interactive => {
-            println!("🤖 AetherShell Agent API - Interactive Mode");
+            println!("🤖 IronShell Agent API - Interactive Mode");
             println!("Send JSON requests (one per line), receive JSON responses");
             println!("Press Ctrl+D to exit\n");
 
@@ -833,19 +833,19 @@ fn handle_assist(
     // Suggest mode: analyze cwd and suggest useful commands
     if suggest {
         let suggest_prompt = format!(
-            "{}\n\n{}\n\nBased on the context above, suggest 3-5 useful AetherShell commands \
+            "{}\n\n{}\n\nBased on the context above, suggest 3-5 useful IronShell commands \
              the user could run in this directory. Format each as a one-line comment explaining \
              what it does, followed by the code on the next line. Separate suggestions with blank lines.",
             system_prompt, ctx
         );
-        let suggestions = aethershell::ai::complete_sync_router(&suggest_prompt)
-            .context("AI completion failed — is AETHER_AI configured?")?;
+        let suggestions = iron_shell::ai::complete_sync_router(&suggest_prompt)
+            .context("AI completion failed — is IRONSHELL_AI configured?")?;
         println!("{}", clean_ai_output(&suggestions));
         return Ok(());
     }
 
     if interactive {
-        println!("Æther Assist — natural language → AetherShell");
+        println!("Æther Assist — natural language → IronShell");
         println!("Type your request, press Enter. Type 'exit' or Ctrl-D to quit.");
         if context {
             println!("Context-aware mode: system info included in prompts.");
@@ -914,10 +914,10 @@ fn handle_assist(
     assist_once(&system_prompt, &ctx, "", input.trim(), execute)?;
     Ok(())
 }
-/// Build the comprehensive system prompt for NL -> AetherShell transpilation
+/// Build the comprehensive system prompt for NL -> IronShell transpilation
 fn build_assist_prompt() -> String {
-    "You are an AetherShell assistant. Convert natural language into AetherShell code.\n\n\
-AetherShell is a typed functional shell where data flows as structured values through pipelines.\n\n\
+    "You are an IronShell assistant. Convert natural language into IronShell code.\n\n\
+IronShell is a typed functional shell where data flows as structured values through pipelines.\n\n\
 ## Core Syntax\n\
 - Variables: x = 42, name = \"hello\", items = [1,2,3], config = {key: \"val\"}\n\
 - Lambdas: fn(x) => x * 2, fn(a, b) => a + b\n\
@@ -973,7 +973,7 @@ AetherShell is a typed functional shell where data flows as structured values th
 - ollama:llama3, ollama:codellama\n\
 - anthropic:claude-3-opus\n\n\
 RULES:\n\
-1. Output ONLY valid AetherShell code — no markdown fences, no explanations.\n\
+1. Output ONLY valid IronShell code — no markdown fences, no explanations.\n\
 2. Use pipelines for data transformation chains.\n\
 3. Prefer module builtins (file.read, sys.hostname) over raw shell commands.\n\
 4. One complete program per response.\n\
@@ -1033,7 +1033,7 @@ fn gather_system_context() -> String {
 
     // Relevant env vars (without values for security)
     let relevant_vars = [
-        "AETHER_AI",
+        "IRONSHELL_AI",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "OLLAMA_HOST",
@@ -1056,8 +1056,8 @@ fn gather_system_context() -> String {
 fn clean_ai_output(raw: &str) -> String {
     let cleaned = raw.trim();
     let cleaned = cleaned
-        .strip_prefix("```aethershell")
-        .or_else(|| cleaned.strip_prefix("```ae"))
+        .strip_prefix("```ironshell")
+        .or_else(|| cleaned.strip_prefix("```ish"))
         .or_else(|| cleaned.strip_prefix("```"))
         .unwrap_or(cleaned);
     let cleaned = cleaned.strip_suffix("```").unwrap_or(cleaned).trim();
@@ -1071,14 +1071,14 @@ fn assist_once(
     query: &str,
     execute: bool,
 ) -> Result<String> {
-    use aethershell::ai;
+    use iron_shell::ai;
 
     let prompt = format!(
         "{}\n\n{}{}\nUser request: {}",
         system_prompt, system_context, history, query
     );
     let code = ai::complete_sync_router(&prompt)
-        .context("AI completion failed — is AETHER_AI configured?")?;
+        .context("AI completion failed — is IRONSHELL_AI configured?")?;
 
     let cleaned = clean_ai_output(&code);
 
@@ -1103,7 +1103,7 @@ fn repl() -> Result<()> {
     // the real REPL was never reached interactively and none of the prompt or
     // history configuration had any effect.
     let mut env = create_env_with_modules();
-    aethershell::repl::run(&mut env)
+    iron_shell::repl::run(&mut env)
 }
 
 /// Transpilation mode for legacy shell compatibility.
@@ -1124,7 +1124,7 @@ fn detect_transpile_mode(path: &str) -> Option<TranspileMode> {
         Some(TranspileMode::Zsh)
     } else if lower.ends_with(".ps1") || lower.ends_with(".psm1") || lower.ends_with(".psd1") {
         Some(TranspileMode::PowerShell)
-    } else if lower.ends_with(".aeg") {
+    } else if lower.ends_with(".ishg") {
         Some(TranspileMode::Agentic)
     } else {
         None
@@ -1142,21 +1142,21 @@ fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
             TranspileMode::Bash => {
                 run_posix_or_fall_back(&code);
                 transpile::bash::transpile_bash_to_ae(&code)
-                    .with_context(|| format!("bash\u{2192}aether transpile failed for {}", path))?
+                    .with_context(|| format!("bash\u{2192}ironshell transpile failed for {}", path))?
             }
             TranspileMode::Zsh => transpile::zsh::transpile_zsh_to_ae(&code)
-                .with_context(|| format!("zsh\u{2192}aether transpile failed for {}", path))?,
+                .with_context(|| format!("zsh\u{2192}ironshell transpile failed for {}", path))?,
             TranspileMode::PowerShell => transpile::powershell::transpile_powershell_to_ae(&code)
                 .with_context(|| {
-                format!("powershell\u{2192}aether transpile failed for {}", path)
+                format!("powershell\u{2192}ironshell transpile failed for {}", path)
             })?,
             TranspileMode::Agentic => transpile::agentic::transpile_agentic_to_ae(&code)
-                .with_context(|| format!("agentic\u{2192}aether transpile failed for {}", path))?,
+                .with_context(|| format!("agentic\u{2192}ironshell transpile failed for {}", path))?,
         };
     }
 
     // `import` paths in this file resolve against its own directory.
-    let _entry = aethershell::module_loader::enter_entry_file(std::path::Path::new(path));
+    let _entry = iron_shell::module_loader::enter_entry_file(std::path::Path::new(path));
     run_code(&code)
 }
 
@@ -1165,17 +1165,17 @@ fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
 /// outside the subset, before anything has run, so the caller falls back to
 /// the transpiler exactly as it did before the subset existed.
 fn run_posix_or_fall_back(src: &str) {
-    if let Some(status) = aethershell::posix::run(src) {
+    if let Some(status) = iron_shell::posix::run(src) {
         std::process::exit(status);
     }
 }
 
 fn run_code(code: &str) -> Result<()> {
     let mut env = create_env_with_modules();
-    let exit_code = aethershell::repl::run_one(&mut env, code)?;
+    let exit_code = iron_shell::repl::run_one(&mut env, code)?;
     // The process ends here, and freeing the environment -- ~120 module
     // records, a few thousand small allocations -- was 14% of the
-    // instructions `ae -c 1` executes. Neither `Env` nor `Value` has a `Drop`
+    // instructions `ish -c 1` executes. Neither `Env` nor `Value` has a `Drop`
     // with side effects; output has already been written by `run_one`.
     std::mem::forget(env);
     if exit_code != 0 {

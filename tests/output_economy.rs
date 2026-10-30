@@ -2,7 +2,7 @@
 //! estimate (docs/AGENTIC_FIRST_DESIGN.md §6.2). Exercised through the public
 //! dispatch path, which also validates the 1109/1110 index alignment.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn rec(pairs: &[(&str, Value)]) -> Value {
@@ -14,8 +14,8 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>) -> Value {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 #[test]
@@ -375,7 +375,7 @@ fn aecon_round_trips_through_all_three_levers() {
 
 #[test]
 fn agent_mode_renders_results_as_aecon_by_default() {
-    use aethershell::builtins::render_agent;
+    use iron_shell::builtins::render_agent;
 
     // An array of records renders as compact AECON: header once, no ANSI escapes,
     // deterministic — not the human colorized pretty-printer.
@@ -480,7 +480,7 @@ fn aecon_typed_round_trip_is_lossless_for_ambiguous_values() {
 
 #[test]
 fn deterministic_mode_renders_canonical_json() {
-    use aethershell::builtins::render_canonical;
+    use iron_shell::builtins::render_canonical;
 
     // Keys come out sorted regardless of insertion order, output is compact JSON,
     // and equal values render byte-identically (the basis for reproducible diffs).
@@ -643,7 +643,7 @@ fn tokens_counts_string_content() {
 
 #[test]
 fn agent_response_carries_token_accounting() {
-    use aethershell::agent_api::{process_request, AgentRequest};
+    use iron_shell::agent_api::{process_request, AgentRequest};
     let req = AgentRequest::Eval {
         code: "1 + 1".to_string(),
     };

@@ -1,6 +1,6 @@
 //! The VS Code extension must describe the language that exists.
 //!
-//! The extension is a second, hand-maintained description of AetherShell:
+//! The extension is a second, hand-maintained description of IronShell:
 //! a TextMate grammar naming keywords and builtins, and a `package.json`
 //! pointing at files on disk. Nothing linked it to the shell, so it drifted in
 //! exactly the way `AGENTS.md` had — advertising things that were never there.
@@ -13,7 +13,7 @@
 //!     `ssh.exec` — which the `member-access` rule already scopes, so matching
 //!     them as bare words highlighted ordinary variables named `log` or `set`.
 //!   * 11 of the 19 real keywords were missing, `else` among them.
-//!   * `package.json` set the `.ae` file icon to `./icons/ae-light.svg` and
+//!   * `package.json` set the `.ish` file icon to `./icons/ae-light.svg` and
 //!     `./icons/ae-dark.svg`. Neither has ever existed in this repository —
 //!     `git log --diff-filter=D` finds no deletion — so the icon had never
 //!     worked in a published build.
@@ -21,7 +21,7 @@
 //! These are cosmetic next to a jail escape, and they are the same *kind* of
 //! defect: a description that nobody checked against the thing described.
 
-use aethershell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
+use iron_shell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -61,7 +61,7 @@ fn alternatives(pattern: &str) -> Vec<String> {
 }
 
 fn grammar_group(section: &str) -> Vec<String> {
-    let g = read_json("syntaxes/aethershell.tmLanguage.json");
+    let g = read_json("syntaxes/ironshell.tmLanguage.json");
     let pats = g["repository"][section]["patterns"]
         .as_array()
         .unwrap_or_else(|| panic!("grammar has no repository.{section}.patterns"));
@@ -130,7 +130,7 @@ fn the_grammar_highlights_every_keyword_the_parser_accepts() {
     );
 }
 
-/// Catches the class of bug that left the `.ae` file icon pointing at two
+/// Catches the class of bug that left the `.ish` file icon pointing at two
 /// files that never existed: `vsce` packages what `package.json` names, and a
 /// missing asset is silent at runtime.
 #[test]

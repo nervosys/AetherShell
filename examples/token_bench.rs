@@ -2,7 +2,7 @@
 //!
 //! Resolves the cipher-vs-legible agent-syntax question with *measurement*, not
 //! assertion. For a corpus of representative agent tasks rendered two ways —
-//! the terse `.aeg` cipher and the legible canonical form — it reports the cost
+//! the terse `.ishg` cipher and the legible canonical form — it reports the cost
 //! terms that actually dominate an agent's per-task spend:
 //!
 //!   total = standing_context (teach the surface) + input (the command)
@@ -13,7 +13,7 @@
 //!     "60–70%" claim, which is a character ratio, not a token ratio);
 //!   - **standing_context**: the size of the cheatsheet each form requires — for
 //!     the cipher, the actual `describe_ontology()` output an agent must carry to
-//!     emit valid `.aeg`; for legible, ~0 (names the model already predicts);
+//!     emit valid `.ishg`; for legible, ~0 (names the model already predicts);
 //!   - **reliability/retry proxy**: each cipher line is run through the real
 //!     `transpile_agentic_to_ae` + parsed; each legible line through the real
 //!     parser. A form that fails to round-trip costs a retry cycle.
@@ -25,14 +25,14 @@
 //! Run: `cargo run --example token_bench`  (heuristic)
 //!  or: `cargo run --example token_bench --features real-tokens`  (real BPE)
 
-use aethershell::parser::parse_program;
-use aethershell::transpile::agentic::{describe_ontology, transpile_agentic_to_ae};
+use iron_shell::parser::parse_program;
+use iron_shell::transpile::agentic::{describe_ontology, transpile_agentic_to_ae};
 
 struct Task {
     name: &'static str,
-    /// Legible canonical AetherShell.
+    /// Legible canonical IronShell.
     legible: &'static str,
-    /// Terse `.aeg` cipher rendering of the same task.
+    /// Terse `.ishg` cipher rendering of the same task.
     cipher: &'static str,
 }
 
@@ -114,7 +114,7 @@ const SESSION_TURNS: usize = 30;
 
 // Token count — the single source of truth shared with the runtime builtins.
 // Real GPT-4 cl100k BPE under `--features real-tokens`, heuristic otherwise.
-use aethershell::builtins::est_token_count as est_tokens;
+use iron_shell::builtins::est_token_count as est_tokens;
 
 /// A SECOND real tokenizer — GPT-4o `o200k_base`, a genuinely different BPE — for
 /// the cross-tokenizer robustness check (confirm the verdict isn't cl100k-specific).
@@ -146,7 +146,7 @@ fn legible_ok(src: &str) -> bool {
 }
 
 fn main() {
-    println!("AetherShell Phase-1 Token Benchmark — cipher vs legible\n");
+    println!("IronShell Phase-1 Token Benchmark — cipher vs legible\n");
     println!(
         "{:<22} {:>6} {:>6} {:>7}  {:>6} {:>6} {:>7}  {:>5} {:>5}",
         "task", "c.chr", "l.chr", "chr-sav", "c.tok", "l.tok", "tok-sav", "c.ok", "l.ok"
@@ -210,7 +210,7 @@ fn main() {
 
     println!("\nStanding context (re-sent each turn, est. tokens):");
     println!(
-        "  cipher : {:>7}  (the describe_ontology cheatsheet an agent must carry to emit valid .aeg)",
+        "  cipher : {:>7}  (the describe_ontology cheatsheet an agent must carry to emit valid .ishg)",
         cipher_sc_tok
     );
     println!(

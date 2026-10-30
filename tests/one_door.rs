@@ -29,8 +29,8 @@
 //! gate — unless the body has its own, which is what `safety::SELF_GUARDED`
 //! records.
 
-use aethershell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
-use aethershell::safety::{effect_of, Effect, SELF_GUARDED};
+use iron_shell::builtins::{BUILTIN_LOOKUP, FALLBACK_BUILTINS};
+use iron_shell::safety::{effect_of, Effect, SELF_GUARDED};
 use std::collections::BTreeSet;
 
 fn builtins_source() -> String {

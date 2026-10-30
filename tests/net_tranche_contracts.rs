@@ -10,9 +10,9 @@
 //! Ordinary tests run on every platform. Where a host tool may be absent, the
 //! test accepts the coded absence (E_TOOL_MISSING) and nothing else.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::net::TcpListener;
 
 fn s(text: &str) -> Value {

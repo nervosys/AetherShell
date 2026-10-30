@@ -667,7 +667,7 @@ impl RecursiveAgent {
         let model_uri = config
             .subagent_model_uri
             .clone()
-            .or_else(|| std::env::var("AETHER_RLM_MODEL_URI").ok());
+            .or_else(|| std::env::var("IRONSHELL_RLM_MODEL_URI").ok());
 
         let backend = if let Some(ref uri) = model_uri {
             backend_from_model(uri.clone())
@@ -867,7 +867,7 @@ Spawning rules:
         let system = ChatMessage {
             role: "system".into(),
             content: format!(
-                "You are Aether Recursive Agent {}. Emit JSON commands:\n\
+                "You are IronShell Recursive Agent {}. Emit JSON commands:\n\
                  {{\"type\":\"tool\",\"tool\":\"<name>\",\"input\":<json or string>}} or \
                  {{\"type\":\"final\",\"output\":\"...\"}}\n\n\
                  Tools:\n{}\n{}",
@@ -906,7 +906,7 @@ Spawning rules:
             // Every model call is a network request in its own right. The
             // outer builtin is charged once; without this, a run of up to
             // `max_agents * max_steps` model calls cost the governor one
-            // `AETHER_MAX_NET` unit and no audit entry each.
+            // `IRONSHELL_MAX_NET` unit and no audit entry each.
             crate::safety::guard(crate::safety::GuardCtx {
                 builtin: "rlm_agent",
                 effect: crate::safety::Effect::Network,

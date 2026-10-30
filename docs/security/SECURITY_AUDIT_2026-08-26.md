@@ -63,7 +63,7 @@ different call. That is asserted independently in the same file.
 
 **FIXED 2026-08-26.** In-band `approve()` is now refused in **agent mode only**;
 human mode is untouched and the documented REPL loop still works. The out-of-band
-channel the design already provides — `AETHER_APPROVE` / `AETHER_APPROVE_ALL`, set
+channel the design already provides — `IRONSHELL_APPROVE` / `IRONSHELL_APPROVE_ALL`, set
 by whoever launches the agent — is unaffected, so no capability was removed that
 was not already reachable by someone outside the agent's control.
 
@@ -78,7 +78,7 @@ the conservative error.
 
 **High · Structural · CWE-345, CWE-732 · ATT&CK T1070 · CMMC AU.L2-3.3.8, AU.L2-3.3.9**
 
-In agent mode `audit_path()` defaults to `<workspace>/.ae/audit.log` — inside the
+In agent mode `audit_path()` defaults to `<workspace>/.ironshell/audit.log` — inside the
 workspace jail, which is precisely the region the agent may write. Nothing
 special-cases the path, so an ordinary `file.write` to it is allowed.
 
@@ -96,16 +96,16 @@ filesystem write whose target is the active audit log or its directory
 about to *become* the log is caught too.
 
 *The keying half.* The chain is now HMAC-SHA256 when a key is configured, via
-`AETHER_AUDIT_KEY` (hex or raw, 32-byte minimum) or `AETHER_AUDIT_KEY_FILE`.
+`IRONSHELL_AUDIT_KEY` (hex or raw, 32-byte minimum) or `IRONSHELL_AUDIT_KEY_FILE`.
 Forging a chain now requires the key rather than requiring nothing.
 
 The key-management questions this finding said were "a design decision rather
 than a patch" are answered as follows, and the answers are the interesting part:
 
 * **Where the key lives:** with whoever launches the shell — the same
-  out-of-band channel that already carries `AETHER_APPROVE`. Not in the
+  out-of-band channel that already carries `IRONSHELL_APPROVE`. Not in the
   workspace, which is the region the audited party may write.
-* **Who can read it:** this process, once. `AETHER_AUDIT_KEY` is read on first
+* **Who can read it:** this process, once. `IRONSHELL_AUDIT_KEY` is read on first
   use and then **removed from the process environment**, so no child inherits
   it. This is load-bearing rather than tidy: children inherit the parent
   environment by default, and a key an approved `Exec` can read is a key it can
@@ -230,10 +230,10 @@ forge a tag will instead strip the envelope and present the remains as a legacy
 ciphertext, hoping decrypt falls back to the unauthenticated path. So legacy
 AES-256-CBC input is refused by default with `E_DECRYPT_UNAUTHENTICATED` (since
 13.0.0, `E_DECRYPT_FAILED`: the codes were merged, the refusal is unchanged), and is
-readable only when the operator sets `AETHER_CRYPTO_LEGACY_DECRYPT=1`. That is a
+readable only when the operator sets `IRONSHELL_CRYPTO_LEGACY_DECRYPT=1`. That is a
 breaking change for anyone holding pre-10.0.0 ciphertext, and deliberately a
 loud one: the refusal names the variable and says to re-encrypt. Data written by
-an older AetherShell stays recoverable in one step; it does not stay recoverable
+an older IronShell stays recoverable in one step; it does not stay recoverable
 *silently*, because silence is what the attacker wants.
 
 **Why AES-GCM and not ChaCha20-Poly1305.** The latter is the more usual choice
@@ -326,17 +326,17 @@ seven lines by its gate.
 Three scope caveats belong next to the claim:
 
 * The gate covers **hashes only**. Cipher selection, key derivation and
-  random-number generation are not gated by `AETHER_FIPS`, and AS-2026-05 is a
+  random-number generation are not gated by `IRONSHELL_FIPS`, and AS-2026-05 is a
   non-approved generator reachable while FIPS mode is on.
 * Cryptography is **delegated to the host** — the OpenSSL CLI and PowerShell's
   CNG wrappers. The validated-module boundary, if any, belongs to the operating
-  system, not to AetherShell. `docs/security/CRYPTO_AND_FIPS.md` already states
+  system, not to IronShell. `docs/security/CRYPTO_AND_FIPS.md` already states
   this plainly, which is to its credit.
 * **Correction to this finding as first filed.** It claimed
   `docs/security/FIPS_140-2_COMPLIANCE.md` "names a superseded standard". That was
   wrong and was reached by reading the *filename* rather than the document: the
   title is "FIPS 140-2/140-3 Compliance Assessment", it covers both, it states
-  that 140-3 supersedes 140-2, and it is explicit that AetherShell is not
+  that 140-3 supersedes 140-2, and it is explicit that IronShell is not
   independently validated. The document is more honest than the finding was.
 
   The real problem, found on reading it: it asserts **`COMPLIANT` for both

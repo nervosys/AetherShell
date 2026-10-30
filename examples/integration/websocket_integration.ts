@@ -1,14 +1,14 @@
 /**
- * AetherShell Agent API - WebSocket Integration Example
+ * IronShell Agent API - WebSocket Integration Example
  * 
  * This example demonstrates bidirectional real-time communication with
- * AetherShell's Agent API using WebSockets. This is ideal for:
+ * IronShell's Agent API using WebSockets. This is ideal for:
  * - Multi-agent systems with inter-agent communication
  * - Real-time collaborative AI workflows
  * - Long-running tasks with streaming updates
  * 
  * Start the Agent API server:
- *   ae --agent-api
+ *   ish --agent-api
  */
 
 // =============================================================================
@@ -27,7 +27,7 @@ interface WsServerMessage {
 
 type MessageHandler = (message: WsServerMessage) => void;
 
-class AetherShellWebSocket {
+class IronShellWebSocket {
   private ws: WebSocket | null = null;
   private messageHandlers: Map<string, MessageHandler[]> = new Map();
   private pendingRequests: Map<string, { resolve: Function; reject: Function }> = new Map();
@@ -215,19 +215,19 @@ async function codeReviewExample(): Promise<void> {
   console.log('=== Multi-Agent Code Review System ===\n');
 
   // Create three specialized agents
-  const coordinator = new AetherShellWebSocket(
+  const coordinator = new IronShellWebSocket(
     'ws://localhost:3002/api/v1/ws',
     'coordinator',
     ['orchestration', 'task-distribution']
   );
 
-  const analyzer = new AetherShellWebSocket(
+  const analyzer = new IronShellWebSocket(
     'ws://localhost:3002/api/v1/ws',
     'analyzer',
     ['code-analysis', 'complexity-check']
   );
 
-  const securityScanner = new AetherShellWebSocket(
+  const securityScanner = new IronShellWebSocket(
     'ws://localhost:3002/api/v1/ws',
     'security-scanner',
     ['security-scan', 'vulnerability-check']
@@ -332,7 +332,7 @@ async function codeReviewExample(): Promise<void> {
 async function collaborationExample(): Promise<void> {
   console.log('=== Real-time Collaboration Example ===\n');
 
-  const client = new AetherShellWebSocket(
+  const client = new IronShellWebSocket(
     'ws://localhost:3002/api/v1/ws',
     'collaborator-1',
     ['eval', 'pipeline']
@@ -379,7 +379,7 @@ async function collaborationExample(): Promise<void> {
 async function taskQueueExample(): Promise<void> {
   console.log('=== Task Queue Example ===\n');
 
-  const worker = new AetherShellWebSocket(
+  const worker = new IronShellWebSocket(
     'ws://localhost:3002/api/v1/ws',
     'worker-1',
     ['file-processing', 'data-transform']
@@ -425,7 +425,7 @@ async function taskQueueExample(): Promise<void> {
 // =============================================================================
 
 async function main(): Promise<void> {
-  console.log('AetherShell WebSocket Integration Examples\n');
+  console.log('IronShell WebSocket Integration Examples\n');
   console.log('='.repeat(60));
 
   // Check if server is running
@@ -441,7 +441,7 @@ async function main(): Promise<void> {
     });
   } catch (e) {
     console.error('Error: Agent API not running on localhost:3002');
-    console.log('Start it with: ae --agent-api');
+    console.log('Start it with: ish --agent-api');
     process.exit(1);
   }
 
@@ -461,7 +461,7 @@ async function main(): Promise<void> {
 }
 
 // Export for use as a module
-export { AetherShellWebSocket };
+export { IronShellWebSocket };
 
 // Run if executed directly
 main().catch(console.error);

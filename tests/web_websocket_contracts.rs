@@ -6,9 +6,9 @@
 
 #![cfg(feature = "native")]
 
-use aethershell::builtins;
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::net::TcpListener;
 use std::sync::{Mutex, Once};
@@ -22,18 +22,18 @@ fn isolate() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let dir = std::env::temp_dir().join(format!("ae_web_websocket_{}", std::process::id()));
-        std::env::set_var("AETHER_SESSION_DIR", dir);
+        std::env::set_var("IRONSHELL_SESSION_DIR", dir);
     });
 }
 
-/// `AETHER_MODE` is process-global. In agent mode a Network builtin is gated
+/// `IRONSHELL_MODE` is process-global. In agent mode a Network builtin is gated
 /// before its body runs, so every call here runs in human mode under one lock.
 static MODE_LOCK: Mutex<()> = Mutex::new(());
 
 fn call(args: Vec<Value>) -> anyhow::Result<Value> {
     let _guard = MODE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("AETHER_MODE");
-    std::env::remove_var("AETHER_AGENT");
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
     isolate();
     let mut env = Env::new();
     builtins::call("web_websocket", args, &mut env)

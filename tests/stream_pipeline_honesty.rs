@@ -4,8 +4,8 @@
 //! Tested through `server::stream_pipeline_events`, the function the SSE handler
 //! runs (the handler itself is only reachable over HTTP).
 
-use aethershell::agent_api::server::{stream_pipeline_events, StreamEvent};
-use aethershell::agent_api::{process_request, AgentRequest, AgentResponse, PipelineStep};
+use iron_shell::agent_api::server::{stream_pipeline_events, StreamEvent};
+use iron_shell::agent_api::{process_request, AgentRequest, AgentResponse, PipelineStep};
 use serde_json::{json, Value as JsonValue};
 
 fn steps(v: JsonValue) -> Vec<PipelineStep> {

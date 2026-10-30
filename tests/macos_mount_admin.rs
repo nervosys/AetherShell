@@ -12,8 +12,8 @@
 
 #![cfg(target_os = "macos")]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -49,7 +49,7 @@ fn rec(pairs: Vec<(&str, Value)>) -> Value {
 }
 
 fn call(name: &str, args: Vec<Value>, env: &mut Env) -> anyhow::Result<Value> {
-    aethershell::builtins::call(name, args, env)
+    iron_shell::builtins::call(name, args, env)
 }
 
 fn code(result: anyhow::Result<Value>, expected: &str) {
@@ -129,16 +129,16 @@ impl Scratch {
         std::fs::create_dir(&root).unwrap();
         let root = root.canonicalize().unwrap();
         for key in [
-            "AETHER_MODE",
-            "AETHER_AGENT",
-            "AETHER_WORKSPACE",
-            "AETHER_POLICY",
+            "IRONSHELL_MODE",
+            "IRONSHELL_AGENT",
+            "IRONSHELL_WORKSPACE",
+            "IRONSHELL_POLICY",
         ] {
             std::env::remove_var(key);
         }
-        std::env::set_var("AETHER_AUDIT_LOG", root.join("audit.log"));
-        std::env::set_var("AETHER_AUDIT_KEY", "11".repeat(32));
-        std::env::set_var("AETHER_SESSION_DIR", root.join("session"));
+        std::env::set_var("IRONSHELL_AUDIT_LOG", root.join("audit.log"));
+        std::env::set_var("IRONSHELL_AUDIT_KEY", "11".repeat(32));
+        std::env::set_var("IRONSHELL_SESSION_DIR", root.join("session"));
         std::fs::create_dir(root.join("session")).unwrap();
         std::fs::create_dir(root.join("mnt")).unwrap();
         Self { root }

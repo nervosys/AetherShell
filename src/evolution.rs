@@ -1,4 +1,4 @@
-//! Evolutionary Algorithm Primitives for AetherShell
+//! Evolutionary Algorithm Primitives for IronShell
 //!
 //! Provides genetic algorithms, neuroevolution, and population-based optimization
 //! for evolving agent behaviors, communication protocols, and consensus mechanisms.

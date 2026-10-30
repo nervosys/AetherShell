@@ -5,7 +5,7 @@
 ### 1. No MCP Servers Detected
 
 **Symptoms:**
-```aethershell
+```ironshell
 let servers = mcp_servers()
 // Returns empty array: []
 ```
@@ -48,8 +48,8 @@ curl http://localhost:3001/mcp/v1/tools
 # Expected response: JSON array of tools
 ```
 
-#### Debug in AetherShell
-```aethershell
+#### Debug in IronShell
+```ironshell
 // Test specific endpoints
 let endpoints = [
     "http://localhost:3001",
@@ -71,7 +71,7 @@ endpoints | foreach(fn(endpoint) => {
 ### 2. Server Detected but No Tools Available
 
 **Symptoms:**
-```aethershell
+```ironshell
 let server = mcp_detect("http://localhost:3001")
 print(len(server.tools))  // Returns 0
 ```
@@ -107,7 +107,7 @@ curl -v http://localhost:3001/mcp/v1/tools
 ```
 
 #### Debug Server Health
-```aethershell
+```ironshell
 // Comprehensive server check
 let server = mcp_detect("http://localhost:3001")
 match server {
@@ -134,7 +134,7 @@ match server {
 ### 3. Connection Timeouts
 
 **Symptoms:**
-```aethershell
+```ironshell
 // Detection takes very long or fails silently
 let servers = mcp_servers()  // Takes 20+ seconds
 ```
@@ -165,7 +165,7 @@ top -p $(pgrep -f mcp-server)
 ```
 
 #### Optimize Detection
-```aethershell
+```ironshell
 // Test single server instead of full scan
 let fs = mcp_detect("http://localhost:3001")
 // Much faster than mcp_servers() if you know the endpoint
@@ -176,7 +176,7 @@ let fs = mcp_detect("http://localhost:3001")
 ### 4. Agent Integration Failures
 
 **Symptoms:**
-```aethershell
+```ironshell
 let server = mcp_detect("http://localhost:3001")
 agent("task", ai_detect(), server.tools)
 // Agent fails or doesn't use tools
@@ -191,7 +191,7 @@ agent("task", ai_detect(), server.tools)
 **Solutions:**
 
 #### Verify Tool Compatibility
-```aethershell
+```ironshell
 // Check available tools
 let server = mcp_detect("http://localhost:3001")
 print("Available tools:")
@@ -211,7 +211,7 @@ curl -X POST http://localhost:3001/mcp/v1/call \
 ```
 
 #### Debug Agent Execution
-```aethershell
+```ironshell
 // Use dry run mode
 agent("task", ai_detect(), server.tools, 3, true)
 // Shows what would be executed without actually running
@@ -222,7 +222,7 @@ agent("task", ai_detect(), server.tools, 3, true)
 ### 5. Multiple Server Conflicts
 
 **Symptoms:**
-```aethershell
+```ironshell
 let servers = mcp_servers()
 // Multiple servers with same tools
 ```
@@ -235,7 +235,7 @@ let servers = mcp_servers()
 **Solutions:**
 
 #### Identify Duplicates
-```aethershell
+```ironshell
 let servers = mcp_servers()
 let endpoints = []
 
@@ -259,7 +259,7 @@ taskkill /PID <process_id> /F
 ```
 
 #### Select Specific Server
-```aethershell
+```ironshell
 // Use specific endpoint instead of auto-detection
 let fs = mcp_detect("http://localhost:3001")
 // Avoids conflicts with multiple filesystem servers
@@ -306,7 +306,7 @@ services:
 ```
 
 #### Test Security Restrictions
-```aethershell
+```ironshell
 // Test with minimal tools
 let server = mcp_detect("http://localhost:3001")
 let safe_tools = server.tools | where(fn(t) => 
@@ -336,7 +336,7 @@ htop -p $(pgrep -f mcp-server)
 ```
 
 #### Optimize Tool Selection
-```aethershell
+```ironshell
 // Use only required tools
 let server = mcp_detect("http://localhost:3001")
 let minimal_tools = server.tools | take(3)  // Use first 3 tools only
@@ -344,7 +344,7 @@ agent("task", ai_detect(), minimal_tools)
 ```
 
 #### Cache Server Detection
-```aethershell
+```ironshell
 // Cache detection results
 let cached_servers = mcp_servers()
 
@@ -372,11 +372,11 @@ docker-compose up -d
 sleep 5
 
 # Run tests
-ae examples/15_mcp_basic.ae
+ish examples/15_mcp_basic.ish
 ```
 
 #### Add Debug Logging
-```aethershell
+```ironshell
 // Enable verbose output
 print("=== MCP Debug Info ===")
 let servers = mcp_servers()
@@ -393,7 +393,7 @@ servers | foreach(fn(s) => {
 ```
 
 #### Test Tool Isolation
-```aethershell
+```ironshell
 // Test individual tools
 let server = mcp_detect("http://localhost:3001")
 server.tools | foreach(fn(tool) => {
@@ -408,8 +408,8 @@ server.tools | foreach(fn(tool) => {
 
 ### Full System Check
 
-```aethershell
-// File: debug_mcp_system.ae
+```ironshell
+// File: debug_mcp_system.ish
 print("=== MCP System Diagnostics ===")
 print("")
 
@@ -471,8 +471,8 @@ print("=== Diagnostics Complete ===")
 
 ### Network Connectivity Test
 
-```aethershell
-// File: test_mcp_connectivity.ae
+```ironshell
+// File: test_mcp_connectivity.ish
 print("=== MCP Network Connectivity Test ===")
 print("")
 
@@ -494,8 +494,8 @@ test_endpoints | foreach(fn(endpoint) => {
 
 ### Performance Benchmark
 
-```aethershell
-// File: benchmark_mcp.ae
+```ironshell
+// File: benchmark_mcp.ish
 print("=== MCP Performance Benchmark ===")
 print("")
 
@@ -527,7 +527,7 @@ print("  Average time per detection: <200ms (target)")
 
 ### Essential Commands
 
-```aethershell
+```ironshell
 // Server discovery
 mcp_servers()                              // List all servers
 mcp_detect()                               // Find first available
@@ -572,5 +572,5 @@ agent("task", model, server.tools)        // Use together
 For additional support, see:
 - `docs/MCP_GETTING_STARTED.md` - Setup instructions
 - `docs/AI_MCP_INTEGRATION.md` - Integration guide
-- `examples/15_mcp_basic.ae` - Basic usage examples
+- `examples/15_mcp_basic.ish` - Basic usage examples
 - `tests/mcp_detection.rs` - Implementation details

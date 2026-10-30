@@ -1,12 +1,12 @@
 """
-Tests for AetherShell Python SDK - Workflows
+Tests for IronShell Python SDK - Workflows
 """
 
 import asyncio
 import pytest
 from unittest.mock import MagicMock, patch
 
-from aethershell.workflows import (
+from ironshell.workflows import (
     MapReduceWorkflow,
     SagaWorkflow,
     SagaStep,

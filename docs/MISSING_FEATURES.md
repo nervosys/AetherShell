@@ -1,11 +1,11 @@
 # Missing Features for Examples
 
-This document tracks features that are shown in example files but not yet fully implemented in AetherShell.
+This document tracks features that are shown in example files but not yet fully implemented in IronShell.
 
 ## Summary
 
 **Status**: 12 out of 24 examples fail due to missing features  
-**Passing**: 4 examples (`00_hello.ae`, `06_agent.ae`, `17_syntax_showcase.ae`, `18_mutable_variables.ae`)  
+**Passing**: 4 examples (`00_hello.ish`, `06_agent.ish`, `17_syntax_showcase.ish`, `18_mutable_variables.ish`)  
 **TUI/Interactive**: 8 examples require `--tui` mode (not tested in batch mode)
 
 ---
@@ -14,7 +14,7 @@ This document tracks features that are shown in example files but not yet fully 
 
 ### 1. ⚠️ `match` Expression Not Fully Wired
 **Status**: PARTIALLY IMPLEMENTED  
-**Affected Examples**: `04_match.ae`, `03_http.ae`
+**Affected Examples**: `04_match.ish`, `03_http.ish`
 
 **Problem**: The `match` keyword is defined in the lexer, and there's a complete parser implementation (`parse_match()`) and evaluator code (`Expr::Match`), but the statement-level parser doesn't recognize it as a valid statement.
 
@@ -50,7 +50,7 @@ fn parse_stmt(&mut self) -> Result<Stmt> {
 **Files to Modify**:
 - `src/parser.rs` line ~365-410 (in `parse_stmt()`)
 
-**Test Case** (from `04_match.ae`):
+**Test Case** (from `04_match.ish`):
 ```rust
 value = Some(42)
 
@@ -65,7 +65,7 @@ match value {
 
 ### 2. ⚠️ Method Chaining / Dot Notation Not Supported
 **Status**: NOT IMPLEMENTED  
-**Affected Examples**: `02_tables.ae`, `03_http.ae`
+**Affected Examples**: `02_tables.ish`, `03_http.ish`
 
 **Problem**: Examples use `.` for method chaining (e.g., `resp.status`, `resp.headers."content-type"`), but the lexer doesn't recognize `.` as a token.
 
@@ -104,7 +104,7 @@ This requires:
 
 ### 3. ⚠️ Alternative Lambda Syntax (Missing Parentheses)
 **Status**: PARTIALLY SUPPORTED  
-**Affected Examples**: `01_pipelines.ae`, `19_showcase.ae`
+**Affected Examples**: `01_pipelines.ish`, `19_showcase.ish`
 
 **Problem**: Examples use `fn(x) => ...` (with parentheses around parameters), but some older examples might use `fn x => ...` (without parentheses). The parser expects parentheses after `fn`.
 
@@ -124,16 +124,16 @@ Error: where requires array input, got Str("20")
 - Document correct syntax: `reduce(fn(a,b) => a + b, 0)` with comma
 
 **Files to Fix**:
-- `examples/01_pipelines.ae` - Fix syntax
-- `examples/19_showcase.ae` - Fix syntax
+- `examples/01_pipelines.ish` - Fix syntax
+- `examples/19_showcase.ish` - Fix syntax
 
 ---
 
 ### 4. ❌ Comment Syntax Inconsistency
 **Status**: DOCUMENTATION ISSUE  
-**Affected Examples**: `12-16_*.ae` (multi-agent examples)
+**Affected Examples**: `12-16_*.ish` (multi-agent examples)
 
-**Problem**: Several examples use `#` for comments (Unix shell style), but AetherShell only supports `//` comments (C++ style).
+**Problem**: Several examples use `#` for comments (Unix shell style), but IronShell only supports `//` comments (C++ style).
 
 **Current Behavior**:
 ```
@@ -147,11 +147,11 @@ Error: unknown character: #
 **Recommendation**: Update examples to use `//` (consistent with Rust-like syntax philosophy)
 
 **Files to Fix**:
-- `examples/12_multi_agent_orchestration.ae`
-- `examples/13_multimodal_ai.ae`
-- `examples/14_typed_pipelines.ae`
-- `examples/15_ai_protocols.ae`
-- `examples/16_mcp_servers.ae`
+- `examples/12_multi_agent_orchestration.ish`
+- `examples/13_multimodal_ai.ish`
+- `examples/14_typed_pipelines.ish`
+- `examples/15_ai_protocols.ish`
+- `examples/16_mcp_servers.ish`
 
 ---
 
@@ -159,7 +159,7 @@ Error: unknown character: #
 
 ### 5. ❌ `read_text()` Builtin
 **Status**: NOT IMPLEMENTED  
-**Affected Examples**: `05_ai.ae`
+**Affected Examples**: `05_ai.ish`
 
 **Usage**:
 ```rust
@@ -192,7 +192,7 @@ fn bi_read_text(args: &[Value], _input: Value) -> Result<Value> {
 
 ### 6. ❌ `type_of()` Builtin
 **Status**: NOT IMPLEMENTED  
-**Affected Examples**: `07_uri_types.ae`
+**Affected Examples**: `07_uri_types.ish`
 
 **Usage**:
 ```rust
@@ -237,7 +237,7 @@ fn bi_type_of(args: &[Value], input: Value) -> Result<Value> {
 
 ### 7. ⚠️ `group_by()` and `agg()` Builtins
 **Status**: PARTIALLY IMPLEMENTED (as `group`)  
-**Affected Examples**: `02_tables.ae`
+**Affected Examples**: `02_tables.ish`
 
 **Problem**: Example uses `group_by` and `agg`, but codebase has `group` (aliased as `Group-Object`).
 
@@ -256,13 +256,13 @@ ls "."
 
 **Files to Modify**:
 - `src/builtins.rs` - Add aliases/new functions
-- `examples/02_tables.ae` - Update syntax to match implementation
+- `examples/02_tables.ish` - Update syntax to match implementation
 
 ---
 
 ### 8. ❌ `keys()` and `len()` Builtins
 **Status**: NOT IMPLEMENTED  
-**Affected Examples**: `03_http.ae`
+**Affected Examples**: `03_http.ish`
 
 **Usage**:
 ```rust
@@ -316,7 +316,7 @@ fn bi_len(args: &[Value], input: Value) -> Result<Value> {
 
 ### P0 - Quick Fixes (Documentation/Examples)
 1. ✅ Fix `#` comments → use `//` in examples (bulk find/replace)
-2. ✅ Fix `reduce` syntax in `01_pipelines.ae` and `19_showcase.ae`
+2. ✅ Fix `reduce` syntax in `01_pipelines.ish` and `19_showcase.ish`
 
 ### P1 - High Impact, Low Effort
 1. 🔧 Fix `match` statement parsing (add 3-5 lines to `parse_stmt()`)
@@ -340,13 +340,13 @@ Once features are implemented, verify with:
 
 ```powershell
 # Test specific examples
-.\target\release\ae.exe .\examples\04_match.ae
-.\target\release\ae.exe .\examples\05_ai.ae
+.\target\release\ish.exe .\examples\04_match.ish
+.\target\release\ish.exe .\examples\05_ai.ish
 
 # Test all non-TUI examples
-foreach ($file in Get-ChildItem examples\*.ae | Where-Object { $_.Name -notmatch '^(09|10|11|20|21|22|23)_' }) {
+foreach ($file in Get-ChildItem examples\*.ish | Where-Object { $_.Name -notmatch '^(09|10|11|20|21|22|23)_' }) {
     Write-Host "`n=== $($file.Name) ===" -ForegroundColor Cyan
-    .\target\release\ae.exe $file.FullName
+    .\target\release\ish.exe $file.FullName
 }
 ```
 
@@ -357,7 +357,7 @@ foreach ($file in Get-ChildItem examples\*.ae | Where-Object { $_.Name -notmatch
 ### Phase 1: Statement-Level Match (1 hour)
 - [x] Identify issue (match not recognized at statement level)
 - [ ] Add match check to `parse_stmt()`
-- [ ] Test with `04_match.ae`
+- [ ] Test with `04_match.ish`
 - [ ] Verify pattern matching with guards works
 
 ### Phase 2: Essential Builtins (2 hours)
@@ -391,9 +391,9 @@ foreach ($file in Get-ChildItem examples\*.ae | Where-Object { $_.Name -notmatch
 
 ## Notes
 
-- **Agent Examples**: `06_agent.ae` shows "(incomplete) max steps reached" - this is expected behavior for agent demos without external tool access
+- **Agent Examples**: `06_agent.ish` shows "(incomplete) max steps reached" - this is expected behavior for agent demos without external tool access
 - **TUI Examples**: Examples 09-11 and 20-23 require interactive TUI mode (`--tui` flag) and cannot be tested in batch mode
-- **Transpiler**: `08_transpiler.bash` is a bash script demonstrating transpilation, not an AetherShell script
+- **Transpiler**: `08_transpiler.bash` is a bash script demonstrating transpilation, not an IronShell script
 
 ---
 

@@ -1,12 +1,12 @@
 //! Phase 5 (grammar-unification): terse agent-surface forms parsed by the real
 //! grammar rather than a text pre-pass. First slice: `|.field` projection.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 
 fn eval_str(src: &str) -> Value {
-    let stmts = aethershell::parser::parse_program(src).expect("parse");
-    let mut env = aethershell::env::Env::new();
-    aethershell::eval::eval_program(&stmts, &mut env).expect("eval")
+    let stmts = iron_shell::parser::parse_program(src).expect("parse");
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::eval::eval_program(&stmts, &mut env).expect("eval")
 }
 
 #[test]
@@ -39,8 +39,8 @@ fn si_numeric_suffixes() {
 
 #[test]
 fn legible_forms_are_native() {
-    // Forms the `.aeg` transpiler rewrites are already handled by the real
-    // grammar, so the .ae surface needs no pre-pass for them — locking this in
+    // Forms the `.ishg` transpiler rewrites are already handled by the real
+    // grammar, so the .ish surface needs no pre-pass for them — locking this in
     // makes eventual transpiler-thinning safe.
     assert_eq!(
         eval_str("'single quoted'"),

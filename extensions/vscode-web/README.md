@@ -1,20 +1,20 @@
-# AetherShell VS Code Web Extension
+# IronShell VS Code Web Extension
 
-Language support and Agent API integration for [AetherShell](https://github.com/nervosys/AetherShell) in VS Code Web (vscode.dev).
+Language support and Agent API integration for [IronShell](https://github.com/nervosys/AetherShell) in VS Code Web (vscode.dev).
 
 ## Features
 
-- **Syntax highlighting** for `.ae` files
-- **Code evaluation** via the Agent API (`Ctrl+Shift+P` → "AetherShell: Evaluate Selection")
+- **Syntax highlighting** for `.ish` files
+- **Code evaluation** via the Agent API (`Ctrl+Shift+P` → "IronShell: Evaluate Selection")
 - **Hover documentation** for builtins (requires Agent API)
 - **Completion** for module builtins (requires Agent API)
 
 ## Requirements
 
-For full functionality, run the AetherShell Agent API server:
+For full functionality, run the IronShell Agent API server:
 
 ```bash
-ae agent serve  # starts on port 3002
+ish agent serve  # starts on port 3002
 ```
 
 ## Development

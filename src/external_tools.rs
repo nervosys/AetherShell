@@ -1,7 +1,7 @@
 //! External Agentic Tools Integration
 //!
 //! This module provides integration for external packages (like simon) to be
-//! used as tools by AI agents through AetherShell's agent API.
+//! used as tools by AI agents through IronShell's agent API.
 //!
 //! ## Architecture
 //!
@@ -133,7 +133,7 @@ pub struct SelfDescribingProperty {
 // External Tool Definitions
 // ============================================================================
 
-/// External tool manifest (tool.toml or aethershell.toml)
+/// External tool manifest (tool.toml or ironshell.toml)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalToolManifest {
     /// Tool metadata
@@ -408,7 +408,7 @@ impl ExternalToolRegistry {
     /// Load manifest from tool directory
     fn load_manifest(tool_path: &Path) -> Result<ExternalToolManifest> {
         // Try different manifest file names
-        let manifest_files = ["aethershell.toml", "tool.toml", ".aethershell.toml"];
+        let manifest_files = ["ironshell.toml", "tool.toml", ".ironshell.toml"];
 
         for filename in manifest_files {
             let manifest_path = tool_path.join(filename);
@@ -1017,9 +1017,9 @@ impl ExternalToolRegistry {
     /// Check if a directory contains a tool
     fn is_tool_directory(path: &Path) -> bool {
         let manifest_files = [
-            "aethershell.toml",
+            "ironshell.toml",
             "tool.toml",
-            ".aethershell.toml",
+            ".ironshell.toml",
             "Cargo.toml",
         ];
         manifest_files.iter().any(|f| path.join(f).exists())
@@ -1128,10 +1128,10 @@ lazy_static::lazy_static! {
 
         // Add default search paths
         if let Some(home) = dirs::home_dir() {
-            registry.add_search_path(home.join(".aethershell").join("tools"));
+            registry.add_search_path(home.join(".ironshell").join("tools"));
         }
         if let Some(data) = dirs::data_local_dir() {
-            registry.add_search_path(data.join("aethershell").join("tools"));
+            registry.add_search_path(data.join("ironshell").join("tools"));
         }
 
         registry
@@ -1170,14 +1170,14 @@ pub fn is_external_tool(tool_name: &str) -> bool {
 
 /// Get combined tools (internal + external) for AI providers
 pub fn get_all_agent_tools_openai() -> Vec<JsonValue> {
-    let mut tools = crate::providers::tools::AETHER_TOOLS.to_openai_functions();
+    let mut tools = crate::providers::tools::IRONSHELL_TOOLS.to_openai_functions();
     tools.extend(EXTERNAL_TOOLS.to_openai_tools());
     tools
 }
 
 /// Get combined tools for Anthropic
 pub fn get_all_agent_tools_anthropic() -> Vec<JsonValue> {
-    let mut tools = crate::providers::tools::AETHER_TOOLS.to_anthropic_tools();
+    let mut tools = crate::providers::tools::IRONSHELL_TOOLS.to_anthropic_tools();
     tools.extend(EXTERNAL_TOOLS.to_anthropic_tools());
     tools
 }

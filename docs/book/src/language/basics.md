@@ -1,10 +1,10 @@
 # Basic Syntax
 
-This guide covers the fundamental syntax of AetherShell.
+This guide covers the fundamental syntax of IronShell.
 
 ## Comments
 
-```aethershell
+```ironshell
 # This is a single-line comment
 
 // This also works for single-line comments
@@ -16,9 +16,9 @@ This guide covers the fundamental syntax of AetherShell.
 
 ## Expressions
 
-Everything in AetherShell is an expression that returns a value:
+Everything in IronShell is an expression that returns a value:
 
-```aethershell
+```ironshell
 # Arithmetic
 1 + 2 * 3        # 7
 10 / 3           # 3 (integer division)
@@ -51,7 +51,7 @@ match x > 0 {
 
 ### Variable Declaration
 
-```aethershell
+```ironshell
 # Immutable (default)
 let x = 42
 let name = "Alice"
@@ -69,7 +69,7 @@ let (a, b, c) = (1, 2, 3)
 
 Blocks are sequences of expressions. The last expression is the return value:
 
-```aethershell
+```ironshell
 let result = {
     let x = 10
     let y = 20
@@ -83,7 +83,7 @@ print(result)  # 30
 
 ### If Expressions
 
-```aethershell
+```ironshell
 let max = if a > b { a } else { b }
 
 # Multi-branch
@@ -100,7 +100,7 @@ let grade = if score >= 90 {
 
 ### Match Expressions
 
-```aethershell
+```ironshell
 let result = match value {
     0 => "zero",
     1 => "one",
@@ -121,7 +121,7 @@ match point {
 
 ### Loops
 
-```aethershell
+```ironshell
 # For-each loop
 for item in [1, 2, 3, 4, 5] {
     print(item)
@@ -153,7 +153,7 @@ loop {
 
 ### Lambda Syntax
 
-```aethershell
+```ironshell
 # Single parameter
 let double = fn(x) => x * 2
 double(21)  # 42
@@ -175,7 +175,7 @@ let now = fn() => timestamp()
 
 ### Named Functions
 
-```aethershell
+```ironshell
 # Define a named function (syntax sugar)
 let factorial = fn(n) => match {
     0 => 1,
@@ -190,7 +190,7 @@ factorial(5)  # 120
 
 Functions capture their environment:
 
-```aethershell
+```ironshell
 let make_counter = fn() => {
     let mut count = 0
     fn() => {
@@ -247,7 +247,7 @@ counter()  # 3
 
 ## String Interpolation
 
-```aethershell
+```ironshell
 let name = "Alice"
 let age = 30
 
@@ -260,7 +260,7 @@ print(format("Name: {}, Age: {}", name, age))
 
 ## Array Spread
 
-```aethershell
+```ironshell
 let a = [1, 2, 3]
 let b = [4, 5, 6]
 let combined = [...a, ...b]  # [1, 2, 3, 4, 5, 6]
@@ -268,7 +268,7 @@ let combined = [...a, ...b]  # [1, 2, 3, 4, 5, 6]
 
 ## Record Spread
 
-```aethershell
+```ironshell
 let base = { x: 1, y: 2 }
 let extended = { ...base, z: 3 }  # { x: 1, y: 2, z: 3 }
 

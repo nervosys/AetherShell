@@ -1,4 +1,4 @@
-# AetherShell Long-Term Support (LTS) Policy
+# IronShell Long-Term Support (LTS) Policy
 
 **Effective**: v1.0.0
 **Last Updated**: June 2025
@@ -7,7 +7,7 @@
 
 ## Overview
 
-AetherShell follows a predictable release and support lifecycle to give users and organizations confidence in long-term adoption. This document defines release types, support durations, and maintenance commitments.
+IronShell follows a predictable release and support lifecycle to give users and organizations confidence in long-term adoption. This document defines release types, support durations, and maintenance commitments.
 
 ---
 
@@ -77,7 +77,7 @@ LTS releases are tested and supported on:
 
 ## Rust Toolchain Policy
 
-| AetherShell Version | Minimum Rust Version (MSRV) |
+| IronShell Version | Minimum Rust Version (MSRV) |
 |---------------------|----------------------------|
 | 1.0.x LTS | 1.75.0 |
 | 1.1.x | Latest stable at release time |
@@ -137,7 +137,7 @@ Within an LTS release series, the following are guaranteed stable:
 - ✅ Builtin function signatures and return types
 - ✅ CLI flags and exit codes
 - ✅ Agent API endpoints and response format
-- ✅ AetherShell language syntax
+- ✅ IronShell language syntax
 - ✅ Value type system (Int, Float, String, Array, Record, Lambda)
 - ✅ Pipeline behavior
 - ✅ Configuration file format

@@ -1,12 +1,12 @@
 # Plugins
 
-AetherShell supports a plugin system for extending the shell with custom builtins, tools, and integrations.
+IronShell supports a plugin system for extending the shell with custom builtins, tools, and integrations.
 
 ## Managing Plugins
 
 ### Listing Plugins
 
-```aethershell
+```ironshell
 plugins
 # [
 #   { name: "git-tools", version: "1.0", enabled: true, category: "dev" },
@@ -17,12 +17,12 @@ plugins
 
 ### Plugin Information
 
-```aethershell
+```ironshell
 plugin_info "git-tools"
 # {
 #   name: "git-tools",
 #   version: "1.0",
-#   description: "Git integration tools for AetherShell",
+#   description: "Git integration tools for IronShell",
 #   builtins: ["git_status", "git_log", "git_diff"],
 #   enabled: true
 # }
@@ -30,7 +30,7 @@ plugin_info "git-tools"
 
 ### Enabling and Disabling
 
-```aethershell
+```ironshell
 plugin_enable "docker-tools"
 plugin_disable "git-tools"
 ```
@@ -41,18 +41,18 @@ plugin_disable "git-tools"
 registers the plugin with `status: "registered"`. Each `[builtins]` entry is one
 lambda literal and its name becomes callable. A core name, or a name another
 loaded plugin provides, is refused. A manifest with `[builtins]` is code, so
-`AETHER_PLUGINS=off` refuses it and agent mode needs `AETHER_PLUGIN_ALLOW`. Agent
+`IRONSHELL_PLUGINS=off` refuses it and agent mode needs `IRONSHELL_PLUGIN_ALLOW`. Agent
 mode approves each plugin builtin call. Native and script plugins are not loaded
 by this builtin. A duplicate id is `E_BAD_STATE`.
 
-```aethershell
+```ironshell
 plugin_load "./plugins/my-custom-plugin/plugin.toml"   # Register its metadata
 plugin_unload "my-custom-plugin"                       # Remove it (built-in plugins cannot be unloaded)
 ```
 
 ### Categories
 
-```aethershell
+```ironshell
 plugin_categories
 # ["dev", "containers", "cloud", "data", "security", ...]
 ```
@@ -67,9 +67,9 @@ Plugins are Rust crates that implement the tool and builtin interfaces. They pro
 
 ## Feature Flags
 
-AetherShell uses feature flags to enable/disable built-in capabilities:
+IronShell uses feature flags to enable/disable built-in capabilities:
 
-```aethershell
+```ironshell
 features                    # List all features
 feature_enabled "ai"        # Check if AI is enabled
 feature_enable "distributed"

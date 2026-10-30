@@ -30,10 +30,10 @@
 //! been scoring `a2ui_confirm` as "accepted it and answered", because a killed
 //! call yields empty output; it now reports hangs separately.
 
-use aethershell::builtins::{call_with_input, is_dispatched};
-use aethershell::env::Env;
-use aethershell::safety::{effect_of, Effect};
-use aethershell::value::Value;
+use iron_shell::builtins::{call_with_input, is_dispatched};
+use iron_shell::env::Env;
+use iron_shell::safety::{effect_of, Effect};
+use iron_shell::value::Value;
 
 /// Categories whose builtins transform data and return.
 const SAFE_CATEGORIES: &[&str] = &[
@@ -55,7 +55,7 @@ fn sweepable() -> Vec<String> {
     let mut v: Vec<String> = SAFE_CATEGORIES
         .iter()
         .flat_map(|cat| {
-            aethershell::agent_api::ontology_describe_json(cat)
+            iron_shell::agent_api::ontology_describe_json(cat)
                 .get("builtins")
                 .and_then(|b| b.as_array())
                 .map(|bs| {
@@ -114,10 +114,10 @@ fn the_uncoded_failure_count_does_not_grow() {
     // Single-test binary: this process only. The gate refuses dangerous effect
     // classes before any body runs, which is what makes sweeping the whole
     // dispatch table defensible rather than brave.
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::set_var("AETHER_POLICY", "strict");
-    std::env::set_var("AETHER_WORKSPACE", &jail);
-    std::env::set_var("AETHER_MAX_NET", "0");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_POLICY", "strict");
+    std::env::set_var("IRONSHELL_WORKSPACE", &jail);
+    std::env::set_var("IRONSHELL_MAX_NET", "0");
 
     let names = sweepable();
     assert!(

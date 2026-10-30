@@ -2,7 +2,7 @@
 //! `input_timeout`, `input_progress`, and the `prompt` path through
 //! `read_answer`.
 //!
-//! Every case drives the real `ae` binary with `-c`. Each child has a hard
+//! Every case drives the real `ish` binary with `-c`. Each child has a hard
 //! deadline: it is killed if it runs past 30 seconds, so no test waits
 //! unbounded on stdin.
 
@@ -66,9 +66,9 @@ fn run_ae(expr: &str, input: Input, tag: &str) -> Run {
 
 fn run_args(args: &[&str], input: Input, tag: &str) -> Run {
     let expr = args.join(" ");
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ae"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ish"));
     cmd.args(args)
-        .env("AETHER_SESSION_DIR", session_dir(tag))
+        .env("IRONSHELL_SESSION_DIR", session_dir(tag))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(match input {

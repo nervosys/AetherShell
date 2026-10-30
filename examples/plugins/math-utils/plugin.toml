@@ -1,14 +1,14 @@
 # Math Utilities Plugin
-# Additional mathematical functions for AetherShell
+# Additional mathematical functions for IronShell
 
 [plugin]
 id = "math-utils"
 name = "Math Utilities"
 version = "1.0.0"
-author = "AetherShell Team"
+author = "IronShell Team"
 description = "Additional mathematical functions including factorial, fibonacci, and more"
 categories = ["Builtin"]
-min_aether_version = "0.1.0"
+min_ironshell_version = "0.1.0"
 dependencies = []
 
 [builtins]

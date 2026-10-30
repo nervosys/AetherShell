@@ -585,8 +585,8 @@ mod tests {
         assert!(rust.contains("reliability") && rust.contains("\n  - "));
         let torch = describe("torch").unwrap(); // alias resolution
         assert!(torch.contains("pytorch"));
-        let aether = describe("aethervm").unwrap();
-        assert!(aether.contains("snapshot") && aether.contains("\n  - "));
+        let ironshell = describe("aethervm").unwrap();
+        assert!(ironshell.contains("snapshot") && ironshell.contains("\n  - "));
         assert!(describe("kvm").unwrap().contains("qemu-kvm")); // vm alias resolution
         let spine = describe("spine").unwrap();
         assert!(

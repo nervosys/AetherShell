@@ -1,4 +1,4 @@
-# AetherShell Security Audit Exclusions
+# IronShell Security Audit Exclusions
 # This file documents legitimate security findings that are acceptable
 
 ## Unsafe Code Blocks

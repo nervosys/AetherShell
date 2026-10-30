@@ -13,10 +13,10 @@
 //! These tests assert the property that matters — an ungated command does not
 //! run — rather than any particular error text.
 
-use aethershell::safety::{self, Effect};
-use aethershell::value::Value;
+use iron_shell::safety::{self, Effect};
+use iron_shell::value::Value;
 
-// `AETHER_*` is process-global and tests run in parallel threads.
+// `IRONSHELL_*` is process-global and tests run in parallel threads.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
@@ -27,22 +27,22 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 fn agent_workspace(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("ae_exec_gate_{}_{}", tag, std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
-    std::env::set_var("AETHER_WORKSPACE", &dir);
-    std::env::set_var("AETHER_AUDIT_LOG", dir.join("audit.log"));
-    std::env::set_var("AETHER_MODE", "agent");
-    std::env::remove_var("AETHER_APPROVE");
-    std::env::remove_var("AETHER_APPROVE_ALL");
+    std::env::set_var("IRONSHELL_WORKSPACE", &dir);
+    std::env::set_var("IRONSHELL_AUDIT_LOG", dir.join("audit.log"));
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::remove_var("IRONSHELL_APPROVE");
+    std::env::remove_var("IRONSHELL_APPROVE_ALL");
     safety::governor_reset();
     dir
 }
 
 fn leave_agent_mode() {
     for k in [
-        "AETHER_MODE",
-        "AETHER_WORKSPACE",
-        "AETHER_AUDIT_LOG",
-        "AETHER_APPROVE",
-        "AETHER_APPROVE_ALL",
+        "IRONSHELL_MODE",
+        "IRONSHELL_WORKSPACE",
+        "IRONSHELL_AUDIT_LOG",
+        "IRONSHELL_APPROVE",
+        "IRONSHELL_APPROVE_ALL",
     ] {
         std::env::remove_var(k);
     }
@@ -56,8 +56,8 @@ fn timeout_cannot_run_a_command_unapproved_in_agent_mode() {
     let marker = dir.join("PWNED.txt");
     let _ = std::fs::remove_file(&marker);
 
-    let mut env = aethershell::env::Env::new();
-    let res = aethershell::builtins::call(
+    let mut env = iron_shell::env::Env::new();
+    let res = iron_shell::builtins::call(
         "timeout_cmd",
         vec![
             Value::Int(5),
@@ -83,12 +83,12 @@ fn timeout_cannot_run_a_command_unapproved_in_agent_mode() {
 fn proc_spawn_cannot_launch_a_program_unapproved_in_agent_mode() {
     let _l = lock();
     let dir = agent_workspace("spawn");
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
 
     // A program that exists on both platforms, so a failure here is the gate
     // and not a missing binary.
     let program = if cfg!(windows) { "cmd" } else { "true" };
-    let res = aethershell::builtins::call(
+    let res = iron_shell::builtins::call(
         "proc_spawn",
         vec![Value::Str(program.to_string())],
         &mut env,
@@ -118,8 +118,8 @@ fn human_mode_is_unaffected() {
     let marker = dir.join("ok.txt");
     let _ = std::fs::remove_file(&marker);
 
-    let mut env = aethershell::env::Env::new();
-    let res = aethershell::builtins::call(
+    let mut env = iron_shell::env::Env::new();
+    let res = iron_shell::builtins::call(
         "timeout_cmd",
         vec![
             Value::Int(5),

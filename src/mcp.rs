@@ -1,6 +1,6 @@
 //! Model Context Protocol (MCP) Server Implementation
 //!
-//! This module provides a comprehensive MCP server that exposes AetherShell's
+//! This module provides a comprehensive MCP server that exposes IronShell's
 //! OS tools database through the Model Context Protocol, enabling AI agents
 //! to discover and execute tools in a standardized way.
 //!
@@ -46,7 +46,7 @@ const MCP_REMOTE_BODY: &str =
 const MCP_TOOL_TIMEOUT_SECS: u64 = 60;
 /// The most output of one stream a tool result carries back to the caller.
 const MCP_TOOL_OUTPUT_CAP: usize = 256 * 1024;
-/// The longest JSON-RPC request line `ae mcp stdio` reads. A client line was
+/// The longest JSON-RPC request line `ish mcp stdio` reads. A client line was
 /// read whole, so one with no newline could exhaust memory.
 const MCP_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 
@@ -198,7 +198,7 @@ impl Default for McpConfig {
     }
 }
 
-/// AetherShell MCP Server
+/// IronShell MCP Server
 pub struct McpServer {
     tools_db: Arc<OSToolsDatabase>,
     config: McpConfig,
@@ -300,7 +300,7 @@ impl McpServer {
                 }),
             },
             server_info: McpServerInfo {
-                name: "aethershell-mcp".to_string(),
+                name: "ironshell-mcp".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             },
         }
@@ -312,25 +312,25 @@ impl McpServer {
     }
 
     /// The name of the compact-mode meta-tool that invokes any builtin by name.
-    pub const META_INVOKE_TOOL: &'static str = "aether";
+    pub const META_INVOKE_TOOL: &'static str = "ironshell";
 
     /// Whether the MCP tool surface is in compact discovery mode (the default).
-    /// `AETHER_MCP_TOOLS=all` (or `full`) restores the flat per-builtin listing.
+    /// `IRONSHELL_MCP_TOOLS=all` (or `full`) restores the flat per-builtin listing.
     fn tools_compact_mode() -> bool {
-        match std::env::var("AETHER_MCP_TOOLS") {
+        match std::env::var("IRONSHELL_MCP_TOOLS") {
             Ok(v) => !(v.eq_ignore_ascii_case("all") || v.eq_ignore_ascii_case("full")),
             Err(_) => true,
         }
     }
 
-    /// Expose AetherShell's builtins to an MCP agent. By **default** this is the
+    /// Expose IronShell's builtins to an MCP agent. By **default** this is the
     /// *compact discovery surface* — three meta-tools instead of ~1k individual
     /// tool definitions, which otherwise cost ~26k tokens of standing context every
     /// session (measured: `examples/standing_context.rs`). The agent indexes the
     /// catalog via `ontology_manifest`, expands a slice with `ontology_describe`,
-    /// and invokes any builtin through the `aether` meta-tool — all routed through
+    /// and invokes any builtin through the `ironshell` meta-tool — all routed through
     /// [`Self::call_builtin`], so effect policy / approval / jail / audit apply
-    /// unchanged. Set `AETHER_MCP_TOOLS=all` for the flat, per-builtin `x-effect`
+    /// unchanged. Set `IRONSHELL_MCP_TOOLS=all` for the flat, per-builtin `x-effect`
     /// listing (every operation's danger level visible up front).
     pub fn list_builtin_tools(&self) -> Vec<McpTool> {
         if Self::tools_compact_mode() {
@@ -341,14 +341,14 @@ impl McpServer {
     }
 
     /// The compact discovery surface (default): `ontology_manifest` +
-    /// `ontology_describe` (progressive disclosure of the catalog) and the `aether`
+    /// `ontology_describe` (progressive disclosure of the catalog) and the `ironshell`
     /// invoke meta-tool. Effect classes remain discoverable per-category in the
     /// manifest and per-builtin via describe; enforcement is unchanged on call.
     fn compact_discovery_tools() -> Vec<McpTool> {
         vec![
             McpTool {
                 name: "ontology_manifest".to_string(),
-                description: "List AetherShell's builtin categories (name, count, effect classes) — the compact index of the full toolset. Call with no args, then ontology_describe(\"<category>\") to expand a slice.".to_string(),
+                description: "List IronShell's builtin categories (name, count, effect classes) — the compact index of the full toolset. Call with no args, then ontology_describe(\"<category>\") to expand a slice.".to_string(),
                 input_schema: serde_json::json!({ "type": "object", "properties": {} }),
             },
             McpTool {
@@ -363,7 +363,7 @@ impl McpServer {
             },
             McpTool {
                 name: Self::META_INVOKE_TOOL.to_string(),
-                description: "Invoke any AetherShell builtin by name (discover names via ontology_manifest / ontology_describe, and check a builtin's effect class there before invoking a destructive one). Runs under the same effect policy / approval / workspace jail / audit as every builtin.".to_string(),
+                description: "Invoke any IronShell builtin by name (discover names via ontology_manifest / ontology_describe, and check a builtin's effect class there before invoking a destructive one). Runs under the same effect policy / approval / workspace jail / audit as every builtin.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -376,7 +376,7 @@ impl McpServer {
         ]
     }
 
-    /// The flat per-builtin listing (`AETHER_MCP_TOOLS=all`): every builtin as its
+    /// The flat per-builtin listing (`IRONSHELL_MCP_TOOLS=all`): every builtin as its
     /// own MCP tool, annotated with its safety effect class under `x-effect`.
     fn full_builtin_tools() -> Vec<McpTool> {
         crate::agent_api::builtin_tool_specs()
@@ -414,7 +414,7 @@ impl McpServer {
             .collect()
     }
 
-    /// Invoke an AetherShell builtin as an MCP tool. `args` is a JSON array of
+    /// Invoke an IronShell builtin as an MCP tool. `args` is a JSON array of
     /// positional arguments. The call goes through `builtins::call`, so guarded
     /// builtins enforce policy/approval/jail and emit audit entries; a refusal
     /// is returned as an error result carrying the structured `E_*` code.
@@ -435,7 +435,7 @@ impl McpServer {
                         v,
                         crate::value::Value::Array(_) | crate::value::Value::Table(_)
                     ) {
-                    let budget = std::env::var("AE_TOKEN_BUDGET")
+                    let budget = std::env::var("IRONSHELL_TOKEN_BUDGET")
                         .ok()
                         .and_then(|s| s.parse::<usize>().ok())
                         .filter(|m| *m > 0);
@@ -458,7 +458,7 @@ impl McpServer {
         }
     }
 
-    /// Route an MCP `tools/call` by tool name. The compact-mode `aether` meta-tool
+    /// Route an MCP `tools/call` by tool name. The compact-mode `ironshell` meta-tool
     /// unwraps `{name, args}` and invokes that builtin; any other name is treated as
     /// a builtin invoked with its `args` array. Every path goes through
     /// [`Self::call_builtin`], so effect policy / approval / jail / audit apply
@@ -469,7 +469,7 @@ impl McpServer {
             if inner.is_empty() {
                 return McpToolResult {
                     content: vec![McpContent::Text {
-                        text: "aether: missing 'name' (the builtin to invoke)".to_string(),
+                        text: "ironshell: missing 'name' (the builtin to invoke)".to_string(),
                     }],
                     is_error: Some(true),
                 };
@@ -500,7 +500,7 @@ impl McpServer {
     /// Writes one JSON-RPC response line per request to stdout. Notifications
     /// (messages with no `id`, e.g. `notifications/initialized`) get no reply.
     /// Loops until stdin EOF. Runs in whatever safety mode the process is in;
-    /// `ae mcp stdio` implies agent mode unless `AETHER_MODE` is set.
+    /// `ish mcp stdio` implies agent mode unless `IRONSHELL_MODE` is set.
     pub fn serve_stdio(&self) -> std::io::Result<()> {
         use std::io::BufRead;
         let stdin = std::io::stdin();
@@ -589,7 +589,7 @@ impl McpServer {
         serde_json::json!({
             "protocolVersion": "2024-11-05",
             "capabilities": { "tools": { "listChanged": false } },
-            "serverInfo": { "name": "aethershell", "version": env!("CARGO_PKG_VERSION") },
+            "serverInfo": { "name": "ironshell", "version": env!("CARGO_PKG_VERSION") },
         })
     }
 
@@ -761,19 +761,19 @@ impl McpServer {
     pub fn list_resources(&self) -> Vec<McpResource> {
         vec![
             McpResource {
-                uri: "aethershell://tools".to_string(),
+                uri: "ironshell://tools".to_string(),
                 name: "Available Tools".to_string(),
                 description: Some("List of all available OS tools".to_string()),
                 mime_type: Some("application/json".to_string()),
             },
             McpResource {
-                uri: "aethershell://categories".to_string(),
+                uri: "ironshell://categories".to_string(),
                 name: "Tool Categories".to_string(),
                 description: Some("List of tool categories".to_string()),
                 mime_type: Some("application/json".to_string()),
             },
             McpResource {
-                uri: "aethershell://system-info".to_string(),
+                uri: "ironshell://system-info".to_string(),
                 name: "System Information".to_string(),
                 description: Some("Current system information".to_string()),
                 mime_type: Some("application/json".to_string()),
@@ -784,19 +784,19 @@ impl McpServer {
     /// Read a resource
     pub fn read_resource(&self, uri: &str) -> Result<McpContent> {
         match uri {
-            "aethershell://tools" => {
+            "ironshell://tools" => {
                 let tools: Vec<_> = self.registered_tools.keys().collect();
                 Ok(McpContent::Text {
                     text: serde_json::to_string_pretty(&tools)?,
                 })
             }
-            "aethershell://categories" => {
+            "ironshell://categories" => {
                 let categories: Vec<_> = self.tools_db.categories.keys().collect();
                 Ok(McpContent::Text {
                     text: serde_json::to_string_pretty(&categories)?,
                 })
             }
-            "aethershell://system-info" => {
+            "ironshell://system-info" => {
                 let info = json!({
                     "os": format!("{:?}", OperatingSystem::current()),
                     "tool_count": self.registered_tools.len(),
@@ -975,7 +975,7 @@ impl McpClient {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
                 "clientInfo": {
-                    "name": "aethershell",
+                    "name": "ironshell",
                     "version": env!("CARGO_PKG_VERSION")
                 }
             }))
@@ -1194,7 +1194,7 @@ pub fn create_category_mcp_server(categories: Vec<ToolCategory>) -> McpServer {
 }
 
 // ============================================================================
-// MCP HTTP Server (for `ae mcp serve`)
+// MCP HTTP Server (for `ish mcp serve`)
 // ============================================================================
 
 #[cfg(feature = "native")]
@@ -1295,7 +1295,7 @@ pub mod server {
         // actually worth a deliberate act.
         if !addr.ip().is_loopback()
             && !matches!(
-                std::env::var("AETHER_ALLOW_REMOTE_BIND").as_deref(),
+                std::env::var("IRONSHELL_ALLOW_REMOTE_BIND").as_deref(),
                 Ok("1") | Ok("true")
             )
         {
@@ -1307,12 +1307,12 @@ pub mod server {
                     "plaintext HTTP, so binding beyond loopback exposes both the ",
                     "operations and the bearer token to anything that can route ",
                     "here. If that is genuinely intended, set ",
-                    "AETHER_ALLOW_REMOTE_BIND=true; prefer an SSH tunnel or a ",
+                    "IRONSHELL_ALLOW_REMOTE_BIND=true; prefer an SSH tunnel or a ",
                     "reverse proxy terminating TLS."
                 ),
                     addr.ip()
                 ),
-                "bind to 127.0.0.1, or set AETHER_ALLOW_REMOTE_BIND=true if this exposure is intended",
+                "bind to 127.0.0.1, or set IRONSHELL_ALLOW_REMOTE_BIND=true if this exposure is intended",
             ));
         }
 
@@ -1456,7 +1456,7 @@ pub mod server {
             );
         }
 
-        println!("🚀 AetherShell MCP Server starting on http://{}", addr);
+        println!("🚀 IronShell MCP Server starting on http://{}", addr);
         println!("   Protocol: MCP 2024-11-05");
         println!("   Safety level: {:?}", config.safety_level);
         // MCP's own `--safety` level gates which *tools* are exposed. It is a
@@ -1468,7 +1468,7 @@ pub mod server {
                 crate::safety::workspace_root().display()
             ),
             other => println!(
-                "⚠  Effect gate: {other:?} mode (AETHER_MODE set explicitly) — OFF. Unset AETHER_MODE to get the agent profile."
+                "⚠  Effect gate: {other:?} mode (IRONSHELL_MODE set explicitly) — OFF. Unset IRONSHELL_MODE to get the agent profile."
             ),
         }
         println!();
@@ -1497,10 +1497,10 @@ pub mod server {
 
     async fn handle_info() -> impl IntoResponse {
         Json(json!({
-            "name": "aethershell-mcp",
+            "name": "ironshell-mcp",
             "version": env!("CARGO_PKG_VERSION"),
             "protocol": "MCP 2024-11-05",
-            "description": "AetherShell Model Context Protocol Server"
+            "description": "IronShell Model Context Protocol Server"
         }))
     }
 
@@ -1523,7 +1523,7 @@ pub mod server {
         }))
     }
 
-    /// Discover AetherShell builtins as MCP tools (effect-tagged). Kept separate
+    /// Discover IronShell builtins as MCP tools (effect-tagged). Kept separate
     /// from `/tools` so the OS-tool list stays small; builtins are executed via
     /// the same `/tools/:name/execute` route (it falls back to builtins).
     async fn handle_list_builtin_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -1545,7 +1545,7 @@ pub mod server {
     ) -> impl IntoResponse {
         let mcp = state.mcp.read().await;
         // If `name` is a registered OS tool, run it; otherwise treat it as an
-        // AetherShell builtin and route through the safety-guarded dispatch
+        // IronShell builtin and route through the safety-guarded dispatch
         // (effect policy, approval, jail, audit all apply). Builtin args come
         // from the conventional `args` array in the request.
         let result = if mcp.get_tool(&name).is_some() {
@@ -1638,7 +1638,7 @@ mod tests {
         let server = McpServer::new();
         let result = server.initialize();
         assert_eq!(result.protocol_version, "2024-11-05");
-        assert_eq!(result.server_info.name, "aethershell-mcp");
+        assert_eq!(result.server_info.name, "ironshell-mcp");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 {
-  "name": "jupyterlab-aethershell",
+  "name": "jupyterlab-ironshell",
   "version": "0.1.0",
-  "description": "AetherShell kernel and language support for JupyterLab",
+  "description": "IronShell kernel and language support for JupyterLab",
   "license": "AGPL-3.0-or-later",
   "author": "Nervosys",
   "homepage": "https://github.com/nervosys/AetherShell",
@@ -13,20 +13,20 @@
     "jupyter",
     "jupyterlab",
     "jupyterlab-extension",
-    "aethershell",
+    "ironshell",
     "shell",
     "ai"
   ],
   "jupyterlab": {
     "extension": true,
-    "outputDir": "jupyterlab_aethershell/labextension",
+    "outputDir": "jupyterlab_ironshell/labextension",
     "mimeExtension": true
   },
   "scripts": {
     "build": "jlpm run build:lib && jlpm run build:labextension",
     "build:lib": "tsc",
     "build:labextension": "jupyter labextension build .",
-    "clean": "rimraf lib tsconfig.tsbuildinfo jupyterlab_aethershell/labextension",
+    "clean": "rimraf lib tsconfig.tsbuildinfo jupyterlab_ironshell/labextension",
     "watch": "tsc -w"
   },
   "dependencies": {

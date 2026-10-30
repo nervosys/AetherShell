@@ -7,7 +7,7 @@
 //! AE_DISPOSABLE_HOST=1, which only the disposable Windows runner sets.
 //!
 //! The builtins name their tasks themselves: cron_add registers
-//! `AetherShell-cron-<uuid>` and at_schedule registers `AetherShell-at-<uuid>`,
+//! `IronShell-cron-<uuid>` and at_schedule registers `IronShell-at-<uuid>`,
 //! both in the root task folder (`\`). The tests learn each name from the
 //! builtin's return value, then check every step with `schtasks.exe` and never
 //! with the builtin under test. Anything a test created is deleted in a Drop
@@ -15,8 +15,8 @@
 
 #![cfg(windows)]
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::process::Command;
 use std::sync::Mutex;
@@ -37,7 +37,7 @@ fn s(text: &str) -> Value {
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let mut env = Env::default();
-    aethershell::builtins::call(name, args, &mut env)
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn call_ok(name: &str, args: Vec<Value>) -> Value {
@@ -135,7 +135,7 @@ fn malformed_scheduler_calls_are_refused_before_the_scheduler() {
         ("cron_remove", vec![s("-x")]),
         ("cron_remove", vec![s("")]),
         ("cron_remove", vec![Value::Int(7)]),
-        ("cron_enable", vec![s("AetherShell-cron-?")]),
+        ("cron_enable", vec![s("IronShell-cron-?")]),
         ("cron_disable", vec![s("*")]),
         ("cron_list", vec![s("x")]),
         // One-time times must be future, valid local YYYY-MM-DDTHH:MM values.
@@ -144,16 +144,16 @@ fn malformed_scheduler_calls_are_refused_before_the_scheduler() {
         ("at_schedule", vec![s("2099-01-01T12:00Z"), s(CMD)]),
         ("at_schedule", vec![s("2099-01-02T03:04"), s(&long)]),
         ("at_schedule", vec![s("2099-01-02T03:04")]),
-        // A Windows job ID is exactly AetherShell-at plus a canonical UUID.
+        // A Windows job ID is exactly IronShell-at plus a canonical UUID.
         ("at_remove", vec![s("12")]),
-        ("at_remove", vec![s("AetherShell-at-*")]),
+        ("at_remove", vec![s("IronShell-at-*")]),
         (
             "at_remove",
-            vec![s("AetherShell-at-12345678-1234-4234-8234-12345678901")],
+            vec![s("IronShell-at-12345678-1234-4234-8234-12345678901")],
         ),
         (
             "at_remove",
-            vec![s("AetherShell-at-12345678-1234-4234-8234-12345678901A")],
+            vec![s("IronShell-at-12345678-1234-4234-8234-12345678901A")],
         ),
         ("at_list", vec![s("x")]),
     ];
@@ -165,17 +165,17 @@ fn malformed_scheduler_calls_are_refused_before_the_scheduler() {
 #[test]
 fn scheduler_changes_are_refused_inside_a_transaction() {
     let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    aethershell::tx::begin().unwrap();
+    iron_shell::tx::begin().unwrap();
     let refused = [
         call("cron_add", vec![s("@daily"), s(CMD)]),
-        call("cron_remove", vec![s("AetherShell-cron-tx")]),
+        call("cron_remove", vec![s("IronShell-cron-tx")]),
         call("at_schedule", vec![s("2099-01-02T03:04"), s(CMD)]),
         call(
             "at_remove",
-            vec![s("AetherShell-at-00000000-0000-4000-8000-000000000001")],
+            vec![s("IronShell-at-00000000-0000-4000-8000-000000000001")],
         ),
     ];
-    aethershell::tx::rollback().unwrap();
+    iron_shell::tx::rollback().unwrap();
     for result in refused {
         expect_code(result, "E_UNIMPLEMENTED");
     }
@@ -199,7 +199,7 @@ fn cron_lifecycle_verifies_each_step() {
         panic!("cron_add did not return a String");
     };
     cleanup.0.push(task.clone());
-    assert!(task.starts_with("AetherShell-cron-"), "{task}");
+    assert!(task.starts_with("IronShell-cron-"), "{task}");
     assert!(task_exists(&task), "schtasks /Query does not find {task}");
     assert_ne!(task_state(&task), "Disabled", "a new task starts enabled");
     let listed = call_ok("cron_list", vec![]);
@@ -259,7 +259,7 @@ fn at_lifecycle_verifies_each_step() {
         panic!("at_schedule did not return a String");
     };
     cleanup.0.push(job.clone());
-    assert!(job.starts_with("AetherShell-at-"), "{job}");
+    assert!(job.starts_with("IronShell-at-"), "{job}");
     assert!(task_exists(&job), "schtasks /Query does not find {job}");
     assert_eq!(task_state(&job), "Enabled");
 
@@ -296,9 +296,9 @@ fn missing_names_are_tool_failures_and_create_nothing() {
     }
     let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let pid = std::process::id();
-    let cron = format!("AetherShell-cron-missing-{pid}");
+    let cron = format!("IronShell-cron-missing-{pid}");
     // A canonical UUID whose last group carries the process ID.
-    let job = format!("AetherShell-at-00000000-0000-4000-8000-{pid:012}");
+    let job = format!("IronShell-at-00000000-0000-4000-8000-{pid:012}");
     assert!(!task_exists(&cron), "{cron} exists before the test");
     assert!(!task_exists(&job), "{job} exists before the test");
 

@@ -10,7 +10,7 @@
 //! Found by driving the shell as an agent. These tests pin both directions:
 //! secrets stay hidden, and the agent's own data survives.
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn rec(pairs: &[(&str, Value)]) -> Value {
@@ -22,7 +22,7 @@ fn rec(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn render(v: &Value) -> String {
-    aethershell::builtins::render_agent(v, None).expect("agent render")
+    iron_shell::builtins::render_agent(v, None).expect("agent render")
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn a_secret_nested_inside_a_container_is_still_found() {
 #[test]
 fn an_audit_entry_keeps_the_approval_token_it_is_about() {
     let mut detail = serde_json::json!({ "token": "apv_1f67575ecb24b5fe" });
-    aethershell::safety::redact_json(&mut detail);
+    iron_shell::safety::redact_json(&mut detail);
     assert_eq!(
         detail["token"], "apv_1f67575ecb24b5fe",
         "the audit trail must stay correlatable: {detail}"
@@ -120,7 +120,7 @@ fn an_audit_entry_still_hides_a_real_credential() {
         "auth_token": "ghp_realcredentialvalue",
         "password": "hunter2",
     });
-    aethershell::safety::redact_json(&mut detail);
+    iron_shell::safety::redact_json(&mut detail);
     let text = detail.to_string();
     assert!(!text.contains("ghp_real"), "credential leaked: {text}");
     assert!(!text.contains("hunter2"), "password leaked: {text}");
@@ -129,7 +129,7 @@ fn an_audit_entry_still_hides_a_real_credential() {
 #[test]
 fn an_audit_entry_keeps_numeric_counts() {
     let mut detail = serde_json::json!({ "page_tokens": 81, "tokens_in": 12 });
-    aethershell::safety::redact_json(&mut detail);
+    iron_shell::safety::redact_json(&mut detail);
     assert_eq!(detail["page_tokens"], 81);
     assert_eq!(detail["tokens_in"], 12);
 }
@@ -138,7 +138,7 @@ fn an_audit_entry_keeps_numeric_counts() {
 fn both_redaction_layers_agree_on_what_a_capability_is() {
     // The rule lives in one place precisely so the value layer and the JSON
     // layer cannot drift into disagreeing about the same string.
-    use aethershell::safety::is_capability_token;
+    use iron_shell::safety::is_capability_token;
     assert!(is_capability_token("apv_deadbeef"));
     assert!(is_capability_token("apl_deadbeef"));
     assert!(!is_capability_token("ghp_realcredentialvalue"));

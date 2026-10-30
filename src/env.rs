@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::value::Value;
 
-/// Process/runtime environment for the Aether evaluator & builtins.
+/// Process/runtime environment for the IronShell evaluator & builtins.
 ///
 /// - Stores variables (including the pipeline slot `__pipe_input__`)
 /// - Tracks mutability: variables are immutable by default

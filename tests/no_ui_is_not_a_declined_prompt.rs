@@ -17,7 +17,7 @@
 //! user declined" will not retry, will not escalate, and will report that the
 //! human said no.
 
-use aethershell::safety::ErrorCode;
+use iron_shell::safety::ErrorCode;
 
 #[test]
 fn the_code_says_nobody_is_reachable_rather_than_ask_again() {
@@ -44,7 +44,7 @@ fn the_code_says_nobody_is_reachable_rather_than_ask_again() {
 
 #[test]
 fn the_error_names_the_way_out() {
-    let msg = aethershell::safety::no_ui("a2ui_confirm").to_string();
+    let msg = iron_shell::safety::no_ui("a2ui_confirm").to_string();
     assert!(msg.contains("E_NO_UI"), "not coded: {msg}");
     assert!(
         msg.contains("a2ui_confirm"),
@@ -60,10 +60,10 @@ fn the_error_names_the_way_out() {
 fn an_unattached_prompt_refuses_instead_of_inventing_a_refusal() {
     // The whole point: `false` was a *decision* the shell made up. Whatever
     // comes back now, it must not be a plain boolean.
-    let mut env = aethershell::env::Env::new();
-    let out = aethershell::builtins::call(
+    let mut env = iron_shell::env::Env::new();
+    let out = iron_shell::builtins::call(
         "a2ui_confirm",
-        vec![aethershell::value::Value::Str("proceed?".into())],
+        vec![iron_shell::value::Value::Str("proceed?".into())],
         &mut env,
     );
     match out {
@@ -83,11 +83,11 @@ fn it_refuses_promptly_rather_than_after_the_timeout() {
     // The old path waited 300 seconds. A bound well under that, but loose
     // enough not to flake on a loaded machine: anything in this range proves
     // the wait was skipped, and the test cannot pass by being slow.
-    let mut env = aethershell::env::Env::new();
+    let mut env = iron_shell::env::Env::new();
     let start = std::time::Instant::now();
-    let _ = aethershell::builtins::call(
+    let _ = iron_shell::builtins::call(
         "a2ui_confirm",
-        vec![aethershell::value::Value::Str("proceed?".into())],
+        vec![iron_shell::value::Value::Str("proceed?".into())],
         &mut env,
     );
     let elapsed = start.elapsed();
@@ -103,7 +103,7 @@ fn a_channel_that_has_been_read_is_still_allowed_to_wait() {
     // agent mode would have been simpler and wrong, because agent-plus-attached
     // -TUI is what A2UI is *for*. Draining the channel marks it attached, and
     // an attached channel must go back to waiting rather than refusing.
-    let ch = aethershell::ai::a2ui::A2UIChannel::new();
+    let ch = iron_shell::ai::a2ui::A2UIChannel::new();
     assert!(!ch.ui_attached(), "a fresh channel has no UI");
     let _ = ch.receive_all().expect("drain");
     assert!(

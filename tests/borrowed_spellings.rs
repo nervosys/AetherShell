@@ -1,17 +1,17 @@
 //! Spellings borrowed from the languages models already write.
 //!
 //! A local E7 run (`benches/agentic/results/e7-local-llama3.2-3b.md`) scored
-//! the AetherShell arm 0/10, and the failures were habits rather than
+//! the IronShell arm 0/10, and the failures were habits rather than
 //! misunderstandings: `and`/`not` for `&&`/`!`, `fn(x) x.a` without the
 //! arrow, `from_json("issues.json")`. The first two now parse as meant; the
 //! third stays an error with a mechanical repair in its hint. Keyword field
 //! names (`r.from`, `{match: 1}`) were a parse error before any of this and
 //! are fixed with it, since `and`/`or`/`not` would otherwise have joined them.
 
-use aethershell::env::Env;
-use aethershell::eval::eval_program;
-use aethershell::parser::parse_program;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::eval::eval_program;
+use iron_shell::parser::parse_program;
+use iron_shell::value::Value;
 
 fn run(code: &str) -> Value {
     let stmts = parse_program(code).unwrap_or_else(|e| panic!("parse failed for {code}: {e}"));
@@ -68,7 +68,7 @@ fn keyword_named_fields_are_ordinary_fields() {
 
 #[test]
 fn from_json_of_a_path_names_the_repair() {
-    let err = aethershell::builtins::call(
+    let err = iron_shell::builtins::call(
         "from_json",
         vec![Value::Str("Cargo.toml".into())],
         &mut Env::new(),

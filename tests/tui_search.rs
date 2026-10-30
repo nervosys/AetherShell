@@ -1,6 +1,6 @@
 // Tests for TUI Search Mode
 
-use aethershell::tui::app::{App, AppMode, MessageRole};
+use iron_shell::tui::app::{App, AppMode, MessageRole};
 
 #[test]
 fn test_search_mode_initialization() {

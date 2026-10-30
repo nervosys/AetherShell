@@ -1,16 +1,16 @@
 # Pipelines
 
-Pipelines are the heart of AetherShell. The pipe operator `|` connects expressions so that the output of one becomes the input of the next — but unlike traditional shells, AetherShell pipelines carry **typed, structured data**, not raw text.
+Pipelines are the heart of IronShell. The pipe operator `|` connects expressions so that the output of one becomes the input of the next — but unlike traditional shells, IronShell pipelines carry **typed, structured data**, not raw text.
 
 ## Basic Syntax
 
-```ae
+```ish
 expression | transform | transform | ...
 ```
 
 Each `|` takes the value on the left and passes it to the right:
 
-```ae
+```ish
 [3, 1, 4, 1, 5] | sort | reverse | first
 # [3,1,4,1,5] → [1,1,3,4,5] → [5,4,3,1,1] → 5
 ```
@@ -30,7 +30,7 @@ When the right side of a pipe is evaluated, the left side's value is available a
 
 ### Example: builtins in pipelines
 
-```ae
+```ish
 ls "."                                # Array of file records
 | where fn(f) => f.size > 1000       # Filter: keep large files
 | map fn(f) => f.name                # Transform: extract names
@@ -39,7 +39,7 @@ ls "."                                # Array of file records
 
 ### Example: lambda in pipelines
 
-```ae
+```ish
 42 | fn(x) => x * 2       # => 84
 "hello" | fn(s) => upper(s) # => "HELLO"
 ```
@@ -48,13 +48,13 @@ ls "."                                # Array of file records
 
 When a **1-parameter lambda** receives an **Array**, it automatically maps over each element:
 
-```ae
+```ish
 [1, 2, 3] | fn(x) => x * 2     # => [2, 4, 6]
 ```
 
 This applies to both inline lambdas and named lambdas. If you want to operate on the array as a whole, use the `length` or similar builtin directly:
 
-```ae
+```ish
 [1, 2, 3] | length    # => 3  (operates on the whole array)
 ```
 
@@ -64,7 +64,7 @@ These builtins are designed for pipeline use:
 
 ### Filtering
 
-```ae
+```ish
 [1, 2, 3, 4, 5] | where fn(x) => x > 3
 # => [4, 5]
 
@@ -74,7 +74,7 @@ ls "." | where fn(f) => f.ext == "rs"
 
 ### Mapping
 
-```ae
+```ish
 [1, 2, 3] | map fn(x) => x * 10
 # => [10, 20, 30]
 
@@ -85,28 +85,28 @@ ls "." | where fn(f) => f.ext == "rs"
 
 ### Reducing
 
-```ae
+```ish
 [1, 2, 3, 4, 5] | reduce fn(acc, x) => acc + x, 0
 # => 15
 ```
 
 ### Selecting fields
 
-```ae
+```ish
 ls "." | select "name" "size"
 # => Array of records with only name and size fields
 ```
 
 ### Grouping
 
-```ae
+```ish
 ls "." | group "ext"
 # Records grouped by file extension
 ```
 
 ### Sorting
 
-```ae
+```ish
 [3, 1, 4, 1, 5] | sort
 # => [1, 1, 3, 4, 5]
 ```
@@ -115,7 +115,7 @@ ls "." | group "ext"
 
 Since `ls`, `ps`, and other builtins return structured data, you can build powerful queries:
 
-```ae
+```ish
 # Find the 5 largest Rust files
 ls "src"
 | where fn(f) => f.ext == "rs"
@@ -125,7 +125,7 @@ ls "src"
 | select "name" "size"
 ```
 
-```ae
+```ish
 # Calculate total size of all .toml files
 ls "."
 | where fn(f) => f.ext == "toml"
@@ -137,7 +137,7 @@ ls "."
 
 Convert between data formats inline:
 
-```ae
+```ish
 # JSON to CSV
 from_json '[{"name":"Ada","age":36},{"name":"Bob","age":30}]' | to_csv
 
@@ -149,7 +149,7 @@ http_get "https://api.example.com/users" | from_json | where fn(u) => u.active
 
 Builtins can access pipeline input implicitly. For example, `sort` works both ways:
 
-```ae
+```ish
 sort [3, 1, 2]        # Direct call with argument
 [3, 1, 2] | sort      # Pipeline: input received implicitly
 ```
@@ -160,12 +160,12 @@ This dual calling convention makes builtins equally useful in both interactive a
 
 Pipelines compose naturally with AI operations:
 
-```ae
+```ish
 # Read a file, ask AI to summarize it
 cat "README.md" | ai "Summarize this document in 3 bullet points"
 ```
 
-```ae
+```ish
 # Generate code, then format it
 ai "Write a Python function to sort a list" | save "sort.py"
 ```

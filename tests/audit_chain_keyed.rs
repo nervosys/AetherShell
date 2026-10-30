@@ -17,7 +17,7 @@
 //! process appends with it can also forge with. That needs an append-only sink
 //! the process cannot rewrite, which is a deployment decision.
 
-use aethershell::safety;
+use iron_shell::safety;
 use std::path::PathBuf;
 
 /// A fixed 32-byte key, hex-encoded. Every test in this binary installs the
@@ -49,7 +49,7 @@ fn tmp_log(tag: &str) -> PathBuf {
 /// shell actually produces rather than a fixture that agrees with the verifier
 /// by construction.
 fn write_entries(log: &PathBuf, n: usize) {
-    std::env::set_var("AETHER_AUDIT_LOG", log);
+    std::env::set_var("IRONSHELL_AUDIT_LOG", log);
     for i in 0..n {
         safety::audit(
             "file_write",
@@ -62,7 +62,7 @@ fn write_entries(log: &PathBuf, n: usize) {
     }
 }
 
-/// Every test in this binary mutates process-global state — `AETHER_AUDIT_LOG`
+/// Every test in this binary mutates process-global state — `IRONSHELL_AUDIT_LOG`
 /// and the audit layer's in-memory chain — so they run one at a time. Without
 /// this they interleave and the failures look like bugs in the audit code.
 static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -77,7 +77,7 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 fn install_key() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        std::env::set_var("AETHER_AUDIT_KEY", TEST_KEY_HEX);
+        std::env::set_var("IRONSHELL_AUDIT_KEY", TEST_KEY_HEX);
         // Force resolution now, while the variable is set.
         assert!(
             safety::audit_key().is_some(),
@@ -264,8 +264,8 @@ fn the_key_is_removed_from_the_environment_after_it_is_read() {
         "precondition: a key is configured"
     );
     assert!(
-        std::env::var("AETHER_AUDIT_KEY").is_err(),
-        "AETHER_AUDIT_KEY is still in this process's environment, so every spawned \
+        std::env::var("IRONSHELL_AUDIT_KEY").is_err(),
+        "IRONSHELL_AUDIT_KEY is still in this process's environment, so every spawned \
          child inherits the key that is supposed to distinguish us from them"
     );
 }
@@ -382,7 +382,7 @@ fn skipping_a_torn_tail_does_not_hide_a_rewrite_beneath_it() {
 // ── The append-only sink (AS-2026-02 residue) ────────────────────────────
 
 /// Keying stops anyone who can only *write* the log from forging it. It does
-/// not stop this process, which holds the key. `AETHER_AUDIT_SINK` is the hook
+/// not stop this process, which holds the key. `IRONSHELL_AUDIT_SINK` is the hook
 /// for a destination the shell cannot rewrite — a FIFO drained by a collector,
 /// a WORM mount, a directory where the user has append but not write.
 ///
@@ -394,9 +394,9 @@ fn every_entry_is_mirrored_to_the_sink() {
     install_key();
     let log = tmp_log("sinklog");
     let sink = tmp_log("sink");
-    std::env::set_var("AETHER_AUDIT_SINK", &sink);
+    std::env::set_var("IRONSHELL_AUDIT_SINK", &sink);
     write_entries(&log, 3);
-    std::env::remove_var("AETHER_AUDIT_SINK");
+    std::env::remove_var("IRONSHELL_AUDIT_SINK");
 
     let mirrored = std::fs::read_to_string(&sink).expect("sink was never written");
     let lines: Vec<&str> = mirrored.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -422,9 +422,9 @@ fn the_sink_still_verifies_after_the_log_is_truncated() {
     install_key();
     let log = tmp_log("sinktrunc");
     let sink = tmp_log("sinktrunc_out");
-    std::env::set_var("AETHER_AUDIT_SINK", &sink);
+    std::env::set_var("IRONSHELL_AUDIT_SINK", &sink);
     write_entries(&log, 3);
-    std::env::remove_var("AETHER_AUDIT_SINK");
+    std::env::remove_var("IRONSHELL_AUDIT_SINK");
 
     // What an approved `Exec` can do to the log and not to a FIFO.
     std::fs::write(&log, "").expect("truncate");
@@ -442,7 +442,7 @@ fn the_sink_still_verifies_after_the_log_is_truncated() {
 #[test]
 fn no_sink_configured_is_not_an_error() {
     let _g = lock();
-    std::env::remove_var("AETHER_AUDIT_SINK");
+    std::env::remove_var("IRONSHELL_AUDIT_SINK");
     let log = tmp_log("nosink");
     write_entries(&log, 2);
     assert_eq!(

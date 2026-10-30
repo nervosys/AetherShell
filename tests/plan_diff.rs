@@ -6,13 +6,13 @@
 //! it is right. This is the review surface the roadmap called a "textual plan
 //! diff view".
 
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::collections::BTreeMap;
 
 fn call(name: &str, args: Vec<Value>) -> Value {
     let mut env = Env::new();
-    aethershell::builtins::call(name, args, &mut env).expect("builtin call")
+    iron_shell::builtins::call(name, args, &mut env).expect("builtin call")
 }
 
 fn op(kind: &str, path: &str, content: Option<&str>) -> Value {
@@ -153,7 +153,7 @@ fn plan_diff_declares_that_it_reads_local_state() {
     // It opens every target file. Advertising `Pure` would tell an agent the
     // call is referentially transparent and safe to cache, when its answer
     // changes the moment anything touches those paths.
-    use aethershell::safety::{effect_is_declared, effect_of, Effect};
+    use iron_shell::safety::{effect_is_declared, effect_of, Effect};
     assert_eq!(effect_of("plan_diff"), Effect::ReadLocal);
     assert!(effect_is_declared("plan_diff"));
 }

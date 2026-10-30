@@ -1,18 +1,18 @@
 /**
- * AetherShell Agent API - TypeScript Integration Example
+ * IronShell Agent API - TypeScript Integration Example
  * 
- * This example demonstrates how to integrate AetherShell's Agent API with
+ * This example demonstrates how to integrate IronShell's Agent API with
  * popular TypeScript AI frameworks like OpenAI, Anthropic, and Vercel AI SDK.
  * 
  * Prerequisites:
  *   npm install openai @anthropic-ai/sdk ai
  * 
  * Start the Agent API server:
- *   ae --agent-api
+ *   ish --agent-api
  */
 
 // =============================================================================
-// AetherShell Agent API Client
+// IronShell Agent API Client
 // =============================================================================
 
 interface AgentResponse<T = unknown> {
@@ -51,7 +51,7 @@ interface GeminiFunctionDeclaration {
     parameters: Record<string, unknown>;
 }
 
-class AetherShellClient {
+class IronShellClient {
     private baseUrl: string;
 
     constructor(baseUrl: string = "http://localhost:3002") {
@@ -104,11 +104,11 @@ async function openaiIntegrationExample(): Promise<void> {
     const OpenAI = await import("openai").then((m) => m.default);
 
     // Initialize clients
-    const aether = new AetherShellClient();
+    const ironshell = new IronShellClient();
     const openai = new OpenAI(); // Uses OPENAI_API_KEY env var
 
-    // Get AetherShell tool schema in OpenAI format
-    const schemaResponse = await aether.schema("openai");
+    // Get IronShell tool schema in OpenAI format
+    const schemaResponse = await ironshell.schema("openai");
     if (!schemaResponse.success || !schemaResponse.result) {
         console.error("Failed to get schema:", schemaResponse.error);
         return;
@@ -138,8 +138,8 @@ async function openaiIntegrationExample(): Promise<void> {
 
             console.log(`AI requested: ${functionName}(${JSON.stringify(functionArgs)})`);
 
-            // Execute via AetherShell
-            const result = await aether.call(functionName, functionArgs);
+            // Execute via IronShell
+            const result = await ironshell.call(functionName, functionArgs);
             if (result.success) {
                 console.log("Result:", result.result);
             } else {
@@ -159,11 +159,11 @@ async function anthropicIntegrationExample(): Promise<void> {
     const Anthropic = await import("@anthropic-ai/sdk").then((m) => m.default);
 
     // Initialize clients
-    const aether = new AetherShellClient();
+    const ironshell = new IronShellClient();
     const anthropic = new Anthropic(); // Uses ANTHROPIC_API_KEY env var
 
-    // Get AetherShell tool schema in Claude format
-    const schemaResponse = await aether.schema("claude");
+    // Get IronShell tool schema in Claude format
+    const schemaResponse = await ironshell.schema("claude");
     if (!schemaResponse.success || !schemaResponse.result) {
         console.error("Failed to get schema:", schemaResponse.error);
         return;
@@ -189,8 +189,8 @@ async function anthropicIntegrationExample(): Promise<void> {
 
             console.log(`Claude requested: ${toolName}(${JSON.stringify(toolInput)})`);
 
-            // Execute via AetherShell
-            const result = await aether.call(toolName, toolInput);
+            // Execute via IronShell
+            const result = await ironshell.call(toolName, toolInput);
             if (result.success) {
                 console.log("Result:", result.result);
             } else {
@@ -210,17 +210,17 @@ async function vercelAiIntegrationExample(): Promise<void> {
     const { generateText, tool } = await import("ai");
     const { openai } = await import("@ai-sdk/openai");
 
-    // Initialize AetherShell client
-    const aether = new AetherShellClient();
+    // Initialize IronShell client
+    const ironshell = new IronShellClient();
 
     // Get builtin descriptions
-    const builtinsResponse = await aether.listBuiltins();
+    const builtinsResponse = await ironshell.listBuiltins();
     if (!builtinsResponse.success || !builtinsResponse.result) {
         console.error("Failed to list builtins");
         return;
     }
 
-    // Create Vercel AI SDK tools from AetherShell builtins
+    // Create Vercel AI SDK tools from IronShell builtins
     const tools: Record<string, any> = {};
 
     for (const builtin of builtinsResponse.result.builtins.slice(0, 5)) {
@@ -228,7 +228,7 @@ async function vercelAiIntegrationExample(): Promise<void> {
             description: builtin.description,
             parameters: {}, // Simplified for demo
             execute: async (args: Record<string, unknown>) => {
-                const result = await aether.call(builtin.name, args);
+                const result = await ironshell.call(builtin.name, args);
                 if (result.success) {
                     return JSON.stringify(result.result);
                 }
@@ -254,18 +254,18 @@ async function vercelAiIntegrationExample(): Promise<void> {
 // =============================================================================
 
 async function directApiExamples(): Promise<void> {
-    const aether = new AetherShellClient();
+    const ironshell = new IronShellClient();
 
     console.log("=== Direct API Examples ===\n");
 
     // 1. Evaluate code
     console.log("1. Evaluate expression:");
-    const evalResult = await aether.eval("1 + 2 * 3");
+    const evalResult = await ironshell.eval("1 + 2 * 3");
     console.log(`   1 + 2 * 3 = ${evalResult.result}`);
 
     // 2. List builtins by category
     console.log("\n2. List filesystem builtins:");
-    const builtinsResult = await aether.listBuiltins("filesystem");
+    const builtinsResult = await ironshell.listBuiltins("filesystem");
     if (builtinsResult.success && builtinsResult.result) {
         for (const b of builtinsResult.result.builtins.slice(0, 5)) {
             console.log(`   - ${b.name}: ${b.description}`);
@@ -274,14 +274,14 @@ async function directApiExamples(): Promise<void> {
 
     // 3. Call builtin
     console.log("\n3. Call 'pwd' builtin:");
-    const pwdResult = await aether.call("pwd");
+    const pwdResult = await ironshell.call("pwd");
     if (pwdResult.success) {
         console.log(`   Current directory: ${pwdResult.result}`);
     }
 
     // 4. Execute pipeline
     console.log("\n4. Execute pipeline (ls | take | select):");
-    const pipelineResult = await aether.pipeline([
+    const pipelineResult = await ironshell.pipeline([
         { builtin: "ls", args: { path: "." } },
         { eval: "take(3)" },
         { eval: 'select("name", "size")' },
@@ -294,7 +294,7 @@ async function directApiExamples(): Promise<void> {
     console.log("\n5. Available schema formats:");
     const formats = ["openai", "claude", "gemini", "llama", "mistral", "groq", "ollama"];
     for (const fmt of formats) {
-        const schema = await aether.schema(fmt);
+        const schema = await ironshell.schema(fmt);
         if (schema.success && schema.result) {
             const modelCount = schema.result.compatible_models?.length || 0;
             console.log(`   - ${fmt}: ${modelCount} compatible models`);
@@ -307,7 +307,7 @@ async function directApiExamples(): Promise<void> {
 // =============================================================================
 
 async function main(): Promise<void> {
-    console.log("AetherShell Agent API - TypeScript Integration Examples\n");
+    console.log("IronShell Agent API - TypeScript Integration Examples\n");
     console.log("=".repeat(60));
 
     // Check if Agent API is running
@@ -322,7 +322,7 @@ async function main(): Promise<void> {
         }
     } catch (e) {
         console.error("Error: Agent API not running on localhost:3002");
-        console.log("Start it with: ae --agent-api");
+        console.log("Start it with: ish --agent-api");
         process.exit(1);
     }
 
@@ -340,7 +340,7 @@ async function main(): Promise<void> {
 
 // Export for use as a module
 export {
-    AetherShellClient,
+    IronShellClient,
     openaiIntegrationExample,
     anthropicIntegrationExample,
     vercelAiIntegrationExample,

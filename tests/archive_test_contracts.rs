@@ -12,12 +12,12 @@
 #[path = "support/disposable.rs"]
 mod disposable;
 
-use aethershell::value::Value;
+use iron_shell::value::Value;
 use std::path::{Path, PathBuf};
 
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
-    let mut env = aethershell::env::Env::new();
-    aethershell::builtins::call(name, args, &mut env)
+    let mut env = iron_shell::env::Env::new();
+    iron_shell::builtins::call(name, args, &mut env)
 }
 
 fn code_of(e: &anyhow::Error) -> String {
@@ -85,8 +85,8 @@ fn archive_test_refuses_surplus_arguments() {
 
 #[test]
 fn archive_test_refuses_pipeline_input() {
-    let mut env = aethershell::env::Env::new();
-    let e = aethershell::builtins::call_with_input(
+    let mut env = iron_shell::env::Env::new();
+    let e = iron_shell::builtins::call_with_input(
         "archive_test",
         vec![s("a.xz")],
         Some(s("a.xz")),

@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to the AetherShell VS Code extension are documented here.
+All notable changes to the IronShell VS Code extension are documented here.
 
-The extension is versioned independently of the AetherShell shell itself; the
+The extension is versioned independently of the IronShell shell itself; the
 shell's changelog lives at the repository root.
 
 ## [1.6.1] - 2026-09-03
@@ -14,10 +14,10 @@ the thing rather than reading it.
 ### Fixed
 
 - **Run Selection was broken since it was added.** It emitted
-  `ae -e "<code>"`, and `ae` has no `-e` flag: `error: unexpected argument '-e'
+  `ish -e "<code>"`, and `ish` has no `-e` flag: `error: unexpected argument '-e'
   found`. The flag is `-c`. Verified against the clap definition in
   `src/main.rs` and against the published binary.
-- **Open TUI was broken the same way.** It launched `ae --tui`; `tui` is a
+- **Open TUI was broken the same way.** It launched `ish --tui`; `tui` is a
   subcommand, not a flag, so the terminal opened and immediately errored. Both
   survived because the failure appears in the user's terminal, where it reads
   as a broken install rather than a broken extension.
@@ -29,7 +29,7 @@ the thing rather than reading it.
 - **1.6.0 was packaged without its dependencies** and could not activate.
   `vsce package --no-dependencies` produced 18 files and 38 KB; `extension.ts`
   imports `vscode-languageclient` at the top level, so the editor got
-  MODULE_NOT_FOUND on the first `.ae` file opened. The package is 331 files.
+  MODULE_NOT_FOUND on the first `.ish` file opened. The package is 331 files.
 
 ### Added
 
@@ -38,7 +38,7 @@ the thing rather than reading it.
   of the six TypeScript modules. It is 78 now, over all of them, using a `vscode`
   stub so providers can be driven outside the editor.
 - **Four ratchets**, each guarding the class rather than the instance: no source
-  may invoke `ae` with an interface it does not have; every name in the hover
+  may invoke `ish` with an interface it does not have; every name in the hover
   table must be one the shell dispatches; every declared runtime dependency must
   be present and resolvable in the package; and no script may package without
   dependencies.
@@ -57,7 +57,7 @@ measured against the running dispatcher and parser, not read off the source.
 
 ### Fixed
 
-- **The `.ae` file icon never worked.** `package.json` set it to
+- **The `.ish` file icon never worked.** `package.json` set it to
   `./icons/ae-light.svg` and `./icons/ae-dark.svg`; neither has ever existed in
   the repository (`git log --diff-filter=D` finds no deletion, so they were
   never there to delete). Both now point at `./icons/ae-icon.svg`, which is a

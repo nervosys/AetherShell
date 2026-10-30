@@ -1,10 +1,10 @@
 //! Comprehensive AI Agent Tests
 //! Tests for single agents with various configurations, tools, error handling, and model selection
 //!
-//! NOTE: These tests require either AETHER_AI=stub or an actual AI provider to be configured.
+//! NOTE: These tests require either IRONSHELL_AI=stub or an actual AI provider to be configured.
 //! When no AI provider is available, tests will skip gracefully.
 
-use aethershell::{
+use iron_shell::{
     ai::agents::{run_sync, run_sync_with_model, Agent, ToolRegistry},
     env::Env,
     value::Value,
@@ -17,7 +17,7 @@ use std::sync::{Mutex, MutexGuard};
 /// This crate is edition 2021, where `set_var` is a safe fn -- the `unsafe`
 /// blocks that used to wrap these calls bought nothing and were the first task
 /// listed under HIGH-4 in the remediation tracker. The actual hazard is not
-/// memory safety but interleaving: `AETHER_AGENT_MODEL_URI` is process-global
+/// memory safety but interleaving: `IRONSHELL_AGENT_MODEL_URI` is process-global
 /// and 31 tests run in parallel in this binary.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -25,10 +25,10 @@ fn env_lock() -> MutexGuard<'static, ()> {
     ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Helper to check if AI is available (either AETHER_AI env var or stub mode)
+/// Helper to check if AI is available (either IRONSHELL_AI env var or stub mode)
 fn ai_available() -> bool {
-    // If AETHER_AI is set, we have a provider
-    if std::env::var("AETHER_AI").is_ok() {
+    // If IRONSHELL_AI is set, we have a provider
+    if std::env::var("IRONSHELL_AI").is_ok() {
         return true;
     }
     // Check for OpenAI API key
@@ -42,7 +42,7 @@ fn ai_available() -> bool {
 /// Helper to set up environment with stub AI for testing
 fn setup_stub_env() -> Env {
     let mut env = Env::default();
-    env.set_var("AETHER_AI", Value::Str("stub".to_string()))
+    env.set_var("IRONSHELL_AI", Value::Str("stub".to_string()))
         .unwrap();
     env
 }
@@ -198,12 +198,12 @@ fn test_agent_with_model_uri_ollama_format() {
 
 #[test]
 fn test_agent_model_env_variable() {
-    // Test that AETHER_AGENT_MODEL_URI is respected
+    // Test that IRONSHELL_AGENT_MODEL_URI is respected
     let _env = env_lock();
-    std::env::set_var("AETHER_AGENT_MODEL_URI", "stub");
+    std::env::set_var("IRONSHELL_AGENT_MODEL_URI", "stub");
     let mut env = setup_stub_env();
     let result = run_sync("Test", &["print"], 2, true, &mut env);
-    std::env::remove_var("AETHER_AGENT_MODEL_URI");
+    std::env::remove_var("IRONSHELL_AGENT_MODEL_URI");
     if result.is_err() && !ai_available() {
         return;
     }

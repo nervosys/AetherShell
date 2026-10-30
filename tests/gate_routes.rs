@@ -52,17 +52,17 @@ impl Workspace {
 
     /// Run one program in agent mode against this workspace.
     fn run(&self, source: &str) -> String {
-        let script = self.dir.join("probe.ae");
+        let script = self.dir.join("probe.ish");
         std::fs::write(&script, source).expect("write probe");
         let out = Command::new(ae())
             .arg("--deterministic")
             .arg(&script)
             .current_dir(&self.dir)
-            .env("AETHER_MODE", "agent")
-            .env("AETHER_WORKSPACE", &self.dir)
+            .env("IRONSHELL_MODE", "agent")
+            .env("IRONSHELL_WORKSPACE", &self.dir)
             // Approval must come from the gate, not from an inherited grant.
-            .env_remove("AETHER_APPROVE")
-            .env_remove("AETHER_APPROVE_ALL")
+            .env_remove("IRONSHELL_APPROVE")
+            .env_remove("IRONSHELL_APPROVE_ALL")
             .output()
             .expect("run ae");
         format!(
@@ -196,14 +196,14 @@ fn the_shell_escape_hatch_stays_shut() {
 #[test]
 fn the_same_call_is_permitted_outside_agent_mode() {
     let ws = Workspace::new("human");
-    let script = ws.dir.join("probe.ae");
+    let script = ws.dir.join("probe.ish");
     std::fs::write(&script, "rm(\"victim.txt\")").expect("write");
     let out = Command::new(ae())
         .arg("--deterministic")
         .arg(&script)
         .current_dir(&ws.dir)
-        .env_remove("AETHER_MODE")
-        .env_remove("AETHER_WORKSPACE")
+        .env_remove("IRONSHELL_MODE")
+        .env_remove("IRONSHELL_WORKSPACE")
         .output()
         .expect("run ae");
     let text = String::from_utf8_lossy(&out.stdout).to_string();
@@ -225,7 +225,7 @@ fn the_same_call_is_permitted_outside_agent_mode() {
 #[test]
 fn non_vacuity_the_routes_really_reach_the_builtin() {
     let ws = Workspace::new("nonvacuous");
-    let script = ws.dir.join("probe.ae");
+    let script = ws.dir.join("probe.ish");
     std::fs::write(
         &script,
         "let mk = fn(p) => fn(q) => rm(p)\nlet run = mk(\"victim.txt\")\nrun(0)",
@@ -236,9 +236,9 @@ fn non_vacuity_the_routes_really_reach_the_builtin() {
         .arg("--deterministic")
         .arg(&script)
         .current_dir(&ws.dir)
-        .env("AETHER_MODE", "agent")
-        .env("AETHER_WORKSPACE", &ws.dir)
-        .env("AETHER_APPROVE_ALL", "1")
+        .env("IRONSHELL_MODE", "agent")
+        .env("IRONSHELL_WORKSPACE", &ws.dir)
+        .env("IRONSHELL_APPROVE_ALL", "1")
         .output()
         .expect("run ae");
     let text = format!(

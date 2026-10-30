@@ -3,7 +3,7 @@
 ## November 7-8, 2025 - Initial Release
 
 ### Overview
-Implemented a comprehensive Syntax Knowledge Base system for AetherShell that enables multi-agent communication through protocol discovery, sharing, and the AgenticBinary (ab) protocol for maximum information density.
+Implemented a comprehensive Syntax Knowledge Base system for IronShell that enables multi-agent communication through protocol discovery, sharing, and the AgenticBinary (ab) protocol for maximum information density.
 
 ---
 
@@ -20,7 +20,7 @@ Implemented a comprehensive Syntax Knowledge Base system for AetherShell that en
 - `AgenticBinary` - Binary protocol encoder/decoder
 
 **Features:**
-- Persistent JSON storage at `~/.aethershell/syntax_kb.json`
+- Persistent JSON storage at `~/.ironshell/syntax_kb.json`
 - Thread-safe global singleton using `OnceLock<Mutex<SyntaxKB>>`
 - Auto-initialization on first access with built-in syntax definitions
 - Full CRUD operations: add, get, remove, list, search
@@ -29,7 +29,7 @@ Implemented a comprehensive Syntax Knowledge Base system for AetherShell that en
 
 **Built-in Syntax Definitions:**
 1. **AgenticBinary (ab)** - Binary protocol with 16 semantic opcodes
-2. **AetherShell** - Shell language reference
+2. **IronShell** - Shell language reference
 3. **JSON-RPC 2.0** - RPC protocol specification
 
 ---
@@ -176,14 +176,14 @@ Payload:
 
 ### 7. Examples
 
-**`examples/12_syntax_kb.ae`** (Feature Demonstration)
+**`examples/12_syntax_kb.ish`** (Feature Demonstration)
 - Protocol discovery and retrieval
 - Syntax search
 - AgenticBinary encoding/decoding across all opcodes
 - Custom syntax entry addition
 - Multi-agent message workflow
 
-**`examples/13_agent_coordination.ae`** (Real-World Example)
+**`examples/13_agent_coordination.ish`** (Real-World Example)
 - Complete multi-agent task distribution system
 - 10-phase agent coordination workflow
 - Protocol learning and discovery
@@ -282,7 +282,7 @@ Payload:
 ## Migration Notes
 
 ### For Existing Users
-- No breaking changes to existing AetherShell code
+- No breaking changes to existing IronShell code
 - New builtins are additive (indices 65-71)
 - Storage auto-created on first use
 - No configuration required
@@ -324,7 +324,7 @@ Version: Initial release (v1.0.0)
 
 - [Syntax KB Complete Guide](SYNTAX_KB.md)
 - [Quick Reference](SYNTAX_KB_QUICK_REF.md)
-- [Example: Basic Features](../examples/12_syntax_kb.ae)
-- [Example: Real-World Use](../examples/13_agent_coordination.ae)
+- [Example: Basic Features](../examples/12_syntax_kb.ish)
+- [Example: Real-World Use](../examples/13_agent_coordination.ish)
 - [Integration Tests](../tests/syntax_kb_builtins.rs)
 - [Main README](../README.md)

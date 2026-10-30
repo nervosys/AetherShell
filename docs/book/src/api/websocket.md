@@ -1,6 +1,6 @@
 # WebSocket & SSE
 
-AetherShell provides real-time communication through WebSocket connections and Server-Sent Events (SSE) for streaming results.
+IronShell provides real-time communication through WebSocket connections and Server-Sent Events (SSE) for streaming results.
 
 ## WebSocket
 
@@ -27,7 +27,7 @@ ws.onmessage = (event) => {
 Messages from client to server are JSON objects with a `type` field.
 
 #### `execute`
-Execute an AetherShell command.
+Execute an IronShell command.
 
 ```json
 {

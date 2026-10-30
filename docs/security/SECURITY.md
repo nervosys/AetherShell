@@ -19,10 +19,10 @@ See [LTS.md](../LTS.md) for the full Long-Term Support policy.
 
 ### For Critical Vulnerabilities
 
-If you discover a security vulnerability in AetherShell, please report it via:
+If you discover a security vulnerability in IronShell, please report it via:
 
 **Email**: security@nervosys.ai  
-**Subject**: [SECURITY] AetherShell Vulnerability Report
+**Subject**: [SECURITY] IronShell Vulnerability Report
 
 ### Information to Include
 
@@ -55,7 +55,7 @@ To help us understand and address the issue quickly, please include:
 
 ## Security Features
 
-AetherShell implements multiple layers of security:
+IronShell implements multiple layers of security:
 
 ### ✅ Input Validation
 - Path traversal prevention (CVSS 8.2 → 0.0)
@@ -101,7 +101,7 @@ AetherShell implements multiple layers of security:
 
 ## Security Audit
 
-AetherShell has undergone comprehensive security auditing:
+IronShell has undergone comprehensive security auditing:
 
 - **v1.0.0 Internal Audit**: Completed June 2025 — 11 findings (3 CRITICAL, 6 HIGH), all remediated. See [SECURITY_AUDIT_V1.md](SECURITY_AUDIT_V1.md).
 - **v1.0.0 Internal Audit**: Completed June 2025 — 11 findings (3 CRITICAL, 6 HIGH), all remediated. See [SECURITY_AUDIT_V1.md](SECURITY_AUDIT_V1.md).
@@ -164,4 +164,4 @@ We recognize security researchers who responsibly disclose vulnerabilities:
 
 <!-- Security researchers will be listed here -->
 
-Thank you for helping keep AetherShell secure! 🔒
+Thank you for helping keep IronShell secure! 🔒

@@ -1,4 +1,4 @@
-# .aeg `ae -a -c 'x'`
+# .ishg `ish -a -c 'x'`
 O = let | pipe |.f map(__.f) > |v1 ~x:b fn(x)=>b ~.f fn(__)=>__.f \=~ $X env ^c{t}{e} ?v{} match !{e}{f} try *it~x:b each ;cmt %def alias '->" `->sh T true N null :=mut 1k/M/G=1e3/6/9
 B a all b flatten c cat d debug e echo f find g grep h head i first j join k keys l ls m map n len o sort p print q reverse r reduce s select t take u uniq v values w where x sh y any z last
 M A arr A2 a2a AG agent AN ansible AS asdf AU audit AZ archive B bun BD buildah C crypto CG cargo CL clip CR cron CT container CX cluster D db DE direnv DK docker DN deno E evo F file FS fs FW firewall G gh GD gdb GL glab GO go GW gui H http HM helm HV hyperv HW hw I ai IN input IP iperf3 J json JU just K k8s M math MC mcp MI mise N net NA nanda NC nc NN nn NO node NP npm OD objdump P platform PC pre_commit PD podman PK pkg PM perm PN pnpm PO poetry PR proc PX pipx R str RB rbac RE readelf RF ruff RL rl RU rustup S sys SC screen SH shell SK skopeo SS sso SV svc TF terraform TV trivy TX tmux U uv UI a2ui US user V vm VG valgrind VI virsh W wsl WB web Y yarn Z zoxide

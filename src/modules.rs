@@ -1,4 +1,4 @@
-//! Module system for AetherShell builtins.
+//! Module system for IronShell builtins.
 //!
 //! This module provides namespaced access to builtin functions:
 //! - `sys.info()`, `sys.hostname()`, `sys.uptime()`
@@ -632,7 +632,7 @@ pub fn cluster_module() -> Value {
     ])
 }
 
-/// Cloud platform module — hosted AetherShell instances
+/// Cloud platform module — hosted IronShell instances
 pub fn cloud_module() -> Value {
     module(&[
         ("deploy", "cloud_deploy"),
@@ -1512,7 +1512,7 @@ lazy_static::lazy_static! {
 
 /// An [`Env`] with every module namespace registered.
 ///
-/// Use this anywhere arbitrary AetherShell *source* is about to be evaluated.
+/// Use this anywhere arbitrary IronShell *source* is about to be evaluated.
 /// A bare `Env::new()`/`Env::default()` has no `file`, `sys`, `http`, … bound,
 /// so every module-qualified call in that source fails with
 /// `cannot access field 'read' on non-record value: Null` — a generic

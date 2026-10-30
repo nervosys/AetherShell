@@ -11,7 +11,7 @@ use crate::ast::{BinOp, CfgCondition, ExportItem, Expr, ImportItem, Stmt, UnOp, 
 /// branchable on `.code`." Parse errors were the exception, arriving as
 /// `error: found 1 error(s): unexpected token Eof at line 1, column 27`, with
 /// nothing to switch on. Measured against three other shells, it was the one
-/// failure in ten where AetherShell carried no machine-readable code.
+/// failure in ten where IronShell carried no machine-readable code.
 ///
 /// This type lives in the parser rather than in `safety` on purpose:
 /// `safety` is `#[cfg(feature = "native")]` and the parser is not, so reaching
@@ -237,7 +237,7 @@ pub struct Parser {
     /// stack and aborted the process:
     ///
     /// ```text
-    /// thread 'aether-eval' has overflowed its stack
+    /// thread 'ironshell-eval' has overflowed its stack
     /// ```
     ///
     /// That is a crash rather than an error, reachable by anyone who can hand
@@ -802,7 +802,7 @@ fn lex(src: &str) -> Result<Vec<Spanned>> {
                     "catch" => Tok::Catch,
                     "throw" => Tok::Throw,
                     // Python's and SQL's spellings of the boolean operators.
-                    // A 3B model asked for AetherShell wrote them in most of
+                    // A 3B model asked for IronShell wrote them in most of
                     // its attempts (benches/agentic/results/e7-local-*.md);
                     // nothing binds `and` or `or`, and a field of that name is
                     // still reachable (see `need_field`). `not` is *not* here:
@@ -1832,7 +1832,7 @@ impl Parser {
     /// Parse a terse lambda `~x: body` / `~x, y: body` (the `~` already consumed).
     /// Body is parsed at logic-or precedence so it's bounded by `|`/`,`/`)`/`]`/`}`
     /// and never swallows an enclosing pipeline. The implicit-parameter cipher
-    /// form `~.field` is intentionally left to the `.aeg` transpiler — the legible
+    /// form `~.field` is intentionally left to the `.ishg` transpiler — the legible
     /// grammar uses an explicit parameter.
     fn parse_tilde_lambda(&mut self) -> Result<Expr> {
         let mut params = Vec::new();

@@ -1,33 +1,33 @@
-# AGENTS.md - AetherShell Agent & AI Discovery
+# AGENTS.md - IronShell Agent & AI Discovery
 
-> This file helps AI coding assistants (GitHub Copilot, Claude, ChatGPT, Cursor, Windsurf, Cody, local models) understand how to work with AetherShell.
+> This file helps AI coding assistants (GitHub Copilot, Claude, ChatGPT, Cursor, Windsurf, Cody, local models) understand how to work with IronShell.
 
 ## Identity
 
-- **Project**: AetherShell
+- **Project**: IronShell
 - **Tagline**: One language, every platform, deterministic typed output
-- **Binary**: `ae`
+- **Binary**: `ish` (`ae`, the pre-14.0.0 name, is installed as an alias)
 - **Language**: Rust
 - **Version**: 12.0.2 (13.0.0 in preparation)
 - **Repository**: https://github.com/nervosys/AetherShell
 - **License**: AGPL-3.0-or-later
-- **File Extension**: `.ae`
+- **File Extension**: `.ish`
 
-## Why AetherShell Exists
+## Why IronShell Exists
 
 AI agents today are forced to interact with shells designed decades ago for humans — Bash on Linux, PowerShell on Windows, Zsh on macOS. Each has its own syntax, conventions, and quirks. Worse, their output is unstructured text that varies across OS versions, locales, and tool installations, creating non-deterministic results that make agent workflows fundamentally brittle. An agent that parses `df -h` output on Ubuntu will break on Alpine. A script that scrapes `Get-Process` output will fail when column widths change. Every shell command becomes a fragile integration point.
 
-## What Is AetherShell?
+## What Is IronShell?
 
-AetherShell eliminates this entire class of failure. It provides a single cross-platform shell language with deterministic, typed output — every command returns structured data (Int, Float, String, Array, Record, Lambda), not raw text. An ontology built into the shell makes commands, their arguments, and their return types discoverable by AI agents without documentation scraping or prompt engineering. It has 1,100+ builtins (1,172 listed by its ontology; 1,438 callable names counting aliases) in 108 modules, native AI agents with multi-modal support, and implements the MCP, A2A, A2UI, and NANDA agentic protocols.
+IronShell eliminates this entire class of failure. It provides a single cross-platform shell language with deterministic, typed output — every command returns structured data (Int, Float, String, Array, Record, Lambda), not raw text. An ontology built into the shell makes commands, their arguments, and their return types discoverable by AI agents without documentation scraping or prompt engineering. It has 1,100+ builtins (1,172 listed by its ontology; 1,438 callable names counting aliases) in 108 modules, native AI agents with multi-modal support, and implements the MCP, A2A, A2UI, and NANDA agentic protocols.
 
-## How To Use AetherShell (for AI agents)
+## How To Use IronShell (for AI agents)
 
-### Option 1: Generate AetherShell Code
+### Option 1: Generate IronShell Code
 
-Write `.ae` scripts or REPL expressions:
+Write `.ish` scripts or REPL expressions:
 
-```ae
+```ish
 # Typed pipeline
 ls("./src") | where(fn(f) => f.size > 1024) | map(fn(f) => f.name)
 
@@ -40,7 +40,7 @@ file.replace("config.rs", "DEBUG = false", "DEBUG = true")
 
 ### Option 2: Call the Agent API (HTTP)
 
-Start: `ae agent serve` (port 3002)
+Start: `ish agent serve` (port 3002)
 
 ```bash
 # Call a builtin
@@ -55,10 +55,10 @@ curl http://localhost:3002/api/v1/schema/openai
 ### Option 3: Python SDK + LangChain
 
 ```python
-from aethershell import AetherRuntime
-from aethershell.langchain import get_agent_api_tools
+from ironshell import IronShellRuntime
+from ironshell.langchain import get_agent_api_tools
 
-runtime = AetherRuntime()
+runtime = IronShellRuntime()
 result = runtime.eval('sys.hostname()')
 
 # LangChain tools (connect to Agent API server)
@@ -67,7 +67,7 @@ tools = get_agent_api_tools("http://localhost:3002")
 
 ### Option 4: Run Existing Shell Scripts
 
-`ae -b` (and `.sh` files) run the ordinary POSIX subset **in-process**
+`ish -b` (and `.sh` files) run the ordinary POSIX subset **in-process**
 (`src/posix.rs`): pipelines, `&&`/`||`, variables, `$(…)`, redirections,
 `if`/`for`/`while`, `test`, and GNU-compatible `ls`/`find`/`grep`/`head`/`tail`/
 `wc`/`sort`/`uniq`/`cut`/`sed`/`cat`/`echo`/`printf`. Other commands run as the
@@ -77,29 +77,29 @@ matched bash byte-for-byte, and 32 of 32 on a held-out corpus.
 
 Not in the subset (functions, `case`, `$((…))`, here-documents, subshells,
 background jobs) falls back to the transpiler, which may delegate to
-`bash -lc` when `AETHER_ALLOW_SH` is set; that fallback is not contained.
+`bash -lc` when `IRONSHELL_ALLOW_SH` is set; that fallback is not contained.
 Zsh and PowerShell input still goes through the transpilers only.
 
 ```bash
 # Auto-detected by file extension
-ae deploy.sh           # Bash → AetherShell
-ae setup.zsh           # Zsh  → AetherShell
-ae provision.ps1       # PowerShell → AetherShell
+ish deploy.sh           # Bash → IronShell
+ish setup.zsh           # Zsh  → IronShell
+ish provision.ps1       # PowerShell → IronShell
 
 # Explicit mode flags
-ae --bash -c 'ls -la | grep .rs | wc -l'
-ae --zsh  -c 'setopt extended_glob; ls **/*.txt'
-ae --pwsh -c 'Get-ChildItem -Recurse | Select-Object Name, Length'
+ish --bash -c 'ls -la | grep .rs | wc -l'
+ish --zsh  -c 'setopt extended_glob; ls **/*.txt'
+ish --pwsh -c 'Get-ChildItem -Recurse | Select-Object Name, Length'
 
 # Pipe via stdin
-echo 'cat /etc/hosts' | ae --bash
+echo 'cat /etc/hosts' | ish --bash
 ```
 
-Transpilers map 100+ commands per shell to native AetherShell builtins, with block accumulation for multi-line constructs (`if`/`for`/`while`/`case`/`function`).
+Transpilers map 100+ commands per shell to native IronShell builtins, with block accumulation for multi-line constructs (`if`/`for`/`while`/`case`/`function`).
 
 ### Option 5: Agentic Syntax (legacy; not recommended)
 
-`ae -a` and `.aeg` files accept a compressed syntax (`l"./src"|w~.size>1k|.name`).
+`ish -a` and `.ishg` files accept a compressed syntax (`l"./src"|w~.size>1k|.name`).
 It is kept for scripts that use it, and its reference is no longer part of
 this file, because measured it costs more than it saves:
 
@@ -112,9 +112,9 @@ this file, because measured it costs more than it saves:
   standard syntax (`benches/agentic/results/e7-haiku-4-5-subagent.md`).
 
 Write the standard syntax below. The reference, for maintaining old scripts,
-is `docs/AGENTIC_SYNTAX.md` and `ae agent schema`.
+is `docs/AGENTIC_SYNTAX.md` and `ish agent schema`.
 
-## AetherShell Syntax Quick Reference
+## IronShell Syntax Quick Reference
 
 ```
 # Variables (inferred types)
@@ -144,7 +144,7 @@ open("issues.json") | sql("select user, count(*) as n from t group by user")
 sql_value("issues.json", "select count(*) from issues where state = 'open'")
 
 # Check effects before running
-explain_effects("rm(\"x\")")            # or: ae --explain -c '...'
+explain_effects("rm(\"x\")")            # or: ish --explain -c '...'
 
 # Pattern matching
 match score { 90..100 => "A", 80..89 => "B", _ => "F" }
@@ -248,7 +248,7 @@ crypto.uuid()         math.sqrt(16)      arr.range(10)
 | `POST` | `/api/v1/execute`        | Execute any AgentRequest  |
 | `POST` | `/api/v1/call/:builtin`  | Call a single builtin     |
 | `POST` | `/api/v1/pipeline`       | Execute a pipeline        |
-| `POST` | `/api/v1/eval`           | Evaluate AetherShell code |
+| `POST` | `/api/v1/eval`           | Evaluate IronShell code |
 | `POST` | `/api/v1/stream/execute` | Stream execution (SSE)    |
 | `GET`  | `/api/v1/ws`             | WebSocket connection      |
 | `GET`  | `/api/v1/schema`         | Full JSON schema          |
@@ -263,7 +263,7 @@ Schema formats: `openai`, `claude`, `gemini`, `llama`, `mistral`, `cohere`, `gro
 ## Development
 
 ```bash
-cargo build --bins          # Build ae + aimodel
+cargo build --bins          # Build ish + aimodel
 cargo test --workspace      # Run workspace tests
 cargo run -- --tui          # TUI mode
 cargo run -- -c 'expr'      # Quick eval

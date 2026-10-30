@@ -1,9 +1,9 @@
-# AetherShell Development Setup Script
+# IronShell Development Setup Script
 # Run this after cloning to set up your development environment
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "🔧 AetherShell Development Setup" -ForegroundColor Cyan
+Write-Host "🔧 IronShell Development Setup" -ForegroundColor Cyan
 Write-Host ""
 
 # Check Rust
@@ -78,5 +78,5 @@ Write-Host "  cargo run --features native -- tui   # Run TUI" -ForegroundColor G
 Write-Host "  cargo test --features native         # Run tests" -ForegroundColor Gray
 Write-Host "  cargo build --release --features native  # Release build" -ForegroundColor Gray
 Write-Host ""
-Write-Host "Binary location: target/debug/ae.exe" -ForegroundColor Gray
+Write-Host "Binary location: target/debug/ish.exe" -ForegroundColor Gray
 Write-Host ""

@@ -1,4 +1,4 @@
-//! Sigil audit: does AetherShell's agentic syntax actually tokenize the way its
+//! Sigil audit: does IronShell's agentic syntax actually tokenize the way its
 //! design assumes?
 //!
 //! The agentic mode's saving is built on single-character sigils (`F.r`, `~.`,

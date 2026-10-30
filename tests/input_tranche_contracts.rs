@@ -4,7 +4,7 @@
 //!
 //! Argument and pipeline refusals are checked in-process, where a refusal that
 //! reads stdin would block the test, so each of those calls must refuse before
-//! it reads. Answers are checked by driving the real `ae` binary with `-c`, the
+//! it reads. Answers are checked by driving the real `ish` binary with `-c`, the
 //! answers piped on stdin and stdin then closed. Every child has a hard
 //! deadline of 30 seconds, so a prompt that waits for more input than the test
 //! supplies fails the test instead of hanging it.
@@ -12,9 +12,9 @@
 //! input_editor is never launched here: without a terminal it refuses with
 //! E_NO_UI before it runs anything, and that is the only path tested.
 
-use aethershell::builtins::{call, call_with_input};
-use aethershell::env::Env;
-use aethershell::value::Value;
+use iron_shell::builtins::{call, call_with_input};
+use iron_shell::env::Env;
+use iron_shell::value::Value;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -37,7 +37,7 @@ struct Run {
     success: bool,
 }
 
-/// Runs `ae -c expr` with `input` on stdin, under the deadline.
+/// Runs `ish -c expr` with `input` on stdin, under the deadline.
 fn run_ae(expr: &str, input: Input, tag: &str) -> Run {
     let dir: PathBuf =
         std::env::temp_dir().join(format!("ae_input_tranche_{}_{tag}", std::process::id()));
@@ -45,10 +45,10 @@ fn run_ae(expr: &str, input: Input, tag: &str) -> Run {
     let stdout_path = dir.join("stdout.txt");
     let stderr_path = dir.join("stderr.txt");
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ae"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ish"))
         .arg("-c")
         .arg(expr)
-        .env("AETHER_SESSION_DIR", dir.join("session"))
+        .env("IRONSHELL_SESSION_DIR", dir.join("session"))
         .stdin(match input {
             Input::Piped(_) => Stdio::piped(),
             Input::Eof => Stdio::null(),
@@ -73,7 +73,7 @@ fn run_ae(expr: &str, input: Input, tag: &str) -> Run {
             None if started.elapsed() > CHILD_DEADLINE => {
                 let _ = child.kill();
                 let _ = child.wait();
-                panic!("ae -c {expr:?} ran past {CHILD_DEADLINE:?}");
+                panic!("ish -c {expr:?} ran past {CHILD_DEADLINE:?}");
             }
             None => std::thread::sleep(Duration::from_millis(10)),
         }

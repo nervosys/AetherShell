@@ -1,7 +1,7 @@
 //! A surface that exists to serve an AI agent must default to the agent safety
 //! profile.
 //!
-//! `ae agent serve` and `ae mcp serve` ran with the *human* profile unless the
+//! `ish agent serve` and `ish mcp serve` ran with the *human* profile unless the
 //! operator also remembered `--agent`, so the default posture of the two
 //! agent-facing surfaces was the permissive one: no effect gate, no workspace
 //! jail, on an endpoint whose job is to evaluate code an LLM wrote.
@@ -23,19 +23,19 @@
 
 use std::process::Command;
 
-const AE: &str = env!("CARGO_BIN_EXE_ae");
+const AE: &str = env!("CARGO_BIN_EXE_ish");
 
-/// Run `ae -c` with an explicit mode environment, returning (stdout+stderr, ok).
+/// Run `ish -c` with an explicit mode environment, returning (stdout+stderr, ok).
 fn run_with_mode(code: &str, mode: Option<&str>, cwd: &std::path::Path) -> (String, bool) {
     let mut cmd = Command::new(AE);
     cmd.arg("-c").arg(code).current_dir(cwd);
     match mode {
-        Some(m) => cmd.env("AETHER_MODE", m),
-        None => cmd.env_remove("AETHER_MODE"),
+        Some(m) => cmd.env("IRONSHELL_MODE", m),
+        None => cmd.env_remove("IRONSHELL_MODE"),
     };
     // The jail is what is under test; never let an inherited value decide it.
-    cmd.env_remove("AETHER_WORKSPACE")
-        .env_remove("AETHER_AGENT");
+    cmd.env_remove("IRONSHELL_WORKSPACE")
+        .env_remove("IRONSHELL_AGENT");
     let out = cmd.output().expect("spawn ae");
     (
         String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr),
@@ -96,14 +96,14 @@ fn agent_mode_confines_writes_to_the_workspace() {
 fn a_human_invocation_is_not_jailed() {
     // Non-vacuity for the test above — if writes outside the cwd were blocked
     // for everyone, it would pass without agent mode meaning anything — and the
-    // guard against turning this into a blanket default. `ae deploy.sh` writing
+    // guard against turning this into a blanket default. `ish deploy.sh` writing
     // to /etc is the documented migration path (AGENTS.md, Option 4).
     let j = jail("human");
     let target = j.outside.join("human.txt");
     let code = format!("file.write({:?}, \"ok\")", target.to_string_lossy());
 
     let (out, ok) = run_with_mode(&code, None, &j.inside);
-    assert!(ok, "a plain `ae -c` write failed: {out}");
+    assert!(ok, "a plain `ish -c` write failed: {out}");
     assert!(
         target.exists(),
         "a human invocation was refused a write outside its cwd — the jail has \
@@ -133,32 +133,32 @@ fn the_serving_subcommands_report_the_agent_profile() {
     }
 }
 
-/// Drive `ae mcp stdio` with one `tools/call` that writes outside its working
+/// Drive `ish mcp stdio` with one `tools/call` that writes outside its working
 /// directory, returning the server's stdout.
 fn mcp_stdio_write(mode: Option<&str>, cwd: &std::path::Path, target: &std::path::Path) -> String {
     use std::io::Write;
     let mut cmd = Command::new(AE);
     cmd.args(["mcp", "stdio"])
         .current_dir(cwd)
-        .env_remove("AETHER_WORKSPACE")
-        .env_remove("AETHER_AGENT")
+        .env_remove("IRONSHELL_WORKSPACE")
+        .env_remove("IRONSHELL_AGENT")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     match mode {
-        Some(m) => cmd.env("AETHER_MODE", m),
-        None => cmd.env_remove("AETHER_MODE"),
+        Some(m) => cmd.env("IRONSHELL_MODE", m),
+        None => cmd.env_remove("IRONSHELL_MODE"),
     };
-    let mut child = cmd.spawn().expect("spawn ae mcp stdio");
+    let mut child = cmd.spawn().expect("spawn ish mcp stdio");
     let call = serde_json::json!({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": { "name": "aether", "arguments": {
+        "params": { "name": "ironshell", "arguments": {
             "name": "file_write", "args": [target.to_string_lossy(), "owned"] } }
     });
     let mut stdin = child.stdin.take().expect("stdin");
     writeln!(stdin, "{call}").expect("write request");
     drop(stdin); // EOF ends the server loop
-    let out = child.wait_with_output().expect("wait for ae mcp stdio");
+    let out = child.wait_with_output().expect("wait for ish mcp stdio");
     String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr)
 }
 
@@ -172,7 +172,7 @@ fn mcp_stdio_implies_agent_mode() {
     let out = mcp_stdio_write(None, &j.inside, &target);
     assert!(
         !target.exists(),
-        "`ae mcp stdio` wrote outside its workspace with no mode set; output: {out}"
+        "`ish mcp stdio` wrote outside its workspace with no mode set; output: {out}"
     );
     assert!(
         out.contains("E_OUTSIDE_WORKSPACE"),
@@ -183,13 +183,13 @@ fn mcp_stdio_implies_agent_mode() {
 #[test]
 fn mcp_stdio_honours_an_explicit_human_mode() {
     // Non-vacuity for the test above, and the documented escape hatch: an
-    // operator who sets AETHER_MODE gets what they asked for.
+    // operator who sets IRONSHELL_MODE gets what they asked for.
     let j = jail("mcpstdio_human");
     let target = j.outside.join("ok.txt");
     let out = mcp_stdio_write(Some("human"), &j.inside, &target);
     assert!(
         target.exists(),
-        "`AETHER_MODE=human ae mcp stdio` did not write; the implication is not \
-         keyed on AETHER_MODE being unset, or the call never ran: {out}"
+        "`IRONSHELL_MODE=human ish mcp stdio` did not write; the implication is not \
+         keyed on IRONSHELL_MODE being unset, or the call never ran: {out}"
     );
 }

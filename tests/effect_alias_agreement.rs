@@ -17,8 +17,8 @@
 //! single effect, so a classification added to one spelling and not its twin
 //! fails the build instead of quietly opening a door.
 
-use aethershell::builtins::alias_groups;
-use aethershell::safety::{effect_of, Effect};
+use iron_shell::builtins::alias_groups;
+use iron_shell::safety::{effect_of, Effect};
 
 /// Groups whose members disagree, with the effect each name claims.
 fn disagreements() -> Vec<Vec<(&'static str, Effect)>> {
@@ -101,7 +101,7 @@ fn every_group_that_agrees_agrees_on_a_declared_effect() {
         }
         for name in &names {
             assert!(
-                aethershell::safety::effect_is_declared(name),
+                iron_shell::safety::effect_is_declared(name),
                 "`{name}` reports {} but reads as undeclared, so an agent asking whether the label was reasoned about is told no",
                 agreed.as_str()
             );
