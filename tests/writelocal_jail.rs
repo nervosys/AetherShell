@@ -238,9 +238,11 @@ fn the_number_of_writelocal_builtins_relying_on_call_sites_is_measured() {
         write_local.len()
     );
     assert!(
-        unguarded.len() <= 115,
+        // 130 after the Pure review: what it added writes process memory or a
+        // private file, and handle_drop refuses an id that is not its own.
+        unguarded.len() <= 130,
         "{} of {} WriteLocal builtins are not in SELF_GUARDED, up from the \
-         measured 111. Nothing in `guard_dispatch` jails them, so a new one that \
+         measured 130. Nothing in `guard_dispatch` jails them, so a new one that \
          writes a caller's path must guard it in its body. Adding another is \
          allowed; letting the number grow silently is not.",
         unguarded.len(),

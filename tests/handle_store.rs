@@ -133,3 +133,26 @@ fn timing_of_4000_puts() {
         elapsed.as_secs_f64() * 1_000_000.0 / 4000.0
     );
 }
+
+#[test]
+fn an_id_that_is_not_a_handle_never_reaches_the_file_system() {
+    let session = Session::new("traversal");
+    let outside = session
+        .dir
+        .parent()
+        .unwrap()
+        .join(format!("ish-handle-victim-{}.json", std::process::id()));
+    std::fs::write(&outside, "{}").unwrap();
+    let id = format!("../{}", outside.file_stem().unwrap().to_str().unwrap());
+
+    let dropped = handles::drop_handle(&id);
+    let still_there = outside.exists();
+    let _ = std::fs::remove_file(&outside);
+
+    assert!(!dropped, "a path was accepted as a handle id");
+    assert!(
+        still_there,
+        "drop_handle deleted a file outside the session"
+    );
+    assert!(handles::get(&id).is_none());
+}

@@ -92,6 +92,9 @@ fn persist(dir: &Path, h: &Handle) -> Persisted {
 
 fn load(id: &str) -> Option<Handle> {
     let dir = session_dir()?;
+    if !is_handle_id(id) {
+        return None;
+    }
     let raw = std::fs::read_to_string(dir.join(format!("{id}.json"))).ok()?;
     let (shape, items, bytes, value): (String, usize, usize, Value) =
         serde_json::from_str(&raw).ok()?;
@@ -356,8 +359,18 @@ pub fn list() -> Vec<Handle> {
     out
 }
 
+/// An id this store issues: `h` and digits. The id names a file in the session
+/// directory, so anything else, such as `../x`, must not reach the file system.
+fn is_handle_id(id: &str) -> bool {
+    id.strip_prefix('h')
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// Release a handle. Returns whether it existed, in memory or on disk.
 pub fn drop_handle(id: &str) -> bool {
+    if !is_handle_id(id) {
+        return false;
+    }
     let mut store = STORE.lock().unwrap_or_else(|e| e.into_inner());
     let before = store.len();
     store.retain(|h| h.id != id);
