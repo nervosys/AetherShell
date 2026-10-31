@@ -29,7 +29,7 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 use crate::ast::{Expr, Stmt};
@@ -69,10 +69,15 @@ pub enum AgentRequest {
         #[serde(default)]
         category: Option<String>,
     },
-    /// Get the language ontology/schema
+    /// Get the language ontology/schema, optionally narrowed to one module and
+    /// to the builtins whose name or description contains `q`
     Schema {
         #[serde(default)]
         format: SchemaFormat,
+        #[serde(default)]
+        module: Option<String>,
+        #[serde(default)]
+        q: Option<String>,
     },
     /// Get type information
     TypeInfo {
@@ -410,7 +415,9 @@ fn dispatch_request(request: &AgentRequest) -> AgentResponse {
         AgentRequest::Eval { code } => execute_eval(code),
         AgentRequest::Describe { builtin } => describe_builtin(builtin),
         AgentRequest::ListBuiltins { category } => list_builtins(category.as_deref()),
-        AgentRequest::Schema { format } => get_schema(format),
+        AgentRequest::Schema { format, module, q } => {
+            get_schema(format, module.as_deref(), q.as_deref())
+        }
         AgentRequest::TypeInfo { type_name } => get_type_info(type_name.as_deref()),
     }
 }
@@ -868,18 +875,35 @@ fn list_builtins(category: Option<&str>) -> AgentResponse {
 }
 
 /// What a schema's bytes depend on besides its format: the surface and
-/// deterministic-mode settings (`current_mode`, `deterministic_mode`), and the
+/// deterministic-mode settings (`current_mode`, `deterministic_mode`), the
 /// environment the CLI-tool probe reads (`PATH`, `PATHEXT`, the working
-/// directory). A change to any of them selects a different cache entry.
-type SchemaCacheKey = (String, String, bool, String, String, String);
+/// directory), and the filter. A change to any of them selects a different
+/// cache entry, so a filtered answer is never served for an unfiltered request.
+type SchemaCacheKey = (String, String, bool, String, String, String, String);
 
-/// Built schema values, by format and environment. The schema is a function of
-/// those inputs, and building it probes the PATH for CLI tools and rebuilds the
-/// whole catalogue, so each one is built once per key rather than per request.
+/// Built schema values, by format, environment and filter. The schema is a
+/// function of those inputs, and building it probes the PATH for CLI tools and
+/// rebuilds the whole catalogue, so each one is built once per key rather than
+/// per request. The filter is free text, so the map is bounded: a client that
+/// varies `q` cannot grow it without limit.
 static SCHEMA_CACHE: OnceLock<Mutex<HashMap<SchemaCacheKey, JsonValue>>> = OnceLock::new();
 
-/// Get the language schema in the requested format
-fn get_schema(format: &SchemaFormat) -> AgentResponse {
+/// Most entries the schema cache holds before it starts again.
+const SCHEMA_CACHE_LIMIT: usize = 256;
+
+/// A filter string as the schema uses it: trimmed, lower-cased, and absent when
+/// empty. Matching is case-insensitive, so `File` and `file` are one request.
+fn normalise_filter(value: Option<&str>) -> Option<String> {
+    value
+        .map(|v| v.trim().to_lowercase())
+        .filter(|v| !v.is_empty())
+}
+
+/// Get the language schema in the requested format, narrowed by `module` and
+/// `q` when either is given.
+fn get_schema(format: &SchemaFormat, module: Option<&str>, q: Option<&str>) -> AgentResponse {
+    let module = normalise_filter(module);
+    let q = normalise_filter(q);
     let key: SchemaCacheKey = (
         format!("{:?}", format),
         format!("{:?}", crate::safety::current_mode()),
@@ -889,6 +913,7 @@ fn get_schema(format: &SchemaFormat) -> AgentResponse {
         std::env::current_dir()
             .map(|p| p.display().to_string())
             .unwrap_or_default(),
+        format!("module={module:?} q={q:?}"),
     );
     let cache = SCHEMA_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let cached = cache
@@ -899,15 +924,25 @@ fn get_schema(format: &SchemaFormat) -> AgentResponse {
     let result = match cached {
         Some(value) => value,
         None => {
-            let built = build_schema_value(format);
-            cache
+            // Only a request that is accepted is cached, so an unknown module
+            // is refused on every ask rather than remembered.
+            let mut ontology = build_language_ontology();
+            if let Err(refused) = narrow_ontology(&mut ontology, module.as_deref(), q.as_deref()) {
+                return refused;
+            }
+            let built = build_schema_value(format, &ontology);
+            let mut cache_map = cache
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .insert(key, built.clone());
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if cache_map.len() >= SCHEMA_CACHE_LIMIT {
+                cache_map.clear();
+            }
+            cache_map.insert(key, built.clone());
             built
         }
     };
 
+    let filter = (module.is_some() || q.is_some()).then(|| json!({"module": module, "q": q}));
     AgentResponse {
         code: None,
         hint: None,
@@ -915,14 +950,77 @@ fn get_schema(format: &SchemaFormat) -> AgentResponse {
         result: Some(result),
         error: None,
         result_type: Some(format!("{:?}Schema", format)),
-        metadata: None,
+        metadata: filter.map(|f| json!({"filter": f})),
     }
 }
 
-/// Build the schema value for `format`, without the cache.
-fn build_schema_value(format: &SchemaFormat) -> JsonValue {
-    let ontology = build_language_ontology();
+/// Narrow the catalogue to the builtins in `module` whose name or description
+/// contains `q`. This runs before any provider format is built, so every format
+/// shrinks alike. A module is kept only with the functions that survive, and a
+/// module with none left is dropped. An unknown module is refused, with the
+/// modules it might have meant.
+fn narrow_ontology(
+    ontology: &mut LanguageOntology,
+    module: Option<&str>,
+    q: Option<&str>,
+) -> Result<(), AgentResponse> {
+    if module.is_none() && q.is_none() {
+        return Ok(());
+    }
+    if let Some(m) = module {
+        if !ontology
+            .modules
+            .iter()
+            .any(|md| md.name.eq_ignore_ascii_case(m))
+        {
+            let did_you_mean = crate::builtins::nearest_names(
+                m,
+                ontology.modules.iter().map(|md| md.name.as_str()),
+            );
+            let hint = if did_you_mean.is_empty() {
+                "GET /api/v1/schema lists every module".to_string()
+            } else {
+                format!("did you mean {}?", did_you_mean.join(", "))
+            };
+            return Err(AgentResponse {
+                code: Some("E_BAD_ARG".to_string()),
+                hint: Some(hint.clone()),
+                success: false,
+                result: None,
+                error: Some(format!("Unknown module '{m}'; {hint}")),
+                result_type: None,
+                metadata: Some(json!({"code": "E_BAD_ARG", "did_you_mean": did_you_mean})),
+            });
+        }
+    }
 
+    let in_module: Option<Vec<String>> = module.map(|m| {
+        ontology
+            .modules
+            .iter()
+            .filter(|md| md.name.eq_ignore_ascii_case(m))
+            .flat_map(|md| md.functions.iter().map(|f| f.builtin.clone()))
+            .collect()
+    });
+    ontology.builtins.retain(|b| {
+        in_module
+            .as_ref()
+            .is_none_or(|names| names.contains(&b.name))
+            && q.is_none_or(|q| {
+                b.name.to_lowercase().contains(q) || b.description.to_lowercase().contains(q)
+            })
+    });
+
+    let kept: HashSet<&str> = ontology.builtins.iter().map(|b| b.name.as_str()).collect();
+    for md in &mut ontology.modules {
+        md.functions.retain(|f| kept.contains(f.builtin.as_str()));
+    }
+    ontology.modules.retain(|md| !md.functions.is_empty());
+    Ok(())
+}
+
+/// Build the schema value for `format` from `ontology`, without the cache.
+fn build_schema_value(format: &SchemaFormat, ontology: &LanguageOntology) -> JsonValue {
     match format {
         SchemaFormat::JsonSchema => serde_json::to_value(&ontology).unwrap_or(JsonValue::Null),
         SchemaFormat::OpenAI => build_openai_schema(&ontology),
@@ -5112,15 +5210,20 @@ pub mod server {
             .unwrap()
     }
 
-    async fn handle_schema() -> impl IntoResponse {
+    async fn handle_schema(
+        axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
         let request = AgentRequest::Schema {
             format: SchemaFormat::Ontology,
+            module: params.get("module").cloned(),
+            q: params.get("q").cloned(),
         };
-        Json(process_request(&request))
+        schema_response(&request)
     }
 
     async fn handle_schema_format(
         axum::extract::Path(format): axum::extract::Path<String>,
+        axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
     ) -> impl IntoResponse {
         let Some(schema_format) = parse_schema_format(&format) else {
             return (
@@ -5135,8 +5238,21 @@ pub mod server {
 
         let request = AgentRequest::Schema {
             format: schema_format,
+            module: params.get("module").cloned(),
+            q: params.get("q").cloned(),
         };
-        (StatusCode::OK, Json(json!(process_request(&request))))
+        schema_response(&request)
+    }
+
+    /// A schema answer, or 400 when the request's filter is refused.
+    fn schema_response(request: &AgentRequest) -> (StatusCode, Json<JsonValue>) {
+        let response = process_request(request);
+        let status = if response.success {
+            StatusCode::OK
+        } else {
+            StatusCode::BAD_REQUEST
+        };
+        (status, Json(json!(response)))
     }
 
     async fn handle_list_builtins(
@@ -6259,6 +6375,16 @@ pub const SCHEMA_FORMATS_HINT: &str = "openai, claude, gemini, llama, mistral, c
 
 /// Generate schema in the specified format
 pub fn generate_schema(format: &str) -> Result<String> {
+    generate_schema_filtered(format, None, None)
+}
+
+/// Generate schema in the specified format, narrowed as `GET /api/v1/schema`
+/// narrows it with `module` and `q`.
+pub fn generate_schema_filtered(
+    format: &str,
+    module: Option<&str>,
+    q: Option<&str>,
+) -> Result<String> {
     let schema_format = parse_schema_format(format).ok_or_else(|| {
         anyhow!(
             "Unknown schema format: '{}'. Supported: {}",
@@ -6269,6 +6395,8 @@ pub fn generate_schema(format: &str) -> Result<String> {
 
     let request = AgentRequest::Schema {
         format: schema_format,
+        module: module.map(str::to_string),
+        q: q.map(str::to_string),
     };
     let response = process_request(&request);
 

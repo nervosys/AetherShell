@@ -243,14 +243,23 @@ paths:
     get:
       operationId: getFullSchema
       summary: Get the complete JSON Schema ontology
-      description: Returns all builtins, types, and capabilities as JSON Schema
+      description: Returns all builtins, types, and capabilities as JSON Schema. Narrow it with `module` and `q`.
+      parameters:
+        - $ref: '#/components/parameters/SchemaModule'
+        - $ref: '#/components/parameters/SchemaQuery'
       responses:
         '200':
-          description: Full schema
+          description: Full schema, or the filtered part of it
           content:
             application/json:
               schema:
                 type: object
+        '400':
+          description: Unknown module (E_BAD_ARG, with did_you_mean candidates in metadata)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
 
   /api/v1/schema/{format}:
     get:
@@ -290,13 +299,21 @@ paths:
               - fireworks
               - ontology
           description: Target AI provider format
+        - $ref: '#/components/parameters/SchemaModule'
+        - $ref: '#/components/parameters/SchemaQuery'
       responses:
         '200':
-          description: Provider-specific schema
+          description: Provider-specific schema, or the filtered part of it
           content:
             application/json:
               schema:
                 type: object
+        '400':
+          description: Unknown format or module (E_BAD_ARG)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
 
   /api/v1/builtins:
     get:
@@ -541,6 +558,21 @@ components:
       description: >
         Printed by the server at startup, or supplied via `IRONSHELL_API_TOKEN`.
         Compared in constant time.
+  parameters:
+    SchemaModule:
+      name: module
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Only the builtins in this module, e.g. `file`. Case-insensitive. An unknown module is a 400.
+    SchemaQuery:
+      name: q
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Only the builtins whose name or description contains this text, case-insensitively. Empty means no filter.
   schemas:
     AgentRequest:
       type: object
@@ -580,6 +612,12 @@ components:
         format:
           type: string
           description: Schema format (for schema action)
+        module:
+          type: string
+          description: Only the builtins in this module, e.g. `file` (for schema action)
+        q:
+          type: string
+          description: Only the builtins whose name or description contains this, case-insensitively (for schema action)
         category:
           type: string
           description: Module category (for list_builtins)

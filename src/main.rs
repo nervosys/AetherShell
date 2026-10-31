@@ -259,6 +259,12 @@ enum AgentApiCommands {
         /// Output to file
         #[arg(long, short = 'o')]
         output: Option<String>,
+        /// Only the builtins in this module (for example `file`)
+        #[arg(long)]
+        module: Option<String>,
+        /// Only the builtins whose name or description contains this text
+        #[arg(long, short = 'q')]
+        q: Option<String>,
     },
     /// List all available builtins
     #[command(alias = "ls")]
@@ -734,8 +740,14 @@ fn handle_agent_api_command(command: AgentApiCommands) -> Result<()> {
             println!("{}", output);
             Ok(())
         }
-        AgentApiCommands::Schema { format, output } => {
-            let schema = agent_api::generate_schema(&format)?;
+        AgentApiCommands::Schema {
+            format,
+            output,
+            module,
+            q,
+        } => {
+            let schema =
+                agent_api::generate_schema_filtered(&format, module.as_deref(), q.as_deref())?;
 
             if let Some(path) = output {
                 fs::write(&path, &schema)?;

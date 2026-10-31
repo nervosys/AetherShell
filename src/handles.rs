@@ -28,8 +28,9 @@
 
 use crate::value::Value;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 /// Where a session's handles live.
 ///
@@ -51,19 +52,20 @@ fn session_dir() -> Option<PathBuf> {
     dirs::cache_dir().map(|c| c.join("ironshell").join("handles").join(key))
 }
 
-/// Persist one handle. Failure is deliberately silent: a handle that cannot be
-/// written still works for the rest of *this* process, and breaking a builtin
-/// call because a cache directory is unwritable would be a worse trade.
-fn persist(h: &Handle) {
-    let Some(dir) = session_dir() else { return };
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
+/// Persist one handle, and report whether it reached the disk. Failure is
+/// deliberately silent: a handle that cannot be written still works for the
+/// rest of *this* process, and breaking a builtin call because a cache
+/// directory is unwritable would be a worse trade.
+fn persist(dir: &Path, h: &Handle) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
     }
     // serde's representation, not `Value::to_json` — the latter renders `Uri`
     // as a bare string, so reading it back would yield `Str` and the handle
     // would no longer be what was computed. See the round-trip test below.
-    if let Ok(json) = serde_json::to_string(&(&h.shape, h.items, h.bytes, &h.value)) {
-        let _ = std::fs::write(dir.join(format!("{}.json", h.id)), json);
+    match serde_json::to_string(&(&h.shape, h.items, h.bytes, &h.value)) {
+        Ok(json) => std::fs::write(dir.join(format!("{}.json", h.id)), json).is_ok(),
+        Err(_) => false,
     }
 }
 
@@ -83,9 +85,14 @@ fn load(id: &str) -> Option<Handle> {
 
 /// Ids present on disk for this session.
 fn persisted_ids() -> Vec<String> {
-    let Some(dir) = session_dir() else {
-        return Vec::new();
-    };
+    match session_dir() {
+        Some(dir) => persisted_ids_in(&dir),
+        None => Vec::new(),
+    }
+}
+
+/// Ids of the handle files in `dir`, in numeric order.
+fn persisted_ids_in(dir: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -123,6 +130,79 @@ pub struct Handle {
 
 lazy_static::lazy_static! {
     static ref STORE: Mutex<Vec<Handle>> = Mutex::new(Vec::new());
+}
+
+/// What the last listing of a session directory found, and the directory's
+/// modification time as it was when that listing began.
+///
+/// `put` needs the count and the highest id on every call. Listing a directory
+/// of thousands of handles on each put made filling a session quadratic, so the
+/// answer is kept here and the directory is listed again only when it has
+/// changed. Creating or removing a file moves a directory's mtime, which is how
+/// a write by another process is noticed. This process's own writes are added
+/// to the tally by `note_put`.
+struct DirTally {
+    dir: PathBuf,
+    mtime: Option<SystemTime>,
+    count: usize,
+    max_id: usize,
+}
+
+static TALLY: Mutex<Option<DirTally>> = Mutex::new(None);
+
+/// Within this many handles of the cap, `put` lists the directory every time
+/// rather than trusting the tally. The mtime check misses a write that lands in
+/// the same timestamp tick as ours (FAT keeps two seconds), so near the limit
+/// the count is re-read exactly instead.
+const NEAR_CAP_LISTING: usize = 64;
+
+fn dir_mtime(dir: &Path) -> Option<SystemTime> {
+    std::fs::metadata(dir).and_then(|m| m.modified()).ok()
+}
+
+/// How many handles the session directory holds, and the highest id number.
+fn session_count(dir: &Path, cap: usize) -> (usize, usize) {
+    // Read the mtime before listing. A write that lands during the listing
+    // moves it, so the next put sees a change and lists again.
+    let now = dir_mtime(dir);
+    let mut tally = TALLY.lock().unwrap_or_else(|e| e.into_inner());
+    if let (Some(t), Some(now)) = (tally.as_ref(), now) {
+        if t.dir == dir && t.mtime == Some(now) && t.count + NEAR_CAP_LISTING < cap {
+            return (t.count, t.max_id);
+        }
+    }
+    let ids = persisted_ids_in(dir);
+    let max_id = ids
+        .last()
+        .and_then(|id| id[1..].parse::<usize>().ok())
+        .unwrap_or(0);
+    *tally = Some(DirTally {
+        dir: dir.to_path_buf(),
+        mtime: now,
+        count: ids.len(),
+        max_id,
+    });
+    (ids.len(), max_id)
+}
+
+/// Record a handle this process has just written to `dir`. The mtime is read
+/// after the write, so a write by another process that lands between the two
+/// is folded into it and not counted. That window is microseconds wide, and the
+/// near-cap listing above is what corrects any miss it leaves.
+fn note_put(dir: &Path, number: usize) {
+    let mtime = dir_mtime(dir);
+    let mut tally = TALLY.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(t) = tally.as_mut().filter(|t| t.dir == dir) {
+        t.count += 1;
+        t.max_id = t.max_id.max(number);
+        t.mtime = mtime;
+    }
+}
+
+/// Forget the tally, so the next `put` lists the directory in full. Used where
+/// files are removed, which `note_put` does not account for.
+fn forget_tally() {
+    *TALLY.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 /// The byte threshold in force. `0` means handles are disabled.
@@ -172,8 +252,12 @@ pub fn put(v: Value, rendered_bytes: usize) -> anyhow::Result<Handle> {
 
 fn put_capped(v: Value, rendered_bytes: usize, cap: usize) -> anyhow::Result<Handle> {
     let mut store = STORE.lock().unwrap_or_else(|e| e.into_inner());
-    let ids = persisted_ids();
-    let live = ids.len().max(store.len());
+    let dir = session_dir();
+    let (on_disk, last_number) = match &dir {
+        Some(d) => session_count(d, cap),
+        None => (0, 0),
+    };
+    let live = on_disk.max(store.len());
     if live >= cap {
         return Err(crate::safety::budget_exceeded(
             "handle",
@@ -181,21 +265,20 @@ fn put_capped(v: Value, rendered_bytes: usize, cap: usize) -> anyhow::Result<Han
             "release one with handle_drop(id) before the next large result is handled",
         ));
     }
-    let next = ids
-        .last()
-        .and_then(|id| id[1..].parse::<usize>().ok())
-        .unwrap_or(0)
-        .max(store.len())
-        + 1;
+    let number = last_number.max(store.len()) + 1;
     let h = Handle {
-        id: format!("h{next}"),
+        id: format!("h{number}"),
         shape: crate::shapes::observe(&v),
         items: item_count(&v),
         bytes: rendered_bytes,
         value: v,
     };
     store.push(h.clone());
-    persist(&h);
+    if let Some(d) = &dir {
+        if persist(d, &h) {
+            note_put(d, number);
+        }
+    }
     Ok(h)
 }
 
@@ -245,15 +328,18 @@ pub fn drop_handle(id: &str) -> bool {
     let on_disk = session_dir()
         .map(|d| std::fs::remove_file(d.join(format!("{id}.json"))).is_ok())
         .unwrap_or(false);
+    forget_tally();
     in_memory || on_disk
 }
 
 /// Drop every handle, in memory and on disk.
 pub fn clear() {
-    STORE.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    let mut store = STORE.lock().unwrap_or_else(|e| e.into_inner());
+    store.clear();
     if let Some(dir) = session_dir() {
         let _ = std::fs::remove_dir_all(dir);
     }
+    forget_tally();
 }
 
 /// The first few elements of a value, for a preview that shows the shape

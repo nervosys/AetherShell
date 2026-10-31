@@ -328,6 +328,8 @@ fn two_schema_requests_return_identical_bytes() {
 
     let request = AgentRequest::Schema {
         format: SchemaFormat::Claude,
+        module: None,
+        q: None,
     };
     let first = process_request(&request);
     let second = process_request(&request);
@@ -337,4 +339,131 @@ fn two_schema_requests_return_identical_bytes() {
         serde_json::to_string_pretty(&first.result).expect("serialise"),
         serde_json::to_string_pretty(&second.result).expect("serialise"),
     );
+}
+
+/// A schema request for the compact ontology, with the given filter.
+fn schema(module: Option<&str>, q: Option<&str>) -> AgentResponse {
+    process_request(&AgentRequest::Schema {
+        format: SchemaFormat::Ontology,
+        module: module.map(str::to_string),
+        q: q.map(str::to_string),
+    })
+}
+
+/// The names of the builtins in a compact-ontology answer.
+fn builtin_names(response: &AgentResponse) -> Vec<String> {
+    let result = response.result.as_ref().expect("a schema result");
+    result["builtins"]
+        .as_array()
+        .expect("a builtins array")
+        .iter()
+        .map(|b| b["n"].as_str().expect("a name").to_string())
+        .collect()
+}
+
+#[test]
+fn a_module_filter_shrinks_every_provider_format() {
+    let _sandbox = Sandbox::new("schema-filter-shrinks");
+
+    let whole = process_request(&AgentRequest::Schema {
+        format: SchemaFormat::Claude,
+        module: None,
+        q: None,
+    });
+    let filtered = process_request(&AgentRequest::Schema {
+        format: SchemaFormat::Claude,
+        module: Some("file".to_string()),
+        q: None,
+    });
+    assert!(whole.success && filtered.success);
+    let whole_tools = whole.result.as_ref().unwrap()["tools"]
+        .as_array()
+        .unwrap()
+        .len();
+    let file_tools = filtered.result.as_ref().unwrap()["tools"]
+        .as_array()
+        .unwrap()
+        .len();
+    assert!(file_tools > 0, "the file module has builtins");
+    assert!(
+        file_tools * 10 < whole_tools,
+        "the file module is a small part of the catalogue: {file_tools} of {whole_tools}"
+    );
+    let whole_bytes = serde_json::to_string(&whole.result).unwrap().len();
+    let file_bytes = serde_json::to_string(&filtered.result).unwrap().len();
+    assert!(file_bytes < whole_bytes, "{file_bytes} vs {whole_bytes}");
+}
+
+#[test]
+fn a_query_keeps_only_builtins_whose_name_or_description_match() {
+    let _sandbox = Sandbox::new("schema-filter-query");
+
+    let whole = builtin_names(&schema(None, None));
+    let matched = schema(None, Some("READ"));
+    assert!(matched.success);
+    let names = builtin_names(&matched);
+    assert!(
+        !names.is_empty() && names.len() < whole.len() / 2,
+        "{}",
+        names.len()
+    );
+    for entry in matched.result.as_ref().unwrap()["builtins"]
+        .as_array()
+        .unwrap()
+    {
+        let text = format!(
+            "{} {}",
+            entry["n"].as_str().unwrap(),
+            entry["d"].as_str().unwrap()
+        )
+        .to_lowercase();
+        assert!(text.contains("read"), "{text}");
+    }
+}
+
+#[test]
+fn an_unknown_module_is_refused_and_names_the_modules_it_might_mean() {
+    let _sandbox = Sandbox::new("schema-filter-unknown");
+
+    let refused = schema(Some("fle"), None);
+    assert!(!refused.success, "an unknown module must be refused");
+    assert!(refused.result.is_none());
+    assert_eq!(refused.code.as_deref(), Some("E_BAD_ARG"));
+    let metadata = refused.metadata.as_ref().expect("metadata");
+    assert_eq!(metadata["code"], json!("E_BAD_ARG"));
+    assert!(
+        metadata["did_you_mean"]
+            .as_array()
+            .expect("candidates")
+            .iter()
+            .any(|m| m.as_str() == Some("file")),
+        "{metadata}"
+    );
+    assert!(refused.error.unwrap().contains("Unknown module 'fle'"));
+}
+
+#[test]
+fn a_filtered_and_an_unfiltered_request_do_not_share_a_cache_entry() {
+    let _sandbox = Sandbox::new("schema-filter-cache");
+
+    // The unfiltered answer is asked first, so it is the one a collision
+    // would serve to the filtered request.
+    let whole = builtin_names(&schema(None, None));
+    let file = builtin_names(&schema(Some("file"), None));
+    let net = builtin_names(&schema(Some("net"), None));
+    assert!(file.len() < whole.len() && net.len() < whole.len());
+    assert_ne!(file, net, "two modules must not share an answer");
+
+    // And the unfiltered answer is still whole after the filtered ones.
+    assert_eq!(builtin_names(&schema(None, None)), whole);
+    assert_eq!(builtin_names(&schema(Some("file"), None)), file);
+}
+
+#[test]
+fn an_empty_filter_is_the_whole_catalogue() {
+    let _sandbox = Sandbox::new("schema-filter-empty");
+
+    let whole = serde_json::to_string(&schema(None, None).result).unwrap();
+    let blank = serde_json::to_string(&schema(Some("  "), Some("")).result).unwrap();
+    assert_eq!(whole, blank);
 }

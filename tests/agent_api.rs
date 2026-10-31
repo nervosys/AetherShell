@@ -175,6 +175,8 @@ fn describing_a_misspelt_builtin_suggests_the_real_one() {
 fn test_schema_compact() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Ontology,
+        module: None,
+        q: None,
     };
 
     let response = process_request(&request);
@@ -193,6 +195,8 @@ fn test_schema_compact() {
 fn test_schema_openai() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::OpenAI,
+        module: None,
+        q: None,
     };
 
     let response = process_request(&request);
@@ -221,6 +225,8 @@ fn test_schema_openai() {
 fn test_schema_claude() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Claude,
+        module: None,
+        q: None,
     };
 
     let response = process_request(&request);
@@ -246,6 +252,8 @@ fn test_schema_claude() {
 fn test_schema_gemini() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Gemini,
+        module: None,
+        q: None,
     };
 
     let response = process_request(&request);
@@ -446,6 +454,8 @@ fn validate_openai_tools(tools: &[serde_json::Value]) {
 fn test_schema_openai_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::OpenAI,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -470,6 +480,8 @@ fn test_schema_openai_structure() {
 fn test_schema_azure_openai_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::AzureOpenAI,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -495,6 +507,8 @@ fn test_schema_azure_openai_structure() {
 fn test_schema_claude_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Claude,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -531,6 +545,8 @@ fn test_schema_claude_structure() {
 fn test_schema_gemini_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Gemini,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -562,6 +578,8 @@ fn test_schema_gemini_structure() {
 fn test_schema_llama_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Llama,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -595,6 +613,8 @@ fn test_schema_llama_structure() {
 fn test_schema_mistral_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Mistral,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -625,6 +645,8 @@ fn test_schema_mistral_structure() {
 fn test_schema_cohere_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Cohere,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -659,6 +681,8 @@ fn test_schema_cohere_structure() {
 fn test_schema_grok_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Grok,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -681,6 +705,8 @@ fn test_schema_grok_structure() {
 fn test_schema_deepseek_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::DeepSeek,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -713,6 +739,8 @@ fn test_schema_deepseek_structure() {
 fn test_schema_bedrock_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Bedrock,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -739,6 +767,8 @@ fn test_schema_bedrock_structure() {
 fn test_schema_qwen_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Qwen,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -764,6 +794,8 @@ fn test_schema_qwen_structure() {
 fn test_schema_kimi_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Kimi,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -790,6 +822,8 @@ fn test_schema_kimi_structure() {
 fn test_schema_yi_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Yi,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -806,6 +840,8 @@ fn test_schema_yi_structure() {
 fn test_schema_glm_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::GLM,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -831,6 +867,8 @@ fn test_schema_glm_structure() {
 fn test_schema_reka_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Reka,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -848,6 +886,8 @@ fn test_schema_reka_structure() {
 fn test_schema_ai21_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::AI21,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -871,6 +911,8 @@ fn test_schema_ai21_structure() {
 fn test_schema_perplexity_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Perplexity,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -890,6 +932,8 @@ fn test_schema_perplexity_structure() {
 fn test_schema_together_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Together,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -909,6 +953,8 @@ fn test_schema_together_structure() {
 fn test_schema_groq_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Groq,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -926,6 +972,8 @@ fn test_schema_groq_structure() {
 fn test_schema_fireworks_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Fireworks,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -945,6 +993,8 @@ fn test_schema_fireworks_structure() {
 fn test_schema_ollama_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::Ollama,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -969,6 +1019,8 @@ fn test_schema_ollama_structure() {
 fn test_schema_vllm_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::VLLM,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -983,6 +1035,8 @@ fn test_schema_vllm_structure() {
 fn test_schema_huggingface_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::HuggingFace,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -999,6 +1053,8 @@ fn test_schema_huggingface_structure() {
 fn test_schema_openrouter_structure() {
     let request = AgentRequest::Schema {
         format: SchemaFormat::OpenRouter,
+        module: None,
+        q: None,
     };
     let response = process_request(&request);
     assert!(response.success);
@@ -1150,4 +1206,83 @@ fn an_unknown_schema_format_is_an_error_and_lmstudio_is_known() {
         text.contains("'opnai'") && text.contains("openai"),
         "{text}"
     );
+}
+
+/// The schema filter over a real socket: a refused module is a 400 with
+/// `E_BAD_ARG`, and an accepted one a 200 that is narrower than the whole.
+#[cfg(feature = "native")]
+mod schema_filter_over_http {
+    use iron_shell::agent_api::server::{start_agent_api_server, AgentApiConfig};
+    use serde_json::json;
+
+    const TOKEN: &str = "schema-filter-token";
+
+    /// Start the server on a free loopback port, as the auth tests do.
+    async fn serve() -> u16 {
+        let probe = std::net::TcpListener::bind("127.0.0.1:0").expect("bind probe");
+        let port = probe.local_addr().expect("addr").port();
+        drop(probe);
+
+        let config = AgentApiConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            enable_cors: true,
+            auth_token: Some(TOKEN.to_string()),
+            request_timeout_secs: 300,
+        };
+        tokio::spawn(async move {
+            let _ = start_agent_api_server(config).await;
+        });
+
+        for _ in 0..100 {
+            if tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .is_ok()
+            {
+                return port;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        panic!("agent api server did not start on port {port}");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_module_is_400_and_a_known_one_is_a_narrower_200() {
+        let port = serve().await;
+        iron_shell::tls::install_provider();
+        let client = reqwest::Client::new();
+        let get = |path: &str| {
+            client
+                .get(format!("http://127.0.0.1:{port}{path}"))
+                .bearer_auth(TOKEN)
+                .send()
+        };
+
+        let refused = get("/api/v1/schema/claude?module=fle")
+            .await
+            .expect("request");
+        assert_eq!(refused.status(), reqwest::StatusCode::BAD_REQUEST);
+        let body: serde_json::Value = refused.json().await.expect("json");
+        assert_eq!(body["success"], json!(false));
+        assert_eq!(body["metadata"]["code"], json!("E_BAD_ARG"));
+        assert!(body["metadata"]["did_you_mean"]
+            .as_array()
+            .expect("candidates")
+            .iter()
+            .any(|m| m.as_str() == Some("file")));
+
+        let whole = get("/api/v1/schema/claude").await.expect("request");
+        let whole_len = whole.text().await.expect("text").len();
+        let narrow = get("/api/v1/schema/claude?module=file")
+            .await
+            .expect("request");
+        assert_eq!(narrow.status(), reqwest::StatusCode::OK);
+        let narrow_len = narrow.text().await.expect("text").len();
+        assert!(narrow_len * 2 < whole_len, "{narrow_len} vs {whole_len}");
+
+        let unknown_format = get("/api/v1/schema/nonesuch?module=file")
+            .await
+            .expect("request");
+        assert_eq!(unknown_format.status(), reqwest::StatusCode::BAD_REQUEST);
+    }
 }

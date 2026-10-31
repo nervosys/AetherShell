@@ -100,7 +100,7 @@ Universal entry point. Accepts any `AgentRequest` variant via the `action` discr
 | `eval`          | `code: string`                         | Evaluate raw IronShell code |
 | `describe`      | `builtin: string`                      | Get builtin metadata          |
 | `list_builtins` | `category?: string`                    | List available builtins       |
-| `schema`        | `format?: SchemaFormat`                | Get language ontology/schema  |
+| `schema`        | `format?: SchemaFormat`, `module?: string`, `q?: string` | Get language ontology/schema, optionally filtered |
 | `type_info`     | `type_name?: string`                   | Get type system information   |
 
 **Example — call:**
@@ -192,9 +192,28 @@ Evaluate raw IronShell code.
 
 Returns the full language ontology in compact `Ontology` format, including types, builtins, operators, and syntax patterns.
 
+### Filtering the schema
+
+Both schema endpoints, and the `schema` action of `/api/v1/execute`, take two optional parameters that narrow the builtins before the answer is formatted, so every provider format shrinks alike:
+
+| Query param | Type   | Description |
+| ----------- | ------ | ----------- |
+| `module`    | string | Only builtins in this module, e.g. `file` (case-insensitive) |
+| `q`         | string | Only builtins whose name or description contains this text (case-insensitive) |
+
+The two combine: a builtin must be in `module` and match `q`. An empty value is no filter. The filtered answer carries `metadata.filter` with the values applied.
+
+An unknown `module` is refused with `400` and `metadata.code` `E_BAD_ARG`, and `metadata.did_you_mean` lists the module names it might have meant. The `json`, `jsonld`, `owl` and `shacl` formats describe the whole OS ontology, so they are not narrowed by `module` or `q`; the `json` format still carries its `categories`, `os_ontology` and `cli_tools` sections unfiltered.
+
+```
+GET /api/v1/schema?module=file
+GET /api/v1/schema/claude?q=read
+GET /api/v1/schema/openai?module=file&q=write
+```
+
 ### GET `/api/v1/schema/:format`
 
-Returns the language schema formatted for a specific AI provider's function-calling convention.
+Returns the language schema formatted for a specific AI provider's function-calling convention. Accepts the `module` and `q` parameters above.
 
 | `:format` aliases                 | Provider         |
 | --------------------------------- | ---------------- |
