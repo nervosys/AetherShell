@@ -1756,6 +1756,7 @@ impl Shell {
         for (n, v) in env {
             cmd.env(n, v);
         }
+        crate::safety::strip_ironshell_env(&mut cmd);
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(match sink.err_mode {
             ErrMode::Real => std::process::Stdio::inherit(),

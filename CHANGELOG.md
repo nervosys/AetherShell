@@ -309,6 +309,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A child the shell starts no longer inherits the shell's `IRONSHELL_*` settings. Only the POSIX `external()` stripped them, so a program run by a builtin, an external tool or a `run` call could read `IRONSHELL_API_KEY` or a policy setting. The strip now sits at the bounded runner (`run_tree_cmd_observed`), the tool runner (`run_tool`) and `external()`. A variable a call site sets explicitly still reaches its child, and a child that is `ish` in agent mode keeps `IRONSHELL_MODE=agent`, so it cannot fall back to ungated human mode.
 - `proc_wait` reaps a child that ended before the call. On macOS, which does not
   list zombies, it answered true and left the zombie behind.
 - Agent API pipelines no longer build code from a step's `select` and `predicate` as raw text. A `select` must be a field name, and a `predicate` must be one expression; anything else is refused with `E_BAD_ARG` naming the value, so a crafted field or predicate cannot run a write or any other effect. A predicate that is valid still runs under the same effect gate as `/api/v1/eval`. Agent API responses also carry the structured error's `code` and `hint` as `code` and `hint` fields, omitted when there is none; `error` is unchanged.

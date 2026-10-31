@@ -57632,6 +57632,7 @@ pub(crate) fn run_tree_cmd_observed(
     observe: impl FnOnce(&std::process::Child, std::time::Duration),
 ) -> std::result::Result<TreeRun, TreeError> {
     use std::process::Stdio;
+    crate::safety::strip_ironshell_env(&mut command);
     command
         .stdin(if stdin.is_some() {
             Stdio::piped()
@@ -61592,6 +61593,7 @@ where
     use std::time::{Duration, Instant};
 
     let halt = Arc::new(AtomicU8::new(HALT_NONE));
+    crate::safety::strip_ironshell_env(&mut cmd);
     cmd.stdin(if stdin.is_some() {
         Stdio::piped()
     } else {
