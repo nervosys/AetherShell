@@ -1213,6 +1213,56 @@ fn classified_effect(name: &str) -> Option<Effect> {
         "handle_drop" => Some(Effect::WriteLocal),
         // Formats the in-memory audit log. Read only.
         "audit_export" | "export_audit" => Some(Effect::ReadLocal),
+        // ── Group 2: the names that were presumed to reach the network. Read
+        // by body (tests/effect_pure_class.rs). None of them does: no cloud,
+        // SSO, cluster, workspace, telemetry, REPL or provider call exists in
+        // these bodies. What they do is listed per arm. Stubs that refuse
+        // before any effect stay Pure (see the report).
+        //
+        // Writes a process-static table: the cloud configuration, the SSO
+        // session table, the cluster node table, the workspace and REPL-session
+        // tables, the telemetry buffer and flag, and the AI provider registry or
+        // cost tracker and local model table. None touches disk or the network.
+        "cloud_config" | "sso_logout" | "logout_sso" | "cluster_remove_node"
+        | "workspace_create" | "workspace_join" | "workspace_leave"
+        | "workspace_share_agent" | "telemetry_enable" | "telemetry_disable"
+        | "repl_disconnect" | "ai_add_route" | "ai-add-route" | "ai_set_default"
+        | "ai-set-default" | "ai_set_load_balancing" | "ai-set-load-balancing"
+        | "ai_reset_usage" | "ai-reset-usage" | "ai_local_unload" | "ai-local-unload" => {
+            Some(Effect::WriteLocal)
+        }
+        // Read-only views of the same tables, the provider registry, the cost
+        // tracker, the RAG index and the local model backends. `rag_query` joins
+        // chunk text and `ai_local_embed` runs an already-loaded model; neither
+        // calls a provider.
+        "sso_validate" | "sso_status" | "sso_info" | "cluster_nodes" | "cluster_status"
+        | "workspace_members" | "workspace_agents" | "workspace_list" | "telemetry_status"
+        | "telemetry_report" | "telemetry_events" | "repl_sessions" | "rag_search"
+        | "rag_query" | "ai_cost" | "ai-cost" | "ai_usage" | "ai-usage"
+        | "ai_load_balancing" | "ai-load-balancing" | "ai_local_backends"
+        | "ai-local-backends" | "ai_local_embed" | "ai-local-embed" | "ai_providers"
+        | "ai-providers" | "ai_registry_stats" | "ai-registry-stats" | "ai_routes"
+        | "ai-routes" => Some(Effect::ReadLocal),
+        // ── Group 3: local reads. Each body was read (tests/effect_pure_class.rs).
+        //
+        // Reads a file or directory named by the caller or the working directory,
+        // or the config file, the plugin registry, the OS disk and mount tables,
+        // the PATH, the on-disk undo journal (cached after the first read), the
+        // in-memory audit log, the transaction state and the handle store. The
+        // config reload parses the file and discards the result, so it changes
+        // nothing in this process.
+        "code_dependencies" | "code_outline" | "docs_readme" | "config" | "config_get"
+        | "config_path" | "config_reload" | "project_config_files" | "project_entry_points"
+        | "project_type" | "plugin_list" | "plugin_info" | "lsblk" | "mount_info"
+        | "platform_cpu_count" | "platform_detect_tools" | "platform_has_container"
+        | "platform_has_sudo" | "platform_has_tool" | "platform_pkg_managers"
+        | "session_history" | "journal" | "query_audit" | "audit_query" | "audit_statistics"
+        | "audit_stats" | "tx_status" | "handle" | "handles" => Some(Effect::ReadLocal),
+        // Runs `<tool> --version` on a PATH binary the caller names, unsandboxed,
+        // whenever a requirement is a version string (`get_tool_version`). A bare
+        // presence check only scans PATH, but the call can execute any program on
+        // it, so it is Exec. `platform_satisfies` delegates to `platform_require`.
+        "platform_check_reqs" | "platform_require" | "platform_satisfies" => Some(Effect::Exec),
         _ => None,
     }
 }
