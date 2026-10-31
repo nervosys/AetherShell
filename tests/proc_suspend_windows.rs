@@ -94,7 +94,7 @@ impl Counter {
             .ok()
     }
 
-    /// The counter, retrying through a transient read during a write.
+    /// The counter of a running child, retrying through a read during a write.
     fn value(&self) -> i64 {
         for _ in 0..50 {
             if let Some(n) = self.read() {
@@ -106,6 +106,13 @@ impl Counter {
             "the counter file {} never became readable",
             self.file.display()
         );
+    }
+
+    /// The file as it stands, or None while it cannot be opened. `Set-Content`
+    /// truncates and then writes, so a suspend can land between the two and
+    /// leave the file empty, or held open, until the child resumes.
+    fn snapshot(&self) -> Option<Vec<u8>> {
+        std::fs::read(&self.file).ok()
     }
 }
 
@@ -144,16 +151,20 @@ fn suspend_freezes_the_counter_and_resume_lets_it_advance() {
         Value::Bool(true),
         "proc_suspend should answer true"
     );
-    // A write that was in flight when the suspend landed may still finish;
-    // sample only after it has.
+    // Suspension takes a moment to reach every thread. After that the file
+    // must not change, whatever state the suspend caught it in.
     std::thread::sleep(Duration::from_millis(300));
-    let frozen = counter.value();
+    let frozen = counter.snapshot();
     std::thread::sleep(Duration::from_millis(1500));
     assert_eq!(
-        counter.value(),
+        counter.snapshot(),
         frozen,
         "the counter moved while process {pid} was suspended"
     );
+    // An empty or unreadable file counts as zero: the child was mid-write.
+    let frozen = frozen
+        .and_then(|bytes| String::from_utf8_lossy(&bytes).trim().parse::<i64>().ok())
+        .unwrap_or(0);
 
     assert_eq!(
         run("proc_resume", vec![Value::Int(pid)]).expect("proc_resume"),
