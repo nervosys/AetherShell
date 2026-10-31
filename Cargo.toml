@@ -351,6 +351,10 @@ harness = false
 name = "pipeline_performance"
 harness = false
 
+[[bench]]
+name = "agent_path_performance"
+harness = false
+
 # ============================================================================
 # Linux Package Metadata
 # ============================================================================
