@@ -1,6 +1,6 @@
 ForEach-Object	Pure
-Get-Content	Pure
-Get-Files	Pure
+Get-Content	ReadLocal
+Get-Files	ReadLocal
 Group-Object	Pure
 Measure-Object	Pure
 None	Pure
@@ -455,8 +455,8 @@ gdb	Exec
 gdb_bt	Exec
 gdb_run	Exec
 generate_compliance	Pure
-get-content	Pure
-get-files	Pure
+get-content	ReadLocal
+get-files	ReadLocal
 get_roles	Pure
 gh_issue	Network
 gh_pr	Network
