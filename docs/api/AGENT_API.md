@@ -73,6 +73,8 @@ All endpoints return `AgentResponse`:
   "success": true,
   "result": <any>,
   "error": "string (on failure)",
+  "code": "string (on failure with a known code, e.g. E_BAD_ARG)",
+  "hint": "string (on failure, when the error says what to do)",
   "result_type": "String | Int | Array | Record | ...",
   "metadata": { "code_executed": "..." }
 }
