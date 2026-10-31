@@ -169,3 +169,45 @@ fn a_child_ish_started_in_agent_mode_stays_in_agent_mode() {
         run.stdout
     );
 }
+
+#[test]
+fn a_child_keeps_what_confines_a_shell_and_loses_credentials_and_opt_outs() {
+    let _guard = lock();
+    // A descendant `ish` reads these, so losing them would loosen it.
+    std::env::set_var("IRONSHELL_WORKSPACE", "/confined");
+    std::env::set_var("IRONSHELL_MAX_OPS", "7");
+    std::env::set_var("IRONSHELL_API_KEY", "not-a-real-key");
+    std::env::set_var("IRONSHELL_APPROVE", "all");
+    std::env::set_var("IRONSHELL_REDACT", "off");
+    let names = names_in(&bounded_env_of_child());
+    for var in [
+        "IRONSHELL_WORKSPACE",
+        "IRONSHELL_MAX_OPS",
+        "IRONSHELL_API_KEY",
+        "IRONSHELL_APPROVE",
+        "IRONSHELL_REDACT",
+    ] {
+        std::env::remove_var(var);
+    }
+    for kept in ["IRONSHELL_WORKSPACE", "IRONSHELL_MAX_OPS"] {
+        assert!(has_name(&names, kept), "{kept} did not reach the child");
+    }
+    for gone in ["IRONSHELL_API_KEY", "IRONSHELL_APPROVE", "IRONSHELL_REDACT"] {
+        assert!(!has_name(&names, gone), "{gone} reached the child");
+    }
+}
+
+#[test]
+fn any_child_of_an_agent_shell_carries_the_mode() {
+    let _guard = lock();
+    // The env printer is not `ish`, but it stands for any program that could
+    // start one. Set through IRONSHELL_AGENT, so nothing inherits the mode name.
+    std::env::set_var("IRONSHELL_AGENT", "1");
+    let names = names_in(&bounded_env_of_child());
+    std::env::remove_var("IRONSHELL_AGENT");
+    assert!(
+        has_name(&names, "IRONSHELL_MODE"),
+        "an agent shell's child lost the mode: {}",
+        listed(&names)
+    );
+}

@@ -1753,18 +1753,42 @@ pub fn not_found(builtin: &str, kind: &str, name: &str) -> anyhow::Error {
     })
 }
 
+/// The `IRONSHELL_*` settings that bound a shell. A descendant keeps them: any
+/// child may start `ish`, directly or through a script, and that `ish` must be
+/// held by the same workspace, policy and limits as this one. None of them is a
+/// credential, and each one only applies to a shell.
+const CONFINING_ENV: &[&str] = &[
+    "IRONSHELL_MODE",
+    "IRONSHELL_AGENT",
+    "IRONSHELL_POLICY",
+    "IRONSHELL_WORKSPACE",
+    "IRONSHELL_MAX_NET",
+    "IRONSHELL_MAX_FILES",
+    "IRONSHELL_MAX_OPS",
+    "IRONSHELL_MAX_PROCS",
+    "IRONSHELL_TIMEOUT_MS",
+    "IRONSHELL_TOKEN_BUDGET",
+    "IRONSHELL_NET_ALLOW",
+    "IRONSHELL_FIPS",
+    "IRONSHELL_DETERMINISTIC",
+    "IRONSHELL_RBAC_CONFIG",
+    "IRONSHELL_PRINCIPAL",
+    "IRONSHELL_AUDIT_LOG",
+    "IRONSHELL_AUDIT_REQUIRED",
+];
+
 /// Remove the shell's own `IRONSHELL_*` settings from a child's environment.
 ///
-/// A child inherits whatever environment the shell holds, so an `IRONSHELL_*`
-/// credential such as `IRONSHELL_API_KEY` or a gate such as `IRONSHELL_MODE`
-/// would reach any program the shell starts. Only inherited variables are
-/// removed: one the caller set on `cmd` with [`std::process::Command::env`] is
-/// the caller's named choice, and it is kept. That is how a site passes a
-/// variable on to a child that needs it.
+/// A child inherits whatever environment the shell holds, so a credential such
+/// as `IRONSHELL_API_KEY` would reach any program the shell starts. Everything
+/// is removed but [`CONFINING_ENV`]. The opt-outs go too (`IRONSHELL_APPROVE`,
+/// `IRONSHELL_REDACT=off`), so a descendant shell is never looser than this one.
+/// A variable the caller set on `cmd` with [`std::process::Command::env`] is the
+/// caller's named choice, and it is kept.
 ///
-/// A child that is this shell (`ish`, `ae`) gets `IRONSHELL_MODE=agent` back
-/// when the caller is in agent mode. Without it the child would start in human
-/// mode, which is ungated, so the strip would be a way out of the gate.
+/// Agent mode can be set by other means than the variable, so every child gets
+/// `IRONSHELL_MODE=agent` then. Any program may start `ish`, and without the
+/// variable that `ish` would be in human mode, which is ungated.
 pub(crate) fn strip_ironshell_env(cmd: &mut std::process::Command) {
     let explicit: Vec<std::ffi::OsString> = cmd
         .get_envs()
@@ -1775,14 +1799,12 @@ pub(crate) fn strip_ironshell_env(cmd: &mut std::process::Command) {
         let shell_var = name
             .to_str()
             .is_some_and(|n| n.to_ascii_uppercase().starts_with("IRONSHELL_"));
-        if shell_var && !explicit.iter().any(|e| e.eq_ignore_ascii_case(&name)) {
+        let confining = CONFINING_ENV.iter().any(|c| name.eq_ignore_ascii_case(c));
+        if shell_var && !confining && !explicit.iter().any(|e| e.eq_ignore_ascii_case(&name)) {
             cmd.env_remove(&name);
         }
     }
-    let is_this_shell = std::path::Path::new(cmd.get_program())
-        .file_stem()
-        .is_some_and(|stem| stem.eq_ignore_ascii_case("ish") || stem.eq_ignore_ascii_case("ae"));
-    if is_this_shell && current_mode() == Mode::Agent {
+    if current_mode() == Mode::Agent {
         cmd.env("IRONSHELL_MODE", "agent");
     }
 }
