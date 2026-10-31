@@ -566,6 +566,27 @@ fn spawn_then_wait_reaps_the_child() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_child_that_ended_before_the_wait_is_reaped_too() {
+    let pid = run("proc_spawn", vec![Value::Str("true".into())]).expect("proc_spawn");
+    let Value::Int(pid) = pid else {
+        panic!("proc_spawn did not answer a pid");
+    };
+    // Long enough for `true` to finish, so the wait starts on a zombie, which
+    // macOS does not list.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let ended = run("proc_wait", vec![Value::Int(pid)]).expect("proc_wait");
+    assert_eq!(
+        ended,
+        Value::Bool(true),
+        "the ended child was not recognised"
+    );
+    // SAFETY: signal 0 sends nothing; it asks whether the pid is still there.
+    let still = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    assert!(!still, "pid {pid} is a zombie after proc_wait");
+}
+
 #[cfg(windows)]
 #[test]
 fn spawn_then_wait_on_windows_ends_the_child() {

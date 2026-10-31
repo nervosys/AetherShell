@@ -25429,6 +25429,9 @@ fn bi_proc_wait(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // A pid that is not running now was never waited for: E_NOT_FOUND. A
     // process that ends while waited for is true.
     if !proc_live(pid) {
+        // Some hosts do not list a zombie (macOS), so a child that ended before
+        // this call lands here and still has to be reaped.
+        proc_has_ended(pid);
         if spawned_take(pid) {
             return Ok(Value::Bool(true));
         }
