@@ -3008,15 +3008,33 @@ pub fn ontology_manifest_json() -> JsonValue {
             })
         })
         .collect();
+    // The module namespaces an agent writes as `file.read(...)`. Taken from the
+    // table the evaluator registers, so each name here resolves; the member
+    // names are left out to keep the root small (the schema module filter has them).
+    let mut modules: Vec<(&'static str, usize)> = crate::modules::all_modules()
+        .into_iter()
+        .map(|(name, module)| match module {
+            crate::value::Value::Record(members) => (name, members.len()),
+            _ => (name, 0),
+        })
+        .collect();
+    modules.sort_by(|a, b| a.0.cmp(b.0));
+    // A name -> member-count object: serde_json's map is a BTreeMap here, so the
+    // keys come out sorted, and it is smaller than a list of {name, members}.
+    let modules: serde_json::Map<String, JsonValue> = modules
+        .into_iter()
+        .map(|(name, members)| (name.to_string(), json!(members)))
+        .collect();
     json!({
         "ontology": "manifest",
         "total_builtins": defs.len(),
         "categories": categories,
+        "modules": modules,
         "effect_legend": [
             "pure", "read_local", "write_local", "destructive",
             "process", "network", "exec", "privileged"
         ],
-        "hint": "ontology_describe(\"<category>\") lists a category's builtins; ontology_describe(\"<builtin>\") returns full detail"
+        "hint": "ontology_describe(\"<category>\") lists a category's builtins; ontology_describe(\"<builtin>\") returns full detail; modules lists each module namespace (call as <module>.<member>) with its member count; `ish agent schema --module <name>` lists a module's members"
     })
 }
 
