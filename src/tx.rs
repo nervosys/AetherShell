@@ -327,7 +327,9 @@ fn new_id() -> String {
 /// process settings and caches are not listed: a rollback need not undo them,
 /// as `tests/tx_irreversible.rs` `HARMLESS` records. The dispatcher refuses them while a transaction is
 /// active, before validation or the body runs, so `tx_rollback` never reports
-/// a clean undo over a change it left in place. Builtins that refuse or
+/// a clean undo over a change it left in place. A name served by the fallback
+/// `match` (`FALLBACK_BUILTINS`) is listed by its canonical spelling and every
+/// spelling of its arm is refused. Builtins that refuse or
 /// snapshot in their own bodies are not listed. `tests/tx_irreversible.rs`
 /// pins this list against every builtin classified as more than a read.
 pub const IRREVERSIBLE: &[&str] = &[
@@ -338,7 +340,15 @@ pub const IRREVERSIBLE: &[&str] = &[
     "age_decrypt",
     "age_encrypt",
     "age_keygen",
+    "agent",
     "agent_with_mcp",
+    "ai",
+    "ai_add_route",
+    "ai_convert_model",
+    "ai_local_generate",
+    "ai_reset_usage",
+    "ai_set_default",
+    "ai_set_load_balancing",
     "ansible_galaxy",
     "ansible_playbook",
     "ansible_vault",
@@ -428,12 +438,14 @@ pub const IRREVERSIBLE: &[&str] = &[
     "gui_resize_window",
     "gui_screenshot",
     "gui_type_text",
+    "handle_drop",
     "helm_install",
     "helm_uninstall",
     "helm_upgrade",
     "hyperfine",
     "index_docs",
     "init_sso",
+    "journal_clear",
     "just",
     "k8s_apply",
     "k8s_context",
@@ -506,6 +518,7 @@ pub const IRREVERSIBLE: &[&str] = &[
     "remove_node",
     "repl_disconnect",
     "revoke_permission",
+    "rewind",
     "rlm_spawn",
     "role_create",
     "role_grant",
@@ -537,6 +550,7 @@ pub const IRREVERSIBLE: &[&str] = &[
     "svc_restart",
     "svc_start",
     "svc_stop",
+    "swarm",
     "syntax_add",
     "tar_create",
     "task_run",
@@ -556,11 +570,13 @@ pub const IRREVERSIBLE: &[&str] = &[
     "tmux_new",
     "tmux_send",
     "tool_exec",
+    "undo",
     "uv_pip",
     "uv_run",
     "uv_venv",
     "valgrind",
     "valgrind_memcheck",
+    "vault_convert",
     "web_browser_open",
     "web_form_submit",
     "web_graphql",

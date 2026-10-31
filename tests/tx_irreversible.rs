@@ -13,7 +13,7 @@
 //! or listed in `SELF_COVERED` with where it does so), or be listed in
 //! `HARMLESS` with the reason a rollback need not undo it.
 
-use iron_shell::builtins::{call, BUILTIN_LOOKUP};
+use iron_shell::builtins::{call, is_dispatched, BUILTIN_LOOKUP, FALLBACK_BUILTINS};
 use iron_shell::env::Env;
 use iron_shell::safety::{effect_of, Effect};
 use iron_shell::signature::signature_of;
@@ -29,7 +29,8 @@ const HARMLESS: &[(&str, &[&str])] = &[
     (
         "only reads or inspects: local tools and files, cluster, container and package state, HTTP GETs, dialogs that answer a value",
         &[
-            "ai_backends", "ansible_inventory", "crypto_decrypt", "crypto_encrypt",
+            "ai-backends", "ai_backends", "ai_detect", "ai_gateway", "ai_supported_conversions",
+            "ansible_inventory", "crypto_decrypt", "crypto_encrypt",
             "crypto_generate_key", "curl", "docker_compose_ps", "docker_inspect",
             "docker_logs", "docker_top", "eslint", "fetch", "fzf", "gdb_bt", "gh_repo",
             "gui_dialog_file_open", "gui_dialog_file_save", "gui_dialog_folder",
@@ -50,13 +51,13 @@ const HARMLESS: &[(&str, &[&str])] = &[
             "web_encode_url", "web_extract_emails", "web_extract_phones", "web_headers",
             "web_html_to_markdown", "web_html_to_text", "web_json_get", "web_json_path",
             "web_parse_query", "web_parse_url", "web_robots_txt", "web_sitemap", "web_xpath",
-            "yq",
+            "vault_conversions", "vault_models", "yq",
         ],
     ),
     (
         "changes only this process's memory, which a rollback never restores, as it never restores a variable",
         &[
-            "cache_ai", "cache_clear_ai", "cd", "env_set", "env_unset", "feature_disable",
+            "ai_local_unload", "cache_ai", "cache_clear_ai", "cd", "env_set", "env_unset", "feature_disable",
             "feature_enable", "feature_set", "set_env", "telemetry_disable", "telemetry_enable",
             "telemetry_reset",
         ],
@@ -228,6 +229,19 @@ fn more_than_a_read(name: &str) -> bool {
     !matches!(effect_of(name), Effect::Pure | Effect::ReadLocal)
 }
 
+/// Fallback-only names (served by the `match` in `call_with_input_inner`, not
+/// by `BUILTIN_LOOKUP`), grouped by the function their arm calls: one
+/// implementation per group, as `implementations` groups the table.
+fn fallback_implementations() -> BTreeMap<&'static str, Vec<&'static str>> {
+    let mut by_callee: BTreeMap<&'static str, Vec<&'static str>> = BTreeMap::new();
+    for &(name, callee) in FALLBACK_BUILTINS {
+        if !BUILTIN_LOOKUP.contains_key(name) {
+            by_callee.entry(callee).or_default().push(name);
+        }
+    }
+    by_callee
+}
+
 /// Every implementation, as its names.
 fn implementations() -> BTreeMap<usize, Vec<&'static str>> {
     let mut by_index: BTreeMap<usize, Vec<&'static str>> = BTreeMap::new();
@@ -255,10 +269,7 @@ fn the_lists_are_sorted_dispatched_and_disjoint() {
         .chain(harmless())
         .chain(covered)
     {
-        assert!(
-            BUILTIN_LOOKUP.contains_key(name),
-            "{name} is not dispatched"
-        );
+        assert!(is_dispatched(name), "{name} is not dispatched");
         assert!(seen.insert(name), "{name} is listed twice");
     }
 }
@@ -281,6 +292,19 @@ fn every_builtin_that_does_more_than_read_is_accounted_for() {
         let acts = names.iter().any(|n| more_than_a_read(n));
         let row = rows.get(idx).map(String::as_str).unwrap_or("");
         if acts && !listed && !covers_itself(&src, row) {
+            missing.push(names.join("/"));
+        }
+        if listed && !acts {
+            stale.extend(names.iter().filter(|n| accounted.contains(*n)).copied());
+        }
+    }
+    for (callee, mut names) in fallback_implementations() {
+        names.sort();
+        let listed = names.iter().any(|n| accounted.contains(*n));
+        let acts = names.iter().any(|n| more_than_a_read(n));
+        let body = body_of(&src, callee).unwrap_or("");
+        let refuses_itself = TX_MARKERS.iter().any(|m| body.contains(m));
+        if acts && !listed && !refuses_itself {
             missing.push(names.join("/"));
         }
         if listed && !acts {
@@ -362,6 +386,20 @@ fn another_spelling_is_refused_and_a_pure_builtin_still_runs() {
         })
         .map(|(name, _)| *name)
         .collect();
+    // A fallback-only spelling of a listed arm is refused by its callee.
+    let fallback_aliases: Vec<&str> = FALLBACK_BUILTINS
+        .iter()
+        .filter(|&&(name, callee)| {
+            !listed.contains(name)
+                && !BUILTIN_LOOKUP.contains_key(name)
+                && needs_an_argument(name)
+                && FALLBACK_BUILTINS
+                    .iter()
+                    .any(|&(l, c)| listed.contains(l) && c == callee)
+        })
+        .map(|&(name, _)| name)
+        .collect();
+    let aliases: Vec<&str> = aliases.into_iter().chain(fallback_aliases).collect();
     assert!(
         !aliases.is_empty(),
         "no unlisted spelling of a listed builtin found"

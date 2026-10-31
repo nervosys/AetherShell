@@ -3902,14 +3902,25 @@ lazy_static::lazy_static! {
         .iter()
         .filter_map(|name| BUILTIN_LOOKUP.get(name).copied())
         .collect();
+    /// The function each listed fallback name's arm calls. A fallback-only
+    /// spelling is refused when its arm calls one of these, as a table
+    /// spelling is refused by its dispatch index.
+    static ref TX_IRREVERSIBLE_CALLEES: rustc_hash::FxHashSet<&'static str> = FALLBACK_BUILTINS
+        .iter()
+        .filter(|(name, _)| crate::tx::IRREVERSIBLE.contains(name))
+        .map(|(_, callee)| *callee)
+        .collect();
 }
 
 /// Refuse a builtin a rollback cannot undo while a transaction is active
 /// (`E_POLICY_DENY`), before anything runs.
 fn refuse_irreversible_in_transaction(name: &str) -> Result<()> {
-    let listed = BUILTIN_LOOKUP
-        .get(name)
-        .is_some_and(|idx| TX_IRREVERSIBLE_INDICES.contains(idx));
+    let listed = match BUILTIN_LOOKUP.get(name) {
+        Some(idx) => TX_IRREVERSIBLE_INDICES.contains(idx),
+        None => FALLBACK_BUILTINS
+            .binary_search_by_key(&name, |(n, _)| n)
+            .is_ok_and(|i| TX_IRREVERSIBLE_CALLEES.contains(FALLBACK_BUILTINS[i].1)),
+    };
     if listed && crate::tx::is_active() {
         return Err(crate::safety::policy_deny(
             name,

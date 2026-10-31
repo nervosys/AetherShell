@@ -345,6 +345,45 @@ fn a_refused_call_changes_nothing() {
 }
 
 #[test]
+fn tx_begin_and_tx_commit_keep_the_redo_stack_and_capture_no_path() {
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("tx_redo");
+    let p = s.path("kept.txt");
+    std::fs::write(&p, "v1").expect("seed");
+    write_file(&p, "v2");
+    call("session_undo", vec![]).expect("undo leaves a redo entry");
+    let before = call("session_history", vec![]).expect("history");
+    let done = len_of(&field(&before, "done"));
+    assert_eq!(len_of(&field(&before, "undone")), 1);
+
+    // A transaction is not a step, so opening and closing one must not discard
+    // the redo stack. tx_begin takes no arguments, so the path goes to
+    // tx_savepoint, which takes a name: a path-like name must not be captured
+    // as a step either. The transaction's backups go to the session directory.
+    std::env::set_var("IRONSHELL_WORKSPACE", &s.dir);
+    call("tx_begin", vec![]).expect("tx_begin");
+    call("tx_savepoint", vec![Value::Str(p.clone())]).expect("tx_savepoint");
+    call("tx_commit", vec![]).expect("tx_commit");
+    std::env::remove_var("IRONSHELL_WORKSPACE");
+
+    let after = call("session_history", vec![]).expect("history");
+    assert_eq!(
+        len_of(&field(&after, "undone")),
+        1,
+        "tx_begin and tx_commit must leave the redo stack intact"
+    );
+    assert_eq!(
+        len_of(&field(&after, "done")),
+        done,
+        "a path argument must not be captured as a step"
+    );
+
+    let redone = call("session_redo", vec![]).expect("redo");
+    assert_eq!(field(&redone, "reapplied"), Value::Int(1));
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "v2");
+}
+
+#[test]
 fn examples_and_module_aliases_execute_with_their_effects() {
     use iron_shell::safety::Effect;
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
