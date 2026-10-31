@@ -4470,6 +4470,83 @@ pub fn net_allowlist() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// The refusal for a call that reaches past the egress allowlist. Shared by
+/// [`guard`] (for `Effect::Network` builtins) and by [`check_egress`] and
+/// [`check_egress_unknown`] (for `Exec`-class builtins that go to the network
+/// through a program), so every network refusal has one shape and one audit entry.
+fn egress_denied(
+    builtin: &str,
+    effect: Effect,
+    resource: &str,
+    allow: &str,
+    detail: String,
+) -> SafetyError {
+    let _ = audit(
+        builtin,
+        effect,
+        "deny_egress",
+        resource,
+        json!({ "allow": allow, "detail": detail }),
+    );
+    SafetyError {
+        code: ErrorCode::PolicyDeny,
+        message: format!("{}: egress denied: {}", builtin, detail),
+        builtin: builtin.to_string(),
+        hint: format!(
+            "IRONSHELL_NET_ALLOW permits only: {allow}; name an allowed host, or ask the operator to add this one"
+        ),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: format!("a destination in {allow}"),
+        got: detail,
+    }
+}
+
+/// Egress allowlist for an `Exec`-class builtin whose destination is named in its
+/// arguments: `targets` are judged by [`egress_permitted`], exactly as a
+/// `Network` builtin's targets are in [`guard`]. A no-op unless
+/// `IRONSHELL_NET_ALLOW` is set and the policy is not permissive, so with no
+/// allowlist nothing changes. Call it before spawning the program.
+pub fn check_egress(builtin: &str, targets: &[String]) -> Result<(), SafetyError> {
+    if policy_permissive() {
+        return Ok(());
+    }
+    let Some(allow) = net_allowlist() else {
+        return Ok(());
+    };
+    match egress_permitted(targets, &allow) {
+        Ok(()) => Ok(()),
+        Err(detail) => Err(egress_denied(
+            builtin,
+            Effect::Exec,
+            &targets.join(", "),
+            &allow,
+            detail,
+        )),
+    }
+}
+
+/// Fail closed for an `Exec`-class builtin whose destination cannot be read from
+/// its arguments (a registry named by a config file, a chart repository, an
+/// inventory). When `IRONSHELL_NET_ALLOW` is set and the policy is not
+/// permissive, the call is refused with `reason` as its detail. Without an
+/// allowlist this does nothing.
+pub fn check_egress_unknown(builtin: &str, reason: &str) -> Result<(), SafetyError> {
+    if policy_permissive() {
+        return Ok(());
+    }
+    let Some(allow) = net_allowlist() else {
+        return Ok(());
+    };
+    Err(egress_denied(
+        builtin,
+        Effect::Exec,
+        "",
+        &allow,
+        format!("{reason}; an allowlist is set, so the call is refused"),
+    ))
+}
+
 /// The lower-cased host a string names, if it names one: a URL's authority,
 /// the host of an scp-style `user@host:path`, or a bare hostname or address.
 /// Anything else (a path, a query, a flag) names no host and returns `None`.
@@ -4765,25 +4842,13 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
     if ctx.effect == Effect::Network && !policy_permissive() {
         if let Some(allow) = net_allowlist() {
             if let Err(detail) = egress_permitted(&ctx.targets, &allow) {
-                let _ = audit(
+                return Err(egress_denied(
                     ctx.builtin,
                     ctx.effect,
-                    "deny_egress",
                     &resource,
-                    json!({ "allow": allow, "detail": detail }),
-                );
-                return Err(SafetyError {
-                    code: ErrorCode::PolicyDeny,
-                    message: format!("{}: egress denied: {}", ctx.builtin, detail),
-                    builtin: ctx.builtin.to_string(),
-                    hint: format!(
-                        "IRONSHELL_NET_ALLOW permits only: {allow}; name an allowed host, or ask the operator to add this one"
-                    ),
-                    approval: None,
-                    did_you_mean: Vec::new(),
-                    expected: format!("a destination in {allow}"),
-                    got: detail,
-                });
+                    &allow,
+                    detail,
+                ));
             }
         }
     }

@@ -56653,6 +56653,12 @@ fn container_build(
             ))
         }
     };
+    // A build pulls the base images its Dockerfile's FROM lines name, so the
+    // registries are in the build context, not in the arguments.
+    crate::safety::check_egress_unknown(
+        builtin,
+        "the base images are named in the build context's Dockerfile, not in the arguments",
+    )?;
     // The build context is read, so it is resolved and guarded as a read.
     let context = guard_local_read(builtin, path)?;
     let text = container_cli(
@@ -56662,6 +56668,22 @@ fn container_build(
         true,
     )?;
     Ok(Value::Str(text))
+}
+
+/// The registry a container image reference names, by the rule the docker and
+/// podman CLIs apply: the part before the first `/` is a registry when it holds a
+/// `.` or a `:` or is `localhost`; otherwise the reference is on Docker Hub. A
+/// digest (`@sha256:…`) is not part of the name. This names the registry the
+/// reference asks for; a daemon configured with a mirror sends the request to the
+/// mirror, which this does not see.
+fn image_registry(image: &str) -> &str {
+    let name = image.split('@').next().unwrap_or(image);
+    match name.split_once('/') {
+        Some((first, _)) if first.contains('.') || first.contains(':') || first == "localhost" => {
+            first
+        }
+        _ => "docker.io",
+    }
 }
 
 /// `pull` and `push`: one image, one CLI verb. Both report progress on stderr.
@@ -56675,6 +56697,8 @@ fn container_image_op(
     refuse_pipeline(builtin, input)?;
     let image = str_operand(builtin, "image", args.first())?;
     container_operand(builtin, "image", image)?;
+    // The registry is the one the reference names; see `image_registry`.
+    crate::safety::check_egress(builtin, &[format!("https://{}", image_registry(image))])?;
     let text = container_cli(builtin, program, &[verb, "--", image], true)?;
     Ok(Value::Str(text))
 }
@@ -56812,6 +56836,10 @@ fn cp_is_container_operand(operand: &str) -> bool {
 
 fn compose_up(builtin: &str, args: &[Value], input: &Option<Value>) -> Result<Value> {
     refuse_pipeline(builtin, input)?;
+    crate::safety::check_egress_unknown(
+        builtin,
+        "the images a compose file names are pulled, and the file is read from the project directory, not the arguments",
+    )?;
     // Detached by default. A foreground `compose up` runs until it is stopped,
     // which no call can bound, so only `true` is accepted.
     let detach = match args.first() {
@@ -58777,6 +58805,10 @@ fn bi_helm_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn helm_deploy(builtin: &str, verb: &str, args: &[Value], input: &Option<Value>) -> Result<Value> {
     k8s_no_input(builtin, input)?;
     k8s_max_args(builtin, args, 4)?;
+    crate::safety::check_egress_unknown(
+        builtin,
+        "the chart's repository is named by helm's repo configuration, not the arguments",
+    )?;
     let release = k8s_need(builtin, "a release name", args, 0, k8s_object_name)?;
     let chart = k8s_need(builtin, "a chart", args, 1, helm_chart)?;
     let ns = k8s_arg(builtin, "namespace", args, 2, k8s_object_name)?;
@@ -59482,12 +59514,18 @@ fn ops_forge(
 // Terraform (951-958)
 // ===========================================================================
 
+/// Why the terraform builtins that reach a provider or backend fail closed under an
+/// egress allowlist: the endpoints come from the configuration, not the arguments.
+const TF_EGRESS_REASON: &str =
+    "providers and backends are named by the configuration in the directory, not the arguments";
+
 /// 951 – terraform_init([dir]): terraform init -input=false -no-color in dir.
 /// Downloads the providers the configuration names.
 fn bi_terraform_init(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "terraform_init";
     k8s_no_input(B, &input)?;
     k8s_max_args(B, &args, 1)?;
+    crate::safety::check_egress_unknown(B, TF_EGRESS_REASON)?;
     let dir = tf_dir(B, k8s_arg(B, "directory", &args, 0, tf_plain)?.as_deref())?;
     let run = tf_call(
         B,
@@ -59504,6 +59542,7 @@ fn bi_terraform_plan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "terraform_plan";
     k8s_no_input(B, &input)?;
     k8s_max_args(B, &args, 1)?;
+    crate::safety::check_egress_unknown(B, TF_EGRESS_REASON)?;
     let var = tf_var_file(B, &args, 0)?;
     let root = tf_dir(B, None)?;
     let mut cmd: Vec<&str> = vec!["plan", "-input=false", "-no-color"];
@@ -59527,6 +59566,7 @@ fn bi_terraform_apply(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "terraform_apply";
     k8s_no_input(B, &input)?;
     k8s_max_args(B, &args, 1)?;
+    crate::safety::check_egress_unknown(B, TF_EGRESS_REASON)?;
     let var = tf_var_file(B, &args, 0)?;
     let root = tf_dir(B, None)?;
     let mut cmd: Vec<&str> = vec!["apply", "-input=false", "-no-color", "-auto-approve"];
@@ -59676,6 +59716,10 @@ fn bi_ansible_playbook(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     const B: &str = "ansible_playbook";
     k8s_no_input(B, &input)?;
     k8s_max_args(B, &args, 3)?;
+    crate::safety::check_egress_unknown(
+        B,
+        "the hosts it connects to are named by the inventory and playbook, not the arguments",
+    )?;
     let playbook = k8s_need(B, "a playbook path", &args, 0, ops_playbook)?;
     let mut argv: Vec<String> = vec![playbook];
     if let Some(inventory) = k8s_arg(B, "inventory", &args, 1, ops_inventory)? {
@@ -59723,6 +59767,10 @@ fn bi_ansible_galaxy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "ansible_galaxy";
     k8s_no_input(B, &input)?;
     k8s_max_args(B, &args, 1)?;
+    crate::safety::check_egress_unknown(
+        B,
+        "a registry role is fetched from the galaxy server ansible is configured with, not the argument",
+    )?;
     let role = k8s_need(B, "a role name", &args, 0, pkg_spec)?;
     let run = tool_run(
         B,
@@ -62039,6 +62087,10 @@ fn bi_ssh_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         _ => None,
     };
     ssh_target_arg("ssh_exec", "host", &host)?;
+    // The destination is the host argument as written. An ssh config alias that
+    // is not a dotted name is refused by the allowlist (no host can be read), and
+    // a dotted alias is judged by its name, not by the HostName ssh config gives it.
+    crate::safety::check_egress("ssh_exec", std::slice::from_ref(&host))?;
     // Runs an arbitrary command on another host: the widest blast radius in the
     // builtin table. Checked after the arguments, so a refused call is not audited
     // as a run.
@@ -62112,6 +62164,9 @@ fn bi_ssh_tunnel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     tunnel_host_arg("ssh_tunnel", &remote_host)?;
     ssh_target_arg("ssh_tunnel", "ssh_host", &ssh_host)?;
+    // Both named hosts are judged: ssh_host is connected to, and remote_host is
+    // the destination the forward reaches through it. Each is judged by its name.
+    crate::safety::check_egress("ssh_tunnel", &[ssh_host.clone(), remote_host.clone()])?;
     // Checked above to be in 1..=65535.
     let port = local_port as u16;
     // Refused when something already holds the port. The probe listener is
@@ -62305,6 +62360,7 @@ fn bi_ssh_copy_id(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
     ssh_target_arg("ssh_copy_id", "host", &host)?;
+    crate::safety::check_egress("ssh_copy_id", std::slice::from_ref(&host))?;
     refuse_option("ssh_copy_id", &key_file)?;
     let key_file = crate::safety::resolve_path_str(&key_file);
     regular_file_arg("ssh_copy_id", &key_file)?;
@@ -66921,6 +66977,10 @@ fn marketplace_package_to_value(pkg: &MarketplacePackage) -> Value {
 /// local fallback, because the local catalogue holds records, not archives.
 /// Usage: marketplace.install(name) or marketplace.install(name, version)
 fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    crate::safety::check_egress_unknown(
+        "marketplace_install",
+        "the marketplace the package is fetched from is set by the configured registry, not the arguments",
+    )?;
     let name = package_token(
         "marketplace_install",
         "name",
@@ -71875,6 +71935,10 @@ fn bi_asdf_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// and runs the plugin's code, so the effect is Exec and agent mode asks first.
 fn bi_asdf_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     k8s_no_input("asdf_install", &input)?;
+    crate::safety::check_egress_unknown(
+        "asdf_install",
+        "the download comes from the plugin's own source, which is not named in the arguments",
+    )?;
     let plugin = k8s_need("asdf_install", "plugin", &args, 0, tf_plain)?;
     let version = k8s_arg("asdf_install", "version", &args, 1, tf_plain)?
         .unwrap_or_else(|| "latest".to_string());
@@ -72184,6 +72248,10 @@ fn pkg_install(
     input: &Option<Value>,
 ) -> Result<Value> {
     k8s_no_input(builtin, input)?;
+    crate::safety::check_egress_unknown(
+        builtin,
+        "the package registry is set by the project's package-manager configuration, not the arguments",
+    )?;
     let packages = pkg_each(builtin, "package", args, pkg_spec)?;
     let mut argv: Vec<&str> = verb.to_vec();
     argv.extend(packages.iter().map(String::as_str));
@@ -72238,6 +72306,10 @@ fn bi_uv_pip(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             UV_PIP_VERBS.join(", ")
         )));
     }
+    crate::safety::check_egress_unknown(
+        B,
+        "the index is set by uv's configuration, not the arguments, and a source build runs its backend",
+    )?;
     let packages = pkg_each(B, "package", args.get(1..).unwrap_or(&[]), pkg_spec)?;
     let deadline = if matches!(verb.as_str(), "install" | "uninstall") {
         TOOL_LONG_DEADLINE_SECS
@@ -72267,6 +72339,10 @@ fn bi_pipx_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "pipx_install";
     k8s_no_input(B, &input)?;
     k8s_max_args(B, &args, 1)?;
+    crate::safety::check_egress_unknown(
+        B,
+        "the package index is set by pipx's configuration, not the argument",
+    )?;
     let package = k8s_need(B, "a package spec", &args, 0, pkg_spec)?;
     let run = pkg_run(
         B,
@@ -72315,6 +72391,10 @@ fn bi_poetry_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_poetry_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "poetry_install";
     pkg_shape(B, &args, &input, 0)?;
+    crate::safety::check_egress_unknown(
+        B,
+        "the package sources are named by the project's pyproject.toml, not the arguments",
+    )?;
     let run = pkg_run(B, "poetry", &["install"], TOOL_LONG_DEADLINE_SECS)?;
     pkg_done(B, run, Vec::new())
 }
@@ -72489,6 +72569,10 @@ fn bi_rustup_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_rustup_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "rustup_update";
     pkg_shape(B, &args, &input, 0)?;
+    crate::safety::check_egress_unknown(
+        B,
+        "the toolchain servers are set by rustup's configuration, not the arguments",
+    )?;
     let run = pkg_run(B, "rustup", &["update"], TOOL_LONG_DEADLINE_SECS)?;
     pkg_done(B, run, Vec::new())
 }
