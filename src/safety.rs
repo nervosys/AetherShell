@@ -1263,6 +1263,27 @@ fn classified_effect(name: &str) -> Option<Effect> {
         // presence check only scans PATH, but the call can execute any program on
         // it, so it is Exec. `platform_satisfies` delegates to `platform_require`.
         "platform_check_reqs" | "platform_require" | "platform_satisfies" => Some(Effect::Exec),
+        // ── Group 4: the open names of the stated-pure list, each body read.
+        //
+        // a2a_*, nanda_*, job_*, finetune_* and kg_* act on process-static
+        // tables (A2A_REGISTRY and A2A_MESSAGES, NANDA_PROPOSALS,
+        // DISTRIBUTED_JOBS, FINETUNE_JOBS, KNOWLEDGE_GRAPH). Their writers change
+        // those tables and nothing else: no file, network or process is reached,
+        // and nothing is persisted, so a restart forgets them. Their readers only
+        // read the tables. rlm_stats reads the record of the last recursive run.
+        // Writes to a process-memory store are WriteLocal. The writers that stop,
+        // commit or consume work, or that other builtins read back, are listed in
+        // tx::IRREVERSIBLE.
+        "a2a_send" | "a2a_receive" | "a2a_broadcast" | "a2a_register" | "a2a_unregister"
+        | "nanda_propose" | "nanda_vote" | "nanda_commit" | "nanda_abort" | "job_cancel"
+        | "finetune_cancel" | "cancel_finetune" => Some(Effect::WriteLocal),
+        "a2a_discover" | "a2a_status" | "a2a_agents" | "nanda_status" | "nanda_consensus"
+        | "nanda_quorum" | "job_status" | "job_list" | "jobs" | "job_results" | "results"
+        | "finetune_status" | "finetune_progress" | "finetune_list" | "list_finetunes"
+        | "kg_query" | "query_kg" | "kg_entities" | "entities" | "kg_relations" | "relations"
+        | "rlm_stats" => {
+            Some(Effect::ReadLocal)
+        }
         _ => None,
     }
 }

@@ -333,6 +333,11 @@ fn new_id() -> String {
 /// snapshot in their own bodies are not listed. `tests/tx_irreversible.rs`
 /// pins this list against every builtin classified as more than a read.
 pub const IRREVERSIBLE: &[&str] = &[
+    "a2a_broadcast",
+    "a2a_receive",
+    "a2a_register",
+    "a2a_send",
+    "a2a_unregister",
     "act",
     "add_entity",
     "add_node",
@@ -398,6 +403,7 @@ pub const IRREVERSIBLE: &[&str] = &[
     "docker_tag",
     "docs_generate",
     "exit",
+    "finetune_cancel",
     "gdb",
     "gh_issue",
     "gh_pr",
@@ -445,6 +451,7 @@ pub const IRREVERSIBLE: &[&str] = &[
     "hyperfine",
     "index_docs",
     "init_sso",
+    "job_cancel",
     "journal_clear",
     "just",
     "k8s_apply",
@@ -471,6 +478,10 @@ pub const IRREVERSIBLE: &[&str] = &[
     "monitor_alert_remove",
     "monitor_perf_record",
     "monitor_perf_stat",
+    "nanda_abort",
+    "nanda_commit",
+    "nanda_propose",
+    "nanda_vote",
     "ninja_build",
     "node_run",
     "npm_install",

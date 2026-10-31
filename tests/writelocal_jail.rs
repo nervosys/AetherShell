@@ -240,9 +240,15 @@ fn the_number_of_writelocal_builtins_relying_on_call_sites_is_measured() {
     assert!(
         // 130 after the Pure review: what it added writes process memory or a
         // private file, and handle_drop refuses an id that is not its own.
-        unguarded.len() <= 130,
+        // 142 after the open-set review (2026-10-31): the 12 names added are
+        // a2a_send, a2a_receive, a2a_broadcast, a2a_register, a2a_unregister,
+        // nanda_propose, nanda_vote, nanda_commit, nanda_abort, job_cancel,
+        // finetune_cancel and its alias cancel_finetune. Each writes only a
+        // process-static table (A2A_REGISTRY, A2A_MESSAGES, NANDA_PROPOSALS,
+        // DISTRIBUTED_JOBS, FINETUNE_JOBS) and takes no caller path.
+        unguarded.len() <= 142,
         "{} of {} WriteLocal builtins are not in SELF_GUARDED, up from the \
-         measured 130. Nothing in `guard_dispatch` jails them, so a new one that \
+         measured 142. Nothing in `guard_dispatch` jails them, so a new one that \
          writes a caller's path must guard it in its body. Adding another is \
          allowed; letting the number grow silently is not.",
         unguarded.len(),
