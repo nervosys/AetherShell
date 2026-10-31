@@ -341,6 +341,7 @@ fn overran(builtin: &str, codec: Codec) -> anyhow::Error {
 /// reject_option_like and which follows a `--` where the tool takes one.
 fn spawn(builtin: &str, argv: &[String], stdin: Stdio, stdout: Stdio) -> Result<Child> {
     let mut command = Command::new(&argv[0]);
+    safety::strip_ironshell_env(&mut command);
     command
         .args(&argv[1..])
         .stdin(stdin)

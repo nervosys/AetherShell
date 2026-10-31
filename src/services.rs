@@ -551,6 +551,7 @@ mod unix_sudo {
 
         const BUILTIN: &str = "sudo_exec";
         let mut cmd = Command::new(SUDO);
+        crate::safety::strip_ironshell_env(&mut cmd);
         cmd.arg("-n")
             .arg("--")
             .args(&spec.argv)

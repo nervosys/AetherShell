@@ -353,6 +353,7 @@ fn kill_tree(child: &mut std::process::Child) {
 fn run_once(name: &str, argv: &[String], limit: Duration) -> Result<Finished> {
     let started = Instant::now();
     let mut command = Command::new(&argv[0]);
+    safety::strip_ironshell_env(&mut command);
     command
         .args(&argv[1..])
         .stdin(Stdio::null())

@@ -25258,6 +25258,7 @@ fn bi_proc_spawn(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // Executed directly, never through a shell (CWE-78). The child is not
     // waited for here; proc_wait reaps it.
     let mut command = Command::new(&cmd);
+    crate::safety::strip_ironshell_env(&mut command);
     command.args(&spawn_args);
     // With a deadline the child leads its own process group, so the stop can
     // signal the child and the descendants that stayed in its group at once.
@@ -33110,7 +33111,9 @@ fn tar_decompressed_entries(
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
     crate::safety::reject_option_like(builtin, &[archive.to_string()])?;
-    let mut child = match std::process::Command::new(tool)
+    let mut decoder = std::process::Command::new(tool);
+    crate::safety::strip_ironshell_env(&mut decoder);
+    let mut child = match decoder
         .arg("-dc")
         .arg("--")
         .arg(archive)
@@ -39918,7 +39921,9 @@ fn open_in_browser(builtin: &str, url: &str) -> Result<Value> {
         // `rundll32 url.dll,FileProtocolHandler` is the same ShellExecute
         // dispatch with no shell in front of it. Spawned, not waited on: a
         // browser runs until the user closes it.
-        std::process::Command::new("rundll32.exe")
+        let mut browser = std::process::Command::new("rundll32.exe");
+        crate::safety::strip_ironshell_env(&mut browser);
+        browser
             .args(["url.dll,FileProtocolHandler", url])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -41629,7 +41634,9 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let child = std::process::Command::new("pbcopy")
+        let mut clip = std::process::Command::new("pbcopy");
+        crate::safety::strip_ironshell_env(&mut clip);
+        let child = clip
             .stdin(std::process::Stdio::piped())
             .spawn()
             .map_err(|e| crate::safety::spawn_error(NAME, "pbcopy", &e))?;
@@ -41655,7 +41662,9 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         linux_x11_clipboard_display(NAME)?;
         // xclip first, xsel when xclip is not installed. A tool that is
         // installed and fails is an error, whichever it is.
-        let (tool, child) = match std::process::Command::new("xclip")
+        let mut xclip = std::process::Command::new("xclip");
+        crate::safety::strip_ironshell_env(&mut xclip);
+        let (tool, child) = match xclip
             .args(["-selection", "clipboard"])
             .stdin(std::process::Stdio::piped())
             .spawn()
@@ -41663,11 +41672,14 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             Ok(child) => ("xclip", child),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
                 "xsel",
-                std::process::Command::new("xsel")
-                    .args(["--clipboard", "--input"])
-                    .stdin(std::process::Stdio::piped())
-                    .spawn()
-                    .map_err(|e| crate::safety::spawn_error(NAME, "xsel", &e))?,
+                {
+                    let mut xsel = std::process::Command::new("xsel");
+                    crate::safety::strip_ironshell_env(&mut xsel);
+                    xsel.args(["--clipboard", "--input"])
+                        .stdin(std::process::Stdio::piped())
+                        .spawn()
+                        .map_err(|e| crate::safety::spawn_error(NAME, "xsel", &e))?
+                },
             ),
             Err(e) => return Err(crate::safety::spawn_error(NAME, "xclip", &e)),
         };
@@ -42103,7 +42115,9 @@ $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
 "#,
         crate::safety::ps_quote(prompt.trim_end_matches(": ").trim_end_matches(':'))
     );
-    let output = std::process::Command::new("powershell")
+    let mut shell = std::process::Command::new("powershell");
+    crate::safety::strip_ironshell_env(&mut shell);
+    let output = shell
         .args(["-Command", &ps_script])
         .output()
         .map_err(|e| crate::safety::spawn_error(name, "powershell", &e))?;
@@ -42124,9 +42138,13 @@ $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
 #[cfg(unix)]
 fn read_terminal_password(name: &str, prompt: &str) -> Result<String> {
     eprint!("{prompt}");
-    let _ = std::process::Command::new("stty").arg("-echo").status();
+    let mut stty = std::process::Command::new("stty");
+    crate::safety::strip_ironshell_env(&mut stty);
+    let _ = stty.arg("-echo").status();
     let answer = stdin_lines::read_blocking(name);
-    let _ = std::process::Command::new("stty").arg("echo").status();
+    let mut stty = std::process::Command::new("stty");
+    crate::safety::strip_ironshell_env(&mut stty);
+    let _ = stty.arg("echo").status();
     eprintln!();
     answer
 }
@@ -42373,7 +42391,9 @@ fn create_edit_file(name: &str, text: &str) -> Result<std::path::PathBuf> {
 
 /// Runs `editor` on `path` with the terminal inherited, without a shell.
 fn run_editor(name: &str, editor: &str, path: &std::path::Path) -> Result<()> {
-    let status = std::process::Command::new(editor)
+    let mut cmd = std::process::Command::new(editor);
+    crate::safety::strip_ironshell_env(&mut cmd);
+    let status = cmd
         .arg(path)
         .status()
         .map_err(|e| crate::safety::spawn_error(name, editor, &e))?;
@@ -45203,7 +45223,9 @@ fn linux_clipboard_set_image(name: &str, mime: &str, bytes: Vec<u8>) -> Result<(
     } else {
         ("xclip", vec!["-selection", "clipboard", "-t", mime, "-i"])
     };
-    let child = std::process::Command::new(tool)
+    let mut clip = std::process::Command::new(tool);
+    crate::safety::strip_ironshell_env(&mut clip);
+    let child = clip
         .args(&tool_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -58056,7 +58078,9 @@ fn kill_group(pid: u32) {
 pub(crate) fn taskkill_tree(pid: u32) {
     use std::process::{Command, Stdio};
     let pid_text = pid.to_string();
-    let Ok(mut killer) = Command::new("taskkill")
+    let mut cmd = Command::new("taskkill");
+    crate::safety::strip_ironshell_env(&mut cmd);
+    let Ok(mut killer) = cmd
         .args(["/T", "/F", "/PID", pid_text.as_str()])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -62117,6 +62141,7 @@ fn bi_ssh_tunnel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let stderr_path = stderr_path.to_string_lossy().into_owned();
     let stderr_file = create_new_output("ssh_tunnel", &stderr_path)?;
     let mut cmd = std::process::Command::new("ssh");
+    crate::safety::strip_ironshell_env(&mut cmd);
     cmd.args(["-N", "-o", "ExitOnForwardFailure=yes"])
         .args(SSH_OPTS)
         .arg("-L")
@@ -68953,7 +68978,9 @@ fn devtool_terminal(builtin: &str) -> Result<()> {
 /// Run an attach with the terminal's streams inherited, so the user is the one
 /// talking to the session. Only called after [`devtool_terminal`].
 fn devtool_attach(builtin: &str, program: &str, args: &[&str], label: &str) -> Result<()> {
-    let status = std::process::Command::new(program)
+    let mut cmd = std::process::Command::new(program);
+    crate::safety::strip_ironshell_env(&mut cmd);
+    let status = cmd
         .args(args)
         .status()
         .map_err(|e| crate::safety::spawn_error(builtin, program, &e))?;
@@ -71393,7 +71420,9 @@ fn bi_lazygit_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // stdio is inherited, so lazygit draws on the user's terminal. Its stderr
     // therefore cannot be captured for a tail; the failure carries only the
     // exit status.
-    let status = std::process::Command::new("lazygit")
+    let mut cmd = std::process::Command::new("lazygit");
+    crate::safety::strip_ironshell_env(&mut cmd);
+    let status = cmd
         .arg("-p")
         .arg(&path)
         .status()
