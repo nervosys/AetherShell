@@ -36505,6 +36505,10 @@ fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 /// Largest window title, prompt, message or path a GUI builtin takes.
 const GUI_FIELD_MAX_BYTES: usize = 4096;
+/// Deadline for a desktop dialog (zenity, osascript). A person answers it, so
+/// it waits far longer than a probe, but a dialog nobody dismisses must still
+/// end: the child is killed at this deadline and the call is a budget error.
+const GUI_DIALOG_DEADLINE_SECS: u64 = 300;
 /// Largest text `gui_type_text` types in one call.
 const GUI_TYPE_MAX_BYTES: usize = 10_000;
 /// Largest clipboard text one call reads or writes.
@@ -39279,25 +39283,23 @@ Add-Type -AssemblyName System.Windows.Forms
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("zenity")
-            .args(["--info", "--title", &title, "--text", &message])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        let mut cmd = std::process::Command::new("zenity");
+        cmd.args(["--info", "--title", &title, "--text", &message]);
+        let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_ack(NAME, "zenity", &output)
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("osascript")
-            .args([
-                "-e",
-                &crate::applescript!(
-                    "display dialog {} with title {}",
-                    crate::safety::applescript_quote(&message),
-                    crate::safety::applescript_quote(&title)
-                ),
-            ])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "osascript", &e))?;
+        let mut cmd = std::process::Command::new("osascript");
+        cmd.args([
+            "-e",
+            &crate::applescript!(
+                "display dialog {} with title {}",
+                crate::safety::applescript_quote(&message),
+                crate::safety::applescript_quote(&title)
+            ),
+        ]);
+        let output = bounded_cmd_output(NAME, "osascript", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_ack(NAME, "osascript", &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
@@ -39339,10 +39341,9 @@ Add-Type -AssemblyName Microsoft.VisualBasic
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("zenity")
-            .args(["--entry", "--title", &title, "--text", &prompt])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        let mut cmd = std::process::Command::new("zenity");
+        cmd.args(["--entry", "--title", &title, "--text", &prompt]);
+        let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_answer(NAME, "zenity", Some(1), &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -39380,10 +39381,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("zenity")
-            .args(["--file-selection", "--title", &title])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        let mut cmd = std::process::Command::new("zenity");
+        cmd.args(["--file-selection", "--title", &title]);
+        let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_answer(NAME, "zenity", Some(1), &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -39421,10 +39421,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("zenity")
-            .args(["--file-selection", "--save", "--title", &title])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        let mut cmd = std::process::Command::new("zenity");
+        cmd.args(["--file-selection", "--save", "--title", &title]);
+        let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_answer(NAME, "zenity", Some(1), &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -39462,10 +39461,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("zenity")
-            .args(["--file-selection", "--directory", "--title", &title])
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        let mut cmd = std::process::Command::new("zenity");
+        cmd.args(["--file-selection", "--directory", "--title", &title]);
+        let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_answer(NAME, "zenity", Some(1), &output)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -39528,10 +39526,9 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     }
     #[cfg(target_os = "linux")]
     {
-        let output = std::process::Command::new("zenity")
-            .arg("--color-selection")
-            .output()
-            .map_err(|e| crate::safety::spawn_error(NAME, "zenity", &e))?;
+        let mut cmd = std::process::Command::new("zenity");
+        cmd.arg("--color-selection");
+        let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         if output.status.code() == Some(1) {
             return Ok(Value::Null);
         }
@@ -39596,8 +39593,9 @@ const WEB_DOWNLOAD_MAX: u64 = 512 * 1024 * 1024;
 const WEB_SCRAPE_MAX_MATCHES: usize = 1000;
 /// Wall-clock limit for one request, handed to curl.
 const WEB_MAX_TIME_SECS: &str = "30";
-/// Redirects followed before a request is refused.
-const WEB_MAX_REDIRS: usize = 10;
+/// Redirects followed before a request is refused. Other request paths that
+/// follow redirects by hand share this ceiling.
+pub(crate) const WEB_MAX_REDIRS: usize = 10;
 /// Where curl's `-w` report starts in a hop's stdout: the status and the
 /// `Location` it did not follow. Plain ASCII, so it survives any argv encoding.
 const WEB_HOP_MARK: &str = "\nISH-HOP-7c41 ";

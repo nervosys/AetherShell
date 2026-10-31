@@ -22,12 +22,14 @@ fn registry_coded(code: crate::safety::ErrorCode, message: String, hint: &str) -
 }
 
 /// A registry client that cannot hang: 10 s to connect, and `total_secs` for
-/// the whole request, the body included.
+/// the whole request, the body included. It does not follow redirects itself:
+/// `registry_get` follows them and judges each hop.
 fn registry_client(total_secs: u64) -> Result<reqwest::Client> {
     crate::tls::install_provider();
     reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(total_secs))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| {
             registry_coded(
@@ -36,6 +38,58 @@ fn registry_client(total_secs: u64) -> Result<reqwest::Client> {
                 "the local HTTP stack could not start; a TLS or network configuration problem on this host",
             )
         })
+}
+
+/// GET a registry URL, following redirects by hand. Each hop is judged by the
+/// guard before it is requested, and the hop count has the same ceiling as
+/// `web_curl`. A connection that fails is a coded network error, not an I/O
+/// fault on this machine and not a missing agent.
+async fn registry_get(client: &reqwest::Client, url: &str) -> Result<reqwest::Response> {
+    let mut hop = url.to_string();
+    for _ in 0..=crate::builtins::WEB_MAX_REDIRS {
+        let response = client.get(&hop).send().await.map_err(|e| {
+            registry_coded(
+                crate::safety::ErrorCode::Network,
+                format!("could not reach the registry at {hop}: {e}"),
+                "the registry is down or the network is unavailable; nothing was changed, so retry later",
+            )
+        })?;
+        let location = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok());
+        match crate::security::judged_redirect(
+            "marketplace",
+            &hop,
+            response.status().as_u16(),
+            location,
+        )? {
+            Some(next) => hop = next,
+            None => return Ok(response),
+        }
+    }
+    Err(crate::safety::budget_exceeded(
+        "marketplace",
+        format!("more than {} redirects", crate::builtins::WEB_MAX_REDIRS),
+        "request the final URL directly",
+    ))
+}
+
+/// The error for a registry answer that is not a success: a 404 is a missing
+/// agent, and any other status means the registry could not answer.
+fn registry_status_error(
+    status: reqwest::StatusCode,
+    missing: String,
+    hint: &str,
+) -> anyhow::Error {
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return registry_coded(crate::safety::ErrorCode::NotFound, missing, hint);
+    }
+    registry_coded(
+        crate::safety::ErrorCode::Network,
+        format!("the registry answered HTTP {}", status.as_u16()),
+        "the registry is unavailable right now; nothing was changed, so retry later",
+    )
 }
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -243,7 +297,7 @@ impl RegistryClient {
             url = format!("{}?{}", url, params.join("&"));
         }
 
-        let response = client.get(&url).send().await?;
+        let response = registry_get(&client, &url).await?;
         let results: SearchResults =
             crate::http_body::body_json_capped(response, crate::http_body::AI_BODY_MAX).await?;
         Ok(results)
@@ -259,10 +313,10 @@ impl RegistryClient {
             self.registry_url, name, version_suffix
         );
 
-        let response = client.get(&url).send().await?;
+        let response = registry_get(&client, &url).await?;
         if !response.status().is_success() {
-            return Err(registry_coded(
-                crate::safety::ErrorCode::NotFound,
+            return Err(registry_status_error(
+                response.status(),
                 format!("Agent not found: {}", name),
                 "list the registry's agents with marketplace search, then use one of their names",
             ));
@@ -303,7 +357,14 @@ impl RegistryClient {
                 self.registry_url, name, agent.manifest.version
             );
 
-            let response = client.get(&url).send().await?;
+            let response = registry_get(&client, &url).await?;
+            if !response.status().is_success() {
+                return Err(registry_status_error(
+                    response.status(),
+                    format!("Agent not found: {}", name),
+                    "list the registry's agents with marketplace search, then use one of their names",
+                ));
+            }
             // A package is held whole to check its digest, so it is held to the
             // file limit every whole-file read uses.
             let max =

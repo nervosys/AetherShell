@@ -1186,6 +1186,47 @@ pub fn create_secure_http_client() -> Result<Client> {
         .context("Failed to create secure HTTP client")
 }
 
+/// The blocking client for requests that follow redirects by hand. It is
+/// `create_secure_http_client` with reqwest's own redirect following switched
+/// off, so every hop is seen by [`judged_redirect`] before it is requested.
+pub fn create_hop_checked_http_client() -> Result<Client> {
+    crate::tls::install_provider();
+    Client::builder()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .pool_max_idle_per_host(10)
+        .pool_idle_timeout(Duration::from_secs(90))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .context("Failed to create secure HTTP client")
+}
+
+/// The URL a redirect response sends the request to, once `guard_redirect` has
+/// judged it; `None` when the response is final. `location` is the response's
+/// Location header as sent, which may be relative to `from`, the URL that was
+/// requested. A target that is not a URL is passed to the guard as written, and
+/// the guard refuses it. Callers count the hops and apply the same ceiling as
+/// `web_curl`.
+pub fn judged_redirect(
+    builtin: &str,
+    from: &str,
+    status: u16,
+    location: Option<&str>,
+) -> Result<Option<String>> {
+    if !(300..400).contains(&status) {
+        return Ok(None);
+    }
+    let Some(location) = location else {
+        return Ok(None);
+    };
+    let next = match url::Url::parse(from).and_then(|base| base.join(location)) {
+        Ok(next) => next.to_string(),
+        Err(_) => location.to_string(),
+    };
+    crate::safety::guard_redirect(builtin, from, &next)?;
+    Ok(Some(next))
+}
+
 /// Create an HTTPS-only client (rejects HTTP)
 pub fn create_https_only_client() -> Result<Client> {
     crate::tls::install_provider();

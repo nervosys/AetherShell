@@ -1403,6 +1403,15 @@ pub enum ErrorCode {
     /// input being wrong; this is the library refusing to produce output for a
     /// valid request. Deterministic for the same input, so not retryable.
     CryptoFailed,
+    /// A remote service could not be reached, or answered with a server error:
+    /// the marketplace or registry is down, or the connection failed.
+    ///
+    /// Distinct from `NotFound`, which is only a real 404 or an entry the index
+    /// does not list, and from `Io`, which is this machine's disk or input. A
+    /// plugin install that could not reach a marketplace used to report
+    /// `NotFound`, which sent the caller to search for a name that may exist.
+    /// Retryable: the same call may succeed once the remote answers again.
+    Network,
     /// A failure that reached the boundary without a specific code. The message
     /// is whatever the builtin produced; treat it as opaque and **not**
     /// retryable — an agent that cannot identify the fault should stop rather
@@ -1432,6 +1441,7 @@ impl ErrorCode {
             ErrorCode::DecryptFailed => "E_DECRYPT_FAILED",
             ErrorCode::FipsDisallowed => "E_FIPS_DISALLOWED",
             ErrorCode::CryptoFailed => "E_CRYPTO_FAILED",
+            ErrorCode::Network => "E_NETWORK",
             ErrorCode::Unknown => "E_UNKNOWN",
         }
     }
@@ -1474,6 +1484,9 @@ impl ErrorCode {
             ErrorCode::DecryptFailed => false,
             ErrorCode::FipsDisallowed => false,
             ErrorCode::CryptoFailed => false,
+            // The remote may answer the same call next time; nothing local
+            // about the call needs to change.
+            ErrorCode::Network => true,
             ErrorCode::PolicyDeny | ErrorCode::BudgetExceeded | ErrorCode::Unknown => false,
         }
     }
@@ -1510,6 +1523,8 @@ impl ErrorCode {
             // EX_UNAVAILABLE — the envelope is spent, or the UI that would
             // have answered is not there.
             ErrorCode::BudgetExceeded | ErrorCode::NoUi | ErrorCode::ToolFailed => 69,
+            // EX_UNAVAILABLE -- the remote service could not be reached.
+            ErrorCode::Network => 69,
             // EX_SOFTWARE -- the fault is in what the shell offers, not in
             // the call or the environment.
             ErrorCode::Unimplemented => 70,

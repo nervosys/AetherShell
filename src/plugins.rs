@@ -36,6 +36,46 @@ fn plugin_coded(code: crate::safety::ErrorCode, message: String, hint: &str) -> 
     })
 }
 
+/// GET a marketplace URL, following redirects by hand. Each hop is judged by
+/// the guard before it is requested, and the hop count has the same ceiling as
+/// `web_curl`. A connection that fails is a coded network error, so the caller
+/// can tell an unreachable marketplace from one that does not list the plugin.
+#[cfg(feature = "native")]
+fn marketplace_fetch(builtin: &str, url: &str) -> Result<reqwest::blocking::Response> {
+    let client = crate::security::create_hop_checked_http_client()?;
+    let mut hop = url.to_string();
+    for _ in 0..=crate::builtins::WEB_MAX_REDIRS {
+        let response = client.get(&hop).send().map_err(|e| {
+            plugin_coded(
+                crate::safety::ErrorCode::Network,
+                format!("could not reach the marketplace at {hop}: {e}"),
+                "the marketplace is down or the network is unavailable; nothing was changed, so retry later",
+            )
+        })?;
+        let location = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok());
+        match crate::security::judged_redirect(builtin, &hop, response.status().as_u16(), location)?
+        {
+            Some(next) => hop = next,
+            None => return Ok(response),
+        }
+    }
+    Err(crate::safety::budget_exceeded(
+        builtin,
+        format!("more than {} redirects", crate::builtins::WEB_MAX_REDIRS),
+        "request the final URL directly",
+    ))
+}
+
+/// Whether an error is a coded network failure (see `marketplace_fetch`).
+#[cfg(feature = "native")]
+fn is_network_failure(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<crate::safety::SafetyError>()
+        .is_some_and(|s| s.code == crate::safety::ErrorCode::Network)
+}
+
 /// Hint for a native plugin that breaks the plugin ABI.
 const PLUGIN_ABI_HINT: &str =
     "the native plugin does not follow the plugin ABI; rebuild it against the current interface or replace it";
@@ -1274,9 +1314,7 @@ impl PluginRegistry {
                 urlencoding::encode(query)
             );
 
-            // Use blocking HTTP client
-            let response =
-                reqwest::blocking::get(&url).context("Failed to connect to marketplace")?;
+            let response = marketplace_fetch("marketplace_search", &url)?;
 
             if response.status().is_success() {
                 let plugins: Vec<MarketplacePlugin> = response
@@ -1292,6 +1330,10 @@ impl PluginRegistry {
     /// Install a plugin from marketplace
     #[cfg(feature = "native")]
     pub fn install_from_marketplace(&mut self, plugin_id: &str) -> Result<String> {
+        // Marketplaces that could not be asked, or that failed the request. A
+        // plugin missing from the ones that answered may be in one of these,
+        // so it is a network failure, not a plugin that does not exist.
+        let mut down: Vec<String> = Vec::new();
         for marketplace in &self.marketplaces {
             if !marketplace.enabled {
                 continue;
@@ -1299,10 +1341,8 @@ impl PluginRegistry {
 
             let url = format!("{}/plugins/{}/download", marketplace.url, plugin_id);
 
-            let response = reqwest::blocking::get(&url);
-
-            if let Ok(resp) = response {
-                if resp.status().is_success() {
+            match marketplace_fetch("marketplace_install", &url) {
+                Ok(resp) if resp.status().is_success() => {
                     // Get the plugin directory
                     let plugin_dir = self
                         .load_paths
@@ -1320,7 +1360,29 @@ impl PluginRegistry {
                     return load_plugin_from_manifest(plugin_path.to_str().unwrap_or(""))
                         .map(|_| plugin_id.to_string());
                 }
+                // The index does not list it: this marketplace has no such plugin.
+                Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {}
+                Ok(resp) => down.push(format!(
+                    "{} answered HTTP {}",
+                    marketplace.name,
+                    resp.status().as_u16()
+                )),
+                Err(e) if is_network_failure(&e) => {
+                    down.push(format!("{}: {}", marketplace.name, e));
+                }
+                Err(e) => return Err(e),
             }
+        }
+
+        if !down.is_empty() {
+            return Err(plugin_coded(
+                crate::safety::ErrorCode::Network,
+                format!(
+                    "plugin {plugin_id} could not be checked in every marketplace: {}",
+                    down.join("; ")
+                ),
+                "a marketplace is down or unreachable, so the plugin may be listed there; nothing was installed; retry later",
+            ));
         }
 
         Err(plugin_coded(
@@ -1328,6 +1390,14 @@ impl PluginRegistry {
             "Plugin not found in any marketplace".to_string(),
             "no configured marketplace lists this plugin id; search the marketplaces for what is available",
         ))
+    }
+
+    /// Test hook: replace the configured marketplaces, so a test can point an
+    /// install at a local server or at a closed port and never at a real
+    /// registry. Not part of the public API.
+    #[doc(hidden)]
+    pub fn __test_set_marketplaces(&mut self, marketplaces: Vec<MarketplaceRegistry>) {
+        self.marketplaces = marketplaces;
     }
 
     /// Add a custom marketplace registry

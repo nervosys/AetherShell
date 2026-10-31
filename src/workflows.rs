@@ -1023,55 +1023,108 @@ async fn http_step(method: String, url: String, body: Option<Value>) -> Result<V
     tokio::task::spawn_blocking(move || {
         crate::builtins::guard_network("workflow_http", &url)?;
         let url = crate::security::validate_http_url("workflow_http", &url)?;
-        let client = crate::security::create_secure_http_client()
-            .context("workflow http step: failed to create HTTP client")?;
+        http_send(&method, &url, body)
+    })
+    .await
+    .map_err(|e| anyhow!("workflow http step panicked: {e}"))?
+}
 
-        let mut req = match method.as_str() {
-            "GET" => client.get(&url),
-            "POST" => client.post(&url),
-            "PUT" => client.put(&url),
-            "PATCH" => client.patch(&url),
-            "DELETE" => client.delete(&url),
-            "HEAD" => client.head(&url),
+/// Issue the request after the checks on its first URL have passed. Redirects
+/// are followed by hand: each hop is judged by the guard before it is requested,
+/// with the same hop ceiling `web_curl` uses. A 303, or a 301 or 302 answering a
+/// POST, continues as a GET without the body, as reqwest and curl do.
+fn http_send(method: &str, url: &str, body: Option<Value>) -> Result<Value> {
+    let client = crate::security::create_hop_checked_http_client()
+        .context("workflow http step: failed to create HTTP client")?;
+
+    // The body is kept as text, so a redirect that keeps it can send it again.
+    let (content_type, mut payload) = match body {
+        None => (None, None),
+        Some(Value::Str(s)) => (None, Some(s)),
+        Some(other) => (Some("application/json"), Some(other.to_json().to_string())),
+    };
+    let mut verb = method.to_string();
+    let mut hop = url.to_string();
+    let mut answer = None;
+    for _ in 0..=crate::builtins::WEB_MAX_REDIRS {
+        let mut req = match verb.as_str() {
+            "GET" => client.get(&hop),
+            "POST" => client.post(&hop),
+            "PUT" => client.put(&hop),
+            "PATCH" => client.patch(&hop),
+            "DELETE" => client.delete(&hop),
+            "HEAD" => client.head(&hop),
             other => {
                 return Err(crate::safety::arg_err(format!(
                     "workflow http step: unsupported method `{other}`"
                 )))
             }
         };
-        if let Some(body) = body {
-            req = match body {
-                Value::Str(s) => req.body(s),
-                other => req
-                    .header("content-type", "application/json")
-                    .body(other.to_json().to_string()),
-            };
+        if let Some(text) = &payload {
+            if let Some(ct) = content_type {
+                req = req.header("content-type", ct);
+            }
+            req = req.body(text.clone());
         }
 
-        let resp = req.send()?;
-        let status = resp.status().as_u16() as i64;
-        let mut headers = BTreeMap::<String, Value>::new();
-        for (k, v) in resp.headers().iter() {
-            headers.insert(
-                k.to_string(),
-                Value::Str(v.to_str().unwrap_or("").to_string()),
-            );
+        let sent = req.send()?;
+        let status = sent.status().as_u16();
+        let location = sent
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok());
+        match crate::security::judged_redirect("workflow_http", &hop, status, location)? {
+            Some(next) => {
+                if (status == 303 && verb != "HEAD")
+                    || (matches!(status, 301 | 302) && verb == "POST")
+                {
+                    verb = "GET".to_string();
+                    payload = None;
+                }
+                hop = next;
+            }
+            None => {
+                answer = Some(sent);
+                break;
+            }
         }
-        // A step whose body could not be read must fail, not succeed with "".
-        let body_text = resp
-            .text_capped()
-            .context("workflow http step: response body could not be read")?;
+    }
+    let resp = answer.ok_or_else(|| {
+        crate::safety::budget_exceeded(
+            "workflow_http",
+            format!("more than {} redirects", crate::builtins::WEB_MAX_REDIRS),
+            "request the final URL directly",
+        )
+    })?;
+    let status = resp.status().as_u16() as i64;
+    let mut headers = BTreeMap::<String, Value>::new();
+    for (k, v) in resp.headers().iter() {
+        headers.insert(
+            k.to_string(),
+            Value::Str(v.to_str().unwrap_or("").to_string()),
+        );
+    }
+    // A step whose body could not be read must fail, not succeed with "".
+    let body_text = resp
+        .text_capped()
+        .context("workflow http step: response body could not be read")?;
 
-        Ok(Value::Record(BTreeMap::from([
-            ("url".to_string(), Value::Str(url)),
-            ("method".to_string(), Value::Str(method)),
-            ("status".to_string(), Value::Int(status)),
-            ("headers".to_string(), Value::Record(headers)),
-            ("body".to_string(), Value::Str(body_text)),
-        ])))
-    })
-    .await
-    .map_err(|e| anyhow!("workflow http step panicked: {e}"))?
+    Ok(Value::Record(BTreeMap::from([
+        ("url".to_string(), Value::Str(url.to_string())),
+        ("method".to_string(), Value::Str(method.to_string())),
+        ("status".to_string(), Value::Int(status)),
+        ("headers".to_string(), Value::Record(headers)),
+        ("body".to_string(), Value::Str(body_text)),
+    ])))
+}
+
+/// Test hook: the request a workflow HTTP step issues, after the checks on its
+/// first URL. Those checks refuse loopback, so a test cannot reach the redirect
+/// handling through a step; this runs the same code without them. Not part of
+/// the public API.
+#[doc(hidden)]
+pub fn __test_http_send(method: &str, url: &str, body: Option<Value>) -> Result<Value> {
+    http_send(method, url, body)
 }
 
 /// Call a builtin off the async runtime.

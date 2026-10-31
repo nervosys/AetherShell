@@ -310,6 +310,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Agent API pipelines no longer build code from a step's `select` and `predicate` as raw text. A `select` must be a field name, and a `predicate` must be one expression; anything else is refused with `E_BAD_ARG` naming the value, so a crafted field or predicate cannot run a write or any other effect. A predicate that is valid still runs under the same effect gate as `/api/v1/eval`. Agent API responses also carry the structured error's `code` and `hint` as `code` and `hint` fields, omitted when there is none; `error` is unchanged.
+- A marketplace that is down is a network failure, not a missing plugin. A
+  `marketplace install` that could not reach a marketplace reported
+  `E_NOT_FOUND`; it now reports the new `E_NETWORK` (exit 69, retryable), and
+  `E_NOT_FOUND` is only a real 404 or an index that does not list the agent or
+  plugin. Desktop dialogs (zenity and osascript) are bounded at 300 s, and the
+  child is killed at the deadline with `E_BUDGET_EXCEEDED`; they used to wait
+  forever. Redirects from the marketplace, plugin and workflow HTTP clients are
+  followed by hand, with each hop judged by the redirect guard and the same
+  10-hop ceiling as `web_curl`, instead of reqwest following them unchecked.
 - Agent API `call` requests no longer drop named arguments. Each name is
   mapped to the builtin's declared parameter at its position, and a name
   that is not a parameter is refused with an error listing the valid ones.
