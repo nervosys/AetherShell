@@ -1405,3 +1405,46 @@ fn malformed_csv_text_is_a_coded_bad_argument() {
     .unwrap_err();
     assert!(error.to_string().contains("E_BAD_ARG"), "{error}");
 }
+
+/// Every name the dispatcher serves resolves to a declaration: either its own,
+/// or one shared with another spelling of the same implementation. Ratchet at
+/// zero, so a builtin added without a Signature fails here.
+#[test]
+fn every_dispatched_name_has_a_signature() {
+    let mut undeclared: Vec<&str> = iron_shell::builtins::BUILTIN_LOOKUP
+        .keys()
+        .copied()
+        .chain(
+            iron_shell::builtins::FALLBACK_BUILTINS
+                .iter()
+                .map(|(name, _)| *name),
+        )
+        // A hyphenated name parses as subtraction, so no source can call it.
+        .filter(|name| !name.contains('-'))
+        .filter(|name| iron_shell::signature::signature_of(name).is_none())
+        .collect();
+    undeclared.sort_unstable();
+    undeclared.dedup();
+    assert!(undeclared.is_empty(), "undeclared builtins: {undeclared:?}");
+}
+
+/// The names declared in this batch carry the effect their bodies act with.
+/// Get-Content and Get-Files read the file system; ai calls a provider over
+/// the network; entr, watchexec and nodemon run a command and are Exec through
+/// their shared implementation.
+#[test]
+fn declared_batch_carries_the_effect_its_body_acts_with() {
+    use iron_shell::safety::{effect_of, Effect};
+    for (name, effect) in [
+        ("get-content", Effect::ReadLocal),
+        ("Get-Content", Effect::ReadLocal),
+        ("get-files", Effect::ReadLocal),
+        ("Get-Files", Effect::ReadLocal),
+        ("ai", Effect::Network),
+        ("entr", Effect::Exec),
+        ("watchexec", Effect::Exec),
+        ("nodemon", Effect::Exec),
+    ] {
+        assert_eq!(effect_of(name), effect, "{name}");
+    }
+}

@@ -2238,6 +2238,31 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "ai",
+        category: Some("AI"),
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[
+            opt(
+                "prompt",
+                Ty::Str,
+                "the prompt; with piped input the piped string is the prompt and this argument is ignored",
+            ),
+            opt(
+                "config",
+                Ty::Record,
+                "optional: images, audio or video, each an Array of readable file paths sent with the prompt; a model field is accepted and not used",
+            ),
+        ],
+        returns: "String",
+        doc: "Send one prompt to the configured AI provider and return its text. Prompts are checked for injection before they are sent, and a refused prompt is an error. With piped input the piped string is the prompt, and the config is then the second argument. Each image, audio or video path is validated and read before the request is made. At most 30 calls are made per minute per process; a call past that is refused with the message AI rate limit exceeded until the window resets. This is a network operation.",
+        examples: &[
+            (r#"(try { ai(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+            (r#"(try { ai("p", 1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "sort",
         category: None,
         subject_required: false,

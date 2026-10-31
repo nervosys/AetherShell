@@ -1166,7 +1166,10 @@ fn classified_effect(name: &str) -> Option<Effect> {
         "project_license" | "project_name" | "project_readme" | "project_scripts" | "project_size" |
         "plan_diff" | "project_structure" | "project_test_files" | "read_text"
         | "refactor_organize_imports" |
-        "ssh_config" | "tail" | "wc" => Some(Effect::ReadLocal),
+        // PowerShell-style readers: Get-Content reads the file it names and
+        // Get-Files lists a directory tree. They were unclassified, so `Pure`.
+        "ssh_config" | "tail" | "wc" | "Get-Content" | "get-content" | "Get-Files"
+        | "get-files" => Some(Effect::ReadLocal),
         n if n.starts_with("file_") || n.starts_with("proc_") || n.starts_with("sys_") => {
             Some(Effect::ReadLocal)
         }
