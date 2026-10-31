@@ -1,23 +1,23 @@
 # Multi-Backend AI Example
 # This example demonstrates using different AI backends in IronShell
 
-# 1. Using different backends explicitly via model URIs
+# 1. Choosing a backend: ai() takes no model; IRONSHELL_AI picks the provider
 print("=== Testing Different AI Backends ===")
 
 # OpenAI (cloud) - requires OPENAI_API_KEY
-# let openai_result = ai("openai:gpt-4o-mini", "Say hello in French")
+# let openai_result = ai("Say hello in French")
 # print("OpenAI:", openai_result)
 
 # Ollama (local) - requires ollama server running
-# let ollama_result = ai("ollama:llama3", "Say hello in Spanish")
+# let ollama_result = ai("Say hello in Spanish")
 # print("Ollama:", ollama_result)
 
 # vLLM (local high-performance) - requires vLLM server running
-# let vllm_result = ai("vllm:meta-llama/Llama-3-8B", "Say hello in German")
+# let vllm_result = ai("Say hello in German")
 # print("vLLM:", vllm_result)
 
 # llama.cpp (local efficient) - requires llama.cpp server running
-# let llamacpp_result = ai("llamacpp:model", "Say hello in Italian")
+# let llamacpp_result = ai("Say hello in Italian")
 # print("llama.cpp:", llamacpp_result)
 
 # 2. Using environment variable to set default backend
@@ -52,8 +52,8 @@ print("=== Testing Different AI Backends ===")
 #     else if complexity == "medium" then "vllm:meta-llama/Llama-3-70B"
 #     else "ollama:llama3"
 # 
-# let simple_task = ai(choose_backend("low"), "What is 1+1?")
-# let complex_task = ai(choose_backend("high"), "Explain quantum entanglement")
+# let simple_task = ai("What is 1+1?")
+# let complex_task = ai("Explain quantum entanglement")
 
 print("=== Backend Configuration ===")
 print("To use these backends, you need to:")
@@ -63,4 +63,4 @@ print("3. For llama.cpp: Run './server -m model.gguf --port 8080'")
 print("4. For OpenAI: Set OPENAI_API_KEY environment variable")
 print("")
 print("Set default backend: export IRONSHELL_AI=ollama  # or vllm, llamacpp, openai")
-print("Or use model URIs: ai(\"vllm:model\", \"prompt\")")
+print("ai() takes no model: set IRONSHELL_AI=vllm and call ai(\"prompt\")")

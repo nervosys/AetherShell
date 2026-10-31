@@ -12,8 +12,8 @@ if env("IRONSHELL_AI") == null { exit(0) }
 response = ai("What is 2+2?")
 print(response)
 
-# With model specification (when using real AI)
-# response = ai("Explain quantum computing", {model: "openai:gpt-4o"})
+# One prompt; the provider is set by IRONSHELL_AI
+# response = ai("Explain quantum computing")
 
 # Multi-modal: describe an image
 # ai("Describe this image", {images: ["photo.jpg"]})

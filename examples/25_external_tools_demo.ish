@@ -52,34 +52,34 @@ print("")
 # --- OpenAI Configuration ---
 print("1️⃣  OpenAI (set OPENAI_API_KEY environment variable)")
 print("    # Using GPT-4o for complex tasks:")
-print("    response = ai(\"openai:gpt-4o\", \"Explain quantum entanglement\")")
+print("    response = ai(\"Explain quantum entanglement\")")
 print("")
 print("    # Using GPT-4o-mini for cost-effective tasks:")
-print("    response = ai(\"openai:gpt-4o-mini\", \"Summarize this text: ...\")")
+print("    response = ai(\"Summarize this text: ...\")")
 print("")
 
 # --- Anthropic Configuration ---
 print("2️⃣  Anthropic Claude (set ANTHROPIC_API_KEY environment variable)")
-print("    response = ai(\"anthropic:claude-3-opus\", \"Write a detailed analysis\")")
+print("    response = ai(\"Write a detailed analysis\")")
 print("")
 
 # --- Local Ollama ---
 print("3️⃣  Ollama (local, free - run: ollama serve)")
 print("    # Start Ollama server first: ollama serve")
 print("    # Pull a model: ollama pull llama3.2:3b")
-print("    response = ai(\"ollama:llama3.2:3b\", \"Hello, how are you?\")")
+print("    response = ai(\"Hello, how are you?\")")
 print("")
 
 # --- vLLM Server ---
 print("4️⃣  vLLM (high-performance local inference)")
 print("    # Start vLLM: python -m vllm.entrypoints.openai.api_server ...")
-print("    response = ai(\"vllm:mistral-7b\", \"Generate code for...\")")
+print("    response = ai(\"Generate code for...\")")
 print("")
 
 # --- OpenAI-Compatible Servers ---
 print("5️⃣  Any OpenAI-Compatible Server (LM Studio, LocalAI, etc.)")
 print("    # Set COMPAT_API_BASE to your server URL")
-print("    response = ai(\"compat:local-model\", \"Process this request\")")
+print("    response = ai(\"Process this request\")")
 print("")
 
 # ============================================================================

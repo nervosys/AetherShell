@@ -136,11 +136,12 @@ http "GET" "https://api.github.com" {"User-Agent":"au"}
 
 ### 2.9 AI & Agents
 
-* **`ai(prompt)`** → structured call (providers: `stub|openai|ollama`)
+* **`ai(prompt, config?)`** → one prompt to the provider named by `IRONSHELL_AI`; `config` takes `images`, `audio`, `video` only; there is no model or context argument
 * **`agent(goal, tools, steps, dry_run)`** → LLM plan + tool execution
 
 ```ish
-read_text "README.md" | ai "summarize"
+readme = file.read("README.md")
+ai("summarize: ${readme}")
 agent "list big files" ["ls","!"] 3 true
 ```
 
@@ -196,7 +197,8 @@ resp.status
 ### AI & Agent
 
 ```ish
-read_text "README.md" | ai "summarize as bullets"
+readme = file.read("README.md")
+ai("summarize as bullets: ${readme}")
 agent "repo tidy" ["ls","!"] 3
 ```
 

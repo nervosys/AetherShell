@@ -17,7 +17,8 @@ l"./src"|w~.size>1k|m~.name
 H.g("https://api.github.com/repos/nervosys/AetherShell")|J.p(_)|s"stargazers_count"
 
 ; ── v1 Compat: @ prefix and # prefix still work ──
-@ai("Summarize this file", {context: @f.read("README.md")})
+; ai() takes no context argument: put the file text into the prompt
+@ai("Summarize this file")
 #l "./src" > #w \.size>1k > #m \.name
 
 ; ── Pattern matching ──

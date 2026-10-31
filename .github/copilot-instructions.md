@@ -22,7 +22,7 @@ IronShell is a shell built for AI agents. Traditional shells (Bash, PowerShell, 
 
 ### AI Integration Architecture
 
-- **`ai.rs`**: Provider-agnostic LLM client with model URIs (`openai:gpt-4o-mini`, `ollama:llama3`, `lmstudio:model`)
+- **`ai.rs`**: Provider-agnostic LLM client; `ai()` picks the provider from `IRONSHELL_AI` (no model argument)
 - **`ai_api/`**: OpenRouter-style API server with local model management and format conversion
 - **Multi-modal support**: Images, audio, video via `MultiModalContent` and `MultiModalMessage`
 - **Agent framework**: Single agents (`agent`) and swarms with coordinator patterns

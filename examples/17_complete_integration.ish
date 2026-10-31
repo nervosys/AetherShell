@@ -32,7 +32,7 @@ print("────────────────────────�
 print("")
 
 print("Pattern 1: Simple AI Query")
-print("  let response = ai(ai_detect(), \"What is 2+2?\")")
+print("  let response = ai(\"What is 2+2?\")")
 print("")
 
 print("Pattern 2: Agent without tools")
