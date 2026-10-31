@@ -290,7 +290,7 @@ Network statistics and bandwidth usage.
 
 ```ironshell
 net_stats
-# { bytes_sent: 1234567, bytes_recv: 7654321, packets_sent: 1000, ... }
+# [{ section: "Tcp", counter: "active connection openings", value: 1234 }, ...]
 ```
 
 ## Pipeline Examples

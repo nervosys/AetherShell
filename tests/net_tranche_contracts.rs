@@ -479,7 +479,7 @@ fn machine_readers_answer_in_their_declared_type_or_fail_coded() {
         ("net_ports", vec![], "Array"),
         ("net_arp", vec![], "Array"),
         ("net_route", vec![], "Array"),
-        ("net_stats", vec![], "String"),
+        ("net_stats", vec![], "Array"),
         ("net_bandwidth", vec![], "Array"),
     ];
     for (name, args, want) in answers {

@@ -71,6 +71,7 @@ const MACHINE_DEPENDENT: &[(&str, &str)] = &[
     ("fs_chown", "native ownership: Unix sets a numeric owner and group; Windows sets the owner to the current account (no privilege needed); examples use only owned temporary files"),
     ("platform_libcpp", "the C++ runtime installed on this machine: msvcp140.dll on Windows (refused as E_BAD_STATE where the Visual C++ Redistributable is absent), libstdc++ or libc++ on Linux (E_BAD_STATE where neither is installed)"),
     ("sys_mem_info", "the OS memory query and current memory usage"),
+    ("sys_load_avg", "the OS load average; Windows has none and is refused as E_UNIMPLEMENTED"),
     ("sys_swap_info", "the OS memory query and configured swap"),
     ("db_sqlite_import", "the sqlite3 CLI; example uses a disposable database"),
     ("db_sqlite_to_csv", "the sqlite3 CLI; file-output example uses a disposable destination"),

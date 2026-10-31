@@ -1,10 +1,16 @@
 """Tests for IronShell Python SDK"""
 
+import importlib.metadata
+import inspect
+import re
+from pathlib import Path
+
 import pytest
 import json
 from unittest.mock import patch, MagicMock
 import subprocess
 
+import ironshell
 from ironshell import (
     IronShellRuntime,
     Agent,
@@ -296,5 +302,151 @@ class TestIntegration:
         assert sorted(result) == [6, 8, 10]
 
 
+def _lexer_decode(literal: str) -> str:
+    """Decode a double-quoted literal the way src/parser.rs does.
+
+    Only \\n, \\r, \\t, \\\\ and \\" are special; any other escaped character
+    stands for itself, so a \\u escape decodes to a plain u.
+    """
+    assert literal.startswith('"')
+    out = []
+    i = 1
+    while True:
+        ch = literal[i]
+        if ch == '"':
+            assert i == len(literal) - 1, "text after the closing quote"
+            return "".join(out)
+        if ch == "\\":
+            i += 1
+            esc = literal[i]
+            out.append({"n": "\n", "r": "\r", "t": "\t"}.get(esc, esc))
+        else:
+            out.append(ch)
+        i += 1
+
+
+def _pyproject_version() -> str:
+    text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    assert match, "pyproject.toml has no version"
+    return match.group(1)
+
+
+class TestPipelineLiterals:
+    """PipelineBuilder encodes data as IronShell literals, not JSON"""
+
+    def test_non_ascii_string_is_written_as_itself(self):
+        code = pipeline("café 🚀").map("fn(s) => s").to_code()
+
+        assert code == '"café 🚀" | map(fn(s) => s)'
+        assert "\\u" not in code
+
+    def test_non_ascii_inside_a_list_and_reduce_initial(self):
+        builder = pipeline(["naïve", "日本"]).reduce("fn(a, b) => a + b", "é")
+        code = builder.to_code()
+
+        assert code == '["naïve", "日本"] | reduce(fn(a, b) => a + b, "é")'
+        assert "\\u" not in code
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'say "hi"',
+            "back\\slash",
+            "line one\nline two",
+            "tab\there\r\n",
+            "emoji 🚀 and café",
+            'mix "a\\b"\n\t🚀',
+        ],
+    )
+    def test_string_data_round_trips_through_the_lexer_rules(self, text):
+        code = pipeline(text).to_code()
+
+        assert code.endswith(" | ")
+        assert _lexer_decode(code[: -len(" | ")]) == text
+
+    def test_reduce_initial_round_trips(self):
+        code = pipeline([1]).reduce("fn(a, b) => a", 'q"\\\n🚀').to_code()
+
+        assert _lexer_decode(code.split("reduce(fn(a, b) => a, ")[1][:-1]) == 'q"\\\n🚀'
+
+    def test_scalars_and_containers_keep_the_old_spacing(self):
+        assert pipeline([1, 2, 3]).to_code() == "[1, 2, 3] | "
+        assert pipeline(None).to_code() == "null | "
+        assert pipeline([True, False]).to_code() == "[true, false] | "
+        assert pipeline(1.5).to_code() == "1.5 | "
+
+    def test_record_keys_must_be_identifiers(self):
+        assert pipeline({"name": "ae"}).to_code() == '{name: "ae"} | '
+        with pytest.raises(ValueError, match="identifier"):
+            pipeline({"not a name": 1}).to_code()
+
+    @pytest.mark.parametrize("bad", ["nul\x00byte", "bell\x07", "esc\x1b["])
+    def test_control_characters_are_refused_not_emitted(self, bad):
+        with pytest.raises(ValueError, match="control character"):
+            pipeline(bad).to_code()
+
+    def test_lone_surrogate_is_refused(self):
+        with pytest.raises(ValueError, match="surrogate"):
+            pipeline("bad \ud800").to_code()
+
+    def test_non_finite_float_is_refused(self):
+        with pytest.raises(ValueError, match="no IronShell literal"):
+            pipeline(float("nan")).to_code()
+
+    def test_unknown_type_is_refused(self):
+        with pytest.raises(TypeError):
+            pipeline(object()).to_code()
+
+
+class TestPackageSurface:
+    """__all__ and __version__ describe the package that exists"""
+
+    @pytest.mark.parametrize("name", ironshell.__all__)
+    def test_every_all_name_resolves_on_the_package(self, name):
+        assert hasattr(ironshell, name)
+
+    def test_all_has_no_duplicates(self):
+        assert len(ironshell.__all__) == len(set(ironshell.__all__))
+
+    def test_all_lists_every_public_class_and_function_defined_here(self):
+        defined = {
+            name
+            for name, obj in vars(ironshell).items()
+            if not name.startswith("_")
+            and (inspect.isclass(obj) or inspect.isfunction(obj))
+            and obj.__module__ == "ironshell"
+        }
+
+        assert defined <= set(ironshell.__all__)
+
+    def test_version_matches_installed_metadata_or_pyproject(self):
+        try:
+            expected = importlib.metadata.version("ironshell")
+        except importlib.metadata.PackageNotFoundError:
+            expected = _pyproject_version()
+
+        assert ironshell.__version__ == expected
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestWorkflowDataIsNotCode:
+    """Workflow data was inlined with json.dumps, so a ``${...}`` in a value
+    would have run as code when the evaluator read the string literal."""
+
+    def test_interpolation_in_data_is_refused(self):
+        from ironshell import _ironshell_value
+
+        with pytest.raises(ValueError):
+            _ironshell_value({"name": "${rm('x')}"})
+
+    def test_langchain_does_not_inline_data_with_json_dumps(self):
+        import ironshell.langchain as lc
+        from pathlib import Path
+
+        source = Path(lc.__file__).read_text(encoding="utf-8")
+        assert "let x = {json.dumps" not in source
+        assert "let a = {json.dumps" not in source

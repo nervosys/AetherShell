@@ -29,7 +29,7 @@ except ImportError:
     Field = lambda **kwargs: None
     CallbackManagerForToolRun = None
 
-from . import IronShellRuntime, Agent as IronShellAgent
+from . import IronShellRuntime, Agent as IronShellAgent, _ironshell_value
 from .workflows import (
     MapReduceWorkflow,
     SagaWorkflow,
@@ -462,7 +462,7 @@ if LANGCHAIN_AVAILABLE:
             if workflow_type == "pipeline":
                 stages = [
                     lambda d, code=s.get("code", "x"): self.runtime.eval(
-                        f'let x = {json.dumps(d)}; {code}'
+                        f'let x = {_ironshell_value(d)}; {code}'
                     )
                     for s in step_configs
                 ]
@@ -474,11 +474,11 @@ if LANGCHAIN_AVAILABLE:
                 reduce_code = step_configs[0].get("reduce", "a + b") if step_configs else "a + b"
                 
                 def map_fn(item):
-                    return self.runtime.eval(f'let x = {json.dumps(item)}; {map_code}')
+                    return self.runtime.eval(f'let x = {_ironshell_value(item)}; {map_code}')
                 
                 def reduce_fn(a, b):
                     return self.runtime.eval(
-                        f'let a = {json.dumps(a)}; let b = {json.dumps(b)}; {reduce_code}'
+                        f'let a = {_ironshell_value(a)}; let b = {_ironshell_value(b)}; {reduce_code}'
                     )
                 
                 workflow = MapReduceWorkflow("langchain_mapreduce", map_fn=map_fn, reduce_fn=reduce_fn)
@@ -544,10 +544,10 @@ if LANGCHAIN_AVAILABLE:
             items = json.loads(data)
             
             def map_fn(item):
-                return self.runtime.eval(f'let x = {json.dumps(item)}; {map_expr}')
+                return self.runtime.eval(f'let x = {_ironshell_value(item)}; {map_expr}')
             
             def reduce_fn(a, b):
-                return self.runtime.eval(f'let a = {json.dumps(a)}; let b = {json.dumps(b)}; {reduce_expr}')
+                return self.runtime.eval(f'let a = {_ironshell_value(a)}; let b = {_ironshell_value(b)}; {reduce_expr}')
             
             workflow = MapReduceWorkflow("langchain_mapreduce", map_fn=map_fn, reduce_fn=reduce_fn, chunk_size=chunk_size)
             result = await workflow.run(items)
@@ -599,7 +599,7 @@ if LANGCHAIN_AVAILABLE:
                 compensate_code = cfg.get("compensate", "x")
                 
                 def make_action(code):
-                    return lambda d: self.runtime.eval(f'let x = {json.dumps(d)}; {code}')
+                    return lambda d: self.runtime.eval(f'let x = {_ironshell_value(d)}; {code}')
                 
                 saga.add_saga_step(f"step_{i}", make_action(action_code), make_action(compensate_code))
             
@@ -1017,13 +1017,20 @@ def get_all_ironshell_tools(
 def create_workflow_agent(model: str = "openai:gpt-4o-mini", runtime: Optional[IronShellRuntime] = None) -> IronShellAgent:
     """
     Create an agent configured for workflow orchestration.
-    
+
+    The orchestration instructions are passed as a system prompt, which the
+    agent builtin cannot take, so this raises ValueError until the shell gains
+    a system prompt option.
+
     Args:
-        model: AI model URI
+        model: Must be the default "openai:gpt-4o-mini" (see Agent)
         runtime: Optional IronShellRuntime
-        
+
     Returns:
         Configured Agent instance
+
+    Raises:
+        ValueError: always, because of the system prompt (see Agent).
     """
     from . import Agent
     runtime = runtime or IronShellRuntime()

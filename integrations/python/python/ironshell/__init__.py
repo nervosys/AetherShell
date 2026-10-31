@@ -14,15 +14,38 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _distribution_version
 from typing import Any, Callable, Dict, List, Optional, Union
 import json
+import re
 import subprocess
 import sys
 import os
 
-__version__ = "1.5.1"
+
+def _read_version() -> str:
+    """The SDK version, from the installed distribution or the source tree.
+
+    pyproject.toml is the one source. An installed distribution reports it
+    through importlib.metadata; a bare source checkout reads it from the
+    pyproject.toml two levels above this package.
+    """
+    try:
+        return _distribution_version("ironshell")
+    except PackageNotFoundError:
+        pass
+    pyproject = os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, "pyproject.toml")
+    try:
+        with open(pyproject, encoding="utf-8") as f:
+            match = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
+    except OSError:
+        match = None
+    return match.group(1) if match else "0+unknown"
+
+
+__version__ = _read_version()
 __all__ = [
-    # Core
     "IronShellRuntime",
     "Agent",
     "AgentConfig",
@@ -32,13 +55,9 @@ __all__ = [
     "SwarmResult",
     "A2UIEvent",
     "NotificationLevel",
+    "PipelineBuilder",
     "evaluate",
     "pipeline",
-    # Submodules
-    "workflows",
-    "metrics",
-    "distributed",
-    "langchain",
 ]
 
 
@@ -108,6 +127,15 @@ class Agent:
         runtime: Optional[IronShellRuntime] = None,
         system_prompt: Optional[str] = None,
     ):
+        if system_prompt is not None:
+            # The agent builtin's config record has no system prompt key (its
+            # keys are goal, tools, max_steps, dry_run), and nothing else in the
+            # shell takes one, so the prompt could never reach the model.
+            raise ValueError(
+                "Agent system_prompt is not supported: the agent builtin has no "
+                "system prompt option, so the prompt cannot reach the model; "
+                "remove the argument and put the instructions in the goal"
+            )
         self.name = name
         self.model = model
         self.tools = tools or []
@@ -202,8 +230,15 @@ def _ironshell_string(value: str) -> str:
     """Render a Python str as an IronShell double-quoted string literal.
 
     The lexer unescapes backslash, double quote, n, r and t, so those are
-    escaped here. A "${" is refused instead: the lexer has no escape for it,
-    and the evaluator interpolates ${...} in any string literal.
+    escaped here. Any other backslash sequence is not decoded (a backslash
+    followed by u is read as a plain u), so no unicode escape is ever emitted:
+    non-ASCII text is written as itself, which the lexer reads as characters.
+
+    Three inputs are refused rather than emitted wrong: "${" (the lexer has no
+    escape for it, and the evaluator interpolates ${...} in any string literal),
+    a control character other than tab, newline or carriage return (the lexer
+    has no escape for it, and NUL cannot be passed in a command line), and a
+    lone surrogate (it has no UTF-8 encoding).
     """
     if not isinstance(value, str):
         raise TypeError(f"expected a str for an IronShell string, got {type(value).__name__}")
@@ -212,6 +247,18 @@ def _ironshell_string(value: str) -> str:
             "text containing '${' cannot be passed to IronShell: string literals "
             "interpolate ${...}, and the language has no escape for it"
         )
+    for ch in value:
+        code = ord(ch)
+        if code < 0x20 and ch not in "\t\n\r":
+            raise ValueError(
+                f"control character U+{code:04X} cannot be passed to IronShell: "
+                "the lexer has no escape for it"
+            )
+        if 0xD800 <= code <= 0xDFFF:
+            raise ValueError(
+                f"lone surrogate U+{code:04X} cannot be passed to IronShell: "
+                "it has no UTF-8 encoding"
+            )
     escaped = (
         value.replace("\\", "\\\\")
         .replace('"', '\\"')
@@ -220,6 +267,42 @@ def _ironshell_string(value: str) -> str:
         .replace("\t", "\\t")
     )
     return f'"{escaped}"'
+
+
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def _ironshell_value(value: Any) -> str:
+    """Render a Python value as an IronShell literal.
+
+    Strings go through _ironshell_string. Lists become arrays, and dicts become
+    records whose keys must be identifiers, since the parser reads record keys
+    as bare names. None, True and False become null, true and false.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return _ironshell_string(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ValueError(f"{value!r} has no IronShell literal")
+        return repr(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_ironshell_value(v) for v in value) + "]"
+    if isinstance(value, dict):
+        fields = []
+        for key, item in value.items():
+            if not isinstance(key, str) or not _IDENTIFIER.match(key):
+                raise ValueError(
+                    f"record key {key!r} is not an identifier; IronShell record keys are bare names"
+                )
+            fields.append(f"{key}: {_ironshell_value(item)}")
+        return "{" + ", ".join(fields) + "}"
+    raise TypeError(f"{type(value).__name__} has no IronShell literal")
 
 
 def _check_steps(value: int, owner: str) -> int:
@@ -414,7 +497,9 @@ class IronShellRuntime:
         
         Args:
             name: Agent identifier
-            model: Model URI (e.g., "openai:gpt-4o", "ollama:llama3")
+            model: Must be the default "openai:gpt-4o-mini". The agent builtin
+                has no model option, so any other value raises ValueError when
+                the agent runs.
             tools: List of tool names the agent can use
             max_steps: Maximum reasoning steps
             
@@ -440,9 +525,10 @@ class IronShellRuntime:
         
         Args:
             agents: List of agents in the swarm
-            policy: Coordination policy ("round_robin", "router")
-            max_iterations: Maximum coordination iterations
-            
+            policy: Must be "round_robin". The swarm builtin has no policy
+                option, so any other value raises ValueError when the swarm runs.
+            max_iterations: Maximum coordination iterations, 1 to 1000
+
         Returns:
             Swarm instance
         """
@@ -466,8 +552,8 @@ class IronShellRuntime:
         Args:
             agents: List of agents
             goal: Goal for the swarm
-            policy: Coordination policy
-            max_iterations: Maximum iterations
+            policy: Must be "round_robin" (see create_swarm)
+            max_iterations: Maximum iterations, 1 to 1000
             
         Returns:
             SwarmResult
@@ -535,7 +621,7 @@ class PipelineBuilder:
         return self
     
     def reduce(self, fn: str, initial: Any) -> PipelineBuilder:
-        self._ops.append(f"reduce({fn}, {json.dumps(initial)})")
+        self._ops.append(f"reduce({fn}, {_ironshell_value(initial)})")
         return self
     
     def sort(self, fn: Optional[str] = None) -> PipelineBuilder:
@@ -566,7 +652,7 @@ class PipelineBuilder:
     
     def to_code(self) -> str:
         """Get the pipeline as IronShell code"""
-        return f"{json.dumps(self._data)} | {' | '.join(self._ops)}"
+        return f"{_ironshell_value(self._data)} | {' | '.join(self._ops)}"
     
     def run(self, runtime: Optional[IronShellRuntime] = None) -> Any:
         """Execute the pipeline"""

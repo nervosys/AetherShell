@@ -3364,7 +3364,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "String",
-        doc: "When the machine last booted.",
+        doc: "When the machine last booted, as UTC ISO 8601 to the second, for example 2026-10-30T12:34:56Z. The same form on every OS.",
         examples: &[("typeof(sys_boot_time())", "String")],
     },
     Signature {
@@ -3419,7 +3419,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "A summary of the host: OS, OS family, architecture and distribution name.",
+        doc: "A summary of the host: os, arch, family and os_name (the distribution name). Every key is present on every OS; a value this host cannot read is null, and the names of the null fields are listed in missing.",
         examples: &[("typeof(sys_info())", "Record")],
     },
     Signature {
@@ -3441,8 +3441,8 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "The 1, 5 and 15 minute load averages: from /proc/loadavg on Linux and sysctl vm.loadavg on macOS. Windows has no load average, so there all three are the current processor load (Win32_Processor LoadPercentage, averaged over processors) as a fraction from 0.0 to 1.0, not a run-queue average. Other systems are refused.",
-        examples: &[("typeof(sys_load_avg())", "Record")],
+        doc: "The 1, 5 and 15 minute load averages: from /proc/loadavg on Linux and sysctl vm.loadavg on macOS. Windows has no load average and is refused with E_UNIMPLEMENTED; use sys_cpu_info or proc_list there. Other systems are refused.",
+        examples: &[("sys_load_avg()", "{load_1: 0.5, load_5: 0.4, load_15: 0.3}")],
     },
     Signature {
         name: "sys_locale",
@@ -4845,9 +4845,9 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "net_stats", category: None, subject_required: false, aliases: &[], subject: None,
         params: &[],
-        returns: "String",
-        doc: "Return the protocol statistics text from netstat -s. A failed run is E_TOOL_FAILED; output over 1 MiB is E_BUDGET_EXCEEDED. Machine-dependent. Reject arguments and pipeline input.",
-        examples: &[("net_stats()", "IPv4 Statistics")],
+        returns: "Array",
+        doc: "Return the protocol counters from netstat -s as Records of section (the heading, or null), counter (its name) and value (an Int, or null where the line has no number). A line that cannot be read keeps its text as the counter. A failed run is E_TOOL_FAILED; output over 1 MiB is E_BUDGET_EXCEEDED. Machine-dependent. Reject arguments and pipeline input.",
+        examples: &[("net_stats()", "[{section: Tcp, counter: active connections openings, value: 12}]")],
     },
     Signature {
         name: "net_bandwidth", category: None, subject_required: false, aliases: &[], subject: None,
@@ -6006,7 +6006,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Array",
-        doc: "GPUs from nvidia-smi with memory, driver and utilisation; empty without an NVIDIA GPU. Without nvidia-smi, Windows reports {name, memory_bytes, memory_mb, driver} from Win32_VideoController with the driver's 64-bit memory size from the registry; Linux falls back to rocm-smi raw output.",
+        doc: "GPUs from nvidia-smi with memory, driver and utilisation; empty without an NVIDIA GPU. Without nvidia-smi, Windows reports {name, memory_bytes, memory_mb, driver} from Win32_VideoController with the driver's 64-bit memory size from the registry; Linux falls back to rocm-smi, one record per AMD GPU with vendor, index, name, memory_mb, memory_free_mb, driver, temperature_c and utilization_percent, a field rocm-smi does not print being null.",
         examples: &[("typeof(platform_gpus())", "Array")],
     },
     Signature {

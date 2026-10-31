@@ -309,6 +309,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Agent API `call` requests no longer drop named arguments. Each name is
+  mapped to the builtin's declared parameter at its position, and a name
+  that is not a parameter is refused with an error listing the valid ones.
+  Strings are written as literals that cannot run as code, `${...}` included.
+  A parse error is returned as its structured `E_PARSE` JSON, without a
+  `Parse error:` prefix, and the schema is built once per format and
+  environment rather than on every request.
+- The system readers now answer one shape on every OS. `sys_boot_time` is
+  UTC ISO 8601 to the second everywhere; it was local time with an offset on
+  Windows and raw `sysctl` text on macOS. `sys_load_avg` is refused on
+  Windows, which has no load average, instead of reporting processor load as
+  one. `sys_info` gives every key, with null and a `missing` list for any
+  field it cannot read. `net_stats` returns records parsed from `netstat -s`
+  instead of text, and `platform_gpus` reads AMD cards from `rocm-smi` into
+  the NVIDIA record shape instead of a raw text field.
+- The Python SDK silently dropped `Agent(system_prompt=...)`, since the agent
+  builtin has no such option, and `PipelineBuilder` wrote strings with
+  `json.dumps`, so non-ASCII text went out as `\uXXXX` escapes the lexer does
+  not decode. An agent system prompt now raises `ValueError`, pipeline strings
+  are written as themselves, and `__all__` and `__version__` now match the
+  package and its pyproject.toml.
 - In agent mode the Agent API and the MCP server returned records and scalars
   unredacted, so a password that `ish --agent -c` hid came back in the clear
   over HTTP or MCP. Both now redact as the CLI does (`IRONSHELL_REDACT=off`

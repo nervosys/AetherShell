@@ -335,6 +335,13 @@ pub struct OSToolsDatabase {
 }
 
 impl OSToolsDatabase {
+    /// The one database of a process. It is read-only once built, and building
+    /// it fills every tool table, which is too much to repeat per call.
+    pub fn shared() -> &'static OSToolsDatabase {
+        static DB: std::sync::OnceLock<OSToolsDatabase> = std::sync::OnceLock::new();
+        DB.get_or_init(OSToolsDatabase::new)
+    }
+
     pub fn new() -> Self {
         let mut db = OSToolsDatabase {
             tools: HashMap::new(),

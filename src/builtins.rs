@@ -17629,7 +17629,7 @@ fn value_to_gridworld(value: &Value) -> Result<GridWorld> {
 /// List all available tools or filter by category/OS
 /// Usage: tools() | tools("network") | tools("linux")
 fn bi_tools(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let db = OSToolsDatabase::new();
+    let db = OSToolsDatabase::shared();
 
     // A filter that is not a string used to be ignored, so `tools(5)` listed
     // the whole catalogue as if no filter had been given.
@@ -17758,7 +17758,7 @@ fn bi_tool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .ok_or_else(|| crate::safety::arg_err("tool_info requires tool name as argument"))?;
 
-    let db = OSToolsDatabase::new();
+    let db = OSToolsDatabase::shared();
     let tool = db
         .get_tool(&tool_name)
         .ok_or_else(|| crate::safety::not_found("tool_info", "tool", &tool_name.to_string()))?;
@@ -17858,7 +17858,7 @@ fn bi_tool_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// Get OpenAI-compatible function calling schemas for tools
 /// Usage: tool_schema("curl") | tool_schema() for all | tool_schema("network") for category
 fn bi_tool_schema(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let db = OSToolsDatabase::new();
+    let db = OSToolsDatabase::shared();
 
     let filter = match args.first() {
         None => None,
@@ -17978,7 +17978,7 @@ fn bi_tool_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
-    let db = OSToolsDatabase::new();
+    let db = OSToolsDatabase::shared();
     let tool = db
         .get_tool(&tool_name)
         .ok_or_else(|| crate::safety::not_found("tool_exec", "tool", &tool_name))?;
@@ -18063,7 +18063,7 @@ fn bi_tool_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         })
         .ok_or_else(|| crate::safety::arg_err("tool_search requires a search query"))?;
 
-    let db = OSToolsDatabase::new();
+    let db = OSToolsDatabase::shared();
 
     // Use get_recommended_tools for smart search
     let tools = db.get_recommended_tools(&query);
@@ -26287,13 +26287,21 @@ fn bi_proc_cmdline(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Array(argv.into_iter().map(Value::Str).collect()))
 }
 
+/// Seconds since the Unix epoch, as UTC ISO 8601 to the second, or None when
+/// the value is out of chrono's range. The one date form the shell answers in:
+/// `ps lstart` and `ToString('o')` gave three different spellings, and the
+/// Unix one changed with the locale.
+fn utc_iso_seconds(secs: i64) -> Option<String> {
+    chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
+        .map(|at| at.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+}
+
 /// Seconds since the Unix epoch, as UTC ISO 8601 to the second. One form on
-/// every OS: `ps lstart` and `ToString('o')` gave three different spellings,
-/// and the Unix one changed with the locale.
+/// every OS: see `utc_iso_seconds`.
 fn proc_utc_iso(pid: i64, secs: u64) -> Result<String> {
-    let at = i64::try_from(secs)
+    i64::try_from(secs)
         .ok()
-        .and_then(|s| chrono::DateTime::<chrono::Utc>::from_timestamp(s, 0))
+        .and_then(utc_iso_seconds)
         .ok_or_else(|| {
             crate::safety::tool_failed(
                 "proc_start_time",
@@ -26301,8 +26309,7 @@ fn proc_utc_iso(pid: i64, secs: u64) -> Result<String> {
                 Some(0),
                 &format!("the start time of process {pid} is out of range"),
             )
-        })?;
-    Ok(at.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+        })
 }
 
 fn bi_proc_start_time(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -29506,6 +29513,58 @@ fn net_route_rows(name: &str) -> Result<Vec<Value>> {
     ))
 }
 
+/// The counters in `netstat -s` text as records of `section` (the heading the
+/// counter sits under, or Null), `counter` (its name) and `value` (an Int, or
+/// Null). Windows prints `Name = N`; Linux and macOS print `N name` (macOS under
+/// an unindented `ip:`-style heading), and `name: N` where a counter has a
+/// colon. A line with no number keeps its text as the counter, with value Null,
+/// rather than being dropped.
+fn netstat_records(text: &str) -> Vec<Value> {
+    let mut section: Option<String> = None;
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !line.starts_with(char::is_whitespace) {
+            section = Some(trimmed.trim_end_matches(':').trim().to_string());
+            continue;
+        }
+        let (counter, value) = netstat_counter(trimmed);
+        rows.push(net_record(vec![
+            (
+                "section",
+                section.clone().map(Value::Str).unwrap_or(Value::Null),
+            ),
+            ("counter", Value::Str(counter)),
+            ("value", value.map(Value::Int).unwrap_or(Value::Null)),
+        ]));
+    }
+    rows
+}
+
+/// The name and integer value of one indented `netstat -s` line. See
+/// `netstat_records` for the spellings read.
+fn netstat_counter(line: &str) -> (String, Option<i64>) {
+    if let Some((name, value)) = line.split_once('=') {
+        if let Ok(n) = value.trim().parse::<i64>() {
+            return (name.trim().to_string(), Some(n));
+        }
+    }
+    if let Some((first, rest)) = line.split_once(char::is_whitespace) {
+        if let Ok(n) = first.parse::<i64>() {
+            return (rest.trim().to_string(), Some(n));
+        }
+    }
+    if let Some((name, value)) = line.split_once(':') {
+        if let Ok(n) = value.trim().parse::<i64>() {
+            return (name.trim().to_string(), Some(n));
+        }
+    }
+    (line.to_string(), None)
+}
+
 fn bi_net_stats(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const NAME: &str = "net_stats";
     no_args_or_input(NAME, &args, &input)?;
@@ -29521,7 +29580,8 @@ fn bi_net_stats(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "read the counters with a narrower tool",
         ));
     }
-    Ok(Value::Str(String::from_utf8_lossy(&out.stdout).to_string()))
+    let text = String::from_utf8_lossy(&out.stdout);
+    Ok(Value::Array(netstat_records(&text)))
 }
 
 fn bi_net_bandwidth(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -29900,6 +29960,59 @@ fn bi_net_scan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // 290-309: System Information
 // ============================================================================
 
+/// The distribution name for `sys_info`, or None when no probe answers. A
+/// probe that fails, times out or prints nothing is None, not an error: the
+/// caller reports the field as null and names it in `missing`.
+fn os_name_probe() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-Command",
+            "(Get-CimInstance Win32_OperatingSystem).Caption",
+        ]);
+        let output = bounded_cmd_output("sys_info", "powershell", cmd, PROBE_DEADLINE_SECS).ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return (!name.is_empty()).then_some(name);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let release = std::fs::read_to_string("/etc/os-release").ok()?;
+        let name = release
+            .lines()
+            .find_map(|line| line.strip_prefix("PRETTY_NAME="))?
+            .trim_matches('"')
+            .to_string();
+        return (!name.is_empty()).then_some(name);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut name_cmd = std::process::Command::new("sw_vers");
+        name_cmd.args(["-productName"]);
+        let name = bounded_cmd_output("sys_info", "sw_vers", name_cmd, PROBE_DEADLINE_SECS)
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|n| !n.is_empty())?;
+        let mut ver_cmd = std::process::Command::new("sw_vers");
+        ver_cmd.args(["-productVersion"]);
+        let ver = bounded_cmd_output("sys_info", "sw_vers", ver_cmd, PROBE_DEADLINE_SECS)
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        return Some(format!("{} {}", name, ver).trim().to_string());
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+/// The host summary. Every field has its key on every OS. A field this host
+/// cannot answer is null, and its name is listed in `missing`, so a caller can
+/// tell an unknown value from an empty one.
 fn bi_sys_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut rec = std::collections::BTreeMap::new();
     rec.insert(
@@ -29914,64 +30027,17 @@ fn bi_sys_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         "family".to_string(),
         Value::Str(std::env::consts::FAMILY.to_string()),
     );
+    rec.insert(
+        "os_name".to_string(),
+        os_name_probe().map(Value::Str).unwrap_or(Value::Null),
+    );
 
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            "(Get-CimInstance Win32_OperatingSystem).Caption",
-        ]);
-        let output = bounded_cmd_output("sys_info", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            rec.insert(
-                "os_name".to_string(),
-                Value::Str(String::from_utf8_lossy(&output.stdout).trim().to_string()),
-            );
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(release) = std::fs::read_to_string("/etc/os-release") {
-            for line in release.lines() {
-                if line.starts_with("PRETTY_NAME=") {
-                    rec.insert(
-                        "os_name".to_string(),
-                        Value::Str(line[13..].trim_matches('"').to_string()),
-                    );
-                    break;
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let mut name_cmd = std::process::Command::new("sw_vers");
-        name_cmd.args(["-productName"]);
-        let output = bounded_cmd_output("sys_info", "sw_vers", name_cmd, PROBE_DEADLINE_SECS);
-        let mut ver_cmd = std::process::Command::new("sw_vers");
-        ver_cmd.args(["-productVersion"]);
-        let version = bounded_cmd_output("sys_info", "sw_vers", ver_cmd, PROBE_DEADLINE_SECS);
-        // As on Windows and Linux, os_name is left out when the probe
-        // fails; it had been filled with a literal "macOS".
-        let name = output
-            .as_ref()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-        let ver = version
-            .as_ref()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_default();
-        if let Some(name) = name.filter(|n| !n.is_empty()) {
-            rec.insert(
-                "os_name".to_string(),
-                Value::Str(format!("{} {}", name, ver).trim().to_string()),
-            );
-        }
-    }
+    let missing: Vec<Value> = rec
+        .iter()
+        .filter(|(_, v)| matches!(v, Value::Null))
+        .map(|(k, _)| Value::Str(k.clone()))
+        .collect();
+    rec.insert("missing".to_string(), Value::Array(missing));
 
     Ok(Value::Record(rec))
 }
@@ -30235,22 +30301,34 @@ fn windows_uptime_ms() -> u64 {
     unsafe { GetTickCount64() }
 }
 
+/// The boot time as the one shape `sys_boot_time` answers in: UTC ISO 8601 to
+/// the second, for example `2026-10-30T12:34:56Z`.
+fn boot_time_value(epoch_secs: i64) -> Result<Value> {
+    utc_iso_seconds(epoch_secs).map(Value::Str).ok_or_else(|| {
+        crate::safety::bad_state(
+            "sys_boot_time",
+            &format!("the boot time {epoch_secs} is out of range"),
+            "a boot time within the calendar",
+        )
+    })
+}
+
+/// The boot time in seconds since the epoch from `sysctl -n kern.boottime`
+/// text, `{ sec = 1234567890, usec = 0 }`. None when no `sec = N` is there.
+#[cfg(target_os = "macos")]
+fn kern_boottime_secs(text: &str) -> Option<i64> {
+    let rest = &text[text.find("sec = ")? + 6..];
+    let end = rest.find(|c: char| c == ',' || c == ' ' || c == '}')?;
+    rest[..end].trim().parse::<i64>().ok()
+}
+
 fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    // Every arm answers through `boot_time_value`, so the shape is the same on
+    // every OS: UTC ISO 8601 to the second.
     #[cfg(target_os = "windows")]
     {
-        // The shape powershell's ToString('o') gave: local time, seven
-        // fractional digits, offset.
-        let boot =
-            chrono::Local::now() - chrono::Duration::milliseconds(windows_uptime_ms() as i64);
-        // chrono has no seven-digit fraction, so the 100 ns ticks are written
-        // out.
-        use chrono::Timelike;
-        return Ok(Value::Str(format!(
-            "{}.{:07}{}",
-            boot.format("%Y-%m-%dT%H:%M:%S"),
-            boot.nanosecond() % 1_000_000_000 / 100,
-            boot.format("%:z")
-        )));
+        let now = chrono::Utc::now().timestamp();
+        return boot_time_value(now - (windows_uptime_ms() / 1000) as i64);
     }
     // `uptime -s` is a procps/GNU flag. macOS `uptime` does not have it, so
     // this exited non-zero there and fell through to `Ok(Value::Null)` -- a
@@ -30262,34 +30340,37 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         let mut cmd = std::process::Command::new("sysctl");
         cmd.args(["-n", "kern.boottime"]);
         let output = bounded_cmd_output("sys_boot_time", "sysctl", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-        return Err(crate::safety::tool_failed(
-            "sys_boot_time",
-            "sysctl -n kern.boottime",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
+        let text = probe_stdout("sys_boot_time", "sysctl -n kern.boottime", output)?;
+        let secs = kern_boottime_secs(&text).ok_or_else(|| {
+            crate::safety::bad_state(
+                "sys_boot_time",
+                &format!("kern.boottime reported `{}`", text.trim()),
+                "a `sec = N` boot time",
+            )
+        })?;
+        return boot_time_value(secs);
     }
+    // `uptime -s` prints the boot time in local time, to the second. It is read
+    // back in the local zone and converted to UTC.
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         let mut cmd = std::process::Command::new("uptime");
         cmd.args(["-s"]);
         let output = bounded_cmd_output("sys_boot_time", "uptime", cmd, PROBE_DEADLINE_SECS)?;
-        if output.status.success() {
-            return Ok(Value::Str(
-                String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            ));
-        }
-        return Err(crate::safety::tool_failed(
-            "sys_boot_time",
-            "uptime -s",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
+        let text = probe_stdout("sys_boot_time", "uptime -s", output)?;
+        let bad = || {
+            crate::safety::bad_state(
+                "sys_boot_time",
+                &format!("uptime -s reported `{}`", text.trim()),
+                "a `YYYY-MM-DD HH:MM:SS` local boot time",
+            )
+        };
+        let naive = chrono::NaiveDateTime::parse_from_str(text.trim(), "%Y-%m-%d %H:%M:%S")
+            .map_err(|_| bad())?;
+        let local = chrono::TimeZone::from_local_datetime(&chrono::Local, &naive)
+            .single()
+            .ok_or_else(bad)?;
+        return boot_time_value(local.timestamp());
     }
     // Every arm above returns. Were one to fall through, this is an error, not
     // the silent `Null` the macOS arm once answered.
@@ -30659,7 +30740,8 @@ fn load_field_values(sampled: Option<[f64; 3]>) -> [Value; 3] {
 }
 
 fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    // Returns consistent Record {1min: Float, 5min: Float, 15min: Float} on all platforms
+    // Record {1min: Float, 5min: Float, 15min: Float} on Linux and macOS. Windows
+    // has no load average and is refused.
     #[cfg(target_os = "linux")]
     {
         const PATH: &str = "/proc/loadavg";
@@ -30684,41 +30766,13 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "windows")]
     {
-        // Windows has no load average. All three fields carry the current processor
-        // load (LoadPercentage) as a fraction, which is not a run-queue average.
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args([
-            "-Command",
-            "(Get-CimInstance Win32_Processor).LoadPercentage",
-        ]);
-        let output = bounded_cmd_output("sys_load_avg", "powershell", cmd, PROBE_DEADLINE_SECS)?;
-        let text = probe_stdout("sys_load_avg", "powershell Win32_Processor", output)?;
-        // One line per processor: average them. A line that is not a number
-        // is refused, not read as an idle CPU.
-        let mut loads = Vec::new();
-        for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
-            let pct = line.parse::<f64>().map_err(|_| {
-                crate::safety::bad_state(
-                    "sys_load_avg",
-                    &format!("LoadPercentage reported `{line}`"),
-                    "a percentage per processor",
-                )
-            })?;
-            loads.push(pct);
-        }
-        if loads.is_empty() {
-            return Err(crate::safety::bad_state(
-                "sys_load_avg",
-                "Win32_Processor reported no LoadPercentage",
-                "a processor that reports LoadPercentage",
-            ));
-        }
-        let load_norm = loads.iter().sum::<f64>() / loads.len() as f64 / 100.0; // percent to a 0.0-1.0 fraction
-        let mut rec = std::collections::BTreeMap::new();
-        rec.insert("1min".to_string(), Value::Float(load_norm));
-        rec.insert("5min".to_string(), Value::Float(load_norm));
-        rec.insert("15min".to_string(), Value::Float(load_norm));
-        return Ok(Value::Record(rec));
+        // Windows has no load average. The processor load percentage is not a
+        // substitute (it is not a run-queue average), so none is reported.
+        return Err(crate::safety::unimplemented(
+            "sys_load_avg",
+            "Windows has no load average",
+            "read the current processor load with `sys_cpu_info` or the busiest processes with `proc_list`",
+        ));
     }
     // Any other OS has no load-average source wired up here.
     #[allow(unreachable_code)]
@@ -55665,6 +55719,79 @@ fn bi_platform_disk_usage(args: Vec<Value>, _input: Option<Value>) -> Result<Val
     Ok(Value::Record(info))
 }
 
+/// The AMD GPUs in `rocm-smi` text, one record per `GPU[n]` index, with the
+/// keys the NVIDIA rows use: vendor, index, name, memory_mb, memory_free_mb,
+/// driver, temperature_c, utilization_percent. rocm-smi prints one
+/// `GPU[n] : label: value` line per field. A field it does not print is Null
+/// (driver is never printed under these flags). Lines that are not GPU fields
+/// are skipped.
+#[cfg(target_os = "linux")]
+fn rocm_smi_records(text: &str) -> Vec<Value> {
+    let mut by_index: BTreeMap<i64, BTreeMap<String, String>> = BTreeMap::new();
+    for line in text.lines() {
+        let Some(rest) = line.trim().strip_prefix("GPU[") else {
+            continue;
+        };
+        let Some((idx, field)) = rest.split_once(']') else {
+            continue;
+        };
+        let Ok(index) = idx.trim().parse::<i64>() else {
+            continue;
+        };
+        let field = field.trim().trim_start_matches(':').trim();
+        let Some((label, value)) = field.split_once(':') else {
+            continue;
+        };
+        by_index
+            .entry(index)
+            .or_default()
+            .insert(label.trim().to_string(), value.trim().to_string());
+    }
+    by_index
+        .into_iter()
+        .map(|(index, fields)| {
+            let int = |label: &str| fields.get(label).and_then(|v| v.parse::<i64>().ok());
+            let float = |label: &str| {
+                fields
+                    .get(label)
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .map(|f| Value::Int(f.round() as i64))
+                    .unwrap_or(Value::Null)
+            };
+            let total_bytes = int("VRAM Total Memory (B)");
+            let used_bytes = int("VRAM Total Used Memory (B)");
+            let name = fields
+                .get("Card series")
+                .filter(|v| !v.is_empty())
+                .cloned()
+                .map(Value::Str)
+                .unwrap_or(Value::Null);
+            let memory_free_mb = match (total_bytes, used_bytes) {
+                (Some(total), Some(used)) => Value::Int((total - used) / 1024 / 1024),
+                _ => Value::Null,
+            };
+            let mut gpu = BTreeMap::new();
+            gpu.insert("vendor".to_string(), Value::Str("AMD".to_string()));
+            gpu.insert("index".to_string(), Value::Int(index));
+            gpu.insert("name".to_string(), name);
+            gpu.insert(
+                "memory_mb".to_string(),
+                total_bytes
+                    .map(|b| Value::Int(b / 1024 / 1024))
+                    .unwrap_or(Value::Null),
+            );
+            gpu.insert("memory_free_mb".to_string(), memory_free_mb);
+            gpu.insert("driver".to_string(), Value::Null);
+            gpu.insert(
+                "temperature_c".to_string(),
+                float("Temperature (Sensor edge) (C)"),
+            );
+            gpu.insert("utilization_percent".to_string(), float("GPU use (%)"));
+            Value::Record(gpu)
+        })
+        .collect()
+}
+
 fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let mut gpus = Vec::new();
 
@@ -55715,7 +55842,7 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         Err(e) => return Err(e),
     }
 
-    // AMD GPUs via rocm-smi (Linux)
+    // AMD GPUs via rocm-smi (Linux), in the same record shape as the NVIDIA rows.
     #[cfg(target_os = "linux")]
     if gpus.is_empty() {
         let mut cmd = std::process::Command::new("rocm-smi");
@@ -55728,11 +55855,8 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         ]);
         if let Ok(out) = bounded_cmd_output("platform_gpus", "rocm-smi", cmd, PROBE_DEADLINE_SECS) {
             if out.status.success() {
-                let mut gpu = std::collections::BTreeMap::new();
-                gpu.insert("vendor".to_string(), Value::Str("AMD".to_string()));
                 let output = String::from_utf8_lossy(&out.stdout);
-                gpu.insert("raw_info".to_string(), Value::Str(output.to_string()));
-                gpus.push(Value::Record(gpu));
+                gpus.extend(rocm_smi_records(&output));
             }
         }
     }

@@ -30,6 +30,7 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 use crate::ast::{Expr, Stmt};
 use crate::builtins::BUILTIN_LOOKUP;
@@ -446,7 +447,7 @@ fn execute_call(builtin: &str, args: &JsonValue) -> AgentResponse {
                 result: None,
                 error: Some(format!("Failed to convert arguments: {}", e)),
                 result_type: None,
-                metadata: None,
+                metadata: Some(json!({"code": "E_BAD_ARG"})),
             }
         }
     };
@@ -486,10 +487,15 @@ fn pipeline_slot(j: usize) -> String {
 
 /// Parse `source` as exactly one expression statement.
 fn single_expression(source: &str) -> Result<Expr, String> {
-    let mut stmts = parse_program(source).map_err(|e| format!("Parse error: {}", e))?;
+    // A parse failure is already the structured `E_PARSE` JSON, so it is
+    // passed on as it is; prefixing it would make it unparseable for a client.
+    let mut stmts = parse_program(source).map_err(|e| e.to_string())?;
     match (stmts.len(), stmts.pop()) {
         (1, Some(Stmt::Expr(expr))) => Ok(expr),
-        _ => Err("Parse error: a pipeline stage must be a single expression".to_string()),
+        _ => Err(
+            crate::parser::ParseError::new("a pipeline stage must be a single expression")
+                .to_string(),
+        ),
     }
 }
 
@@ -517,7 +523,12 @@ fn run_pipeline_steps(
 
     let mut stage_codes: Vec<String> = Vec::with_capacity(steps.len() + 1);
     if let Some(input_val) = input {
-        stage_codes.push(json_to_ae_literal(input_val));
+        let literal = json_to_ae_literal(input_val).map_err(|e| PipelineFailure {
+            step: None,
+            message: format!("Failed to build pipeline input: {}", e),
+            code_attempted: None,
+        })?;
+        stage_codes.push(literal);
     }
     for step in steps {
         let code = build_step_code(step).map_err(|e| PipelineFailure {
@@ -532,7 +543,7 @@ fn run_pipeline_steps(
     if let Err(e) = parse_program(&joined) {
         return Err(PipelineFailure {
             step: None,
-            message: format!("Parse error: {}", e),
+            message: e.to_string(),
             code_attempted: Some(joined),
         });
     }
@@ -668,7 +679,8 @@ fn execute_eval(code: &str) -> AgentResponse {
         Err(e) => AgentResponse {
             success: false,
             result: None,
-            error: Some(format!("Parse error: {}", e)),
+            // The structured `E_PARSE` JSON, as the CLI reports it.
+            error: Some(e.to_string()),
             result_type: None,
             metadata: Some(json!({
                 "code_attempted": code
@@ -793,11 +805,61 @@ fn list_builtins(category: Option<&str>) -> AgentResponse {
     }
 }
 
+/// What a schema's bytes depend on besides its format: the surface and
+/// deterministic-mode settings (`current_mode`, `deterministic_mode`), and the
+/// environment the CLI-tool probe reads (`PATH`, `PATHEXT`, the working
+/// directory). A change to any of them selects a different cache entry.
+type SchemaCacheKey = (String, String, bool, String, String, String);
+
+/// Built schema values, by format and environment. The schema is a function of
+/// those inputs, and building it probes the PATH for CLI tools and rebuilds the
+/// whole catalogue, so each one is built once per key rather than per request.
+static SCHEMA_CACHE: OnceLock<Mutex<HashMap<SchemaCacheKey, JsonValue>>> = OnceLock::new();
+
 /// Get the language schema in the requested format
 fn get_schema(format: &SchemaFormat) -> AgentResponse {
+    let key: SchemaCacheKey = (
+        format!("{:?}", format),
+        format!("{:?}", crate::safety::current_mode()),
+        deterministic_mode(),
+        std::env::var("PATH").unwrap_or_default(),
+        std::env::var("PATHEXT").unwrap_or_default(),
+        std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default(),
+    );
+    let cache = SCHEMA_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let cached = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&key)
+        .cloned();
+    let result = match cached {
+        Some(value) => value,
+        None => {
+            let built = build_schema_value(format);
+            cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(key, built.clone());
+            built
+        }
+    };
+
+    AgentResponse {
+        success: true,
+        result: Some(result),
+        error: None,
+        result_type: Some(format!("{:?}Schema", format)),
+        metadata: None,
+    }
+}
+
+/// Build the schema value for `format`, without the cache.
+fn build_schema_value(format: &SchemaFormat) -> JsonValue {
     let ontology = build_language_ontology();
 
-    let result = match format {
+    match format {
         SchemaFormat::JsonSchema => serde_json::to_value(&ontology).unwrap_or(JsonValue::Null),
         SchemaFormat::OpenAI => build_openai_schema(&ontology),
         SchemaFormat::Claude => build_claude_schema(&ontology),
@@ -829,14 +891,6 @@ fn get_schema(format: &SchemaFormat) -> AgentResponse {
             json!({"format": "text/turtle", "content": crate::providers::ontology::OS_ONTOLOGY.to_owl_turtle()})
         }
         SchemaFormat::SHACL => crate::providers::ontology::OS_ONTOLOGY.to_shacl(),
-    };
-
-    AgentResponse {
-        success: true,
-        result: Some(result),
-        error: None,
-        result_type: Some(format!("{:?}Schema", format)),
-        metadata: None,
     }
 }
 
@@ -880,28 +934,143 @@ fn get_type_info(type_name: Option<&str>) -> AgentResponse {
 // Helper Functions
 // ============================================================================
 
-/// Convert JSON arguments to IronShell code
+/// Convert the arguments of a `call` (or a pipeline step) to IronShell code
+/// that calls `builtin`.
+///
+/// An array is positional and is written as it stands. An object is named, and
+/// each name is mapped to a declared parameter by `named_args_to_positional`,
+/// so no value is dropped. The arguments reach the code only through
+/// `json_to_ae_literal`, which writes every string as a literal that evaluates
+/// to that string.
 fn args_to_code(builtin: &str, args: &JsonValue) -> Result<String> {
-    match args {
-        JsonValue::Null => Ok(format!("{}()", builtin)),
-        JsonValue::Array(arr) => {
-            let arg_strs: Vec<String> = arr.iter().map(json_to_ae_literal).collect();
-            Ok(format!("{}({})", builtin, arg_strs.join(", ")))
-        }
-        JsonValue::Object(obj) => {
-            // Named arguments - convert to positional based on builtin signature
-            // For now, if there's a single "input" or "value" key, use it directly
-            if let Some(val) = obj.get("input").or(obj.get("value")).or(obj.get("path")) {
-                Ok(format!("{}({})", builtin, json_to_ae_literal(val)))
-            } else if obj.is_empty() {
-                Ok(format!("{}()", builtin))
-            } else {
-                // Convert object to record argument
-                Ok(format!("{}({})", builtin, json_to_ae_literal(args)))
+    if !is_identifier(builtin) {
+        return Err(anyhow!(
+            "'{}' is not a builtin name; a builtin name is letters, digits and underscores",
+            builtin
+        ));
+    }
+    let positional: Vec<JsonValue> = match args {
+        JsonValue::Null => Vec::new(),
+        JsonValue::Array(arr) => arr.clone(),
+        JsonValue::Object(obj) => named_args_to_positional(builtin, obj)?,
+        other => vec![other.clone()],
+    };
+    let literals = positional
+        .iter()
+        .map(json_to_ae_literal)
+        .collect::<Result<Vec<_>>>()?;
+    Ok(format!("{}({})", builtin, literals.join(", ")))
+}
+
+/// Map named arguments to the positions of `builtin`'s declared parameters, as
+/// `get_all_builtin_definitions()` lists them.
+///
+/// A name that is not a parameter is refused, and the error lists the valid
+/// names. A parameter that is left out must be optional, and no later one may
+/// be given, since an omitted middle argument has no literal. A variadic last
+/// parameter given an array is spread over the positions. A builtin whose first
+/// argument is its piped subject has no name for that subject, so it takes its
+/// arguments as an array only.
+fn named_args_to_positional(
+    builtin: &str,
+    obj: &serde_json::Map<String, JsonValue>,
+) -> Result<Vec<JsonValue>> {
+    if obj.is_empty() {
+        return Ok(Vec::new());
+    }
+    let definition = get_all_builtin_definitions().into_iter().find(|d| {
+        d.name == builtin
+            || d.aliases
+                .as_ref()
+                .is_some_and(|names| names.iter().any(|n| n == builtin))
+    });
+    let (canonical, params) = match definition {
+        Some(d) => (d.name, d.parameters),
+        None => (builtin.to_string(), Vec::new()),
+    };
+    let signature = crate::signature::signature_of(&canonical);
+
+    if signature.is_some_and(|s| s.subject.is_some()) {
+        return Err(anyhow!(
+            "'{}' takes its first argument from the pipeline, which has no name; \
+             pass its arguments as an array",
+            builtin
+        ));
+    }
+
+    let valid = if params.is_empty() {
+        "none (pass its arguments as an array)".to_string()
+    } else {
+        params
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut slots: Vec<Option<JsonValue>> = vec![None; params.len()];
+    for (key, value) in obj {
+        match params.iter().position(|p| p.name == *key) {
+            Some(i) => slots[i] = Some(value.clone()),
+            None => {
+                return Err(anyhow!(
+                    "unknown argument '{}' for '{}'; valid parameters: {}",
+                    key,
+                    builtin,
+                    valid
+                ))
             }
         }
-        _ => Ok(format!("{}({})", builtin, json_to_ae_literal(args))),
     }
+
+    if let Some(p) = params
+        .iter()
+        .zip(&slots)
+        .find(|(p, slot)| p.required && slot.is_none())
+        .map(|(p, _)| p)
+    {
+        return Err(anyhow!(
+            "missing required argument '{}' for '{}'",
+            p.name,
+            builtin
+        ));
+    }
+
+    let Some(last) = slots.iter().rposition(Option::is_some) else {
+        return Ok(Vec::new());
+    };
+    let variadic_last = signature.is_some_and(|s| s.params.last().is_some_and(|p| p.variadic));
+    let mut out = Vec::with_capacity(last + 1);
+    for (i, (param, slot)) in params.iter().zip(slots).enumerate() {
+        if i > last {
+            break;
+        }
+        match slot {
+            Some(JsonValue::Array(items)) if variadic_last && i + 1 == params.len() => {
+                out.extend(items)
+            }
+            Some(value) => out.push(value),
+            None => {
+                return Err(anyhow!(
+                    "argument '{}' of '{}' is optional, but a later argument is given; \
+                     give '{}' a value too",
+                    param.name,
+                    builtin,
+                    param.name
+                ))
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Whether `name` is written as an IronShell identifier: a letter or an
+/// underscore, then letters, digits or underscores.
+fn is_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Build code for a single pipeline step
@@ -939,24 +1108,62 @@ fn predicate_to_lambda(predicate: &str) -> String {
     }
 }
 
-/// Convert JSON value to IronShell literal syntax
-fn json_to_ae_literal(val: &JsonValue) -> String {
-    match val {
+/// Convert a JSON value to IronShell literal syntax.
+///
+/// The result is code, so every piece of it must be a literal. A record key must
+/// be an identifier, because IronShell has no quoted record keys; any other key
+/// is refused rather than written into the code.
+fn json_to_ae_literal(val: &JsonValue) -> Result<String> {
+    Ok(match val {
         JsonValue::Null => "None".to_string(),
         JsonValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
         JsonValue::Number(n) => n.to_string(),
-        JsonValue::String(s) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")),
+        JsonValue::String(s) => ae_string_literal(s),
         JsonValue::Array(arr) => {
-            let items: Vec<String> = arr.iter().map(json_to_ae_literal).collect();
+            let items = arr
+                .iter()
+                .map(json_to_ae_literal)
+                .collect::<Result<Vec<_>>>()?;
             format!("[{}]", items.join(", "))
         }
         JsonValue::Object(obj) => {
-            let fields: Vec<String> = obj
-                .iter()
-                .map(|(k, v)| format!("{}: {}", k, json_to_ae_literal(v)))
-                .collect();
+            let mut fields = Vec::with_capacity(obj.len());
+            for (key, value) in obj {
+                if !is_identifier(key) {
+                    return Err(anyhow!(
+                        "record key '{}' is not an identifier, so it cannot be written as a literal",
+                        key
+                    ));
+                }
+                fields.push(format!("{}: {}", key, json_to_ae_literal(value)?));
+            }
             format!("{{{}}}", fields.join(", "))
         }
+    })
+}
+
+/// A string as an IronShell string literal that evaluates to exactly `s`.
+///
+/// The lexer reads `\n`, `\r`, `\t`, `\\` and `\"` as escapes. The evaluator
+/// also reads `${expr}` inside any string as an expression to run, so a `${`
+/// in `s` is written as two literals joined with `+`, and no literal in the
+/// code contains `${`.
+fn ae_string_literal(s: &str) -> String {
+    let mut body = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '\\' => body.push_str("\\\\"),
+            '"' => body.push_str("\\\""),
+            '\n' => body.push_str("\\n"),
+            '\r' => body.push_str("\\r"),
+            '\t' => body.push_str("\\t"),
+            c => body.push(c),
+        }
+    }
+    if body.contains("${") {
+        format!("(\"{}\")", body.replace("${", "$\" + \"{"))
+    } else {
+        format!("\"{}\"", body)
     }
 }
 

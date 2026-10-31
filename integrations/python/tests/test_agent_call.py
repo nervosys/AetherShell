@@ -128,3 +128,33 @@ class TestAgentRun:
         assert result.success is True
         assert result.trace == [{"s": 1}]
         assert result.steps_taken == 3
+
+
+class TestSystemPrompt:
+    """The shell has no system prompt option, so a prompt is refused, not dropped"""
+
+    def test_agent_refuses_a_system_prompt(self):
+        with pytest.raises(ValueError, match="system_prompt"):
+            Agent(name="a", system_prompt="You are terse.")
+
+    def test_refusal_happens_before_any_eval(self):
+        runtime = _runtime_returning("unused")
+
+        with pytest.raises(ValueError, match="system_prompt"):
+            Agent(name="a", runtime=runtime, system_prompt="x")
+        runtime.eval.assert_not_called()
+
+    def test_empty_system_prompt_is_still_refused(self):
+        with pytest.raises(ValueError, match="system_prompt"):
+            Agent(name="a", system_prompt="")
+
+    def test_none_system_prompt_is_the_default(self):
+        agent = Agent(name="a", system_prompt=None, runtime=_runtime_returning("ok"))
+
+        assert _run(agent, "goal").result == "ok"
+
+    def test_workflow_agent_factory_refuses_its_system_prompt(self):
+        from ironshell.langchain import create_workflow_agent
+
+        with pytest.raises(ValueError, match="system_prompt"):
+            create_workflow_agent(runtime=MagicMock(spec=IronShellRuntime))
