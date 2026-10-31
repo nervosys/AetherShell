@@ -308,6 +308,11 @@ fn is_journal_builtin(name: &str) -> bool {
             | "session_redo"
             | "session_end"
             | "session_history"
+            | "tx_begin"
+            | "tx_savepoint"
+            | "tx_commit"
+            | "tx_rollback"
+            | "tx_rollback_to"
     )
 }
 
