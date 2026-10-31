@@ -189,3 +189,35 @@ fn git_status_does_not_run_a_planted_fsmonitor() {
         "a ReadLocal git builtin ran the repository's fsmonitor"
     );
 }
+
+/// An archive names the paths its members land on, and the extracting tool
+/// writes them where `guard` never looks, so a `.git/config` member planted
+/// the same fsmonitor a direct write could not. Refused before extraction.
+#[test]
+fn an_archive_cannot_plant_git_config() {
+    use std::io::Write as _;
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let ws = Ws::new(Some("agent"));
+    let archive = ws.outside.join("planted.zip");
+    {
+        let file = std::fs::File::create(&archive).unwrap();
+        let mut w = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        w.start_file("ok.txt", opts).unwrap();
+        w.write_all(b"fine").unwrap();
+        w.start_file(".git/config", opts).unwrap();
+        w.write_all(b"[core]\n\tfsmonitor = ./evil\n").unwrap();
+        w.finish().unwrap();
+    }
+    let e = call(
+        "zip_extract",
+        vec![s(&archive.to_string_lossy()), s(&ws.root.to_string_lossy())],
+    )
+    .expect_err("an archive with a .git member must be refused");
+    let text = e.to_string();
+    assert!(text.contains("E_POLICY_DENY"), "{text}");
+    assert!(text.contains(".git"), "{text}");
+    assert!(!ws.root.join("ok.txt").exists(), "extraction began anyway");
+    assert!(!ws.root.join(".git").join("config").exists());
+}

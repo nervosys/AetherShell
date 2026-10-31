@@ -376,13 +376,16 @@ struct DownloadModelRequest {
 
 /// Download model endpoint
 async fn download_model(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(model_id): Path<String>,
+    headers: HeaderMap,
     body: Option<Json<DownloadModelRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
     use crate::ai_api::downloader::{DownloadRequest, ModelDownloader};
     use crate::ai_api::models::{ModelFormat, ModelSource};
     use crate::ai_api::storage::{ModelStorage, StorageConfig};
+
+    authorize_mutation(&headers, &state.config)?;
 
     let req_body = body.map(|b| b.0).unwrap_or_else(|| DownloadModelRequest {
         source: None,
@@ -493,13 +496,16 @@ struct ConvertModelRequest {
 
 /// Convert model format endpoint
 async fn convert_model(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(model_id): Path<String>,
+    headers: HeaderMap,
     Json(request): Json<ConvertModelRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
     use crate::ai_api::converters::ModelConverter;
     use crate::ai_api::models::ModelFormat;
     use crate::ai_api::storage::{ModelStorage, StorageConfig};
+
+    authorize_mutation(&headers, &state.config)?;
 
     // Initialize storage
     let storage_config = StorageConfig::default();
@@ -590,10 +596,13 @@ async fn convert_model(
 
 /// Delete model endpoint
 async fn delete_model(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(model_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
     use crate::ai_api::storage::{ModelStorage, StorageConfig};
+
+    authorize_mutation(&headers, &state.config)?;
 
     // Initialize storage
     let storage_config = StorageConfig::default();
@@ -779,9 +788,12 @@ async fn storage_stats(
 
 /// Cleanup storage endpoint
 async fn cleanup_storage(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
     use crate::ai_api::storage::{ModelStorage, StorageConfig};
+
+    authorize_mutation(&headers, &state.config)?;
 
     // Initialize storage
     let storage_config = StorageConfig::default();
@@ -1062,6 +1074,44 @@ fn validate_api_key(
     }
 }
 
+/// Authorize a request that changes local state (download, convert, delete,
+/// cleanup). Unlike the inference routes this check does not depend on
+/// `require_api_key`, because a default server leaves that flag off.
+///
+/// Without a key, the request must carry a custom header. A browser cannot
+/// send a custom header cross-origin without a CORS preflight, and this
+/// server never approves one for that header, so a web page cannot reach
+/// these routes. curl and the CLI can set the header freely.
+fn authorize_mutation(
+    headers: &HeaderMap,
+    config: &APIConfig,
+) -> Result<(), (StatusCode, Json<APIError>)> {
+    if config.security.require_api_key || !config.security.api_keys.is_empty() {
+        return validate_api_key(headers, config);
+    }
+
+    let has_client_header = headers
+        .get("X-IronShell-Client")
+        .and_then(|h| h.to_str().ok())
+        .is_some_and(|v| !v.is_empty());
+
+    if has_client_header {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::FORBIDDEN,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: "Missing X-IronShell-Client header".to_string(),
+                    error_type: "forbidden".to_string(),
+                    param: None,
+                    code: None,
+                },
+            }),
+        ))
+    }
+}
+
 // Additional types for API responses
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -1115,5 +1165,54 @@ mod tests {
 
         // Test passes - actual middleware testing would require integration tests
         // with a running server, which is beyond the scope of unit tests
+    }
+
+    use super::authorize_mutation;
+    use crate::ai_api::config::APIConfig;
+    use axum::http::{HeaderMap, HeaderValue, StatusCode};
+
+    fn headers_with(name: &'static str, value: &'static str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(name, HeaderValue::from_static(value));
+        headers
+    }
+
+    #[test]
+    fn authorize_mutation_no_key_no_header_is_forbidden() {
+        let config = APIConfig::default();
+
+        let err = authorize_mutation(&HeaderMap::new(), &config)
+            .expect_err("mutation without key or client header must be refused");
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+
+        // An empty header value does not count as the client marker.
+        let empty = headers_with("X-IronShell-Client", "");
+        assert!(authorize_mutation(&empty, &config).is_err());
+    }
+
+    #[test]
+    fn authorize_mutation_no_key_with_header_is_allowed() {
+        let config = APIConfig::default();
+        let headers = headers_with("X-IronShell-Client", "1");
+
+        assert!(authorize_mutation(&headers, &config).is_ok());
+    }
+
+    #[test]
+    fn authorize_mutation_key_required_checks_bearer() {
+        let mut config = APIConfig::default();
+        config.security.require_api_key = true;
+        config.security.api_keys = vec!["secret".to_string()];
+
+        // Missing bearer, and a wrong bearer, are both refused even with the header.
+        assert!(authorize_mutation(&HeaderMap::new(), &config).is_err());
+
+        let mut wrong = headers_with("X-IronShell-Client", "1");
+        wrong.insert("Authorization", HeaderValue::from_static("Bearer nope"));
+        assert!(authorize_mutation(&wrong, &config).is_err());
+
+        let mut right = HeaderMap::new();
+        right.insert("Authorization", HeaderValue::from_static("Bearer secret"));
+        assert!(authorize_mutation(&right, &config).is_ok());
     }
 }

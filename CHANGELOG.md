@@ -309,6 +309,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `web_fetch`, `web_json_get`, `web_scrape`, `web_download`, `web_headers`,
+  `web_cookies`, `web_check_url` and `wget_download` let curl follow
+  redirects, so only the first URL met the egress allowlist and the SSRF
+  check. A host on `IRONSHELL_NET_ALLOW` could redirect the request anywhere,
+  including onto this machine. The shell now follows each redirect itself:
+  every hop must be http or https, must be on the allowlist, and may not move
+  from a public address to a local or private one. A refused hop is
+  `E_POLICY_DENY` and is never requested.
+- `apply` and `zip_extract`/`tar_extract` wrote paths the guard never saw, so
+  a plan or an archive member could overwrite the audit log, the RBAC config,
+  or (in agent mode) `.git/config`. Each path, archive member and link target
+  is now checked before anything is written.
+- `ish ai serve` left its state-changing routes open on a default server.
+  `POST /v1/models/:id/download`, `POST /v1/models/:id/convert`,
+  `DELETE /v1/models/:id` and `POST /v1/storage/cleanup` checked no API key
+  unless `require_api_key` was set, and that is off by default. A web page
+  could reach them on 127.0.0.1, since a simple cross-origin POST needs no
+  preflight. They now return 403 unless the request carries
+  `X-IronShell-Client: 1`. The header forces a CORS preflight that the server
+  never approves, so a browser page cannot send it, while curl and the CLI can.
+  When `api_keys` is set, these routes need a valid bearer token instead.
+- `IRONSHELL_MODE=Agent` was human mode for the effect gate but agent mode
+  for plugins. Mode and policy values are now trimmed and case-insensitive,
+  and `--policy` rejects unknown values.
 - PowerShell also ends a single-quoted string at the typographic quotes
   U+2018 to U+201B, and `ps_quote` doubled only `'`. A service name such as
   `svc’; Write-Output INJECTED; ’` passed to `svc_status`, which needs no

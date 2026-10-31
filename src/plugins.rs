@@ -311,9 +311,8 @@ impl DynamicPlugin {
         let plugins_off = std::env::var("IRONSHELL_PLUGINS")
             .map(|v| v.eq_ignore_ascii_case("off") || v == "0")
             .unwrap_or(false);
-        let agent_mode = std::env::var("IRONSHELL_MODE")
-            .map(|m| m.eq_ignore_ascii_case("agent"))
-            .unwrap_or(false);
+        // Same mode decision as the effect gate, so the two cannot disagree.
+        let agent_mode = crate::safety::current_mode() == crate::safety::Mode::Agent;
         let allow = std::env::var("IRONSHELL_PLUGIN_ALLOW").unwrap_or_default();
         let allow_roots: Vec<&str> = allow.split(';').collect();
         let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());

@@ -20832,10 +20832,17 @@ fn apply_op_refusal(
     if enforce_jail && !crate::safety::within_workspace(path) {
         return Some(format!("'{}' is outside the workspace", path));
     }
+    // `apply` is self-guarded, so the paths `guard` protects are refused here.
+    if let Some(why) = crate::safety::protected_write_refusal(path) {
+        return Some(format!("'{path}' is {why}"));
+    }
     // copy/move write a destination — it is jailed too.
     if let Some(d) = dest {
         if enforce_jail && !crate::safety::within_workspace(d) {
             return Some(format!("destination '{}' is outside the workspace", d));
+        }
+        if let Some(why) = crate::safety::protected_write_refusal(d) {
+            return Some(format!("destination '{d}' is {why}"));
         }
         if d == path {
             return Some(format!("{} {}: destination is the source", op, path));
@@ -32905,6 +32912,37 @@ fn check_archive_entries(
     Ok(())
 }
 
+/// Refuse an archive whose members, or whose links' targets, would land on a
+/// path `guard` protects: the audit log, the governance files, or in agent
+/// mode a `.git` directory. The extracting tool writes them where the
+/// archive says, so `guard` never sees those paths; they are judged here,
+/// against the resolved destination, before anything is written.
+fn check_archive_protected(
+    builtin: &str,
+    dest: &str,
+    entries: &[(String, Option<String>)],
+) -> Result<()> {
+    let root = std::path::Path::new(dest);
+    for (name, target) in entries {
+        let landing = root.join(name);
+        let mut paths = vec![landing.clone()];
+        if let Some(t) = target {
+            paths.push(landing.parent().unwrap_or(root).join(t));
+        }
+        for p in paths {
+            let p = p.to_string_lossy();
+            if let Some(why) = crate::safety::protected_write_refusal(&p) {
+                return Err(crate::safety::policy_deny(
+                    builtin,
+                    format!("{builtin}: entry `{name}` would write {p}, which is {why}"),
+                    "the archive was refused before anything was written; extract it somewhere else or remove the entry",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn refuse_archive_entry(builtin: &str, name: &str) -> anyhow::Error {
     crate::safety::policy_deny(
         builtin,
@@ -33174,14 +33212,13 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     refuse_in_transaction("zip_extract", "extracting an archive cannot be rolled back")?;
     // Refuse a member that would land outside the destination before the tool
     // writes anything.
-    check_archive_entries(
-        "zip_extract",
-        zip_archive_entries("zip_extract", &archive)?.into_iter(),
-    )?;
+    let members = zip_archive_entries("zip_extract", &archive)?;
+    check_archive_entries("zip_extract", members.iter().cloned())?;
 
     #[cfg(target_os = "windows")]
     {
         let dest = guard_local_write("zip_extract", &dest)?;
+        check_archive_protected("zip_extract", &dest, &members)?;
         let cmd = crate::ps_script!(
             "Expand-Archive -Path {} -DestinationPath {}",
             crate::safety::ps_quote(&archive),
@@ -33211,6 +33248,7 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         crate::safety::reject_option_like("zip_extract", std::slice::from_ref(&archive))?;
         crate::safety::reject_option_like("zip_extract", std::slice::from_ref(&dest))?;
         let dest = guard_local_write("zip_extract", &dest)?;
+        check_archive_protected("zip_extract", &dest, &members)?;
         let mut cmd = std::process::Command::new("unzip");
         cmd.args([&archive, "-d", &dest]);
         // Archives can be large; extraction is bounded by the long deadline.
@@ -33352,10 +33390,8 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     refuse_in_transaction("tar_extract", "extracting an archive cannot be rolled back")?;
     // Refuse a member, or a link, that would land outside the destination before
     // tar writes anything.
-    check_archive_entries(
-        "tar_extract",
-        tar_archive_entries("tar_extract", &archive)?.into_iter(),
-    )?;
+    let members = tar_archive_entries("tar_extract", &archive)?;
+    check_archive_entries("tar_extract", members.iter().cloned())?;
     let mut cmd = std::process::Command::new("tar");
     cmd.args(["-xvf", &archive]);
     if let Some(d) = dest {
@@ -33364,7 +33400,10 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // target usually does, but not always, so the destination is jailed
         // here where its meaning is known.
         let d = guard_local_write("tar_extract", &d)?;
+        check_archive_protected("tar_extract", &d, &members)?;
         cmd.args(["-C", &d]);
+    } else {
+        check_archive_protected("tar_extract", ".", &members)?;
     }
     // Archives can be large; extraction is bounded by the long deadline.
     let output = bounded_cmd_output("tar_extract", "tar", cmd, TOOL_LONG_DEADLINE_SECS)?;
@@ -39504,7 +39543,10 @@ const WEB_SCRAPE_MAX_MATCHES: usize = 1000;
 /// Wall-clock limit for one request, handed to curl.
 const WEB_MAX_TIME_SECS: &str = "30";
 /// Redirects followed before a request is refused.
-const WEB_MAX_REDIRS: &str = "10";
+const WEB_MAX_REDIRS: usize = 10;
+/// Where curl's `-w` report starts in a hop's stdout: the status and the
+/// `Location` it did not follow. Plain ASCII, so it survives any argv encoding.
+const WEB_HOP_MARK: &str = "\nISH-HOP-7c41 ";
 /// Trailing bytes of curl's stderr kept for an error message.
 const WEB_STDERR_TAIL: usize = 4 * 1024;
 const WEB_URL_EXPECTED: &str = "an absolute http or https URL such as https://example.com";
@@ -39598,23 +39640,93 @@ struct WebRun {
 /// resolver thread or a curl that never starts its transfer.
 const WEB_KILL_GRACE_SECS: u64 = 15;
 
-/// Run curl with `args` as an argv, never through a shell.
+/// Run curl with `args` as an argv, never through a shell. The caller's last
+/// argument is the URL.
 ///
-/// Every run is limited to http and https, including across redirects
-/// (`--proto`, `--proto-redir`), to a fixed number of redirects and to a
-/// wall-clock limit. curl's `--max-time` is the first limit; [`run_tree`]
-/// enforces a second one, killing curl's tree and abandoning its pipes, so the
-/// call cannot outlive it. stdout is kept only up to `WEB_BODY_MAX`; a longer
-/// body is reported, not truncated. The caller's last argument is the URL.
+/// A caller that passes `-L` gets redirects followed, but not by curl: curl
+/// would follow them past the egress allowlist and the SSRF check, which saw
+/// only the first URL. Each hop runs without `-L`, curl reports the status and
+/// the `Location` it did not follow, and [`crate::safety::guard_redirect`]
+/// judges the next URL before it is requested. With `-I`, every hop's headers
+/// are returned, as curl's own `-L -I` printed them.
 fn web_curl(builtin: &str, args: &[&str]) -> Result<WebRun> {
+    if !args.iter().any(|a| matches!(*a, "-L" | "--location")) {
+        return web_curl_once(builtin, args);
+    }
+    let heads = args.iter().any(|a| matches!(*a, "-I" | "--head"));
+    let mut argv: Vec<String> = args
+        .iter()
+        .filter(|a| !matches!(**a, "-L" | "--location"))
+        .map(|a| a.to_string())
+        .collect();
+    // curl keeps only the last `-w`, so a caller's own format (web_check_url
+    // prints the status) goes in front of the hop report rather than lost.
+    let mut caller_format = String::new();
+    if let Some(i) = argv.iter().position(|a| a == "-w") {
+        if i + 1 < argv.len() - 1 {
+            caller_format = argv.remove(i + 1);
+            argv.remove(i);
+        }
+    }
+    let report = format!("{caller_format}{WEB_HOP_MARK}%{{response_code}} %{{redirect_url}}");
+    let at = argv.len() - 1;
+    argv.splice(at..at, ["-w".to_string(), report]);
+    let mut earlier = Vec::new();
+    for _ in 0..=WEB_MAX_REDIRS {
+        let url = argv.last().cloned().unwrap_or_default();
+        let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+        let mut run = web_curl_once(builtin, &refs)?;
+        let next = web_take_hop(&mut run.body);
+        if heads {
+            earlier.append(&mut run.body);
+        }
+        let next = match next {
+            Some((code, next)) if (300..400).contains(&code) && !next.is_empty() => next,
+            _ => {
+                if heads {
+                    run.body = earlier;
+                }
+                return Ok(run);
+            }
+        };
+        if !run.status.success() || run.over {
+            return Ok(run);
+        }
+        crate::safety::guard_redirect(builtin, &url, &next)?;
+        let next = web_http_url(builtin, &next)?;
+        *argv.last_mut().expect("the URL is the last argument") = next;
+    }
+    Err(crate::safety::budget_exceeded(
+        builtin,
+        format!("more than {WEB_MAX_REDIRS} redirects"),
+        "request the final URL directly",
+    ))
+}
+
+/// Remove curl's `-w` report from the end of a hop's stdout and return the
+/// status and the redirect target it names. None when the report is missing,
+/// as it is when the body was cut at the size cap.
+fn web_take_hop(body: &mut Vec<u8>) -> Option<(u16, String)> {
+    let mark = WEB_HOP_MARK.as_bytes();
+    let at = body.windows(mark.len()).rposition(|w| w == mark)?;
+    let report = String::from_utf8_lossy(&body[at + mark.len()..]).into_owned();
+    body.truncate(at);
+    let (code, next) = report.split_once(' ').unwrap_or((report.as_str(), ""));
+    Some((code.trim().parse().ok()?, next.trim().to_string()))
+}
+
+/// One curl run, with no redirect followed.
+///
+/// Every run is limited to http and https and to a wall-clock limit. curl's
+/// `--max-time` is the first limit; [`run_tree`] enforces a second one,
+/// killing curl's tree and abandoning its pipes, so the call cannot outlive
+/// it. stdout is kept only up to `WEB_BODY_MAX`; a longer body is reported,
+/// not truncated.
+fn web_curl_once(builtin: &str, args: &[&str]) -> Result<WebRun> {
     let mut argv = vec![
         "-sS",
         "--proto",
         "=http,https",
-        "--proto-redir",
-        "=http,https",
-        "--max-redirs",
-        WEB_MAX_REDIRS,
         "--max-time",
         WEB_MAX_TIME_SECS,
     ];
@@ -67276,34 +67388,62 @@ fn bi_wget_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         )));
     }
     let max = WGET_FILE_MAX.to_string();
-    let argv = [
-        "-sS",
-        "-f",
-        "-L",
-        "--max-redirs",
-        "5",
-        "--proto",
-        "=http,https",
-        "--proto-redir",
-        "=http,https",
-        "--connect-timeout",
-        "15",
-        "--max-filesize",
-        max.as_str(),
-        "-o",
-        output.as_str(),
-        url.as_str(),
-    ];
-    if let Err(e) = tool_run(
-        "wget_download",
-        "curl",
-        None,
-        &argv,
-        Keep::Tail(TOOL_STDERR_TAIL),
-        TOOL_LONG_DEADLINE_SECS,
-    )
-    .and_then(|run| finished("wget_download", run))
-    {
+    let report = format!("{WEB_HOP_MARK}%{{response_code}} %{{redirect_url}}");
+    // Redirects are followed here, hop by hop, for the reason `web_curl`
+    // gives: curl's own `-L` would take the request past the allowlist.
+    let mut hop_url = url.clone();
+    let mut hops = 0;
+    let fetched = loop {
+        let argv = [
+            "-sS",
+            "-f",
+            "--proto",
+            "=http,https",
+            "--connect-timeout",
+            "15",
+            "--max-filesize",
+            max.as_str(),
+            "-o",
+            output.as_str(),
+            "-w",
+            report.as_str(),
+            hop_url.as_str(),
+        ];
+        let run = match tool_run(
+            "wget_download",
+            "curl",
+            None,
+            &argv,
+            Keep::Tail(TOOL_STDERR_TAIL),
+            TOOL_LONG_DEADLINE_SECS,
+        )
+        .and_then(|run| finished("wget_download", run))
+        {
+            Ok(run) => run,
+            Err(e) => break Err(e),
+        };
+        let mut stdout = run.stdout.into_bytes();
+        let next = match web_take_hop(&mut stdout) {
+            Some((code, next)) if (300..400).contains(&code) && !next.is_empty() => next,
+            _ => break Ok(()),
+        };
+        hops += 1;
+        if hops > 5 {
+            break Err(crate::safety::budget_exceeded(
+                "wget_download",
+                "more than 5 redirects".to_string(),
+                "request the final URL directly",
+            ));
+        }
+        let next = match crate::safety::guard_redirect("wget_download", &hop_url, &next)
+            .and_then(|_| web_http_url("wget_download", &next))
+        {
+            Ok(next) => next,
+            Err(e) => break Err(e),
+        };
+        hop_url = next;
+    };
+    if let Err(e) = fetched {
         remove_partial(&output);
         return Err(e);
     }

@@ -487,7 +487,64 @@ fn a_redirect_to_a_file_url_is_not_followed() {
         &format!(r#"(try {{ web_fetch("{url}") }} catch e {{ e.error.code }})"#),
     );
     server.finish();
-    assert!(out.contains("E_TOOL_FAILED"), "output: {out}");
+    // Refused by the shell's own check of each hop, before curl is asked.
+    assert!(out.contains("E_POLICY_DENY"), "output: {out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// curl's `-L` followed redirects itself, so a host on the allowlist could
+/// send the request on to any other host. Each hop is now judged first, and
+/// the refused one is never requested.
+#[test]
+fn a_redirect_off_the_allowlist_is_refused_before_it_is_requested() {
+    let dir = workspace("redir_off_allow");
+    for builtin in ["web_fetch", "web_check_url", "web_headers"] {
+        let server = serve(vec![reply(
+            302,
+            "Location: http://not-allowed.invalid/secret\r\n",
+            b"",
+        )]);
+        let url = format!("http://127.0.0.1:{}/start", server.port);
+        let out = ae(
+            &dir,
+            &format!(r#"(try {{ {builtin}("{url}") }} catch e {{ e.error.code }})"#),
+        );
+        let seen = server.finish();
+        assert!(out.contains("E_POLICY_DENY"), "{builtin}: {out}");
+        assert_eq!(seen.len(), 1, "{builtin}: only the first hop was requested");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A redirect that stays on the allowlist is still followed, and the caller's
+/// own `-w` (web_check_url prints the status) survives the hop report.
+#[test]
+fn a_redirect_on_the_allowlist_is_followed() {
+    let dir = workspace("redir_on_allow");
+    let server = serve(vec![
+        reply(302, "Location: /next\r\n", b"moved"),
+        reply(200, "", b"final body"),
+    ]);
+    let url = format!("http://127.0.0.1:{}/start", server.port);
+    let out = ae(&dir, &format!(r#"web_fetch("{url}")"#));
+    let seen = server.finish();
+    assert!(out.contains("final body"), "output: {out}");
+    assert!(!out.contains("ISH-HOP"), "the hop report leaked: {out}");
+    assert_eq!(seen.len(), 2);
+    assert!(
+        seen[1].starts_with("GET /next "),
+        "second request: {}",
+        seen[1]
+    );
+
+    let server = serve(vec![
+        reply(301, "Location: /b\r\n", b""),
+        reply(204, "", b""),
+    ]);
+    let url = format!("http://127.0.0.1:{}/a", server.port);
+    let out = ae(&dir, &format!(r#"web_check_url("{url}")"#));
+    server.finish();
+    assert!(out.contains("true"), "output: {out}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

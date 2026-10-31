@@ -53,7 +53,7 @@ struct Cli {
     workspace: Option<String>,
 
     /// Safety policy: "strict" (default) or "permissive" (allow-all in agent mode)
-    #[arg(long, value_name = "POLICY")]
+    #[arg(long, value_name = "POLICY", value_parser = ["strict", "permissive"], ignore_case = true)]
     policy: Option<String>,
 
     /// Report what a program would do -- every call, its effect class and the

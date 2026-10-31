@@ -1190,13 +1190,18 @@ pub enum Mode {
 /// The project's one spelling of "is this switch on?". Public so builtins that
 /// gate on an operator-set variable (rather than on caller-supplied data) share
 /// exactly these accepted spellings instead of each inventing their own.
+/// Matching is case-insensitive and ignores surrounding whitespace.
 pub fn truthy_env(name: &str) -> bool {
     // `var_os`: no UTF-8 check, no `String` -- this and `current_mode` run on
     // every builtin call, and `getenv` was 8% of a call-heavy profile.
-    matches!(
-        std::env::var_os(name).as_deref().and_then(|v| v.to_str()),
-        Some("1") | Some("true") | Some("yes") | Some("on")
-    )
+    let raw = std::env::var_os(name);
+    let Some(v) = raw.as_deref().and_then(|v| v.to_str()) else {
+        return false;
+    };
+    let v = v.trim();
+    ["1", "true", "yes", "on"]
+        .iter()
+        .any(|on| v.eq_ignore_ascii_case(on))
 }
 
 #[cfg(test)]
@@ -1232,11 +1237,13 @@ pub fn refuse_if_headless(builtin: &str) -> anyhow::Result<()> {
 }
 
 /// The active execution mode, derived from the environment.
+/// `IRONSHELL_MODE=agent` matching is case-insensitive and ignores surrounding
+/// whitespace, as is `IRONSHELL_AGENT` (see [`truthy_env`]).
 pub fn current_mode() -> Mode {
     if std::env::var_os("IRONSHELL_MODE")
         .as_deref()
         .and_then(|v| v.to_str())
-        == Some("agent")
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("agent"))
         || truthy_env("IRONSHELL_AGENT")
     {
         Mode::Agent
@@ -1246,9 +1253,10 @@ pub fn current_mode() -> Mode {
 }
 
 /// Whether the policy has been globally relaxed to permissive (agent mode
-/// behaves like human mode). `IRONSHELL_POLICY=permissive`.
+/// behaves like human mode). `IRONSHELL_POLICY=permissive`, matched
+/// case-insensitively and ignoring surrounding whitespace.
 fn policy_permissive() -> bool {
-    std::env::var("IRONSHELL_POLICY").ok().as_deref() == Some("permissive")
+    std::env::var("IRONSHELL_POLICY").is_ok_and(|v| v.trim().eq_ignore_ascii_case("permissive"))
 }
 
 /// The decision the policy engine reaches for a given effect under a mode.
@@ -2473,6 +2481,26 @@ pub fn is_governance_file(path: &str) -> bool {
         }
     }
     files.iter().any(|f| names(f))
+}
+
+/// Why a write to `path` is refused when it is one `guard` protects, for a
+/// builtin whose writes `guard` never sees: `apply` writes the paths its plan
+/// names, and an archive extraction writes paths only the archive names. None
+/// outside the jail, as in `guard`.
+pub fn protected_write_refusal(path: &str) -> Option<&'static str> {
+    let mode = current_mode();
+    if !jail_enforced(mode) {
+        return None;
+    }
+    if is_audit_artifact(path) {
+        Some("the audit log or its directory")
+    } else if is_governance_file(path) {
+        Some("a file that configures this shell's access control or audit key")
+    } else if mode == Mode::Agent && is_git_control_path(path) {
+        Some("inside a .git directory, whose config and hooks git runs")
+    } else {
+        None
+    }
 }
 
 /// Whether `path` is a `.git` entry or lies under one, symlinks resolved.
@@ -4458,6 +4486,68 @@ pub fn egress_permitted(targets: &[String], allow: &str) -> Result<(), String> {
         Some(h) => Err(format!("'{h}' is not in the allowlist")),
         None => Ok(()),
     }
+}
+
+/// Judge one redirect hop of a request the gate already admitted.
+///
+/// `guard` sees only the URL a builtin was called with. When curl followed
+/// redirects itself (`-L`), every later hop reached a host nobody checked, so
+/// an allowed host could send the request anywhere. The hop is not a new call
+/// and asks for no new approval; it must stay inside the allowlist, and a hop
+/// from a public host may not land on this machine or a private network, the
+/// classic SSRF bounce. A request that began on a local address was aimed
+/// there on purpose and may stay local.
+pub fn guard_redirect(builtin: &str, from: &str, to: &str) -> anyhow::Result<()> {
+    let scheme = url::Url::parse(to).map(|u| u.scheme().to_string());
+    if !matches!(scheme.as_deref(), Ok("http" | "https")) || to.chars().any(char::is_control) {
+        let _ = audit(
+            builtin,
+            Effect::Network,
+            "deny_redirect_scheme",
+            to,
+            json!({ "from": from }),
+        );
+        return Err(policy_deny(
+            builtin,
+            format!("{builtin}: {from} redirected to {to:?}, which is not an http or https URL"),
+            "only http and https redirects are followed; a file: or other target would reach past the network guards",
+        ));
+    }
+    if !policy_permissive() {
+        if let Some(allow) = net_allowlist() {
+            if let Err(detail) = egress_permitted(&[to.to_string()], &allow) {
+                let _ = audit(
+                    builtin,
+                    Effect::Network,
+                    "deny_egress_redirect",
+                    to,
+                    json!({ "from": from, "allow": allow, "detail": detail }),
+                );
+                return Err(policy_deny(
+                    builtin,
+                    format!("{builtin}: redirect to {to} denied: {detail}"),
+                    format!("IRONSHELL_NET_ALLOW permits only: {allow}; the server redirected outside it"),
+                ));
+            }
+        }
+    }
+    if crate::security::validate_http_url(builtin, from).is_ok() {
+        if let Err(e) = crate::security::validate_http_url(builtin, to) {
+            let _ = audit(
+                builtin,
+                Effect::Network,
+                "deny_redirect_ssrf",
+                to,
+                json!({ "from": from, "detail": e.to_string() }),
+            );
+            return Err(policy_deny(
+                builtin,
+                format!("{builtin}: {from} redirected to {to}, which is refused: {e}"),
+                "a public server may not redirect a request onto this machine or a private network",
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
