@@ -217,7 +217,7 @@ pub const DECLARED: &[(&str, &str)] = &[
     ),
     (
         "ontology_manifest",
-        "record{categories:array<record{builtins:int,category:str,effects:array<str>}>,effect_legend:array<str>,hint:str,ontology:str,total_builtins:int}",
+        "record{categories:array<record{builtins:int,category:str,effects:array<str>}>,effect_legend:array<str>,hint:str,modules:str,ontology:str,total_builtins:int}",
     ),
     ("pwd", "str"),
     ("range", "array<int>"),

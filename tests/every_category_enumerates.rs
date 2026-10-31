@@ -16,8 +16,7 @@ use iron_shell::agent_api::{
     ontology_describe_json, ontology_manifest_json, process_request, AgentRequest,
 };
 use iron_shell::modules::all_modules;
-use iron_shell::value::Value;
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 #[test]
 fn every_advertised_category_lists_the_count_it_advertises() {
@@ -62,58 +61,42 @@ fn every_advertised_category_lists_the_count_it_advertises() {
     );
 }
 
-/// The manifest's `modules` field: the `<module>.<member>` namespaces an agent
-/// writes. Each count must be the member count of the module table the
-/// evaluator registers, and the list must be sorted so the root is deterministic.
+/// The manifest's `modules` field: the namespaces an agent writes as
+/// `<module>.<member>`, space-joined. It must be sorted and hold exactly the
+/// names the module table registers, so the root is deterministic and every
+/// name resolves.
 #[test]
-fn manifest_modules_are_sorted_and_counted_from_the_module_table() {
+fn manifest_modules_are_sorted_and_match_the_module_table() {
     let manifest = ontology_manifest_json();
-    let mods = manifest["modules"]
-        .as_object()
-        .expect("manifest has a modules object");
+    let joined = manifest["modules"]
+        .as_str()
+        .expect("manifest has a modules string");
+    let mods: Vec<&str> = joined.split(' ').collect();
 
-    // Non-vacuity: an empty object would pass the checks below.
+    // Non-vacuity: an empty array would pass the checks below.
     assert!(!mods.is_empty(), "manifest lists no modules");
 
-    let names: Vec<&str> = mods.keys().map(String::as_str).collect();
-    let mut sorted = names.clone();
+    let mut sorted = mods.clone();
     sorted.sort();
-    assert_eq!(names, sorted, "manifest modules are not sorted by name");
+    assert_eq!(mods, sorted, "manifest modules are not sorted by name");
     assert!(
-        names.contains(&"file"),
+        mods.contains(&"file"),
         "`file` missing from manifest modules"
     );
-    assert!(
-        names.contains(&"sys"),
-        "`sys` missing from manifest modules"
-    );
+    assert!(mods.contains(&"sys"), "`sys` missing from manifest modules");
 
-    // The table the evaluator registers, counted the same way it is stored.
-    let table: BTreeMap<&str, usize> = all_modules()
-        .into_iter()
-        .map(|(name, module)| match module {
-            Value::Record(members) => (name, members.len()),
-            other => panic!("module {name} is not a record: {other:?}"),
-        })
-        .collect();
+    // The names the evaluator registers, deduplicated (the table can repeat one).
+    let table: BTreeSet<&str> = all_modules().into_iter().map(|(name, _)| name).collect();
+    let listed: BTreeSet<&str> = mods.iter().copied().collect();
     assert_eq!(
         mods.len(),
-        table.len(),
-        "manifest lists {} modules, the module table registers {}",
-        mods.len(),
-        table.len()
+        listed.len(),
+        "manifest modules contain a duplicate"
     );
-    for (name, count) in mods {
-        let members = count.as_u64().expect("module member count") as usize;
-        let expected = table
-            .get(name.as_str())
-            .copied()
-            .unwrap_or_else(|| panic!("manifest lists {name}, which the table does not register"));
-        assert_eq!(
-            members, expected,
-            "manifest says {name} has {members} members; the module table has {expected}"
-        );
-    }
+    assert_eq!(
+        listed, table,
+        "manifest modules differ from the module table"
+    );
 
     // A sample member really evaluates through the namespace it is listed under.
     let r = process_request(&AgentRequest::Eval {
