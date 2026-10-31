@@ -418,6 +418,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "db_kv_delete"
         | "db_sqlite_delete"
         | "docker_rm"
+        | "podman_rm"
         | "docker_compose_down"
         | "truncate"
         | "k8s_delete"
@@ -1004,6 +1005,8 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "platform_tool_version"
         | "platform_tool_versions"
         | "platform_vcs"
+        | "podman_images"
+        | "podman_ps"
         | "search_grep"
         | "search_regex"
         | "session_changes"
@@ -1077,11 +1080,8 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "docker_top"
         | "gui_mouse_double_click"
         | "podman_build"
-        | "podman_images"
         | "podman_logs"
-        | "podman_ps"
         | "podman_pull"
-        | "podman_rm"
         | "podman_stop"
         | "terraform_apply"
         | "terraform_init"
@@ -4919,6 +4919,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "platform_db_delete",
     "platform_db_export",
     "podman_exec",
+    "podman_rm",
     "proc_kill",
     "proc_spawn",
     "project_scripts",

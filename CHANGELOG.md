@@ -309,6 +309,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- In agent mode the Agent API and the MCP server returned records and scalars
+  unredacted, so a password that `ish --agent -c` hid came back in the clear
+  over HTTP or MCP. Both now redact as the CLI does (`IRONSHELL_REDACT=off`
+  still opts out).
+- `podman_ps` and `podman_images` were classed `Exec` while their docker
+  twins are `ReadLocal`, and `podman_rm` was `Exec` where `docker_rm` is
+  `Destructive` and guards itself. The podman builtins now carry the same
+  effect classes, and `podman_rm` runs the same policy guard as `docker_rm`.
+  `ontology_describe` on an unknown name now suggests the nearest real
+  builtins, in its `error` text and a new `did_you_mean` field.
+- `--deterministic` (`IRONSHELL_DETERMINISTIC`) was honoured by `ish -c` only.
+  Agent API responses ignored it, so in agent mode an array result came back
+  as AECON text rather than canonical JSON, and MCP tool results ignored it
+  too. Under the flag both now render canonically, as `ish -c` does, and
+  run-dependent metadata keys are dropped. Without the flag, output is
+  unchanged.
 - `web_fetch`, `web_json_get`, `web_scrape`, `web_download`, `web_headers`,
   `web_cookies`, `web_check_url` and `wget_download` let curl follow
   redirects, so only the first URL met the egress allowlist and the SSRF

@@ -327,9 +327,70 @@ pub struct ModuleFunctionDef {
 // API Implementation
 // ============================================================================
 
+/// Whether deterministic mode is on: `--deterministic` sets
+/// `IRONSHELL_DETERMINISTIC`, and `repl::run_one` applies the same test before
+/// it renders `ish -c` output as canonical JSON.
+pub fn deterministic_mode() -> bool {
+    std::env::var("IRONSHELL_DETERMINISTIC")
+        .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Metadata keys whose values change from run to run. The API sets none of
+/// them today; they are dropped in deterministic mode so one added later
+/// cannot break reproducibility.
+const NONDETERMINISTIC_METADATA_KEYS: &[&str] = &[
+    "execution_time_ms",
+    "duration_ms",
+    "elapsed_ms",
+    "timestamp",
+    "created_at",
+    "started_at",
+    "finished_at",
+    "request_id",
+    "id",
+];
+
+/// Rebuild every object under `v` with its keys in sorted order, so the
+/// serialized bytes do not depend on the map implementation (serde_json's
+/// `preserve_order` feature is off here, which already sorts, but this does not
+/// rely on it).
+fn sort_json_keys(v: &mut JsonValue) {
+    match v {
+        JsonValue::Object(m) => {
+            let mut entries: Vec<(String, JsonValue)> = std::mem::take(m).into_iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            for (_, child) in entries.iter_mut() {
+                sort_json_keys(child);
+            }
+            *m = entries.into_iter().collect();
+        }
+        JsonValue::Array(items) => items.iter_mut().for_each(sort_json_keys),
+        _ => {}
+    }
+}
+
+/// Make a response reproducible under deterministic mode: canonical key order
+/// in `result`, and no run-dependent metadata. Applied once, at the exit of
+/// `process_request`, so every entry point (HTTP, WebSocket, stdio, library)
+/// gets the same bytes.
+fn deterministic_scrub(resp: &mut AgentResponse) {
+    if let Some(result) = resp.result.as_mut() {
+        sort_json_keys(result);
+    }
+    if let Some(JsonValue::Object(meta)) = resp.metadata.as_mut() {
+        for key in NONDETERMINISTIC_METADATA_KEYS {
+            meta.remove(*key);
+        }
+    }
+}
+
 /// Process an agent API request
 pub fn process_request(request: &AgentRequest) -> AgentResponse {
     let mut resp = dispatch_request(request);
+    if deterministic_mode() {
+        deterministic_scrub(&mut resp);
+    }
     annotate_token_accounting(request, &mut resp);
     resp
 }
@@ -532,14 +593,32 @@ fn run_pipeline_steps(
 
 /// The response for an evaluated value. Agent mode renders tabular results as
 /// AECON text; everything else is native JSON.
+/// `value` as an agent may see it: secrets scrubbed in agent mode unless
+/// `IRONSHELL_REDACT=off`, as `ish --agent` scrubs them. The Agent API and
+/// MCP returned records and scalars as they were, so a password that
+/// `ish --agent -c` hid came back in the clear over HTTP.
+pub fn redact_for_agent(value: Value) -> Value {
+    if crate::safety::current_mode() == crate::safety::Mode::Agent
+        && crate::safety::redaction_enabled()
+    {
+        crate::builtins::redact_value(&value)
+    } else {
+        value
+    }
+}
+
 fn response_from_value(value: Value, code: &str) -> AgentResponse {
+    let value = redact_for_agent(value);
     let result_type = value_type_name(&value);
     // Agent mode mirrors the CLI default: tabular results (Array/Table,
     // where keys would otherwise repeat per row) are returned as compact
     // AECON text instead of verbose JSON, paged to IRONSHELL_TOKEN_BUDGET when
     // set. Scalars/records/strings stay native JSON (a bare number must
     // not become a quoted string). Non-agent consumers are unchanged.
-    if crate::safety::current_mode() == crate::safety::Mode::Agent
+    // Deterministic mode wins over the AECON renderer, as it does in `ish -c`,
+    // so the result is the canonical JSON the response carries instead.
+    if !deterministic_mode()
+        && crate::safety::current_mode() == crate::safety::Mode::Agent
         && matches!(value, Value::Array(_) | Value::Table(_))
     {
         let budget = std::env::var("IRONSHELL_TOKEN_BUDGET")
@@ -2663,9 +2742,21 @@ pub fn ontology_describe_json(query: &str) -> JsonValue {
         return json!({ "category": q, "builtins": in_cat });
     }
 
+    // Name the nearest real builtins, so a typo is one step from the answer
+    // whichever surface (builtin, MCP, Agent API) asked.
+    let near = crate::builtins::did_you_mean(q);
+    let error = if near.is_empty() {
+        format!("'{q}' is not a known category or builtin")
+    } else {
+        format!(
+            "'{q}' is not a known category or builtin; did you mean {}?",
+            near.join(", ")
+        )
+    };
     json!({
-        "error": format!("'{}' is not a known category or builtin", q),
-        "hint": "call ontology_manifest() to see categories"
+        "error": error,
+        "hint": "call ontology_manifest() to see categories",
+        "did_you_mean": near,
     })
 }
 

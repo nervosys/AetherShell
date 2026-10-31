@@ -427,14 +427,21 @@ impl McpServer {
         let mut env = crate::env::Env::new();
         match crate::builtins::call(name, values, &mut env) {
             Ok(v) => {
+                let v = crate::agent_api::redact_for_agent(v);
                 // Agent mode mirrors the CLI/HTTP default: tabular results render
                 // as compact AECON (MCP content is plain text, so no JSON
                 // re-escaping cost). Scalars keep their display form.
-                let text = if crate::safety::current_mode() == crate::safety::Mode::Agent
+                // Deterministic mode (`--deterministic` / IRONSHELL_DETERMINISTIC)
+                // wins over both, as in `ish -c`: the whole value as canonical JSON,
+                // byte-stable for equal values.
+                let text = if crate::agent_api::deterministic_mode() {
+                    crate::builtins::render_canonical(&v).unwrap_or_else(|| "null".to_string())
+                } else if crate::safety::current_mode() == crate::safety::Mode::Agent
                     && matches!(
                         v,
                         crate::value::Value::Array(_) | crate::value::Value::Table(_)
-                    ) {
+                    )
+                {
                     let budget = std::env::var("IRONSHELL_TOKEN_BUDGET")
                         .ok()
                         .and_then(|s| s.parse::<usize>().ok())

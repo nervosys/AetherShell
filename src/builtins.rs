@@ -56973,9 +56973,18 @@ fn bi_podman_stop(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 // 842: bi_podman_rm – Remove a container (podman)
 // ---------------------------------------------------------------------------
 fn bi_podman_rm(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
-    // No policy guard here: podman_rm is classified Exec, which the dispatcher
-    // already gates, and it is not in SELF_GUARDED.
+    // podman_rm is Destructive and listed in SELF_GUARDED, so the dispatcher
+    // leaves the policy check to this body, as it does for bi_docker_rm.
     let (container, force) = rm_request("podman_rm", &args, &input)?;
+    crate::safety::guard(crate::safety::GuardCtx {
+        builtin: "podman_rm",
+        effect: crate::safety::Effect::Destructive,
+        what: "container_remove",
+        targets: vec![container.clone()],
+        blast_radius: serde_json::json!({ "container": container, "force": force }),
+        reversible: false,
+        fs_paths: false,
+    })?;
     rm_run("podman", "podman_rm", &container, force)
 }
 

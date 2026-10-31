@@ -809,6 +809,34 @@ fn ontology_manifest_is_compact_and_describe_expands() {
 }
 
 #[test]
+fn ontology_describe_suggests_the_nearest_builtin_for_a_typo() {
+    match call(
+        "ontology_describe",
+        vec![Value::Str("ontology_manifst".into())],
+    ) {
+        Value::Record(r) => {
+            let error = match r.get("error") {
+                Some(Value::Str(s)) => s.clone(),
+                other => panic!("expected an error string, got {other:?}"),
+            };
+            assert!(
+                error.contains("ontology_manifest"),
+                "the error does not name the real builtin: {error}"
+            );
+            let suggested = match r.get("did_you_mean") {
+                Some(Value::Array(a)) => a.clone(),
+                other => panic!("expected a did_you_mean array, got {other:?}"),
+            };
+            assert!(
+                suggested.contains(&Value::Str("ontology_manifest".into())),
+                "ontology_manifest is not in did_you_mean: {suggested:?}"
+            );
+        }
+        other => panic!("expected error record, got {other:?}"),
+    }
+}
+
+#[test]
 fn aecon_handles_scalars_and_single_record() {
     assert_eq!(call("aecon", vec![Value::Int(42)]), Value::Str("42".into()));
     let single = rec(&[("a", Value::Int(1)), ("b", Value::Bool(true))]);

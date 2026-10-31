@@ -42,7 +42,7 @@ const HARMLESS: &[(&str, &[&str])] = &[
             "marketplace_search", "marketplace_update", "mcp-detect", "mcp-servers",
             "mcp_client", "monitor_tcpdump", "multitail", "mypy", "net_arp", "net_bandwidth",
             "net_connections", "net_ip", "net_ports", "net_route", "net_stats",
-            "pkg_changelog", "podman_images", "podman_logs", "podman_ps", "rga", "ruff_check",
+            "pkg_changelog", "podman_logs", "rga", "ruff_check",
             "scrape", "shfmt", "skopeo_inspect", "sudo_check", "syntax_categories",
             "syntax_get", "syntax_list", "syntax_search", "terraform_output", "terraform_plan",
             "terraform_state", "terraform_validate", "trivy_image", "trivy_scan",

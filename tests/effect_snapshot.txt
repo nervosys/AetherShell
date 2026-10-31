@@ -953,11 +953,11 @@ pnpm_install	Exec
 pnpm_run	Exec
 podman_build	Exec
 podman_exec	Exec
-podman_images	Exec
+podman_images	ReadLocal
 podman_logs	Exec
-podman_ps	Exec
+podman_ps	ReadLocal
 podman_pull	Exec
-podman_rm	Exec
+podman_rm	Destructive
 podman_run	Exec
 podman_stop	Exec
 poetry_install	Exec
