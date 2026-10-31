@@ -1,6 +1,8 @@
 # AI Integration
 
-IronShell has first-class support for AI models and agents.
+IronShell has a built-in `ai()` function. It sends one prompt to the provider
+named by `IRONSHELL_AI`, and returns the reply as a string. For tool use, see
+`agent` in [Creating Agents](./agents.md).
 
 ## Quick Start
 
@@ -8,219 +10,69 @@ IronShell has first-class support for AI models and agents.
 # Simple AI query
 ai("What is the capital of France?")
 # → "The capital of France is Paris."
-
-# With specific model
-ai("Explain monads in simple terms", {
-    model: "gpt-4o"
-})
 ```
 
-## Supported Providers
+## Signature
 
-IronShell supports 25+ AI providers out of the box:
+```
+ai(prompt, config?)  ->  String
+```
 
-| Provider       | Models                     | Setup                |
-| -------------- | -------------------------- | -------------------- |
-| **OpenAI**     | GPT-4o, GPT-4, GPT-3.5     | `OPENAI_API_KEY`     |
-| **Anthropic**  | Claude 3 Opus/Sonnet/Haiku | `ANTHROPIC_API_KEY`  |
-| **Google**     | Gemini Pro, Gemini Flash   | `GOOGLE_API_KEY`     |
-| **Meta**       | Llama 3, CodeLlama         | Via Ollama/Together  |
-| **Mistral**    | Mistral Large, Codestral   | `MISTRAL_API_KEY`    |
-| **Cohere**     | Command R, Command R+      | `COHERE_API_KEY`     |
-| **xAI**        | Grok                       | `XAI_API_KEY`        |
-| **DeepSeek**   | DeepSeek V3, R1            | `DEEPSEEK_API_KEY`   |
-| **Ollama**     | Any local model            | Local install        |
-| **OpenRouter** | 100+ models                | `OPENROUTER_API_KEY` |
+- `prompt` is a String. With piped input, the piped string is the prompt and
+  the first argument is ignored.
+- `config` is an optional record. It accepts `images`, `audio` and `video`, each
+  an array of readable file paths that are sent with the prompt. A `model`
+  field is accepted and not used.
+- At most 30 calls per minute per process.
 
-## Model URIs
+## Choosing a Provider
 
-Specify models using the `provider:model` format:
+`ai()` takes no model argument. The provider is read from the `IRONSHELL_AI`
+environment variable, and the call fails with "no AI provider is configured"
+when it is unset.
+
+```bash
+export IRONSHELL_AI=openai
+export OPENAI_API_KEY=sk-...
+```
+
+Names the router accepts include `openai`, `anthropic`, `ollama`, `vllm`,
+`llamacpp`, `tgi`, `lmstudio`, `compat`, `openrouter`, `groq`, `mistral`,
+`google`, `azure`, and `irongate`. The full list is in `complete_sync_router`
+in `src/ai.rs`.
+
+## Context
+
+`ai()` does not read a `context` field. To give the model a file, read it into
+a variable and put it in the prompt:
 
 ```ironshell
-# OpenAI
-ai("Query", { model: "openai:gpt-4o-mini" })
-
-# Anthropic
-ai("Query", { model: "claude:claude-3-sonnet-20240229" })
-
-# Google
-ai("Query", { model: "gemini:gemini-pro" })
-
-# Local Ollama
-ai("Query", { model: "ollama:llama3" })
-
-# OpenRouter (any model)
-ai("Query", { model: "openrouter:meta-llama/llama-3-70b-instruct" })
+code = file.read("src/main.rs")
+ai("Review this code for security issues: ${code}")
 ```
 
-## AI Function Options
+## Multimodal
 
 ```ironshell
-ai("Your prompt", {
-    # Model selection
-    model: "gpt-4o",
-    
-    # Generation parameters
-    temperature: 0.7,      # Creativity (0-2)
-    max_tokens: 4096,      # Response length limit
-    top_p: 0.95,           # Nucleus sampling
-    
-    # Context
-    system: "You are a helpful assistant",  # System prompt
-    context: read("data.txt"),              # Additional context
-    
-    # Output format
-    format: "json",        # Request JSON output
-    stream: true,          # Stream response
-    
-    # Images (multimodal)
-    images: ["image.png"],
-})
+ai("What's in this image?", {images: ["photo.jpg"]})
+ai("Transcribe this", {audio: ["meeting.mp3"]})
+ai("Summarize this clip", {video: ["demo.mp4"]})
 ```
 
-## Conversation History
+## Not Supported
 
-Maintain context across queries:
-
-```ironshell
-let history = []
-
-let chat = fn(message) => {
-    let response = ai(message, {
-        messages: history,
-        model: "gpt-4o"
-    })
-    
-    # Update history
-    history = [...history, 
-        { role: "user", content: message },
-        { role: "assistant", content: response }
-    ]
-    
-    response
-}
-
-chat("What is Rust?")
-chat("How does it handle memory?")  # Remembers context
-```
-
-## Multimodal (Vision)
-
-Analyze images with vision-capable models:
-
-```ironshell
-# Describe an image
-ai("What's in this image?", {
-    model: "gpt-4o",
-    images: ["photo.jpg"]
-})
-
-# Multiple images
-ai("Compare these two images", {
-    model: "claude:claude-3-sonnet",
-    images: ["before.png", "after.png"]
-})
-
-# URL images
-ai("Analyze this diagram", {
-    model: "gemini:gemini-pro-vision",
-    images: ["https://example.com/diagram.png"]
-})
-```
-
-## Structured Output
-
-Get structured JSON responses:
-
-```ironshell
-let result = ai("Extract the person's name and age from: John is 30 years old", {
-    model: "gpt-4o",
-    format: "json",
-    schema: {
-        type: "object",
-        properties: {
-            name: { type: "string" },
-            age: { type: "integer" }
-        }
-    }
-})
-
-let data = json_parse(result)
-print(data.name)  # "John"
-print(data.age)   # 30
-```
+Temperature, `max_tokens`, system prompts, message history, JSON schema output,
+streaming and tool definitions are not parameters of `ai()`. A call that passes
+them gets no effect from them.
 
 ## Error Handling
 
 ```ironshell
-let result = try {
-    ai("Query that might fail", { model: "gpt-4o" })
-} catch err {
-    print("AI error: " + err.message)
-    "fallback response"
-}
-```
-
-## Provider-Specific Features
-
-### OpenAI Function Calling
-
-```ironshell
-let tools = [
-    {
-        name: "get_weather",
-        description: "Get current weather for a location",
-        parameters: {
-            type: "object",
-            properties: {
-                location: { type: "string" }
-            }
-        }
-    }
-]
-
-let response = ai("What's the weather in Paris?", {
-    model: "gpt-4o",
-    tools: tools
-})
-```
-
-### Claude with System Prompts
-
-```ironshell
-ai("Translate to French: Hello, world!", {
-    model: "claude:claude-3-haiku",
-    system: "You are a professional translator. Respond only with the translation."
-})
-```
-
-### Local Models with Ollama
-
-```bash
-# First, pull the model
-ollama pull llama3
-ollama pull codellama
-```
-
-```ironshell
-# Use in IronShell
-ai("Write a Python function to sort a list", {
-    model: "ollama:codellama"
-})
+let answer = try { ai("Query that might fail") } catch err { "fallback response" }
 ```
 
 ## Best Practices
 
-1. **Set defaults** - Configure your preferred provider:
-   ```bash
-   export IRONSHELL_AI=openai
-   export OPENAI_API_KEY=sk-...
-   ```
-
-2. **Use appropriate models** - GPT-4o for complex tasks, GPT-3.5 for simple ones
-
-3. **Control costs** - Set `max_tokens` to limit response length
-
-4. **Handle errors** - AI APIs can fail; always have fallbacks
-
-5. **Stream long responses** - Set `stream: true` for better UX
+1. **Set the provider** with `IRONSHELL_AI` and its API key before starting `ish`.
+2. **Keep prompts deliberate** - put only the file text you need into the prompt.
+3. **Handle errors** - provider calls can fail; wrap them in `try`.

@@ -30,7 +30,7 @@ python -m vllm.entrypoints.openai.api_server \
 
 # Use in IronShell
 export IRONSHELL_AI=vllm
-ish 'ai("vllm:meta-llama/Llama-3-8B-Instruct", "Hello!")'
+ish 'ai("Hello!")'
 ```
 
 ## 3. llama.cpp (CPU Optimized - Local)
@@ -49,7 +49,7 @@ wget https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF/resolve/main/llama-2-7
 
 # Use in IronShell
 export IRONSHELL_AI=llamacpp
-ish 'ai("llamacpp:model", "Hello!")'
+ish 'ai("Hello!")'
 ```
 
 ## 4. OpenAI (Cloud)
@@ -95,8 +95,8 @@ export IRONSHELL_COMPAT_MODEL=mixtral
 # Use default backend from environment
 ish 'ai("What is 2+2?")'
 
-# Override with specific backend
-ish 'ai("vllm:model", "Complex task")'
+# The backend is IRONSHELL_AI; ai() takes no model
+ish 'ai("Complex task")'
 
 # In scripts
 ish script.ish  # Uses IRONSHELL_AI environment variable

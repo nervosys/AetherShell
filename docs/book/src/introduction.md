@@ -27,9 +27,7 @@ let files = ls "."
 
 # AI-powered analysis  
 let review = ai("Review this code for security issues:
-" + cat("app.rs"), {
-  model: "gpt-4o"
-})
+" + cat("app.rs"))
 
 # An agent, with the builtins it may call
 agent("Find all TODO comments in src/", ["ls", "cat", "grep"])

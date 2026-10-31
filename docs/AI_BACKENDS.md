@@ -13,7 +13,7 @@ export OPENAI_API_KEY=sk-your-key-here
 export OPENAI_MODEL=gpt-4o-mini  # Optional, default: gpt-4o-mini
 
 # Or use model URI directly
-ish 'ai("openai:gpt-4o-mini", "Hello, world!")'
+ish 'ai("Hello, world!")'
 ```
 
 **API Endpoint**: `https://api.openai.com/v1`  
@@ -34,7 +34,7 @@ export OLLAMA_HOST=http://localhost:11434  # Default
 export OLLAMA_MODEL=llama3  # Optional
 
 # Use in IronShell
-ish 'ai("ollama:llama3", "Hello, world!")'
+ish 'ai("Hello, world!")'
 ```
 
 **Default Endpoint**: `http://localhost:11434`  
@@ -57,7 +57,7 @@ export VLLM_URL=http://localhost:8000/v1  # Default
 export VLLM_MODEL=meta-llama/Llama-3-8B-Instruct
 
 # Use in IronShell
-ish 'ai("vllm:meta-llama/Llama-3-8B-Instruct", "Hello, world!")'
+ish 'ai("Hello, world!")'
 ```
 
 **Default Endpoint**: `http://localhost:8000/v1`  
@@ -84,7 +84,7 @@ export LLAMACPP_URL=http://localhost:8080/v1  # Default
 export LLAMACPP_MODEL=model  # Default
 
 # Use in IronShell
-ish 'ai("llamacpp:model", "Hello, world!")'
+ish 'ai("Hello, world!")'
 ```
 
 **Default Endpoint**: `http://localhost:8080/v1`  
@@ -108,7 +108,7 @@ export IRONSHELL_AI=tgi
 export TGI_URL=http://localhost:8080  # Default
 
 # Use in IronShell
-ish 'ai("tgi:mixtral", "Hello, world!")'
+ish 'ai("Hello, world!")'
 ```
 
 **Default Endpoint**: `http://localhost:8080`  
@@ -125,7 +125,7 @@ export IRONSHELL_COMPAT_BASE=http://localhost:8000/v1
 export IRONSHELL_COMPAT_MODEL=mixtral
 
 # Use in IronShell
-ish 'ai("compat:mixtral", "Hello, world!")'
+ish 'ai("Hello, world!")'
 ```
 
 ## Usage Examples
@@ -137,26 +137,23 @@ ish 'ai("compat:mixtral", "Hello, world!")'
 export IRONSHELL_AI=ollama
 ish 'ai("What is the capital of France?")'
 
-# Using model URI (overrides env)
-ish 'ai("vllm:meta-llama/Llama-3-8B", "What is 2+2?")'
+# ai() takes no model argument; the provider is IRONSHELL_AI
+ish 'ai("What is 2+2?")'
 ```
 
 ### In Scripts
 
 ```ironshell
 # examples/ai_backends.ish
+# One provider per run, chosen by IRONSHELL_AI. ai() takes no model.
 
-# OpenAI
-let openai_response = ai("openai:gpt-4o-mini", "Explain quantum computing")
+let openai_response = ai("Explain quantum computing")
 
-# Local Ollama
-let local_response = ai("ollama:llama3", "Write a haiku")
+let local_response = ai("Write a haiku")
 
-# vLLM high-performance
-let vllm_response = ai("vllm:meta-llama/Llama-3-70B", "Complex reasoning task")
+let vllm_response = ai("Complex reasoning task")
 
-# llama.cpp efficient
-let llamacpp_response = ai("llamacpp:mistral-7b", "Quick factual answer")
+let llamacpp_response = ai("Quick factual answer")
 
 print(openai_response)
 ```
@@ -196,13 +193,8 @@ let result = agent_swarm(agents, "Build a web scraper")
 
 ## Configuration Priority
 
-IronShell resolves AI backends in this order:
 
-1. **Model URI in function call**: `ai("vllm:model", "prompt")`
-2. **IRONSHELL_MODEL_URI environment variable**: `export IRONSHELL_MODEL_URI=vllm:model`
-3. **IRONSHELL_AI environment variable**: `export IRONSHELL_AI=vllm`
-4. **Auto-detection**: `export IRONSHELL_AI=auto` (automatically finds available backends)
-5. **Default**: `stub` (for testing)
+`ai()` takes no model argument. It reads only `IRONSHELL_AI` (for example `export IRONSHELL_AI=vllm`); with it unset the call fails with "no AI provider is configured". The priority list that was here (model URI in the call, `IRONSHELL_MODEL_URI`, auto, stub) describes no behaviour of `ai()`.
 
 ## Automatic Backend Detection
 
@@ -213,10 +205,10 @@ IronShell can automatically detect and use available AI backends:
 ```bash
 # Enable auto-detection via environment variable
 export IRONSHELL_AI=auto
-ish 'ai("What is 2+2?")'  # Automatically uses best available backend
+ish 'ai("What is 2+2?")'  # Uses the provider named in IRONSHELL_AI
 
 # Or use detection functions in scripts
-ish 'let backend = ai_detect(); ai(backend, "Hello!")'
+ish 'let backend = ai_detect(); ai("Hello!")'
 ```
 
 ### Detection Functions
@@ -234,7 +226,7 @@ backends | foreach(fn(b) => {
 ```ironshell
 let backend = ai_detect()
 print("Using:", backend)  # e.g., "ollama:llama3" or "vllm:model"
-ai(backend, "Hello!")
+ai("Hello!")
 ```
 
 ### Detection Priority
@@ -266,7 +258,7 @@ let backend = if len(local) > 0 then {
     "openai:gpt-4o-mini"
 }
 
-ai(backend, "Hello!")
+ai("Hello!")
 ```
 
 ### Backend Information Structure

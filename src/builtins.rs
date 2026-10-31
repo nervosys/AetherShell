@@ -9827,7 +9827,8 @@ fn bi_describe(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 ///   ai("prompt", {images: ["path1", "path2"]}) - With images
 ///   ai("prompt", {audio: ["path"]})           - With audio
 ///   ai("prompt", {video: ["path"]})           - With video
-///   ai("prompt", {model: "openai:gpt-4o"})    - Specify model
+///   (no model argument: the provider comes from IRONSHELL_AI;
+///    a model field is accepted and not used)
 fn bi_ai(args: Vec<Value>, input: Option<Value>, _env: &mut Env) -> Result<Value> {
     // SECURITY: Rate limit AI calls
     check_rate_limit("bi_ai", 30, Duration::from_secs(60)).context("AI rate limit exceeded")?;

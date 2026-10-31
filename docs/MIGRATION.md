@@ -195,8 +195,7 @@ curl -s https://api.openai.com/v1/chat/completions \
 ```ish
 # IronShell — built-in, provider-agnostic
 ai("Hello")
-# Or specify a model:
-ai("openai:gpt-4o-mini", "Hello")
+# The provider comes from IRONSHELL_AI; ai() takes no model.
 ```
 
 ---

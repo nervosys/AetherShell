@@ -214,7 +214,8 @@ arr.unique([1, 2, 2, 3])   # => [1, 2, 3]
 ### 5.7 AI (`ai`, `agent`)
 ```ish
 ai("Explain recursion")
-ai("Summarize", {context: file.read("README.md")})
+readme = file.read("README.md")
+ai("Summarize: ${readme}")
 ai("What's this?", {images: ["photo.jpg"]})
 agent("Find TODOs", ["file.read", "grep", "ls"])
 swarm({
@@ -259,19 +260,13 @@ agent = rl.agent("q-learner", 16, 4, {epsilon: 0.1})
 
 ---
 
-## 6. AI Model URIs
+## 6. AI Providers
 
-IronShell uses URI-style model identifiers:
+`ai()` takes one prompt and no model argument. The provider is read from the `IRONSHELL_AI` environment variable (for example `openai`, `anthropic`, `ollama`, `vllm`, `llamacpp`, `tgi`, `lmstudio`, `compat`). `context` is not a field: put file text into the prompt.
 
 ```ish
-ai("openai:gpt-4o", "prompt")            # OpenAI
-ai("openai:gpt-4o-mini", "prompt")       # OpenAI (cost-effective)
-ai("anthropic:claude-3-opus", "prompt")   # Anthropic
-ai("ollama:llama3.2:3b", "prompt")        # Local Ollama
-ai("ollama:codellama:7b", "prompt")       # Local code model
-ai("vllm:mistral-7b", "prompt")           # vLLM
-ai("lmstudio:model-name", "prompt")       # LM Studio local
-ai("compat:local-model", "prompt")        # Any OpenAI-compatible
+ai("What is Rust?")
+ai("What's in this image?", {images: ["photo.jpg"]})
 ```
 
 ### Environment Variables

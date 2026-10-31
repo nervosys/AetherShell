@@ -97,19 +97,14 @@ items | where(fn(x) => x.price < 100)
 ### Basic AI Call
 
 ```ironshell
-response := ai("What is Rust?", {
-  model: "openai:gpt-4o-mini"
-})
+response := ai("What is Rust?")
 ```
 
 ### AI with Context
 
 ```ironshell
-context := read_text("report.txt")
-summary := ai("Summarize this report", {
-  model: "openai:gpt-4o",
-  context: context
-})
+report := read_text("report.txt")
+summary := ai("Summarize this report: ${report}")
 ```
 
 ### Multi-modal AI

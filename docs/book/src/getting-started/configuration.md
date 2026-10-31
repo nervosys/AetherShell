@@ -127,25 +127,17 @@ Available models: `gemini-pro`, `gemini-pro-vision`
 3. Use in IronShell:
 
 ```ironshell
-ai("Hello", { model: "ollama:llama3" })
+IRONSHELL_AI=ollama ish -c 'ai("Hello")'
 ```
 
 ### Multiple Providers
 
-Use model URIs to specify the provider:
+`ai()` takes no model argument. Choose the provider per run with `IRONSHELL_AI`:
 
-```ironshell
-# OpenAI
-ai("Query", { model: "openai:gpt-4o" })
-
-# Anthropic
-ai("Query", { model: "claude:claude-3-sonnet" })
-
-# Ollama (local)
-ai("Query", { model: "ollama:llama3" })
-
-# OpenRouter
-ai("Query", { model: "openrouter:anthropic/claude-3-opus" })
+```bash
+IRONSHELL_AI=openai ish -c 'ai("Query")'
+IRONSHELL_AI=ollama ish -c 'ai("Query")'
+IRONSHELL_AI=openrouter ish -c 'ai("Query")'
 ```
 
 ## Command-Line Options

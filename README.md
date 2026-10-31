@@ -461,8 +461,9 @@ This enables AI tools to understand what operations are available and use them c
 # Simple query
 ai("Explain recursion in one sentence")
 
-# With context
-ai("Summarize this file", {context: file.read("README.md")})
+# With context: put the file text into the prompt
+readme = file.read("README.md")
+ai("Summarize this file: ${readme}")
 
 # Multi-modal (images, audio, video)
 ai("What's in this image?", {images: ["photo.jpg"]})
@@ -1110,23 +1111,19 @@ Connect IronShell to external LLM providers and MCP tool servers.
 model = ai.detect()                      # => "ollama:llama3.2:3b"
 ai.backends()                            # List all available providers
 
-# OpenAI (set OPENAI_API_KEY)
-ai("openai:gpt-4o", "Explain quantum computing")
-ai("openai:gpt-4o-mini", "Summarize: ...")  # Cost-effective
+# The provider is chosen by IRONSHELL_AI (ai() takes no model argument).
+# OpenAI: export IRONSHELL_AI=openai OPENAI_API_KEY=...
+ai("Explain quantum computing")
 
-# Anthropic Claude (set ANTHROPIC_API_KEY)
-ai("anthropic:claude-3-opus", "Write detailed analysis")
+# Anthropic: export IRONSHELL_AI=anthropic ANTHROPIC_API_KEY=...
+ai("Write detailed analysis")
 
-# Local Ollama (free, private)
+# Local Ollama (free, private): export IRONSHELL_AI=ollama
 # Start: ollama serve && ollama pull llama3.2:3b
-ai("ollama:llama3.2:3b", "Hello!")
-ai("ollama:codellama:7b", "Write a function to...")
+ai("Hello!")
 
-# vLLM (high-performance local)
-ai("vllm:mistral-7b", "Generate code for...")
-
-# Any OpenAI-compatible server (set COMPAT_API_BASE)
-ai("compat:local-model", "Process this request")
+# Any OpenAI-compatible server: export IRONSHELL_AI=compat IRONSHELL_COMPAT_BASE=...
+ai("Process this request")
 ```
 
 ### External MCP Tools (e.g., SiliconMonitor)

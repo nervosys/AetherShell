@@ -56,14 +56,9 @@ cargo run --bin aimodel        # AI model management CLI
 ls "." | where(fn(r) => r.size > 1000) | select("name")
 ```
 
-### AI Model URIs
+### AI Providers
 
-Use the established URI scheme for model references:
-
-- `openai:gpt-4o-mini` (OpenAI)
-- `ollama:llama3` (Local Ollama)
-- `lmstudio:model-name` (LM Studio)
-- `compat:mixtral` (Compatibility mode)
+`ai()` takes one prompt and no model argument. The provider is read from `IRONSHELL_AI` (for example `openai`, `ollama`, `lmstudio`, `compat`); the names are in `complete_sync_router` in `src/ai.rs`.
 
 ### TUI Component Structure
 

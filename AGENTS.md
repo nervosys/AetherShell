@@ -32,7 +32,8 @@ Write `.ish` scripts or REPL expressions:
 ls("./src") | where(fn(f) => f.size > 1024) | map(fn(f) => f.name)
 
 # AI query
-ai("Explain this code", {context: file.read("main.rs")})
+code = file.read("main.rs")
+ai("Explain this code: ${code}")
 
 # File editing (safe, cross-platform)
 file.replace("config.rs", "DEBUG = false", "DEBUG = true")
@@ -176,7 +177,7 @@ crypto.uuid()         math.sqrt(16)      arr.range(10)
 | `arr`        | Arrays         | `arr.range(n)`, `arr.flatten(a)`, `arr.unique(a)`     |
 | `json`       | JSON           | `json.parse(s)`, `json.stringify(v)`                  |
 | `platform`   | Platform       | `platform.arch()`, `platform.cpu()`, `platform.gpus()` |
-| `ai`         | AI queries     | `ai("prompt")`, `ai("model:name", "prompt")`          |
+| `ai`         | AI queries     | `ai("prompt")`, `ai("prompt", {images: ["photo.jpg"]})`          |
 | `agent`      | Agents         | `agent("goal", tools)`, `swarm({...})`                |
 | `mcp`        | MCP protocol   | `mcp.tools()`, `mcp.call("tool", args)`               |
 | `a2a`        | Agent-to-Agent | `a2a.send("agent", msg)`                              |

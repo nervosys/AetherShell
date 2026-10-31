@@ -95,8 +95,8 @@ describe(-5)  # "negative"
 # Ask the AI a question
 ai("What is the capital of France?")
 
-# With specific model
-ai("Explain monads", { model: "claude-3-sonnet" })
+# One prompt; the provider is set by IRONSHELL_AI
+ai("Explain monads")
 ```
 
 ### Run an Agent
