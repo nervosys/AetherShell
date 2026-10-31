@@ -24,7 +24,10 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
-use std::path::Path;
+
+use crate::posix_os::{
+    Captured, ErrorKind, FileKind, HostOs, Os, OsError, Spawn, SpawnError, Stream,
+};
 
 // ════════════════════════════════════════════════════════════════════════
 // Syntax
@@ -926,9 +929,13 @@ impl Input {
     }
     fn read_all(&mut self) -> Vec<u8> {
         self.fill_all();
-        let out = self.data[self.pos..].to_vec();
+        let out = self.rest();
         self.pos = self.data.len();
         out
+    }
+    /// The unread bytes, not consumed.
+    fn rest(&self) -> Vec<u8> {
+        self.data[self.pos..].to_vec()
     }
     /// One line without its newline, `Ok(None)` at end of input, or `Err` for
     /// a line from the terminal or a pipe longer than [`READ_LINE_MAX`]. A
@@ -1029,7 +1036,7 @@ enum Util {
     Decline,
 }
 
-struct Shell {
+struct Shell<'a> {
     vars: HashMap<String, String>,
     exported: HashSet<String>,
     last: i32,
@@ -1037,15 +1044,18 @@ struct Shell {
     /// report errors itself) and taken by the command that contains it, which
     /// is then refused rather than run with part of its arguments.
     glob_refused: Option<String>,
+    /// The host the shell's file, directory, environment and process
+    /// operations go through.
+    os: &'a dyn Os,
 }
 
 const SHELL_NAME: &str = "ish";
 
-impl Shell {
+impl<'a> Shell<'a> {
     fn var(&self, name: &str) -> Option<String> {
         match name {
             "?" => return Some(self.last.to_string()),
-            "$" => return Some(std::process::id().to_string()),
+            "$" => return Some(self.os.process_id().to_string()),
             "#" => return Some("0".into()),
             "0" => return Some(SHELL_NAME.into()),
             _ => {}
@@ -1056,7 +1066,7 @@ impl Shell {
         if let Some(v) = self.vars.get(name) {
             return Some(v.clone());
         }
-        std::env::var(name).ok()
+        self.os.env_var(name)
     }
 
     fn set_var(&mut self, name: &str, value: String) {
@@ -1119,7 +1129,7 @@ impl Shell {
                 .zip(mask.iter())
                 .any(|(c, &m)| m && matches!(c, '*' | '?' | '['));
             if globby {
-                match glob_expand(&text) {
+                match glob_expand(self.os, &text) {
                     Some(matches) if !matches.is_empty() => {
                         out.extend(matches);
                         continue;
@@ -1197,7 +1207,7 @@ impl Shell {
             None => true,
             Some(v) => colon && v.is_empty(),
         };
-        let operand = |sh: &mut Shell, stdin: &mut Input| sh.expand(word, stdin).join(" ");
+        let operand = |sh: &mut Shell<'_>, stdin: &mut Input| sh.expand(word, stdin).join(" ");
         match op.trim_start_matches(':') {
             "-" => {
                 if unset_or_null {
@@ -1350,7 +1360,7 @@ impl Shell {
             match r {
                 Redir::In(w) => {
                     let path = self.expand(w, stdin).join(" ");
-                    match std::fs::read(&path) {
+                    match self.os.read_file(&path) {
                         Ok(d) => local_in = Some(Input::buf(d)),
                         Err(e) => {
                             sink.eline(&format!("{SHELL_NAME}: {path}: {}", io_reason(&e)));
@@ -1400,12 +1410,12 @@ impl Shell {
             None => self.run_cmd_inner(cmd, stdin, &mut local),
         };
         if let Some((path, append)) = err_file {
-            if let Err(msg) = write_file(&path, &local.err, append) {
+            if let Err(msg) = write_file(self.os, &path, &local.err, append) {
                 sink.eline(&msg);
             }
         }
         if let Some((path, append)) = out_file {
-            if let Err(msg) = write_file(&path, &local.out, append) {
+            if let Err(msg) = write_file(self.os, &path, &local.out, append) {
                 sink.eline(&msg);
                 self.last = 1;
                 return Flow::Next(1);
@@ -1607,14 +1617,14 @@ impl Shell {
                     Some(t) => t.clone(),
                     None => self.var("HOME").unwrap_or_default(),
                 };
-                let old = std::env::current_dir().ok();
-                return match std::env::set_current_dir(&target) {
+                let old = self.os.current_dir().ok();
+                return match self.os.set_current_dir(&target) {
                     Ok(()) => {
                         if let Some(o) = old {
-                            self.set_var("OLDPWD", o.to_string_lossy().into_owned());
+                            self.set_var("OLDPWD", o);
                         }
-                        if let Ok(d) = std::env::current_dir() {
-                            self.set_var("PWD", d.to_string_lossy().into_owned());
+                        if let Ok(d) = self.os.current_dir() {
+                            self.set_var("PWD", d);
                         }
                         Flow::Next(0)
                     }
@@ -1626,14 +1636,14 @@ impl Shell {
             }
             "read" => return Flow::Next(self.read_builtin(args, stdin)),
             "pwd" => {
-                sink.out.extend_from_slice(logical_pwd().as_bytes());
+                sink.out.extend_from_slice(logical_pwd(self.os).as_bytes());
                 sink.out.push(b'\n');
                 return Flow::Next(0);
             }
             _ => {}
         }
         if env.is_empty() {
-            match utility(name, args, stdin, sink) {
+            match utility(self.os, name, args, stdin, sink) {
                 Util::Done(c) => return Flow::Next(c),
                 Util::Decline => {}
             }
@@ -1746,65 +1756,54 @@ impl Shell {
                 return 126;
             }
         }
-        let mut cmd = std::process::Command::new(&argv[0]);
-        cmd.args(&argv[1..]);
+        // The shell's exports first, then this command's own assignments,
+        // which win; the host applies them in order.
+        let mut vars: Vec<(String, String)> = Vec::new();
         for n in &self.exported {
             if let Some(v) = self.vars.get(n) {
-                cmd.env(n, v);
+                vars.push((n.clone(), v.clone()));
             }
         }
-        for (n, v) in env {
-            cmd.env(n, v);
-        }
-        crate::safety::strip_ironshell_env(&mut cmd);
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(match sink.err_mode {
-            ErrMode::Real => std::process::Stdio::inherit(),
-            ErrMode::Null => std::process::Stdio::null(),
-            _ => std::process::Stdio::piped(),
-        });
+        vars.extend(env.iter().cloned());
         let feed = stdin.is_buffered();
-        cmd.stdin(if feed {
-            std::process::Stdio::piped()
-        } else {
-            std::process::Stdio::inherit()
-        });
-        let mut child = match cmd.spawn() {
-            Ok(c) => c,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        // A buffered stdin is consumed only once the child has started, as
+        // it always was: a program that failed to start reads none of it.
+        let spec = Spawn {
+            argv: argv.to_vec(),
+            env: vars,
+            stderr: match sink.err_mode {
+                ErrMode::Real => Stream::Inherit,
+                ErrMode::Null => Stream::Null,
+                _ => Stream::Piped,
+            },
+            stdin: feed.then(|| stdin.rest()),
+        };
+        let out: Captured = match self.os.run_program(spec) {
+            Ok(o) => o,
+            Err(SpawnError::Start(e)) if e.kind == ErrorKind::NotFound => {
                 sink.eline(&format!("{SHELL_NAME}: {}: command not found", argv[0]));
                 return 127;
             }
-            Err(e) => {
+            Err(SpawnError::Start(e)) => {
                 sink.eline(&format!("{SHELL_NAME}: {}: {}", argv[0], io_reason(&e)));
                 return 126;
             }
-        };
-        let writer = if feed {
-            let data = stdin.read_all();
-            child.stdin.take().map(|mut w| {
-                std::thread::spawn(move || {
-                    let _ = w.write_all(&data);
-                })
-            })
-        } else {
-            None
-        };
-        let out = match child.wait_with_output() {
-            Ok(o) => o,
-            Err(e) => {
+            Err(SpawnError::Wait(e)) => {
+                if feed {
+                    stdin.read_all();
+                }
                 sink.eline(&format!("{SHELL_NAME}: {}: {}", argv[0], io_reason(&e)));
                 return 1;
             }
         };
-        if let Some(w) = writer {
-            let _ = w.join();
+        if feed {
+            stdin.read_all();
         }
         sink.out.extend_from_slice(&out.stdout);
         if !out.stderr.is_empty() {
             sink.ewrite(&out.stderr);
         }
-        out.status.code().unwrap_or(128)
+        out.status.unwrap_or(128)
     }
 }
 
@@ -1816,7 +1815,7 @@ impl Shell {
 /// `echo x > f` was approved as `<workspace>/f` and wrote `<cwd>/f`, outside
 /// the jail. The prior contents are journalled first, as the dispatcher does
 /// for `file.write`, so the `reversible` the guard is told is true.
-fn write_file(path: &str, data: &[u8], append: bool) -> Result<(), String> {
+fn write_file(os: &dyn Os, path: &str, data: &[u8], append: bool) -> Result<(), String> {
     let resolved = crate::safety::resolve_path_str(path);
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "posix",
@@ -1834,15 +1833,7 @@ fn write_file(path: &str, data: &[u8], append: bool) -> Result<(), String> {
         crate::safety::Effect::WriteLocal,
         &[crate::value::Value::Str(resolved.clone())],
     );
-    let res = if append {
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&resolved)
-            .and_then(|mut f| f.write_all(data))
-    } else {
-        std::fs::write(&resolved, data)
-    };
+    let res = os.write_file(&resolved, data, append);
     if res.is_err() {
         crate::journal::rollback_to(mark);
     }
@@ -1850,35 +1841,42 @@ fn write_file(path: &str, data: &[u8], append: bool) -> Result<(), String> {
 }
 
 /// The message GNU tools print for an I/O error.
-fn io_reason(e: &std::io::Error) -> String {
-    use std::io::ErrorKind::*;
-    match e.kind() {
+fn io_reason(e: &OsError) -> String {
+    use ErrorKind::*;
+    match e.kind {
         NotFound => "No such file or directory".into(),
         PermissionDenied => "Permission denied".into(),
         IsADirectory => "Is a directory".into(),
         NotADirectory => "Not a directory".into(),
         AlreadyExists => "File exists".into(),
-        _ => {
-            if e.raw_os_error() == Some(21) {
+        Other => {
+            if e.errno == Some(21) {
                 return "Is a directory".into();
             }
-            let s = e.to_string();
-            s.split(" (os error").next().unwrap_or(&s).to_string()
+            let s = &e.message;
+            s.split(" (os error").next().unwrap_or(s).to_string()
         }
     }
 }
 
-fn logical_pwd() -> String {
-    let phys = std::env::current_dir().ok();
-    if let (Ok(pwd), Some(phys)) = (std::env::var("PWD"), phys.as_ref()) {
-        if std::fs::canonicalize(&pwd).ok().as_deref()
-            == std::fs::canonicalize(phys).ok().as_deref()
-        {
+/// `Path::exists` and `Path::is_dir`, through the host: both follow links,
+/// and both read a failed lookup as "no".
+fn exists(os: &dyn Os, path: &str) -> bool {
+    os.metadata(path).is_ok()
+}
+
+fn is_dir(os: &dyn Os, path: &str) -> bool {
+    os.metadata(path).is_ok_and(|m| m.kind == FileKind::Dir)
+}
+
+fn logical_pwd(os: &dyn Os) -> String {
+    let phys = os.current_dir().ok();
+    if let (Some(pwd), Some(phys)) = (os.env_var("PWD"), phys.as_ref()) {
+        if os.canonicalize(&pwd).ok().as_deref() == os.canonicalize(phys).ok().as_deref() {
             return pwd;
         }
     }
-    phys.map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default()
+    phys.unwrap_or_default()
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1888,10 +1886,10 @@ fn logical_pwd() -> String {
 /// Whether sorting follows a natural-language locale rather than bytes. `ls`
 /// and `sort` both use `strcoll`, so under `en_US.UTF-8` they do not sort by
 /// byte, and output that is meant to match theirs cannot either.
-fn locale_collates() -> bool {
+fn locale_collates(os: &dyn Os) -> bool {
     let loc = ["LC_ALL", "LC_COLLATE", "LANG"]
         .iter()
-        .filter_map(|k| std::env::var(k).ok())
+        .filter_map(|k| os.env_var(k))
         .find(|v| !v.is_empty())
         .unwrap_or_default();
     if loc.is_empty() || loc == "C" || loc == "POSIX" || loc.starts_with("C.") {
@@ -1939,8 +1937,8 @@ fn locale_loads(_name: &str) -> bool {
 /// and punctuation; then lower case before upper, position by position; then
 /// the full strings with punctuation ranked below letters and digits. Beyond
 /// ASCII this falls back to bytes, which is where it stops being exact.
-fn collate(a: &str, b: &str) -> std::cmp::Ordering {
-    collate_in(locale_collates(), a, b)
+fn collate(os: &dyn Os, a: &str, b: &str) -> std::cmp::Ordering {
+    collate_in(locale_collates(os), a, b)
 }
 
 fn collate_in(natural: bool, a: &str, b: &str) -> std::cmp::Ordering {
@@ -2029,8 +2027,8 @@ fn glob_match(pat: &str, s: &str) -> bool {
 /// `**` is an ordinary `*` here, as in bash without `globstar`.
 /// `None` when some stage gathers more than `WALK_MAX_ENTRIES` names: the
 /// caller refuses the expansion rather than run with part of it.
-fn glob_expand(pattern: &str) -> Option<Vec<String>> {
-    let (v, over) = expand_pattern(pattern, false, |a, b| collate(a, b), WALK_MAX);
+fn glob_expand(os: &dyn Os, pattern: &str) -> Option<Vec<String>> {
+    let (v, over) = expand_pattern(os, pattern, false, |a, b| collate(os, a, b), WALK_MAX);
     (!over).then_some(v)
 }
 
@@ -2046,7 +2044,13 @@ pub fn glob_paths(pattern: &str) -> Vec<String> {
 /// gathered before the stop, and the caller must refuse. Below the cap the
 /// paths are the same, sorted and without duplicates, as `glob_paths` gives.
 pub fn glob_paths_capped(pattern: &str, max: usize) -> (Vec<String>, bool) {
-    let (mut v, over) = expand_pattern(pattern, true, |a, b| a.as_bytes().cmp(b.as_bytes()), max);
+    let (mut v, over) = expand_pattern(
+        &HostOs,
+        pattern,
+        true,
+        |a, b| a.as_bytes().cmp(b.as_bytes()),
+        max,
+    );
     if over {
         return (Vec::new(), true);
     }
@@ -2121,14 +2125,14 @@ pub fn has_glob_meta(s: &str) -> bool {
 /// The directories beneath `dir`, depth first, not following symbolic links
 /// and skipping hidden names, as bash's `globstar` does. Stops once `out` is
 /// over the cap.
-fn descendant_dirs(dir: &str, out: &mut Gather) {
-    let Ok(rd) = std::fs::read_dir(if dir.is_empty() { "." } else { dir }) else {
+fn descendant_dirs(os: &dyn Os, dir: &str, out: &mut Gather) {
+    let Ok(rd) = os.read_dir(if dir.is_empty() { "." } else { dir }) else {
         return;
     };
     let mut names: Vec<String> = rd
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .into_iter()
+        .filter(|e| e.kind == Some(FileKind::Dir))
+        .map(|e| e.name)
         .filter(|n| !n.starts_with('.'))
         .collect();
     names.sort();
@@ -2144,7 +2148,7 @@ fn descendant_dirs(dir: &str, out: &mut Gather) {
             format!("{dir}/{n}")
         };
         out.push(p.clone());
-        descendant_dirs(&p, out);
+        descendant_dirs(os, &p, out);
     }
 }
 
@@ -2152,6 +2156,7 @@ fn descendant_dirs(dir: &str, out: &mut Gather) {
 /// some stage gathered more than `max` names; the names are then not
 /// returned, and the caller must refuse.
 fn expand_pattern(
+    os: &dyn Os,
     pattern: &str,
     globstar: bool,
     order: impl Fn(&String, &String) -> std::cmp::Ordering,
@@ -2167,7 +2172,7 @@ fn expand_pattern(
             // Zero or more directories: each base, and everything below it.
             for base in &bases {
                 next.push(base.clone());
-                descendant_dirs(base, &mut next);
+                descendant_dirs(os, base, &mut next);
                 if next.over {
                     return (Vec::new(), true);
                 }
@@ -2181,12 +2186,10 @@ fn expand_pattern(
                     } else {
                         d.clone()
                     };
-                    if let Ok(rd) = std::fs::read_dir(&dir) {
-                        for e in rd.filter_map(|e| e.ok()) {
-                            let n = e.file_name().to_string_lossy().into_owned();
-                            if !n.starts_with('.')
-                                && e.file_type().map(|t| !t.is_dir()).unwrap_or(false)
-                            {
+                    if let Ok(rd) = os.read_dir(&dir) {
+                        for e in rd {
+                            let n = e.name;
+                            if !n.starts_with('.') && e.kind.is_some_and(|k| k != FileKind::Dir) {
                                 next.push(if d.is_empty() { n } else { format!("{d}/{n}") });
                             }
                         }
@@ -2219,26 +2222,25 @@ fn expand_pattern(
             };
             if !has_meta {
                 let p = join(comp);
-                let path = Path::new(&p);
-                if (last && path.exists()) || (!last && path.is_dir()) {
+                if (last && exists(os, &p)) || (!last && is_dir(os, &p)) {
                     next.push(p);
                 }
                 continue;
             }
             let dir = if base.is_empty() { "." } else { base.as_str() };
-            let Ok(rd) = std::fs::read_dir(dir) else {
+            let Ok(rd) = os.read_dir(dir) else {
                 continue;
             };
             let mut names: Vec<String> = rd
-                .filter_map(|e| e.ok())
-                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .into_iter()
+                .map(|e| e.name)
                 .filter(|n| !n.starts_with('.') || comp.starts_with('.'))
                 .filter(|n| glob_match(comp, n))
                 .collect();
             names.sort_by(&order);
             for n in names {
                 let p = join(&n);
-                if last || Path::new(&p).is_dir() {
+                if last || is_dir(os, &p) {
                     next.push(p);
                 }
             }
@@ -2261,6 +2263,7 @@ fn expand_pattern(
 /// Read a utility's inputs: each operand in turn (`-` is stdin), or stdin
 /// when there are none. Missing files are reported the GNU way and skipped.
 fn read_inputs(
+    os: &dyn Os,
     tool: &str,
     files: &[String],
     stdin: &mut Input,
@@ -2276,7 +2279,7 @@ fn read_inputs(
             out.push(("(standard input)".into(), stdin.read_all()));
             continue;
         }
-        match std::fs::read(f) {
+        match os.read_file(f) {
             Ok(d) => out.push((f.clone(), d)),
             Err(e) => {
                 sink.eline(&format!("{tool}: {f}: {}", io_reason(&e)));
@@ -2321,29 +2324,29 @@ fn short_flags(args: &[String], allowed: &str) -> Option<(HashSet<char>, Vec<Str
     Some((flags, ops))
 }
 
-fn utility(name: &str, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+fn utility(os: &dyn Os, name: &str, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     match name {
         "echo" => echo(args, sink),
         "printf" => printf(args, sink),
-        "test" => Util::Done(test(args, sink)),
+        "test" => Util::Done(test(os, args, sink)),
         "[" => {
             if args.last().map(String::as_str) != Some("]") {
                 sink.eline(&format!("{SHELL_NAME}: [: missing `]'"));
                 return Util::Done(2);
             }
-            Util::Done(test(&args[..args.len() - 1], sink))
+            Util::Done(test(os, &args[..args.len() - 1], sink))
         }
-        "cat" => cat(args, stdin, sink),
-        "head" => head_tail(true, args, stdin, sink),
-        "tail" => head_tail(false, args, stdin, sink),
-        "wc" => wc(args, stdin, sink),
-        "grep" => grep(args, stdin, sink),
-        "sort" => sort(args, stdin, sink),
-        "uniq" => uniq(args, stdin, sink),
-        "cut" => cut(args, stdin, sink),
-        "sed" => sed(args, stdin, sink),
-        "ls" => ls(args, sink),
-        "find" => find(args, sink),
+        "cat" => cat(os, args, stdin, sink),
+        "head" => head_tail(os, true, args, stdin, sink),
+        "tail" => head_tail(os, false, args, stdin, sink),
+        "wc" => wc(os, args, stdin, sink),
+        "grep" => grep(os, args, stdin, sink),
+        "sort" => sort(os, args, stdin, sink),
+        "uniq" => uniq(os, args, stdin, sink),
+        "cut" => cut(os, args, stdin, sink),
+        "sed" => sed(os, args, stdin, sink),
+        "ls" => ls(os, args, sink),
+        "find" => find(os, args, sink),
         "date" => date(args, sink),
         "basename" => match args {
             [p] | [p, _] => {
@@ -2605,17 +2608,18 @@ fn printf(args: &[String], sink: &mut Sink) -> Util {
     Util::Done(0)
 }
 
-fn test(args: &[String], sink: &mut Sink) -> i32 {
-    fn unary(op: &str, a: &str) -> Option<bool> {
-        let md = std::fs::metadata(a);
+fn test(os: &dyn Os, args: &[String], sink: &mut Sink) -> i32 {
+    fn unary(os: &dyn Os, op: &str, a: &str) -> Option<bool> {
+        let md = os.metadata(a);
         Some(match op {
             "-e" => md.is_ok(),
-            "-f" => md.map(|m| m.is_file()).unwrap_or(false),
-            "-d" => md.map(|m| m.is_dir()).unwrap_or(false),
-            "-s" => md.map(|m| m.len() > 0).unwrap_or(false),
+            "-f" => md.map(|m| m.kind == FileKind::File).unwrap_or(false),
+            "-d" => md.map(|m| m.kind == FileKind::Dir).unwrap_or(false),
+            "-s" => md.map(|m| m.len > 0).unwrap_or(false),
             "-r" | "-w" | "-x" => md.is_ok(),
-            "-L" | "-h" => std::fs::symlink_metadata(a)
-                .map(|m| m.file_type().is_symlink())
+            "-L" | "-h" => os
+                .symlink_metadata(a)
+                .map(|m| m.kind == FileKind::Symlink)
                 .unwrap_or(false),
             "-z" => a.is_empty(),
             "-n" => !a.is_empty(),
@@ -2644,23 +2648,23 @@ fn test(args: &[String], sink: &mut Sink) -> i32 {
             _ => return None,
         })
     }
-    fn eval(a: &[String], sink: &mut Sink) -> Result<bool, i32> {
+    fn eval(os: &dyn Os, a: &[String], sink: &mut Sink) -> Result<bool, i32> {
         // -a / -o, lowest precedence first.
         if let Some(p) = a.iter().rposition(|x| x == "-o") {
             if p > 0 && p + 1 < a.len() {
-                return Ok(eval(&a[..p], sink)? || eval(&a[p + 1..], sink)?);
+                return Ok(eval(os, &a[..p], sink)? || eval(os, &a[p + 1..], sink)?);
             }
         }
         if let Some(p) = a.iter().rposition(|x| x == "-a") {
             if p > 0 && p + 1 < a.len() {
-                return Ok(eval(&a[..p], sink)? && eval(&a[p + 1..], sink)?);
+                return Ok(eval(os, &a[..p], sink)? && eval(os, &a[p + 1..], sink)?);
             }
         }
         match a {
             [] => Ok(false),
             [x] => Ok(!x.is_empty()),
-            [bang, rest @ ..] if bang == "!" => Ok(!eval(rest, sink)?),
-            [op, x] => match unary(op, x) {
+            [bang, rest @ ..] if bang == "!" => Ok(!eval(os, rest, sink)?),
+            [op, x] => match unary(os, op, x) {
                 Some(v) => Ok(v),
                 None => {
                     sink.eline(&format!(
@@ -2688,20 +2692,20 @@ fn test(args: &[String], sink: &mut Sink) -> i32 {
             }
         }
     }
-    match eval(args, sink) {
+    match eval(os, args, sink) {
         Ok(true) => 0,
         Ok(false) => 1,
         Err(c) => c,
     }
 }
 
-fn cat(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+fn cat(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let Some((flags, files)) = short_flags(args, "") else {
         return Util::Decline;
     };
     let _ = flags;
     let mut status = 0;
-    for (name, data) in read_inputs_dirs("cat", &files, stdin, sink, &mut status) {
+    for (name, data) in read_inputs_dirs(os, "cat", &files, stdin, sink, &mut status) {
         let _ = name;
         sink.out.extend_from_slice(&data);
     }
@@ -2711,6 +2715,7 @@ fn cat(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
 /// Like [`read_inputs`], but a directory operand is the GNU "Is a directory"
 /// error rather than an unreadable file.
 fn read_inputs_dirs(
+    os: &dyn Os,
     tool: &str,
     files: &[String],
     stdin: &mut Input,
@@ -2719,7 +2724,7 @@ fn read_inputs_dirs(
 ) -> Vec<(String, Vec<u8>)> {
     let mut ok = Vec::new();
     for f in files {
-        if Path::new(f).is_dir() {
+        if is_dir(os, f) {
             sink.eline(&format!("{tool}: {f}: Is a directory"));
             *status = 1;
         } else {
@@ -2729,11 +2734,11 @@ fn read_inputs_dirs(
     if !files.is_empty() && ok.is_empty() {
         return Vec::new();
     }
-    read_inputs(tool, &ok, stdin, sink, status)
+    read_inputs(os, tool, &ok, stdin, sink, status)
 }
 
 /// `head` and `tail`: `-n N`, `-nN`, `-N`, `-c N`, and `tail -n +N`.
-fn head_tail(head: bool, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+fn head_tail(os: &dyn Os, head: bool, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let tool = if head { "head" } else { "tail" };
     let mut count: i64 = 10;
     let mut from_start = false;
@@ -2785,7 +2790,7 @@ fn head_tail(head: bool, args: &[String], stdin: &mut Input, sink: &mut Sink) ->
         i += 1;
     }
     let mut status = 0;
-    let inputs = read_inputs_dirs(tool, &files, stdin, sink, &mut status);
+    let inputs = read_inputs_dirs(os, tool, &files, stdin, sink, &mut status);
     let many = inputs.len() > 1 && !quiet;
     for (k, (name, data)) in inputs.iter().enumerate() {
         if many {
@@ -2839,7 +2844,7 @@ fn head_tail(head: bool, args: &[String], stdin: &mut Input, sink: &mut Sink) ->
     Util::Done(status)
 }
 
-fn wc(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+fn wc(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let Some((flags, files)) = short_flags(args, "lwcm") else {
         return Util::Decline;
     };
@@ -2856,7 +2861,7 @@ fn wc(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     }
     let mut status = 0;
     let from_stdin = files.is_empty();
-    let inputs = read_inputs_dirs("wc", &files, stdin, sink, &mut status);
+    let inputs = read_inputs_dirs(os, "wc", &files, stdin, sink, &mut status);
     let count = |d: &[u8]| -> [usize; 4] {
         let text = String::from_utf8_lossy(d);
         [
@@ -2900,9 +2905,9 @@ fn wc(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     } else {
         let sizes: u64 = files
             .iter()
-            .filter_map(|f| std::fs::metadata(f).ok())
-            .filter(|m| m.is_file())
-            .map(|m| m.len())
+            .filter_map(|f| os.metadata(f).ok())
+            .filter(|m| m.kind == FileKind::File)
+            .map(|m| m.len)
             .sum();
         sizes.to_string().len().max(1)
     };
@@ -2971,7 +2976,7 @@ fn ere_to_regex(p: &str) -> Option<String> {
     Some(p.replace("\\<", "\\b").replace("\\>", "\\b"))
 }
 
-fn grep(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+fn grep(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let mut flags = HashSet::new();
     let mut patterns: Vec<String> = Vec::new();
     let mut ops = Vec::new();
@@ -3038,22 +3043,21 @@ fn grep(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let mut targets: Vec<(String, Option<String>)> = Vec::new();
     if ops.is_empty() {
         if recursive {
-            walk_files(".", "", &mut targets, true);
+            walk_files(os, ".", "", &mut targets, true);
         } else {
             targets.push(("(standard input)".into(), None));
         }
     } else {
         for op in &ops {
-            let p = Path::new(op);
             if op == "-" {
                 targets.push(("(standard input)".into(), None));
-            } else if p.is_dir() {
+            } else if is_dir(os, op) {
                 if recursive {
-                    walk_files(op, op, &mut targets, false);
+                    walk_files(os, op, op, &mut targets, false);
                 } else if !f('s') {
                     sink.eline(&format!("grep: {op}: Is a directory"));
                 }
-            } else if p.exists() {
+            } else if exists(os, op) {
                 targets.push((op.clone(), Some(op.clone())));
             } else {
                 if !f('s') {
@@ -3074,7 +3078,7 @@ fn grep(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let mut any = false;
     for (name, path) in &targets {
         let data = match path {
-            Some(p) => match std::fs::read(p) {
+            Some(p) => match os.read_file(p) {
                 Ok(d) => d,
                 Err(e) => {
                     if !f('s') {
@@ -3167,16 +3171,22 @@ fn grep(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
 
 /// Files beneath `dir` in directory order, depth first, as GNU grep -r and
 /// find visit them; symbolic links met during the walk are not followed.
-fn walk_files(dir: &str, shown: &str, out: &mut Vec<(String, Option<String>)>, strip_dot: bool) {
-    let Ok(rd) = std::fs::read_dir(dir) else {
+fn walk_files(
+    os: &dyn Os,
+    dir: &str,
+    shown: &str,
+    out: &mut Vec<(String, Option<String>)>,
+    strip_dot: bool,
+) {
+    let Ok(rd) = os.read_dir(dir) else {
         return;
     };
-    for e in rd.filter_map(|e| e.ok()) {
+    for e in rd {
         // One past the cap is enough for the caller to refuse the search.
         if out.len() > crate::builtins::WALK_MAX_ENTRIES {
             return;
         }
-        let name = e.file_name().to_string_lossy().into_owned();
+        let name = e.name;
         let path = if dir.ends_with('/') {
             format!("{dir}{name}")
         } else {
@@ -3189,12 +3199,12 @@ fn walk_files(dir: &str, shown: &str, out: &mut Vec<(String, Option<String>)>, s
         } else {
             format!("{shown}/{name}")
         };
-        let Ok(ft) = e.file_type() else { continue };
-        if ft.is_symlink() {
+        let Some(kind) = e.kind else { continue };
+        if kind == FileKind::Symlink {
             continue;
         }
-        if ft.is_dir() {
-            walk_files(&path, &display, out, false);
+        if kind == FileKind::Dir {
+            walk_files(os, &path, &display, out, false);
         } else {
             out.push((display, Some(path)));
         }
@@ -3214,13 +3224,13 @@ fn numeric_prefix(s: &str) -> f64 {
     t[..end].parse().unwrap_or(0.0)
 }
 
-fn sort(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+fn sort(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let Some((flags, files)) = short_flags(args, "rnuf") else {
         return Util::Decline;
     };
     let mut status = 0;
     let mut lines: Vec<String> = Vec::new();
-    for (_, d) in read_inputs("sort", &files, stdin, sink, &mut status) {
+    for (_, d) in read_inputs(os, "sort", &files, stdin, sink, &mut status) {
         lines.extend(
             lines_of(&d)
                 .iter()
@@ -3235,12 +3245,12 @@ fn sort(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
                 .partial_cmp(&numeric_prefix(b))
                 .unwrap_or(std::cmp::Ordering::Equal)
         } else if fold {
-            collate(&a.to_uppercase(), &b.to_uppercase())
+            collate(os, &a.to_uppercase(), &b.to_uppercase())
         } else {
-            collate(a, b)
+            collate(os, a, b)
         }
     };
-    lines.sort_by(|a, b| key_cmp(a, b).then_with(|| collate(a, b)));
+    lines.sort_by(|a, b| key_cmp(a, b).then_with(|| collate(os, a, b)));
     if flags.contains(&'u') {
         lines.dedup_by(|a, b| key_cmp(a, b) == std::cmp::Ordering::Equal);
     }
@@ -3254,7 +3264,7 @@ fn sort(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     Util::Done(status)
 }
 
-fn uniq(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+fn uniq(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let Some((flags, files)) = short_flags(args, "cdui") else {
         return Util::Decline;
     };
@@ -3262,7 +3272,7 @@ fn uniq(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
         return Util::Decline;
     }
     let mut status = 0;
-    let data = read_inputs("uniq", &files, stdin, sink, &mut status)
+    let data = read_inputs(os, "uniq", &files, stdin, sink, &mut status)
         .into_iter()
         .next()
         .map(|(_, d)| d)
@@ -3321,7 +3331,7 @@ fn cut_list(s: &str) -> Option<Vec<(usize, usize)>> {
     Some(v)
 }
 
-fn cut(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+fn cut(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let mut delim = '\t';
     let mut fields = None;
     let mut chars = None;
@@ -3370,7 +3380,7 @@ fn cut(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let within =
         |ranges: &[(usize, usize)], n: usize| ranges.iter().any(|&(a, b)| a <= n && n <= b);
     let mut status = 0;
-    for (_, data) in read_inputs("cut", &files, stdin, sink, &mut status) {
+    for (_, data) in read_inputs(os, "cut", &files, stdin, sink, &mut status) {
         for line in lines_of(&data) {
             let text = String::from_utf8_lossy(line);
             if let Some(r) = &chars {
@@ -3428,7 +3438,7 @@ struct SedLine {
 
 /// `sed` for the everyday scripts: `Np`, `a,bp`, `$p`, `/re/p`, `Nd`, `q`,
 /// and `s/re/rep/[gp]`, with `-n`, `-e` and `-E`. Anything else declines.
-fn sed(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+fn sed(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     let mut quiet = false;
     let mut ere = false;
     let mut scripts = Vec::new();
@@ -3580,7 +3590,7 @@ fn sed(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     }
     let mut status = 0;
     let mut data = Vec::new();
-    for (_, d) in read_inputs("sed", &files, stdin, sink, &mut status) {
+    for (_, d) in read_inputs(os, "sed", &files, stdin, sink, &mut status) {
         data.extend_from_slice(&d);
     }
     let lines = lines_of(&data);
@@ -3662,7 +3672,7 @@ fn sed(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     Util::Done(status)
 }
 
-fn ls(args: &[String], sink: &mut Sink) -> Util {
+fn ls(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
     let Some((flags, mut ops)) = short_flags(args, "aAl1d") else {
         return Util::Decline;
     };
@@ -3681,12 +3691,12 @@ fn ls(args: &[String], sink: &mut Sink) -> Util {
     let mut dirs = Vec::new();
     for op in &ops {
         let md = if long {
-            std::fs::symlink_metadata(op)
+            os.symlink_metadata(op)
         } else {
-            std::fs::metadata(op)
+            os.metadata(op)
         };
         match md {
-            Ok(m) if m.is_dir() && !dirs_as_files => dirs.push(op.clone()),
+            Ok(m) if m.kind == FileKind::Dir && !dirs_as_files => dirs.push(op.clone()),
             Ok(_) => files.push(op.clone()),
             Err(e) => {
                 sink.eline(&format!("ls: cannot access '{op}': {}", io_reason(&e)));
@@ -3694,13 +3704,13 @@ fn ls(args: &[String], sink: &mut Sink) -> Util {
             }
         }
     }
-    files.sort_by(|a, b| collate(a, b));
-    dirs.sort_by(|a, b| collate(a, b));
+    files.sort_by(|a, b| collate(os, a, b));
+    dirs.sort_by(|a, b| collate(os, a, b));
     let headers = files.len() + dirs.len() > 1 || status != 0;
     let mut first = true;
     if !files.is_empty() {
         let entries: Vec<(String, String)> = files.iter().map(|f| (f.clone(), f.clone())).collect();
-        emit_ls(&entries, long, false, sink);
+        emit_ls(os, &entries, long, false, sink);
         first = false;
     }
     for d in &dirs {
@@ -3711,7 +3721,7 @@ fn ls(args: &[String], sink: &mut Sink) -> Util {
         if headers {
             sink.out.extend_from_slice(format!("{d}:\n").as_bytes());
         }
-        let Ok(rd) = std::fs::read_dir(d) else {
+        let Ok(rd) = os.read_dir(d) else {
             sink.eline(&format!(
                 "ls: cannot open directory '{d}': Permission denied"
             ));
@@ -3719,15 +3729,15 @@ fn ls(args: &[String], sink: &mut Sink) -> Util {
             continue;
         };
         let mut names: Vec<String> = rd
-            .filter_map(|e| e.ok())
-            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .into_iter()
+            .map(|e| e.name)
             .filter(|n| all || almost || !n.starts_with('.'))
             .collect();
         if all {
             names.push(".".into());
             names.push("..".into());
         }
-        names.sort_by(|a, b| collate(a, b));
+        names.sort_by(|a, b| collate(os, a, b));
         let entries: Vec<(String, String)> = names
             .iter()
             .map(|n| {
@@ -3739,13 +3749,13 @@ fn ls(args: &[String], sink: &mut Sink) -> Util {
                 (n.clone(), p)
             })
             .collect();
-        emit_ls(&entries, long, true, sink);
+        emit_ls(os, &entries, long, true, sink);
     }
     Util::Done(status)
 }
 
 /// `(shown name, path)` pairs, in order.
-fn emit_ls(entries: &[(String, String)], long: bool, total: bool, sink: &mut Sink) {
+fn emit_ls(os: &dyn Os, entries: &[(String, String)], long: bool, total: bool, sink: &mut Sink) {
     if !long {
         for (n, _) in entries {
             sink.out.extend_from_slice(n.as_bytes());
@@ -3755,34 +3765,23 @@ fn emit_ls(entries: &[(String, String)], long: bool, total: bool, sink: &mut Sin
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
         let now = chrono::Local::now();
         let mut rows = Vec::new();
         let mut blocks: u64 = 0;
         for (name, path) in entries {
-            let Ok(m) = std::fs::symlink_metadata(path) else {
+            let Ok(m) = os.symlink_metadata(path) else {
                 continue;
             };
-            blocks += m.blocks();
-            let ft = m.file_type();
-            let mode = m.mode();
-            let kind = if ft.is_dir() {
-                'd'
-            } else if ft.is_symlink() {
-                'l'
-            } else {
-                use std::os::unix::fs::FileTypeExt;
-                if ft.is_block_device() {
-                    'b'
-                } else if ft.is_char_device() {
-                    'c'
-                } else if ft.is_fifo() {
-                    'p'
-                } else if ft.is_socket() {
-                    's'
-                } else {
-                    '-'
-                }
+            blocks += m.blocks;
+            let mode = m.mode;
+            let kind = match m.kind {
+                FileKind::Dir => 'd',
+                FileKind::Symlink => 'l',
+                FileKind::BlockDevice => 'b',
+                FileKind::CharDevice => 'c',
+                FileKind::Fifo => 'p',
+                FileKind::Socket => 's',
+                FileKind::File | FileKind::Other => '-',
             };
             let bit = |m: u32, c: char| if mode & m != 0 { c } else { '-' };
             let special =
@@ -3806,7 +3805,7 @@ fn emit_ls(entries: &[(String, String)], long: bool, total: bool, sink: &mut Sin
             ]
             .iter()
             .collect();
-            let mtime = chrono::DateTime::from_timestamp(m.mtime(), 0)
+            let mtime = chrono::DateTime::from_timestamp(m.mtime, 0)
                 .map(|t| t.with_timezone(&chrono::Local))
                 .unwrap_or(now);
             let age = now.signed_duration_since(mtime);
@@ -3817,17 +3816,17 @@ fn emit_ls(entries: &[(String, String)], long: bool, total: bool, sink: &mut Sin
                 mtime.format("%b %e  %Y").to_string()
             };
             let mut shown = name.clone();
-            if ft.is_symlink() {
-                if let Ok(t) = std::fs::read_link(path) {
-                    shown = format!("{name} -> {}", t.to_string_lossy());
+            if m.kind == FileKind::Symlink {
+                if let Ok(t) = os.read_link(path) {
+                    shown = format!("{name} -> {t}");
                 }
             }
             rows.push((
                 perms,
-                m.nlink().to_string(),
-                user_name(m.uid()),
-                group_name(m.gid()),
-                m.size().to_string(),
+                m.nlink.to_string(),
+                user_name(m.uid),
+                group_name(m.gid),
+                m.len.to_string(),
                 date,
                 shown,
             ));
@@ -3850,7 +3849,7 @@ fn emit_ls(entries: &[(String, String)], long: bool, total: bool, sink: &mut Sin
     }
     #[cfg(not(unix))]
     {
-        let _ = (total, sink);
+        let _ = (os, total, sink);
     }
 }
 
@@ -3888,7 +3887,7 @@ fn group_name(gid: u32) -> String {
 
 /// `find` with `-name`, `-iname`, `-path`, `-type`, `-maxdepth`, `-mindepth`,
 /// `!`/`-not` and `-print`, visiting in directory order as GNU find does.
-fn find(args: &[String], sink: &mut Sink) -> Util {
+fn find(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
     enum Test {
         Name(String, bool),
         Path(String),
@@ -3945,7 +3944,7 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
         negate = false;
         i += 1;
     }
-    let matches = |path: &str, ft: &std::fs::FileType| {
+    let matches = |path: &str, kind: FileKind| {
         tests.iter().all(|(neg, t)| {
             let base = path
                 .trim_end_matches('/')
@@ -3956,9 +3955,9 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
                 Test::Name(p, false) => glob_match(p, base),
                 Test::Name(p, true) => glob_match(p, &base.to_lowercase()),
                 Test::Path(p) => glob_match(p, path),
-                Test::Type('d') => ft.is_dir(),
-                Test::Type('l') => ft.is_symlink(),
-                Test::Type(_) => ft.is_file(),
+                Test::Type('d') => kind == FileKind::Dir,
+                Test::Type('l') => kind == FileKind::Symlink,
+                Test::Type(_) => kind == FileKind::File,
             };
             hit != *neg
         })
@@ -3971,7 +3970,8 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
         depth: usize,
         maxdepth: usize,
         mindepth: usize,
-        matches: &dyn Fn(&str, &std::fs::FileType) -> bool,
+        matches: &dyn Fn(&str, FileKind) -> bool,
+        os: &dyn Os,
         sink: &mut Sink,
         status: &mut i32,
         count: &mut usize,
@@ -3979,7 +3979,7 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
         if *count > crate::builtins::WALK_MAX_ENTRIES {
             return;
         }
-        let md = match std::fs::symlink_metadata(path) {
+        let md = match os.symlink_metadata(path) {
             Ok(m) => m,
             Err(e) => {
                 sink.eline(&format!("find: '{path}': {}", io_reason(&e)));
@@ -3987,8 +3987,8 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
                 return;
             }
         };
-        let ft = md.file_type();
-        if depth >= mindepth && matches(path, &ft) {
+        let kind = md.kind;
+        if depth >= mindepth && matches(path, kind) {
             if *count >= crate::builtins::WALK_MAX_ENTRIES {
                 *count += 1;
                 sink.eline(&format!(
@@ -4002,8 +4002,8 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
             sink.out.extend_from_slice(path.as_bytes());
             sink.out.push(b'\n');
         }
-        if ft.is_dir() && depth < maxdepth {
-            let rd = match std::fs::read_dir(path) {
+        if kind == FileKind::Dir && depth < maxdepth {
+            let rd = match os.read_dir(path) {
                 Ok(r) => r,
                 Err(e) => {
                     sink.eline(&format!("find: '{path}': {}", io_reason(&e)));
@@ -4011,8 +4011,8 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
                     return;
                 }
             };
-            for e in rd.filter_map(|e| e.ok()) {
-                let name = e.file_name().to_string_lossy().into_owned();
+            for e in rd {
+                let name = e.name;
                 let child = if path.ends_with('/') {
                     format!("{path}{name}")
                 } else {
@@ -4024,6 +4024,7 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
                     maxdepth,
                     mindepth,
                     matches,
+                    os,
                     sink,
                     status,
                     count,
@@ -4038,6 +4039,7 @@ fn find(args: &[String], sink: &mut Sink) -> Util {
             maxdepth,
             mindepth,
             &matches,
+            os,
             sink,
             &mut status,
             &mut count,
@@ -4074,12 +4076,18 @@ fn date(args: &[String], sink: &mut Sink) -> Util {
 /// subset does not run -- decided before anything executes, so the caller can
 /// fall back without a half-run script behind it.
 pub fn run(src: &str) -> Option<i32> {
+    run_on(&HostOs, src)
+}
+
+/// [`run`], with the host's files, environment and processes taken from `os`.
+pub fn run_on(os: &dyn Os, src: &str) -> Option<i32> {
     let list = parse(src).ok()?;
     let mut sh = Shell {
         vars: HashMap::new(),
         exported: HashSet::new(),
         last: 0,
         glob_refused: None,
+        os,
     };
     let mut stdin = Input::real();
     let mut sink = Sink::new(ErrMode::Real);
@@ -4109,15 +4117,22 @@ pub fn supports(src: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::posix_os::{DirEntry, Meta};
 
     /// Run in-process and capture stdout and the status.
     fn sh(src: &str) -> (String, i32) {
+        sh_on(&HostOs, src)
+    }
+
+    /// [`sh`], against the host `os`.
+    fn sh_on(os: &dyn Os, src: &str) -> (String, i32) {
         let list = parse(src).unwrap_or_else(|Unsupported(w)| panic!("{src}: {w}"));
         let mut shell = Shell {
             vars: HashMap::new(),
             exported: HashSet::new(),
             last: 0,
             glob_refused: None,
+            os,
         };
         let mut stdin = Input::buf(Vec::new());
         let mut sink = Sink::new(ErrMode::Null);
@@ -4232,7 +4247,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         std::env::set_var("LC_ALL", "xx_NOWHERE.UTF-8");
-        let natural = locale_collates();
+        let natural = locale_collates(&HostOs);
         std::env::remove_var("LC_ALL");
         assert!(!natural);
     }
@@ -4324,9 +4339,163 @@ mod tests {
             .collect();
         assert_eq!(names, vec!["deep.rs", "mid.rs", "top.rs"], "{found:?}");
         // Without globstar, `**` is `*`: one level only.
-        let shell = glob_expand(&format!("{r}/**/*.rs")).expect("under the cap");
+        let shell = glob_expand(&HostOs, &format!("{r}/**/*.rs")).expect("under the cap");
         assert_eq!(shell.len(), 1, "{shell:?}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// An in-memory host. Its paths exist nowhere on disk, so a utility that
+    /// reached `std::fs` instead of the trait would find nothing and print
+    /// something else. `calls` records which trait methods ran.
+    #[derive(Default)]
+    struct FakeOs {
+        files: std::collections::BTreeMap<String, Vec<u8>>,
+        dirs: std::collections::BTreeSet<String>,
+        env: HashMap<String, String>,
+        calls: std::cell::RefCell<Vec<&'static str>>,
+    }
+
+    impl FakeOs {
+        fn note(&self, what: &'static str) {
+            self.calls.borrow_mut().push(what);
+        }
+        fn parent(path: &str) -> String {
+            match path.rsplit_once('/') {
+                Some(("", _)) => "/".into(),
+                Some((p, _)) => p.into(),
+                None => ".".into(),
+            }
+        }
+        fn name(path: &str) -> String {
+            path.rsplit('/').next().unwrap_or(path).into()
+        }
+        fn missing() -> OsError {
+            OsError {
+                kind: ErrorKind::NotFound,
+                errno: Some(2),
+                message: "No such file or directory (os error 2)".into(),
+            }
+        }
+    }
+
+    impl Os for FakeOs {
+        fn metadata(&self, path: &str) -> Result<Meta, OsError> {
+            self.note("metadata");
+            let meta = |kind, len| Meta {
+                kind,
+                len,
+                mode: 0o644,
+                uid: 0,
+                gid: 0,
+                nlink: 1,
+                blocks: 0,
+                mtime: 0,
+            };
+            if self.dirs.contains(path) {
+                return Ok(meta(FileKind::Dir, 4096));
+            }
+            match self.files.get(path) {
+                Some(d) => Ok(meta(FileKind::File, d.len() as u64)),
+                None => Err(Self::missing()),
+            }
+        }
+        fn symlink_metadata(&self, path: &str) -> Result<Meta, OsError> {
+            self.note("symlink_metadata");
+            self.metadata(path)
+        }
+        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, OsError> {
+            self.note("read_dir");
+            if !self.dirs.contains(path) {
+                return Err(Self::missing());
+            }
+            let mut out = Vec::new();
+            for d in self.dirs.iter().filter(|p| Self::parent(p) == path) {
+                out.push(DirEntry {
+                    name: Self::name(d),
+                    kind: Some(FileKind::Dir),
+                });
+            }
+            for f in self.files.keys().filter(|p| Self::parent(p) == path) {
+                out.push(DirEntry {
+                    name: Self::name(f),
+                    kind: Some(FileKind::File),
+                });
+            }
+            Ok(out)
+        }
+        fn read_file(&self, path: &str) -> Result<Vec<u8>, OsError> {
+            self.note("read_file");
+            if self.dirs.contains(path) {
+                return Err(OsError {
+                    kind: ErrorKind::IsADirectory,
+                    errno: Some(21),
+                    message: "Is a directory (os error 21)".into(),
+                });
+            }
+            self.files.get(path).cloned().ok_or_else(Self::missing)
+        }
+        fn write_file(&self, _path: &str, _data: &[u8], _append: bool) -> Result<(), OsError> {
+            self.note("write_file");
+            Err(OsError {
+                kind: ErrorKind::PermissionDenied,
+                errno: Some(13),
+                message: "Permission denied (os error 13)".into(),
+            })
+        }
+        fn read_link(&self, _path: &str) -> Result<String, OsError> {
+            self.note("read_link");
+            Err(Self::missing())
+        }
+        fn canonicalize(&self, path: &str) -> Result<String, OsError> {
+            self.note("canonicalize");
+            if self.dirs.contains(path) || self.files.contains_key(path) {
+                Ok(path.into())
+            } else {
+                Err(Self::missing())
+            }
+        }
+        fn current_dir(&self) -> Result<String, OsError> {
+            self.note("current_dir");
+            Ok("/w".into())
+        }
+        fn set_current_dir(&self, _path: &str) -> Result<(), OsError> {
+            self.note("set_current_dir");
+            Err(Self::missing())
+        }
+        fn env_var(&self, name: &str) -> Option<String> {
+            self.note("env_var");
+            self.env.get(name).cloned()
+        }
+        fn process_id(&self) -> u32 {
+            4242
+        }
+        fn run_program(&self, _spec: Spawn) -> Result<Captured, SpawnError> {
+            self.note("run_program");
+            Err(SpawnError::Start(Self::missing()))
+        }
+    }
+
+    /// `ls` and `cat` run through the trait: their answers come from the fake,
+    /// and the calls they make are the trait's, not `std::fs`'s.
+    #[test]
+    fn ls_and_cat_run_through_the_os_trait() {
+        let mut os = FakeOs::default();
+        os.dirs.insert("/w".into());
+        os.dirs.insert("/w/sub".into());
+        os.files.insert("/w/a.txt".into(), b"hello\n".to_vec());
+        os.files.insert("/w/b.txt".into(), b"second\n".to_vec());
+
+        assert_eq!(
+            sh_on(&os, "ls /w; cat /w/a.txt"),
+            ("a.txt\nb.txt\nsub\nhello\n".into(), 0)
+        );
+        assert_eq!(sh_on(&os, "cat /w/missing.txt").1, 1);
+        assert_eq!(sh_on(&os, "ls /nowhere").1, 2);
+
+        let calls = os.calls.borrow();
+        assert!(calls.contains(&"read_dir"), "{calls:?}");
+        assert!(calls.contains(&"read_file"), "{calls:?}");
+        assert!(!calls.contains(&"run_program"), "{calls:?}");
     }
 
     #[test]

@@ -211,6 +211,8 @@ pub mod plugins;
 /// falls back to the transpiler.
 #[cfg(feature = "native")]
 pub mod posix;
+#[cfg(feature = "native")]
+pub mod posix_os;
 /// Prompt rendering — fish-, oh-my-posh-, and pure-inspired prompt styles.
 #[cfg(feature = "native")]
 pub mod prompt;
