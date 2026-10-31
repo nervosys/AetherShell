@@ -351,11 +351,13 @@ fn examples_and_module_aliases_execute_with_their_effects() {
     let _s = Session::new("examples");
     // Rewinding and ending a session write files (recorded contents put
     // back, the journal deleted), so they are WriteLocal and jailed; only
-    // reading the history is Pure. Their own writes are still never journaled.
+    // reading the history is ReadLocal, because it reads the on-disk journal
+    // (src/safety.rs classifies it with journal and query_audit). Their own
+    // writes are still never journaled.
     for (name, alias, effect) in [
         ("session_undo", "session.undo", Effect::WriteLocal),
         ("session_redo", "session.redo", Effect::WriteLocal),
-        ("session_history", "session.history", Effect::Pure),
+        ("session_history", "session.history", Effect::ReadLocal),
         ("session_end", "session.end", Effect::WriteLocal),
     ] {
         assert_eq!(iron_shell::safety::effect_of(name), effect, "{name}");

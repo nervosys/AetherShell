@@ -56,8 +56,15 @@ const HARMLESS: &[(&str, &[&str])] = &[
     (
         "changes only this process's memory, which a rollback never restores, as it never restores a variable",
         &[
-            "cache_ai", "cache_clear_ai", "cd", "env_set", "feature_set", "set_env",
+            "cache_ai", "cache_clear_ai", "cd", "env_set", "env_unset", "feature_disable",
+            "feature_enable", "feature_set", "set_env", "telemetry_disable", "telemetry_enable",
             "telemetry_reset",
+        ],
+    ),
+    (
+        "is the transaction stack itself, this process's memory; refusing it would strand an open transaction",
+        &[
+            "tx_begin", "tx_commit", "tx_rollback", "tx_rollback_to", "tx_savepoint",
         ],
     ),
     (
