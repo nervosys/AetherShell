@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/iron-shell-lsp", "crates/agentic-eval"]
+members = [".", "crates/iron-shell-lsp", "crates/agentic-eval", "crates/ironshell-posix"]
 exclude = ["web", "integrations/python"]
 
 [package]
@@ -133,6 +133,8 @@ path = "src/bin/aimodel.rs"
 
 [dependencies]
 anyhow = "1"
+# The POSIX subset and its utilities, over an `Os` trait; builds without `std`.
+ironshell-posix = { path = "crates/ironshell-posix", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 csv = "1.3"

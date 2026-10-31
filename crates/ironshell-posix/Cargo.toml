@@ -1,0 +1,30 @@
+[package]
+name = "ironshell-posix"
+version = "0.1.0"
+edition = "2021"
+description = "IronShell's in-process POSIX shell subset and its utilities, over an Os trait, for hosts without the Rust standard library."
+license = "AGPL-3.0-or-later"
+authors = ["Nervosys <contact@nervosys.ai>"]
+repository = "https://github.com/nervosys/AetherShell"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+# Regex matching for grep, sed and the POSIX test operators. regex-automata
+# is the engine under the `regex` crate, and it builds without `std`; the
+# `regex` crate itself does not. Features are the ones `regex` uses by
+# default, minus `std`, so matching semantics are the same. Chosen by
+# `cargo check --target x86_64-unknown-none`, not by reputation.
+regex-automata = { version = "0.4", default-features = false, features = [
+    "alloc",
+    "syntax",
+    "meta",
+    "nfa-pikevm",
+    "hybrid",
+    "perf",
+    "unicode",
+] }
+# `regex::escape` and the `regex` crate's literal escaping, for the same reason.
+regex-syntax = { version = "0.8", default-features = false, features = ["unicode"] }
+
+[dev-dependencies]

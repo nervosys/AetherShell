@@ -2647,6 +2647,7 @@ dependencies = [
  "ic-rustls",
  "image",
  "ironcrypto",
+ "ironshell-posix",
  "ironsocketlayer",
  "js-sys",
  "jsonschema",
@@ -2761,6 +2762,14 @@ dependencies = [
  "ic-hash",
  "ic-pkix",
  "ic-sig",
+]
+
+[[package]]
+name = "ironshell-posix"
+version = "0.1.0"
+dependencies = [
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]

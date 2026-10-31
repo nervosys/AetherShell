@@ -8463,7 +8463,7 @@ fn bi_tail(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// could otherwise build an array of every file on the disk before anyone saw
 /// it. Past this the walk is refused with E_BUDGET_EXCEEDED, not cut short: a
 /// shorter listing presented as the whole is the silent wrong answer.
-pub(crate) const WALK_MAX_ENTRIES: usize = 1_000_000;
+pub(crate) const WALK_MAX_ENTRIES: usize = ironshell_posix::WALK_MAX_ENTRIES;
 
 /// The refusal for a walk that would return more than `max` entries.
 fn walk_over(builtin: &str, max: usize) -> anyhow::Error {

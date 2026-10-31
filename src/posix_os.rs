@@ -1,177 +1,44 @@
-//! The operating system, as the POSIX subset sees it.
+//! The host backend for the POSIX subset: `std` for files, processes and the
+//! shell's streams, chrono for time, libc for locales and account names, and
+//! the shell's own policy (`safety` and the journal) as the [`Gate`].
 //!
-//! [`Os`] is everything `posix.rs` asks of the host: reading and writing
-//! files, listing directories, metadata, the working directory, one
-//! environment variable at a time, the process id, and running a program to
-//! completion with its output captured. Its types are plain data (no
-//! `std::fs::Metadata`, no `std::process` types in any signature), so a
-//! backend that is not `std` can implement it.
+//! The trait and its plain-data types live in `ironshell-posix`, which builds
+//! without `std`. Everything here is the one place that subset meets `std`.
 //!
-//! [`HostOs`] is the one backend in use, and it is `std`. It reports what
-//! `posix.rs` reported when it called `std` directly: the same error kinds,
-//! and the same message text ([`OsError::message`] is `std`'s own), so the
-//! utilities print the same bytes.
-//!
-//! Deliberately not on this trait: the policy gates (`safety`, the journal),
-//! which `posix.rs` calls itself, and the shell's own stdin, stdout and
-//! stderr, which it writes through `std::io`.
-//!
-//! Contract for a backend that spawns programs: it must apply the same
-//! `IRONSHELL_*` stripping that `safety::strip_ironshell_env` applies to a
-//! `std` child. `posix.rs` no longer does that itself, so a backend that
-//! skips it would hand a child the gate variables the shell removes.
+//! The host reports what the subset reported when it called `std` directly:
+//! the same error kinds, and the same message text ([`OsError::message`] is
+//! `std`'s own), so the utilities print the same bytes.
 
-use std::io::Write;
+use std::io::{BufRead, Read, Write};
 
-/// What kind of thing a path names. Mirrors the distinctions `ls -l` and
-/// `find -type` draw; anything else is [`FileKind::Other`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileKind {
-    File,
-    Dir,
-    Symlink,
-    BlockDevice,
-    CharDevice,
-    Fifo,
-    Socket,
-    Other,
-}
+pub use ironshell_posix::os::{
+    Captured, DirEntry, ErrorKind, FileKind, Gate, Meta, Os, OsError, Refusal, Spawn, SpawnError,
+    Stream, Timestamp, WriteError,
+};
 
-/// Metadata for one path. The Unix fields are zero on a host without them.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Meta {
-    pub kind: FileKind,
-    /// Size in bytes.
-    pub len: u64,
-    /// Permission and type bits, as `st_mode`.
-    pub mode: u32,
-    pub uid: u32,
-    pub gid: u32,
-    pub nlink: u64,
-    /// 512-byte blocks allocated.
-    pub blocks: u64,
-    /// Modification time, in seconds since the Unix epoch.
-    pub mtime: i64,
-}
+use crate::journal;
+use crate::safety;
+use crate::value::Value;
 
-/// One entry of a directory listing.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DirEntry {
-    pub name: String,
-    /// The entry's kind, not following symbolic links; `None` when the host
-    /// could not say.
-    pub kind: Option<FileKind>,
-}
-
-/// The errno-like category of a failed operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ErrorKind {
-    NotFound,
-    PermissionDenied,
-    IsADirectory,
-    NotADirectory,
-    AlreadyExists,
-    Other,
-}
-
-/// A failed operation: its category, the raw errno if the host gave one, and
-/// the host's own text for it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OsError {
-    pub kind: ErrorKind,
-    pub errno: Option<i32>,
-    /// The host's message. For `std` this is `io::Error`'s `Display`, which
-    /// may end in `" (os error N)"`; the printed reason strips that suffix.
-    pub message: String,
-}
-
-/// Where a child's standard error goes. Its standard output is always
-/// captured.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Stream {
-    /// The shell's own standard error.
-    Inherit,
-    Null,
-    /// Captured, and returned in [`Captured::stderr`].
-    Piped,
-}
-
-/// A program to run to completion.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Spawn {
-    /// `argv[0]` is the program; no shell is involved.
-    pub argv: Vec<String>,
-    /// Variables to set on the child, applied in order, on top of the
-    /// inherited environment.
-    pub env: Vec<(String, String)>,
-    pub stderr: Stream,
-    /// `Some(bytes)` pipes them to the child's standard input and closes it;
-    /// `None` gives the child the shell's standard input.
-    pub stdin: Option<Vec<u8>>,
-}
-
-/// A child that ran to completion.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Captured {
-    /// The exit code, or `None` when the child ended on a signal.
-    pub status: Option<i32>,
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
-}
-
-/// Why [`Os::run_program`] did not produce a [`Captured`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SpawnError {
-    /// The child could not be started.
-    Start(OsError),
-    /// The child started but could not be waited for.
-    Wait(OsError),
-}
-
-/// The host operations the POSIX subset uses. Paths are `&str`, as the shell
-/// takes them from argv; the results are lossy UTF-8 where a host path is not.
-pub trait Os {
-    /// Metadata, following symbolic links.
-    fn metadata(&self, path: &str) -> Result<Meta, OsError>;
-    /// Metadata of the link itself when `path` is one.
-    fn symlink_metadata(&self, path: &str) -> Result<Meta, OsError>;
-    /// The entries of a directory, in the host's order, with entries that
-    /// fail to read left out.
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, OsError>;
-    fn read_file(&self, path: &str) -> Result<Vec<u8>, OsError>;
-    /// Creates or truncates `path` and writes `data`; with `append`, creates
-    /// it if needed and writes at its end.
-    fn write_file(&self, path: &str, data: &[u8], append: bool) -> Result<(), OsError>;
-    fn read_link(&self, path: &str) -> Result<String, OsError>;
-    fn canonicalize(&self, path: &str) -> Result<String, OsError>;
-    fn current_dir(&self) -> Result<String, OsError>;
-    fn set_current_dir(&self, path: &str) -> Result<(), OsError>;
-    /// The value of an environment variable; `None` when unset or not UTF-8.
-    fn env_var(&self, name: &str) -> Option<String>;
-    fn process_id(&self) -> u32;
-    fn run_program(&self, spec: Spawn) -> Result<Captured, SpawnError>;
-}
-
-/// The backend on the Rust standard library.
+/// The backend on the Rust standard library, and the shell's own policy.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HostOs;
 
-impl OsError {
-    fn from_io(e: &std::io::Error) -> Self {
-        use std::io::ErrorKind as K;
-        let kind = match e.kind() {
-            K::NotFound => ErrorKind::NotFound,
-            K::PermissionDenied => ErrorKind::PermissionDenied,
-            K::IsADirectory => ErrorKind::IsADirectory,
-            K::NotADirectory => ErrorKind::NotADirectory,
-            K::AlreadyExists => ErrorKind::AlreadyExists,
-            _ => ErrorKind::Other,
-        };
-        OsError {
-            kind,
-            errno: e.raw_os_error(),
-            message: e.to_string(),
-        }
+/// The host error for a failed `std` call.
+fn os_error(e: &std::io::Error) -> OsError {
+    use std::io::ErrorKind as K;
+    let kind = match e.kind() {
+        K::NotFound => ErrorKind::NotFound,
+        K::PermissionDenied => ErrorKind::PermissionDenied,
+        K::IsADirectory => ErrorKind::IsADirectory,
+        K::NotADirectory => ErrorKind::NotADirectory,
+        K::AlreadyExists => ErrorKind::AlreadyExists,
+        _ => ErrorKind::Other,
+    };
+    OsError {
+        kind,
+        errno: e.raw_os_error(),
+        message: e.to_string(),
     }
 }
 
@@ -242,17 +109,17 @@ impl Os for HostOs {
     fn metadata(&self, path: &str) -> Result<Meta, OsError> {
         std::fs::metadata(path)
             .map(|m| meta_of(&m))
-            .map_err(|e| OsError::from_io(&e))
+            .map_err(|e| os_error(&e))
     }
 
     fn symlink_metadata(&self, path: &str) -> Result<Meta, OsError> {
         std::fs::symlink_metadata(path)
             .map(|m| meta_of(&m))
-            .map_err(|e| OsError::from_io(&e))
+            .map_err(|e| os_error(&e))
     }
 
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, OsError> {
-        let rd = std::fs::read_dir(path).map_err(|e| OsError::from_io(&e))?;
+        let rd = std::fs::read_dir(path).map_err(|e| os_error(&e))?;
         Ok(rd
             .filter_map(|e| e.ok())
             .map(|e| DirEntry {
@@ -263,7 +130,7 @@ impl Os for HostOs {
     }
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>, OsError> {
-        std::fs::read(path).map_err(|e| OsError::from_io(&e))
+        std::fs::read(path).map_err(|e| os_error(&e))
     }
 
     fn write_file(&self, path: &str, data: &[u8], append: bool) -> Result<(), OsError> {
@@ -276,29 +143,29 @@ impl Os for HostOs {
         } else {
             std::fs::write(path, data)
         };
-        res.map_err(|e| OsError::from_io(&e))
+        res.map_err(|e| os_error(&e))
     }
 
     fn read_link(&self, path: &str) -> Result<String, OsError> {
         std::fs::read_link(path)
             .map(|p| p.to_string_lossy().into_owned())
-            .map_err(|e| OsError::from_io(&e))
+            .map_err(|e| os_error(&e))
     }
 
     fn canonicalize(&self, path: &str) -> Result<String, OsError> {
         std::fs::canonicalize(path)
             .map(|p| p.to_string_lossy().into_owned())
-            .map_err(|e| OsError::from_io(&e))
+            .map_err(|e| os_error(&e))
     }
 
     fn current_dir(&self) -> Result<String, OsError> {
         std::env::current_dir()
             .map(|p| p.to_string_lossy().into_owned())
-            .map_err(|e| OsError::from_io(&e))
+            .map_err(|e| os_error(&e))
     }
 
     fn set_current_dir(&self, path: &str) -> Result<(), OsError> {
-        std::env::set_current_dir(path).map_err(|e| OsError::from_io(&e))
+        std::env::set_current_dir(path).map_err(|e| os_error(&e))
     }
 
     fn env_var(&self, name: &str) -> Option<String> {
@@ -316,7 +183,7 @@ impl Os for HostOs {
         for (n, v) in &spec.env {
             cmd.env(n, v);
         }
-        crate::safety::strip_ironshell_env(&mut cmd);
+        safety::strip_ironshell_env(&mut cmd);
         cmd.stdout(Stdio::piped());
         cmd.stderr(match spec.stderr {
             Stream::Inherit => Stdio::inherit(),
@@ -328,9 +195,9 @@ impl Os for HostOs {
         } else {
             Stdio::inherit()
         });
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| SpawnError::Start(OsError::from_io(&e)))?;
+        let mut child = cmd.spawn().map_err(|e| SpawnError::Start(os_error(&e)))?;
+        // Feeding stdin on a thread: a child that fills its stdout before it
+        // reads all of its input would otherwise block both processes.
         let writer = match spec.stdin {
             Some(data) => child.stdin.take().map(|mut w| {
                 std::thread::spawn(move || {
@@ -341,7 +208,7 @@ impl Os for HostOs {
         };
         let out = child
             .wait_with_output()
-            .map_err(|e| SpawnError::Wait(OsError::from_io(&e)))?;
+            .map_err(|e| SpawnError::Wait(os_error(&e)))?;
         if let Some(w) = writer {
             let _ = w.join();
         }
@@ -351,4 +218,195 @@ impl Os for HostOs {
             stderr: out.stderr,
         })
     }
+
+    fn write_stdout(&self, bytes: &[u8]) {
+        let _ = std::io::stdout().write_all(bytes);
+        let _ = std::io::stdout().flush();
+    }
+
+    fn write_stderr(&self, bytes: &[u8]) {
+        let _ = std::io::stderr().write_all(bytes);
+    }
+
+    fn read_stdin_line(&self, limit: usize) -> Option<Vec<u8>> {
+        let mut chunk = Vec::new();
+        match std::io::stdin()
+            .lock()
+            .take(limit as u64)
+            .read_until(b'\n', &mut chunk)
+        {
+            Ok(0) | Err(_) => None,
+            Ok(_) => Some(chunk),
+        }
+    }
+
+    fn read_stdin_to_end(&self, out: &mut Vec<u8>) {
+        let _ = std::io::stdin().read_to_end(out);
+    }
+
+    fn now(&self) -> Timestamp {
+        let now = chrono::Local::now();
+        Timestamp {
+            secs: now.timestamp(),
+            nanos: now.timestamp_subsec_nanos(),
+        }
+    }
+
+    fn format_local(&self, at: Timestamp, format: &str) -> Option<String> {
+        let t = chrono::DateTime::from_timestamp(at.secs, at.nanos)?.with_timezone(&chrono::Local);
+        // chrono panics on a format it cannot parse; ask it first.
+        use chrono::format::{Item, StrftimeItems};
+        if StrftimeItems::new(format).any(|i| matches!(i, Item::Error)) {
+            return None;
+        }
+        Some(t.format(format).to_string())
+    }
+
+    fn locale_available(&self, name: &str) -> bool {
+        locale_loads(name)
+    }
+
+    fn has_unix_metadata(&self) -> bool {
+        cfg!(unix)
+    }
+
+    #[cfg(unix)]
+    fn user_name(&self, uid: u32) -> Option<String> {
+        let mut buf = vec![0 as libc::c_char; 4096];
+        let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+        let mut result: *mut libc::passwd = std::ptr::null_mut();
+        // SAFETY: getpwuid_r writes into the caller's buffers and sets `result`
+        // to `&pwd` or null; `pw_name` points into `buf`, which outlives the read.
+        let rc =
+            unsafe { libc::getpwuid_r(uid, &mut pwd, buf.as_mut_ptr(), buf.len(), &mut result) };
+        if rc == 0 && !result.is_null() {
+            // SAFETY: as above; the name is a NUL-terminated string within `buf`.
+            let name = unsafe { std::ffi::CStr::from_ptr(pwd.pw_name) };
+            return Some(name.to_string_lossy().into_owned());
+        }
+        None
+    }
+
+    #[cfg(unix)]
+    fn group_name(&self, gid: u32) -> Option<String> {
+        let mut buf = vec![0 as libc::c_char; 4096];
+        let mut grp: libc::group = unsafe { std::mem::zeroed() };
+        let mut result: *mut libc::group = std::ptr::null_mut();
+        // SAFETY: getgrgid_r writes into the caller's buffers and sets `result`
+        // to `&grp` or null; `gr_name` points into `buf`, which outlives the read.
+        let rc =
+            unsafe { libc::getgrgid_r(gid, &mut grp, buf.as_mut_ptr(), buf.len(), &mut result) };
+        if rc == 0 && !result.is_null() {
+            // SAFETY: as above.
+            let name = unsafe { std::ffi::CStr::from_ptr(grp.gr_name) };
+            return Some(name.to_string_lossy().into_owned());
+        }
+        None
+    }
+
+    fn gate(&self) -> &dyn Gate {
+        self
+    }
+}
+
+impl Gate for HostOs {
+    fn agent_mode(&self) -> bool {
+        safety::current_mode() == safety::Mode::Agent
+    }
+
+    fn admit_exec(&self, argv: &str) -> Result<(), Refusal> {
+        safety::guard_exec("posix", argv).map_err(|e| Refusal {
+            message: e.to_string(),
+            code: e.code.exit_code(),
+        })
+    }
+
+    fn refuse_gate_variable(&self, name: &str) -> Refusal {
+        let refusal = safety::policy_deny(
+            "posix",
+            format!("{name}: an agent may not pass an IRONSHELL_* variable to a child process"),
+            "IRONSHELL_* variables are set by whoever launches the agent",
+        );
+        Refusal {
+            message: refusal.to_string(),
+            code: 126,
+        }
+    }
+
+    /// The write goes to the path the guard checked. It went to `path` as
+    /// given, which the OS resolved against the working directory while the
+    /// guard, in agent mode, had resolved it against the workspace: with the
+    /// two apart, `echo x > f` was approved as `<workspace>/f` and wrote
+    /// `<cwd>/f`, outside the jail. The prior contents are journalled first, as
+    /// the dispatcher does for `file.write`, so the `reversible` the guard is
+    /// told is true.
+    fn guarded_write(
+        &self,
+        os: &dyn Os,
+        path: &str,
+        data: &[u8],
+        append: bool,
+    ) -> Result<(), WriteError> {
+        let resolved = safety::resolve_path_str(path);
+        safety::guard(safety::GuardCtx {
+            builtin: "posix",
+            effect: safety::Effect::WriteLocal,
+            what: "write",
+            targets: vec![resolved.clone()],
+            blast_radius: serde_json::json!({ "path": resolved }),
+            reversible: true,
+            fs_paths: true,
+        })
+        .map_err(|e| {
+            WriteError::Refused(Refusal {
+                message: e.to_string(),
+                code: e.code.exit_code(),
+            })
+        })?;
+        let mark = journal::mark();
+        journal::record_before(
+            "posix",
+            safety::Effect::WriteLocal,
+            &[Value::Str(resolved.clone())],
+        );
+        let res = os.write_file(&resolved, data, append);
+        if res.is_err() {
+            journal::rollback_to(mark);
+        }
+        res.map_err(WriteError::Io)
+    }
+}
+
+/// Whether glibc can load the collation the environment names. When it cannot
+/// (the locale was never generated), `ls` and `sort` fall back to bytes, so
+/// output meant to match theirs must too. Cached per name: a sort asks once
+/// per comparison.
+#[cfg(target_os = "linux")]
+fn locale_loads(name: &str) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static SEEN: Mutex<Option<HashMap<String, bool>>> = Mutex::new(None);
+    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&ok) = seen.as_ref().and_then(|m| m.get(name)) {
+        return ok;
+    }
+    // `newlocale` with "" resolves the same variables `setlocale` would,
+    // without touching the process locale.
+    let ok = unsafe {
+        let l = libc::newlocale(libc::LC_COLLATE_MASK, c"".as_ptr(), std::ptr::null_mut());
+        if l.is_null() {
+            false
+        } else {
+            libc::freelocale(l);
+            true
+        }
+    };
+    seen.get_or_insert_with(HashMap::new)
+        .insert(name.to_string(), ok);
+    ok
+}
+
+#[cfg(not(target_os = "linux"))]
+fn locale_loads(_name: &str) -> bool {
+    true
 }
