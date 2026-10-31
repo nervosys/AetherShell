@@ -41670,17 +41670,14 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             .spawn()
         {
             Ok(child) => ("xclip", child),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
-                "xsel",
-                {
-                    let mut xsel = std::process::Command::new("xsel");
-                    crate::safety::strip_ironshell_env(&mut xsel);
-                    xsel.args(["--clipboard", "--input"])
-                        .stdin(std::process::Stdio::piped())
-                        .spawn()
-                        .map_err(|e| crate::safety::spawn_error(NAME, "xsel", &e))?
-                },
-            ),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => ("xsel", {
+                let mut xsel = std::process::Command::new("xsel");
+                crate::safety::strip_ironshell_env(&mut xsel);
+                xsel.args(["--clipboard", "--input"])
+                    .stdin(std::process::Stdio::piped())
+                    .spawn()
+                    .map_err(|e| crate::safety::spawn_error(NAME, "xsel", &e))?
+            }),
             Err(e) => return Err(crate::safety::spawn_error(NAME, "xclip", &e)),
         };
         let status = feed_stdin_and_wait(

@@ -6,8 +6,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use iron_shell::agent_api::{
-    generate_schema_filtered, ontology_manifest_json, process_request, AgentRequest,
-    PipelineStep,
+    generate_schema_filtered, ontology_manifest_json, process_request, AgentRequest, PipelineStep,
 };
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
