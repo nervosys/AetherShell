@@ -445,8 +445,9 @@ fn wget_download_does_not_follow_a_redirect_to_a_file_url() {
     let url = format!("http://127.0.0.1:{}/r", server.port);
     let r = call("wget_download", vec![text(&url), text("redirected.txt")]);
     let code = code_of(&r);
+    // The shell follows each hop itself and refuses a non-http one.
     assert!(
-        code == "E_TOOL_FAILED" || code == "E_TOOL_MISSING",
+        code == "E_POLICY_DENY" || code == "E_TOOL_MISSING",
         "a file redirect was not refused: {code}"
     );
     assert!(

@@ -154,6 +154,10 @@ fn risky_spawn_sites(src: &str) -> Vec<(String, String, String, String)> {
         // each call of it is a curl spawn site, its slice the argument list.
         let tool = if t.contains("web_curl(") && !t.starts_with("fn ") {
             "curl"
+        } else if t.contains("git_command()") && !t.starts_with("fn ") {
+            // Every git builtin builds its command with `git_command()`,
+            // which adds `-c core.fsmonitor=false` to `Command::new("git")`.
+            "git"
         } else {
             let Some(tool) = RISKY_TOOLS
                 .iter()
