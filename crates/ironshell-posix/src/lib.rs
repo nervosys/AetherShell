@@ -4088,31 +4088,77 @@ fn date(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
 /// subset does not run -- decided before anything executes, so the caller can
 /// fall back without a half-run script behind it.
 pub fn run_on(os: &dyn Os, src: &str) -> Option<i32> {
-    let list = parse(src).ok()?;
-    let mut sh = Shell {
-        vars: BTreeMap::new(),
-        exported: BTreeSet::new(),
-        last: 0,
-        glob_refused: None,
-        os,
-    };
-    let mut stdin = Input::real(os);
-    let mut sink = Sink::new(os, ErrMode::Real);
-    let mut status = 0;
-    // Output reaches the terminal as each top-level command finishes, not at
-    // the end -- but only here: a loop body inside a pipeline must feed the
-    // next stage, not the terminal.
-    for ao in &list {
-        let flow = sh.run_and_or(ao, &mut stdin, &mut sink);
-        os.write_stdout(&sink.out);
-        sink.out.clear();
-        match flow {
-            Flow::Next(c) => status = c,
-            Flow::Exit(c) => return Some(c),
-            Flow::Break(_) | Flow::Continue(_) => {}
+    Session::new(os).run(src).map(|o| o.status)
+}
+
+/// The shell state a host keeps between lines: variables, exports and `$?`.
+/// A host with a prompt keeps one `Session` and runs each line through
+/// [`Session::run`]; [`run_on`] is a session that lives for one script.
+pub struct Session<'a> {
+    sh: Shell<'a>,
+}
+
+/// How one [`Session::run`] ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Outcome {
+    /// The status of the last command that ran, or the status `exit` gave.
+    pub status: i32,
+    /// Whether an `exit` ran. A host that has to stop on `exit` checks this
+    /// rather than guessing from the status.
+    pub exited: bool,
+}
+
+impl<'a> Session<'a> {
+    /// A session with no variables, no exports, and `$?` at 0.
+    pub fn new(os: &'a dyn Os) -> Self {
+        Session {
+            sh: Shell {
+                vars: BTreeMap::new(),
+                exported: BTreeSet::new(),
+                last: 0,
+                glob_refused: None,
+                os,
+            },
         }
     }
-    Some(status)
+
+    /// Runs `src` in this session, and leaves its variables and `$?` for the
+    /// next call. `None` when the subset does not run `src`: decided before
+    /// anything executes, so nothing has changed.
+    pub fn run(&mut self, src: &str) -> Option<Outcome> {
+        let list = parse(src).ok()?;
+        let os = self.sh.os;
+        let mut stdin = Input::real(os);
+        let mut sink = Sink::new(os, ErrMode::Real);
+        // An empty line keeps `$?`, as an interactive shell does.
+        let mut status = self.sh.last;
+        // Output reaches the terminal as each top-level command finishes, not at
+        // the end -- but only here: a loop body inside a pipeline must feed the
+        // next stage, not the terminal.
+        for ao in &list {
+            let flow = self.sh.run_and_or(ao, &mut stdin, &mut sink);
+            os.write_stdout(&sink.out);
+            sink.out.clear();
+            match flow {
+                Flow::Next(c) => {
+                    status = c;
+                    self.sh.last = c;
+                }
+                Flow::Exit(c) => {
+                    self.sh.last = c;
+                    return Some(Outcome {
+                        status: c,
+                        exited: true,
+                    });
+                }
+                Flow::Break(_) | Flow::Continue(_) => {}
+            }
+        }
+        Some(Outcome {
+            status,
+            exited: false,
+        })
+    }
 }
 
 /// Whether `src` is inside the subset, without running it.
@@ -4676,6 +4722,43 @@ mod tests {
         assert!(calls.contains(&"read_dir"), "{calls:?}");
         assert!(calls.contains(&"read_file"), "{calls:?}");
         assert!(!calls.contains(&"run_program"), "{calls:?}");
+    }
+
+    /// A session keeps variables, exports and `$?` from one run to the next,
+    /// and says whether `exit` ran. `run_on` builds a fresh session, so it
+    /// keeps none of them.
+    #[test]
+    fn a_session_keeps_state_between_runs() {
+        let mut s = Session::new(&TestHost);
+        assert_eq!(
+            s.run("x=5"),
+            Some(Outcome {
+                status: 0,
+                exited: false
+            })
+        );
+        assert_eq!(s.run("false").map(|o| o.status), Some(1));
+        // An empty line keeps `$?`, as an interactive shell does.
+        assert_eq!(s.run("").map(|o| o.status), Some(1));
+        assert_eq!(s.run("[ $? -eq 1 ]").map(|o| o.status), Some(0));
+        assert_eq!(s.run("[ \"$x\" = 5 ]").map(|o| o.status), Some(0));
+        assert_eq!(
+            s.run("exit 3"),
+            Some(Outcome {
+                status: 3,
+                exited: true
+            })
+        );
+        // A line the subset does not run changes nothing, and reports nothing.
+        assert_eq!(s.run("f() { :; }"), None);
+        assert_eq!(s.run("[ \"$x\" = 5 ]").map(|o| o.status), Some(0));
+        assert_eq!(
+            Session::new(&TestHost)
+                .run("[ \"$x\" = 5 ]")
+                .map(|o| o.status),
+            Some(1)
+        );
+        assert_eq!(run_on(&TestHost, "[ \"$x\" = 5 ]"), Some(1));
     }
 
     #[test]
