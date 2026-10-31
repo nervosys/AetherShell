@@ -86,7 +86,6 @@ any
 approve
 assert
 assert_type
-audit_export
 audit_query
 audit_statistics
 audit_stats
@@ -137,7 +136,6 @@ confirm_user
 consensus_net
 consensus_vote
 contains
-create_role
 crossover_strategy
 crypto_hex_decode
 crypto_hex_encode
@@ -161,18 +159,13 @@ ends_with
 entities
 env_activate
 env_detect
-env_unset
 evolution_config
 evolution_stats
 evolve
 evolve_step
 exec_remote
-exit
 explain
 explain_effects
-export_audit
-feature_disable
-feature_enable
 feature_enabled
 feature_list
 features
@@ -199,13 +192,11 @@ generate_compliance
 get_roles
 governor_reset
 governor_status
-grant_permission
 group
 group-object
 group_by
 gui_wait
 handle
-handle_drop
 handles
 has_feature
 has_permission
@@ -345,7 +336,6 @@ pwd
 query_audit
 query_kg
 rag
-rag_clear
 rag_query
 rag_search
 range
@@ -372,7 +362,6 @@ repl_sessions
 replace
 results
 reverse
-revoke_permission
 rl_ac_agent
 rl_ac_update
 rl_action
@@ -390,9 +379,6 @@ rl_sarsa_update
 rl_update
 rlm_config
 rlm_stats
-role_create
-role_grant
-role_revoke
 roles_list
 round
 safety_status
@@ -406,7 +392,6 @@ select_user
 selection_strategy
 semantic_cache_get
 sess_close
-sess_eval
 sess_open
 sess_usage
 session_history
@@ -466,11 +451,6 @@ tools
 trace
 trim
 try_repair
-tx_begin
-tx_commit
-tx_rollback
-tx_rollback_to
-tx_savepoint
 tx_status
 type_assert
 type_fields

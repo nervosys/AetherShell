@@ -16,15 +16,14 @@
 //! `RbacManager`" reads like plumbing. It is not, and this file is why:
 //! `rbac_grant` is classified `Privileged` (agent mode: `Deny`) precisely
 //! because writing into the store the guard reads is self-elevation —
-//! `tests/privilege_escalation.rs` runs that sequence. `role_grant` carries no
-//! such classification, because today it writes into a store the guard never
-//! reads. **Bridging the two without classifying `role_*` first would hand the
-//! agent surface an ungated spelling of the operation `rbac_grant` is denied
-//! for** — the same shape as the alias bypass fixed in `194a496`, arrived at
-//! from the other direction.
+//! `tests/privilege_escalation.rs` runs that sequence. `role_create`,
+//! `role_grant` and `role_revoke` are `Privileged` too: they write the legacy
+//! store, and classifying them is what keeps the two stores from being bridged
+//! into an ungated spelling of the operation `rbac_grant` is denied for — the
+//! same shape as the alias bypass fixed in `194a496`.
 //!
-//! So these tests pin the *current* separation. If someone bridges the stores,
-//! they go red and say what has to happen first.
+//! So these tests pin the separation and the classification. If someone
+//! bridges the stores, they go red and say what has to happen first.
 
 use iron_shell::env::Env;
 use iron_shell::safety::{effect_of, Effect};
@@ -72,11 +71,19 @@ fn the_two_grant_verbs_are_classified_differently_and_that_is_load_bearing() {
     );
     assert_eq!(
         effect_of("role_grant"),
-        Effect::Pure,
-        "role_grant is unclassified because it writes into a store the guard \
-         never reads. That is only defensible while the stores stay separate — \
-         see this file's header before bridging them"
+        Effect::Privileged,
+        "role_grant writes the legacy store, which the guard does not read. It \
+         is Privileged anyway: bridging the stores later must not be able to \
+         hand an agent an ungated grant. See this file's header"
     );
+}
+
+/// Setup for the fixtures below: an operator administers the legacy store in
+/// human mode, where `Privileged` is allowed. The agent-mode assertions are
+/// made after switching back.
+fn operator_setup() {
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
 }
 
 #[test]
@@ -95,11 +102,23 @@ fn a_role_granted_the_old_way_does_not_open_the_gate() {
         "the baseline refusal must be the gate, not something else:\n{before}"
     );
 
-    // The legacy sequence, in full, granting the broadest role it can express.
-    // Both calls are expected to *succeed* — they are `Pure`, and that is
-    // exactly the point: they are allowed because they confer nothing.
-    call("role_create", vec![s("legacy_god"), everything()]).expect("role_create is not gated");
-    call("role_grant", vec![s("legacy_agent"), s("legacy_god")]).expect("role_grant is not gated");
+    // The agent cannot run the legacy sequence at all: both verbs are
+    // `Privileged`, so the gate refuses them before the body runs.
+    assert!(
+        call("role_create", vec![s("legacy_god"), everything()]).is_err(),
+        "role_create must be refused for an agent with no principal"
+    );
+    assert!(
+        call("role_grant", vec![s("legacy_agent"), s("legacy_god")]).is_err(),
+        "role_grant must be refused for an agent with no principal"
+    );
+
+    // An operator sets the grant up in human mode, the way it always has. The
+    // store then holds the broadest grant the legacy model can express.
+    operator_setup();
+    call("role_create", vec![s("legacy_god"), everything()]).expect("operator role_create");
+    call("role_grant", vec![s("legacy_agent"), s("legacy_god")]).expect("operator role_grant");
+    agent_mode();
 
     // Still refused. The grant went into a store `guard` does not read.
     let after = call("rm", vec![s(&path)]);
@@ -133,8 +152,10 @@ fn the_legacy_store_still_answers_its_own_question() {
     rec.insert("actions".to_string(), Value::Array(vec![s("write")]));
     let perms = Value::Array(vec![Value::Record(rec)]);
 
-    call("role_create", vec![s("editor"), perms]).expect("role_create");
-    call("role_grant", vec![s("alice"), s("editor")]).expect("role_grant");
+    operator_setup();
+    call("role_create", vec![s("editor"), perms]).expect("operator role_create");
+    call("role_grant", vec![s("alice"), s("editor")]).expect("operator role_grant");
+    agent_mode();
 
     let allowed = call(
         "check_permission",

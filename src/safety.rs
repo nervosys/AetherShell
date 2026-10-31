@@ -1173,6 +1173,46 @@ fn classified_effect(name: &str) -> Option<Effect> {
         n if n.starts_with("file_") || n.starts_with("proc_") || n.starts_with("sys_") => {
             Some(Effect::ReadLocal)
         }
+        // ── Group 1: mutation and execution, reclassified from the stated-pure
+        // baseline by reading each body (tests/effect_pure_class.rs).
+        //
+        // RBAC role store. These write RBAC_ROLES and USER_ROLES. That is the
+        // store tests/rbac_legacy_store.rs says must be classified before it is
+        // ever bridged to the store `guard` reads, and `rbac_grant` is
+        // Privileged for the same reason: creating a role and granting it is
+        // self-elevation if the two stores ever meet.
+        "role_create" | "create_role" | "role_grant" | "grant_permission" | "role_revoke"
+        | "revoke_permission" => Some(Effect::Privileged),
+        // Empties the in-memory RAG index. Cache-clear class, as
+        // `semantic_cache_clear` is.
+        "rag_clear" => Some(Effect::WriteLocal),
+        // The transaction state is an in-memory journal plus the backups under
+        // `<workspace>/.ironshell/tx/`. Begin creates that directory; commit
+        // and rollback delete only its own journal, and rollback restores paths
+        // that a jailed WriteLocal or Destructive call recorded. Undo-class, as
+        // `undo` and `session_restore` are, so the agent's undo tool needs no
+        // approval round-trip. Savepoints touch only the in-memory frame.
+        "tx_begin" | "tx_commit" | "tx_rollback" | "tx_rollback_to" | "tx_savepoint" => {
+            Some(Effect::WriteLocal)
+        }
+        // Ends the host process, and with it any agent API server or session
+        // running inside it. Process lifecycle, as `proc_kill` is.
+        "exit" => Some(Effect::Process),
+        // Evaluates caller-supplied IronShell code, which can name any builtin.
+        // Each call inside passes its own guard; the wrapper is the same
+        // capability as `sh` and `exec` in that it runs code the classifier
+        // cannot see.
+        "sess_eval" => Some(Effect::Exec),
+        // Removes a process environment variable, as `env_set` does.
+        "env_unset" => Some(Effect::WriteLocal),
+        // Runtime feature table, in memory. Nothing reads it to decide a gate,
+        // and `feature_set` is WriteLocal.
+        "feature_enable" | "feature_disable" => Some(Effect::WriteLocal),
+        // Deletes one handle from memory and from the session cache directory.
+        // Cache-clear class, as `journal_clear` and `session_end` are.
+        "handle_drop" => Some(Effect::WriteLocal),
+        // Formats the in-memory audit log. Read only.
+        "audit_export" | "export_audit" => Some(Effect::ReadLocal),
         _ => None,
     }
 }

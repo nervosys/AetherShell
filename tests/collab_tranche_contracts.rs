@@ -593,9 +593,15 @@ fn agent_mode_gates_a_write_made_inside_a_session() {
         format!("sess_eval(sess_open().session, \"file.write(\\\"{outside_ae}\\\", \\\"x\\\")\")");
     let (succeeded, out) = run_ae(&code, &dir, &[("IRONSHELL_MODE", "agent")]);
     assert!(!succeeded, "agent mode must refuse the write: {out}");
+    // `sess_eval` is Exec now, so agent mode refuses the call itself at the
+    // outer gate, before the inner write is reached. Either refusal is correct;
+    // the file-not-created check below is what matters.
     assert!(
-        out.contains("outside") || out.contains("e_outside_workspace"),
-        "the refusal should name the jail: {out}"
+        out.contains("outside")
+            || out.contains("e_outside_workspace")
+            || out.contains("e_needs_approval")
+            || out.contains("approval"),
+        "the refusal should name the jail or the approval gate: {out}"
     );
     assert!(
         !outside.exists(),
