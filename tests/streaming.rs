@@ -8,6 +8,8 @@ use serde_json::json;
 
 fn resp(result: serde_json::Value, result_type: &str) -> AgentResponse {
     AgentResponse {
+        code: None,
+        hint: None,
         success: true,
         result: Some(result),
         error: None,
@@ -48,6 +50,8 @@ fn small_result_is_not_chunked() {
 #[test]
 fn failure_emits_error_event() {
     let r = AgentResponse {
+        code: None,
+        hint: None,
         success: false,
         result: None,
         error: Some("boom".to_string()),

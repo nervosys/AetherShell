@@ -173,6 +173,12 @@ pub struct AgentResponse {
     /// Error message (if failure)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Machine-readable error code such as `E_BAD_ARG` (if failure with a known code)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    /// What to do about the failure, from the structured error (if it has one)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
     /// Type of the result
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result_type: Option<String>,
@@ -389,6 +395,7 @@ fn deterministic_scrub(resp: &mut AgentResponse) {
 /// Process an agent API request
 pub fn process_request(request: &AgentRequest) -> AgentResponse {
     let mut resp = dispatch_request(request);
+    annotate_error_fields(&mut resp);
     if deterministic_mode() {
         deterministic_scrub(&mut resp);
     }
@@ -436,6 +443,39 @@ fn annotate_token_accounting(request: &AgentRequest, resp: &mut AgentResponse) {
     });
 }
 
+/// Copy the `code` and `hint` of a structured error into the response fields.
+///
+/// The `error` text is left as it was. Clients that read it still work, and the
+/// fields are the same facts for clients that want to branch on them.
+fn annotate_error_fields(resp: &mut AgentResponse) {
+    if let Some((code, hint)) = resp.error.as_deref().and_then(structured_error_fields) {
+        resp.code = Some(code);
+        resp.hint = hint;
+    }
+}
+
+/// The `code` and `hint` of the structured error that `error` carries, if any.
+///
+/// A failure reaches the API as `{"error":{"code":…,"hint":…}}`, either whole or
+/// inside a message such as `Failed to build step 'where': {…}`. Each `{` in the
+/// text is tried in turn, and the first object with an `error` that has a `code`
+/// is the one reported.
+fn structured_error_fields(error: &str) -> Option<(String, Option<String>)> {
+    error.match_indices('{').find_map(|(start, _)| {
+        let value = serde_json::Deserializer::from_str(&error[start..])
+            .into_iter::<JsonValue>()
+            .next()?
+            .ok()?;
+        let body = value.get("error")?;
+        let code = body.get("code")?.as_str()?.to_string();
+        let hint = body
+            .get("hint")
+            .and_then(JsonValue::as_str)
+            .map(str::to_string);
+        Some((code, hint))
+    })
+}
+
 /// Execute a single builtin call
 fn execute_call(builtin: &str, args: &JsonValue) -> AgentResponse {
     // Convert JSON args to IronShell code
@@ -443,6 +483,8 @@ fn execute_call(builtin: &str, args: &JsonValue) -> AgentResponse {
         Ok(c) => c,
         Err(e) => {
             return AgentResponse {
+                code: Some("E_BAD_ARG".to_string()),
+                hint: None,
                 success: false,
                 result: None,
                 error: Some(format!("Failed to convert arguments: {}", e)),
@@ -460,6 +502,8 @@ fn execute_pipeline(steps: &[PipelineStep], input: Option<&JsonValue>) -> AgentR
     match run_pipeline_steps(steps, input, |_| {}) {
         Ok((value, code)) => response_from_value(value, &code),
         Err(failure) => AgentResponse {
+            code: None,
+            hint: None,
             success: false,
             result: None,
             error: Some(failure.message),
@@ -638,6 +682,8 @@ fn response_from_value(value: Value, code: &str) -> AgentResponse {
             .filter(|m| *m > 0);
         if let Some(text) = crate::builtins::render_agent(&value, budget) {
             return AgentResponse {
+                code: None,
+                hint: None,
                 success: true,
                 result: Some(JsonValue::String(text)),
                 error: None,
@@ -647,6 +693,8 @@ fn response_from_value(value: Value, code: &str) -> AgentResponse {
         }
     }
     AgentResponse {
+        code: None,
+        hint: None,
         success: true,
         result: Some(value_to_json(&value)),
         error: None,
@@ -667,6 +715,8 @@ fn execute_eval(code: &str) -> AgentResponse {
         Ok(stmts) => match eval_program(&stmts, &mut env) {
             Ok(value) => response_from_value(value, code),
             Err(e) => AgentResponse {
+                code: None,
+                hint: None,
                 success: false,
                 result: None,
                 error: Some(format!("{}", e)),
@@ -677,6 +727,8 @@ fn execute_eval(code: &str) -> AgentResponse {
             },
         },
         Err(e) => AgentResponse {
+            code: None,
+            hint: None,
             success: false,
             result: None,
             // The structured `E_PARSE` JSON, as the CLI reports it.
@@ -707,6 +759,8 @@ fn plugin_builtin_response(name: &str) -> AgentResponse {
         json_schema: json!({"type": "object"}),
     };
     AgentResponse {
+        code: None,
+        hint: None,
         success: true,
         result: Some(serde_json::to_value(&definition).unwrap_or(JsonValue::Null)),
         error: None,
@@ -724,6 +778,8 @@ fn describe_builtin(name: &str) -> AgentResponse {
 
     if let Some(builtin) = builtins.iter().find(|b| b.name == name) {
         AgentResponse {
+            code: None,
+            hint: None,
             success: true,
             result: Some(serde_json::to_value(builtin).unwrap_or(JsonValue::Null)),
             error: None,
@@ -741,6 +797,8 @@ fn describe_builtin(name: &str) -> AgentResponse {
                 .unwrap_or(false)
         }) {
             AgentResponse {
+                code: None,
+                hint: None,
                 success: true,
                 result: Some(serde_json::to_value(builtin).unwrap_or(JsonValue::Null)),
                 error: None,
@@ -758,6 +816,8 @@ fn describe_builtin(name: &str) -> AgentResponse {
                 format!("did you mean {}?", did_you_mean.join(", "))
             };
             AgentResponse {
+                code: None,
+                hint: None,
                 success: false,
                 result: None,
                 error: Some(format!("Builtin '{}' not found; {}", name, hint)),
@@ -794,6 +854,8 @@ fn list_builtins(category: Option<&str>) -> AgentResponse {
         .collect();
 
     AgentResponse {
+        code: None,
+        hint: None,
         success: true,
         result: Some(json!({
             "count": summary.len(),
@@ -847,6 +909,8 @@ fn get_schema(format: &SchemaFormat) -> AgentResponse {
     };
 
     AgentResponse {
+        code: None,
+        hint: None,
         success: true,
         result: Some(result),
         error: None,
@@ -904,6 +968,8 @@ fn get_type_info(type_name: Option<&str>) -> AgentResponse {
             .find(|t| t.name.to_lowercase() == name.to_lowercase())
         {
             AgentResponse {
+                code: None,
+                hint: None,
                 success: true,
                 result: Some(serde_json::to_value(type_def).unwrap_or(JsonValue::Null)),
                 error: None,
@@ -912,6 +978,8 @@ fn get_type_info(type_name: Option<&str>) -> AgentResponse {
             }
         } else {
             AgentResponse {
+                code: None,
+                hint: None,
                 success: false,
                 result: None,
                 error: Some(format!("Type '{}' not found", name)),
@@ -921,6 +989,8 @@ fn get_type_info(type_name: Option<&str>) -> AgentResponse {
         }
     } else {
         AgentResponse {
+            code: None,
+            hint: None,
             success: true,
             result: Some(serde_json::to_value(&types).unwrap_or(JsonValue::Null)),
             error: None,
@@ -1077,15 +1147,34 @@ fn is_identifier(name: &str) -> bool {
 fn build_step_code(step: &PipelineStep) -> Result<String> {
     let mut code = args_to_code(&step.builtin, &step.args)?;
 
-    // Handle predicate (for where/filter operations)
+    // Handle predicate (for where/filter operations). The predicate is an
+    // expression over `x` that is written into the code as text, so it must
+    // parse alone as exactly one lambda. Anything more would close the call
+    // early and add stages. Once it is written, it runs through the same
+    // evaluator and effect gate as `/api/v1/eval`.
     if let Some(pred) = &step.predicate {
         // Parse simple predicates like "size > 1000"
         let lambda = predicate_to_lambda(pred);
+        if !matches!(single_expression(&lambda), Ok(Expr::Lambda { .. })) {
+            return Err(crate::safety::bad_arg(
+                &step.builtin,
+                "a predicate that is one expression over x",
+                &format!("'{pred}'"),
+            ));
+        }
         code = format!("{}({})", step.builtin, lambda);
     }
 
-    // Handle field selection
+    // Handle field selection. The field is written as `x.<field>`, so it must
+    // be an identifier, or it could close the call and add stages.
     if let Some(field) = &step.select {
+        if !is_identifier(field) {
+            return Err(crate::safety::bad_arg(
+                &step.builtin,
+                "a field name of letters, digits and underscores",
+                &format!("'{field}'"),
+            ));
+        }
         code = format!("{} | map(fn(x) => x.{})", code, field);
     }
 
@@ -4778,6 +4867,8 @@ pub mod server {
     /// listener or the connection.
     fn handler_failure(error: String) -> AgentResponse {
         AgentResponse {
+            code: None,
+            hint: None,
             success: false,
             result: None,
             error: Some(format!("request handler failed: {error}")),

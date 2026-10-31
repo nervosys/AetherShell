@@ -52,6 +52,14 @@ fn call(builtin: &str, args: JsonValue) -> AgentResponse {
     })
 }
 
+/// Runs `steps` as a `pipeline` request, over `input` when one is given.
+fn pipeline(steps: JsonValue, input: Option<JsonValue>) -> AgentResponse {
+    process_request(&AgentRequest::Pipeline {
+        steps: serde_json::from_value(steps).expect("pipeline steps"),
+        input,
+    })
+}
+
 #[test]
 fn named_args_reach_the_builtin_in_their_declared_positions() {
     let _sandbox = Sandbox::new("named");
@@ -152,6 +160,146 @@ fn string_arguments_stay_strings_and_run_nothing() {
     }
 
     assert!(!sentinel.exists(), "a string argument was run as code");
+}
+
+#[test]
+fn a_pipeline_select_must_be_a_field_name() {
+    let _sandbox = Sandbox::new("select-name");
+    let input = Some(json!([{"name": "a"}]));
+
+    for bad in ["name key", "name)", "a.b", "1st", "x-y"] {
+        let response = pipeline(
+            json!([{"builtin": "where", "predicate": "true", "select": bad}]),
+            input.clone(),
+        );
+        assert!(!response.success, "select {bad:?} must be refused");
+        assert_eq!(response.code.as_deref(), Some("E_BAD_ARG"));
+        let error = response.error.unwrap_or_default();
+        assert!(error.contains(bad), "error must name {bad:?}: {error}");
+    }
+
+    let named = pipeline(
+        json!([{"builtin": "where", "predicate": "true", "select": "name"}]),
+        input,
+    );
+    assert!(named.success, "select name failed: {:?}", named.error);
+    assert_eq!(named.result, Some(json!(["a"])));
+}
+
+#[test]
+fn a_pipeline_predicate_must_be_one_expression() {
+    let _sandbox = Sandbox::new("predicate-one");
+    let input = Some(json!([1, 2]));
+
+    // Closes the call, adds a stage, and leaves a call open for the wrapper.
+    let response = pipeline(
+        json!([{"builtin": "where", "predicate": "true) | map(fn(x) => 1"}]),
+        input.clone(),
+    );
+    assert!(!response.success, "a two-stage predicate must be refused");
+    assert_eq!(response.code.as_deref(), Some("E_BAD_ARG"));
+
+    // A second statement after the expression is refused too.
+    let response = pipeline(
+        json!([{"builtin": "where", "predicate": "true; 1"}]),
+        input.clone(),
+    );
+    assert!(
+        !response.success,
+        "a two-statement predicate must be refused"
+    );
+
+    // The documented form, `size > 1000`, is one expression and still works.
+    let plain = pipeline(
+        json!([{"builtin": "where", "predicate": "size > 1000"}]),
+        Some(json!([{"size": 1}, {"size": 2000}])),
+    );
+    assert!(
+        plain.success,
+        "a comparison predicate failed: {:?}",
+        plain.error
+    );
+    assert_eq!(plain.result, Some(json!([{"size": 2000}])));
+}
+
+#[test]
+fn select_and_predicate_attacks_run_nothing() {
+    let sandbox = Sandbox::new("pipeline-inject");
+    let marker = sandbox.root.join("marker.txt");
+    // Escaped for an IronShell string, as the test above does.
+    let target = marker.display().to_string().replace('\\', "\\\\");
+    let input = Some(json!([{"name": "a", "size": 5}]));
+
+    // Positive control: the same write, written as code, does run. Without it,
+    // a refused attack would look the same as one that never could have run.
+    let direct = process_request(&AgentRequest::Eval {
+        code: format!("file_write(\"{target}\", \"ran\")"),
+    });
+    assert!(direct.success, "control write failed: {:?}", direct.error);
+    assert!(marker.exists(), "control write did not create the marker");
+    std::fs::remove_file(&marker).expect("remove control marker");
+
+    // Each payload closes the step's call, maps a write over the records, and
+    // reopens a call so that the wrapper still closes the program.
+    let effect = format!("map(fn(x) => file_write(\"{target}\", \"ran\"))");
+    let select_attack = format!("name) | {effect} | map(fn(x) => x.name");
+    let predicate_attack = format!("size > 0) | {effect} | where(fn(x) => size > 0");
+
+    let by_select = pipeline(
+        json!([{"builtin": "where", "predicate": "true", "select": select_attack}]),
+        input.clone(),
+    );
+    assert!(!by_select.success, "a select attack was accepted");
+    assert_eq!(by_select.code.as_deref(), Some("E_BAD_ARG"));
+
+    let by_predicate = pipeline(
+        json!([{"builtin": "where", "predicate": predicate_attack}]),
+        input,
+    );
+    assert!(!by_predicate.success, "a predicate attack was accepted");
+    assert_eq!(by_predicate.code.as_deref(), Some("E_BAD_ARG"));
+
+    assert!(!marker.exists(), "a select or predicate was run as code");
+}
+
+#[test]
+fn code_and_hint_come_from_the_structured_error_only_when_there_is_one() {
+    let _sandbox = Sandbox::new("code-hint");
+
+    // A parse error is structured, so its code and hint are lifted out of it,
+    // and its error text is unchanged.
+    let parse = process_request(&AgentRequest::Eval {
+        code: "(((".to_string(),
+    });
+    let wire = serde_json::to_value(&parse).expect("serialise");
+    assert_eq!(wire["code"], json!("E_PARSE"));
+    assert!(wire["hint"].is_string(), "{wire}");
+    assert!(wire["error"].is_string(), "{wire}");
+
+    // A refused select is structured too, and its hint says what was wanted.
+    let select = pipeline(
+        json!([{"builtin": "where", "predicate": "true", "select": "a b"}]),
+        Some(json!([{"a": 1}])),
+    );
+    assert_eq!(select.code.as_deref(), Some("E_BAD_ARG"));
+    assert!(select.hint.as_deref().is_some_and(|h| !h.is_empty()));
+
+    // A success has neither field on the wire.
+    let ok = call("len", json!(["hello"]));
+    let wire = serde_json::to_value(&ok).expect("serialise");
+    assert!(
+        wire.get("code").is_none() && wire.get("hint").is_none(),
+        "{wire}"
+    );
+
+    // A plain-text failure has no code to report.
+    let plain = process_request(&AgentRequest::Pipeline {
+        steps: Vec::new(),
+        input: None,
+    });
+    assert!(!plain.success);
+    assert_eq!(plain.code, None);
+    assert_eq!(plain.hint, None);
 }
 
 #[test]

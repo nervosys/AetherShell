@@ -309,6 +309,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Agent API pipelines no longer build code from a step's `select` and `predicate` as raw text. A `select` must be a field name, and a `predicate` must be one expression; anything else is refused with `E_BAD_ARG` naming the value, so a crafted field or predicate cannot run a write or any other effect. A predicate that is valid still runs under the same effect gate as `/api/v1/eval`. Agent API responses also carry the structured error's `code` and `hint` as `code` and `hint` fields, omitted when there is none; `error` is unchanged.
 - Agent API `call` requests no longer drop named arguments. Each name is
   mapped to the builtin's declared parameter at its position, and a name
   that is not a parameter is refused with an error listing the valid ones.

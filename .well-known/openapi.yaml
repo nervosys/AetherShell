@@ -621,6 +621,18 @@ components:
         error:
           type: string
           description: Error message if success is false
+        code:
+          type: string
+          description: >-
+            Machine-readable error code such as E_BAD_ARG or E_PARSE. Present only
+            on a failure whose error carries one; read from the structured error
+            in `error`, which is unchanged.
+          example: E_BAD_ARG
+        hint:
+          type: string
+          description: >-
+            What to do about the failure, from the structured error in `error`.
+            Present only when that error has a hint.
         metadata:
           type: object
           properties:
