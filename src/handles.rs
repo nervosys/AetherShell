@@ -28,6 +28,7 @@
 
 use crate::value::Value;
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
@@ -52,20 +53,40 @@ fn session_dir() -> Option<PathBuf> {
     dirs::cache_dir().map(|c| c.join("ironshell").join("handles").join(key))
 }
 
-/// Persist one handle, and report whether it reached the disk. Failure is
-/// deliberately silent: a handle that cannot be written still works for the
-/// rest of *this* process, and breaking a builtin call because a cache
-/// directory is unwritable would be a worse trade.
-fn persist(dir: &Path, h: &Handle) -> bool {
+/// What became of a handle written to the session directory.
+enum Persisted {
+    Written,
+    /// Another writer already holds this id. Its file is left alone.
+    Taken,
+    Failed,
+}
+
+/// Persist one handle, and report what happened. Failure is deliberately
+/// silent: a handle that cannot be written still works for the rest of *this*
+/// process, and breaking a builtin call because a cache directory is unwritable
+/// would be a worse trade. The file is only ever created, never replaced: an id
+/// names one value, and another process in this session may have just taken it.
+fn persist(dir: &Path, h: &Handle) -> Persisted {
     if std::fs::create_dir_all(dir).is_err() {
-        return false;
+        return Persisted::Failed;
     }
     // serde's representation, not `Value::to_json` — the latter renders `Uri`
     // as a bare string, so reading it back would yield `Str` and the handle
     // would no longer be what was computed. See the round-trip test below.
-    match serde_json::to_string(&(&h.shape, h.items, h.bytes, &h.value)) {
-        Ok(json) => std::fs::write(dir.join(format!("{}.json", h.id)), json).is_ok(),
-        Err(_) => false,
+    let Ok(json) = serde_json::to_string(&(&h.shape, h.items, h.bytes, &h.value)) else {
+        return Persisted::Failed;
+    };
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dir.join(format!("{}.json", h.id)));
+    match file {
+        Ok(mut f) => match f.write_all(json.as_bytes()) {
+            Ok(()) => Persisted::Written,
+            Err(_) => Persisted::Failed,
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Persisted::Taken,
+        Err(_) => Persisted::Failed,
     }
 }
 
@@ -149,6 +170,9 @@ struct DirTally {
 }
 
 static TALLY: Mutex<Option<DirTally>> = Mutex::new(None);
+
+/// How many ids `put` tries when other writers keep taking the next one.
+const PERSIST_TRIES: usize = 4;
 
 /// Within this many handles of the cap, `put` lists the directory every time
 /// rather than trusting the tally. The mtime check misses a write that lands in
@@ -265,20 +289,33 @@ fn put_capped(v: Value, rendered_bytes: usize, cap: usize) -> anyhow::Result<Han
             "release one with handle_drop(id) before the next large result is handled",
         ));
     }
-    let number = last_number.max(store.len()) + 1;
-    let h = Handle {
+    let mut number = last_number.max(store.len()) + 1;
+    let mut h = Handle {
         id: format!("h{number}"),
         shape: crate::shapes::observe(&v),
         items: item_count(&v),
         bytes: rendered_bytes,
         value: v,
     };
-    store.push(h.clone());
     if let Some(d) = &dir {
-        if persist(d, &h) {
-            note_put(d, number);
+        // The tally can miss another writer, so a taken id means list again.
+        for _ in 0..PERSIST_TRIES {
+            match persist(d, &h) {
+                Persisted::Written => {
+                    note_put(d, number);
+                    break;
+                }
+                Persisted::Failed => break,
+                Persisted::Taken => {
+                    forget_tally();
+                    let (_, last) = session_count(d, cap);
+                    number = last.max(store.len()) + 1;
+                    h.id = format!("h{number}");
+                }
+            }
         }
     }
+    store.push(h.clone());
     Ok(h)
 }
 
@@ -393,6 +430,36 @@ mod tests {
 
     fn big_array(n: usize) -> Value {
         Value::Array((0..n).map(|i| Value::Int(i as i64)).collect())
+    }
+
+    #[test]
+    fn a_taken_id_is_skipped_and_the_other_writer_keeps_its_file() {
+        let _guard = store_lock();
+        let dir = std::env::temp_dir().join(format!("ish-handle-taken-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let previous = std::env::var_os("IRONSHELL_SESSION_DIR");
+        std::env::set_var("IRONSHELL_SESSION_DIR", &dir);
+        clear();
+
+        let first = put(big_array(3), 10).unwrap();
+        // Another process takes the next id, and the tally does not see it: the
+        // mtime is refreshed the way a write folded into our own would be.
+        let foreign = dir.join("h2.json");
+        std::fs::write(&foreign, "theirs").unwrap();
+        note_put(&dir, 1);
+        let second = put(big_array(4), 10).unwrap();
+        let kept = std::fs::read_to_string(&foreign).unwrap();
+
+        clear();
+        match previous {
+            Some(p) => std::env::set_var("IRONSHELL_SESSION_DIR", p),
+            None => std::env::remove_var("IRONSHELL_SESSION_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(first.id, "h1");
+        assert_eq!(kept, "theirs", "the other writer's handle was overwritten");
+        assert_eq!(second.id, "h3", "the taken id was not skipped");
     }
 
     #[test]
