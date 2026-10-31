@@ -192,6 +192,35 @@ pub trait Gate {
         let _ = (os, path, data, append);
         Err(WriteError::Refused(unconfigured()))
     }
+
+    /// Remove `path` for `rm`: a file, or with `recursive` a whole tree. The
+    /// gate admits the operand once, and performs the removal with
+    /// [`crate::remove_tree`], so a tree is one decision, not one per entry.
+    fn guarded_remove(&self, os: &dyn Os, path: &str, recursive: bool) -> Result<(), WriteError> {
+        let _ = (os, path, recursive);
+        Err(WriteError::Refused(unconfigured()))
+    }
+
+    /// Copy for `cp`: admit the whole `plan` once, and carry it out with
+    /// [`crate::copy_steps`]. The plan is read before this is called, so a
+    /// gate sees every destination it is asked to write.
+    fn guarded_copy(&self, os: &dyn Os, plan: &[CopyStep]) -> Result<(), WriteError> {
+        let _ = (os, plan);
+        Err(WriteError::Refused(unconfigured()))
+    }
+
+    /// Create each of `dirs`, in order, for `mkdir`. The first is the
+    /// highest directory the call creates.
+    fn guarded_create_dirs(&self, os: &dyn Os, dirs: &[String]) -> Result<(), WriteError> {
+        let _ = (os, dirs);
+        Err(WriteError::Refused(unconfigured()))
+    }
+
+    /// Rename `from` to `to` for `mv`.
+    fn guarded_rename(&self, os: &dyn Os, from: &str, to: &str) -> Result<(), WriteError> {
+        let _ = (os, from, to);
+        Err(WriteError::Refused(unconfigured()))
+    }
 }
 
 /// The refusal a backend without a gate gets: fail closed, with the status
@@ -200,6 +229,26 @@ fn unconfigured() -> Refusal {
     Refusal {
         message: String::from("ish: no policy gate on this host: refusing"),
         code: 126,
+    }
+}
+
+/// One step of a copy: a directory to create, or a file to copy. Paths are
+/// as the command named them, joined onto the destination.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CopyStep {
+    pub from: String,
+    pub to: String,
+    /// A directory (`from` is one too, and `to` is created), or a file.
+    pub dir: bool,
+}
+
+/// What a host without the operation says: an honest "not supported", never a
+/// silent success.
+fn unsupported() -> OsError {
+    OsError {
+        kind: ErrorKind::Other,
+        errno: None,
+        message: String::from("not supported by this host"),
     }
 }
 
@@ -223,6 +272,23 @@ pub trait Os {
     /// it if needed and writes at its end. Not gated: the subset reaches a
     /// redirection's write through [`Gate::guarded_write`].
     fn write_file(&self, path: &str, data: &[u8], append: bool) -> Result<(), OsError>;
+    /// Removes one entry: a file or a link, or with `dir` an empty directory.
+    /// Not gated: the subset reaches a removal through [`Gate::guarded_remove`].
+    /// A host that does not support it says so, rather than succeeding.
+    fn remove(&self, path: &str, dir: bool) -> Result<(), OsError> {
+        let _ = (path, dir);
+        Err(unsupported())
+    }
+    /// Creates one directory. Not gated: see [`Gate::guarded_create_dirs`].
+    fn create_dir(&self, path: &str) -> Result<(), OsError> {
+        let _ = path;
+        Err(unsupported())
+    }
+    /// Renames `from` to `to`. Not gated: see [`Gate::guarded_rename`].
+    fn rename(&self, from: &str, to: &str) -> Result<(), OsError> {
+        let _ = (from, to);
+        Err(unsupported())
+    }
     fn read_link(&self, path: &str) -> Result<String, OsError>;
     fn canonicalize(&self, path: &str) -> Result<String, OsError>;
     fn current_dir(&self) -> Result<String, OsError>;

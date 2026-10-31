@@ -41,7 +41,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::os::{
-    Captured, ErrorKind, FileKind, Os, OsError, Spawn, SpawnError, Stream, Timestamp, WriteError,
+    Captured, CopyStep, ErrorKind, FileKind, Os, OsError, Refusal, Spawn, SpawnError, Stream,
+    Timestamp, WriteError,
 };
 
 pub mod os;
@@ -2381,6 +2382,10 @@ fn utility(os: &dyn Os, name: &str, args: &[String], stdin: &mut Input, sink: &m
         "ls" => ls(os, args, sink),
         "find" => find(os, args, sink),
         "date" => date(os, args, sink),
+        "rm" => rm(os, args, sink),
+        "cp" => cp(os, args, sink),
+        "mv" => mv(os, args, sink),
+        "mkdir" => mkdir(os, args, sink),
         "basename" => match args {
             [p] | [p, _] => {
                 let trimmed = p.trim_end_matches('/');
@@ -4078,6 +4083,440 @@ fn date(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// File changes: rm, cp, mv, mkdir
+// ════════════════════════════════════════════════════════════════════════
+//
+// Each one reads what it needs, then asks the Gate once per operand to make
+// the change: a whole tree is one decision. A flag it does not support
+// declines to the external program, which the host's guard handles as it
+// always has.
+
+/// The flags in `args`, among `allowed`, and the operands. `None` when a flag
+/// is not in `allowed`.
+fn split_flags<'a>(args: &'a [String], allowed: &str) -> Option<(String, Vec<&'a str>)> {
+    let mut flags = String::new();
+    let mut operands = Vec::new();
+    let mut options = true;
+    for a in args {
+        if options && a == "--" {
+            options = false;
+        } else if options && a.len() > 1 && a.starts_with('-') {
+            for c in a[1..].chars() {
+                if !allowed.contains(c) {
+                    return None;
+                }
+                flags.push(c);
+            }
+        } else {
+            operands.push(a.as_str());
+        }
+    }
+    Some((flags, operands))
+}
+
+/// `name` in `dir`, joined as the shell joins them.
+fn join(dir: &str, name: &str) -> String {
+    if dir.ends_with('/') {
+        format!("{dir}{name}")
+    } else {
+        format!("{dir}/{name}")
+    }
+}
+
+/// The last component of `path`, ignoring trailing slashes.
+fn base_name(path: &str) -> &str {
+    let t = path.trim_end_matches('/');
+    t.rsplit('/').next().unwrap_or(t)
+}
+
+/// The directory part of `path`, as `dirname` gives it. Stops at `/` and `.`:
+/// each is its own parent.
+fn parent_of(path: &str) -> String {
+    let t = path.trim_end_matches('/');
+    if t.is_empty() {
+        return if path.is_empty() {
+            ".".into()
+        } else {
+            "/".into()
+        };
+    }
+    match t.rfind('/') {
+        None => ".".into(),
+        Some(i) => match t[..i].trim_end_matches('/') {
+            "" => "/".into(),
+            p => p.into(),
+        },
+    }
+}
+
+/// Whether two names are one file: the same text, or the same place once
+/// both resolve.
+fn same_path(os: &dyn Os, a: &str, b: &str) -> bool {
+    a == b
+        || matches!(
+            (os.canonicalize(a), os.canonicalize(b)),
+            (Ok(x), Ok(y)) if x == y
+        )
+}
+
+/// Removes `path`, and with `recursive` everything under it. A directory
+/// without `recursive` is refused, as `rm` refuses it. A [`Gate`] runs this
+/// once it has admitted the operand; nothing else should call it.
+pub fn remove_tree(os: &dyn Os, path: &str, recursive: bool) -> Result<(), OsError> {
+    let meta = os.symlink_metadata(path)?;
+    if meta.kind != FileKind::Dir {
+        return os.remove(path, false);
+    }
+    if !recursive {
+        return Err(OsError {
+            kind: ErrorKind::IsADirectory,
+            errno: None,
+            message: String::from("Is a directory"),
+        });
+    }
+    for e in os.read_dir(path)? {
+        remove_tree(os, &join(path, &e.name), true)?;
+    }
+    os.remove(path, true)
+}
+
+/// The steps that copy `from` to `to`, reading the source and writing
+/// nothing. A directory needs `recursive`, and its whole tree is planned.
+/// Links are followed.
+pub fn copy_plan(
+    os: &dyn Os,
+    from: &str,
+    to: &str,
+    recursive: bool,
+) -> Result<Vec<CopyStep>, OsError> {
+    let mut plan = Vec::new();
+    plan_copy(os, from, to, recursive, &mut plan)?;
+    Ok(plan)
+}
+
+fn plan_copy(
+    os: &dyn Os,
+    from: &str,
+    to: &str,
+    recursive: bool,
+    plan: &mut Vec<CopyStep>,
+) -> Result<(), OsError> {
+    if plan.len() >= WALK_MAX_ENTRIES {
+        return Err(OsError {
+            kind: ErrorKind::Other,
+            errno: None,
+            message: String::from("too many entries to copy"),
+        });
+    }
+    if os.metadata(from)?.kind != FileKind::Dir {
+        plan.push(CopyStep {
+            from: from.into(),
+            to: to.into(),
+            dir: false,
+        });
+        return Ok(());
+    }
+    if !recursive {
+        return Err(OsError {
+            kind: ErrorKind::IsADirectory,
+            errno: None,
+            message: String::from("Is a directory"),
+        });
+    }
+    plan.push(CopyStep {
+        from: from.into(),
+        to: to.into(),
+        dir: true,
+    });
+    for e in os.read_dir(from)? {
+        plan_copy(
+            os,
+            &join(from, &e.name),
+            &join(to, &e.name),
+            recursive,
+            plan,
+        )?;
+    }
+    Ok(())
+}
+
+/// Carries out a plan from [`copy_plan`]. A directory that is there already
+/// is merged into, as `cp -r` does. A [`Gate`] runs this once it has admitted
+/// the copy; nothing else should call it.
+pub fn copy_steps(os: &dyn Os, plan: &[CopyStep]) -> Result<(), OsError> {
+    for s in plan {
+        if s.dir {
+            if !is_dir(os, &s.to) {
+                os.create_dir(&s.to)?;
+            }
+        } else {
+            let data = os.read_file(&s.from)?;
+            os.write_file(&s.to, &data, false)?;
+        }
+    }
+    Ok(())
+}
+
+/// A usage error, which GNU follows with a pointer to `--help`.
+fn usage(sink: &mut Sink, name: &str, msg: &str) -> Util {
+    sink.eline(msg);
+    sink.eline(&format!("Try '{name} --help' for more information."));
+    Util::Done(1)
+}
+
+/// A gate's refusal is the answer to the command: its text, and its code as
+/// the status.
+fn refused(sink: &mut Sink, r: &Refusal) -> Util {
+    sink.eline(r.message.trim_end_matches('\n'));
+    Util::Done(r.code)
+}
+
+fn rm(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let Some((flags, ops)) = split_flags(args, "rRf") else {
+        return Util::Decline;
+    };
+    let recursive = flags.contains(['r', 'R']);
+    let force = flags.contains('f');
+    if ops.is_empty() {
+        if force {
+            return Util::Done(0);
+        }
+        return usage(sink, "rm", "rm: missing operand");
+    }
+    let mut status = 0;
+    for p in ops {
+        let meta = match os.symlink_metadata(p) {
+            Ok(m) => m,
+            // `-f` excuses a name that is not there, and nothing else.
+            Err(e) if force && e.kind == ErrorKind::NotFound => continue,
+            Err(e) => {
+                sink.eline(&format!("rm: cannot remove '{p}': {}", io_reason(&e)));
+                status = 1;
+                continue;
+            }
+        };
+        if meta.kind == FileKind::Dir && !recursive {
+            sink.eline(&format!("rm: cannot remove '{p}': Is a directory"));
+            status = 1;
+            continue;
+        }
+        match os.gate().guarded_remove(os, p, recursive) {
+            Ok(()) => {}
+            Err(WriteError::Refused(r)) => return refused(sink, &r),
+            Err(WriteError::Io(e)) => {
+                sink.eline(&format!("rm: cannot remove '{p}': {}", io_reason(&e)));
+                status = 1;
+            }
+        }
+    }
+    Util::Done(status)
+}
+
+fn cp(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let Some((flags, ops)) = split_flags(args, "rR") else {
+        return Util::Decline;
+    };
+    let recursive = flags.contains(['r', 'R']);
+    match ops.len() {
+        0 => return usage(sink, "cp", "cp: missing file operand"),
+        1 => {
+            let msg = format!("cp: missing destination file operand after '{}'", ops[0]);
+            return usage(sink, "cp", &msg);
+        }
+        _ => {}
+    }
+    let (sources, dest) = ops.split_at(ops.len() - 1);
+    let dest = dest[0];
+    let into_dir = is_dir(os, dest);
+    if sources.len() > 1 && !into_dir {
+        sink.eline(&format!("cp: target '{dest}' is not a directory"));
+        return Util::Done(1);
+    }
+    let mut status = 0;
+    for src in sources {
+        let target = if into_dir {
+            join(dest, base_name(src))
+        } else {
+            dest.into()
+        };
+        let meta = match os.metadata(src) {
+            Ok(m) => m,
+            Err(e) => {
+                sink.eline(&format!("cp: cannot stat '{src}': {}", io_reason(&e)));
+                status = 1;
+                continue;
+            }
+        };
+        if meta.kind == FileKind::Dir && !recursive {
+            sink.eline(&format!("cp: -r not specified; omitting directory '{src}'"));
+            status = 1;
+            continue;
+        }
+        if same_path(os, src, &target) {
+            sink.eline(&format!("cp: '{src}' and '{target}' are the same file"));
+            status = 1;
+            continue;
+        }
+        if target.strip_prefix(src).is_some_and(|r| r.starts_with('/')) {
+            let msg = format!("cp: cannot copy a directory, '{src}', into itself, '{target}'");
+            sink.eline(&msg);
+            status = 1;
+            continue;
+        }
+        let plan = match copy_plan(os, src, &target, recursive) {
+            Ok(plan) => plan,
+            Err(e) => {
+                let msg = format!("cp: cannot open '{src}' for reading: {}", io_reason(&e));
+                sink.eline(&msg);
+                status = 1;
+                continue;
+            }
+        };
+        match os.gate().guarded_copy(os, &plan) {
+            Ok(()) => {}
+            Err(WriteError::Refused(r)) => return refused(sink, &r),
+            Err(WriteError::Io(e)) => {
+                let what = if meta.kind == FileKind::Dir {
+                    "directory"
+                } else {
+                    "regular file"
+                };
+                sink.eline(&format!(
+                    "cp: cannot create {what} '{target}': {}",
+                    io_reason(&e)
+                ));
+                status = 1;
+            }
+        }
+    }
+    Util::Done(status)
+}
+
+fn mv(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    // `mv` takes no flag this subset runs: any flag declines.
+    let Some((_, ops)) = split_flags(args, "") else {
+        return Util::Decline;
+    };
+    match ops.len() {
+        0 => return usage(sink, "mv", "mv: missing file operand"),
+        1 => {
+            let msg = format!("mv: missing destination file operand after '{}'", ops[0]);
+            return usage(sink, "mv", &msg);
+        }
+        _ => {}
+    }
+    let (sources, dest) = ops.split_at(ops.len() - 1);
+    let dest = dest[0];
+    let into_dir = is_dir(os, dest);
+    if sources.len() > 1 && !into_dir {
+        sink.eline(&format!("mv: target '{dest}' is not a directory"));
+        return Util::Done(1);
+    }
+    let mut status = 0;
+    for src in sources {
+        if let Err(e) = os.symlink_metadata(src) {
+            sink.eline(&format!("mv: cannot stat '{src}': {}", io_reason(&e)));
+            status = 1;
+            continue;
+        }
+        let target = if into_dir {
+            join(dest, base_name(src))
+        } else {
+            dest.into()
+        };
+        if same_path(os, src, &target) {
+            sink.eline(&format!("mv: '{src}' and '{target}' are the same file"));
+            status = 1;
+            continue;
+        }
+        match os.gate().guarded_rename(os, src, &target) {
+            Ok(()) => {}
+            Err(WriteError::Refused(r)) => return refused(sink, &r),
+            Err(WriteError::Io(e)) => {
+                let msg = format!("mv: cannot move '{src}' to '{target}': {}", io_reason(&e));
+                sink.eline(&msg);
+                status = 1;
+            }
+        }
+    }
+    Util::Done(status)
+}
+
+fn mkdir(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let Some((flags, ops)) = split_flags(args, "p") else {
+        return Util::Decline;
+    };
+    let parents = flags.contains('p');
+    if ops.is_empty() {
+        return usage(sink, "mkdir", "mkdir: missing operand");
+    }
+    let mut status = 0;
+    for p in ops {
+        let dirs = match new_dirs(os, p, parents) {
+            Ok(dirs) => dirs,
+            Err(why) => {
+                sink.eline(&format!("mkdir: cannot create directory '{p}': {why}"));
+                status = 1;
+                continue;
+            }
+        };
+        if dirs.is_empty() {
+            continue;
+        }
+        match os.gate().guarded_create_dirs(os, &dirs) {
+            Ok(()) => {}
+            Err(WriteError::Refused(r)) => return refused(sink, &r),
+            Err(WriteError::Io(e)) => {
+                sink.eline(&format!(
+                    "mkdir: cannot create directory '{p}': {}",
+                    io_reason(&e)
+                ));
+                status = 1;
+            }
+        }
+    }
+    Util::Done(status)
+}
+
+/// The directories `mkdir` must create for `path`, highest first. Empty when
+/// `parents` finds a directory there already. On failure, the reason as GNU
+/// prints it.
+fn new_dirs(os: &dyn Os, path: &str, parents: bool) -> Result<Vec<String>, String> {
+    if let Ok(m) = os.metadata(path) {
+        return if parents && m.kind == FileKind::Dir {
+            Ok(Vec::new())
+        } else {
+            Err("File exists".into())
+        };
+    }
+    if !parents {
+        let parent = parent_of(path);
+        return match os.metadata(&parent) {
+            Ok(m) if m.kind == FileKind::Dir => Ok(alloc::vec![path.into()]),
+            Ok(_) => Err("Not a directory".into()),
+            Err(e) => Err(io_reason(&e)),
+        };
+    }
+    let mut missing = alloc::vec![String::from(path)];
+    let mut dir = parent_of(path);
+    loop {
+        match os.metadata(&dir) {
+            Ok(m) if m.kind == FileKind::Dir => break,
+            Ok(_) => return Err("Not a directory".into()),
+            Err(e) => {
+                let up = parent_of(&dir);
+                if up == dir {
+                    return Err(io_reason(&e));
+                }
+                missing.push(core::mem::replace(&mut dir, up));
+            }
+        }
+    }
+    missing.reverse();
+    Ok(missing)
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // Entry point
 // ════════════════════════════════════════════════════════════════════════
 
@@ -4223,6 +4662,20 @@ mod tests {
             };
             res.map_err(|e| std_err(&e))
         }
+        fn remove(&self, path: &str, dir: bool) -> Result<(), OsError> {
+            if dir {
+                std::fs::remove_dir(path)
+            } else {
+                std::fs::remove_file(path)
+            }
+            .map_err(|e| std_err(&e))
+        }
+        fn create_dir(&self, path: &str) -> Result<(), OsError> {
+            std::fs::create_dir(path).map_err(|e| std_err(&e))
+        }
+        fn rename(&self, from: &str, to: &str) -> Result<(), OsError> {
+            std::fs::rename(from, to).map_err(|e| std_err(&e))
+        }
         fn read_link(&self, path: &str) -> Result<String, OsError> {
             std::fs::read_link(path)
                 .map(|p| p.to_string_lossy().into_owned())
@@ -4295,6 +4748,25 @@ mod tests {
             append: bool,
         ) -> Result<(), WriteError> {
             os.write_file(path, data, append).map_err(WriteError::Io)
+        }
+        fn guarded_remove(
+            &self,
+            os: &dyn Os,
+            path: &str,
+            recursive: bool,
+        ) -> Result<(), WriteError> {
+            remove_tree(os, path, recursive).map_err(WriteError::Io)
+        }
+        fn guarded_copy(&self, os: &dyn Os, plan: &[CopyStep]) -> Result<(), WriteError> {
+            copy_steps(os, plan).map_err(WriteError::Io)
+        }
+        fn guarded_create_dirs(&self, os: &dyn Os, dirs: &[String]) -> Result<(), WriteError> {
+            dirs.iter()
+                .try_for_each(|d| os.create_dir(d))
+                .map_err(WriteError::Io)
+        }
+        fn guarded_rename(&self, os: &dyn Os, from: &str, to: &str) -> Result<(), WriteError> {
+            os.rename(from, to).map_err(WriteError::Io)
         }
     }
 
@@ -4722,6 +5194,581 @@ mod tests {
         assert!(calls.contains(&"read_dir"), "{calls:?}");
         assert!(calls.contains(&"read_file"), "{calls:?}");
         assert!(!calls.contains(&"run_program"), "{calls:?}");
+    }
+
+    /// A writable in-memory host for the file utilities. A path maps to its
+    /// contents, or to `None` for a directory. `allow` is the gate's answer:
+    /// when false, the gate refuses every change. `admitted` counts the
+    /// changes the gate was asked about.
+    struct MemOs {
+        tree: core::cell::RefCell<BTreeMap<String, Option<Vec<u8>>>>,
+        allow: bool,
+        admitted: core::cell::Cell<u32>,
+    }
+
+    impl MemOs {
+        fn new(allow: bool, entries: &[(&str, Option<&str>)]) -> Self {
+            let tree = entries
+                .iter()
+                .map(|(p, c)| (p.to_string(), c.map(|s| s.as_bytes().to_vec())))
+                .collect();
+            MemOs {
+                tree: core::cell::RefCell::new(tree),
+                allow,
+                admitted: Default::default(),
+            }
+        }
+        fn has(&self, path: &str) -> bool {
+            self.tree.borrow().contains_key(path)
+        }
+        fn kind(&self, path: &str) -> Option<FileKind> {
+            self.tree.borrow().get(path).map(|c| match c {
+                None => FileKind::Dir,
+                Some(_) => FileKind::File,
+            })
+        }
+        fn contents(&self, path: &str) -> Option<Vec<u8>> {
+            self.tree.borrow().get(path).cloned().flatten()
+        }
+        fn parent_is_dir(&self, path: &str) -> bool {
+            self.kind(&parent_of(path)) == Some(FileKind::Dir)
+        }
+        fn admit(&self) -> Result<(), WriteError> {
+            self.admitted.set(self.admitted.get() + 1);
+            match self.allow {
+                true => Ok(()),
+                false => Err(WriteError::Refused(Refusal {
+                    message: "refused by test gate".into(),
+                    code: 7,
+                })),
+            }
+        }
+    }
+
+    impl Os for MemOs {
+        fn metadata(&self, path: &str) -> Result<Meta, OsError> {
+            let kind = self.kind(path).ok_or_else(FakeOs::missing)?;
+            let len = self.contents(path).map_or(0, |d| d.len() as u64);
+            Ok(Meta {
+                kind,
+                len,
+                mode: 0,
+                uid: 0,
+                gid: 0,
+                nlink: 1,
+                blocks: 0,
+                mtime: 0,
+            })
+        }
+        fn symlink_metadata(&self, path: &str) -> Result<Meta, OsError> {
+            self.metadata(path)
+        }
+        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, OsError> {
+            if self.kind(path) != Some(FileKind::Dir) {
+                return Err(FakeOs::missing());
+            }
+            let tree = self.tree.borrow();
+            Ok(tree
+                .keys()
+                .filter(|k| k.as_str() != path && parent_of(k) == path)
+                .map(|k| DirEntry {
+                    name: base_name(k).into(),
+                    kind: self.kind(k),
+                })
+                .collect())
+        }
+        fn read_file(&self, path: &str) -> Result<Vec<u8>, OsError> {
+            match self.tree.borrow().get(path) {
+                Some(Some(d)) => Ok(d.clone()),
+                Some(None) => Err(OsError {
+                    kind: ErrorKind::IsADirectory,
+                    errno: Some(21),
+                    message: "Is a directory (os error 21)".into(),
+                }),
+                None => Err(FakeOs::missing()),
+            }
+        }
+        fn write_file(&self, path: &str, data: &[u8], append: bool) -> Result<(), OsError> {
+            if self.kind(path) == Some(FileKind::Dir) {
+                return Err(OsError {
+                    kind: ErrorKind::IsADirectory,
+                    errno: Some(21),
+                    message: "Is a directory (os error 21)".into(),
+                });
+            }
+            if !self.parent_is_dir(path) {
+                return Err(FakeOs::missing());
+            }
+            let mut tree = self.tree.borrow_mut();
+            let d = tree
+                .entry(path.into())
+                .or_insert_with(|| Some(Vec::new()))
+                .get_or_insert_with(Vec::new);
+            if append {
+                d.extend_from_slice(data);
+            } else {
+                *d = data.to_vec();
+            }
+            Ok(())
+        }
+        fn remove(&self, path: &str, dir: bool) -> Result<(), OsError> {
+            let prefix = format!("{path}/");
+            let mut tree = self.tree.borrow_mut();
+            let is_dir = match tree.get(path) {
+                None => return Err(FakeOs::missing()),
+                Some(c) => c.is_none(),
+            };
+            if is_dir != dir {
+                let kind = if dir {
+                    ErrorKind::NotADirectory
+                } else {
+                    ErrorKind::IsADirectory
+                };
+                return Err(OsError {
+                    kind,
+                    errno: None,
+                    message: String::from("wrong kind"),
+                });
+            }
+            if is_dir && tree.keys().any(|k| k.starts_with(&prefix)) {
+                return Err(OsError {
+                    kind: ErrorKind::Other,
+                    errno: Some(39),
+                    message: "Directory not empty (os error 39)".into(),
+                });
+            }
+            tree.remove(path);
+            Ok(())
+        }
+        fn create_dir(&self, path: &str) -> Result<(), OsError> {
+            if self.has(path) {
+                return Err(OsError {
+                    kind: ErrorKind::AlreadyExists,
+                    errno: Some(17),
+                    message: "File exists (os error 17)".into(),
+                });
+            }
+            if !self.parent_is_dir(path) {
+                return Err(FakeOs::missing());
+            }
+            self.tree.borrow_mut().insert(path.into(), None);
+            Ok(())
+        }
+        fn rename(&self, from: &str, to: &str) -> Result<(), OsError> {
+            if !self.has(from) || !self.parent_is_dir(to) {
+                return Err(FakeOs::missing());
+            }
+            let mut tree = self.tree.borrow_mut();
+            let under = format!("{from}/");
+            let moved: Vec<String> = tree
+                .keys()
+                .filter(|k| k.as_str() == from || k.starts_with(&under))
+                .cloned()
+                .collect();
+            for k in moved {
+                let v = tree.remove(&k).unwrap_or(None);
+                tree.insert(format!("{to}{}", &k[from.len()..]), v);
+            }
+            Ok(())
+        }
+        fn read_link(&self, _path: &str) -> Result<String, OsError> {
+            Err(FakeOs::missing())
+        }
+        fn canonicalize(&self, path: &str) -> Result<String, OsError> {
+            if self.has(path) {
+                Ok(path.into())
+            } else {
+                Err(FakeOs::missing())
+            }
+        }
+        fn current_dir(&self) -> Result<String, OsError> {
+            Ok("/w".into())
+        }
+        fn set_current_dir(&self, _path: &str) -> Result<(), OsError> {
+            Err(FakeOs::missing())
+        }
+        fn env_var(&self, _name: &str) -> Option<String> {
+            None
+        }
+        fn process_id(&self) -> u32 {
+            1
+        }
+        fn run_program(&self, _spec: Spawn) -> Result<Captured, SpawnError> {
+            Err(SpawnError::Start(FakeOs::missing()))
+        }
+        fn write_stdout(&self, _bytes: &[u8]) {}
+        fn write_stderr(&self, _bytes: &[u8]) {}
+        fn read_stdin_line(&self, _limit: usize) -> Option<Vec<u8>> {
+            None
+        }
+        fn read_stdin_to_end(&self, _out: &mut Vec<u8>) {}
+        fn now(&self) -> Timestamp {
+            Timestamp { secs: 0, nanos: 0 }
+        }
+        fn format_local(&self, _at: Timestamp, _format: &str) -> Option<String> {
+            None
+        }
+        fn gate(&self) -> &dyn Gate {
+            self
+        }
+    }
+
+    impl Gate for MemOs {
+        fn guarded_remove(
+            &self,
+            os: &dyn Os,
+            path: &str,
+            recursive: bool,
+        ) -> Result<(), WriteError> {
+            self.admit()?;
+            remove_tree(os, path, recursive).map_err(WriteError::Io)
+        }
+        fn guarded_copy(&self, os: &dyn Os, plan: &[CopyStep]) -> Result<(), WriteError> {
+            self.admit()?;
+            copy_steps(os, plan).map_err(WriteError::Io)
+        }
+        fn guarded_create_dirs(&self, os: &dyn Os, dirs: &[String]) -> Result<(), WriteError> {
+            self.admit()?;
+            dirs.iter()
+                .try_for_each(|d| os.create_dir(d))
+                .map_err(WriteError::Io)
+        }
+        fn guarded_rename(&self, os: &dyn Os, from: &str, to: &str) -> Result<(), WriteError> {
+            self.admit()?;
+            os.rename(from, to).map_err(WriteError::Io)
+        }
+    }
+
+    /// [`sh_on`] that returns what the shell printed to standard error, and
+    /// the status, on a host of its own.
+    fn sh_err(os: &dyn Os, src: &str) -> (String, i32) {
+        let list = parse(src).unwrap_or_else(|Unsupported(w)| panic!("{src}: {w}"));
+        let mut shell = Shell {
+            vars: BTreeMap::new(),
+            exported: BTreeSet::new(),
+            last: 0,
+            glob_refused: None,
+            os,
+        };
+        let mut stdin = Input::buf(Vec::new());
+        let mut sink = Sink::new(os, ErrMode::Capture);
+        let c = match shell.run_list(&list, &mut stdin, &mut sink) {
+            Flow::Next(c) | Flow::Exit(c) => c,
+            _ => 0,
+        };
+        (String::from_utf8_lossy(&sink.err).into_owned(), c)
+    }
+
+    #[test]
+    fn rm_removes_files_and_trees_through_the_gate() {
+        let os = MemOs::new(
+            true,
+            &[
+                ("/w", None),
+                ("/w/a", Some("A")),
+                ("/w/d", None),
+                ("/w/d/x", Some("X")),
+                ("/w/d/s", None),
+                ("/w/d/s/y", Some("Y")),
+            ],
+        );
+        assert_eq!(sh_err(&os, "rm /w/a"), (String::new(), 0));
+        assert!(!os.has("/w/a"));
+        assert_eq!(
+            sh_err(&os, "rm /w/d"),
+            ("rm: cannot remove '/w/d': Is a directory\n".into(), 1)
+        );
+        assert!(os.has("/w/d/s/y"));
+        // A tree is one decision: one admission for the whole of `rm -r`.
+        let before = os.admitted.get();
+        assert_eq!(sh_err(&os, "rm -rf /w/d"), (String::new(), 0));
+        assert_eq!(os.admitted.get(), before + 1);
+        assert!(!os.has("/w/d") && !os.has("/w/d/s/y"));
+    }
+
+    #[test]
+    fn rm_error_paths_match_gnu() {
+        let os = MemOs::new(true, &[("/w", None), ("/w/a", Some("A"))]);
+        assert_eq!(
+            sh_err(&os, "rm"),
+            (
+                "rm: missing operand\nTry 'rm --help' for more information.\n".into(),
+                1
+            )
+        );
+        assert_eq!(sh_err(&os, "rm -f"), (String::new(), 0));
+        assert_eq!(
+            sh_err(&os, "rm /w/nope"),
+            (
+                "rm: cannot remove '/w/nope': No such file or directory\n".into(),
+                1
+            )
+        );
+        assert_eq!(sh_err(&os, "rm -f /w/nope"), (String::new(), 0));
+        // A flag the subset does not run declines to the external program,
+        // which this host does not have, and the file stays.
+        assert_eq!(sh_err(&os, "rm -i /w/a").1, 126);
+        assert!(os.has("/w/a"));
+    }
+
+    #[test]
+    fn cp_copies_files_and_trees_through_the_gate() {
+        let os = MemOs::new(
+            true,
+            &[
+                ("/w", None),
+                ("/w/a", Some("A")),
+                ("/w/d", None),
+                ("/w/d/x", Some("X")),
+                ("/w/d/s", None),
+                ("/w/d/s/y", Some("Y")),
+            ],
+        );
+        assert_eq!(sh_err(&os, "cp /w/a /w/b"), (String::new(), 0));
+        assert_eq!(os.contents("/w/b"), Some(b"A".to_vec()));
+        assert_eq!(sh_err(&os, "cp /w/a /w/d"), (String::new(), 0));
+        assert_eq!(os.contents("/w/d/a"), Some(b"A".to_vec()));
+        assert_eq!(sh_err(&os, "cp -r /w/d /w/e"), (String::new(), 0));
+        assert_eq!(os.contents("/w/e/s/y"), Some(b"Y".to_vec()));
+        assert_eq!(
+            sh_err(&os, "cp /w/d /w/f"),
+            (
+                "cp: -r not specified; omitting directory '/w/d'\n".into(),
+                1
+            )
+        );
+        assert!(!os.has("/w/f"));
+    }
+
+    #[test]
+    fn cp_error_paths_match_gnu() {
+        let os = MemOs::new(
+            true,
+            &[
+                ("/w", None),
+                ("/w/a", Some("A")),
+                ("/w/b", Some("B")),
+                ("/w/d", None),
+            ],
+        );
+        assert_eq!(
+            sh_err(&os, "cp"),
+            (
+                "cp: missing file operand\nTry 'cp --help' for more information.\n".into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "cp /w/a"),
+            (
+                "cp: missing destination file operand after '/w/a'\nTry 'cp --help' for more information.\n"
+                    .into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "cp /w/nope /w/x"),
+            (
+                "cp: cannot stat '/w/nope': No such file or directory\n".into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "cp /w/a /w/b /w/c"),
+            ("cp: target '/w/c' is not a directory\n".into(), 1)
+        );
+        assert_eq!(
+            sh_err(&os, "cp /w/a /w/a"),
+            ("cp: '/w/a' and '/w/a' are the same file\n".into(), 1)
+        );
+        assert_eq!(
+            sh_err(&os, "cp -r /w/d /w/d/in"),
+            (
+                "cp: cannot copy a directory, '/w/d', into itself, '/w/d/in'\n".into(),
+                1
+            )
+        );
+        assert!(!os.has("/w/c") && !os.has("/w/d/in"));
+        // `-a` is not one of the flags this subset runs.
+        assert_eq!(sh_err(&os, "cp -a /w/a /w/q").1, 126);
+    }
+
+    #[test]
+    fn mv_renames_and_moves_into_directories() {
+        let os = MemOs::new(
+            true,
+            &[
+                ("/w", None),
+                ("/w/a", Some("A")),
+                ("/w/d", None),
+                ("/w/d/x", Some("X")),
+            ],
+        );
+        assert_eq!(sh_err(&os, "mv /w/a /w/z"), (String::new(), 0));
+        assert!(!os.has("/w/a"));
+        assert_eq!(os.contents("/w/z"), Some(b"A".to_vec()));
+        assert_eq!(sh_err(&os, "mv /w/z /w/d"), (String::new(), 0));
+        assert_eq!(os.contents("/w/d/z"), Some(b"A".to_vec()));
+        assert_eq!(sh_err(&os, "mv /w/d /w/e"), (String::new(), 0));
+        assert_eq!(os.contents("/w/e/x"), Some(b"X".to_vec()));
+    }
+
+    #[test]
+    fn mv_error_paths_match_gnu() {
+        let os = MemOs::new(true, &[("/w", None), ("/w/a", Some("A"))]);
+        assert_eq!(
+            sh_err(&os, "mv"),
+            (
+                "mv: missing file operand\nTry 'mv --help' for more information.\n".into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "mv /w/a"),
+            (
+                "mv: missing destination file operand after '/w/a'\nTry 'mv --help' for more information.\n"
+                    .into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "mv /w/nope /w/x"),
+            (
+                "mv: cannot stat '/w/nope': No such file or directory\n".into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "mv /w/a /w/a"),
+            ("mv: '/w/a' and '/w/a' are the same file\n".into(), 1)
+        );
+        assert_eq!(
+            sh_err(&os, "mv /w/a /nodir/x"),
+            (
+                "mv: cannot move '/w/a' to '/nodir/x': No such file or directory\n".into(),
+                1
+            )
+        );
+        assert!(os.has("/w/a"));
+        // `-f` is not one of the flags this subset runs.
+        assert_eq!(sh_err(&os, "mv -f /w/a /w/q").1, 126);
+    }
+
+    #[test]
+    fn mkdir_makes_directories_and_parents() {
+        let os = MemOs::new(true, &[("/w", None), ("/w/a", Some("A"))]);
+        assert_eq!(sh_err(&os, "mkdir /w/n"), (String::new(), 0));
+        assert_eq!(os.kind("/w/n"), Some(FileKind::Dir));
+        assert_eq!(
+            sh_err(&os, "mkdir /w/n"),
+            (
+                "mkdir: cannot create directory '/w/n': File exists\n".into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "mkdir /w/q/r"),
+            (
+                "mkdir: cannot create directory '/w/q/r': No such file or directory\n".into(),
+                1
+            )
+        );
+        assert_eq!(sh_err(&os, "mkdir -p /w/q/r"), (String::new(), 0));
+        assert_eq!(os.kind("/w/q/r"), Some(FileKind::Dir));
+        assert_eq!(sh_err(&os, "mkdir -p /w/n /w/q"), (String::new(), 0));
+        assert_eq!(
+            sh_err(&os, "mkdir -p /w/a/b"),
+            (
+                "mkdir: cannot create directory '/w/a/b': Not a directory\n".into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "mkdir"),
+            (
+                "mkdir: missing operand\nTry 'mkdir --help' for more information.\n".into(),
+                1
+            )
+        );
+        // `-m` is not one of the flags this subset runs.
+        assert_eq!(sh_err(&os, "mkdir -m 700 /w/m").1, 126);
+        assert!(!os.has("/w/m"));
+    }
+
+    /// A gate that refuses every change changes nothing, and each utility
+    /// prints the refusal and returns its code. This is the test that a
+    /// utility which writes without asking the gate fails.
+    #[test]
+    fn a_gate_that_refuses_changes_nothing() {
+        let os = MemOs::new(
+            false,
+            &[
+                ("/w", None),
+                ("/w/a", Some("A")),
+                ("/w/d", None),
+                ("/w/d/x", Some("X")),
+            ],
+        );
+        for src in [
+            "rm /w/a",
+            "rm -r /w/d",
+            "cp /w/a /w/b",
+            "cp -r /w/d /w/e",
+            "mv /w/a /w/b",
+            "mkdir /w/n",
+            "mkdir -p /w/p/q",
+        ] {
+            assert_eq!(
+                sh_err(&os, src),
+                ("refused by test gate\n".into(), 7),
+                "{src}"
+            );
+        }
+        assert_eq!(os.tree.borrow().len(), 4);
+        assert!(os.has("/w/a") && os.has("/w/d/x"));
+    }
+
+    /// With the default gate, which refuses everything in every mode, the
+    /// utilities write nothing, and the Os defaults say they are unsupported.
+    #[test]
+    fn a_default_gate_refuses_every_change() {
+        let mut os = FakeOs::default();
+        os.dirs.insert("/w".into());
+        os.files.insert("/w/a.txt".into(), b"A".to_vec());
+        for src in [
+            "rm /w/a.txt",
+            "rm -r /w",
+            "cp /w/a.txt /w/b",
+            "mv /w/a.txt /w/b",
+            "mkdir /w/n",
+            "mkdir -p /w/p/q",
+        ] {
+            let (err, c) = sh_err(&os, src);
+            assert_eq!(c, 126, "{src}");
+            assert!(err.contains("no policy gate"), "{src}: {err}");
+        }
+        let calls = os.calls.borrow();
+        for write in [
+            "remove",
+            "create_dir",
+            "rename",
+            "write_file",
+            "run_program",
+        ] {
+            assert!(!calls.contains(&write), "{calls:?}");
+        }
+        drop(calls);
+        let fake = FakeOs::default();
+        for e in [
+            fake.remove("x", false).err(),
+            fake.create_dir("x").err(),
+            fake.rename("x", "y").err(),
+        ] {
+            assert_eq!(
+                e.map(|e| e.message),
+                Some("not supported by this host".into())
+            );
+        }
     }
 
     /// A session keeps variables, exports and `$?` from one run to the next,

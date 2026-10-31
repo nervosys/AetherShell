@@ -12,9 +12,10 @@
 use std::io::{BufRead, Read, Write};
 
 pub use ironshell_posix::os::{
-    Captured, DirEntry, ErrorKind, FileKind, Gate, Meta, Os, OsError, Refusal, Spawn, SpawnError,
-    Stream, Timestamp, WriteError,
+    Captured, CopyStep, DirEntry, ErrorKind, FileKind, Gate, Meta, Os, OsError, Refusal, Spawn,
+    SpawnError, Stream, Timestamp, WriteError,
 };
+use ironshell_posix::{copy_steps, remove_tree};
 
 use crate::journal;
 use crate::safety;
@@ -144,6 +145,23 @@ impl Os for HostOs {
             std::fs::write(path, data)
         };
         res.map_err(|e| os_error(&e))
+    }
+
+    fn remove(&self, path: &str, dir: bool) -> Result<(), OsError> {
+        if dir {
+            std::fs::remove_dir(path)
+        } else {
+            std::fs::remove_file(path)
+        }
+        .map_err(|e| os_error(&e))
+    }
+
+    fn create_dir(&self, path: &str) -> Result<(), OsError> {
+        std::fs::create_dir(path).map_err(|e| os_error(&e))
+    }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), OsError> {
+        std::fs::rename(from, to).map_err(|e| os_error(&e))
     }
 
     fn read_link(&self, path: &str) -> Result<String, OsError> {
@@ -309,9 +327,129 @@ impl Os for HostOs {
     }
 }
 
+/// The guard and the journal for a change one of the posix file utilities is
+/// about to make. Returns the journal mark, to roll back to if the host fails.
+///
+/// The effect is `Destructive` for all four utilities, and it is deliberate.
+/// `rm`, `cp`, `mv` and `mkdir` ran as external programs under `guard_exec`,
+/// which approves them in agent mode. The typed builtins classify `cp` and
+/// `mkdir` as `WriteLocal`, which agent mode allows outright, so using that
+/// class here would let an agent create directories and copy files without
+/// asking. `Destructive` keeps the approval. The honest class is a policy
+/// decision, and it is the owner's to make.
+///
+/// The workspace jail is not applied, for the same reason: the external
+/// program was not jailed, and jailing it would deny a path outside the
+/// workspace that agent mode approves today. The typed builtins jail; the
+/// posix path does not, and that difference predates this change.
+fn admit_change(
+    builtin: &str,
+    what: &str,
+    guard_targets: Vec<String>,
+    journal_paths: &[String],
+    blast_radius: serde_json::Value,
+) -> Result<usize, WriteError> {
+    safety::guard(safety::GuardCtx {
+        builtin,
+        effect: safety::Effect::Destructive,
+        what,
+        targets: guard_targets,
+        blast_radius,
+        reversible: false,
+        fs_paths: false,
+    })
+    .map_err(|e| {
+        WriteError::Refused(Refusal {
+            message: e.to_string(),
+            code: e.code.exit_code(),
+        })
+    })?;
+    let mark = journal::mark();
+    let args: Vec<Value> = journal_paths.iter().cloned().map(Value::Str).collect();
+    journal::record_before(builtin, safety::Effect::Destructive, &args);
+    Ok(mark)
+}
+
+/// The host's result for a change made after [`admit_change`]: a failure
+/// takes back the journal entries recorded for it.
+fn settle<T>(mark: usize, res: Result<T, OsError>) -> Result<T, WriteError> {
+    res.map_err(|e| {
+        journal::rollback_to(mark);
+        WriteError::Io(e)
+    })
+}
+
 impl Gate for HostOs {
     fn agent_mode(&self) -> bool {
         safety::current_mode() == safety::Mode::Agent
+    }
+
+    /// The paths are as the command gave them, not resolved against the
+    /// workspace: the external program this replaces resolved them against the
+    /// working directory, and so does the `tx` snapshot.
+    fn guarded_remove(&self, os: &dyn Os, path: &str, recursive: bool) -> Result<(), WriteError> {
+        let target = path.to_string();
+        let mark = admit_change(
+            "rm",
+            "delete",
+            vec![target.clone()],
+            &[target],
+            serde_json::json!({ "recursive": recursive }),
+        )?;
+        crate::tx::snapshot(path);
+        settle(mark, remove_tree(os, path, recursive))
+    }
+
+    fn guarded_copy(&self, os: &dyn Os, plan: &[CopyStep]) -> Result<(), WriteError> {
+        let dests: Vec<String> = plan.iter().map(|s| s.to.clone()).collect();
+        let top = dests.first().cloned().unwrap_or_default();
+        let mark = admit_change(
+            "cp",
+            "copy",
+            vec![top],
+            &dests,
+            serde_json::json!({ "entries": plan.len() }),
+        )?;
+        for s in plan {
+            // A directory that is there already is merged into, and not
+            // snapshotted: a snapshot would journal everything in it.
+            let merged = s.dir && os.metadata(&s.to).is_ok_and(|m| m.kind == FileKind::Dir);
+            if !merged {
+                crate::tx::snapshot(&s.to);
+            }
+        }
+        settle(mark, copy_steps(os, plan))
+    }
+
+    fn guarded_create_dirs(&self, os: &dyn Os, dirs: &[String]) -> Result<(), WriteError> {
+        let Some(top) = dirs.first() else {
+            return Ok(());
+        };
+        let mark = admit_change(
+            "mkdir",
+            "create directory",
+            vec![top.clone()],
+            dirs,
+            serde_json::json!({ "dirs": dirs.len() }),
+        )?;
+        // The highest directory is recorded as absent, so a rollback removes
+        // every directory this call made.
+        crate::tx::snapshot(top);
+        settle(mark, dirs.iter().try_for_each(|d| os.create_dir(d)))
+    }
+
+    fn guarded_rename(&self, os: &dyn Os, from: &str, to: &str) -> Result<(), WriteError> {
+        let both = [from.to_string(), to.to_string()];
+        let mark = admit_change(
+            "mv",
+            "move",
+            both.to_vec(),
+            &both,
+            serde_json::json!({ "from": from, "to": to }),
+        )?;
+        crate::tx::snapshot(from);
+        crate::tx::snapshot(to);
+        settle(mark, os.rename(from, to))
     }
 
     fn admit_exec(&self, argv: &str) -> Result<(), Refusal> {
