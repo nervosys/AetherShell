@@ -24,7 +24,8 @@ use std::sync::Mutex;
 
 static LOCK: Mutex<()> = Mutex::new(());
 
-/// More than a read, but nothing a rollback should undo.
+/// More than a read, but nothing a rollback should undo. `helm_repos` is not
+/// listed: it reads helm's own repository file only, so it is classed ReadLocal.
 const HARMLESS: &[(&str, &[&str])] = &[
     (
         "only reads or inspects: local tools and files, cluster, container and package state, HTTP GETs, dialogs that answer a value",
@@ -34,7 +35,7 @@ const HARMLESS: &[(&str, &[&str])] = &[
             "crypto_generate_key", "curl", "docker_compose_ps", "docker_inspect",
             "docker_logs", "docker_top", "eslint", "fetch", "fzf", "gdb_bt", "gh_repo",
             "gui_dialog_file_open", "gui_dialog_file_save", "gui_dialog_folder",
-            "gui_dialog_input", "gui_dialog_message", "helm_list", "helm_repos", "helm_search",
+            "gui_dialog_input", "gui_dialog_message", "helm_list", "helm_search",
             "helm_status", "ifconfig", "input_editor", "input_read_password", "jq_filter",
             "k8s_cluster_info", "k8s_configmaps", "k8s_contexts", "k8s_deployments",
             "k8s_describe", "k8s_events", "k8s_get", "k8s_ingresses", "k8s_logs",

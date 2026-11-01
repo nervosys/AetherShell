@@ -51,6 +51,13 @@ impl Egress {
             "IRONSHELL_AUDIT_LOG",
             "HOME",
             "USERPROFILE",
+            // Each changes which git config is read or where the repository is.
+            "GIT_DIR",
+            "GIT_CONFIG",
+            "GIT_CONFIG_GLOBAL",
+            "GIT_CONFIG_SYSTEM",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_CONFIG_COUNT",
         ];
         let saved = names
             .iter()
@@ -156,6 +163,10 @@ fn off_list_cases() -> Vec<(&'static str, Vec<Value>)> {
         ("docker_push", vec![s("evil.example.invalid/app:1")]),
         // No registry named means Docker Hub, which is not on the list.
         ("docker_pull", vec![s("alpine:3")]),
+        // `run` pulls a missing image from the registry the reference names.
+        ("docker_run", vec![s("evil.example.invalid/app:1")]),
+        ("podman_run", vec![s("evil.example.invalid/app:1")]),
+        ("docker_run", vec![s("alpine:3")]),
     ]
 }
 
@@ -163,6 +174,7 @@ fn on_list_cases() -> Vec<(&'static str, Vec<Value>)> {
     vec![
         ("ssh_exec", vec![s("ops@build.example.com"), s("uptime")]),
         ("docker_pull", vec![s("registry.example.com/app:1")]),
+        ("docker_run", vec![s("registry.example.com/app:1")]),
     ]
 }
 
@@ -209,22 +221,34 @@ fn registry_mirror_cases() -> Vec<(&'static str, Vec<Value>)> {
         ("deno_run", vec![s("main.ts")]),
         ("mise_use", vec![s("node@20")]),
         ("pre_commit_run", vec![]),
+        ("buildah_build", vec![s("app:1")]),
+        // registries.conf can redirect a docker:// registry, so it is unknown.
+        ("skopeo_inspect", vec![s("docker://alpine:3")]),
+        (
+            "skopeo_copy",
+            vec![s("dir:."), s("docker://registry.example.com/app:1")],
+        ),
+        ("trivy_scan", vec![]),
+        ("trivy_image", vec![s("alpine:3")]),
+        ("gh_repo_cmd", vec![s("list")]),
+        ("gh_repo", vec![s("view"), s("owner/repo")]),
     ]
 }
 
 /// Local queries of the same builtins: an allowlist does not refuse them.
 fn local_query_cases() -> Vec<(&'static str, Vec<Value>)> {
-    // `helm_repos` reads only helm's own config file, but it is classed Network
-    // in the effect table, so the central guard refuses it under an allowlist.
-    // That is an existing over-refusal, not a leak, and is not changed here.
-    vec![("terraform_workspace", vec![])]
+    vec![
+        ("terraform_workspace", vec![]),
+        // Reads helm's own repository file. Classed ReadLocal.
+        ("helm_repos", vec![]),
+        // A local transport is not network.
+        ("skopeo_inspect", vec![s("dir:.")]),
+    ]
 }
 
 /// The git builtins that contact a remote take no remote name or URL: they fetch
-/// from the default remote that `.git/config` names. The central guard judges
-/// their (empty) argument list, and with no host to judge it refuses them under
-/// an allowlist. The refusal comes from `guard`, not `check_egress_unknown`, so
-/// its message does not carry the allowlist suffix.
+/// from the remote the repository's `.git/config` names. Their bodies read that
+/// remote (`safety::check_git_remote_egress`).
 fn git_remote_cases() -> Vec<(&'static str, Vec<Value>)> {
     vec![
         ("git_fetch", vec![]),
@@ -400,14 +424,61 @@ fn add_source_with_update_is_refused_before_the_file_is_written() {
     );
 }
 
-/// git_fetch, git_pull and git_push reach the remote in `.git/config`, which the
-/// call does not name. Under an allowlist they are refused before git runs. The
-/// refusal is "could not be determined", not an off-list host, because the
-/// destination is not in the arguments.
+/// Restores the process working directory when dropped. The git tests change it,
+/// and every test in this file holds `LOCK`, so none sees another's directory.
+struct Cwd(std::path::PathBuf);
+
+impl Cwd {
+    fn enter(dir: &std::path::Path) -> Self {
+        let saved = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(dir).expect("enter test repo");
+        Cwd(saved)
+    }
+}
+
+impl Drop for Cwd {
+    fn drop(&mut self) {
+        let _ = std::env::set_current_dir(&self.0);
+    }
+}
+
+/// A temporary repository with the given `.git/config` and `.git/HEAD`. Removed on drop.
+struct Repo {
+    dir: std::path::PathBuf,
+}
+
+impl Repo {
+    fn new(tag: &str, config: &str, head: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("ae_git_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".git")).expect("temp git dir");
+        std::fs::write(dir.join(".git").join("config"), config).expect("temp config");
+        std::fs::write(dir.join(".git").join("HEAD"), head).expect("temp HEAD");
+        Repo { dir }
+    }
+}
+
+impl Drop for Repo {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+const MAIN: &str = "ref: refs/heads/main\n";
+
+/// A repository whose `origin` is `url`, on `main`.
+fn origin_repo(tag: &str, url: &str) -> Repo {
+    Repo::new(tag, &format!("[remote \"origin\"]\n\turl = {url}\n"), MAIN)
+}
+
+/// Under an allowlist, a remote the repository's config puts off the list is
+/// refused, naming the host, and nothing is spawned.
 #[test]
-fn git_remote_builtins_are_refused_under_an_allowlist() {
+fn git_remote_host_off_the_list_is_refused_before_git_runs() {
     let _g = lock();
-    let _e = Egress::new("git_remote", Some("example.com"));
+    let _e = Egress::new("git_off", Some("example.com"));
+    let repo = origin_repo("git_off", "https://evil.example.invalid/x.git");
+    let _cwd = Cwd::enter(&repo.dir);
     for (name, args) in git_remote_cases() {
         let r = call(name, args);
         let (code, message) = egress_refusal(&r)
@@ -418,10 +489,275 @@ fn git_remote_builtins_are_refused_under_an_allowlist() {
             "{name}: {message}"
         );
         assert!(
-            message.contains("could not be determined"),
-            "{name}: the refusal says the destination is unknown: {message}"
+            message.contains("evil.example.invalid") && message.contains("not in the allowlist"),
+            "{name}: the refusal names the host: {message}"
         );
     }
+}
+
+/// A remote on the list is not refused by this check (git then fails to spawn,
+/// because PATH is empty, and that is not an egress refusal).
+#[test]
+fn git_remote_host_on_the_list_is_not_refused() {
+    let _g = lock();
+    let _e = Egress::new("git_on", Some("example.com"));
+    let repo = origin_repo("git_on", "https://git.example.com/x.git");
+    let _cwd = Cwd::enter(&repo.dir);
+    for (name, args) in git_remote_cases() {
+        let r = call(name, args);
+        assert!(
+            !refused_by_egress(&r),
+            "{name} with an on-list remote must pass the egress check; got {r:?}"
+        );
+    }
+}
+
+/// A repository whose remote cannot be determined is refused as unknown, and the
+/// refusal says why: no repository, a missing remote, an ext:: transport, an
+/// include, a remote helper, or an insteadOf that cannot be read.
+#[test]
+fn a_repo_with_no_determinable_remote_is_refused() {
+    let _g = lock();
+    let _e = Egress::new("git_unknown", Some("example.com"));
+    let cases: Vec<(&str, Repo, &str)> = vec![
+        (
+            "no-remote",
+            Repo::new("git_nr", "[core]\n\tbare = false\n", MAIN),
+            "[remote] section",
+        ),
+        (
+            "ext-transport",
+            origin_repo("git_ext", "ext::sh -c touch% /tmp/x"),
+            "ext:: or fd::",
+        ),
+        (
+            "include",
+            Repo::new(
+                "git_inc",
+                "[include]\n\tpath = ../x\n[remote \"origin\"]\n\turl = https://git.example.com/x\n",
+                MAIN,
+            ),
+            "include",
+        ),
+        (
+            "vcs-helper",
+            Repo::new(
+                "git_vcs",
+                "[remote \"origin\"]\n\turl = https://git.example.com/x\n\tvcs = hg\n",
+                MAIN,
+            ),
+            "remote helper",
+        ),
+        (
+            "detached-unreadable-head",
+            Repo::new(
+                "git_head",
+                "[remote \"origin\"]\n\turl = https://git.example.com/x\n",
+                "garbage\n",
+            ),
+            "HEAD",
+        ),
+    ];
+    for (label, repo, reason) in &cases {
+        let _cwd = Cwd::enter(&repo.dir);
+        for (name, args) in git_remote_cases() {
+            let r = call(name, args);
+            let (code, message) = egress_refusal(&r).unwrap_or_else(|| {
+                panic!("{name} in {label} must be refused under an allowlist; got {r:?}")
+            });
+            assert_eq!(code, ErrorCode::PolicyDeny, "{name} in {label}");
+            assert!(
+                message.contains(reason),
+                "{name} in {label}: the refusal says why ({reason}): {message}"
+            );
+            assert!(
+                message.contains("an allowlist is set, so the call is refused"),
+                "{name} in {label}: {message}"
+            );
+        }
+    }
+    // Outside any repository at all.
+    let outside = std::env::temp_dir().join(format!("ae_git_none_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&outside);
+    let _cwd = Cwd::enter(&outside);
+    let r = call("git_fetch", vec![]);
+    let _ = std::fs::remove_dir_all(&outside);
+    let (_, message) = egress_refusal(&r).expect("no repository is refused");
+    assert!(
+        message.contains("no git repository") || message.contains("worktree or submodule"),
+        "{message}"
+    );
+}
+
+/// `insteadOf` in the repository's config is applied, so a short name that
+/// rewrites to an off-list host is refused, and `pushInsteadOf` applies to push.
+#[test]
+fn insteadof_in_the_repo_config_is_judged() {
+    let _g = lock();
+    let _e = Egress::new("git_insteadof", Some("example.com"));
+    let config = "[url \"https://evil.example.invalid/\"]\n\tinsteadOf = gh:\n\
+                  [url \"https://push.evil.example.invalid/\"]\n\tpushInsteadOf = https://git.example.com/\n\
+                  [remote \"origin\"]\n\turl = gh:o/r\n\tpushurl = https://git.example.com/o/r\n";
+    let repo = Repo::new("git_insteadof", config, MAIN);
+    let _cwd = Cwd::enter(&repo.dir);
+    let r = call("git_fetch", vec![]);
+    let (_, message) = egress_refusal(&r).expect("insteadOf rewrites to an off-list host");
+    assert!(message.contains("evil.example.invalid"), "{message}");
+    // Push uses pushurl, and pushInsteadOf rewrites it to push.evil.example.invalid.
+    let r = call("git_push", vec![]);
+    let (_, message) = egress_refusal(&r).expect("pushInsteadOf rewrites to an off-list host");
+    assert!(message.contains("push.evil.example.invalid"), "{message}");
+}
+
+/// The branch's remote is the one judged, not `origin`.
+#[test]
+fn the_current_branchs_remote_is_judged() {
+    let _g = lock();
+    let _e = Egress::new("git_branch", Some("example.com"));
+    let config = "[remote \"origin\"]\n\turl = https://git.example.com/x\n\
+                  [remote \"up\"]\n\turl = https://evil.example.invalid/x\n\
+                  [branch \"main\"]\n\tremote = up\n";
+    let repo = Repo::new("git_branch", config, MAIN);
+    let _cwd = Cwd::enter(&repo.dir);
+    let r = call("git_pull", vec![]);
+    let (_, message) = egress_refusal(&r).expect("the branch remote is off the list");
+    assert!(message.contains("evil.example.invalid"), "{message}");
+}
+
+/// Pure parser tests on strings: which host each remote form contacts.
+#[test]
+fn git_remote_forms_are_classified() {
+    use iron_shell::safety::{git_remote_target, GitRemote};
+    let host = |h: &str, ssh: bool| GitRemote::Host {
+        host: h.to_string(),
+        ssh,
+    };
+    assert_eq!(
+        git_remote_target("https://github.com/o/r.git"),
+        host("github.com", false)
+    );
+    assert_eq!(
+        git_remote_target("https://user@GitHub.com:443/o/r"),
+        host("github.com", false)
+    );
+    assert_eq!(
+        git_remote_target("ssh://git@Evil.Example.invalid:2222/o/r.git"),
+        host("evil.example.invalid", true)
+    );
+    assert_eq!(
+        git_remote_target("git@build.example.com:org/repo.git"),
+        host("build.example.com", true)
+    );
+    assert_eq!(
+        git_remote_target("build.example.com:org/repo.git"),
+        host("build.example.com", true)
+    );
+    assert_eq!(git_remote_target("file:///srv/repo.git"), GitRemote::Local);
+    assert_eq!(git_remote_target("/srv/repo.git"), GitRemote::Local);
+    assert_eq!(git_remote_target("../sibling"), GitRemote::Local);
+    assert_eq!(git_remote_target("C:\\repos\\x"), GitRemote::Local);
+    assert_eq!(git_remote_target("C:/repos/x"), GitRemote::Local);
+    assert_eq!(git_remote_target("some/dir:name"), GitRemote::Local);
+    assert!(matches!(
+        git_remote_target("ext::sh -c touch% /tmp/x"),
+        GitRemote::Unknown(_)
+    ));
+    assert!(matches!(git_remote_target("fd::3"), GitRemote::Unknown(_)));
+    assert!(matches!(
+        git_remote_target("hg::https://x.example.com/r"),
+        GitRemote::Unknown(_)
+    ));
+    assert!(matches!(
+        git_remote_target("\\\\files.example.invalid\\share\\repo"),
+        GitRemote::Unknown(_)
+    ));
+}
+
+/// Pure parser tests on strings: the URL git contacts, after the repository's
+/// remote is picked and `insteadOf` applied.
+#[test]
+fn git_contact_urls_follow_the_remote_and_insteadof() {
+    use iron_shell::safety::git_contact_urls;
+    let plain = "[remote \"origin\"]\n\turl = https://a.example.com/x\n";
+    assert_eq!(
+        git_contact_urls(plain, MAIN, false),
+        Ok(vec!["https://a.example.com/x".to_string()])
+    );
+    // A detached HEAD uses origin.
+    assert_eq!(
+        git_contact_urls(plain, "0123456789abcdef0123456789abcdef01234567\n", false),
+        Ok(vec!["https://a.example.com/x".to_string()])
+    );
+    // insteadOf: longest matching prefix wins.
+    let rules = "[url \"https://short.example.com/\"]\n\tinsteadOf = gh:\n\
+                 [url \"https://long.example.com/\"]\n\tinsteadOf = gh:o/\n\
+                 [remote \"origin\"]\n\turl = gh:o/r\n";
+    assert_eq!(
+        git_contact_urls(rules, MAIN, false),
+        Ok(vec!["https://long.example.com/r".to_string()])
+    );
+    // pushInsteadOf applies to push and takes precedence over insteadOf.
+    let push = "[url \"https://push.example.com/\"]\n\tpushInsteadOf = https://a.example.com/\n\
+                [url \"https://other.example.com/\"]\n\tinsteadOf = https://a.example.com/\n\
+                [remote \"origin\"]\n\turl = https://a.example.com/x\n";
+    assert_eq!(
+        git_contact_urls(push, MAIN, true),
+        Ok(vec!["https://push.example.com/x".to_string()])
+    );
+    assert_eq!(
+        git_contact_urls(push, MAIN, false),
+        Ok(vec!["https://other.example.com/x".to_string()])
+    );
+    // remote.pushDefault picks the push remote; branch.<b>.pushRemote beats it.
+    let pd = "[remote \"origin\"]\n\turl = https://a.example.com/x\n\
+              [remote \"fork\"]\n\turl = https://b.example.com/x\n\
+              [remote]\n\tpushDefault = fork\n";
+    assert_eq!(
+        git_contact_urls(pd, MAIN, true),
+        Ok(vec!["https://b.example.com/x".to_string()])
+    );
+    assert_eq!(
+        git_contact_urls(pd, MAIN, false),
+        Ok(vec!["https://a.example.com/x".to_string()])
+    );
+    // A remote named `.` is local.
+    let local = "[branch \"main\"]\n\tremote = .\n";
+    assert_eq!(git_contact_urls(local, MAIN, false), Ok(Vec::new()));
+    // Comments, quotes and key case.
+    let quoted = "[Remote \"origin\"] # the main one\n\tURL = \"https://a.example.com/x\" ; note\n";
+    assert_eq!(
+        git_contact_urls(quoted, MAIN, false),
+        Ok(vec!["https://a.example.com/x".to_string()])
+    );
+    // Refusals: an include, an escape, a missing remote, no URL, a bad HEAD.
+    assert!(git_contact_urls("[include]\n\tpath = x\n", MAIN, false).is_err());
+    assert!(git_contact_urls("[remote \"origin\"]\n\turl = C:\\x\n", MAIN, false).is_err());
+    assert!(git_contact_urls(
+        "[remote \"up\"]\n\turl = https://x.example.com/\n",
+        MAIN,
+        false
+    )
+    .is_err());
+    assert!(git_contact_urls("[remote \"origin\"]\n", MAIN, false).is_err());
+    assert!(git_contact_urls(plain, "not a head\n", false).is_err());
+}
+
+/// The config reader keeps the entries it understands and refuses the rest.
+#[test]
+fn git_config_entries_parse_sections_and_keys() {
+    use iron_shell::safety::git_config_entries;
+    let e = git_config_entries("[Remote \"a.b\"]\n  URL=https://x/\n[core]\n bare\n").unwrap();
+    assert_eq!(e.len(), 2);
+    assert_eq!(e[0].section, "remote");
+    assert_eq!(e[0].subsection.as_deref(), Some("a.b"));
+    assert_eq!(e[0].key, "url");
+    assert_eq!(e[0].value, "https://x/");
+    assert_eq!(e[1].key, "bare");
+    assert_eq!(e[1].value, "true");
+    assert!(
+        git_config_entries("url = x\n").is_err(),
+        "a key before any section"
+    );
 }
 
 /// The same git builtins with a wildcard allowlist are not refused by this check.
@@ -429,6 +765,8 @@ fn git_remote_builtins_are_refused_under_an_allowlist() {
 fn git_remote_builtins_pass_a_wildcard_allowlist() {
     let _g = lock();
     let _e = Egress::new("git_star", Some("*"));
+    let repo = origin_repo("git_star", "https://evil.example.invalid/x.git");
+    let _cwd = Cwd::enter(&repo.dir);
     for (name, args) in git_remote_cases() {
         let r = call(name, args);
         assert!(

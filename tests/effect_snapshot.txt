@@ -553,7 +553,7 @@ hash	ReadLocal
 head	ReadLocal
 helm_install	Exec
 helm_list	Network
-helm_repos	Network
+helm_repos	ReadLocal
 helm_search	Network
 helm_status	Network
 helm_uninstall	Destructive

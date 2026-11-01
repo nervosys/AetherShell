@@ -1089,9 +1089,11 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "syntax_list"
         | "syntax_search" => Some(Effect::WriteLocal),
 
+        // `helm repo list` reads helm's own repository file and nothing else.
+        "helm_repos" => Some(Effect::ReadLocal),
+
         // ---- delegated: Network (22) ----
         | "helm_list"
-        | "helm_repos"
         | "helm_search"
         | "helm_status"
         | "k8s_apply"
@@ -4718,7 +4720,26 @@ fn egress_denied(
 /// approval checks still run centrally.
 /// The scp builtins are here because the central step would judge the string the
 /// caller wrote; their bodies judge the host ssh config resolves it to.
-const EGRESS_JUDGED_BY_BODY: &[&str] = &["pkg_changelog", "scp_upload", "scp_download"];
+/// The git remote commands are here because their remote is read from
+/// `.git/config` by their body ([`check_git_remote_egress`]), and skopeo because
+/// its local transports (`dir:`, `oci:`, ...) are not network and its body judges
+/// the `docker://` references it names.
+const EGRESS_JUDGED_BY_BODY: &[&str] = &[
+    "pkg_changelog",
+    "scp_upload",
+    "scp_download",
+    "git_fetch",
+    "git_pull",
+    "git_push",
+    "skopeo_copy",
+    "skopeo_inspect",
+    // Their bodies refuse every call under an allowlist (the host is in configuration),
+    // so the central step's reading of a dotted argument as a host is not wanted.
+    "trivy_scan",
+    "trivy_image",
+    "gh_repo",
+    "gh_repo_cmd",
+];
 
 /// Egress allowlist for an `Exec`-class builtin whose destination is named in its
 /// arguments: `targets` are judged by [`egress_permitted`], exactly as a
@@ -4756,6 +4777,10 @@ pub fn check_egress_unknown(builtin: &str, reason: &str) -> Result<(), SafetyErr
     let Some(allow) = net_allowlist() else {
         return Ok(());
     };
+    // `*` allows every destination, including one that cannot be read.
+    if allow.split([';', ',']).any(|e| e.trim() == "*") {
+        return Ok(());
+    }
     Err(egress_denied(
         builtin,
         Effect::Exec,
@@ -5012,6 +5037,388 @@ pub fn egress_permitted(targets: &[String], allow: &str) -> Result<(), String> {
         Some(h) => Err(format!("'{h}' is not in the allowlist")),
         None => Ok(()),
     }
+}
+
+// ---------------------------------------------------------------------------
+// git remotes. `git fetch`, `git pull` and `git push` take no remote name or URL:
+// they contact the remote the repository's `.git/config` names. The reader below
+// is pure (it is fed text), so tests pass it strings.
+//
+// NOT READ: the global (`~/.gitconfig`, `$XDG_CONFIG_HOME/git/config`) and system
+// config. An `insteadOf` there rewrites a URL this check does not see. Setting
+// GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, GIT_CONFIG, GIT_CONFIG_PARAMETERS,
+// GIT_CONFIG_COUNT or GIT_DIR in the environment changes what git reads, so those
+// refuse as unknown. Only the repository's own config is judged.
+// ---------------------------------------------------------------------------
+
+/// What one git remote URL contacts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitRemote {
+    /// A path on this machine, or `file://`: no network.
+    Local,
+    /// A host. `ssh` means the transport is ssh, so the host is an ssh destination
+    /// that `~/.ssh/config` may rewrite (see [`ssh_egress_host`]).
+    Host { host: String, ssh: bool },
+    /// Not determinable from the text. The reason is the refusal's detail.
+    Unknown(&'static str),
+}
+
+const GIT_TRANSPORT_UNKNOWN: &str =
+    "the remote URL uses an ext:: or fd:: transport, which runs a program";
+const GIT_SCHEME_UNKNOWN: &str = "the remote URL uses a scheme this check does not read";
+const GIT_NO_HOST: &str = "the remote URL names no host";
+const GIT_SHARE_UNKNOWN: &str = "the remote is a Windows share path, which opens a host";
+const GIT_ENV_OVERRIDE: &str = "a GIT_CONFIG*, GIT_DIR setting is in the environment, so the remote cannot be read from .git/config";
+const GIT_NO_REPO: &str =
+    "no git repository is found from the working directory, so the remote cannot be read";
+const GIT_WORKTREE_FILE: &str = "the .git here is a file (a worktree or submodule), which is not read, so the remote cannot be read";
+const GIT_CONFIG_UNREADABLE: &str = ".git/config cannot be read, so the remote cannot be read";
+const GIT_HEAD_UNREADABLE: &str =
+    ".git/HEAD cannot be read, so the branch and its remote cannot be read";
+const GIT_CONFIG_UNPARSED: &str =
+    ".git/config has a line this reader does not parse, so the remote cannot be read";
+const GIT_CONFIG_ESCAPE: &str =
+    ".git/config has a backslash in a value or name, so the remote cannot be read";
+const GIT_CONFIG_INCLUDE: &str = ".git/config has an include, so the remote cannot be read";
+const GIT_REMOTE_VCS: &str =
+    "the remote sets remote.<name>.vcs, a remote helper, so the transport cannot be read";
+const GIT_REMOTE_MISSING: &str =
+    "the remote the command uses has no [remote] section in .git/config";
+const GIT_REMOTE_NO_URL: &str = "the remote the command uses has no URL in .git/config";
+
+/// Classify one remote URL, as git would read it after `insteadOf` rewriting.
+/// Forms: `scheme://` URLs (`file`, `ssh`, `git+ssh`, `ssh+git`, `http`, `https`,
+/// `git`), scp-style `[user@]host:path`, and plain paths (relative or absolute,
+/// Windows drive paths included). An `ext::` or `fd::` transport, an unknown
+/// scheme, a UNC share, and a URL with no host are `Unknown`.
+pub fn git_remote_target(url: &str) -> GitRemote {
+    let url = url.trim();
+    if url.starts_with("ext::") || url.starts_with("fd::") {
+        return GitRemote::Unknown(GIT_TRANSPORT_UNKNOWN);
+    }
+    if names_a_remote_share(url) {
+        return GitRemote::Unknown(GIT_SHARE_UNKNOWN);
+    }
+    if let Some((scheme, _)) = url.split_once("://") {
+        return match scheme.to_ascii_lowercase().as_str() {
+            "file" => GitRemote::Local,
+            "ssh" | "git+ssh" | "ssh+git" => match destination_host(url) {
+                Some(host) => GitRemote::Host { host, ssh: true },
+                None => GitRemote::Unknown(GIT_NO_HOST),
+            },
+            "http" | "https" | "git" => match destination_host(url) {
+                Some(host) => GitRemote::Host { host, ssh: false },
+                None => GitRemote::Unknown(GIT_NO_HOST),
+            },
+            _ => GitRemote::Unknown(GIT_SCHEME_UNKNOWN),
+        };
+    }
+    // scp-style `[user@]host:path`. A colon after a slash, or a single letter
+    // before it (a Windows drive), makes the text a local path.
+    if let Some((before, _)) = url.split_once(':') {
+        let is_drive = before.len() == 1 && before.chars().all(|c| c.is_ascii_alphabetic());
+        if is_drive || before.contains('/') || before.contains('\\') {
+            return GitRemote::Local;
+        }
+        let host = before.rsplit('@').next().unwrap_or("").trim();
+        if host.is_empty() || host.contains('[') {
+            return GitRemote::Unknown(GIT_NO_HOST);
+        }
+        return GitRemote::Host {
+            host: host.to_ascii_lowercase(),
+            ssh: true,
+        };
+    }
+    GitRemote::Local
+}
+
+/// One `[section]`, `[section "sub"]` or `key = value` line of a git config file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitConfigEntry {
+    pub section: String,
+    pub subsection: Option<String>,
+    pub key: String,
+    pub value: String,
+}
+
+/// Parse a git config file's text. Section and key names are lower-cased; a
+/// subsection keeps its case. An inline `#` or `;` outside quotes starts a
+/// comment, and quotes are removed from values. A backslash in a value or a
+/// subsection name is refused (git's escape rules are not read), as is an
+/// `include` or `includeIf` section and any line this reader does not understand.
+pub fn git_config_entries(text: &str) -> Result<Vec<GitConfigEntry>, &'static str> {
+    let mut out = Vec::new();
+    let mut current: Option<(String, Option<String>)> = None;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix('[') {
+            let end = rest.find(']').ok_or(GIT_CONFIG_UNPARSED)?;
+            let inner = &rest[..end];
+            let after = rest[end + 1..].trim();
+            if !after.is_empty() && !after.starts_with('#') && !after.starts_with(';') {
+                return Err(GIT_CONFIG_UNPARSED);
+            }
+            let header = git_config_header(inner)?;
+            if header.0 == "include" || header.0 == "includeif" {
+                return Err(GIT_CONFIG_INCLUDE);
+            }
+            current = Some(header);
+            continue;
+        }
+        let Some((section, subsection)) = current.clone() else {
+            return Err(GIT_CONFIG_UNPARSED);
+        };
+        let mut value = String::new();
+        let mut in_quote = false;
+        for c in line.chars() {
+            match c {
+                '"' => {
+                    in_quote = !in_quote;
+                    value.push(c);
+                }
+                '#' | ';' if !in_quote => break,
+                _ => value.push(c),
+            }
+        }
+        let value = value.trim();
+        let (key, val) = match value.split_once('=') {
+            Some((k, v)) => (k.trim(), v.trim()),
+            None => (value, "true"),
+        };
+        if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return Err(GIT_CONFIG_UNPARSED);
+        }
+        if val.contains('\\') {
+            return Err(GIT_CONFIG_ESCAPE);
+        }
+        out.push(GitConfigEntry {
+            section,
+            subsection,
+            key: key.to_ascii_lowercase(),
+            value: val.replace('"', "").trim().to_string(),
+        });
+    }
+    Ok(out)
+}
+
+/// The name and subsection of a section header's inside: `remote "origin"`,
+/// `url "https://x/"` or the old `remote.origin` form.
+fn git_config_header(inner: &str) -> Result<(String, Option<String>), &'static str> {
+    if let Some(q) = inner.find('"') {
+        let name = inner[..q].trim().to_ascii_lowercase();
+        let sub = inner[q + 1..]
+            .strip_suffix('"')
+            .ok_or(GIT_CONFIG_UNPARSED)?;
+        if sub.contains('\\') {
+            return Err(GIT_CONFIG_ESCAPE);
+        }
+        if name.is_empty() || sub.contains('"') {
+            return Err(GIT_CONFIG_UNPARSED);
+        }
+        return Ok((name, Some(sub.to_string())));
+    }
+    let inner = inner.trim();
+    match inner.split_once('.') {
+        Some((name, sub)) => Ok((name.to_ascii_lowercase(), Some(sub.to_string()))),
+        None if !inner.is_empty() => Ok((inner.to_ascii_lowercase(), None)),
+        None => Err(GIT_CONFIG_UNPARSED),
+    }
+}
+
+/// The branch `HEAD` names: `Some(name)` on a branch, `None` when detached.
+fn git_head_branch(head: &str) -> Result<Option<String>, &'static str> {
+    let head = head.trim();
+    if let Some(r) = head.strip_prefix("ref: ") {
+        return Ok(r.trim().strip_prefix("refs/heads/").map(str::to_string));
+    }
+    if head.len() >= 40 && head.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(None);
+    }
+    Err(GIT_HEAD_UNREADABLE)
+}
+
+/// The URLs the command would contact, from the repository's config and HEAD text.
+///
+/// The remote is the current branch's `branch.<b>.remote` (for push,
+/// `branch.<b>.pushRemote` then `remote.pushDefault` first), else `origin`. A
+/// remote named `.` is local and yields no URL. The URL is `remote.<n>.pushurl`
+/// for push when set, else `remote.<n>.url`. Then `url.<base>.insteadOf` rewrites
+/// it, longest matching prefix, and for push `url.<base>.pushInsteadOf` takes
+/// precedence and falls back to `insteadOf`. Returns `Err` when the remote cannot
+/// be determined from this text: an include, a `vcs` helper, no such remote, no
+/// URL, or an unreadable HEAD.
+pub fn git_contact_urls(config: &str, head: &str, push: bool) -> Result<Vec<String>, &'static str> {
+    let entries = git_config_entries(config)?;
+    let branch = git_head_branch(head)?;
+    let values = |section: &str, sub: Option<&str>, key: &str| -> Vec<String> {
+        entries
+            .iter()
+            .filter(|e| e.section == section && e.subsection.as_deref() == sub && e.key == key)
+            .map(|e| e.value.clone())
+            .collect()
+    };
+    let mut remote: Option<String> = None;
+    if push {
+        if let Some(b) = &branch {
+            remote = values("branch", Some(b), "pushremote").pop();
+        }
+        if remote.is_none() {
+            remote = values("remote", None, "pushdefault").pop();
+        }
+    }
+    if remote.is_none() {
+        if let Some(b) = &branch {
+            remote = values("branch", Some(b), "remote").pop();
+        }
+    }
+    let remote = remote.unwrap_or_else(|| "origin".to_string());
+    if remote == "." {
+        return Ok(Vec::new());
+    }
+    if !entries
+        .iter()
+        .any(|e| e.section == "remote" && e.subsection.as_deref() == Some(remote.as_str()))
+    {
+        return Err(GIT_REMOTE_MISSING);
+    }
+    if !values("remote", Some(&remote), "vcs").is_empty() {
+        return Err(GIT_REMOTE_VCS);
+    }
+    let mut urls = if push {
+        values("remote", Some(&remote), "pushurl")
+    } else {
+        Vec::new()
+    };
+    if urls.is_empty() {
+        urls = values("remote", Some(&remote), "url");
+    }
+    if urls.is_empty() {
+        return Err(GIT_REMOTE_NO_URL);
+    }
+    // (base, prefix) pairs: `[url "base"] insteadOf = prefix`.
+    let rules = |key: &str| -> Vec<(String, String)> {
+        entries
+            .iter()
+            .filter(|e| e.section == "url" && e.key == key)
+            .filter_map(|e| e.subsection.clone().map(|b| (b, e.value.clone())))
+            .filter(|(_, prefix)| !prefix.is_empty())
+            .collect()
+    };
+    let instead = rules("insteadof");
+    let push_instead = rules("pushinsteadof");
+    let rewrite = |url: &str, rules: &[(String, String)]| -> Option<String> {
+        rules
+            .iter()
+            .filter(|(_, p)| url.starts_with(p.as_str()))
+            .max_by_key(|(_, p)| p.len())
+            .map(|(base, p)| format!("{base}{}", &url[p.len()..]))
+    };
+    Ok(urls
+        .iter()
+        .map(|u| {
+            if push {
+                if let Some(r) = rewrite(u, &push_instead) {
+                    return r;
+                }
+            }
+            rewrite(u, &instead).unwrap_or_else(|| u.clone())
+        })
+        .collect())
+}
+
+/// `GIT_*` variables that change which config git reads or where the repository
+/// is. Any of them set refuses the remote check as unknown.
+const GIT_OVERRIDE_VARS: &[&str] = &[
+    "GIT_DIR",
+    "GIT_CONFIG",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+];
+
+/// The egress check for `git fetch` (`push` false), `git pull` (false) and
+/// `git push` (true), which contact the remote `.git/config` names (see
+/// [`git_contact_urls`]). A no-op without an allowlist or under the permissive
+/// policy. Under a `*` allowlist every host is allowed. Any remote that cannot
+/// be determined refuses through [`check_egress_unknown`]. An ssh remote's host
+/// is resolved through `~/.ssh/config` as ssh would. Call it before spawning git.
+pub fn check_git_remote_egress(builtin: &str, push: bool) -> Result<(), SafetyError> {
+    if policy_permissive() {
+        return Ok(());
+    }
+    let Some(allow) = net_allowlist() else {
+        return Ok(());
+    };
+    if allow.split([';', ',']).any(|e| e.trim() == "*") {
+        return Ok(());
+    }
+    let urls = match git_urls_in_working_repo(push) {
+        Ok(urls) => urls,
+        Err(reason) => return check_egress_unknown(builtin, reason),
+    };
+    let mut targets = Vec::new();
+    for url in urls {
+        match git_remote_target(&url) {
+            GitRemote::Local => {}
+            GitRemote::Host { host, ssh } => {
+                let host = if ssh {
+                    ssh_egress_host(builtin, &host)?
+                } else {
+                    host
+                };
+                targets.push(format!("https://{host}"));
+            }
+            GitRemote::Unknown(reason) => return check_egress_unknown(builtin, reason),
+        }
+    }
+    if targets.is_empty() {
+        return Ok(());
+    }
+    check_egress(builtin, &targets)
+}
+
+/// The URLs the working repository's remote resolves to, read from `.git/config`
+/// and `.git/HEAD` found by walking up from the working directory.
+fn git_urls_in_working_repo(push: bool) -> Result<Vec<String>, &'static str> {
+    if GIT_OVERRIDE_VARS
+        .iter()
+        .any(|v| std::env::var_os(v).is_some())
+    {
+        return Err(GIT_ENV_OVERRIDE);
+    }
+    let cwd = std::env::current_dir().map_err(|_| GIT_NO_REPO)?;
+    let git = cwd
+        .ancestors()
+        .map(|d| d.join(".git"))
+        .find(|p| p.exists())
+        .ok_or(GIT_NO_REPO)?;
+    if git.is_file() {
+        return Err(GIT_WORKTREE_FILE);
+    }
+    if !git.is_dir() {
+        return Err(GIT_NO_REPO);
+    }
+    let config = read_git_file(&git.join("config")).ok_or(GIT_CONFIG_UNREADABLE)?;
+    let head = read_git_file(&git.join("HEAD")).ok_or(GIT_HEAD_UNREADABLE)?;
+    git_contact_urls(&config, &head, push)
+}
+
+/// A git file's text, at most 1 MiB. `None` when it cannot be read.
+fn read_git_file(path: &std::path::Path) -> Option<String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).ok()?;
+    let mut buf = Vec::new();
+    file.take(SSH_CONFIG_MAX_BYTES + 1)
+        .read_to_end(&mut buf)
+        .ok()?;
+    if buf.len() as u64 > SSH_CONFIG_MAX_BYTES {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
 /// Judge one redirect hop of a request the gate already admitted.

@@ -49203,6 +49203,7 @@ fn bi_git_remote(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 fn bi_git_fetch(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_fetch", &input)?;
+    crate::safety::check_git_remote_egress("git_fetch", false)?;
     let mut cmd = git_command();
     cmd.args(["fetch"]);
     let output = bounded_cmd_output("git_fetch", "git", cmd, NETWORK_DEADLINE_SECS)?;
@@ -49212,6 +49213,7 @@ fn bi_git_fetch(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 fn bi_git_pull(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_pull", &input)?;
+    crate::safety::check_git_remote_egress("git_pull", false)?;
     let mut cmd = git_command();
     cmd.args(["pull"]);
     let output = bounded_cmd_output("git_pull", "git", cmd, NETWORK_DEADLINE_SECS)?;
@@ -49221,6 +49223,7 @@ fn bi_git_pull(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 fn bi_git_push(_args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     git_refuse_input("git_push", &input)?;
+    crate::safety::check_git_remote_egress("git_push", true)?;
     let mut cmd = git_command();
     cmd.args(["push"]);
     let output = bounded_cmd_output("git_push", "git", cmd, NETWORK_DEADLINE_SECS)?;
@@ -56576,6 +56579,10 @@ fn container_run(
     refuse_pipeline(builtin, input)?;
     let image = str_operand(builtin, "image", args.first())?;
     container_operand(builtin, "image", image)?;
+    // `run` pulls the image when it is not present, from the registry the
+    // reference names (see `image_registry`), so that registry is judged here.
+    // A daemon-level mirror (registry-mirrors in daemon.json) is not read.
+    crate::safety::check_egress(builtin, &[format!("https://{}", image_registry(image))])?;
     let argv = argv_arg(builtin, "command", args.get(1), false)?;
     let flags = match args.get(2) {
         None => Vec::new(),
@@ -72844,6 +72851,13 @@ fn bi_gh_issue(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// gh repo(subcommand, ...): gh repo list or view only. Every subcommand that
 /// changes a repository is refused.
 fn bi_gh_repo_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    // Both verbs (list, view) are GitHub API calls to the host gh is configured
+    // for (GH_HOST, the hosts file), which the arguments do not name, so there is
+    // no local mode to allow.
+    crate::safety::check_egress_unknown(
+        "gh_repo_cmd",
+        "gh contacts the host it is configured for (GH_HOST, the hosts file), not the arguments",
+    )?;
     ops_forge("gh_repo_cmd", "gh", "repo", GH_REPO_VERBS, &args, &input)
 }
 
@@ -72933,6 +72947,12 @@ fn bi_pre_commit_install(args: Vec<Value>, input: Option<Value>) -> Result<Value
 fn bi_buildah_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "buildah_build";
     pkg_shape(B, &args, &input, 2)?;
+    // A build pulls the base images its Dockerfile's FROM lines name, so the
+    // registries are in the build context, not in the arguments.
+    crate::safety::check_egress_unknown(
+        B,
+        "the base images are named in the build context's Dockerfile, not in the arguments",
+    )?;
     let tag = k8s_need(B, "an image tag", &args, 0, ops_image_ref)?;
     let context = k8s_arg(B, "context", &args, 1, ops_scan_dir)?.unwrap_or_else(|| ".".to_string());
     let run = tool_run(
@@ -72983,6 +73003,21 @@ fn bi_buildah_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
 // --- skopeo (1088-1089) ---
 
+/// The skopeo egress rule. Only a `docker://` reference reaches a registry, and
+/// `registries.conf` can redirect a registry to a mirror, which the arguments do
+/// not show. So under an allowlist a `docker://` reference is refused as
+/// destination-unknown, and the local transports (`dir:`, `oci:`, `docker-archive:`,
+/// `oci-archive:`, `docker-daemon:`, `containers-storage:`) pass.
+fn skopeo_registry_egress(builtin: &str, refs: &[&String]) -> Result<()> {
+    if refs.iter().any(|r| r.starts_with("docker://")) {
+        crate::safety::check_egress_unknown(
+            builtin,
+            "skopeo reaches a docker:// registry that registries.conf can redirect to a mirror, not the arguments",
+        )?;
+    }
+    Ok(())
+}
+
 /// skopeo_copy(src, dst): skopeo copy between two transport references. A
 /// registry reference is a network copy; a local transport must name a path
 /// inside the workspace. Runs with a 15 minute deadline.
@@ -72997,6 +73032,7 @@ fn bi_skopeo_copy(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         1,
         ops_transport,
     )?;
+    skopeo_registry_egress(B, &[&src, &dst])?;
     let run = tool_run(
         B,
         "skopeo",
@@ -73017,6 +73053,7 @@ fn bi_skopeo_inspect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "skopeo_inspect";
     pkg_shape(B, &args, &input, 1)?;
     let image = k8s_need(B, "an image transport reference", &args, 0, ops_transport)?;
+    skopeo_registry_egress(B, &[&image])?;
     let run = tool_run(
         B,
         "skopeo",
@@ -73035,6 +73072,16 @@ fn bi_skopeo_inspect(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_trivy_scan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "trivy_scan";
     pkg_shape(B, &args, &input, 1)?;
+    // Trivy downloads its vulnerability database from a repository that is set by
+    // its configuration (TRIVY_DB_REPOSITORY, trivy.yaml), not the arguments, and
+    // it refreshes that database on a schedule. There is no local-only mode.
+    crate::safety::check_egress_unknown(
+        B,
+        "trivy downloads its vulnerability database from a repository set by its configuration, not the arguments",
+    )?;
+    // Trivy downloads its vulnerability database from a repository that is set by
+    // its configuration (TRIVY_DB_REPOSITORY, trivy.yaml), not the arguments, and
+    // it refreshes that database on a schedule. There is no local-only mode.
     let path = k8s_arg(B, "path", &args, 0, ops_scan_dir)?.unwrap_or_else(|| ".".to_string());
     let run = tool_run(
         B,
@@ -73052,6 +73099,12 @@ fn bi_trivy_scan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_trivy_image(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "trivy_image";
     pkg_shape(B, &args, &input, 1)?;
+    // The image is pulled from its registry and the vulnerability database is
+    // downloaded from the configured repository; both are judged as unknown.
+    crate::safety::check_egress_unknown(
+        B,
+        "trivy pulls the image and downloads its vulnerability database from sources set by its configuration",
+    )?;
     let image = k8s_need(B, "an image name", &args, 0, ops_image_ref)?;
     let run = tool_run(
         B,
