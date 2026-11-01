@@ -405,7 +405,10 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "monitor_alert_history" | "monitor_alert_list" | "monitor_dstat" | "monitor_glances"
         | "monitor_health_check" | "monitor_htop" | "monitor_iotop" | "monitor_memory"
         | "monitor_nmon" | "monitor_watch_cpu" | "monitor_watch_disk"
-        | "monitor_watch_memory" => Some(Effect::ReadLocal),
+        | "monitor_watch_memory"
+        // Reads the OS uptime and load average, and the host name, the way
+        // `sys_uptime`, `sys_load_avg` and `sys_hostname` do. No clock-only read.
+        | "monitor_uptime" => Some(Effect::ReadLocal),
         // They write the alert store under the data directory.
         "monitor_alert_create" | "monitor_alert_remove" => Some(Effect::WriteLocal),
         // Reads the user database. It inherited ReadLocal from `sys_users`

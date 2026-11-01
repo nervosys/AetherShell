@@ -755,7 +755,7 @@ monitor_perf_stat	Exec
 monitor_sockets	ReadLocal
 monitor_syslog	ReadLocal
 monitor_tcpdump	Privileged
-monitor_uptime	Pure
+monitor_uptime	ReadLocal
 monitor_users	ReadLocal
 monitor_watch_cpu	ReadLocal
 monitor_watch_disk	ReadLocal

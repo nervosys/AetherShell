@@ -200,7 +200,6 @@ mean
 measure
 measure-object
 min
-monitor_uptime
 nn_create
 nn_crossover
 nn_forward
