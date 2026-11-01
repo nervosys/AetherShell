@@ -1528,10 +1528,20 @@ lazy_static::lazy_static! {
 /// module bindings.
 pub fn env_with_modules() -> Env {
     let mut env = Env::new();
-    for (name, module) in all_modules() {
-        env.register_module(name, module);
+    for (name, module) in module_table() {
+        // A clone, not a shared reference: each Env owns its records, so a
+        // script that reassigns a module or writes into one cannot change the
+        // table that the next eval starts from.
+        env.register_module(name, module.clone());
     }
     env
+}
+
+/// The module table, built once per process. `all_modules()` allocates about
+/// 800 builtin references on every call, and every eval used to pay for them.
+fn module_table() -> &'static [(&'static str, Value)] {
+    static TABLE: std::sync::OnceLock<Vec<(&'static str, Value)>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(all_modules).as_slice()
 }
 
 pub fn all_modules() -> Vec<(&'static str, Value)> {
@@ -1669,6 +1679,30 @@ mod tests {
             "module count changed: update lib.rs, AGENTS.md, README.md and \
              DOCUMENTED_MODULE_COUNT together"
         );
+    }
+
+    /// Two evals each get their own environment, built from one shared module
+    /// table. An overwrite of a module in the first must not reach the second,
+    /// and modules must still resolve when the source is actually evaluated.
+    #[test]
+    fn a_module_overwritten_in_one_env_is_intact_in_the_next() {
+        let mut first = env_with_modules();
+        first.register_module("sys", Value::Int(7));
+        assert_eq!(first.get_var("sys"), Some(&Value::Int(7)));
+
+        let second = env_with_modules();
+        match second.get_var("sys") {
+            Some(Value::Record(m)) => assert!(
+                m.contains_key("hostname"),
+                "sys lost its members in a fresh env"
+            ),
+            other => panic!("sys in a fresh env is not the module record: {other:?}"),
+        }
+
+        let stmts = crate::parser::parse_program("str.upper(\"message\")").unwrap();
+        let mut env = env_with_modules();
+        let value = crate::eval::eval_program(&stmts, &mut env).unwrap();
+        assert_eq!(value, Value::Str("MESSAGE".to_string()));
     }
 
     #[test]
