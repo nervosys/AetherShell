@@ -337,6 +337,48 @@ fn classified_effect(name: &str) -> Option<Effect> {
     match name {
         // Native regex substitution only: no process or file access.
         "sd_replace" => Some(Effect::Pure),
+        // Stated Pure until pure-audit-3, which read each body. ReadLocal: reads
+        // mutable in-process state (a lock, an atomic, a registry), walks a
+        // directory tree, reads the cwd or an environment variable, or stats a
+        // local path. Every alias group is listed whole, so no spelling answers
+        // differently from another.
+        "find"
+        | "pwd"
+        | "is_linux"
+        | "check_permission"
+        | "has_permission"
+        | "get_roles"
+        | "user_roles"
+        | "list_roles"
+        | "roles_list"
+        | "check_compliance"
+        | "compliance_check"
+        | "compliance_report"
+        | "generate_compliance"
+        | "feature_enabled"
+        | "has_feature"
+        | "features"
+        | "feature_list"
+        | "marketplace_list"
+        | "mcp_cache_status"
+        | "mcp-cache-status"
+        | "safety_status"
+        | "governor_status"
+        | "sess_usage"
+        | "session_id" => Some(Effect::ReadLocal),
+        // WriteLocal: changes an in-process table (session store, caches, the
+        // MCP cache, a counter) or the journal directory. A process-memory
+        // change is not restored by a rollback, so these are HARMLESS in
+        // tests/tx_irreversible.rs; try_repair takes and restores its own
+        // savepoint (SELF_COVERED there).
+        "try_repair"
+        | "sess_open"
+        | "sess_close"
+        | "session_start"
+        | "mcp_cache_clear"
+        | "mcp-cache-clear"
+        | "semantic_cache_get"
+        | "cache_get" => Some(Effect::WriteLocal),
         // The privilege boundary itself. `decide(Privileged, Agent)` is `Deny`,
         // and until these names arrived the class governed nothing: every other
         // privilege-shaped builtin in the catalog (`sudo_exec`, `user_add`,

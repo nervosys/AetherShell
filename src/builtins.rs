@@ -9495,7 +9495,13 @@ fn bi_from_json(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         // an error (the text is not JSON), but the repair is mechanical, so
         // the hint names it.
         let path = json_str.trim();
-        if !path.is_empty() && path.len() < 4096 && std::path::Path::new(path).is_file() {
+        // is_file() is a stat, and on Windows a stat of `\\host\share` opens an
+        // SMB session, so a remote-share string is never probed (as in lsof).
+        if !path.is_empty()
+            && path.len() < 4096
+            && !crate::safety::names_a_remote_share(path)
+            && std::path::Path::new(path).is_file()
+        {
             return anyhow::Error::new(crate::safety::SafetyError {
                 code: crate::safety::ErrorCode::BadArg,
                 message: format!("from_json: {path:?} is a file name, not JSON text"),

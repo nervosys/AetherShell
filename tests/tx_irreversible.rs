@@ -60,6 +60,8 @@ const HARMLESS: &[(&str, &[&str])] = &[
             "ai_local_unload", "cache_ai", "cache_clear_ai", "cd", "env_set", "env_unset", "feature_disable",
             "feature_enable", "feature_set", "set_env", "telemetry_disable", "telemetry_enable",
             "telemetry_reset",
+            "cache_get", "mcp-cache-clear", "mcp_cache_clear", "semantic_cache_get",
+            "session_start", "sess_close", "sess_open",
         ],
     ),
     (
@@ -139,6 +141,10 @@ const SELF_COVERED: &[(&str, &str)] = &[
     ("svc_create", "refuses (services.rs)"),
     ("svc_delete", "refuses (services.rs)"),
     ("touch", "snapshots (builtins.rs)"),
+    (
+        "try_repair",
+        "savepoint, rolled back on failure (builtins.rs)",
+    ),
     (
         "user_add",
         "refuses (accounts.rs, accounts/windows.rs, accounts/macos.rs)",
