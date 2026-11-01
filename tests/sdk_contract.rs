@@ -47,3 +47,30 @@ fn the_flags_the_sdk_passes_actually_work() {
         "the SDK parses this with json.loads, so it must be canonical JSON"
     );
 }
+
+/// The LangChain tool text is read by a model, which then calls those names.
+/// It said `read_file`, which no builtin answers to.
+#[test]
+fn the_tools_the_langchain_text_names_exist() {
+    const LANGCHAIN: &str = include_str!("../integrations/python/python/ironshell/langchain.py");
+
+    let between = |start: &str, end: &str| -> String {
+        let (_, rest) = LANGCHAIN
+            .split_once(start)
+            .unwrap_or_else(|| panic!("langchain.py no longer contains {start:?}"));
+        rest.split(end).next().unwrap().to_string()
+    };
+    let listed = between("use tools like ", ". ") + ", " + &between("(e.g., [", "]");
+
+    let names: Vec<&str> = listed
+        .split(", ")
+        .map(|name| name.trim_matches('\''))
+        .collect();
+    assert!(names.len() >= 4, "parsed too few names: {names:?}");
+    for name in names {
+        assert!(
+            iron_shell::builtins::is_dispatched(name),
+            "langchain.py tells the model to call `{name}`, which is not a builtin"
+        );
+    }
+}

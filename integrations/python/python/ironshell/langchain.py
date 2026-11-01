@@ -293,7 +293,7 @@ if LANGCHAIN_AVAILABLE:
         goal: str = Field(description="Goal for the agent to accomplish")
         tools: List[str] = Field(
             default=[],
-            description="Tools the agent can use (e.g., ['http_get', 'read_file'])"
+            description="Tools the agent can use (e.g., ['http_get', 'read_text'])"
         )
 
 
@@ -309,7 +309,7 @@ if LANGCHAIN_AVAILABLE:
         name: str = "ironshell_agent"
         description: str = (
             "Run an AI agent with tools to accomplish a goal. "
-            "The agent will reason and use tools like http_get, read_file, write_file. "
+            "The agent will reason and use tools like http_get, read_text, write_file. "
             "Example: goal='Find Python docs homepage', tools=['http_get']"
         )
         args_schema: Type[BaseModel] = IronShellAgentInput
