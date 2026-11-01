@@ -20177,27 +20177,27 @@ pub fn render_agent(v: &Value, budget: Option<usize>) -> Option<String> {
     // Scrub secret shapes from the value before it enters the agent's context
     // window (§7.6). Agent-path only — the human pretty-printer keeps full
     // fidelity. Opt out with IRONSHELL_REDACT=off.
-    let redacted;
+    // Owned when redacted, so a handle can take it without a copy. With
+    // redaction off the caller's value is borrowed and a handle copies it once.
     let v = if crate::safety::redaction_enabled() {
-        redacted = redact_value(v);
-        &redacted
+        std::borrow::Cow::Owned(redact_value(v))
     } else {
-        v
+        std::borrow::Cow::Borrowed(v)
     };
-    match v {
+    match v.as_ref() {
         Value::Null => None,
         Value::Str(s) => Some(s.clone()),
         _ => {
             let full = match budget {
-                Some(max) if max > 0 => render_budget_envelope(&budget_value(v, max, 0)),
-                _ => aecon_render(v),
+                Some(max) if max > 0 => render_budget_envelope(&budget_value(v.as_ref(), max, 0)),
+                _ => aecon_render(v.as_ref()),
             };
             // A result too large to be worth sending whole is kept server-side
             // and referenced instead. The agent narrows it down with a pipeline
             // and only the small answer crosses back — the saving no encoder can
             // reach, because it is the bytes never sent.
-            if crate::handles::worth_handling(v, full.len()) {
-                match render_handle(v, full.len()) {
+            if crate::handles::worth_handling(v.as_ref(), full.len()) {
+                match render_handle(v.into_owned(), full.len()) {
                     Ok(handle) => Some(handle),
                     // At the handle cap the result is not sent: it is over the
                     // budget, which is why it was being handled. The refusal says
@@ -20418,10 +20418,10 @@ fn bi_handle_drop(args: Vec<Value>) -> Result<Value> {
 /// These builtins are reachable but not in the ontology listing, so the call
 /// site teaches itself at the moment it is needed, which beats requiring a
 /// discovery round-trip to learn how to avoid a discovery round-trip.
-fn render_handle(v: &Value, full_bytes: usize) -> anyhow::Result<String> {
-    let h = crate::handles::put(v.clone(), full_bytes)?;
-    let preview = crate::handles::preview_of(v);
-    let omitted = crate::handles::omitted(v);
+fn render_handle(v: Value, full_bytes: usize) -> anyhow::Result<String> {
+    let preview = crate::handles::preview_of(&v);
+    let omitted = crate::handles::omitted(&v);
+    let h = crate::handles::put(v, full_bytes)?;
     let mut out = String::new();
     out.push_str(&format!("@handle {}\n", h.id));
     out.push_str(&format!("@shape {}\n", h.shape));

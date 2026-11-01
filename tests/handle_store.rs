@@ -156,3 +156,36 @@ fn an_id_that_is_not_a_handle_never_reaches_the_file_system() {
     );
     assert!(handles::get(&id).is_none());
 }
+
+#[test]
+fn a_handled_result_stores_the_redacted_form() {
+    // What the agent is shown is the redacted value; a handle that kept the raw
+    // value would hand a secret back to the next call. The rows are large
+    // enough to be handled, and carry a secret-named field.
+    let _session = Session::new("redacted");
+    let rows: Vec<Value> = (0..2000)
+        .map(|i| {
+            let mut row = std::collections::BTreeMap::new();
+            row.insert("id".to_string(), Value::Int(i));
+            row.insert("password".to_string(), Value::Str("hunter2-secret".into()));
+            Value::Record(row)
+        })
+        .collect();
+    let raw = Value::Array(rows);
+
+    let rendered = iron_shell::builtins::render_agent(&raw, None).expect("a rendered result");
+    let id = rendered
+        .lines()
+        .find_map(|line| line.strip_prefix("@handle "))
+        .expect("the large result is handled")
+        .trim()
+        .to_string();
+
+    let stored = handles::get(&id).expect("the handle resolves");
+    assert_ne!(stored, raw, "the handle kept the raw value");
+    assert_eq!(
+        stored,
+        iron_shell::builtins::redact_value(&raw),
+        "the stored value must be the redacted form"
+    );
+}
