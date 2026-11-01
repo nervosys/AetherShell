@@ -193,9 +193,44 @@ fn pkg_fail_closed_cases() -> Vec<(&'static str, Vec<Value>)> {
     ]
 }
 
+/// Builtins that fetch from a registry, a module proxy or a remote import, where
+/// the registry is set by the project's or the tool's configuration. Found by
+/// listing every Network or Exec builtin that installs, builds or runs against a
+/// remote source. Under an allowlist each is refused before anything runs.
+fn registry_mirror_cases() -> Vec<(&'static str, Vec<Value>)> {
+    vec![
+        ("uv_run", vec![s("main.py")]),
+        ("cargo_build_cmd", vec![]),
+        ("cargo_test_cmd", vec![]),
+        ("cargo_run", vec![]),
+        ("go_build", vec![]),
+        ("go_test", vec![]),
+        ("go_run", vec![s(".")]),
+        ("deno_run", vec![s("main.ts")]),
+        ("mise_use", vec![s("node@20")]),
+        ("pre_commit_run", vec![]),
+    ]
+}
+
 /// Local queries of the same builtins: an allowlist does not refuse them.
 fn local_query_cases() -> Vec<(&'static str, Vec<Value>)> {
+    // `helm_repos` reads only helm's own config file, but it is classed Network
+    // in the effect table, so the central guard refuses it under an allowlist.
+    // That is an existing over-refusal, not a leak, and is not changed here.
     vec![("terraform_workspace", vec![])]
+}
+
+/// The git builtins that contact a remote take no remote name or URL: they fetch
+/// from the default remote that `.git/config` names. The central guard judges
+/// their (empty) argument list, and with no host to judge it refuses them under
+/// an allowlist. The refusal comes from `guard`, not `check_egress_unknown`, so
+/// its message does not carry the allowlist suffix.
+fn git_remote_cases() -> Vec<(&'static str, Vec<Value>)> {
+    vec![
+        ("git_fetch", vec![]),
+        ("git_pull", vec![]),
+        ("git_push", vec![]),
+    ]
 }
 
 #[test]
@@ -244,6 +279,7 @@ fn no_allowlist_means_no_refusal_by_this_check() {
         .into_iter()
         .chain(on_list_cases())
         .chain(fail_closed_cases())
+        .chain(registry_mirror_cases())
     {
         let r = call(name, args);
         assert!(
@@ -260,6 +296,7 @@ fn undeterminable_destinations_fail_closed_under_an_allowlist_and_say_why() {
     for (name, args) in fail_closed_cases()
         .into_iter()
         .chain(pkg_fail_closed_cases())
+        .chain(registry_mirror_cases())
     {
         let r = call(name, args);
         let (code, message) = egress_refusal(&r)
@@ -361,6 +398,44 @@ fn add_source_with_update_is_refused_before_the_file_is_written() {
         message.starts_with("pkg_add_source: egress denied"),
         "{message}"
     );
+}
+
+/// git_fetch, git_pull and git_push reach the remote in `.git/config`, which the
+/// call does not name. Under an allowlist they are refused before git runs. The
+/// refusal is "could not be determined", not an off-list host, because the
+/// destination is not in the arguments.
+#[test]
+fn git_remote_builtins_are_refused_under_an_allowlist() {
+    let _g = lock();
+    let _e = Egress::new("git_remote", Some("example.com"));
+    for (name, args) in git_remote_cases() {
+        let r = call(name, args);
+        let (code, message) = egress_refusal(&r)
+            .unwrap_or_else(|| panic!("{name} must be refused under an allowlist; got {r:?}"));
+        assert_eq!(code, ErrorCode::PolicyDeny, "{name}");
+        assert!(
+            message.starts_with(&format!("{name}: egress denied")),
+            "{name}: {message}"
+        );
+        assert!(
+            message.contains("could not be determined"),
+            "{name}: the refusal says the destination is unknown: {message}"
+        );
+    }
+}
+
+/// The same git builtins with a wildcard allowlist are not refused by this check.
+#[test]
+fn git_remote_builtins_pass_a_wildcard_allowlist() {
+    let _g = lock();
+    let _e = Egress::new("git_star", Some("*"));
+    for (name, args) in git_remote_cases() {
+        let r = call(name, args);
+        assert!(
+            !refused_by_egress(&r),
+            "{name} under `*` must pass the egress check; got {r:?}"
+        );
+    }
 }
 
 /// `pkg_changelog` takes a package name, which is not a host. The dispatcher used

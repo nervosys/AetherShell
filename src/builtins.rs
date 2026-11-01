@@ -62232,6 +62232,11 @@ fn bi_ssh_tunnel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ssh_target_arg("ssh_tunnel", "ssh_host", &ssh_host)?;
     // Both named hosts are judged: ssh_host is connected to, and remote_host is
     // the destination the forward reaches through it. Each is judged by its name.
+    // remote_host is not passed through `ssh_egress_host`, on purpose: in
+    // `ssh -L port:remote_host:port host` the far end opens the connection to
+    // remote_host with its own resolver, so the local ~/.ssh/config (which only
+    // rewrites the destination ssh itself connects to) has no bearing on it.
+    // The name as written is what the server will be asked to reach.
     let ssh_egress = crate::safety::ssh_egress_host("ssh_tunnel", &ssh_host)?;
     crate::safety::check_egress("ssh_tunnel", &[ssh_egress, remote_host.clone()])?;
     // Checked above to be in 1..=65535.
@@ -72062,6 +72067,12 @@ fn bi_asdf_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// not changed here.
 fn bi_mise_use(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     k8s_no_input("mise_use", &input)?;
+    // `mise use` installs the tool version, which is fetched from a source the
+    // mise configuration or the tool's plugin names, not the argument.
+    crate::safety::check_egress_unknown(
+        "mise_use",
+        "mise installs the tool from a source set by its plugins and configuration, not the arguments",
+    )?;
     let tool = k8s_need("mise_use", "tool@version", &args, 0, devtool_tool_spec)?;
     let cwd = devtool_cwd("mise_use")?;
     workspace_path("mise_use", ".", &cwd)?;
@@ -72378,6 +72389,12 @@ fn pkg_named(
 fn bi_uv_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "uv_run";
     k8s_no_input(B, &input)?;
+    // `uv run` syncs the project's dependencies first, from the index uv's own
+    // configuration names (a uv.toml or UV_INDEX_URL can redirect it).
+    crate::safety::check_egress_unknown(
+        B,
+        "uv run installs the project's dependencies from an index set by uv's configuration, not the arguments",
+    )?;
     let script = k8s_need(B, "a script or command", &args, 0, pkg_name)?;
     let mut argv = vec!["run".to_string(), script];
     argv.extend(pkg_trailing(B, args.get(1..).unwrap_or(&[]))?);
@@ -72569,10 +72586,17 @@ fn bi_yarn_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // --- cargo (1065-1067) ---
 
+/// Why a cargo build, test or run is refused under an allowlist: it fetches
+/// crates, and the registry is set by `.cargo/config.toml` (source replacement
+/// and mirrors), not by the arguments. Also `CARGO_REGISTRIES_*` in the environment.
+const CARGO_EGRESS_REASON: &str =
+    "cargo fetches crates from a registry set by cargo's configuration, not the arguments";
+
 /// cargo run — Run a Rust project.
 fn bi_cargo_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "cargo_run";
     k8s_no_input(B, &input)?;
+    crate::safety::check_egress_unknown(B, CARGO_EGRESS_REASON)?;
     let (release, rest) = pkg_release(&args);
     let program_args = pkg_each(B, "argument", rest, pkg_plain)?;
     let mut argv: Vec<&str> = vec!["run"];
@@ -72591,6 +72615,7 @@ fn bi_cargo_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_cargo_build_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "cargo_build_cmd";
     pkg_shape(B, &args, &input, 1)?;
+    crate::safety::check_egress_unknown(B, CARGO_EGRESS_REASON)?;
     let release = match args.first() {
         None => false,
         Some(Value::Str(s)) if s == "--release" => true,
@@ -72618,6 +72643,7 @@ fn bi_cargo_build_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_cargo_test_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "cargo_test_cmd";
     k8s_no_input(B, &input)?;
+    crate::safety::check_egress_unknown(B, CARGO_EGRESS_REASON)?;
     let (release, rest) = pkg_release(&args);
     k8s_max_args(B, rest, 1)?;
     let filter = pkg_each(B, "test name", rest, pkg_plain)?;
@@ -72671,10 +72697,16 @@ fn bi_rustup_update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 // --- go (1070-1072) ---
 
+/// Why a go build, test or run is refused under an allowlist: it downloads
+/// modules through GOPROXY (and GOFLAGS, go.env), which the arguments do not name.
+const GO_EGRESS_REASON: &str =
+    "go fetches modules through GOPROXY, which is set by the environment or go env, not the arguments";
+
 /// go run — Run a Go program.
 fn bi_go_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "go_run";
     pkg_shape(B, &args, &input, 1)?;
+    crate::safety::check_egress_unknown(B, GO_EGRESS_REASON)?;
     let target = pkg_path_arg(B, &args, 0, ".")?;
     let run = pkg_run(B, "go", &["run", target.as_str()], TOOL_LONG_DEADLINE_SECS)?;
     pkg_done(B, run, Vec::new())
@@ -72684,6 +72716,7 @@ fn bi_go_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_go_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "go_build";
     k8s_no_input(B, &input)?;
+    crate::safety::check_egress_unknown(B, GO_EGRESS_REASON)?;
     let packages = pkg_each(B, "package", &args, pkg_go_target)?;
     let mut argv: Vec<&str> = vec!["build"];
     argv.extend(packages.iter().map(String::as_str));
@@ -72695,6 +72728,7 @@ fn bi_go_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_go_test(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "go_test";
     pkg_shape(B, &args, &input, 1)?;
+    crate::safety::check_egress_unknown(B, GO_EGRESS_REASON)?;
     let target = pkg_path_arg(B, &args, 0, "./...")?;
     let run = pkg_run(
         B,
@@ -72739,6 +72773,12 @@ fn bi_bun_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_deno_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "deno_run";
     pkg_shape(B, &args, &input, 1)?;
+    // Remote imports are fetched without a permission prompt, from URLs the
+    // script names, and an import map or DENO_* setting can redirect them.
+    crate::safety::check_egress_unknown(
+        B,
+        "deno fetches remote imports named by the script and its import map, not the arguments",
+    )?;
     let script = k8s_need(B, "a script path", &args, 0, pkg_deno_script)?;
     // --no-prompt: a permission the script lacks is an error, never a prompt
     // on a closed stdin. No permission is granted.
@@ -72827,6 +72867,11 @@ fn bi_act_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_pre_commit_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "pre_commit_run";
     pkg_shape(B, &args, &input, 1)?;
+    // The first run clones each hook repository named in .pre-commit-config.yaml.
+    crate::safety::check_egress_unknown(
+        B,
+        "pre-commit clones the hook repositories named by the project's config, not the arguments",
+    )?;
     let all = matches!(args.first(), Some(Value::Str(s)) if s == "--all-files");
     let hook = if all {
         None
