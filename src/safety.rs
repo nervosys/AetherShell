@@ -4784,22 +4784,24 @@ fn read_ssh_config() -> Result<Option<String>, &'static str> {
     Ok(Some(String::from_utf8_lossy(&buf).into_owned()))
 }
 
-/// What `~/.ssh/config` makes `name` connect to. `Ok(Some(host))` is the first
-/// HostName that applies to `name`; `Ok(None)` means ssh judges the name as
-/// written (no block names it, or the block sets no HostName). `Err` says why the
-/// destination cannot be read from this text: an `Include`, a `Match`, a
-/// `ProxyJump` or `ProxyCommand` anywhere in the file, a wildcard `Host` pattern
-/// that matches `name`, or a HostName with a `%` token. Keywords are
-/// case-insensitive, `key value` and `key=value` both parse, and a line starting
-/// with `#` is a comment. The text is pure input, so tests can pass strings, and
-/// it is never echoed back.
+/// What `~/.ssh/config` makes `name` connect to. A `Host` block counts only when
+/// it applies to `name`: a pattern matches it and no negated pattern excludes it.
+/// `Ok(Some(host))` is the first HostName that applies; `Ok(None)` means ssh
+/// judges the name as written (no applying block sets a HostName). `Err` says why
+/// the destination cannot be read from this text: an `Include` or `Match` anywhere
+/// in the file (either can change what applies); a `ProxyJump` or `ProxyCommand`
+/// in an applying block; a HostName in an applying wildcard block; or a HostName
+/// with a `%` token. Options that do not change the destination (User,
+/// ServerAliveInterval) are ignored. Keywords are case-insensitive, `key value`
+/// and `key=value` both parse, and a line starting with `#` is a comment. The
+/// text is pure input, so tests can pass strings, and it is never echoed back.
 pub fn ssh_config_destination(config: &str, name: &str) -> Result<Option<String>, &'static str> {
     const INCLUDE: &str = "~/.ssh/config has an Include, so the host it reaches cannot be read";
     const MATCH: &str = "~/.ssh/config has a Match block, so the host it reaches cannot be read";
     const PROXY: &str =
-        "~/.ssh/config has a ProxyJump or ProxyCommand, so the host it reaches cannot be read";
+        "~/.ssh/config has a ProxyJump or ProxyCommand that applies to this host, so the host it reaches cannot be read";
     const WILDCARD: &str =
-        "~/.ssh/config has a wildcard Host pattern that matches this host, so the host it reaches cannot be read";
+        "~/.ssh/config sets HostName in a wildcard Host block that applies to this host, so the host it reaches cannot be read";
     const TOKEN: &str =
         "the HostName in ~/.ssh/config is empty or uses a % token, so the host it reaches cannot be read";
 
@@ -4807,6 +4809,8 @@ pub fn ssh_config_destination(config: &str, name: &str) -> Result<Option<String>
     // Options before the first `Host` line apply to every name, so the block
     // starts out applying.
     let mut applies = true;
+    // Whether the current block applies to `name` through a wildcard pattern.
+    let mut block_wildcard = false;
     let mut resolved: Option<String> = None;
     for raw in config.lines() {
         let line = raw.trim();
@@ -4823,7 +4827,7 @@ pub fn ssh_config_destination(config: &str, name: &str) -> Result<Option<String>
         match key.as_str() {
             "include" => return Err(INCLUDE),
             "match" => return Err(MATCH),
-            "proxyjump" | "proxycommand" => return Err(PROXY),
+            "proxyjump" | "proxycommand" if applies => return Err(PROXY),
             "host" => {
                 let mut positive = false;
                 let mut negated = false;
@@ -4840,11 +4844,12 @@ pub fn ssh_config_destination(config: &str, name: &str) -> Result<Option<String>
                     }
                 }
                 applies = positive && !negated;
-                if applies && wildcard {
-                    return Err(WILDCARD);
-                }
+                block_wildcard = applies && wildcard;
             }
             "hostname" if applies => {
+                if block_wildcard {
+                    return Err(WILDCARD);
+                }
                 let host = value.trim_matches('"').trim();
                 if host.is_empty() || host.contains('%') {
                     return Err(TOKEN);

@@ -479,10 +479,50 @@ fn a_block_without_a_hostname_judges_the_name_as_written() {
 fn a_wildcard_host_that_matches_the_name_fails_closed() {
     let cfg = "Host *.internal\n    HostName 10.0.0.9\n";
     assert!(resolve(cfg, "db.internal").is_err());
-    // `Host *` matches every name, including one the file never mentions.
-    assert!(resolve("Host *\n    User ops\n", "prod").is_err());
     // A wildcard that does not match the name does not apply to it.
     assert_eq!(resolve(cfg, "db.example.com"), Ok(None));
+    // `Host *` applies to every name, but only HostName, ProxyJump and
+    // ProxyCommand in it change the destination.
+    assert!(resolve("Host *\n    HostName evil.example\n", "prod").is_err());
+}
+
+#[test]
+fn a_harmless_wildcard_block_does_not_fail_closed() {
+    // The common `Host *` block changes nothing about the destination.
+    assert_eq!(
+        resolve("Host *\n    ServerAliveInterval 60\n", "prod"),
+        Ok(None)
+    );
+    assert_eq!(resolve("Host *\n    User ops\n", "prod"), Ok(None));
+    // A later exact block still supplies the HostName.
+    assert_eq!(
+        resolve(
+            "Host *\n    ServerAliveInterval 60\nHost prod\n    HostName real.example\n",
+            "prod"
+        ),
+        Ok(Some("real.example".to_string()))
+    );
+}
+
+#[test]
+fn a_wildcard_block_with_proxyjump_fails_closed_for_names_it_applies_to() {
+    assert!(resolve("Host *\n    ProxyJump bastion\n", "prod").is_err());
+    assert!(resolve("Host *\n    ProxyCommand nc %h %p\n", "prod").is_err());
+}
+
+#[test]
+fn a_proxyjump_in_a_block_for_another_name_does_not_affect_this_one() {
+    assert_eq!(
+        resolve("Host other\n    ProxyJump bastion\n", "prod"),
+        Ok(None)
+    );
+    assert_eq!(
+        resolve(
+            "Host other\n    ProxyJump bastion\nHost prod\n    HostName a.example\n",
+            "prod"
+        ),
+        Ok(Some("a.example".to_string()))
+    );
 }
 
 #[test]
@@ -492,19 +532,13 @@ fn a_negated_pattern_excludes_the_name_from_its_block() {
 }
 
 #[test]
-fn proxyjump_and_proxycommand_fail_closed_wherever_they_sit() {
+fn proxyjump_and_proxycommand_fail_closed_in_a_block_that_applies() {
     assert!(resolve(
         "Host prod\n    HostName a.example\n    ProxyJump bastion\n",
         "prod"
     )
     .is_err());
     assert!(resolve("Host prod\n    ProxyCommand nc %h %p\n", "prod").is_err());
-    // Anywhere in the file, even in a block for another name.
-    assert!(resolve(
-        "Host other\n    ProxyJump bastion\nHost prod\n    HostName a.example\n",
-        "prod"
-    )
-    .is_err());
 }
 
 #[test]
