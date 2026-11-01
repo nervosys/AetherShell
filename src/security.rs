@@ -312,6 +312,23 @@ fn path_matches_blocked_pattern(path: &str, pattern: &str) -> bool {
         .is_some_and(|n| n.to_string_lossy() == pat)
 }
 
+/// The host a UNC string (`\\host\share`, `//host/share`) names, when it is a
+/// plain DNS or NetBIOS label. `None` for anything else, such as a device
+/// path (`\\.\C:`, `\\?\UNC\...`) or a host carrying `@`, `:` or `\`, whose
+/// host cannot be read reliably. The caller then fails closed.
+fn remote_share_host(path: &str) -> Option<String> {
+    let host = path
+        .trim_start_matches(['\\', '/'])
+        .split(['\\', '/'])
+        .next()
+        .unwrap_or("");
+    let plain = !host.is_empty()
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
+    (plain && host != ".").then(|| host.to_string())
+}
+
 pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     // Basic validation
     if path.is_empty() {
@@ -354,6 +371,19 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
              (CWE-1007 spoofing)",
             &format!("one containing U+{:04X}", c as u32),
         ));
+    }
+
+    // A UNC or device string names a host, and `exists()` on it opens an SMB
+    // session to that host. The egress allowlist is judged here, before any
+    // file system call. With no allowlist, `check_egress*` returns Ok at once.
+    if crate::safety::names_a_remote_share(path) {
+        match remote_share_host(path) {
+            Some(host) => crate::safety::check_egress("path", &[format!("smb://{host}")])?,
+            None => crate::safety::check_egress_unknown(
+                "path",
+                "the host of this UNC or device path could not be read from it",
+            )?,
+        }
     }
 
     let config = PATH_CONFIG

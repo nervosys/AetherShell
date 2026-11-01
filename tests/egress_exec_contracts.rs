@@ -390,3 +390,37 @@ fn pkg_changelog_refuses_dotted_and_undotted_names_alike_under_an_allowlist() {
         "a dotted and an undotted package name must get the same refusal"
     );
 }
+
+/// A UNC string names a host, and asking the file system about it opens an SMB
+/// session to that host. Under an allowlist that excludes the host, `find`
+/// (which hands its string straight to `validate_read_path`) must refuse it with
+/// `PolicyDeny` before any probe. `.invalid` never resolves, so a probe that got
+/// through would stall for seconds; the call must return well under that.
+/// `cat` and `ls` stat their argument before the path check and are not covered
+/// here (see the report on the call sites).
+#[cfg(windows)]
+#[test]
+fn a_unc_path_is_judged_by_its_host_before_anything_probes_it() {
+    let _g = lock();
+    let _e = Egress::new("unc", Some("example.com"));
+    for path in [
+        r"\\unreachable.invalid\share\x",
+        "//unreachable.invalid/share/x",
+    ] {
+        let started = std::time::Instant::now();
+        let r = call("find", vec![s(path)]);
+        let elapsed = started.elapsed();
+        let (code, message) = egress_refusal(&r).unwrap_or_else(|| {
+            panic!("find {path:?} must be refused by the egress check; got {r:?}")
+        });
+        assert_eq!(code, ErrorCode::PolicyDeny, "find {path:?}");
+        assert!(
+            message.contains("unreachable.invalid") && message.contains("not in the allowlist"),
+            "find {path:?}: the refusal names the host: {message}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "find {path:?}: refused after {elapsed:?}; a probe reached the network"
+        );
+    }
+}
