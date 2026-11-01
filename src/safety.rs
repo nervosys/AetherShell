@@ -4616,6 +4616,13 @@ fn egress_denied(
     }
 }
 
+/// `Network` builtins whose string arguments are not hosts, so the dispatcher's
+/// egress step must not judge them. Each one makes the destination-unknown check
+/// itself (see [`check_egress_unknown`]), the way the package fetches do. Unlike
+/// `SELF_GUARDED` this skips only the egress step: the governor, audit, and
+/// approval checks still run centrally.
+const EGRESS_JUDGED_BY_BODY: &[&str] = &["pkg_changelog"];
+
 /// Egress allowlist for an `Exec`-class builtin whose destination is named in its
 /// arguments: `targets` are judged by [`egress_permitted`], exactly as a
 /// `Network` builtin's targets are in [`guard`]. A no-op unless
@@ -4953,7 +4960,12 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
 
     // 1b. Egress allowlist. Before RBAC for the same reason as the jail: an
     //     operator-configured boundary is not something a role escapes.
-    if ctx.effect == Effect::Network && !policy_permissive() {
+    //     A builtin in `EGRESS_JUDGED_BY_BODY` is exempt: its argument is not a
+    //     host (a package name), and its body makes the destination-unknown check.
+    if ctx.effect == Effect::Network
+        && !policy_permissive()
+        && !EGRESS_JUDGED_BY_BODY.contains(&ctx.builtin)
+    {
         if let Some(allow) = net_allowlist() {
             if let Err(detail) = egress_permitted(&ctx.targets, &allow) {
                 return Err(egress_denied(

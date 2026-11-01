@@ -356,3 +356,37 @@ fn add_source_with_update_is_refused_before_the_file_is_written() {
         "{message}"
     );
 }
+
+/// `pkg_changelog` takes a package name, which is not a host. The dispatcher used
+/// to judge that name as a host, so an allowlist naming a dotted name such as
+/// `python3.11` let the call through to apt, while an undotted name was refused.
+/// The body now makes the destination-unknown check, so both names are refused
+/// with the same reason before any package manager is detected. Only the refusal
+/// is asserted, and only under an allowlist: without one the apt path would
+/// really fetch a changelog.
+#[test]
+fn pkg_changelog_refuses_dotted_and_undotted_names_alike_under_an_allowlist() {
+    let _g = lock();
+    let _e = Egress::new("changelog", Some("python3.11"));
+    let mut reasons = Vec::new();
+    for name in ["python3.11", "bash"] {
+        let r = call("pkg_changelog", vec![s(name)]);
+        let (code, message) = egress_refusal(&r).unwrap_or_else(|| {
+            panic!("pkg_changelog {name} must be refused under an allowlist; got {r:?}")
+        });
+        assert_eq!(code, ErrorCode::PolicyDeny, "pkg_changelog {name}");
+        assert!(
+            message.starts_with("pkg_changelog: egress denied"),
+            "pkg_changelog {name}: {message}"
+        );
+        assert!(
+            message.contains("an allowlist is set, so the call is refused"),
+            "pkg_changelog {name}: {message}"
+        );
+        reasons.push(message.replace(name, "<package>"));
+    }
+    assert_eq!(
+        reasons[0], reasons[1],
+        "a dotted and an undotted package name must get the same refusal"
+    );
+}

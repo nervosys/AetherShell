@@ -35702,6 +35702,10 @@ fn bi_pkg_changelog(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     k8s_no_input(B, &input)?;
     k8s_max_args(B, &args, 1)?;
     let package = k8s_need(B, "a package name", &args, 0, pkg_plain)?;
+    // The package name is not a host, so the dispatcher does not judge it (see
+    // EGRESS_JUDGED_BY_BODY). The destination is the configured repository, which
+    // the arguments do not name: fail closed under an allowlist, as pkg_install does.
+    crate::safety::check_egress_unknown(B, PKG_EGRESS_REASON)?;
     let program = match detect_package_manager() {
         "apt" => "apt-get",
         other => return Err(pkg_unsupported(B, other)),
