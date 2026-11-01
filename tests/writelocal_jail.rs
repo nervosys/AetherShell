@@ -246,9 +246,14 @@ fn the_number_of_writelocal_builtins_relying_on_call_sites_is_measured() {
         // finetune_cancel and its alias cancel_finetune. Each writes only a
         // process-static table (A2A_REGISTRY, A2A_MESSAGES, NANDA_PROPOSALS,
         // DISTRIBUTED_JOBS, FINETUNE_JOBS) and takes no caller path.
-        unguarded.len() <= 142,
+        // 150 after the stated-Pure audit (2026-11-01): the 8 names added are
+        // try_repair, sess_open, sess_close, session_start, mcp_cache_clear and
+        // its hyphenated alias, semantic_cache_get and its alias cache_get. Each
+        // changes process memory, or a transaction in try_repair, and takes no
+        // caller path to write.
+        unguarded.len() <= 150,
         "{} of {} WriteLocal builtins are not in SELF_GUARDED, up from the \
-         measured 142. Nothing in `guard_dispatch` jails them, so a new one that \
+         measured 150. Nothing in `guard_dispatch` jails them, so a new one that \
          writes a caller's path must guard it in its body. Adding another is \
          allowed; letting the number grow silently is not.",
         unguarded.len(),
