@@ -210,3 +210,37 @@ fn the_binding_property_that_does_hold_still_holds() {
          content-binding property §7.2 claims, and it holds"
     );
 }
+
+#[test]
+fn an_agent_cannot_reset_its_own_governor_budget() {
+    // governor_reset clears the op/file/proc/net counters and the wall-clock start
+    // the governor enforces, so an agent that could call it would have no budget.
+    // The refusal is in the body, as approve's is; the limits are set before launch.
+    let _g = lock();
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    let r = call("governor_reset", vec![]);
+    std::env::remove_var("IRONSHELL_MODE");
+
+    let e = r.expect_err("an agent's governor_reset must be refused");
+    assert_eq!(
+        e.downcast_ref::<safety::SafetyError>().map(|s| s.code),
+        Some(safety::ErrorCode::PolicyDeny),
+        "the refusal is the body's PolicyDeny: {e:#}"
+    );
+    let text = format!("{e:#}").to_ascii_lowercase();
+    assert!(
+        text.contains("own budget") && text.contains("ironshell_max_ops"),
+        "the refusal should say why and name the limits to raise before launch: {text}"
+    );
+}
+
+#[test]
+fn a_human_can_still_reset_the_governor() {
+    let _g = lock();
+    std::env::remove_var("IRONSHELL_MODE");
+    let r = call("governor_reset", vec![]);
+    assert!(
+        matches!(r, Ok(Value::Bool(true))),
+        "human mode must still reset the governor: {r:?}"
+    );
+}

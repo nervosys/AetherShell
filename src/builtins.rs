@@ -21247,7 +21247,28 @@ fn bi_governor_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 /// governor_reset() - Reset the resource-governor counters and wall-clock start,
 /// beginning a fresh envelope (e.g. after deliberately raising a limit or at a
 /// session boundary).
+///
+/// In agent mode it is refused in the body, as `approve` is. Left callable, an
+/// agent could clear its own IRONSHELL_MAX_OPS/FILES/PROCS/NET counters and its
+/// wall-clock envelope, which is the budget the governor exists to enforce. The
+/// limits are environment variables read at startup, so the out-of-band route is
+/// to raise them before launch, not to reset them mid-run. Human mode is untouched.
 fn bi_governor_reset(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    if crate::safety::current_mode() == crate::safety::Mode::Agent {
+        return Err(anyhow::Error::new(crate::safety::SafetyError {
+            code: crate::safety::ErrorCode::PolicyDeny,
+            message: "governor_reset: an agent may not reset its own budget".to_string(),
+            builtin: "governor_reset".to_string(),
+            hint: "the limits are set by whoever launched the agent: raise \
+                   IRONSHELL_MAX_OPS, IRONSHELL_MAX_FILES, IRONSHELL_MAX_PROCS, \
+                   IRONSHELL_MAX_NET or IRONSHELL_TIMEOUT_MS before launch"
+                .to_string(),
+            approval: None,
+            did_you_mean: Vec::new(),
+            expected: String::new(),
+            got: String::new(),
+        }));
+    }
     crate::safety::governor_reset();
     Ok(Value::Bool(true))
 }
@@ -50882,8 +50903,13 @@ fn bi_refactor_rename_file(args: Vec<Value>, input: Option<Value>) -> Result<Val
             &format!("the existing path {to}"),
         ));
     }
-    // The workspace containment above is this builtin's jail; WriteLocal is not
-    // a centrally enforced effect, so it is not also passed through `guard`.
+    // The containment above is the first check, and it does not see protected
+    // paths: a file moved to `.git/hooks/*` or into `.ironshell/` is inside the
+    // workspace and used to pass. `guard_local_write` applies the same jail and
+    // protected-path refusal that file_write and the other WriteLocal writers
+    // use, and audits both ends. The rename then uses the paths it checked.
+    let from = guard_local_write(B, &from)?;
+    let to = guard_local_write(B, &to)?;
     crate::tx::snapshot(&from);
     crate::tx::snapshot(&to);
     std::fs::rename(&from, &to).map_err(|e| crate::safety::fs_error(B, &from, &e))?;

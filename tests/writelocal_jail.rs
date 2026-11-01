@@ -201,6 +201,56 @@ fn writing_inside_the_workspace_is_untouched() {
 }
 
 #[test]
+fn refactor_rename_file_refuses_outside_and_protected_destinations_and_moves_nothing() {
+    // It was WriteLocal, unguarded, and its containment check passed any path
+    // inside the workspace, so a file moved to `.git/hooks/pre-commit` was renamed
+    // in and a git hook was planted. Both ends now go through the guard that file_write
+    // uses (the jail and the protected-path refusal), and nothing moves when it refuses.
+    let _g = lock();
+    let jail = Jail::new("rename_file");
+    let source = jail.workspace.join("payload.sh");
+    std::fs::write(&source, "#!/bin/sh\necho owned\n").expect("seed");
+
+    // 1. A destination outside the workspace.
+    let outside = jail.victim.with_extension("moved.sh");
+    let r1 = call(
+        "refactor_rename_file",
+        vec![
+            Value::Str(source.to_string_lossy().into_owned()),
+            Value::Str(outside.to_string_lossy().into_owned()),
+        ],
+    );
+    assert!(refused_by_the_jail(&r1), "outside destination: {r1:?}");
+    assert!(source.exists(), "a refused rename must not move the source");
+    assert!(
+        !outside.exists(),
+        "a refused rename must not create the destination"
+    );
+
+    // 2. A destination inside the workspace but inside `.git`: the containment
+    //    check alone passes it, and only the protected-path refusal stops it.
+    let hooks = jail.workspace.join(".git").join("hooks");
+    std::fs::create_dir_all(&hooks).expect("hooks dir");
+    let hook = hooks.join("pre-commit");
+    let r2 = call(
+        "refactor_rename_file",
+        vec![
+            Value::Str(source.to_string_lossy().into_owned()),
+            Value::Str(hook.to_string_lossy().into_owned()),
+        ],
+    );
+    assert!(
+        r2.is_err(),
+        "a rename into .git/hooks must be refused in agent mode: {r2:?}"
+    );
+    assert!(source.exists(), "the refused rename moved the source");
+    assert!(
+        !hook.exists(),
+        "a git hook was planted through refactor_rename_file"
+    );
+}
+
+#[test]
 fn the_number_of_writelocal_builtins_relying_on_call_sites_is_measured() {
     // Not a pass/fail about correctness — a number, so that "the call sites cover
     // it" stays a claim someone can check rather than an assumption.
@@ -255,7 +305,9 @@ fn the_number_of_writelocal_builtins_relying_on_call_sites_is_measured() {
         // its hyphenated alias, semantic_cache_get and its alias cache_get. Each
         // changes process memory, or a transaction in try_repair, and takes no
         // caller path to write.
-        unguarded.len() <= 182,
+        // 181 after the rename-file fix: refactor_rename_file now guards both ends
+        // itself and is listed in SELF_GUARDED, so it leaves the unguarded count.
+        unguarded.len() <= 181,
         "{} of {} WriteLocal builtins are not in SELF_GUARDED, up from the \
          measured 150. Nothing in `guard_dispatch` jails them, so a new one that \
          writes a caller's path must guard it in its body. Adding another is \

@@ -1382,24 +1382,6 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "agent_started"
         | "agent_completed"
         | "agent_thinking" => Some(Effect::WriteLocal),
-        // ── stated-pure audit 4: reads left Pure, found by the transitive scan.
-        //
-        // Every McpServer constructor runs OperatingSystem::current(), which stats
-        // /system/build.prop on Linux (a local path), so the mcp_* names that build
-        // one read local state. platform and platform_module make the same stat.
-        // print reads NO_COLOR and FORCE_COLOR and the shell config. The table is a
-        // constant one, so ai-fix, diagnose, fix and explain_effects, which read
-        // only the static ontology or module tables, stay Pure.
-        "mcp_resources"
-        | "mcp_server"
-        | "mcp_tools"
-        | "mcp_list_tools"
-        | "mcp_list_resources"
-        | "mcp_list_prompts"
-        | "mcp_prompts"
-        | "platform"
-        | "platform_module"
-        | "print" => Some(Effect::ReadLocal),
         _ => None,
     }
 }
@@ -3890,7 +3872,7 @@ fn governor_admit(effect: Effect, builtin: &str) -> Result<(), SafetyError> {
             return Err(budget_error(
                 builtin,
                 format!("wall-clock budget exhausted ({}ms > {}ms)", elapsed, limit_ms),
-                "the run exceeded IRONSHELL_TIMEOUT_MS; reset with governor_reset(), start a new session, or raise the limit",
+                "the run exceeded IRONSHELL_TIMEOUT_MS; whoever launched the agent raises the limit, or a new process starts the clock",
             ));
         }
     }
@@ -3901,7 +3883,7 @@ fn governor_admit(effect: Effect, builtin: &str) -> Result<(), SafetyError> {
             return Err(budget_error(
                 builtin,
                 format!("operation budget exhausted ({} > {})", g.total, max),
-                "raise IRONSHELL_MAX_OPS or call governor_reset() to start a fresh envelope",
+                "whoever launched the agent raises IRONSHELL_MAX_OPS before launch",
             ));
         }
     }
@@ -3913,7 +3895,7 @@ fn governor_admit(effect: Effect, builtin: &str) -> Result<(), SafetyError> {
                     return Err(budget_error(
                         builtin,
                         format!("file-operation budget exhausted ({} > {})", g.files, max),
-                        "raise IRONSHELL_MAX_FILES or call governor_reset()",
+                        "whoever launched the agent raises IRONSHELL_MAX_FILES before launch",
                     ));
                 }
             }
@@ -3925,7 +3907,7 @@ fn governor_admit(effect: Effect, builtin: &str) -> Result<(), SafetyError> {
                     return Err(budget_error(
                         builtin,
                         format!("process budget exhausted ({} > {})", g.procs, max),
-                        "raise IRONSHELL_MAX_PROCS or call governor_reset()",
+                        "whoever launched the agent raises IRONSHELL_MAX_PROCS before launch",
                     ));
                 }
             }
@@ -3937,7 +3919,7 @@ fn governor_admit(effect: Effect, builtin: &str) -> Result<(), SafetyError> {
                     return Err(budget_error(
                         builtin,
                         format!("network-egress budget exhausted ({} > {})", g.net, max),
-                        "raise IRONSHELL_MAX_NET or call governor_reset()",
+                        "whoever launched the agent raises IRONSHELL_MAX_NET before launch",
                     ));
                 }
             }
@@ -5461,6 +5443,7 @@ pub const SELF_GUARDED: &[&str] = &[
     "proc_spawn",
     "project_scripts",
     "rbac_principal",
+    "refactor_rename_file",
     "repl_connect",
     "repl_serve",
     "rlm_spawn",
