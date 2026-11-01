@@ -671,6 +671,8 @@ fn git_remote_forms_are_classified() {
         git_remote_target("hg::https://x.example.com/r"),
         GitRemote::Unknown(_)
     ));
+    // A share is a Windows form; elsewhere this string is a relative path.
+    #[cfg(windows)]
     assert!(matches!(
         git_remote_target("\\\\files.example.invalid\\share\\repo"),
         GitRemote::Unknown(_)
