@@ -482,7 +482,7 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "perf_stat" | "perf_record" | "tmux_new" | "tmux_send"
         // Also found by `tests/effect_coverage.rs`. Each of these runs a program
         // (locally, in a container, or on another host) with caller-supplied
-        // input; `ssh_exec`/`sudo_exec`/`remote_exec` classifying as `Pure` was
+        // input; `ssh_exec` classifying as `Pure` was
         // the same defect as `timeout("rm -rf /")` classifying as `Pure`.
         | "docker_exec" | "podman_exec" | "k8s_exec" | "kubectl_exec"
         | "ssh_exec"
