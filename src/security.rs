@@ -329,6 +329,32 @@ fn remote_share_host(path: &str) -> Option<String> {
     (plain && host != ".").then(|| host.to_string())
 }
 
+/// Judge a UNC string against the egress allowlist, before anything stats it.
+/// `exists()` on one opens an SMB session to its host. With no allowlist this
+/// returns Ok at once, so a person can still read `\\server\share\f`.
+///
+/// `\\?\C:\x`, the verbatim form `canonicalize` returns on Windows, is a local
+/// path and is not judged.
+pub(crate) fn check_share_egress(builtin: &str, path: &str) -> Result<()> {
+    if !crate::safety::names_a_remote_share(path) {
+        return Ok(());
+    }
+    let verbatim_drive = path
+        .strip_prefix(r"\\?\")
+        .is_some_and(|rest| rest.as_bytes().get(1) == Some(&b':'));
+    if verbatim_drive {
+        return Ok(());
+    }
+    match remote_share_host(path) {
+        Some(host) => crate::safety::check_egress(builtin, &[format!("smb://{host}")])?,
+        None => crate::safety::check_egress_unknown(
+            builtin,
+            "the host of this UNC or device path could not be read from it",
+        )?,
+    }
+    Ok(())
+}
+
 pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
     // Basic validation
     if path.is_empty() {
@@ -373,18 +399,7 @@ pub fn validate_safe_path(path: &str) -> Result<PathBuf> {
         ));
     }
 
-    // A UNC or device string names a host, and `exists()` on it opens an SMB
-    // session to that host. The egress allowlist is judged here, before any
-    // file system call. With no allowlist, `check_egress*` returns Ok at once.
-    if crate::safety::names_a_remote_share(path) {
-        match remote_share_host(path) {
-            Some(host) => crate::safety::check_egress("path", &[format!("smb://{host}")])?,
-            None => crate::safety::check_egress_unknown(
-                "path",
-                "the host of this UNC or device path could not be read from it",
-            )?,
-        }
-    }
+    check_share_egress("path", path)?;
 
     let config = PATH_CONFIG
         .lock()

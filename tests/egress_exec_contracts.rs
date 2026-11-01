@@ -403,24 +403,39 @@ fn pkg_changelog_refuses_dotted_and_undotted_names_alike_under_an_allowlist() {
 fn a_unc_path_is_judged_by_its_host_before_anything_probes_it() {
     let _g = lock();
     let _e = Egress::new("unc", Some("example.com"));
-    for path in [
-        r"\\unreachable.invalid\share\x",
-        "//unreachable.invalid/share/x",
+    for (builtin, path) in [
+        ("find", r"\\unreachable.invalid\share\x"),
+        ("find", "//unreachable.invalid/share/x"),
+        ("ls", r"\\unreachable.invalid\share\x"),
+        ("cat", r"\\unreachable.invalid\share\x"),
+        ("cat", r"\\unreachable.invalid\share\*.txt"),
+        ("fs_glob", "//unreachable.invalid/share/*.txt"),
     ] {
         let started = std::time::Instant::now();
-        let r = call("find", vec![s(path)]);
+        let r = call(builtin, vec![s(path)]);
         let elapsed = started.elapsed();
         let (code, message) = egress_refusal(&r).unwrap_or_else(|| {
-            panic!("find {path:?} must be refused by the egress check; got {r:?}")
+            panic!("{builtin} {path:?} must be refused by the egress check; got {r:?}")
         });
-        assert_eq!(code, ErrorCode::PolicyDeny, "find {path:?}");
+        assert_eq!(code, ErrorCode::PolicyDeny, "{builtin} {path:?}");
         assert!(
             message.contains("unreachable.invalid") && message.contains("not in the allowlist"),
-            "find {path:?}: the refusal names the host: {message}"
+            "{builtin} {path:?}: the refusal names the host: {message}"
         );
         assert!(
             elapsed < std::time::Duration::from_secs(5),
-            "find {path:?}: refused after {elapsed:?}; a probe reached the network"
+            "{builtin} {path:?}: refused after {elapsed:?}; a probe reached the network"
         );
     }
+
+    // The verbatim form of a local path names no host.
+    let local = format!(
+        r"\\?\{}\Cargo.toml",
+        std::env::current_dir().unwrap().display()
+    );
+    let r = call("cat", vec![s(&local)]);
+    assert!(
+        egress_refusal(&r).is_none(),
+        "a verbatim local path is not egress: {r:?}"
+    );
 }

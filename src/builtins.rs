@@ -8153,6 +8153,9 @@ fn bi_ls(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         }
     };
 
+    // The probes below stat the string, which opens SMB for a UNC one.
+    crate::security::check_share_egress("ls", &path_str)?;
+
     // `ls("src/*.rs")` lists the matches themselves, as `ls src/*.rs` does.
     let paths: Vec<std::path::PathBuf> =
         if crate::posix::has_glob_meta(&path_str) && !std::path::Path::new(&path_str).exists() {
@@ -8232,6 +8235,13 @@ fn bi_cat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     if args.is_empty() {
         return Err(crate::safety::arg_err("cat: no file specified"));
+    }
+
+    // The probes below stat the string, which opens SMB for a UNC one.
+    for arg in &args {
+        if let Value::Str(path) = arg {
+            crate::security::check_share_egress("cat", path)?;
+        }
     }
 
     let path_str = match &args[0] {
@@ -27295,6 +27305,7 @@ fn glob_literal_dir(pattern: &str) -> String {
 /// bytes, and a literal directory prefix that does not exist is E_NOT_FOUND
 /// rather than an empty answer that reads like "no files".
 fn expand_glob_for(builtin: &str, pattern: &str) -> Result<Vec<String>> {
+    crate::security::check_share_egress(builtin, pattern)?;
     // Windows callers may write either separator; globbing is done on `/`.
     let pattern = pattern.replace(char::from(92), "/");
     let dir = glob_literal_dir(&pattern);
