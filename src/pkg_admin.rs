@@ -90,6 +90,7 @@ struct Status {
 /// `pkg_install`: winget on Windows, apt elsewhere. See the apt half for its
 /// contract and the winget half for its own.
 pub(super) fn install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    safety::check_egress_unknown("pkg_install", super::PKG_EGRESS_REASON)?;
     #[cfg(windows)]
     {
         winget::install(args, input)
@@ -114,6 +115,7 @@ pub(super) fn remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// `pkg_update`: winget on Windows, apt elsewhere.
 pub(super) fn update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    safety::check_egress_unknown("pkg_update", super::PKG_EGRESS_REASON)?;
     #[cfg(windows)]
     {
         winget::update(args, input)
@@ -126,6 +128,7 @@ pub(super) fn update(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// `pkg_upgrade`: winget on Windows, apt elsewhere.
 pub(super) fn upgrade(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    safety::check_egress_unknown("pkg_upgrade", super::PKG_EGRESS_REASON)?;
     #[cfg(windows)]
     {
         winget::upgrade(args, input)
@@ -409,6 +412,11 @@ pub(super) fn add_source(args: Vec<Value>, input: Option<Value>) -> Result<Value
     }
     let opts = options(B, args.get(2), &["update"])?;
     let update = flag(B, &opts, "update", false)?;
+    if update {
+        // Only `update` fetches; the file written without it is local. Refused
+        // before the file is written.
+        safety::check_egress_unknown(B, super::PKG_EGRESS_REASON)?;
+    }
     refuse_in_transaction(B)?;
     require_manager(B)?;
 

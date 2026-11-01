@@ -34955,6 +34955,8 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             bounded_cmd_output("pkg_search", "brew", cmd, TOOL_DEADLINE_SECS)?
         }
         "winget" => {
+            // `winget search` queries the online sources. apt-cache reads its local index.
+            crate::safety::check_egress_unknown("pkg_search", PKG_EGRESS_REASON)?;
             let mut cmd = std::process::Command::new("winget");
             cmd.args(["search", &query]);
             bounded_cmd_output("pkg_search", "winget", cmd, TOOL_DEADLINE_SECS)?
@@ -35064,6 +35066,8 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             bounded_cmd_output("pkg_info", "brew", cmd, TOOL_DEADLINE_SECS)?
         }
         "winget" => {
+            // `winget show` reads the manifest from the online sources.
+            crate::safety::check_egress_unknown("pkg_info", PKG_EGRESS_REASON)?;
             let mut cmd = std::process::Command::new("winget");
             cmd.args(["show", &package]);
             bounded_cmd_output("pkg_info", "winget", cmd, TOOL_DEADLINE_SECS)?
@@ -59530,6 +59534,12 @@ fn ops_forge(
 const TF_EGRESS_REASON: &str =
     "providers and backends are named by the configuration in the directory, not the arguments";
 
+/// Why the package-manager builtins that fetch from the network fail closed under
+/// an egress allowlist: the sources are the system's configured repositories
+/// (apt sources, winget sources), not the arguments.
+const PKG_EGRESS_REASON: &str =
+    "the package manager fetches from its configured sources, which the arguments do not name";
+
 /// 951 – terraform_init([dir]): terraform init -input=false -no-color in dir.
 /// Downloads the providers the configuration names.
 fn bi_terraform_init(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -59628,6 +59638,7 @@ fn bi_terraform_state(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     const B: &str = "terraform_state";
     k8s_no_input(B, &input)?;
     k8s_max_args(B, &args, 1)?;
+    crate::safety::check_egress_unknown(B, TF_EGRESS_REASON)?;
     let dir = tf_dir(B, k8s_arg(B, "directory", &args, 0, tf_plain)?.as_deref())?;
     let run = tf_call(
         B,
@@ -59651,6 +59662,7 @@ fn bi_terraform_output(args: Vec<Value>, input: Option<Value>) -> Result<Value> 
     const B: &str = "terraform_output";
     k8s_no_input(B, &input)?;
     k8s_max_args(B, &args, 1)?;
+    crate::safety::check_egress_unknown(B, TF_EGRESS_REASON)?;
     let dir = tf_dir(B, k8s_arg(B, "directory", &args, 0, tf_plain)?.as_deref())?;
     let run = tf_call(
         B,
@@ -59670,13 +59682,18 @@ fn bi_terraform_workspace(args: Vec<Value>, input: Option<Value>) -> Result<Valu
     k8s_max_args(B, &args, 1)?;
     let root = tf_dir(B, None)?;
     let run = match k8s_arg(B, "workspace name", &args, 0, tf_workspace_name)? {
-        Some(name) => tf_call(
-            B,
-            &root,
-            &["workspace", "select", name.as_str()],
-            Keep::Head(TOOL_MAX_TEXT),
-            TOOL_DEADLINE_SECS,
-        )?,
+        Some(name) => {
+            // `workspace select` checks the name against the backend's workspaces.
+            // `workspace show` reads .terraform/environment and stays local.
+            crate::safety::check_egress_unknown(B, TF_EGRESS_REASON)?;
+            tf_call(
+                B,
+                &root,
+                &["workspace", "select", name.as_str()],
+                Keep::Head(TOOL_MAX_TEXT),
+                TOOL_DEADLINE_SECS,
+            )?
+        }
         None => tf_call(
             B,
             &root,

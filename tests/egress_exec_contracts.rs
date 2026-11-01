@@ -168,7 +168,28 @@ fn fail_closed_cases() -> Vec<(&'static str, Vec<Value>)> {
         ("terraform_plan", vec![]),
         ("docker_build", vec![s("app:1")]),
         ("helm_install", vec![s("release"), s("some-chart")]),
+        // The backend and providers come from the configuration, not the arguments.
+        ("terraform_state", vec![]),
+        ("terraform_output", vec![]),
+        ("terraform_workspace", vec![s("prod")]),
     ]
+}
+
+/// Package-manager builtins that fetch from the network. Only the refusal is
+/// tested here, and only under an allowlist: the refusal happens before any
+/// spawn. The apt half runs `/usr/bin/<tool>` by absolute path, so with no
+/// allowlist these would really run apt, and they are not called without one.
+fn pkg_fail_closed_cases() -> Vec<(&'static str, Vec<Value>)> {
+    vec![
+        ("pkg_install", vec![Value::Array(vec![s("git")])]),
+        ("pkg_update", vec![]),
+        ("pkg_upgrade", vec![]),
+    ]
+}
+
+/// Local queries of the same builtins: an allowlist does not refuse them.
+fn local_query_cases() -> Vec<(&'static str, Vec<Value>)> {
+    vec![("terraform_workspace", vec![])]
 }
 
 #[test]
@@ -230,7 +251,7 @@ fn no_allowlist_means_no_refusal_by_this_check() {
 fn undeterminable_destinations_fail_closed_under_an_allowlist_and_say_why() {
     let _g = lock();
     let _e = Egress::new("closed", Some("example.com"));
-    for (name, args) in fail_closed_cases() {
+    for (name, args) in fail_closed_cases().into_iter().chain(pkg_fail_closed_cases()) {
         let r = call(name, args);
         let (code, message) = egress_refusal(&r)
             .unwrap_or_else(|| panic!("{name} must fail closed under an allowlist; got {r:?}"));
@@ -253,4 +274,78 @@ fn a_wildcard_allowlist_passes_every_destination() {
             "{name} under `*` must pass the egress check; got {r:?}"
         );
     }
+}
+
+#[test]
+fn local_queries_are_not_refused_by_an_allowlist() {
+    let _g = lock();
+    let _e = Egress::new("local", Some("example.com"));
+    for (name, args) in local_query_cases() {
+        let r = call(name, args);
+        assert!(
+            !refused_by_egress(&r),
+            "{name} without a remote backend reference is local and must not be refused; got {r:?}"
+        );
+    }
+}
+
+/// `pkg_search` and `pkg_info` go online only on Windows, where they run
+/// `winget search` and `winget show`. The apt side reads the local index.
+#[cfg(windows)]
+#[test]
+fn winget_queries_are_refused_under_an_allowlist() {
+    let _g = lock();
+    let _e = Egress::new("winget_q", Some("example.com"));
+    for (name, args) in [
+        ("pkg_search", vec![s("git")]),
+        ("pkg_info", vec![s("Git.Git")]),
+    ] {
+        let r = call(name, args);
+        let (code, message) = egress_refusal(&r)
+            .unwrap_or_else(|| panic!("{name} (winget) must be refused under an allowlist; got {r:?}"));
+        assert_eq!(code, ErrorCode::PolicyDeny, "{name}");
+        assert!(
+            message.starts_with(&format!("{name}: egress denied")),
+            "{name}: {message}"
+        );
+    }
+}
+
+/// On the apt side `pkg_search` and `pkg_info` read the local index, so an
+/// allowlist does not refuse them. Not run on Windows.
+#[cfg(not(windows))]
+#[test]
+fn apt_queries_are_local_and_not_refused_by_an_allowlist() {
+    let _g = lock();
+    let _e = Egress::new("apt_q", Some("example.com"));
+    for (name, args) in [("pkg_search", vec![s("git")]), ("pkg_info", vec![s("git")])] {
+        let r = call(name, args);
+        assert!(
+            !refused_by_egress(&r),
+            "{name} reads the local apt index and must not be refused; got {r:?}"
+        );
+    }
+}
+
+/// `pkg_add_source` with `update` runs `apt-get update` (a fetch), so an
+/// allowlist refuses it before the source file is written. Without `update`
+/// the file is written locally and this check does not apply.
+#[test]
+fn add_source_with_update_is_refused_before_the_file_is_written() {
+    let _g = lock();
+    let _e = Egress::new("add_src", Some("example.com"));
+    let mut opts = std::collections::BTreeMap::new();
+    opts.insert("update".to_string(), Value::Bool(true));
+    let r = call(
+        "pkg_add_source",
+        vec![
+            s("ironshell-egress-test"),
+            s("deb https://deb.example.invalid/debian trixie main"),
+            Value::Record(opts),
+        ],
+    );
+    let (code, message) = egress_refusal(&r)
+        .unwrap_or_else(|| panic!("pkg_add_source with update must be refused; got {r:?}"));
+    assert_eq!(code, ErrorCode::PolicyDeny);
+    assert!(message.starts_with("pkg_add_source: egress denied"), "{message}");
 }
