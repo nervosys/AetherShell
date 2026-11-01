@@ -62053,6 +62053,22 @@ fn scp_remote_arg(builtin: &str, remote: &str) -> Result<()> {
     Ok(())
 }
 
+/// The host of an scp remote that [`scp_remote_arg`] has accepted: the part
+/// between the user's `@` and the `:` that ends it (a bracketed address keeps its
+/// brackets).
+fn scp_remote_host(remote: &str) -> &str {
+    let rest = match remote.find('@') {
+        Some(i) if !remote[..i].contains([':', '/']) => &remote[i + 1..],
+        _ => remote,
+    };
+    let end = if rest.starts_with('[') {
+        rest.find("]:").map_or(rest.len(), |i| i + 1)
+    } else {
+        rest.find(':').unwrap_or(rest.len())
+    };
+    &rest[..end]
+}
+
 /// A local scp operand. scp reads a path with a ':' in it as a host, so a local
 /// path must not have one, apart from a Windows drive letter.
 fn scp_local_arg(builtin: &str, path: &str) -> Result<()> {
@@ -62139,7 +62155,8 @@ fn bi_ssh_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // The destination is the host argument as written. An ssh config alias that
     // is not a dotted name is refused by the allowlist (no host can be read), and
     // a dotted alias is judged by its name, not by the HostName ssh config gives it.
-    crate::safety::check_egress("ssh_exec", std::slice::from_ref(&host))?;
+    let egress_host = crate::safety::ssh_egress_host("ssh_exec", &host)?;
+    crate::safety::check_egress("ssh_exec", std::slice::from_ref(&egress_host))?;
     // Runs an arbitrary command on another host: the widest blast radius in the
     // builtin table. Checked after the arguments, so a refused call is not audited
     // as a run.
@@ -62215,7 +62232,8 @@ fn bi_ssh_tunnel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ssh_target_arg("ssh_tunnel", "ssh_host", &ssh_host)?;
     // Both named hosts are judged: ssh_host is connected to, and remote_host is
     // the destination the forward reaches through it. Each is judged by its name.
-    crate::safety::check_egress("ssh_tunnel", &[ssh_host.clone(), remote_host.clone()])?;
+    let ssh_egress = crate::safety::ssh_egress_host("ssh_tunnel", &ssh_host)?;
+    crate::safety::check_egress("ssh_tunnel", &[ssh_egress, remote_host.clone()])?;
     // Checked above to be in 1..=65535.
     let port = local_port as u16;
     // Refused when something already holds the port. The probe listener is
@@ -62409,7 +62427,8 @@ fn bi_ssh_copy_id(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
     ssh_target_arg("ssh_copy_id", "host", &host)?;
-    crate::safety::check_egress("ssh_copy_id", std::slice::from_ref(&host))?;
+    let egress_host = crate::safety::ssh_egress_host("ssh_copy_id", &host)?;
+    crate::safety::check_egress("ssh_copy_id", std::slice::from_ref(&egress_host))?;
     refuse_option("ssh_copy_id", &key_file)?;
     let key_file = crate::safety::resolve_path_str(&key_file);
     regular_file_arg("ssh_copy_id", &key_file)?;
@@ -62566,6 +62585,8 @@ fn bi_scp_upload(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         _ => None,
     };
     scp_remote_arg("scp_upload", &remote)?;
+    let egress_host = crate::safety::ssh_egress_host("scp_upload", scp_remote_host(&remote))?;
+    crate::safety::check_egress("scp_upload", &[egress_host])?;
     let local_path = crate::safety::resolve_path_str(&local_path);
     scp_local_arg("scp_upload", &local_path)?;
     regular_file_arg("scp_upload", &local_path)?;
@@ -62610,6 +62631,8 @@ fn bi_scp_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         _ => None,
     };
     scp_remote_arg("scp_download", &remote)?;
+    let egress_host = crate::safety::ssh_egress_host("scp_download", scp_remote_host(&remote))?;
+    crate::safety::check_egress("scp_download", &[egress_host])?;
     refuse_option("scp_download", &local_path)?;
     // Self-guarded for the local write, so the fetch is guarded here too, as
     // `web_download` does: otherwise the central Network gate is skipped.
@@ -62653,6 +62676,26 @@ fn bi_rsync_sync(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         1,
         ops_sync_path,
     )?;
+    // A `host:path` operand runs over ssh, so ssh config can name another host.
+    // A `host::module` operand is the rsync daemon, which ssh config does not reach.
+    for spec in [&source, &destination] {
+        if !ops_is_remote(spec) {
+            continue;
+        }
+        let host = spec
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .rsplit('@')
+            .next()
+            .unwrap_or("");
+        let egress_host = if spec.contains("::") {
+            host.to_string()
+        } else {
+            crate::safety::ssh_egress_host(B, host)?
+        };
+        crate::safety::check_egress(B, &[egress_host])?;
+    }
     let mut argv = rsync_flags(B, args.get(2))?;
     argv.push(source.clone());
     argv.push(destination.clone());

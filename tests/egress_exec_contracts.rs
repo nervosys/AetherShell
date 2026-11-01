@@ -49,6 +49,8 @@ impl Egress {
             "IRONSHELL_POLICY",
             "PATH",
             "IRONSHELL_AUDIT_LOG",
+            "HOME",
+            "USERPROFILE",
         ];
         let saved = names
             .iter()
@@ -65,6 +67,10 @@ impl Egress {
             None => std::env::remove_var("IRONSHELL_NET_ALLOW"),
         }
         std::env::set_var("PATH", &empty_dir);
+        // An empty home, so no test reads the real ~/.ssh/config. A test that
+        // needs a config points HOME at its own directory.
+        std::env::set_var("HOME", &empty_dir);
+        std::env::set_var("USERPROFILE", &empty_dir);
         let audit_log = std::env::temp_dir().join(format!(
             "ae_egress_audit_{tag}_{}.jsonl",
             std::process::id()
@@ -437,5 +443,135 @@ fn a_unc_path_is_judged_by_its_host_before_anything_probes_it() {
     assert!(
         egress_refusal(&r).is_none(),
         "a verbatim local path is not egress: {r:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ssh config: the allowlist judges the host ssh will connect to, not the alias
+// the caller wrote. The parser is pure, so these pass it strings. No test reads
+// a real ~/.ssh/config.
+// ---------------------------------------------------------------------------
+
+use iron_shell::safety::ssh_config_destination as resolve;
+
+#[test]
+fn an_alias_resolves_to_its_hostname() {
+    let cfg = "Host prod\n    HostName evil.example\n";
+    assert_eq!(resolve(cfg, "prod"), Ok(Some("evil.example".to_string())));
+}
+
+#[test]
+fn a_dotted_alias_resolves_to_its_hostname() {
+    let cfg = "Host github.com\n    HostName evil.example\n";
+    assert_eq!(
+        resolve(cfg, "github.com"),
+        Ok(Some("evil.example".to_string()))
+    );
+}
+
+#[test]
+fn a_block_without_a_hostname_judges_the_name_as_written() {
+    let cfg = "Host build.example.com\n    User ops\n";
+    assert_eq!(resolve(cfg, "build.example.com"), Ok(None));
+}
+
+#[test]
+fn a_wildcard_host_that_matches_the_name_fails_closed() {
+    let cfg = "Host *.internal\n    HostName 10.0.0.9\n";
+    assert!(resolve(cfg, "db.internal").is_err());
+    // `Host *` matches every name, including one the file never mentions.
+    assert!(resolve("Host *\n    User ops\n", "prod").is_err());
+    // A wildcard that does not match the name does not apply to it.
+    assert_eq!(resolve(cfg, "db.example.com"), Ok(None));
+}
+
+#[test]
+fn a_negated_pattern_excludes_the_name_from_its_block() {
+    let cfg = "Host !prod *\n    HostName evil.example\n";
+    assert_eq!(resolve(cfg, "prod"), Ok(None));
+}
+
+#[test]
+fn proxyjump_and_proxycommand_fail_closed_wherever_they_sit() {
+    assert!(resolve(
+        "Host prod\n    HostName a.example\n    ProxyJump bastion\n",
+        "prod"
+    )
+    .is_err());
+    assert!(resolve("Host prod\n    ProxyCommand nc %h %p\n", "prod").is_err());
+    // Anywhere in the file, even in a block for another name.
+    assert!(resolve(
+        "Host other\n    ProxyJump bastion\nHost prod\n    HostName a.example\n",
+        "prod"
+    )
+    .is_err());
+}
+
+#[test]
+fn include_and_match_fail_closed() {
+    assert!(resolve("Include config.d/*\n", "prod").is_err());
+    assert!(resolve("Host prod\n    HostName a.example\nInclude extra\n", "prod").is_err());
+    assert!(resolve("Match host prod\n    HostName evil.example\n", "prod").is_err());
+    assert!(resolve("Host x\n    HostName a.example\nmatch all\n", "prod").is_err());
+}
+
+#[test]
+fn a_name_the_file_does_not_mention_is_judged_as_written() {
+    let cfg = "Host other\n    HostName evil.example\n";
+    assert_eq!(resolve(cfg, "prod.example.com"), Ok(None));
+    assert_eq!(resolve("", "prod.example.com"), Ok(None));
+}
+
+#[test]
+fn comments_are_ignored_and_keywords_are_case_insensitive() {
+    // A commented directive is not a directive.
+    let cfg = "# Host prod\n# HostName evil.example\n#Include x\n#Match all\n";
+    assert_eq!(resolve(cfg, "prod"), Ok(None));
+    // Keywords and names are read without regard to case, and `key=value` parses.
+    let cfg = "HOST PROD\n  hostNAME real.example\n";
+    assert_eq!(resolve(cfg, "prod"), Ok(Some("real.example".to_string())));
+    let cfg = "Host=prod\nHostName=real.example\n";
+    assert_eq!(resolve(cfg, "PROD"), Ok(Some("real.example".to_string())));
+    // A commented INCLUDE does not fail closed.
+    assert_eq!(
+        resolve("# Include x\nHost prod\n  HostName a.example\n", "prod"),
+        Ok(Some("a.example".to_string()))
+    );
+}
+
+#[test]
+fn the_first_hostname_that_applies_wins_and_a_token_fails_closed() {
+    let cfg = "Host prod\n  HostName first.example\nHost prod\n  HostName second.example\n";
+    assert_eq!(resolve(cfg, "prod"), Ok(Some("first.example".to_string())));
+    assert!(resolve("Host prod\n  HostName %h.example\n", "prod").is_err());
+}
+
+/// The judge, end to end, with HOME pointed at a config this test writes. The
+/// alias is on the allowlist and its HostName is not, so the call must be refused
+/// before ssh starts. Judging the alias instead would let it through (and then
+/// fail with "not found", because PATH is empty).
+#[test]
+fn an_allowlisted_alias_whose_hostname_is_off_the_list_is_refused() {
+    let _g = lock();
+    let _e = Egress::new("alias", Some("build.example.com"));
+    let home = std::env::temp_dir().join(format!("ae_ssh_alias_home_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".ssh")).expect("temp ssh dir");
+    std::fs::write(
+        home.join(".ssh").join("config"),
+        "Host build.example.com\n    HostName evil.example\n",
+    )
+    .expect("temp ssh config");
+    std::env::set_var("HOME", &home);
+    std::env::set_var("USERPROFILE", &home);
+
+    let r = call("ssh_exec", vec![s("ops@build.example.com"), s("uptime")]);
+    let _ = std::fs::remove_dir_all(&home);
+    let (code, message) = egress_refusal(&r)
+        .unwrap_or_else(|| panic!("the HostName must be judged and refused; got {r:?}"));
+    assert_eq!(code, ErrorCode::PolicyDeny);
+    assert!(
+        message.contains("evil.example"),
+        "the refusal names the resolved host: {message}"
     );
 }
