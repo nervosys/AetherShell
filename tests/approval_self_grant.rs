@@ -120,12 +120,64 @@ fn the_out_of_band_channel_still_works_in_agent_mode() {
 }
 
 #[test]
-fn approve_is_still_pure_and_that_is_now_fine() {
-    // `approve` remains unclassified, so `guard_dispatch` still waves it through.
-    // That is no longer the whole story: the refusal moved into the body, which
-    // is where the mode is known. Asserted so a future reclassification is a
-    // deliberate act rather than a surprise.
-    assert_eq!(effect_of("approve"), Effect::Pure);
+fn approve_is_write_local_and_the_gate_does_not_judge_it() {
+    // `approve` writes the in-process approval store, so it is WriteLocal (stated-pure
+    // audit 4; it was Pure). WriteLocal is not centrally enforced, so `guard_dispatch`
+    // waves it through in every mode and every policy, and the refusal stays where
+    // the mode is known: in the body. Asserted so a reclassification is deliberate.
+    assert_eq!(effect_of("approve"), Effect::WriteLocal);
+    let _g = lock();
+    for policy in ["strict", "permissive"] {
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::set_var("IRONSHELL_POLICY", policy);
+        let gate = safety::guard_dispatch("approve", &[Value::Str("apv_gate_test".into())]);
+        std::env::remove_var("IRONSHELL_POLICY");
+        std::env::remove_var("IRONSHELL_MODE");
+        assert!(
+            gate.is_ok(),
+            "the gate must not judge approve under {policy}: {gate:?}"
+        );
+    }
+}
+
+#[test]
+fn approve_in_agent_mode_is_refused_by_its_body_and_the_out_of_band_path_still_works() {
+    // The check the reclassification had to keep: an agent's approve(token) gets the
+    // body's own PolicyDeny refusal, not a gate decision or a wait, and the token the
+    // refusal names is still released by IRONSHELL_APPROVE, so the flow completes.
+    let _g = lock();
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var("IRONSHELL_POLICY", "strict");
+
+    let token = safety::guard_dispatch("git_clean", &[])
+        .expect_err("git_clean is refused in agent mode")
+        .approval
+        .map(|a| a.token)
+        .expect("token");
+    let in_band = call("approve", vec![Value::Str(token.clone())]);
+    let still_denied = safety::guard_dispatch("git_clean", &[]);
+
+    std::env::set_var("IRONSHELL_APPROVE", &token);
+    let out_of_band = safety::guard_dispatch("git_clean", &[]);
+    std::env::remove_var("IRONSHELL_APPROVE");
+    safety::revoke_approval(&token);
+    std::env::remove_var("IRONSHELL_POLICY");
+    std::env::remove_var("IRONSHELL_MODE");
+
+    let e = in_band.expect_err("an agent's approve must be refused by its body");
+    assert_eq!(
+        e.downcast_ref::<safety::SafetyError>().map(|s| s.code),
+        Some(safety::ErrorCode::PolicyDeny),
+        "the refusal is the body's PolicyDeny, not a gate or an approval wait: {e:#}"
+    );
+    assert!(
+        still_denied.is_err(),
+        "the in-band attempt must not approve"
+    );
+    assert!(
+        out_of_band.is_ok(),
+        "IRONSHELL_APPROVE must still release the call: {out_of_band:?}"
+    );
 }
 
 #[test]

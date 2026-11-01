@@ -1336,6 +1336,70 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "rlm_stats" => {
             Some(Effect::ReadLocal)
         }
+        // ── stated-pure audit 4: in-process state that was left Pure.
+        //
+        // approve(token) writes the approval store and governor_reset() clears the
+        // resource-governor counters. Both are process memory, as a2a_* is. An
+        // agent's approve is refused in its body, where the mode is known, so the
+        // class does not gate it: WriteLocal decides Allow and is not centrally
+        // enforced, so guard_dispatch returns before any approval is consulted.
+        //
+        // The a2ui_* names push events onto the A2UI channel's queue. The prompt
+        // family (a2ui_prompt, a2ui_confirm, a2ui_select) pushes a prompt and then
+        // waits on the response table; the class follows the write, and the wait
+        // is not an effect a rollback or a policy can reach.
+        "approve"
+        | "governor_reset"
+        | "a2ui_notify"
+        | "a2ui_prompt"
+        | "a2ui_confirm"
+        | "a2ui_select"
+        | "a2ui_progress"
+        | "a2ui_progress_complete"
+        | "a2ui_render"
+        | "a2ui_render_table"
+        | "a2ui_render_code"
+        | "a2ui_toast"
+        | "a2ui_status"
+        | "a2ui_clear"
+        | "a2ui_agent_started"
+        | "a2ui_agent_completed"
+        | "a2ui_agent_thinking"
+        // The unprefixed spellings of the same slots: they share one implementation,
+        // so they share its class (tests/effect_alias_agreement.rs).
+        | "notify_user"
+        | "prompt_user"
+        | "confirm_user"
+        | "select_user"
+        | "progress_update"
+        | "progress_done"
+        | "render_content"
+        | "render_table"
+        | "render_code"
+        | "toast"
+        | "status_bar"
+        | "ui_clear"
+        | "agent_started"
+        | "agent_completed"
+        | "agent_thinking" => Some(Effect::WriteLocal),
+        // ── stated-pure audit 4: reads left Pure, found by the transitive scan.
+        //
+        // Every McpServer constructor runs OperatingSystem::current(), which stats
+        // /system/build.prop on Linux (a local path), so the mcp_* names that build
+        // one read local state. platform and platform_module make the same stat.
+        // print reads NO_COLOR and FORCE_COLOR and the shell config. The table is a
+        // constant one, so ai-fix, diagnose, fix and explain_effects, which read
+        // only the static ontology or module tables, stay Pure.
+        "mcp_resources"
+        | "mcp_server"
+        | "mcp_tools"
+        | "mcp_list_tools"
+        | "mcp_list_resources"
+        | "mcp_list_prompts"
+        | "mcp_prompts"
+        | "platform"
+        | "platform_module"
+        | "print" => Some(Effect::ReadLocal),
         _ => None,
     }
 }

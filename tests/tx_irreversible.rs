@@ -78,6 +78,20 @@ const HARMLESS: &[(&str, &[&str])] = &[
         "makes a fresh path in the temporary directory, not a caller's file",
         &["fs_tempdir", "fs_tempfile"],
     ),
+    (
+        "stated-pure audit 4: changes only process memory (the approval store, the resource-governor counters, the A2UI event queue), which a rollback never restores; approve refuses an agent's call in its own body",
+        &[
+            "approve", "governor_reset", "a2ui_notify", "a2ui_prompt", "a2ui_confirm",
+            "a2ui_select", "a2ui_progress", "a2ui_progress_complete", "a2ui_render",
+            "a2ui_render_table", "a2ui_render_code", "a2ui_toast", "a2ui_status",
+            "a2ui_clear", "a2ui_agent_started", "a2ui_agent_completed",
+            "a2ui_agent_thinking",
+            // the unprefixed spellings of the same A2UI slots
+            "notify_user", "prompt_user", "confirm_user", "select_user", "progress_update",
+            "progress_done", "render_content", "render_table", "render_code", "toast",
+            "status_bar", "ui_clear", "agent_started", "agent_completed", "agent_thinking",
+        ],
+    ),
 ];
 
 /// Refuse in a transaction, or snapshot what they change, deeper than the
