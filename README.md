@@ -606,10 +606,18 @@ prefixes, AWS keys, JWTs, PEM blocks, URL credentials, `key=secret` forms) are
 redacted from agent output *and* the audit log, and reading a secret-named env var
 returns an opaque `[REDACTED:NAME]` handle — so credentials never reach the model's
 context or persist to disk (opt out with `IRONSHELL_REDACT=off` / `IRONSHELL_SECRETS=allow`).
+Programs a shell starts do not get those credentials either: in agent mode a child loses
+every variable whose name is secret-shaped (`*TOKEN*`, `*_API_KEY`, `*SECRET*`, `*PASSWORD*`,
+`*CREDENTIAL*`, and so on, including `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY` and
+`ANTHROPIC_API_KEY`). A tool that needs one names it in `IRONSHELL_CHILD_ENV_KEEP`, as
+comma-separated exact names (`IRONSHELL_CHILD_ENV_KEEP=GH_TOKEN` for `gh`). Human mode is unchanged.
 **Resource governors** (opt-in: `IRONSHELL_MAX_OPS`/`IRONSHELL_MAX_FILES`/`IRONSHELL_MAX_PROCS`/
 `IRONSHELL_MAX_NET`/`IRONSHELL_TIMEOUT_MS`) bound a run's blast radius at the same `guard()`
 chokepoint — a runaway agent loop is stopped with `E_BUDGET_EXCEEDED` rather than
-running unbounded.
+running unbounded. **Output cap** (opt-in: `IRONSHELL_MAX_OUTPUT_BYTES=<n>`) cuts the printed
+result of a one-shot `ish -c` at `n` bytes, on a UTF-8 boundary, and reports the bytes omitted
+on stderr; the exit status is unchanged, and unset means no cut. It does not cut a streaming
+child's stdout, which goes straight to the terminal.
 
 ### Transactions & checkpoints (no other shell offers this)
 

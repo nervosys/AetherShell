@@ -2000,6 +2000,15 @@ const CONFINING_ENV: &[&str] = &[
 /// A variable the caller set on `cmd` with [`std::process::Command::env`] is the
 /// caller's named choice, and it is kept.
 ///
+/// In agent mode a credential is removed too: any variable [`is_secret_name`]
+/// matches (`*TOKEN*`, `*_API_KEY`, `*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*`, and
+/// the like, which covers `AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`, `GH_TOKEN`,
+/// `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`), unless the operator names it in
+/// `IRONSHELL_CHILD_ENV_KEEP` (comma-separated exact names, e.g. `GH_TOKEN` for
+/// `gh`). Human mode is unchanged: a person running a program gets their own
+/// environment. A child that a builtin needs a token for and does not get it
+/// fails with its own error, as it would with no token set.
+///
 /// Agent mode can be set by other means than the variable, so every child gets
 /// `IRONSHELL_MODE=agent` then. Any program may start `ish`, and without the
 /// variable that `ish` would be in human mode, which is ungated.
@@ -2009,18 +2018,41 @@ pub(crate) fn strip_ironshell_env(cmd: &mut std::process::Command) {
         .filter(|(_, value)| value.is_some())
         .map(|(name, _)| name.to_os_string())
         .collect();
+    let agent = current_mode() == Mode::Agent;
+    let keep = if agent { child_env_keep() } else { Vec::new() };
     for (name, _) in std::env::vars_os() {
         let shell_var = name
             .to_str()
             .is_some_and(|n| n.to_ascii_uppercase().starts_with("IRONSHELL_"));
         let confining = CONFINING_ENV.iter().any(|c| name.eq_ignore_ascii_case(c));
-        if shell_var && !confining && !explicit.iter().any(|e| e.eq_ignore_ascii_case(&name)) {
+        let credential = agent
+            && is_secret_name(&name.to_string_lossy())
+            && !keep
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case(&name.to_string_lossy()));
+        let named = explicit.iter().any(|e| e.eq_ignore_ascii_case(&name));
+        if ((shell_var && !confining) || credential) && !named {
             cmd.env_remove(&name);
         }
     }
-    if current_mode() == Mode::Agent {
+    if agent {
         cmd.env("IRONSHELL_MODE", "agent");
     }
+}
+
+/// The variable that names credentials a child keeps in agent mode, as
+/// comma-separated exact names. Read by [`strip_ironshell_env`].
+pub const CHILD_ENV_KEEP: &str = "IRONSHELL_CHILD_ENV_KEEP";
+
+/// The names in [`CHILD_ENV_KEEP`], trimmed, with empty entries dropped.
+fn child_env_keep() -> Vec<String> {
+    std::env::var(CHILD_ENV_KEEP)
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Run a command and give up on it after `secs`.

@@ -820,7 +820,7 @@ shell."
   unless `IRONSHELL_NET_ALLOW` names the host, or is `*`; the allowlist is checked
   in `guard()` itself, so it covers every `Network` builtin rather than the ones
   that call `guard_network`. This closed E4's one uncontained default case.) `governor_status()` reports counts/limits/elapsed (also
-  folded into `safety_status()`); `governor_reset()` starts a fresh envelope. Verified
+  folded into `safety_status()`); `governor_reset()` starts a fresh envelope in human mode. In agent mode it is refused (`E_POLICY_DENY`, "an agent may not reset its own budget"), so an agent cannot clear its own counters. Verified
   by 6 unit tests + an end-to-end test (a 2nd `rm` under `IRONSHELL_MAX_FILES=1` returns
   `E_BUDGET_EXCEEDED`, file untouched). (Output-bytes is covered separately by
   `--budget`/`IRONSHELL_TOKEN_BUDGET` paging.)
@@ -1224,6 +1224,8 @@ workspace, and writes the audit chain.
 | `IRONSHELL_AUDIT_REQUIRED=1` | Fail the guarded op if the audit write fails (default: best-effort + warn). |
 | `IRONSHELL_REDACT=off` | Disable secret-shape redaction of agent output and audit entries (default: on). |
 | `IRONSHELL_SECRETS=allow` | Permit clear reads of secret-named env vars in agent mode (default: return a `[REDACTED:NAME]` handle). |
+| `IRONSHELL_CHILD_ENV_KEEP=<name[,name…]>` | Agent mode only: exact credential names a child keeps (e.g. `GH_TOKEN` for `gh`). Every other secret-named variable (`is_secret_name`) is removed from a child's environment; human mode is unchanged. |
+| `IRONSHELL_MAX_OUTPUT_BYTES=<n>` | Cut the printed result of a one-shot `ish -c` at `n` bytes (UTF-8 boundary), with the bytes omitted reported on stderr; exit status unchanged. Unset: no cut. Does not cut a streaming child's stdout. |
 | `IRONSHELL_MAX_OPS=<n>` | Resource governor: max total guarded operations per run (agent mode; unset = unlimited). |
 | `IRONSHELL_MAX_FILES=<n>` | Resource governor: max filesystem ops (WriteLocal + Destructive). |
 | `IRONSHELL_MAX_PROCS=<n>` | Resource governor: max process/exec ops (Process + Exec). |

@@ -182,6 +182,47 @@ pub fn run(env: &mut Env) -> Result<()> {
     Ok(())
 }
 
+/// The most bytes a one-shot `-c` prints, from `IRONSHELL_MAX_OUTPUT_BYTES`.
+/// Unset means no cap. A value that is not a number is ignored with a warning
+/// on stderr, so a typo does not silently lift the cap.
+fn max_output_bytes() -> Option<usize> {
+    let raw = std::env::var("IRONSHELL_MAX_OUTPUT_BYTES").ok()?;
+    match raw.trim().parse::<usize>() {
+        Ok(max) => Some(max),
+        Err(_) => {
+            eprintln!(
+                "ish: IRONSHELL_MAX_OUTPUT_BYTES={raw:?} is not a byte count; no cap applied"
+            );
+            None
+        }
+    }
+}
+
+/// Print the result of a one-shot `-c`, cut at [`max_output_bytes`].
+///
+/// A cut lands on the last UTF-8 boundary at or before the cap, so the output
+/// is still valid text. The bytes left out are counted on stderr. The exit
+/// status is decided before this runs, so a cut never changes it.
+fn print_result(out: &str) {
+    let Some(max) = max_output_bytes() else {
+        println!("{out}");
+        return;
+    };
+    if out.len() <= max {
+        println!("{out}");
+        return;
+    }
+    let mut keep = max;
+    while !out.is_char_boundary(keep) {
+        keep -= 1;
+    }
+    println!("{}", &out[..keep]);
+    eprintln!(
+        "ish: output cut at IRONSHELL_MAX_OUTPUT_BYTES={max}: {} bytes omitted",
+        out.len() - keep
+    );
+}
+
 /// One-liner (e.g. `ish -c 'code'`)
 pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
     match eval_line(env, code) {
@@ -209,7 +250,7 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
                     v
                 };
                 if let Some(out) = crate::builtins::render_canonical(&v) {
-                    println!("{out}");
+                    print_result(&out);
                 }
                 return Ok(0);
             }
@@ -219,7 +260,7 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
             // `| aecon`. The human REPL keeps its colorized pretty-printer.
             if crate::safety::current_mode() == crate::safety::Mode::Agent {
                 if let Some(out) = crate::builtins::render_agent(&v, budget) {
-                    println!("{out}");
+                    print_result(&out);
                 }
                 return Ok(0);
             }
@@ -230,7 +271,7 @@ pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
                 None => v,
             };
             if let Some(out) = render_for_repl(&v) {
-                println!("{out}");
+                print_result(&out);
             }
             Ok(0)
         }

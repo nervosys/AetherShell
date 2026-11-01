@@ -10,6 +10,7 @@
 use iron_shell::builtins::call;
 use iron_shell::env::Env;
 use iron_shell::os_tools::run_capped;
+use iron_shell::safety::CHILD_ENV_KEEP;
 use iron_shell::value::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -317,6 +318,112 @@ fn a_test_watch_child_does_not_inherit_an_ironshell_setting() {
         "an ordinary variable must still reach a test_watch child; its variables were: {}",
         listed(&names)
     );
+}
+
+/// Fake credentials the shell's process holds. Named as real ones are, so the
+/// credential rule applies to them. Only these fake values are ever set.
+const FAKE_SECRET: &str = "CHILD_ENV_TEST_API_KEY";
+const FAKE_TOKEN: &str = "CHILD_ENV_TEST_TOKEN";
+const FAKE_WELL_KNOWN: &str = "GH_TOKEN";
+const FAKE_VALUE: &str = "fake-not-a-credential";
+
+/// The environment a child prints with the mode and keep list as given, and
+/// the fake credentials set on the shell. Returns the names the child saw.
+fn child_names_with(agent: bool, keep: Option<&str>) -> Vec<String> {
+    if agent {
+        std::env::set_var("IRONSHELL_MODE", "agent");
+    } else {
+        std::env::remove_var("IRONSHELL_MODE");
+        std::env::remove_var("IRONSHELL_AGENT");
+    }
+    match keep {
+        Some(names) => std::env::set_var(CHILD_ENV_KEEP, names),
+        None => std::env::remove_var(CHILD_ENV_KEEP),
+    }
+    for name in [FAKE_SECRET, FAKE_TOKEN, FAKE_WELL_KNOWN] {
+        std::env::set_var(name, FAKE_VALUE);
+    }
+    let names = names_in(&bounded_env_of_child());
+    for name in [FAKE_SECRET, FAKE_TOKEN, FAKE_WELL_KNOWN, CHILD_ENV_KEEP] {
+        std::env::remove_var(name);
+    }
+    if agent {
+        std::env::remove_var("IRONSHELL_MODE");
+    }
+    names
+}
+
+#[test]
+fn an_agent_shell_child_does_not_inherit_a_credential() {
+    let _guard = lock();
+    let names = child_names_with(true, None);
+    for name in [FAKE_SECRET, FAKE_TOKEN, FAKE_WELL_KNOWN] {
+        assert!(
+            !has_name(&names, name),
+            "an agent-mode child inherited the credential {name}; its variables were: {}",
+            listed(&names)
+        );
+    }
+    assert!(
+        has_name(&names, "PATH"),
+        "an ordinary variable must still reach an agent-mode child"
+    );
+}
+
+#[test]
+fn an_agent_shell_child_keeps_the_credentials_its_keep_list_names() {
+    let _guard = lock();
+    let keep = format!(" {FAKE_TOKEN} ,, {FAKE_WELL_KNOWN}");
+    let names = child_names_with(true, Some(keep.as_str()));
+    for kept in [FAKE_TOKEN, FAKE_WELL_KNOWN] {
+        assert!(
+            has_name(&names, kept),
+            "{kept} is in {CHILD_ENV_KEEP} but did not reach the child; its variables were: {}",
+            listed(&names)
+        );
+    }
+    assert!(
+        !has_name(&names, FAKE_SECRET),
+        "naming some credentials must not open the others; its variables were: {}",
+        listed(&names)
+    );
+}
+
+#[test]
+fn a_human_shell_child_inherits_a_credential_unchanged() {
+    let _guard = lock();
+    let names = child_names_with(false, None);
+    for name in [FAKE_SECRET, FAKE_TOKEN, FAKE_WELL_KNOWN] {
+        assert!(
+            has_name(&names, name),
+            "a human-mode child lost {name}, which human mode leaves alone; its variables were: {}",
+            listed(&names)
+        );
+    }
+}
+
+#[test]
+fn the_named_well_known_credentials_are_secret_names() {
+    // The credential rule reuses the redaction list. These are the names it
+    // must cover, so a change to that list cannot quietly let one through.
+    for name in [
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "CHILD_ENV_TEST_API_KEY",
+        "DB_PASSWORD",
+        "DB_PASSWD",
+        "APP_SECRET_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    ] {
+        assert!(
+            iron_shell::safety::is_secret_name(name),
+            "{name} must be a secret name"
+        );
+    }
 }
 
 /// Files that start a program outside a runner that strips the shell's
