@@ -378,7 +378,7 @@ evolution_config	Pure
 evolution_stats	Pure
 evolve	Pure
 evolve_step	Pure
-exec_remote	Pure
+exec_remote	ReadLocal
 exists	ReadLocal
 exit	Process
 explain	Pure
@@ -1051,7 +1051,7 @@ refactor_remove_unused	Exec
 refactor_rename	Pure
 refactor_rename_file	WriteLocal
 relations	ReadLocal
-remote_exec	Pure
+remote_exec	ReadLocal
 remove_lines	Destructive
 remove_node	WriteLocal
 render_code	Pure
@@ -1413,7 +1413,7 @@ workspace_leave	WriteLocal
 workspace_list	ReadLocal
 workspace_members	ReadLocal
 workspace_share_agent	WriteLocal
-workspace_sync	Pure
+workspace_sync	ReadLocal
 write_file	WriteLocal
 write_json	WriteLocal
 xargs	Exec

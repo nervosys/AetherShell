@@ -113,7 +113,6 @@ evolution_config
 evolution_stats
 evolve
 evolve_step
-exec_remote
 explain
 explain_effects
 feature_enabled
@@ -252,7 +251,6 @@ refactor_inline
 refactor_move_to_file
 refactor_remove_parameter
 refactor_rename
-remote_exec
 render_code
 render_content
 render_table
@@ -350,5 +348,4 @@ user_roles
 values
 where
 where-object
-workspace_sync
 zip

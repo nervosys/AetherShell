@@ -411,6 +411,13 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "monitor_uptime" => Some(Effect::ReadLocal),
         // They write the alert store under the data directory.
         "monitor_alert_create" | "monitor_alert_remove" => Some(Effect::WriteLocal),
+        // Read the in-process cluster node table and workspace registry, then
+        // refuse: `remote_exec` sends no command, because no transport is wired,
+        // and `workspace_sync` syncs nothing. Both are classified like
+        // `cluster_nodes` and `workspace_members`.
+        // `remote_exec` has to become `Exec` in the same change that wires a
+        // transport. `exec_remote` is its alias and inherits this class.
+        "remote_exec" | "workspace_sync" => Some(Effect::ReadLocal),
         // Reads the user database. It inherited ReadLocal from `sys_users`
         // while it was that builtin's alias; it has its own body now.
         "whoami" => Some(Effect::ReadLocal),
