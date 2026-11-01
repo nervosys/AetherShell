@@ -152,6 +152,20 @@ pub struct Handle {
     pub value: Value,
 }
 
+impl Handle {
+    /// The same handle with its value left behind. A stored value can be
+    /// millions of rows, and most callers want only the description.
+    fn without_value(&self) -> Handle {
+        Handle {
+            id: self.id.clone(),
+            shape: self.shape.clone(),
+            items: self.items,
+            bytes: self.bytes,
+            value: Value::Null,
+        }
+    }
+}
+
 lazy_static::lazy_static! {
     static ref STORE: Mutex<Vec<Handle>> = Mutex::new(Vec::new());
 }
@@ -264,7 +278,8 @@ fn item_count(v: &Value) -> usize {
 /// disk, so an unbounded store is unbounded growth.
 pub const MAX_HANDLES: usize = 4096;
 
-/// Store a value and return its handle id.
+/// Store a value and return its description. The returned handle's `value` is
+/// `Null`; `get` retrieves the stored value by id.
 ///
 /// The id continues the session's numbering rather than this process's, so two
 /// consecutive `ish -e` calls do not both mint `h1` and have the second silently
@@ -318,8 +333,9 @@ fn put_capped(v: Value, rendered_bytes: usize, cap: usize) -> anyhow::Result<Han
             }
         }
     }
-    store.push(h.clone());
-    Ok(h)
+    let described = h.without_value();
+    store.push(h);
+    Ok(described)
 }
 
 /// Retrieve a stored value — from memory, or from the session directory when
@@ -337,13 +353,7 @@ pub fn get(id: &str) -> Option<Value> {
 /// Every live handle, oldest first, without their values.
 pub fn list() -> Vec<Handle> {
     let store = STORE.lock().unwrap_or_else(|e| e.into_inner());
-    let mut out: Vec<Handle> = store
-        .iter()
-        .map(|h| Handle {
-            value: Value::Null,
-            ..h.clone()
-        })
-        .collect();
+    let mut out: Vec<Handle> = store.iter().map(Handle::without_value).collect();
     for id in persisted_ids() {
         if out.iter().any(|h| h.id == id) {
             continue;
