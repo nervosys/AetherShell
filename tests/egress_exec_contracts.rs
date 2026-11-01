@@ -251,7 +251,10 @@ fn no_allowlist_means_no_refusal_by_this_check() {
 fn undeterminable_destinations_fail_closed_under_an_allowlist_and_say_why() {
     let _g = lock();
     let _e = Egress::new("closed", Some("example.com"));
-    for (name, args) in fail_closed_cases().into_iter().chain(pkg_fail_closed_cases()) {
+    for (name, args) in fail_closed_cases()
+        .into_iter()
+        .chain(pkg_fail_closed_cases())
+    {
         let r = call(name, args);
         let (code, message) = egress_refusal(&r)
             .unwrap_or_else(|| panic!("{name} must fail closed under an allowlist; got {r:?}"));
@@ -301,8 +304,9 @@ fn winget_queries_are_refused_under_an_allowlist() {
         ("pkg_info", vec![s("Git.Git")]),
     ] {
         let r = call(name, args);
-        let (code, message) = egress_refusal(&r)
-            .unwrap_or_else(|| panic!("{name} (winget) must be refused under an allowlist; got {r:?}"));
+        let (code, message) = egress_refusal(&r).unwrap_or_else(|| {
+            panic!("{name} (winget) must be refused under an allowlist; got {r:?}")
+        });
         assert_eq!(code, ErrorCode::PolicyDeny, "{name}");
         assert!(
             message.starts_with(&format!("{name}: egress denied")),
@@ -347,5 +351,8 @@ fn add_source_with_update_is_refused_before_the_file_is_written() {
     let (code, message) = egress_refusal(&r)
         .unwrap_or_else(|| panic!("pkg_add_source with update must be refused; got {r:?}"));
     assert_eq!(code, ErrorCode::PolicyDeny);
-    assert!(message.starts_with("pkg_add_source: egress denied"), "{message}");
+    assert!(
+        message.starts_with("pkg_add_source: egress denied"),
+        "{message}"
+    );
 }
