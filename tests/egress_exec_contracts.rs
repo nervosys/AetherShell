@@ -344,6 +344,10 @@ fn a_wildcard_allowlist_passes_every_destination() {
             "{name} under `*` must pass the egress check; got {r:?}"
         );
     }
+    assert!(
+        iron_shell::safety::check_egress_unknown("x", "unknown").is_ok(),
+        "`*` allows a destination that cannot be read"
+    );
 }
 
 #[test]
