@@ -185,37 +185,54 @@ fn an_over_long_line_is_budget_exceeded_and_the_next_line_still_arrives() {
 
 #[test]
 fn a_long_line_does_not_grow_the_process() {
-    // Eight mebibytes on one line, against a control that reads a short line.
-    // The reader discards bytes past the cap, so the peak should not track
-    // the line's size. The allowance covers allocator slack and sampling.
-    let big = {
-        let mut data = vec![b'b'; 8 * 1024 * 1024];
-        data.extend_from_slice(b"\n");
+    // An over-long line is read to its newline and discarded, so an 8 MiB line
+    // should cost no more than an over-long 70 KiB line. The control takes the
+    // same too-long path, so the two sides differ only in the line's size.
+    fn line(n: usize) -> Vec<u8> {
+        let mut data = vec![b'b'; n];
+        data.push(b'\n');
         data
-    };
+    }
     // The child stays alive half a second after the read, so the sampler sees
     // it even when the read itself is quicker than one sample.
     const HELD: &str =
         r#"r = (try { input_timeout("", 5000) } catch e { e.error.code }); sleep(0.5); r"#;
-    let small = run_ae(HELD, Input::Piped(b"short\n".to_vec()), "rss_small");
-    let large = run_ae(HELD, Input::Piped(big), "rss_large");
-    assert!(
-        large.stdout.contains("E_BUDGET_EXCEEDED"),
-        "stdout: {}",
-        large.stdout
-    );
-    assert!(
-        small.peak_rss > 0 && large.peak_rss > 0,
-        "no resident size was sampled; the memory check did not run"
-    );
-    // 6 MiB: a run on a GitHub Linux runner sampled 4.6 MiB of noise, and an
-    // 8 MiB line held whole would still exceed it.
+    const CONTROL_LINE: usize = 70 * 1024;
+    const LARGE_LINE: usize = 8 * 1024 * 1024;
+    // Peak resident size is a high-water mark, and what varies between runs
+    // (allocator, page cache, startup timing, memory pressure from elsewhere on
+    // the host) only adds to it, or trims it. So each side is the smallest of
+    // ATTEMPTS runs, after one discarded warm-up run of each side. The two sides
+    // alternate, so drift in the host reaches both. A line that is really held
+    // raises every large run, so the floors still separate.
+    const ATTEMPTS: usize = 3;
+    let peak = |bytes: usize, tag: &str| -> u64 {
+        let r = run_ae(HELD, Input::Piped(line(bytes)), tag);
+        assert!(
+            r.stdout.contains("E_BUDGET_EXCEEDED"),
+            "stdout: {}",
+            r.stdout
+        );
+        assert!(
+            r.peak_rss > 0,
+            "no resident size was sampled; the memory check did not run"
+        );
+        r.peak_rss
+    };
+    peak(CONTROL_LINE, "rss_warm_control");
+    peak(LARGE_LINE, "rss_warm_large");
+    let mut control = u64::MAX;
+    let mut large = u64::MAX;
+    for attempt in 0..ATTEMPTS {
+        control = control.min(peak(CONTROL_LINE, &format!("rss_control_{attempt}")));
+        large = large.min(peak(LARGE_LINE, &format!("rss_large_{attempt}")));
+    }
+    // 6 MiB: a run on a GitHub Linux runner sampled 4.6 MiB of noise in a
+    // single sample. The floors above are what the allowance now has to cover.
     let allowance = 6 * 1024 * 1024;
     assert!(
-        large.peak_rss < small.peak_rss + allowance,
-        "peak {} bytes for an 8 MiB line against {} bytes for a short one",
-        large.peak_rss,
-        small.peak_rss
+        large < control + allowance,
+        "peak {large} bytes for an 8 MiB line against {control} bytes for a 70 KiB one"
     );
 }
 
