@@ -516,9 +516,8 @@ mcp_call("read_file", {path: "data.json"})
 
 ```ironshell
 # Type-safe pipelines with AI assistance
-[1,2,3] 
-  | map(fn(x) => x * 2) 
-  | ai("What's the pattern in this data?")
+let doubled = [1,2,3] | map(fn(x) => x * 2)
+ai("What's the pattern in this data? " + json.stringify(doubled))
 ```
 
 ### 6. **Bash Transpiler** 🥈

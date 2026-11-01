@@ -12,7 +12,7 @@ export IRONSHELL_AI=openai
 export OPENAI_API_KEY=sk-your-key-here
 export OPENAI_MODEL=gpt-4o-mini  # Optional, default: gpt-4o-mini
 
-# Or use model URI directly
+# IRONSHELL_AI may also be a provider:model URI, e.g. openai:gpt-4o-mini
 ish 'ai("Hello, world!")'
 ```
 
@@ -194,7 +194,7 @@ let result = agent_swarm(agents, "Build a web scraper")
 ## Configuration Priority
 
 
-`ai()` takes no model argument. It reads only `IRONSHELL_AI` (for example `export IRONSHELL_AI=vllm`); with it unset the call fails with "no AI provider is configured". The priority list that was here (model URI in the call, `IRONSHELL_MODEL_URI`, auto, stub) describes no behaviour of `ai()`.
+`ai()` takes no model argument. It reads `IRONSHELL_AI`, which is a provider name (for example `vllm`) or a `provider:model` URI. The chosen provider then reads its own variables, such as `OPENAI_MODEL` or `VLLM_URL`. With `IRONSHELL_AI` unset, `ai()` tries the IronGate gateway if it answers; otherwise it fails with "no AI provider is configured". `IRONSHELL_AI=auto` is not a valid value for `ai()`; the `auto` handling in `backend_from_env` (`src/ai.rs`) is used by the RLM path (`src/rlm.rs`), not by `ai()`.
 
 ## Automatic Backend Detection
 
@@ -203,12 +203,14 @@ IronShell can automatically detect and use available AI backends:
 ### Using Auto-Detection
 
 ```bash
-# Enable auto-detection via environment variable
-export IRONSHELL_AI=auto
-ish 'ai("What is 2+2?")'  # Uses the provider named in IRONSHELL_AI
+# IRONSHELL_AI=auto is not handled by ai(): it fails with
+# "Unknown AI provider: 'auto'". Name the provider instead.
+export IRONSHELL_AI=ollama
+ish 'ai("What is 2+2?")'
 
-# Or use detection functions in scripts
-ish 'let backend = ai_detect(); ai("Hello!")'
+# ai_detect() returns a model URI such as "ollama:llama3", or "" when no
+# backend is available. ai() does not read that value.
+ish 'let backend = ai_detect()'
 ```
 
 ### Detection Functions
@@ -225,19 +227,21 @@ backends | foreach(fn(b) => {
 **`ai_detect()`** - Auto-select best available backend:
 ```ironshell
 let backend = ai_detect()
-print("Using:", backend)  # e.g., "ollama:llama3" or "vllm:model"
-ai("Hello!")
+print("Detected:", backend)  # e.g., "ollama:llama3" or "vllm:model"; "" if none
+# ai() still uses IRONSHELL_AI, not the value above
 ```
 
 ### Detection Priority
 
-Auto-detection checks backends in this order (prefers local over cloud):
+`ai_detect()` and `ai_backends()` probe the backends in this order (`try_detect_available_backends` in `src/ai.rs`), and `ai_detect()` picks the first one that is available:
 
-1. **Ollama** (`http://localhost:11434`) - Checks `/api/tags` endpoint
-2. **vLLM** (`http://localhost:8000/v1`) - Checks `/v1/models` endpoint
-3. **llama.cpp** (`http://localhost:8080/v1`) - Checks `/v1/models` endpoint
-4. **TGI** (`http://localhost:8080`) - Checks `/health` endpoint
-5. **OpenAI** (Cloud) - Checks for API key in environment or credential store
+1. **IronGate** - probes `/health` on the gateway
+2. **Ollama** (`OLLAMA_HOST`, default `http://localhost:11434`) - probes `/api/tags`
+3. **vLLM** (`VLLM_URL`, default `http://localhost:8000/v1`) - probes `/models`
+4. **llama.cpp** (`LLAMACPP_URL`, default `http://localhost:8080/v1`) - probes `/models`
+5. **TGI** (`TGI_URL`, default `http://localhost:8080`) - probes `/health`
+6. **OpenAI** - available when `OPENAI_API_KEY` is set (or a key is in the credential store); no network probe
+7. **LM Studio**
 
 ### Example: Conditional Backend Selection
 
@@ -328,7 +332,7 @@ curl http://localhost:8080/health      # llama.cpp
 # Show the available backends and which provider is selected.
 # (There is no IRONSHELL_DEBUG; the source reads no such variable.)
 ish 'ai_backends()'
-echo "${IRONSHELL_AI:-unset - the default provider is used}"
+echo "${IRONSHELL_AI:-unset - ai() then tries IronGate or fails}"
 ```
 
 ### Port Conflicts

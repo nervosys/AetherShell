@@ -1,3 +1,5 @@
+> **Historical.** This README predates the current `ai()` config form. Its media examples pipe a file into `ai(...)`, which sends the piped value as the prompt. Media goes in the config record instead: `ai("Describe this image", {images: ["photo.jpg"]})`, with `audio` and `video` keys for the other media. Other examples here also use syntax the current `ish` does not accept; treat them as illustrations, not as current syntax.
+
 # IronShell Shell (ish) 🚀
 
 *The next-generation shell that combines the power of modern programming languages with cutting-edge AI capabilities. Built in Rust for safety and performance, featuring a stunning Terminal UI (TUI) for multimodal AI interactions.*
