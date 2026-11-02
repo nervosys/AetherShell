@@ -2603,6 +2603,7 @@ fn utility(os: &dyn Os, name: &str, args: &[String], stdin: &mut Input, sink: &m
         "mkdir" => mkdir(os, args, sink),
         "tr" => tr(args, stdin, sink),
         "tee" => tee(os, args, stdin, sink),
+        "diff" => diff(os, args, stdin, sink),
         "touch" => touch(os, args, sink),
         "which" => which(os, args, sink),
         "expr" => expr(args, sink),
@@ -5681,6 +5682,422 @@ fn tee(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util
     Util::Done(status)
 }
 
+/// The most line pairs `diff` will set against each other in its longest
+/// common subsequence table: the differing middle of the two files, lines
+/// times lines. The table costs four bytes a cell, so past this it refuses.
+const DIFF_CELLS_MAX: usize = 50_000_000;
+
+/// One stretch of a comparison, in line indices. `Keep` is `n` lines both
+/// files share. `Change` removes the `na` lines of the first file from `a0`
+/// and adds the `nb` lines of the second from `b0`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiffSeg {
+    Keep {
+        a0: usize,
+        b0: usize,
+        n: usize,
+    },
+    Change {
+        a0: usize,
+        na: usize,
+        b0: usize,
+        nb: usize,
+    },
+}
+
+/// Appends a run of shared lines, merging it into a run that ends where it
+/// starts.
+fn push_keep(segs: &mut Vec<DiffSeg>, a0: usize, b0: usize, n: usize) {
+    if n == 0 {
+        return;
+    }
+    if let Some(DiffSeg::Keep {
+        a0: pa,
+        b0: pb,
+        n: pn,
+    }) = segs.last_mut()
+    {
+        if *pa + *pn == a0 && *pb + *pn == b0 {
+            *pn += n;
+            return;
+        }
+    }
+    segs.push(DiffSeg::Keep { a0, b0, n });
+}
+
+/// The line-by-line comparison of `a` and `b`, or `None` when the middle of
+/// the two (after the common head and tail are set aside) is over
+/// [`DIFF_CELLS_MAX`]. The middle is matched through a longest common
+/// subsequence table. Where two edits are equally short, a deletion is taken
+/// before an insertion, which is the order GNU `diff` prints them in.
+fn diff_segments(a: &[&[u8]], b: &[&[u8]]) -> Option<Vec<DiffSeg>> {
+    let head = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let room = a.len().min(b.len()) - head;
+    let tail = a[head..]
+        .iter()
+        .rev()
+        .zip(b[head..].iter().rev())
+        .take(room)
+        .take_while(|(x, y)| x == y)
+        .count();
+    let am = &a[head..a.len() - tail];
+    let bm = &b[head..b.len() - tail];
+    let (n, m) = (am.len(), bm.len());
+    if n.checked_mul(m)? > DIFF_CELLS_MAX {
+        return None;
+    }
+    // lcs[i * w + j]: the longest common subsequence of am[i..] and bm[j..].
+    let w = m + 1;
+    let mut lcs = vec![0u32; (n + 1) * w];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i * w + j] = if am[i] == bm[j] {
+                lcs[(i + 1) * w + j + 1] + 1
+            } else {
+                lcs[(i + 1) * w + j].max(lcs[i * w + j + 1])
+            };
+        }
+    }
+    let mut segs = Vec::new();
+    push_keep(&mut segs, 0, 0, head);
+    let (mut i, mut j) = (0, 0);
+    while i < n || j < m {
+        if i < n && j < m && am[i] == bm[j] {
+            push_keep(&mut segs, head + i, head + j, 1);
+            i += 1;
+            j += 1;
+            continue;
+        }
+        let (a0, b0) = (i, j);
+        while i < n || j < m {
+            if i < n && j < m && am[i] == bm[j] {
+                break;
+            }
+            let delete = i < n && (j >= m || lcs[(i + 1) * w + j] >= lcs[i * w + j + 1]);
+            if delete {
+                i += 1;
+            } else {
+                j += 1;
+            }
+        }
+        segs.push(DiffSeg::Change {
+            a0: head + a0,
+            na: i - a0,
+            b0: head + b0,
+            nb: j - b0,
+        });
+    }
+    push_keep(&mut segs, a.len() - tail, b.len() - tail, tail);
+    Some(segs)
+}
+
+/// The lines of `data`, each with its newline (the last may lack one).
+fn diff_lines(data: &[u8]) -> Vec<&[u8]> {
+    data.split_inclusive(|&c| c == b'\n').collect()
+}
+
+/// One line of output: `prefix`, the line, and, when the line has no newline,
+/// the marker GNU prints after it.
+fn push_diff_line(out: &mut Vec<u8>, prefix: &[u8], line: &[u8]) {
+    out.extend_from_slice(prefix);
+    out.extend_from_slice(line);
+    if !line.ends_with(b"\n") {
+        out.extend_from_slice(b"\n\\ No newline at end of file\n");
+    }
+}
+
+/// `first,last` in one-based line numbers, or just the number for one line.
+fn diff_span(first0: usize, count: usize) -> String {
+    if count == 1 {
+        (first0 + 1).to_string()
+    } else {
+        format!("{},{}", first0 + 1, first0 + count)
+    }
+}
+
+/// GNU's normal format: `NaM`, `NcM` or `NdM`, then the `<` and `>` lines.
+fn diff_normal(a: &[&[u8]], b: &[&[u8]], segs: &[DiffSeg], out: &mut Vec<u8>) {
+    for seg in segs {
+        let DiffSeg::Change { a0, na, b0, nb } = *seg else {
+            continue;
+        };
+        // An add names the line the new lines follow in the first file; a
+        // delete names the line they followed in the second.
+        let head = match (na, nb) {
+            (0, _) => format!("{a0}a{}", diff_span(b0, nb)),
+            (_, 0) => format!("{}d{b0}", diff_span(a0, na)),
+            _ => format!("{}c{}", diff_span(a0, na), diff_span(b0, nb)),
+        };
+        out.extend_from_slice(head.as_bytes());
+        out.push(b'\n');
+        for line in &a[a0..a0 + na] {
+            push_diff_line(out, b"< ", line);
+        }
+        if na > 0 && nb > 0 {
+            out.extend_from_slice(b"---\n");
+        }
+        for line in &b[b0..b0 + nb] {
+            push_diff_line(out, b"> ", line);
+        }
+    }
+}
+
+/// One line of a unified diff. `ai` and `bi` are how many lines of each file
+/// come before it, so a hunk with no lines from a file can name the line
+/// it sits after.
+struct UnifiedLine<'x> {
+    tag: u8,
+    ai: usize,
+    bi: usize,
+    text: &'x [u8],
+}
+
+/// A unified range: `start` in one-based lines, or the line before for an
+/// empty range, and the count, which is left out when it is one.
+fn unified_span(before: usize, count: usize) -> String {
+    let start = if count == 0 { before } else { before + 1 };
+    if count == 1 {
+        start.to_string()
+    } else {
+        format!("{start},{count}")
+    }
+}
+
+/// GNU's unified format with `context` lines around each change. Changes
+/// whose context would touch or overlap share a hunk.
+fn diff_unified(
+    a: &[&[u8]],
+    b: &[&[u8]],
+    segs: &[DiffSeg],
+    context: usize,
+    labels: (&str, &str),
+    out: &mut Vec<u8>,
+) {
+    let mut lines: Vec<UnifiedLine> = Vec::new();
+    for seg in segs {
+        match *seg {
+            DiffSeg::Keep { a0, b0, n } => {
+                for k in 0..n {
+                    lines.push(UnifiedLine {
+                        tag: b' ',
+                        ai: a0 + k,
+                        bi: b0 + k,
+                        text: a[a0 + k],
+                    });
+                }
+            }
+            DiffSeg::Change { a0, na, b0, nb } => {
+                for k in 0..na {
+                    lines.push(UnifiedLine {
+                        tag: b'-',
+                        ai: a0 + k,
+                        bi: b0,
+                        text: a[a0 + k],
+                    });
+                }
+                for k in 0..nb {
+                    lines.push(UnifiedLine {
+                        tag: b'+',
+                        ai: a0 + na,
+                        bi: b0 + k,
+                        text: b[b0 + k],
+                    });
+                }
+            }
+        }
+    }
+    // Each run of changed lines, widened by `context` on both sides; runs
+    // whose widened ranges touch or overlap become one hunk.
+    let mut hunks: Vec<(usize, usize)> = Vec::new();
+    let mut k = 0;
+    while k < lines.len() {
+        if lines[k].tag == b' ' {
+            k += 1;
+            continue;
+        }
+        let start = k;
+        while k < lines.len() && lines[k].tag != b' ' {
+            k += 1;
+        }
+        let lo = start.saturating_sub(context);
+        let hi = (k - 1 + context).min(lines.len() - 1);
+        match hunks.last_mut() {
+            Some((_, end)) if lo <= *end + 1 => *end = hi,
+            _ => hunks.push((lo, hi)),
+        }
+    }
+    if hunks.is_empty() {
+        return;
+    }
+    out.extend_from_slice(format!("--- {}\n+++ {}\n", labels.0, labels.1).as_bytes());
+    for (lo, hi) in hunks {
+        let hunk = &lines[lo..=hi];
+        let na = hunk.iter().filter(|l| l.tag != b'+').count();
+        let nb = hunk.iter().filter(|l| l.tag != b'-').count();
+        let head = format!(
+            "@@ -{} +{} @@\n",
+            unified_span(hunk[0].ai, na),
+            unified_span(hunk[0].bi, nb)
+        );
+        out.extend_from_slice(head.as_bytes());
+        for l in hunk {
+            push_diff_line(out, &[l.tag], l.text);
+        }
+    }
+}
+
+/// `diff [-q] [-u | -U N] [--label A --label B] FILE1 FILE2`: compares two
+/// files line by line, in GNU's normal format, unified format, or brief form.
+/// Exit 0 when they are the same, 1 when they differ, 2 on trouble, as GNU
+/// does. Options it does not model decline, so the real `diff` answers them;
+/// so does a directory operand, and a unified diff without two `--label`s,
+/// whose GNU header carries the file's time to the nanosecond, which the
+/// [`Os`] trait does not give. `-` is standard input.
+fn diff(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+    let mut unified = false;
+    let mut context = 3usize;
+    let mut brief = false;
+    let mut labels: Vec<String> = Vec::new();
+    let mut operands: Vec<String> = Vec::new();
+    let mut options_done = false;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if options_done || a == "-" || !a.starts_with('-') {
+            operands.push(a.clone());
+        } else if a == "--" {
+            options_done = true;
+        } else if let Some(long) = a.strip_prefix("--") {
+            match long {
+                "unified" => unified = true,
+                "brief" => brief = true,
+                "label" => match it.next() {
+                    Some(l) => labels.push(l.clone()),
+                    None => return Util::Decline,
+                },
+                _ => match long.strip_prefix("label=") {
+                    Some(l) => labels.push(l.to_string()),
+                    None => return Util::Decline,
+                },
+            }
+        } else {
+            for (k, c) in a.char_indices().skip(1) {
+                match c {
+                    'u' => unified = true,
+                    'q' => brief = true,
+                    'U' => {
+                        // The value is the rest of this word, or the next word.
+                        let value = if k + 1 < a.len() {
+                            a[k + 1..].to_string()
+                        } else {
+                            match it.next() {
+                                Some(v) => v.clone(),
+                                None => return Util::Decline,
+                            }
+                        };
+                        match value.parse::<usize>() {
+                            Ok(n) => context = n,
+                            Err(_) => {
+                                sink.eline(&format!("diff: invalid context length '{value}'"));
+                                sink.eline("diff: Try 'diff --help' for more information.");
+                                return Util::Done(2);
+                            }
+                        }
+                        unified = true;
+                        break;
+                    }
+                    _ => return Util::Decline,
+                }
+            }
+        }
+    }
+    let (fa, fb) = match operands.as_slice() {
+        [] => {
+            sink.eline("diff: missing operand after 'diff'");
+            sink.eline("diff: Try 'diff --help' for more information.");
+            return Util::Done(2);
+        }
+        [one] => {
+            sink.eline(&format!("diff: missing operand after '{one}'"));
+            sink.eline("diff: Try 'diff --help' for more information.");
+            return Util::Done(2);
+        }
+        [x, y] => (x.as_str(), y.as_str()),
+        [_, _, extra, ..] => {
+            sink.eline(&format!("diff: extra operand '{extra}'"));
+            sink.eline("diff: Try 'diff --help' for more information.");
+            return Util::Done(2);
+        }
+    };
+    if fa == "-" && fb == "-" {
+        return Util::Decline;
+    }
+    if unified && labels.len() != 2 {
+        return Util::Decline;
+    }
+    if [fa, fb].iter().any(|f| *f != "-" && is_dir(os, f)) {
+        return Util::Decline;
+    }
+    let mut failed = false;
+    let mut inputs: Vec<Vec<u8>> = Vec::new();
+    for f in [fa, fb] {
+        let read = if f == "-" {
+            Ok(stdin.read_all())
+        } else {
+            os.read_file(f)
+        };
+        match read {
+            Ok(d) => inputs.push(d),
+            Err(e) => {
+                sink.eline(&format!("diff: {f}: {}", io_reason(&e)));
+                failed = true;
+            }
+        }
+    }
+    if failed {
+        return Util::Done(2);
+    }
+    let (da, db) = (&inputs[0], &inputs[1]);
+    if da == db {
+        return Util::Done(0);
+    }
+    // The names a report uses: the labels in unified form, else the operands.
+    let (na, nb) = if unified {
+        (labels[0].as_str(), labels[1].as_str())
+    } else {
+        (fa, fb)
+    };
+    if brief {
+        sink.out
+            .extend_from_slice(format!("Files {na} and {nb} differ\n").as_bytes());
+        return Util::Done(1);
+    }
+    if da.contains(&0) || db.contains(&0) {
+        sink.out
+            .extend_from_slice(format!("Binary files {na} and {nb} differ\n").as_bytes());
+        return Util::Done(1);
+    }
+    let (la, lb) = (diff_lines(da), diff_lines(db));
+    let Some(segs) = diff_segments(&la, &lb) else {
+        sink.eline(&format!(
+            "diff: files too large to compare: more than {DIFF_CELLS_MAX} line pairs; nothing was compared"
+        ));
+        return Util::Done(2);
+    };
+    if unified {
+        diff_unified(
+            &la,
+            &lb,
+            &segs,
+            context,
+            (&labels[0], &labels[1]),
+            &mut sink.out,
+        );
+    } else {
+        diff_normal(&la, &lb, &segs, &mut sink.out);
+    }
+    Util::Done(1)
+}
+
 /// `touch [-c] FILE...`. A file that is absent is created empty, through the
 /// gate. A file that is there has its access and modification times set to
 /// now, as GNU does, through [`Gate::guarded_touch`]. `-c` creates nothing.
@@ -8421,6 +8838,362 @@ mod tests {
                 1
             )
         );
+    }
+
+    /// The text of `lines`, each followed by a newline.
+    fn text(lines: &[&str]) -> String {
+        lines.iter().map(|l| format!("{l}\n")).collect()
+    }
+
+    /// The numbers `from` to `to`, one per line.
+    fn numbered(from: usize, to: usize) -> String {
+        (from..=to).map(|i| format!("{i}\n")).collect()
+    }
+
+    /// A host with `/w/a` and `/w/b` holding the two texts.
+    fn diff_os(a: &str, b: &str) -> FakeOs {
+        let mut os = FakeOs::default();
+        os.dirs.insert("/w".into());
+        os.files.insert("/w/a".into(), a.as_bytes().to_vec());
+        os.files.insert("/w/b".into(), b.as_bytes().to_vec());
+        os
+    }
+
+    /// `diff` in GNU's normal format. Every expected output is GNU
+    /// diffutils 3.10's, byte for byte, on the same inputs.
+    #[test]
+    fn diff_normal_format_matches_gnu() {
+        let cases: Vec<(String, String, &str, i32)> = vec![
+            // identical files: nothing printed
+            (text(&["1", "2", "3"]), text(&["1", "2", "3"]), "", 0),
+            // pure insert, pure delete, change
+            (
+                text(&["1", "2", "3"]),
+                text(&["1", "2", "X", "3"]),
+                "2a3\n> X\n",
+                1,
+            ),
+            (
+                text(&["1", "2", "3", "4"]),
+                text(&["1", "4"]),
+                "2,3d1\n< 2\n< 3\n",
+                1,
+            ),
+            (
+                text(&["1", "2", "3"]),
+                text(&["1", "TWO", "3"]),
+                "2c2\n< 2\n---\n> TWO\n",
+                1,
+            ),
+            // several hunks
+            (
+                numbered(1, 20),
+                text(&[
+                    "1", "two", "3", "4", "5", "6", "7", "8", "9", "11", "12", "13", "14", "15",
+                    "16", "17", "18", "nineteen", "20",
+                ]),
+                "2c2\n< 2\n---\n> two\n10d9\n< 10\n19c18\n< 19\n---\n> nineteen\n",
+                1,
+            ),
+            // changes three lines apart stay separate hunks in the same
+            // way under -U1 and -U3 (see the unified test)
+            (
+                numbered(1, 12),
+                text(&[
+                    "1", "2", "THREE", "4", "5", "6", "SEVEN", "8", "9", "10", "11", "12",
+                ]),
+                "3c3\n< 3\n---\n> THREE\n7c7\n< 7\n---\n> SEVEN\n",
+                1,
+            ),
+            // no newline at the end of the first file, of the second, of both
+            (
+                "a\nb".into(),
+                "a\nc\n".into(),
+                "2c2\n< b\n\\ No newline at end of file\n---\n> c\n",
+                1,
+            ),
+            (
+                "a\nb\n".into(),
+                "a\nb".into(),
+                "2c2\n< b\n---\n> b\n\\ No newline at end of file\n",
+                1,
+            ),
+            (
+                "x".into(),
+                "y".into(),
+                "1c1\n< x\n\\ No newline at end of file\n---\n> y\n\\ No newline at end of file\n",
+                1,
+            ),
+            // empty against non-empty, both ways
+            (String::new(), text(&["x", "y"]), "0a1,2\n> x\n> y\n", 1),
+            (text(&["x", "y"]), String::new(), "1,2d0\n< x\n< y\n", 1),
+            // both empty
+            (String::new(), String::new(), "", 0),
+            // a choice between equally short edits (the Myers paper's
+            // ABCABBA against CBABAC)
+            (
+                text(&["A", "B", "C", "A", "B", "B", "A"]),
+                text(&["C", "B", "A", "B", "A", "C"]),
+                "1,2d0\n< A\n< B\n4d1\n< A\n5a3\n> A\n7a6\n> C\n",
+                1,
+            ),
+            // an insert and a delete at the top, and multi-line ranges
+            ("2\n".into(), "1\n2\n".into(), "0a1\n> 1\n", 1),
+            ("1\n2\n".into(), "2\n".into(), "1d0\n< 1\n", 1),
+            (
+                numbered(1, 5),
+                text(&["1", "X", "Y", "Z", "5"]),
+                "2,4c2,4\n< 2\n< 3\n< 4\n---\n> X\n> Y\n> Z\n",
+                1,
+            ),
+            (
+                text(&["1", "2"]),
+                text(&["1", "A", "B", "C", "2"]),
+                "1a2,4\n> A\n> B\n> C\n",
+                1,
+            ),
+            (
+                text(&["1", "A", "B", "C", "2"]),
+                text(&["1", "2"]),
+                "2,4d1\n< A\n< B\n< C\n",
+                1,
+            ),
+        ];
+        for (a, b, want_out, want) in cases {
+            let os = diff_os(&a, &b);
+            let (out, status) = sh_on(&os, "diff /w/a /w/b");
+            assert_eq!(out, want_out, "diff of {a:?} and {b:?}");
+            assert_eq!(status, want, "status for {a:?} and {b:?}");
+        }
+        // Standard input as the first operand.
+        let os = diff_os("", "1\n2\n3\n");
+        assert_eq!(
+            sh_on(&os, "printf 'a\\nb\\n' | diff - /w/b"),
+            ("1,2c1,3\n< a\n< b\n---\n> 1\n> 2\n> 3\n".into(), 1)
+        );
+    }
+
+    /// `diff -u` and `-U N` with `--label`. Each expected output is GNU's.
+    #[test]
+    fn diff_unified_format_matches_gnu() {
+        let cases: Vec<(String, String, &str, &str)> = vec![
+            // insert, with no context and with the default
+            (
+                text(&["1", "2", "3"]),
+                text(&["1", "2", "X", "3"]),
+                "-U0",
+                "--- A\n+++ B\n@@ -2,0 +3 @@\n+X\n",
+            ),
+            (
+                text(&["1", "2", "3"]),
+                text(&["1", "2", "X", "3"]),
+                "-u",
+                "--- A\n+++ B\n@@ -1,3 +1,4 @@\n 1\n 2\n+X\n 3\n",
+            ),
+            (
+                text(&["1", "2", "3", "4"]),
+                text(&["1", "4"]),
+                "-u",
+                "--- A\n+++ B\n@@ -1,4 +1,2 @@\n 1\n-2\n-3\n 4\n",
+            ),
+            (
+                text(&["1", "2", "3"]),
+                text(&["1", "TWO", "3"]),
+                "-u",
+                "--- A\n+++ B\n@@ -1,3 +1,3 @@\n 1\n-2\n+TWO\n 3\n",
+            ),
+            // several hunks: context of 3 keeps the first two apart, and
+            // the middle one reaches back to them
+            (
+                numbered(1, 20),
+                text(&[
+                    "1", "two", "3", "4", "5", "6", "7", "8", "9", "11", "12", "13", "14", "15",
+                    "16", "17", "18", "nineteen", "20",
+                ]),
+                "-u",
+                "--- A\n+++ B\n@@ -1,5 +1,5 @@\n 1\n-2\n+two\n 3\n 4\n 5\n@@ -7,7 +7,6 @@\n 7\n 8\n 9\n-10\n 11\n 12\n 13\n@@ -16,5 +15,5 @@\n 16\n 17\n 18\n-19\n+nineteen\n 20\n",
+            ),
+            (
+                numbered(1, 20),
+                text(&[
+                    "1", "two", "3", "4", "5", "6", "7", "8", "9", "11", "12", "13", "14", "15",
+                    "16", "17", "18", "nineteen", "20",
+                ]),
+                "-U1",
+                "--- A\n+++ B\n@@ -1,3 +1,3 @@\n 1\n-2\n+two\n 3\n@@ -9,3 +9,2 @@\n 9\n-10\n 11\n@@ -18,3 +17,3 @@\n 18\n-19\n+nineteen\n 20\n",
+            ),
+            // changes three lines apart: separate hunks at -U1, one at -U3
+            (
+                numbered(1, 12),
+                text(&["1", "2", "THREE", "4", "5", "6", "SEVEN", "8", "9", "10", "11", "12"]),
+                "-U1",
+                "--- A\n+++ B\n@@ -2,3 +2,3 @@\n 2\n-3\n+THREE\n 4\n@@ -6,3 +6,3 @@\n 6\n-7\n+SEVEN\n 8\n",
+            ),
+            (
+                numbered(1, 12),
+                text(&["1", "2", "THREE", "4", "5", "6", "SEVEN", "8", "9", "10", "11", "12"]),
+                "-U3",
+                "--- A\n+++ B\n@@ -1,10 +1,10 @@\n 1\n 2\n-3\n+THREE\n 4\n 5\n 6\n-7\n+SEVEN\n 8\n 9\n 10\n",
+            ),
+            // no newline at the end
+            (
+                "a\nb".into(),
+                "a\nc\n".into(),
+                "-u",
+                "--- A\n+++ B\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+c\n",
+            ),
+            (
+                "a\nb\n".into(),
+                "a\nb".into(),
+                "-u",
+                "--- A\n+++ B\n@@ -1,2 +1,2 @@\n a\n-b\n+b\n\\ No newline at end of file\n",
+            ),
+            (
+                "x".into(),
+                "y".into(),
+                "-u",
+                "--- A\n+++ B\n@@ -1 +1 @@\n-x\n\\ No newline at end of file\n+y\n\\ No newline at end of file\n",
+            ),
+            // empty files
+            (
+                String::new(),
+                text(&["x", "y"]),
+                "-u",
+                "--- A\n+++ B\n@@ -0,0 +1,2 @@\n+x\n+y\n",
+            ),
+            (
+                text(&["x", "y"]),
+                String::new(),
+                "-u",
+                "--- A\n+++ B\n@@ -1,2 +0,0 @@\n-x\n-y\n",
+            ),
+            // a choice between equally short edits
+            (
+                text(&["A", "B", "C", "A", "B", "B", "A"]),
+                text(&["C", "B", "A", "B", "A", "C"]),
+                "-u",
+                "--- A\n+++ B\n@@ -1,7 +1,6 @@\n-A\n-B\n C\n-A\n B\n+A\n B\n A\n+C\n",
+            ),
+            (
+                numbered(1, 5),
+                text(&["1", "X", "Y", "Z", "5"]),
+                "-u",
+                "--- A\n+++ B\n@@ -1,5 +1,5 @@\n 1\n-2\n-3\n-4\n+X\n+Y\n+Z\n 5\n",
+            ),
+            // identical files print nothing
+            (text(&["1", "2"]), text(&["1", "2"]), "-u", ""),
+        ];
+        for (a, b, flags, want) in cases {
+            let os = diff_os(&a, &b);
+            let cmd = format!("diff {flags} --label A --label B /w/a /w/b");
+            assert_eq!(
+                sh_on(&os, &cmd),
+                (want.into(), if want.is_empty() { 0 } else { 1 }),
+                "{cmd} on {a:?} and {b:?}"
+            );
+        }
+    }
+
+    /// `-q` (or `--brief`), missing files, usage errors, binary files, and
+    /// the size limit: GNU's messages, and GNU's statuses.
+    #[test]
+    fn diff_brief_trouble_and_binary_match_gnu() {
+        let os = diff_os(&text(&["1", "2", "3", "4"]), &text(&["1", "4"]));
+        assert_eq!(
+            sh_on(&os, "diff -q /w/a /w/b"),
+            ("Files /w/a and /w/b differ\n".into(), 1)
+        );
+        assert_eq!(
+            sh_on(&os, "diff --brief /w/a /w/b"),
+            ("Files /w/a and /w/b differ\n".into(), 1)
+        );
+        let same = diff_os("1\n", "1\n");
+        assert_eq!(sh_on(&same, "diff -q /w/a /w/b"), (String::new(), 0));
+
+        // A missing file: GNU names each one and exits 2 without comparing.
+        assert_eq!(
+            sh_err(&os, "diff /w/a /w/nosuch"),
+            ("diff: /w/nosuch: No such file or directory\n".into(), 2)
+        );
+        assert_eq!(
+            sh_err(&os, "diff /w/nosuch /w/b"),
+            ("diff: /w/nosuch: No such file or directory\n".into(), 2)
+        );
+        assert_eq!(
+            sh_err(&os, "diff /w/nosuch /w/nosuch2"),
+            (
+                "diff: /w/nosuch: No such file or directory\ndiff: /w/nosuch2: No such file or directory\n"
+                    .into(),
+                2
+            )
+        );
+
+        // Usage: no operand, one operand, three operands, a bad context.
+        let usage = "diff: Try 'diff --help' for more information.\n";
+        assert_eq!(
+            sh_err(&os, "diff"),
+            (format!("diff: missing operand after 'diff'\n{usage}"), 2)
+        );
+        assert_eq!(
+            sh_err(&os, "diff /w/a"),
+            (format!("diff: missing operand after '/w/a'\n{usage}"), 2)
+        );
+        assert_eq!(
+            sh_err(&os, "diff /w/a /w/b /w/a"),
+            (format!("diff: extra operand '/w/a'\n{usage}"), 2)
+        );
+        assert_eq!(
+            sh_err(&os, "diff -U x /w/a /w/b"),
+            (format!("diff: invalid context length 'x'\n{usage}"), 2)
+        );
+
+        // Binary files: GNU says so instead of printing lines.
+        let bin = diff_os("a\0b\n", "a\0c\n");
+        assert_eq!(
+            sh_on(&bin, "diff /w/a /w/b"),
+            ("Binary files /w/a and /w/b differ\n".into(), 1)
+        );
+        assert_eq!(
+            sh_on(&bin, "diff -u --label A --label B /w/a /w/b"),
+            ("Binary files A and B differ\n".into(), 1)
+        );
+        assert_eq!(
+            sh_on(&bin, "diff -q /w/a /w/b"),
+            ("Files /w/a and /w/b differ\n".into(), 1)
+        );
+
+        // The size limit refuses before it allocates the table.
+        let big = diff_os(
+            &(0..8000).map(|i| format!("x{i}\n")).collect::<String>(),
+            &(0..8000).map(|i| format!("y{i}\n")).collect::<String>(),
+        );
+        assert_eq!(
+            sh_err(&big, "diff /w/a /w/b"),
+            (
+                "diff: files too large to compare: more than 50000000 line pairs; nothing was compared\n"
+                    .into(),
+                2
+            )
+        );
+    }
+
+    /// `diff` reads through the [`Os`] trait. Where it declines (a unified
+    /// diff without two labels, whose GNU header carries the file's time to
+    /// the nanosecond, which the trait does not give; or an option it does
+    /// not model) it prints nothing of its own, and the program it hands the
+    /// command to answers instead. [`FakeOs`] has no programs, so that answer
+    /// is an error, not a diff.
+    #[test]
+    fn diff_reads_through_the_trait_and_declines_what_it_does_not_model() {
+        let os = diff_os("1\n", "2\n");
+        assert_eq!(sh_on(&os, "diff /w/a /w/b").1, 1);
+        assert!(os.calls.borrow().contains(&"read_file"));
+        for cmd in ["diff -u /w/a /w/b", "diff -w /w/a /w/b"] {
+            let os = diff_os("1\n", "2\n");
+            let (out, status) = sh_on(&os, cmd);
+            assert_eq!(out, "", "{cmd} printed a diff itself");
+            assert_ne!(status, 1, "{cmd} answered with a diff status");
+        }
     }
 
     /// `tee` writes each file through the gate, and `-a` appends. A refusal
