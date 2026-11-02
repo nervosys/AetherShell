@@ -1741,6 +1741,11 @@ impl<'a> Shell<'a> {
                 return self.env_builtin(e, env, stdin, sink);
             }
         }
+        // `xargs` runs commands through this same dispatch, so it is handled
+        // here, with the shell, and not in `utility`.
+        if name == "xargs" {
+            return self.xargs_builtin(argv, env, stdin, sink);
+        }
         if env.is_empty() {
             match utility(self.os, name, args, stdin, sink) {
                 Util::Done(c) => return Flow::Next(c),
@@ -1864,6 +1869,112 @@ impl<'a> Shell<'a> {
             return self.dispatch(&e.command, &[], stdin, sink);
         }
         Flow::Next(self.external(&e.command, &over, stdin, sink))
+    }
+
+    /// `xargs`: runs the command once per batch of the input's words, through
+    /// [`Shell::dispatch`], so a utility runs in-process and any other program
+    /// goes through [`Shell::external`] and the gate. Each run's standard input
+    /// is empty, as GNU gives it. An option this subset does not run declines
+    /// to the real `xargs`, before stdin is read.
+    fn xargs_builtin(
+        &mut self,
+        argv: &[String],
+        env: &[(String, String)],
+        stdin: &mut Input,
+        sink: &mut Sink,
+    ) -> Flow {
+        let x = match xargs_parse(&argv[1..]) {
+            XParse::Run(x) => x,
+            XParse::Error(lines) => {
+                for l in &lines {
+                    sink.eline(l);
+                }
+                return Flow::Next(1);
+            }
+            XParse::Decline => return Flow::Next(self.external(argv, env, stdin, sink)),
+        };
+        let data = stdin.read_all();
+        let (words, error) = xargs_words(&data, x.split);
+        // The count is known before any run starts, so a run over the cap is
+        // refused whole.
+        let count = match (&x.replace, x.per_run) {
+            (Some(_), _) => words.len(),
+            (None, _) if words.is_empty() => usize::from(!x.no_run_if_empty && error.is_none()),
+            (None, Some(n)) => words.len().div_ceil(n),
+            (None, None) => 1,
+        };
+        if count > XARGS_MAX_INVOCATIONS {
+            sink.eline(&format!(
+                "xargs: {count} invocations would be needed, more than {XARGS_MAX_INVOCATIONS}; nothing was run"
+            ));
+            return Flow::Next(1);
+        }
+        let mut runs: Vec<Vec<String>> = Vec::with_capacity(count);
+        match &x.replace {
+            Some(r) => {
+                for w in &words {
+                    runs.push(
+                        x.cmd
+                            .iter()
+                            .map(|a| a.replace(r.as_str(), w.as_str()))
+                            .collect(),
+                    );
+                }
+            }
+            None if words.is_empty() => {
+                if count == 1 {
+                    runs.push(x.cmd.clone());
+                }
+            }
+            None => {
+                let n = x.per_run.unwrap_or(words.len());
+                for chunk in words.chunks(n) {
+                    let mut v = x.cmd.clone();
+                    v.extend(chunk.iter().cloned());
+                    runs.push(v);
+                }
+            }
+        }
+        // 124, 125, 126 and 127 end the run, as GNU's do; 1 to 125 is "some
+        // command failed" (123), and the run goes on.
+        let mut stop: Option<i32> = None;
+        let mut failed = false;
+        for run in &runs {
+            let mut inner = Sink::new(self.os, ErrMode::Capture);
+            let c = match self.dispatch(run, env, &mut Input::buf(Vec::new()), &mut inner) {
+                Flow::Next(c) => c,
+                _ => 1,
+            };
+            sink.out.extend_from_slice(&inner.out);
+            sink.ewrite(&inner.err);
+            match c {
+                0 => {}
+                255 => {
+                    sink.eline(&format!(
+                        "xargs: {}: exited with status 255; aborting",
+                        run[0]
+                    ));
+                    stop = Some(124);
+                    break;
+                }
+                126 | 127 => {
+                    stop = Some(c);
+                    break;
+                }
+                // A program killed by a signal is reported as 128 by the host.
+                128.. => {
+                    stop = Some(125);
+                    break;
+                }
+                _ => failed = true,
+            }
+        }
+        // The words before an unmatched quote ran above; the error is last.
+        if let Some(msg) = error {
+            sink.eline(msg);
+            return Flow::Next(1);
+        }
+        Flow::Next(stop.unwrap_or(if failed { 123 } else { 0 }))
     }
 
     /// Run a program that is not implemented here: directly, with no shell in
@@ -2449,6 +2560,12 @@ fn utility(os: &dyn Os, name: &str, args: &[String], stdin: &mut Input, sink: &m
         "yes" => yes(args, sink),
         "readlink" => readlink(os, args, sink),
         "stat" => stat(os, args, sink),
+        "sleep" => sleep(os, args, sink),
+        "uname" => uname(os, args, sink),
+        "whoami" => whoami(os, args, sink),
+        "kill" => kill(os, args, sink),
+        "ps" => ps(os, args, sink),
+        "chmod" => chmod(os, args, sink),
         "basename" => match args {
             [p] | [p, _] => {
                 let trimmed = p.trim_end_matches('/');
@@ -4768,6 +4885,723 @@ fn tr(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
     Util::Done(0)
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// Time, the host's name and accounts, processes, modes, and xargs
+// ════════════════════════════════════════════════════════════════════════
+//
+// Each one prints what GNU coreutils (or procps, for `ps` and `kill`) prints
+// for the forms it runs, and the tests name the reference command for each
+// value. A form it does not run declines to the real program.
+
+/// The longest pause `sleep` takes, in nanoseconds: a day. A longer one is
+/// refused, so a stray operand cannot park the shell.
+const SLEEP_MAX_NANOS: u128 = 86_400 * 1_000_000_000;
+
+/// The most command runs one `xargs` makes. A run that would need more is
+/// refused before its first command starts.
+const XARGS_MAX_INVOCATIONS: usize = 100_000;
+
+/// The nanoseconds one `sleep` operand names: a decimal with an optional
+/// suffix, `s`, `m`, `h` or `d`. `None` for any other form. A value too large
+/// to count saturates, and the caller refuses it.
+fn sleep_nanos(s: &str) -> Option<u128> {
+    let (num, unit): (&str, u128) = match s.as_bytes().last()? {
+        b's' => (&s[..s.len() - 1], 1_000_000_000),
+        b'm' => (&s[..s.len() - 1], 60 * 1_000_000_000),
+        b'h' => (&s[..s.len() - 1], 3_600 * 1_000_000_000),
+        b'd' => (&s[..s.len() - 1], 86_400 * 1_000_000_000),
+        _ => (s, 1_000_000_000),
+    };
+    let (int, frac) = num.split_once('.').unwrap_or((num, ""));
+    if int.is_empty() && frac.is_empty() {
+        return None;
+    }
+    if !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let whole = if int.is_empty() {
+        0
+    } else {
+        int.parse::<u128>().unwrap_or(u128::MAX)
+    };
+    // The fraction to the nanosecond: its first nine digits, scaled by the unit.
+    let digits: String = frac
+        .chars()
+        .take(9)
+        .chain(core::iter::repeat('0'))
+        .take(9)
+        .collect();
+    let frac_nanos = digits.parse::<u128>().unwrap_or(0) * unit / 1_000_000_000;
+    Some(whole.saturating_mul(unit).saturating_add(frac_nanos))
+}
+
+/// `sleep NUMBER[SUFFIX]...`: the operands add up, and the total must be a day
+/// or less. A form it does not run declines, so the real `sleep` words its own
+/// errors.
+fn sleep(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    if args.is_empty() {
+        return usage(sink, "sleep", "sleep: missing operand");
+    }
+    let mut total: u128 = 0;
+    for a in args {
+        let Some(n) = sleep_nanos(a) else {
+            return Util::Decline;
+        };
+        total = total.saturating_add(n);
+    }
+    if total > SLEEP_MAX_NANOS {
+        sink.eline("sleep: time interval is longer than 24 hours; nothing was slept");
+        sink.eline("Try 'sleep --help' for more information.");
+        return Util::Done(1);
+    }
+    match os.sleep(core::time::Duration::from_nanos(total as u64)) {
+        Ok(()) => Util::Done(0),
+        Err(_) => Util::Decline,
+    }
+}
+
+/// `uname [-amnrs]`, fields in GNU's order. With no flag it prints the system
+/// name. `-a` prints the fields this host reports: system name, node name,
+/// release and machine. GNU's `-a` also prints the kernel version, processor,
+/// hardware platform and operating system; those are omitted, because the
+/// host does not report them. `-r` and `-a` decline on a host with no release.
+fn uname(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let Some((flags, ops)) = short_flags(args, "amnrs") else {
+        return Util::Decline;
+    };
+    if !ops.is_empty() {
+        return Util::Decline;
+    }
+    let Ok(name) = os.uname() else {
+        return Util::Decline;
+    };
+    let all = flags.contains(&'a');
+    let plain = !all && flags.is_empty();
+    let mut fields: Vec<String> = Vec::new();
+    if all || plain || flags.contains(&'s') {
+        fields.push(name.sysname);
+    }
+    if all || flags.contains(&'n') {
+        fields.push(name.nodename);
+    }
+    if all || flags.contains(&'r') {
+        match name.release {
+            Some(r) => fields.push(r),
+            None => return Util::Decline,
+        }
+    }
+    if all || flags.contains(&'m') {
+        fields.push(name.machine);
+    }
+    sink.out
+        .extend_from_slice(format!("{}\n", fields.join(" ")).as_bytes());
+    Util::Done(0)
+}
+
+/// `whoami`: the account the shell runs as. It takes no operand; a host with no
+/// account name declines.
+fn whoami(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    if !args.is_empty() {
+        return Util::Decline;
+    }
+    match os.user_name_current() {
+        Some(name) => {
+            sink.out.extend_from_slice(format!("{name}\n").as_bytes());
+            Util::Done(0)
+        }
+        None => Util::Decline,
+    }
+}
+
+/// The signal a `kill` option names: `TERM`, `KILL`, `INT`, `HUP`, or a number
+/// from 0 to 64.
+fn kill_signal(s: &str) -> Option<i32> {
+    match s {
+        "TERM" => Some(15),
+        "KILL" => Some(9),
+        "INT" => Some(2),
+        "HUP" => Some(1),
+        _ => match s.parse::<i32>() {
+            Ok(n) if (0..=64).contains(&n) && s.bytes().all(|b| b.is_ascii_digit()) => Some(n),
+            _ => None,
+        },
+    }
+}
+
+/// The text `kill` prints for a signal that did not go, as procps words it for
+/// the two errno values a process can give.
+fn kill_reason(e: &OsError) -> String {
+    match e.errno {
+        Some(1) => "Operation not permitted".into(),
+        Some(3) => "No such process".into(),
+        _ => io_reason(e),
+    }
+}
+
+/// `kill [-s SIG | -SIG] PID...`. Each PID is signalled in turn, TERM by
+/// default; a refusal from the gate returns its status at once. A host that
+/// cannot signal declines, as do process 0 and the group forms (which name no
+/// single process), and a signal name this subset does not run.
+/// Output and status match procps `kill`: `kill: (PID): No such process`.
+fn kill(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    if !os.can_signal() {
+        return Util::Decline;
+    }
+    let (signal, rest) = match args {
+        [s, sig, rest @ ..] if s.as_str() == "-s" => match kill_signal(sig) {
+            Some(n) => (n, rest),
+            None => return Util::Decline,
+        },
+        [opt, rest @ ..] if opt.len() > 1 && opt.starts_with('-') => match kill_signal(&opt[1..]) {
+            Some(n) => (n, rest),
+            None => return Util::Decline,
+        },
+        _ => (15, args),
+    };
+    if rest.is_empty() {
+        return Util::Decline;
+    }
+    let mut pids: Vec<u32> = Vec::new();
+    for p in rest {
+        match p.parse::<i32>() {
+            Ok(v) if v > 0 => pids.push(v as u32),
+            _ => return Util::Decline,
+        }
+    }
+    let mut status = 0;
+    for pid in pids {
+        match os.gate().guarded_kill(os, pid, signal) {
+            Ok(()) => {}
+            Err(WriteError::Refused(r)) => return refused(sink, &r),
+            Err(WriteError::Io(e)) => {
+                sink.eline(&format!("kill: ({pid}): {}", kill_reason(&e)));
+                status = 1;
+            }
+        }
+    }
+    Util::Done(status)
+}
+
+/// `ps -e|-A -o LIST`. LIST is `pid`, `ppid` and `comm`, in any order but with
+/// `comm` last, each optionally followed by `=` to drop its header (all of them
+/// or none). The columns are procps' widths: PID and PPID in seven each,
+/// right-aligned and one space apart, and COMMAND unpadded. Any other form
+/// declines, and so does a host that cannot list its processes.
+fn ps(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let mut all = false;
+    let mut list: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-e" | "-A" => all = true,
+            "-o" => {
+                if list.is_some() {
+                    return Util::Decline;
+                }
+                let Some(v) = args.get(i + 1) else {
+                    return Util::Decline;
+                };
+                list = Some(v.as_str());
+                i += 1;
+            }
+            _ => return Util::Decline,
+        }
+        i += 1;
+    }
+    let (Some(list), true) = (list, all) else {
+        return Util::Decline;
+    };
+    let mut cols: Vec<(&str, bool)> = Vec::new();
+    for c in list.split(',') {
+        let (name, blank) = match c.strip_suffix('=') {
+            Some(n) => (n, true),
+            None => (c, false),
+        };
+        if !matches!(name, "pid" | "ppid" | "comm") || cols.iter().any(|(n, _)| *n == name) {
+            return Util::Decline;
+        }
+        cols.push((name, blank));
+    }
+    let blank = cols[0].1;
+    if cols.iter().any(|(_, b)| *b != blank) {
+        return Util::Decline;
+    }
+    if cols
+        .iter()
+        .position(|(n, _)| *n == "comm")
+        .is_some_and(|p| p + 1 != cols.len())
+    {
+        return Util::Decline;
+    }
+    let Ok(mut procs) = os.processes() else {
+        return Util::Decline;
+    };
+    procs.sort_by_key(|p| p.pid);
+    let row = |cells: Vec<String>| cells.join(" ") + "\n";
+    let mut out = String::new();
+    if !blank {
+        let head: Vec<String> = cols
+            .iter()
+            .map(|(n, _)| match *n {
+                "pid" => format!("{:>7}", "PID"),
+                "ppid" => format!("{:>7}", "PPID"),
+                _ => "COMMAND".to_string(),
+            })
+            .collect();
+        out.push_str(&row(head));
+    }
+    for p in &procs {
+        let cells: Vec<String> = cols
+            .iter()
+            .map(|(n, _)| match *n {
+                "pid" => format!("{:>7}", p.pid),
+                "ppid" => format!("{:>7}", p.ppid),
+                _ => p.comm.clone(),
+            })
+            .collect();
+        out.push_str(&row(cells));
+    }
+    sink.out.extend_from_slice(out.as_bytes());
+    Util::Done(0)
+}
+
+/// A mode `chmod` applies: an octal number, or clauses of `[ugoa]`, one of
+/// `+ - =`, and `r w x`.
+enum ChmodMode {
+    Octal(u32),
+    Symbolic(Vec<ChmodClause>),
+}
+
+/// One symbolic clause, such as `u+x` or `go=r`.
+struct ChmodClause {
+    /// The classes it names: user, group, other.
+    who: [bool; 3],
+    op: u8,
+    /// The `rwx` bits it names, as r=4, w=2, x=1.
+    perms: u32,
+}
+
+/// Parses a mode this subset applies. A symbolic clause with no `[ugoa]` is
+/// declined: GNU then applies the umask, which this subset cannot read. So are
+/// copies (`u=g`), `s`, `t` and `X`. Any malformed mode declines too, and the
+/// real `chmod` words its error.
+fn chmod_mode(s: &str) -> Option<ChmodMode> {
+    if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) {
+        // Leading zeros are allowed (GNU takes `00755`); four significant digits at most.
+        let significant = s.trim_start_matches('0');
+        if significant.len() > 4 || !s.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
+            return None;
+        }
+        return u32::from_str_radix(s, 8).ok().map(ChmodMode::Octal);
+    }
+    let mut clauses = Vec::new();
+    for part in s.split(',') {
+        let b = part.as_bytes();
+        let mut i = 0;
+        let mut who = [false; 3];
+        let mut named = false;
+        while i < b.len() && matches!(b[i], b'u' | b'g' | b'o' | b'a') {
+            match b[i] {
+                b'u' => who[0] = true,
+                b'g' => who[1] = true,
+                b'o' => who[2] = true,
+                _ => who = [true; 3],
+            }
+            named = true;
+            i += 1;
+        }
+        if !named {
+            return None;
+        }
+        let mut ops = 0;
+        while i < b.len() {
+            let op = match b[i] {
+                b'+' => b'+',
+                b'-' => b'-',
+                b'=' => b'=',
+                _ => return None,
+            };
+            i += 1;
+            ops += 1;
+            let mut perms = 0u32;
+            while i < b.len() {
+                match b[i] {
+                    b'r' => perms |= 4,
+                    b'w' => perms |= 2,
+                    b'x' => perms |= 1,
+                    _ => break,
+                }
+                i += 1;
+            }
+            clauses.push(ChmodClause { who, op, perms });
+        }
+        if ops == 0 {
+            return None;
+        }
+    }
+    Some(ChmodMode::Symbolic(clauses))
+}
+
+/// The mode `chmod` gives a file whose mode is `current`. `=` also clears the
+/// set-id bits of the classes it names, as GNU does (`chmod u=rwx` on 4755
+/// gives 755); `+` and `-` leave them alone.
+fn chmod_apply(mode: &ChmodMode, current: u32) -> u32 {
+    match mode {
+        ChmodMode::Octal(m) => *m,
+        ChmodMode::Symbolic(clauses) => {
+            let mut m = current & 0o7777;
+            for c in clauses {
+                let (mut bits, mut mask) = (0u32, 0u32);
+                for (k, shift) in [(0usize, 6u32), (1, 3), (2, 0)] {
+                    if c.who[k] {
+                        bits |= c.perms << shift;
+                        mask |= 0o7 << shift;
+                    }
+                }
+                match c.op {
+                    b'+' => m |= bits,
+                    b'-' => m &= !bits,
+                    _ => {
+                        m = (m & !mask) | bits;
+                        if c.who[0] {
+                            m &= !0o4000;
+                        }
+                        if c.who[1] {
+                            m &= !0o2000;
+                        }
+                        if c.who[2] {
+                            m &= !0o1000;
+                        }
+                    }
+                }
+            }
+            m
+        }
+    }
+}
+
+/// Plans the change under `dir` for `chmod -R`: each entry below it, after the
+/// entry's own directory. A link met on the way is `Err`, and the whole command
+/// declines, since GNU does not follow links here and this subset will not
+/// change what it cannot name. An unreadable directory is an error.
+fn chmod_walk(
+    os: &dyn Os,
+    dir: &str,
+    mode: &ChmodMode,
+    plan: &mut Vec<(String, u32)>,
+    errors: &mut Vec<String>,
+) -> Result<(), ()> {
+    let entries = match os.read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            errors.push(format!(
+                "chmod: cannot read directory '{dir}': {}",
+                io_reason(&e)
+            ));
+            return Ok(());
+        }
+    };
+    for entry in entries {
+        let path = join(dir, &entry.name);
+        match os.symlink_metadata(&path) {
+            Ok(m) if m.kind == FileKind::Symlink => return Err(()),
+            Ok(m) => {
+                plan.push((path.clone(), chmod_apply(mode, m.mode & 0o7777)));
+                if m.kind == FileKind::Dir {
+                    chmod_walk(os, &path, mode, plan, errors)?;
+                }
+            }
+            Err(e) => errors.push(format!("chmod: cannot access '{path}': {}", io_reason(&e))),
+        }
+    }
+    Ok(())
+}
+
+/// `chmod [-R] MODE FILE...`. The whole change is planned before a file is
+/// touched, so a declined form changes nothing. Each file is one change the
+/// gate admits; a refusal returns the gate's status. Missing files are reported
+/// as GNU reports them, and the others are still changed.
+fn chmod(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let Some((flags, ops)) = split_flags(args, "R") else {
+        return Util::Decline;
+    };
+    // Without Unix mode bits there is no mode to compute from, so decline.
+    if !os.has_unix_metadata() {
+        return Util::Decline;
+    }
+    let Some((mode_text, files)) = ops.split_first() else {
+        return usage(sink, "chmod", "chmod: missing operand");
+    };
+    if files.is_empty() {
+        return usage(
+            sink,
+            "chmod",
+            &format!("chmod: missing operand after '{mode_text}'"),
+        );
+    }
+    let Some(mode) = chmod_mode(mode_text) else {
+        return Util::Decline;
+    };
+    let recursive = flags.contains('R');
+    let mut plan: Vec<(String, u32)> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    for f in files {
+        if recursive && matches!(os.symlink_metadata(f), Ok(m) if m.kind == FileKind::Symlink) {
+            return Util::Decline;
+        }
+        match os.metadata(f) {
+            Ok(m) => {
+                plan.push((f.to_string(), chmod_apply(&mode, m.mode & 0o7777)));
+                if recursive
+                    && m.kind == FileKind::Dir
+                    && chmod_walk(os, f, &mode, &mut plan, &mut errors).is_err()
+                {
+                    return Util::Decline;
+                }
+            }
+            Err(e) => errors.push(format!("chmod: cannot access '{f}': {}", io_reason(&e))),
+        }
+    }
+    let mut status = 0;
+    for e in &errors {
+        sink.eline(e);
+        status = 1;
+    }
+    for (path, new) in plan {
+        match os.gate().guarded_chmod(os, &path, new) {
+            Ok(()) => {}
+            Err(WriteError::Refused(r)) => return refused(sink, &r),
+            Err(WriteError::Io(e)) => {
+                sink.eline(&format!(
+                    "chmod: changing permissions of '{path}': {}",
+                    io_reason(&e)
+                ));
+                status = 1;
+            }
+        }
+    }
+    Util::Done(status)
+}
+
+/// The commands `xargs` leaves to the real program, because each one changes
+/// the shell itself, and a run of it in-process would change this shell.
+const XARGS_NOT_RUN: &[&str] = &["cd", "export", "unset", "read", "exit", "break", "continue"];
+
+/// How `xargs` splits its input into words.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum XSplit {
+    /// Blanks and newlines, with quotes and backslashes, as GNU does by default.
+    Words,
+    /// Each line is one word, quotes and backslashes still honoured. `-I`.
+    Lines,
+    /// Each occurrence of one byte; `-0` is NUL.
+    Byte(u8),
+}
+
+/// `xargs`'s options and command.
+struct XArgs {
+    split: XSplit,
+    /// `-n`: the words one run takes; `None` takes them all.
+    per_run: Option<usize>,
+    /// `-I`: the string each word replaces in the command.
+    replace: Option<String>,
+    /// `-r`: make no run when there is no input.
+    no_run_if_empty: bool,
+    cmd: Vec<String>,
+}
+
+/// What `xargs`'s arguments say.
+enum XParse {
+    /// An option this subset does not run.
+    Decline,
+    /// A usage error, printed as GNU prints it.
+    Error(Vec<String>),
+    Run(XArgs),
+}
+
+/// Parses `xargs`'s options. `-0`, `-d DELIM`, `-n N`, `-I REPL` and `-r` are
+/// run; `-n` with `-I`, or `-I` with a split, declines. A command of `echo`
+/// is the default.
+fn xargs_parse(args: &[String]) -> XParse {
+    let mut split = XSplit::Words;
+    let mut split_set = false;
+    let mut per_run: Option<usize> = None;
+    let mut replace: Option<String> = None;
+    let mut no_run_if_empty = false;
+    let mut i = 0;
+    while i < args.len() {
+        let a = args[i].as_str();
+        if a == "--" {
+            i += 1;
+            break;
+        }
+        if a.len() < 2 || !a.starts_with('-') {
+            break;
+        }
+        let chars: Vec<char> = a[1..].chars().collect();
+        let mut j = 0;
+        while j < chars.len() {
+            match chars[j] {
+                '0' => {
+                    split = XSplit::Byte(0);
+                    split_set = true;
+                }
+                'r' => no_run_if_empty = true,
+                c @ ('d' | 'n' | 'I') => {
+                    let rest: String = chars[j + 1..].iter().collect();
+                    let val = if rest.is_empty() {
+                        i += 1;
+                        match args.get(i) {
+                            Some(v) => v.clone(),
+                            None => return XParse::Decline,
+                        }
+                    } else {
+                        rest
+                    };
+                    match c {
+                        'd' => {
+                            let mut it = val.bytes();
+                            match (it.next(), it.next()) {
+                                (Some(b), None) if b.is_ascii() => split = XSplit::Byte(b),
+                                _ => return XParse::Decline,
+                            }
+                            split_set = true;
+                        }
+                        'n' => match val.parse::<usize>() {
+                            Ok(0) => {
+                                return XParse::Error(vec![
+                                    "xargs: value 0 for -n option should be >= 1".into(),
+                                    "Try 'xargs --help' for more information.".into(),
+                                ])
+                            }
+                            Ok(n) => per_run = Some(n),
+                            Err(_) => {
+                                return XParse::Error(vec![
+                                    format!("xargs: invalid number \"{val}\" for -n option"),
+                                    "Try 'xargs --help' for more information.".into(),
+                                ])
+                            }
+                        },
+                        _ => replace = Some(val),
+                    }
+                    break;
+                }
+                _ => return XParse::Decline,
+            }
+            j += 1;
+        }
+        i += 1;
+    }
+    if replace.is_some() && (split_set || per_run.is_some()) {
+        return XParse::Decline;
+    }
+    let split = if replace.is_some() {
+        XSplit::Lines
+    } else {
+        split
+    };
+    let cmd: Vec<String> = if i < args.len() {
+        args[i..].to_vec()
+    } else {
+        vec!["echo".into()]
+    };
+    if XARGS_NOT_RUN.contains(&cmd[0].as_str()) {
+        return XParse::Decline;
+    }
+    XParse::Run(XArgs {
+        split,
+        per_run,
+        replace,
+        no_run_if_empty,
+        cmd,
+    })
+}
+
+/// The words of `data` for `split`, and the error that ends them early when a
+/// quote is never closed. The words before that point are kept, as GNU keeps
+/// them.
+fn xargs_words(data: &[u8], split: XSplit) -> (Vec<String>, Option<&'static str>) {
+    match split {
+        XSplit::Byte(sep) => {
+            let mut parts: Vec<&[u8]> = data.split(|&b| b == sep).collect();
+            if data.is_empty() || data.last() == Some(&sep) {
+                parts.pop();
+            }
+            let words = parts
+                .into_iter()
+                .map(|p| String::from_utf8_lossy(p).into_owned())
+                .collect();
+            (words, None)
+        }
+        XSplit::Words => xargs_quoted(data, false),
+        XSplit::Lines => xargs_quoted(data, true),
+    }
+}
+
+/// Words with quotes and backslashes, as `xargs` reads them by default. With
+/// `by_line`, the separator is the newline alone and a line's leading blanks
+/// are dropped, which is how `-I` reads it.
+fn xargs_quoted(data: &[u8], by_line: bool) -> (Vec<String>, Option<&'static str>) {
+    fn end(cur: &mut Vec<u8>, have: &mut bool, words: &mut Vec<String>) {
+        if *have {
+            words.push(String::from_utf8_lossy(cur).into_owned());
+            cur.clear();
+            *have = false;
+        }
+    }
+    let mut words = Vec::new();
+    let mut cur: Vec<u8> = Vec::new();
+    let mut have = false;
+    let mut quote: Option<u8> = None;
+    let mut i = 0;
+    while i < data.len() {
+        let b = data[i];
+        i += 1;
+        if let Some(q) = quote {
+            if b == q {
+                quote = None;
+            } else {
+                cur.push(b);
+            }
+            continue;
+        }
+        match b {
+            b'\'' | b'"' => {
+                quote = Some(b);
+                have = true;
+            }
+            b'\\' => {
+                if let Some(&n) = data.get(i) {
+                    cur.push(n);
+                    have = true;
+                    i += 1;
+                }
+            }
+            b' ' | b'\t' if !by_line => end(&mut cur, &mut have, &mut words),
+            b' ' | b'\t' if !have => {}
+            b'\n' => end(&mut cur, &mut have, &mut words),
+            _ => {
+                cur.push(b);
+                have = true;
+            }
+        }
+    }
+    match quote {
+        Some(b'"') => (
+            words,
+            Some("xargs: unmatched double quote; by default quotes are special to xargs unless you use the -0 option"),
+        ),
+        Some(_) => (
+            words,
+            Some("xargs: unmatched single quote; by default quotes are special to xargs unless you use the -0 option"),
+        ),
+        None => {
+            end(&mut cur, &mut have, &mut words);
+            (words, None)
+        }
+    }
+}
+
 /// `tee [-a] FILE...`: stdin to stdout and to each file. Each file is a write
 /// the gate admits, with `-a` an append.
 fn tee(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
@@ -5711,7 +6545,7 @@ pub fn supports(src: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::os::{DirEntry, Gate, Meta, Refusal};
+    use crate::os::{DirEntry, Gate, Meta, Proc, Refusal, Uname};
 
     /// A test host over the real file system and environment, with no
     /// policy: every program and write is admitted. It exists so the
@@ -6142,6 +6976,14 @@ mod tests {
         dirs: alloc::collections::BTreeSet<String>,
         env: BTreeMap<String, String>,
         calls: std::cell::RefCell<Vec<&'static str>>,
+        /// What `uname` reports; `None` for a host that cannot.
+        host_uname: Option<Uname>,
+        /// The account name; `None` for a host with none.
+        user: Option<String>,
+        /// The process table; `None` for a host that cannot list it.
+        procs: Option<Vec<Proc>>,
+        /// Every pause `sleep` was asked for, recorded rather than taken.
+        slept: std::cell::RefCell<Vec<core::time::Duration>>,
     }
 
     impl FakeOs {
@@ -6168,6 +7010,20 @@ mod tests {
     }
 
     impl Os for FakeOs {
+        fn sleep(&self, d: core::time::Duration) -> Result<(), OsError> {
+            self.slept.borrow_mut().push(d);
+            Ok(())
+        }
+        fn uname(&self) -> Result<Uname, OsError> {
+            self.host_uname.clone().ok_or_else(Self::missing)
+        }
+        fn user_name_current(&self) -> Option<String> {
+            self.user.clone()
+        }
+        fn processes(&self) -> Result<Vec<Proc>, OsError> {
+            self.procs.clone().ok_or_else(Self::missing)
+        }
+
         fn env_vars(&self) -> Vec<(String, String)> {
             self.env
                 .iter()
@@ -6315,6 +7171,17 @@ mod tests {
         tree: core::cell::RefCell<BTreeMap<String, Option<Vec<u8>>>>,
         allow: bool,
         admitted: core::cell::Cell<u32>,
+        /// The permission bits of each path; a path not here has mode 0.
+        modes: core::cell::RefCell<BTreeMap<String, u32>>,
+        /// Every signal the gate let through: (pid, signal).
+        kills: core::cell::RefCell<Vec<(u32, i32)>>,
+        /// The pids that exist. Signalling any other fails with ESRCH.
+        live: core::cell::RefCell<Vec<u32>>,
+        /// `None`: there are no programs, and each run is refused. `Some(c)`:
+        /// every program runs and exits with status `c`.
+        programs: core::cell::Cell<Option<i32>>,
+        /// Whether the host has Unix mode bits.
+        unix: bool,
     }
 
     impl MemOs {
@@ -6327,6 +7194,11 @@ mod tests {
                 tree: core::cell::RefCell::new(tree),
                 allow,
                 admitted: Default::default(),
+                modes: Default::default(),
+                kills: Default::default(),
+                live: Default::default(),
+                programs: core::cell::Cell::new(None),
+                unix: true,
             }
         }
         fn has(&self, path: &str) -> bool {
@@ -6363,7 +7235,7 @@ mod tests {
             Ok(Meta {
                 kind,
                 len,
-                mode: 0,
+                mode: self.modes.borrow().get(path).copied().unwrap_or(0),
                 uid: 0,
                 gid: 0,
                 nlink: 1,
@@ -6505,7 +7377,38 @@ mod tests {
             1
         }
         fn run_program(&self, _spec: Spawn) -> Result<Captured, SpawnError> {
-            Err(SpawnError::Start(FakeOs::missing()))
+            match self.programs.get() {
+                Some(code) => Ok(Captured {
+                    status: Some(code),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                }),
+                None => Err(SpawnError::Start(FakeOs::missing())),
+            }
+        }
+        fn has_unix_metadata(&self) -> bool {
+            self.unix
+        }
+        fn set_mode(&self, path: &str, mode: u32) -> Result<(), OsError> {
+            if !self.has(path) {
+                return Err(FakeOs::missing());
+            }
+            self.modes.borrow_mut().insert(path.into(), mode);
+            Ok(())
+        }
+        fn can_signal(&self) -> bool {
+            true
+        }
+        fn kill(&self, pid: u32, signal: i32) -> Result<(), OsError> {
+            if !self.live.borrow().contains(&pid) {
+                return Err(OsError {
+                    kind: ErrorKind::NotFound,
+                    errno: Some(3),
+                    message: "No such process (os error 3)".into(),
+                });
+            }
+            self.kills.borrow_mut().push((pid, signal));
+            Ok(())
         }
         fn write_stdout(&self, _bytes: &[u8]) {}
         fn write_stderr(&self, _bytes: &[u8]) {}
@@ -6525,6 +7428,15 @@ mod tests {
     }
 
     impl Gate for MemOs {
+        fn admit_exec(&self, _argv: &str) -> Result<(), Refusal> {
+            match self.programs.get() {
+                Some(_) => Ok(()),
+                None => Err(Refusal {
+                    message: "ish: no policy gate on this host: refusing".into(),
+                    code: 126,
+                }),
+            }
+        }
         fn guarded_write(
             &self,
             os: &dyn Os,
@@ -6558,6 +7470,14 @@ mod tests {
         fn guarded_rename(&self, os: &dyn Os, from: &str, to: &str) -> Result<(), WriteError> {
             self.admit()?;
             os.rename(from, to).map_err(WriteError::Io)
+        }
+        fn guarded_kill(&self, os: &dyn Os, pid: u32, signal: i32) -> Result<(), WriteError> {
+            self.admit()?;
+            os.kill(pid, signal).map_err(WriteError::Io)
+        }
+        fn guarded_chmod(&self, os: &dyn Os, path: &str, mode: u32) -> Result<(), WriteError> {
+            self.admit()?;
+            os.set_mode(path, mode).map_err(WriteError::Io)
         }
     }
 
@@ -6891,6 +7811,414 @@ mod tests {
                 Some("not supported by this host".into())
             );
         }
+    }
+
+    /// `sleep`: the operands add up. GNU: `sleep 1m 30s` pauses 90 seconds, and
+    /// `sleep 0.5` half a second. `sleep 25h` is over a day, so it is refused
+    /// before any pause. `sleep x` declines (GNU: invalid time interval), and the
+    /// test host has no program to run, so nothing is paused.
+    #[test]
+    fn sleep_pauses_for_its_operands_and_refuses_past_a_day() {
+        let os = FakeOs::default();
+        assert_eq!(sh_on(&os, "sleep 0.5"), (String::new(), 0));
+        assert_eq!(sh_on(&os, "sleep 1m 30s"), (String::new(), 0));
+        assert_eq!(sh_on(&os, "sleep 1d"), (String::new(), 0));
+        assert_eq!(
+            os.slept.borrow().as_slice(),
+            &[
+                core::time::Duration::from_millis(500),
+                core::time::Duration::from_secs(90),
+                core::time::Duration::from_secs(86_400),
+            ]
+        );
+        assert_eq!(
+            sh_err(&os, "sleep 25h"),
+            (
+                "sleep: time interval is longer than 24 hours; nothing was slept\nTry 'sleep --help' for more information.\n"
+                    .into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "sleep"),
+            (
+                "sleep: missing operand\nTry 'sleep --help' for more information.\n".into(),
+                1
+            )
+        );
+        assert_eq!(sh_err(&os, "sleep x").1, 126);
+        assert_eq!(os.slept.borrow().len(), 3);
+    }
+
+    /// `uname`: fields in GNU's order whatever the order of the flags. The host
+    /// values are GNU's on WSL, where `uname -s -n -r -m` prints
+    /// `Linux heimdall 6.18.33.2-microsoft-standard-WSL2 x86_64`. GNU's `-a`
+    /// adds the kernel version, processor, hardware platform and operating system,
+    /// which this host does not report, so `-a` prints the other four fields.
+    #[test]
+    fn uname_prints_the_fields_in_gnu_order() {
+        let mut os = FakeOs::default();
+        let host = |release: Option<&str>| Uname {
+            sysname: "Linux".into(),
+            nodename: "heimdall".into(),
+            release: release.map(String::from),
+            machine: "x86_64".into(),
+        };
+        os.host_uname = Some(host(Some("6.18.33.2-microsoft-standard-WSL2")));
+        assert_eq!(
+            sh_on(&os, "uname -s -n -r -m"),
+            (
+                "Linux heimdall 6.18.33.2-microsoft-standard-WSL2 x86_64\n".into(),
+                0
+            )
+        );
+        assert_eq!(sh_on(&os, "uname"), ("Linux\n".into(), 0));
+        assert_eq!(sh_on(&os, "uname -m -s"), ("Linux x86_64\n".into(), 0));
+        assert_eq!(sh_on(&os, "uname -n"), ("heimdall\n".into(), 0));
+        assert_eq!(
+            sh_on(&os, "uname -a"),
+            (
+                "Linux heimdall 6.18.33.2-microsoft-standard-WSL2 x86_64\n".into(),
+                0
+            )
+        );
+        // A host that cannot give its release: `-r` and `-a` decline, and the
+        // other flags still answer.
+        os.host_uname = Some(host(None));
+        assert_eq!(sh_on(&os, "uname -s"), ("Linux\n".into(), 0));
+        assert_eq!(sh_err(&os, "uname -r").1, 126);
+        assert_eq!(sh_err(&os, "uname -a").1, 126);
+        // An operand declines (GNU: extra operand), and so does a host with no uname.
+        assert_eq!(sh_err(&os, "uname foo").1, 126);
+        assert_eq!(sh_err(&FakeOs::default(), "uname").1, 126);
+    }
+
+    /// `whoami`: the account name. GNU on WSL prints `root`. It takes no operand
+    /// (GNU: `whoami: extra operand 'x'`), and a host with no account declines.
+    #[test]
+    fn whoami_prints_the_account_or_declines() {
+        let mut os = FakeOs::default();
+        os.user = Some("root".into());
+        assert_eq!(sh_on(&os, "whoami"), ("root\n".into(), 0));
+        assert_eq!(sh_err(&os, "whoami x").1, 126);
+        os.user = None;
+        assert_eq!(sh_err(&os, "whoami").1, 126);
+    }
+
+    /// `ps`: procps' columns. GNU on WSL: `ps -p 837 -o pid=,comm=` prints
+    /// `    837 sleep`, and `ps -e -o pid=,comm=` prints `      1 systemd` and
+    /// `      2 init-systemd(ae`, where the command is cut at 15 bytes. `ps -A -o
+    /// pid,ppid,comm` prints `    PID    PPID COMMAND`, then rows such as
+    /// `      2       1 init-systemd(ae` and `    837     747 sleep`. `ps -e -o
+    /// comm` prints `COMMAND`, then the names.
+    #[test]
+    fn ps_lists_processes_in_procps_columns() {
+        let mut os = FakeOs::default();
+        os.procs = Some(vec![
+            Proc {
+                pid: 837,
+                ppid: 747,
+                comm: "sleep".into(),
+            },
+            Proc {
+                pid: 2,
+                ppid: 1,
+                comm: "init-systemd(ae".into(),
+            },
+            Proc {
+                pid: 1,
+                ppid: 0,
+                comm: "systemd".into(),
+            },
+        ]);
+        assert_eq!(
+            sh_on(&os, "ps -e -o pid=,comm="),
+            (
+                "      1 systemd\n      2 init-systemd(ae\n    837 sleep\n".into(),
+                0
+            )
+        );
+        assert_eq!(
+            sh_on(&os, "ps -A -o pid,ppid,comm"),
+            (
+                "    PID    PPID COMMAND\n      1       0 systemd\n      2       1 init-systemd(ae\n    837     747 sleep\n"
+                    .into(),
+                0
+            )
+        );
+        assert_eq!(
+            sh_on(&os, "ps -e -o comm"),
+            ("COMMAND\nsystemd\ninit-systemd(ae\nsleep\n".into(), 0)
+        );
+        // Forms it does not run decline, and so does a host that cannot list processes.
+        for src in [
+            "ps",
+            "ps -e",
+            "ps -e -o comm=,pid=",
+            "ps -e -o pid=,comm",
+            "ps -p 1 -o pid=",
+            "ps -e -o foo",
+            "ps -e -o pid=,pid=",
+        ] {
+            assert_eq!(sh_err(&os, src).1, 126, "{src}");
+        }
+        os.procs = None;
+        assert_eq!(sh_err(&os, "ps -e -o pid=,comm=").1, 126);
+    }
+
+    /// `kill`: each PID is signalled through the gate. GNU on WSL: `kill -s TERM`
+    /// ends a `sleep` with status 143, so TERM is 15; KILL is 9, INT 2, HUP 1.
+    /// A PID with no process is `kill: (999999): No such process`, status 1.
+    #[test]
+    fn kill_signals_through_the_gate() {
+        let os = MemOs::new(true, &[]);
+        os.live.borrow_mut().extend([837, 838, 5]);
+        assert_eq!(sh_err(&os, "kill -s TERM 837"), (String::new(), 0));
+        assert_eq!(sh_err(&os, "kill 838"), (String::new(), 0));
+        assert_eq!(sh_err(&os, "kill -9 5"), (String::new(), 0));
+        assert_eq!(sh_err(&os, "kill -KILL 5"), (String::new(), 0));
+        assert_eq!(sh_err(&os, "kill -INT 5"), (String::new(), 0));
+        assert_eq!(sh_err(&os, "kill -HUP 5"), (String::new(), 0));
+        assert_eq!(
+            os.kills.borrow().as_slice(),
+            &[(837, 15), (838, 15), (5, 9), (5, 9), (5, 2), (5, 1)]
+        );
+        assert_eq!(
+            sh_err(&os, "kill 999999"),
+            ("kill: (999999): No such process\n".into(), 1)
+        );
+        // Forms it does not run decline: no PID, process 0, an unknown signal,
+        // a list of signals, and a host that cannot signal.
+        for src in ["kill", "kill 0", "kill -s NOPE 837", "kill -l", "kill -s"] {
+            assert_eq!(sh_err(&os, src).1, 126, "{src}");
+        }
+        assert_eq!(os.kills.borrow().len(), 6);
+        assert_eq!(sh_err(&FakeOs::default(), "kill 837").1, 126);
+    }
+
+    /// A refusing gate changes nothing: `kill` sends no signal and `chmod` sets
+    /// no mode, and each returns the gate's status, as `tee` and `cp` do.
+    #[test]
+    fn a_refused_kill_or_chmod_changes_nothing() {
+        let os = MemOs::new(false, &[("/w", None), ("/w/a", Some("A"))]);
+        os.live.borrow_mut().push(837);
+        os.modes.borrow_mut().insert("/w/a".into(), 0o644);
+        assert_eq!(
+            sh_err(&os, "kill -s TERM 837"),
+            ("refused by test gate\n".into(), 7)
+        );
+        assert_eq!(
+            sh_err(&os, "chmod 600 /w/a"),
+            ("refused by test gate\n".into(), 7)
+        );
+        assert_eq!(
+            sh_err(&os, "chmod -R 600 /w"),
+            ("refused by test gate\n".into(), 7)
+        );
+        assert!(os.kills.borrow().is_empty());
+        assert_eq!(os.modes.borrow().get("/w/a"), Some(&0o644));
+    }
+
+    /// `chmod`: each mode is the one GNU chmod leaves, read back with
+    /// `stat -c %a` on WSL: `u+x` on 644 gives 744; `u=rwx` on 4755 gives 755;
+    /// `g=r` on 4755 gives 4745; `a=r` on 4755 gives 444; `u-w,go+x` on 7777
+    /// gives 7577; `ug=rw,o=` on 7577 gives 660; `0644` gives 644 and `00755`
+    /// gives 755; `chmod -R 750` on a tree sets every entry, the directory too.
+    #[test]
+    fn chmod_sets_octal_and_symbolic_modes_like_gnu() {
+        let os = MemOs::new(
+            true,
+            &[
+                ("/w", None),
+                ("/w/a", Some("A")),
+                ("/w/d", None),
+                ("/w/d/x", Some("X")),
+            ],
+        );
+        let mode = |p: &str| os.modes.borrow().get(p).copied();
+        let set = |p: &str, m: u32| os.modes.borrow_mut().insert(p.into(), m);
+        let cases: [(u32, &str, u32); 8] = [
+            (0o644, "chmod u+x /w/a", 0o744),
+            (0o4755, "chmod u=rwx /w/a", 0o755),
+            (0o4755, "chmod g=r /w/a", 0o4745),
+            (0o4755, "chmod a=r /w/a", 0o444),
+            (0o7777, "chmod u-w,go+x /w/a", 0o7577),
+            (0o7577, "chmod ug=rw,o= /w/a", 0o660),
+            (0o755, "chmod 0644 /w/a", 0o644),
+            (0o644, "chmod 00755 /w/a", 0o755),
+        ];
+        for (before, src, after) in cases {
+            set("/w/a", before);
+            assert_eq!(sh_err(&os, src), (String::new(), 0), "{src}");
+            assert_eq!(mode("/w/a"), Some(after), "{src}");
+        }
+        set("/w/d", 0o700);
+        set("/w/d/x", 0o644);
+        assert_eq!(sh_err(&os, "chmod -R 750 /w/d"), (String::new(), 0));
+        assert_eq!(mode("/w/d"), Some(0o750));
+        assert_eq!(mode("/w/d/x"), Some(0o750));
+    }
+
+    /// `chmod`'s messages, and the forms it declines. GNU on WSL: `chmod` gives
+    /// `missing operand`, `chmod 755` gives `missing operand after '755'`, and a
+    /// missing file is `cannot access` with the others still changed. A mode
+    /// with no `[ugoa]` (the umask applies), a set-id on `+`, or a mode GNU
+    /// rejects declines, and changes nothing.
+    #[test]
+    fn chmod_reports_its_errors_and_declines_what_it_does_not_run() {
+        let os = MemOs::new(true, &[("/w", None), ("/w/a", Some("A"))]);
+        os.modes.borrow_mut().insert("/w/a".into(), 0o644);
+        assert_eq!(
+            sh_err(&os, "chmod"),
+            (
+                "chmod: missing operand\nTry 'chmod --help' for more information.\n".into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "chmod 755"),
+            (
+                "chmod: missing operand after '755'\nTry 'chmod --help' for more information.\n"
+                    .into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "chmod 755 /w/nope /w/a"),
+            (
+                "chmod: cannot access '/w/nope': No such file or directory\n".into(),
+                1
+            )
+        );
+        assert_eq!(os.modes.borrow().get("/w/a"), Some(&0o755));
+        for src in [
+            "chmod +x /w/a",
+            "chmod 10755 /w/a",
+            "chmod u=g /w/a",
+            "chmod u+s /w/a",
+        ] {
+            assert_eq!(sh_err(&os, src).1, 126, "{src}");
+            assert_eq!(os.modes.borrow().get("/w/a"), Some(&0o755), "{src}");
+        }
+        // A host without Unix mode bits declines every form.
+        let mut windows = MemOs::new(true, &[("/w", None), ("/w/a", Some("A"))]);
+        windows.unix = false;
+        assert_eq!(sh_err(&windows, "chmod 755 /w/a").1, 126);
+    }
+
+    /// `xargs`: each output is GNU's, from the same input on WSL. A run is one
+    /// command with the words of a batch, and the default command is `echo`.
+    #[test]
+    fn xargs_runs_commands_per_batch_like_gnu() {
+        // GNU: printf 'a b\nc\n' | xargs prints "a b c".
+        assert_eq!(sh("printf 'a b\\nc\\n' | xargs"), ("a b c\n".into(), 0));
+        // GNU: printf '' | xargs runs echo once, with no words: a blank line.
+        assert_eq!(sh("printf '' | xargs"), ("\n".into(), 0));
+        // GNU: printf '' | xargs -r echo x runs nothing.
+        assert_eq!(sh("printf '' | xargs -r echo x"), (String::new(), 0));
+        // GNU: printf 'a\nb c\n' | xargs -n 1 echo X.
+        assert_eq!(
+            sh("printf 'a\\nb c\\n' | xargs -n 1 echo X"),
+            ("X a\nX b\nX c\n".into(), 0)
+        );
+        // GNU: printf '1 2 3 4 5\n' | xargs -n 2 echo g:.
+        assert_eq!(
+            sh("printf '1 2 3 4 5\\n' | xargs -n 2 echo g:"),
+            ("g: 1 2\ng: 3 4\ng: 5\n".into(), 0)
+        );
+        // GNU: quotes group words, and a backslash escapes a blank.
+        assert_eq!(
+            sh("printf '%s\\n' 'a \"b c\" d\\ e' | xargs -n1 echo"),
+            ("a\nb c\nd e\n".into(), 0)
+        );
+        // GNU: printf 'a:b::c' | xargs -d: -n1 echo '<' keeps the empty word.
+        assert_eq!(
+            sh("printf 'a:b::c' | xargs -d: -n1 echo '<'"),
+            ("< a\n< b\n< \n< c\n".into(), 0)
+        );
+        // GNU: printf 'a\0b c\0' | xargs -0 -n1 echo.
+        assert_eq!(
+            sh("printf 'a\\0b c\\0' | xargs -0 -n1 echo"),
+            ("a\nb c\n".into(), 0)
+        );
+        // GNU: -I runs once per line, blank lines skipped, leading blanks dropped.
+        assert_eq!(
+            sh("printf 'l1 x\\nl2 y\\n' | xargs -I{} echo '[{}]'"),
+            ("[l1 x]\n[l2 y]\n".into(), 0)
+        );
+        assert_eq!(
+            sh("printf 'l1 x\\n\\nl2\\n' | xargs -I{} echo '[{}]'"),
+            ("[l1 x]\n[l2]\n".into(), 0)
+        );
+        assert_eq!(
+            sh("printf ' l1  \\n' | xargs -I{} echo '[{}]'"),
+            ("[l1  ]\n".into(), 0)
+        );
+        assert_eq!(
+            sh("printf '\"a b\"\\n' | xargs -I{} echo '[{}]'"),
+            ("[a b]\n".into(), 0)
+        );
+        assert_eq!(
+            sh("printf 'a b\\n' | xargs -I{} echo '{}{}'"),
+            ("a ba b\n".into(), 0)
+        );
+        assert_eq!(sh("printf '' | xargs -I{} echo x"), (String::new(), 0));
+        // A run that is a utility runs in-process, and its status is the run's.
+        assert_eq!(sh("printf 'a\\nb\\n' | xargs -n1 false").1, 123);
+        assert_eq!(sh("printf 'a\\n' | xargs true").1, 0);
+    }
+
+    /// `xargs`'s statuses follow GNU: 123 when a run exits 1 to 125 and the runs
+    /// go on; 124 for 255, 125 for a signal (the host reports 128), 126 and 127
+    /// end the runs at once. `prog` is a program the test host runs with the
+    /// status it is given.
+    #[test]
+    fn xargs_statuses_follow_gnu() {
+        let os = MemOs::new(true, &[]);
+        let run = "printf 'a\\nb\\n' | xargs -n1 prog";
+        os.programs.set(Some(255));
+        assert_eq!(sh_err(&os, run).1, 124);
+        os.programs.set(Some(3));
+        assert_eq!(sh_err(&os, run).1, 123);
+        os.programs.set(Some(0));
+        assert_eq!(sh_err(&os, run).1, 0);
+        os.programs.set(Some(126));
+        assert_eq!(sh_err(&os, run).1, 126);
+        os.programs.set(Some(127));
+        assert_eq!(sh_err(&os, run).1, 127);
+        os.programs.set(Some(128));
+        assert_eq!(sh_err(&os, run).1, 125);
+        // With no program at all, the gate's refusal is the run's status.
+        os.programs.set(None);
+        assert_eq!(sh_err(&os, run).1, 126);
+    }
+
+    /// `xargs` refuses more than 100,000 runs before it starts any, and an
+    /// unmatched quote is GNU's message, after the words before it have run.
+    #[test]
+    fn xargs_refuses_too_many_runs_and_reports_an_open_quote() {
+        assert_eq!(
+            sh_err(&TestHost, "seq 100001 | xargs -n1 echo"),
+            (
+                "xargs: 100001 invocations would be needed, more than 100000; nothing was run\n"
+                    .into(),
+                1
+            )
+        );
+        assert_eq!(sh("seq 100001 | xargs -n1 echo").0, "");
+        // GNU: printf 'a b "c\n' | xargs -n1 echo '<' runs for a and b, then fails.
+        assert_eq!(
+            sh_err(&TestHost, "printf 'a b \"c\\n' | xargs -n1 echo '<'"),
+            (
+                "xargs: unmatched double quote; by default quotes are special to xargs unless you use the -0 option\n"
+                    .into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh("printf 'a b \"c\\n' | xargs -n1 echo '<'").0,
+            "< a\n< b\n"
+        );
     }
 
     /// `tr`: each expected value is what GNU coreutils `tr` prints for the same

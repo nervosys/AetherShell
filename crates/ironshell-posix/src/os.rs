@@ -221,6 +221,19 @@ pub trait Gate {
         let _ = (os, from, to);
         Err(WriteError::Refused(unconfigured()))
     }
+
+    /// Send `signal` to process `pid` for `kill`. Signals reach other
+    /// processes, so this is gated: the host decides whether it may.
+    fn guarded_kill(&self, os: &dyn Os, pid: u32, signal: i32) -> Result<(), WriteError> {
+        let _ = (os, pid, signal);
+        Err(WriteError::Refused(unconfigured()))
+    }
+
+    /// Set the permission bits of `path` to `mode` for `chmod`.
+    fn guarded_chmod(&self, os: &dyn Os, path: &str, mode: u32) -> Result<(), WriteError> {
+        let _ = (os, path, mode);
+        Err(WriteError::Refused(unconfigured()))
+    }
 }
 
 /// The refusal a backend without a gate gets: fail closed, with the status
@@ -240,6 +253,26 @@ pub struct CopyStep {
     pub to: String,
     /// A directory (`from` is one too, and `to` is created), or a file.
     pub dir: bool,
+}
+
+/// What `uname` reports about the host. `release` is `None` when the host
+/// cannot say (its `std` has no kernel release), and `uname -r` and `-a`
+/// decline on that host rather than print a made-up release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Uname {
+    pub sysname: String,
+    pub nodename: String,
+    pub release: Option<String>,
+    pub machine: String,
+}
+
+/// One process, for `ps`: its id, its parent's id, and its command name as
+/// the host records it (truncated, as `ps` truncates it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Proc {
+    pub pid: u32,
+    pub ppid: u32,
+    pub comm: String,
 }
 
 /// What a host without the operation says: an honest "not supported", never a
@@ -345,6 +378,43 @@ pub trait Os {
     /// nothing, as it always has on a host without Unix metadata.
     fn has_unix_metadata(&self) -> bool {
         true
+    }
+
+    /// Pauses the calling thread for `d`. Not gated: a pause changes nothing.
+    fn sleep(&self, d: core::time::Duration) -> Result<(), OsError> {
+        let _ = d;
+        Err(unsupported())
+    }
+    /// The host's name, kernel and machine, for `uname`.
+    fn uname(&self) -> Result<Uname, OsError> {
+        Err(unsupported())
+    }
+    /// The name of the account the shell runs as, or `None` when the host has
+    /// none. Used by `whoami`.
+    fn user_name_current(&self) -> Option<String> {
+        None
+    }
+    /// Whether this host can deliver signals at all. `kill` declines on a host
+    /// that cannot, rather than failing each signal.
+    fn can_signal(&self) -> bool {
+        false
+    }
+    /// Sends `signal` to process `pid`. Not gated here: the subset reaches a
+    /// signal through [`Gate::guarded_kill`].
+    fn kill(&self, pid: u32, signal: i32) -> Result<(), OsError> {
+        let _ = (pid, signal);
+        Err(unsupported())
+    }
+    /// Every process the host lists, for `ps`. A host that cannot list them
+    /// says so, and `ps` declines.
+    fn processes(&self) -> Result<Vec<Proc>, OsError> {
+        Err(unsupported())
+    }
+    /// Sets the permission bits of `path` to `mode`. Not gated: the subset
+    /// reaches a mode change through [`Gate::guarded_chmod`].
+    fn set_mode(&self, path: &str, mode: u32) -> Result<(), OsError> {
+        let _ = (path, mode);
+        Err(unsupported())
     }
 
     /// The policy this host applies. Defaults to a gate that refuses

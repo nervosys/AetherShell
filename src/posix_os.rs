@@ -12,8 +12,8 @@
 use std::io::{BufRead, Read, Write};
 
 pub use ironshell_posix::os::{
-    Captured, CopyStep, DirEntry, ErrorKind, FileKind, Gate, Meta, Os, OsError, Refusal, Spawn,
-    SpawnError, Stream, Timestamp, WriteError,
+    Captured, CopyStep, DirEntry, ErrorKind, FileKind, Gate, Meta, Os, OsError, Proc, Refusal,
+    Spawn, SpawnError, Stream, Timestamp, Uname, WriteError,
 };
 use ironshell_posix::{copy_steps, remove_tree};
 
@@ -24,6 +24,35 @@ use crate::value::Value;
 /// The backend on the Rust standard library, and the shell's own policy.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HostOs;
+
+/// The error for an operation this host does not support.
+fn unsupported_here() -> OsError {
+    OsError {
+        kind: ErrorKind::Other,
+        errno: None,
+        message: String::from("not supported by this host"),
+    }
+}
+
+/// The trimmed text of a file, or `None` when it cannot be read or is empty.
+fn read_trim(path: &str) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// One `/proc/PID/stat` line. The command name sits between the first `(` and
+/// the last `)`, since it may hold either; the parent's id follows the state.
+fn parse_proc_stat(pid: u32, text: &str) -> Option<Proc> {
+    let open = text.find('(')?;
+    let close = text.rfind(')')?;
+    let comm = text.get(open + 1..close)?.to_string();
+    let mut rest = text.get(close + 1..)?.split_whitespace();
+    let _state = rest.next()?;
+    let ppid = rest.next()?.parse().ok()?;
+    Some(Proc { pid, ppid, comm })
+}
 
 /// The host error for a failed `std` call.
 fn os_error(e: &std::io::Error) -> OsError {
@@ -337,6 +366,136 @@ impl Os for HostOs {
         None
     }
 
+    /// Pauses this thread. `sleep` checks the length before it asks.
+    fn sleep(&self, d: std::time::Duration) -> Result<(), OsError> {
+        std::thread::sleep(d);
+        Ok(())
+    }
+
+    /// The name the host gives itself, from `std` alone. The system name comes
+    /// from the target OS, the machine from its architecture, and the node name
+    /// from `COMPUTERNAME` on Windows or `/proc/sys/kernel/hostname` on Linux.
+    /// Only Linux reports a release (`/proc/sys/kernel/osrelease`); elsewhere
+    /// it is `None`, and `uname -r` and `-a` decline.
+    fn uname(&self) -> Result<Uname, OsError> {
+        let sysname = match std::env::consts::OS {
+            "linux" | "android" => "Linux",
+            "macos" => "Darwin",
+            "windows" => "Windows_NT",
+            "freebsd" => "FreeBSD",
+            "openbsd" => "OpenBSD",
+            "netbsd" => "NetBSD",
+            _ => return Err(unsupported_here()),
+        };
+        let machine = match std::env::consts::ARCH {
+            "x86" => "i686",
+            other => other,
+        };
+        let node = if cfg!(windows) {
+            std::env::var("COMPUTERNAME").ok().filter(|s| !s.is_empty())
+        } else {
+            read_trim("/proc/sys/kernel/hostname")
+        };
+        let Some(nodename) = node else {
+            return Err(unsupported_here());
+        };
+        let release = if cfg!(target_os = "linux") {
+            read_trim("/proc/sys/kernel/osrelease")
+        } else {
+            None
+        };
+        Ok(Uname {
+            sysname: sysname.into(),
+            nodename,
+            release,
+            machine: machine.into(),
+        })
+    }
+
+    /// `USER` or `LOGNAME`, then the entry for the effective user, on Unix;
+    /// `USERNAME` on Windows.
+    #[cfg(unix)]
+    fn user_name_current(&self) -> Option<String> {
+        for var in ["USER", "LOGNAME"] {
+            if let Some(v) = std::env::var(var).ok().filter(|v| !v.is_empty()) {
+                return Some(v);
+            }
+        }
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        let uid = unsafe { libc::geteuid() };
+        self.user_name(uid)
+    }
+
+    #[cfg(not(unix))]
+    fn user_name_current(&self) -> Option<String> {
+        std::env::var("USERNAME").ok().filter(|v| !v.is_empty())
+    }
+
+    fn can_signal(&self) -> bool {
+        cfg!(unix)
+    }
+
+    /// Sends a signal with `kill(2)`, through libc, which this crate already
+    /// depends on for account names. No program is run.
+    #[cfg(unix)]
+    fn kill(&self, pid: u32, signal: i32) -> Result<(), OsError> {
+        let Ok(p) = i32::try_from(pid) else {
+            return Err(OsError {
+                kind: ErrorKind::NotFound,
+                errno: Some(3),
+                message: String::from("No such process"),
+            });
+        };
+        // SAFETY: kill takes a pid and a signal number, and reads no memory of ours.
+        if unsafe { libc::kill(p, signal) } == 0 {
+            Ok(())
+        } else {
+            Err(os_error(&std::io::Error::last_os_error()))
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn kill(&self, _pid: u32, _signal: i32) -> Result<(), OsError> {
+        Err(unsupported_here())
+    }
+
+    /// Every process under `/proc` whose `stat` reads, on Linux. A process that
+    /// exits between the listing and the read is left out. Elsewhere, unsupported.
+    fn processes(&self) -> Result<Vec<Proc>, OsError> {
+        if !cfg!(target_os = "linux") {
+            return Err(unsupported_here());
+        }
+        let rd = std::fs::read_dir("/proc").map_err(|e| os_error(&e))?;
+        let mut out = Vec::new();
+        for entry in rd.flatten() {
+            let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|s| s.parse::<u32>().ok())
+            else {
+                continue;
+            };
+            if let Ok(text) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                if let Some(p) = parse_proc_stat(pid, &text) {
+                    out.push(p);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    #[cfg(unix)]
+    fn set_mode(&self, path: &str, mode: u32) -> Result<(), OsError> {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            .map_err(|e| os_error(&e))
+    }
+
+    #[cfg(not(unix))]
+    fn set_mode(&self, _path: &str, _mode: u32) -> Result<(), OsError> {
+        Err(unsupported_here())
+    }
+
     fn gate(&self) -> &dyn Gate {
         self
     }
@@ -465,6 +624,46 @@ impl Gate for HostOs {
         crate::tx::snapshot(from);
         crate::tx::snapshot(to);
         settle(mark, os.rename(from, to))
+    }
+
+    /// A signal reaches another process, so an agent may not send one. Nothing
+    /// is journalled: a signal cannot be taken back.
+    fn guarded_kill(&self, os: &dyn Os, pid: u32, signal: i32) -> Result<(), WriteError> {
+        if self.agent_mode() {
+            let refusal = safety::policy_deny(
+                "posix",
+                format!("kill {pid}: an agent may not signal a process"),
+                "signals reach other processes; the owner approves them",
+            );
+            return Err(WriteError::Refused(Refusal {
+                message: refusal.to_string(),
+                code: 126,
+            }));
+        }
+        os.kill(pid, signal).map_err(WriteError::Io)
+    }
+
+    /// A mode change goes through the same path check as a write, as a
+    /// destructive change: agent mode asks the owner about it. It is not
+    /// journalled, since the prior mode is not recorded, so it cannot be undone.
+    fn guarded_chmod(&self, os: &dyn Os, path: &str, mode: u32) -> Result<(), WriteError> {
+        let resolved = safety::resolve_path_str(path);
+        safety::guard(safety::GuardCtx {
+            builtin: "chmod",
+            effect: safety::Effect::Destructive,
+            what: "change mode",
+            targets: vec![resolved.clone()],
+            blast_radius: serde_json::json!({ "path": resolved, "mode": format!("{mode:o}") }),
+            reversible: false,
+            fs_paths: true,
+        })
+        .map_err(|e| {
+            WriteError::Refused(Refusal {
+                message: e.to_string(),
+                code: e.code.exit_code(),
+            })
+        })?;
+        os.set_mode(&resolved, mode).map_err(WriteError::Io)
     }
 
     fn admit_exec(&self, argv: &str) -> Result<(), Refusal> {
