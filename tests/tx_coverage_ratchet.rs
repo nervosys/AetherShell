@@ -44,6 +44,10 @@ const COVERAGE_MARKERS: &[&str] = &[
 /// may only shrink, and it is pinned to the uncovered set by the test below.
 const ALLOWED: &[(&str, &str)] = &[
     (
+        "rename_file_no_replace",
+        "the shared no-replace rename; its one caller, bi_refactor_rename_file, snapshots both paths first",
+    ),
+    (
         "write_file_atomically",
         "the shared atomic writer; its callers snapshot the caller's file first, except monitor_store_save, which writes the shell's own store",
     ),
