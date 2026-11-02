@@ -211,3 +211,28 @@ fn any_child_of_an_agent_shell_carries_the_mode() {
         listed(&names)
     );
 }
+
+/// The in-process `env` of `ish -b` lists what a child would receive, not the
+/// shell's own environment: it ran in-process from S1 on, and printed the
+/// marker, which no child ever sees. A named assignment is still shown.
+#[test]
+fn the_in_process_env_lists_what_a_child_would_receive() {
+    let _guard = lock();
+    let output = Command::new(env!("CARGO_BIN_EXE_ish"))
+        .args(["-b", "-c", &format!("{ALLOWED}=kept env")])
+        .env(MARKER, MARKER_VALUE)
+        .output()
+        .expect("ish runs");
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    let names = names_in(&text);
+    assert!(
+        !has_name(&names, MARKER),
+        "env listed a variable no child receives; its variables were: {}",
+        listed(&names)
+    );
+    assert!(
+        has_name(&names, "PATH") && has_name(&names, ALLOWED),
+        "env must still list ordinary and named variables; its variables were: {}",
+        listed(&names)
+    );
+}

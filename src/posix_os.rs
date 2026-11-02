@@ -221,17 +221,34 @@ impl Os for HostOs {
 
     /// Sorted, so that `env` prints the same order every run. Lossy UTF-8:
     /// `std::env::vars` would panic on a value that is not Unicode.
+    /// The environment a child of this shell receives, which is what `env`
+    /// prints: the shell's own `IRONSHELL_*` settings, and in agent mode its
+    /// credentials, are removed by the same [`safety::strip_ironshell_env`] the
+    /// child's spawn applies. Listing the shell's environment instead showed a
+    /// variable no child would ever see.
     fn env_vars(&self) -> Vec<(String, String)> {
-        let mut vars: Vec<(String, String)> = std::env::vars_os()
+        let mut probe = std::process::Command::new("env");
+        safety::strip_ironshell_env(&mut probe);
+        let mut vars: std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString> =
+            std::env::vars_os().collect();
+        for (name, value) in probe.get_envs() {
+            match value {
+                Some(v) => {
+                    vars.insert(name.to_os_string(), v.to_os_string());
+                }
+                None => {
+                    vars.remove(name);
+                }
+            }
+        }
+        vars.into_iter()
             .map(|(n, v)| {
                 (
                     n.to_string_lossy().into_owned(),
                     v.to_string_lossy().into_owned(),
                 )
             })
-            .collect();
-        vars.sort();
-        vars
+            .collect()
     }
 
     fn process_id(&self) -> u32 {

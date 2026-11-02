@@ -3971,6 +3971,9 @@ fn ls(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
 }
 
 /// `(shown name, path)` pairs, in order.
+/// One `ls -l` row: mode, links, owner, group, size, date and name.
+type LsRow = (String, String, String, String, String, String, String);
+
 fn emit_ls(os: &dyn Os, entries: &[(String, String)], long: bool, total: bool, sink: &mut Sink) {
     if !long {
         for (n, _) in entries {
@@ -4060,9 +4063,7 @@ fn emit_ls(os: &dyn Os, entries: &[(String, String)], long: bool, total: bool, s
             sink.out
                 .extend_from_slice(format!("total {}\n", blocks.div_ceil(2)).as_bytes());
         }
-        let w = |f: fn(&(String, String, String, String, String, String, String)) -> &String| {
-            rows.iter().map(|r| f(r).len()).max().unwrap_or(0)
-        };
+        let w = |f: fn(&LsRow) -> &String| rows.iter().map(|r| f(r).len()).max().unwrap_or(0);
         let (wl, wu, wg, ws) = (w(|r| &r.1), w(|r| &r.2), w(|r| &r.3), w(|r| &r.4));
         for r in &rows {
             let line = format!(
@@ -4162,6 +4163,7 @@ fn find(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
     let mut status = 0;
     // Matches printed so far. One past the cap marks the walk as stopped.
     let mut count = 0usize;
+    #[allow(clippy::too_many_arguments)] // the walk's state, threaded through recursion
     fn visit(
         path: &str,
         depth: usize,
@@ -5970,7 +5972,7 @@ impl<'a> Expr<'a> {
             "match" if self.has(2) => {
                 let s = self.take().unwrap_or_default();
                 let pat = self.take().unwrap_or_default();
-                regex_match(s, &pat)
+                regex_match(s, pat)
             }
             // GNU reads these names as functions even when operands are short.
             "length" | "substr" | "index" | "match" => Err(self.missing()),
@@ -6406,7 +6408,11 @@ fn render_utc(t: &Utc, format: &str, out: &mut String) -> Option<()> {
         "November",
         "December",
     ];
-    let h12 = if t.hour % 12 == 0 { 12 } else { t.hour % 12 };
+    let h12 = if t.hour.is_multiple_of(12) {
+        12
+    } else {
+        t.hour % 12
+    };
     let mut it = format.chars();
     while let Some(c) = it.next() {
         if c != '%' {
@@ -7897,8 +7903,10 @@ mod tests {
     /// (GNU: `whoami: extra operand 'x'`), and a host with no account declines.
     #[test]
     fn whoami_prints_the_account_or_declines() {
-        let mut os = FakeOs::default();
-        os.user = Some("root".into());
+        let mut os = FakeOs {
+            user: Some("root".into()),
+            ..FakeOs::default()
+        };
         assert_eq!(sh_on(&os, "whoami"), ("root\n".into(), 0));
         assert_eq!(sh_err(&os, "whoami x").1, 126);
         os.user = None;
@@ -7913,24 +7921,26 @@ mod tests {
     /// comm` prints `COMMAND`, then the names.
     #[test]
     fn ps_lists_processes_in_procps_columns() {
-        let mut os = FakeOs::default();
-        os.procs = Some(vec![
-            Proc {
-                pid: 837,
-                ppid: 747,
-                comm: "sleep".into(),
-            },
-            Proc {
-                pid: 2,
-                ppid: 1,
-                comm: "init-systemd(ae".into(),
-            },
-            Proc {
-                pid: 1,
-                ppid: 0,
-                comm: "systemd".into(),
-            },
-        ]);
+        let mut os = FakeOs {
+            procs: Some(vec![
+                Proc {
+                    pid: 837,
+                    ppid: 747,
+                    comm: "sleep".into(),
+                },
+                Proc {
+                    pid: 2,
+                    ppid: 1,
+                    comm: "init-systemd(ae".into(),
+                },
+                Proc {
+                    pid: 1,
+                    ppid: 0,
+                    comm: "systemd".into(),
+                },
+            ]),
+            ..FakeOs::default()
+        };
         assert_eq!(
             sh_on(&os, "ps -e -o pid=,comm="),
             (
