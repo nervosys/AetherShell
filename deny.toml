@@ -23,6 +23,7 @@ ignore = [
     "RUSTSEC-2026-0367", # zip 0.6.6 — SUID/SGID preservation in extract() (utoipa-swagger-ui build-dep)
     "RUSTSEC-2026-0368", # zip 0.6.6 — extract() symlink targets (utoipa-swagger-ui build-dep)
     "RUSTSEC-2026-0369", # zip 0.6.6 — extract() permissions via symlinks (utoipa-swagger-ui build-dep)
+    "RUSTSEC-2026-0429", # zip 0.6.6, 1.1.4 — extract() aborts on a large declared symlink size; neither copy calls extract() (utoipa-swagger-ui build-dep; candle-core .npz/pickle, by_index/by_name)
     # Removed 2026-07-29 — cargo-deny reported these as `advisory-not-detected`,
     # i.e. no crate in the tree matches them any more. Stale ignores are worse
     # than none: they read as accepted risk while silently covering nothing.
