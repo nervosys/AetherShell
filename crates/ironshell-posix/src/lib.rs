@@ -4900,7 +4900,8 @@ enum ExprErr {
     /// Not a syntax this subset runs (a back-reference, a regex it cannot
     /// compile, no arguments): the external program answers.
     Decline,
-    Syntax,
+    /// GNU's text after `expr: syntax error: `.
+    Syntax(String),
     NonInteger,
     DivZero,
 }
@@ -5081,19 +5082,34 @@ impl<'a> Expr<'a> {
         Ok(l)
     }
 
+    /// GNU's error for an operator or function with nothing after it.
+    fn missing(&self) -> ExprErr {
+        let last = self.t.last().map(String::as_str).unwrap_or_default();
+        ExprErr::Syntax(format!("missing argument after '{last}'"))
+    }
+
     fn primary(&mut self) -> Result<ExprVal, ExprErr> {
         let Some(t) = self.take() else {
-            return Err(ExprErr::Syntax);
+            return Err(self.missing());
         };
         match t {
             "(" => {
-                let v = self.or()?;
-                if self.take() != Some(")") {
-                    return Err(ExprErr::Syntax);
+                if self.peek().is_none() {
+                    return Err(self.missing());
                 }
-                Ok(v)
+                let v = self.or()?;
+                match self.take() {
+                    Some(")") => Ok(v),
+                    Some(other) => Err(ExprErr::Syntax(format!(
+                        "expecting ')' instead of '{other}'"
+                    ))),
+                    None => {
+                        let last = self.t.last().map(String::as_str).unwrap_or_default();
+                        Err(ExprErr::Syntax(format!("expecting ')' after '{last}'")))
+                    }
+                }
             }
-            ")" => Err(ExprErr::Syntax),
+            ")" => Err(ExprErr::Syntax("unexpected ')'".into())),
             // A function with too few operands is GNU's to answer.
             "length" if self.has(1) => {
                 Ok(self.take().unwrap_or_default().chars().count().to_string())
@@ -5122,6 +5138,8 @@ impl<'a> Expr<'a> {
                 let pat = self.take().unwrap_or_default();
                 regex_match(s, &pat)
             }
+            // GNU reads these names as functions even when operands are short.
+            "length" | "substr" | "index" | "match" => Err(self.missing()),
             _ => Ok(t.to_string()),
         }
     }
@@ -5137,7 +5155,10 @@ fn expr(args: &[String], sink: &mut Sink) -> Util {
     let mut p = Expr { t: args, i: 0 };
     let res = match p.or() {
         Ok(v) if p.i == args.len() => Ok(v),
-        Ok(_) => Err(ExprErr::Syntax),
+        Ok(_) => Err(ExprErr::Syntax(format!(
+            "unexpected argument '{}'",
+            args[p.i]
+        ))),
         Err(e) => Err(e),
     };
     match res {
@@ -5147,8 +5168,8 @@ fn expr(args: &[String], sink: &mut Sink) -> Util {
             Util::Done(status)
         }
         Err(ExprErr::Decline) => Util::Decline,
-        Err(ExprErr::Syntax) => {
-            sink.eline("expr: syntax error");
+        Err(ExprErr::Syntax(why)) => {
+            sink.eline(&format!("expr: syntax error: {why}"));
             Util::Done(2)
         }
         Err(ExprErr::NonInteger) => {
@@ -7120,6 +7141,8 @@ mod tests {
         let mut out = Vec::new();
         yes_into(&mut out, b"ab\n", 0);
         assert!(out.is_empty());
+        // Through the shell, as GNU's `yes ab cd | head -n 2` prints it.
+        assert_eq!(sh("yes ab cd | head -n 2"), ("ab cd\nab cd\n".into(), 0));
     }
 
     /// `expr`: each value and status is GNU's for the same arguments.
@@ -7166,12 +7189,31 @@ mod tests {
         );
         assert_eq!(
             sh_err(&TestHost, "expr 1 +"),
-            ("expr: syntax error\n".into(), 2)
+            ("expr: syntax error: missing argument after '+'\n".into(), 2)
         );
         assert_eq!(
             sh_err(&TestHost, "expr 1 2"),
-            ("expr: syntax error\n".into(), 2)
+            ("expr: syntax error: unexpected argument '2'\n".into(), 2)
         );
+        // GNU coreutils 9.7, each checked against the real expr.
+        for (cmd, msg) in [
+            ("expr '(' 1", "expecting ')' after '1'"),
+            ("expr '(' 1 2", "expecting ')' instead of '2'"),
+            ("expr ')'", "unexpected ')'"),
+            ("expr 1 + ')'", "unexpected ')'"),
+            ("expr 1 '*'", "missing argument after '*'"),
+            ("expr '('", "missing argument after '('"),
+            ("expr 1 2 3", "unexpected argument '2'"),
+            ("expr length", "missing argument after 'length'"),
+            ("expr substr a 1", "missing argument after '1'"),
+            ("expr index a", "missing argument after 'a'"),
+        ] {
+            assert_eq!(
+                sh_err(&TestHost, cmd),
+                (format!("expr: syntax error: {msg}\n"), 2),
+                "{cmd}"
+            );
+        }
     }
 
     /// `date -u` and the pure UTC formatter. Expected values are GNU's
