@@ -4865,11 +4865,21 @@ fn home_dir(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<std::pat
     nonempty_path(var, "HOME").or_else(|| nonempty_path(var, "USERPROFILE"))
 }
 
-/// The user config directory the container and rootless docker tools read:
-/// `$XDG_CONFIG_HOME` when it is set and non-empty, else `$HOME/.config`. When
-/// `XDG_CONFIG_HOME` is set, `$HOME/.config` is not read for these files.
-fn user_config_dir(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
-    nonempty_path(var, "XDG_CONFIG_HOME").or_else(|| home_dir(var).map(|h| h.join(".config")))
+/// The user config directories the container and rootless docker tools read:
+/// `$XDG_CONFIG_HOME` when it is set and non-empty, and `$HOME/.config` as well.
+/// Both are read, so a mirror in either one refuses. A directory named twice is
+/// listed once.
+fn user_config_dirs(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    if let Some(xdg) = nonempty_path(var, "XDG_CONFIG_HOME") {
+        out.push(xdg);
+    }
+    if let Some(home_config) = home_dir(var).map(|h| h.join(".config")) {
+        if !out.contains(&home_config) {
+            out.push(home_config);
+        }
+    }
+    out
 }
 
 /// The docker CLI's `config.json`: `$DOCKER_CONFIG` when set and non-empty, else
@@ -4891,10 +4901,10 @@ fn var_is_set(var: &dyn Fn(&str) -> Option<std::ffi::OsString>, name: &str) -> b
 /// The config files that can redirect the registry a pull reaches, with the
 /// format each is read as, for `var` as the environment. Docker's daemon reads
 /// `daemon.json` from `/etc/docker`, `%ProgramData%\docker\config`, `$HOME/.docker`
-/// and, rootless, `$XDG_CONFIG_HOME/docker` (or `$HOME/.config/docker`). Containers
-/// read `registries.conf` from `/etc/containers` and `$XDG_CONFIG_HOME/containers`
-/// (or `$HOME/.config/containers`); their drop-ins are in
-/// [`container_dropin_dirs`]. An unset or empty variable names no location.
+/// and, rootless, `docker/daemon.json` under `$XDG_CONFIG_HOME` and under
+/// `$HOME/.config`. Containers read `registries.conf` from `/etc/containers` and
+/// `containers/registries.conf` under the same two user directories; their drop-ins
+/// are in [`container_dropin_dirs`]. An unset or empty variable names no location.
 pub fn container_mirror_paths(
     var: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Vec<(MirrorConfig, std::path::PathBuf)> {
@@ -4928,7 +4938,7 @@ fn container_mirror_paths_at(
             h.join(".docker").join("daemon.json"),
         ));
     }
-    if let Some(c) = user_config_dir(var) {
+    for c in user_config_dirs(var) {
         out.push((
             MirrorConfig::RegistriesConf,
             c.join("containers").join("registries.conf"),
@@ -4951,7 +4961,7 @@ fn container_dropin_dirs(
         .join("etc")
         .join("containers")
         .join("registries.conf.d")];
-    if let Some(c) = user_config_dir(var) {
+    for c in user_config_dirs(var) {
         out.push(c.join("containers").join("registries.conf.d"));
     }
     out
@@ -8103,7 +8113,7 @@ mod mirror_and_git_install_tests {
     }
 
     #[test]
-    fn a_set_xdg_config_home_replaces_the_home_config_user_files() {
+    fn a_set_xdg_config_home_is_read_together_with_home_config() {
         let root = Path::new("/fake/root");
         let xdg = PathBuf::from("/fake/xdg");
         let home_config = PathBuf::from("/fake/home").join(".config");
@@ -8111,27 +8121,89 @@ mod mirror_and_git_install_tests {
             &env_of(&[("HOME", "/fake/home"), ("XDG_CONFIG_HOME", "/fake/xdg")]),
             root,
         );
-        assert!(paths.contains(&(
-            MirrorConfig::RegistriesConf,
-            xdg.join("containers").join("registries.conf"),
-        )));
-        assert!(paths.contains(&(
-            MirrorConfig::DaemonJson,
-            xdg.join("docker").join("daemon.json"),
-        )));
-        assert!(
-            !paths.iter().any(|(_, p)| p.starts_with(&home_config)),
-            "$HOME/.config is not read when XDG_CONFIG_HOME is set: {paths:?}"
+        for (format, path) in [
+            (
+                MirrorConfig::RegistriesConf,
+                xdg.join("containers").join("registries.conf"),
+            ),
+            (
+                MirrorConfig::DaemonJson,
+                xdg.join("docker").join("daemon.json"),
+            ),
+            (
+                MirrorConfig::RegistriesConf,
+                home_config.join("containers").join("registries.conf"),
+            ),
+            (
+                MirrorConfig::DaemonJson,
+                home_config.join("docker").join("daemon.json"),
+            ),
+        ] {
+            assert!(
+                paths.contains(&(format, path.clone())),
+                "{path:?} in {paths:?}"
+            );
+        }
+        // The same directory named twice is listed once.
+        let paths = container_mirror_paths_at(
+            &env_of(&[
+                ("HOME", "/fake/home"),
+                ("XDG_CONFIG_HOME", "/fake/home/.config"),
+            ]),
+            root,
         );
-        // An empty XDG_CONFIG_HOME is unset.
+        let registries = home_config.join("containers").join("registries.conf");
+        let listed = paths
+            .iter()
+            .filter(|(f, p)| *f == MirrorConfig::RegistriesConf && *p == registries)
+            .count();
+        assert_eq!(listed, 1, "{paths:?}");
+        // An empty XDG_CONFIG_HOME is unset: only $HOME/.config is read.
         let paths = container_mirror_paths_at(
             &env_of(&[("HOME", "/fake/home"), ("XDG_CONFIG_HOME", "")]),
             root,
         );
-        assert!(paths.contains(&(
-            MirrorConfig::RegistriesConf,
-            home_config.join("containers").join("registries.conf"),
-        )));
+        assert!(paths.contains(&(MirrorConfig::RegistriesConf, registries)));
+        assert!(!paths.iter().any(|(_, p)| p.starts_with(&xdg)));
+    }
+
+    #[test]
+    fn a_mirror_under_home_config_is_refused_while_xdg_points_elsewhere() {
+        let f = MirrorFixture::new("home_config_under_xdg");
+        let xdg = [("XDG_CONFIG_HOME", f.xdg().to_string_lossy().into_owned())];
+        // XDG holds a clean registries.conf, so the mirror can only be the one
+        // under $HOME/.config.
+        f.put(f.xdg().join("containers/registries.conf"), "");
+        f.put(
+            f.home().join(".config/containers/registries.conf"),
+            MIRROR_CONF,
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&xdg), &f.system()),
+            Err(MIRROR_NAMED)
+        );
+        // The same for a drop-in under $HOME/.config.
+        let g = MirrorFixture::new("home_config_dropin_under_xdg");
+        let xdg = [("XDG_CONFIG_HOME", g.xdg().to_string_lossy().into_owned())];
+        g.put(
+            g.home().join(".config/containers/registries.conf.d/m.conf"),
+            MIRROR_CONF,
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", g.env(&xdg), &g.system()),
+            Err(MIRROR_NAMED)
+        );
+        // Rootless docker's daemon.json under $HOME/.config.
+        let h = MirrorFixture::new("home_config_docker_under_xdg");
+        let xdg = [("XDG_CONFIG_HOME", h.xdg().to_string_lossy().into_owned())];
+        h.put(
+            h.home().join(".config/docker/daemon.json"),
+            r#"{"registry-mirrors": ["https://m.example.invalid"]}"#,
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("docker_run", h.env(&xdg), &h.system()),
+            Err(MIRROR_NAMED)
+        );
     }
 
     /// A temp root with a system directory and a home, for the container tests.
