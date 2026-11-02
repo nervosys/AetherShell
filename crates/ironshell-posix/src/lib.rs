@@ -41,7 +41,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::os::{
-    Captured, CopyStep, ErrorKind, FileKind, Os, OsError, Refusal, Spawn, SpawnError, Stream,
+    Captured, CopyStep, ErrorKind, FileKind, Meta, Os, OsError, Refusal, Spawn, SpawnError, Stream,
     Timestamp, WriteError,
 };
 
@@ -1733,6 +1733,14 @@ impl<'a> Shell<'a> {
             }
             _ => {}
         }
+        // `env` runs a command with variables set, or lists the environment.
+        // It is handled here, not in `utility`, because a command it runs must
+        // take the same path a `NAME=VALUE cmd` prefix takes.
+        if name == "env" {
+            if let Some(e) = env_args(args) {
+                return self.env_builtin(e, env, stdin, sink);
+            }
+        }
         if env.is_empty() {
             match utility(self.os, name, args, stdin, sink) {
                 Util::Done(c) => return Flow::Next(c),
@@ -1809,6 +1817,53 @@ impl<'a> Shell<'a> {
             }
         }
         0
+    }
+
+    /// `env`: with no command, prints the environment (the host's, then the
+    /// shell's exports, then this command's own overrides), sorted. With a
+    /// command, runs it with the overrides set, through [`Shell::external`]
+    /// exactly as `NAME=VALUE cmd` is run, so the gate sees the same thing.
+    fn env_builtin(
+        &mut self,
+        e: EnvArgs,
+        env: &[(String, String)],
+        stdin: &mut Input,
+        sink: &mut Sink,
+    ) -> Flow {
+        if e.command.is_empty() {
+            let mut vars: BTreeMap<String, String> = BTreeMap::new();
+            if !e.clear {
+                vars.extend(self.os.env_vars());
+                for n in &self.exported {
+                    if let Some(v) = self.vars.get(n) {
+                        vars.insert(n.clone(), v.clone());
+                    }
+                }
+            }
+            for n in &e.unset {
+                vars.remove(n);
+            }
+            for (n, v) in env.iter().chain(e.assign.iter()) {
+                vars.insert(n.clone(), v.clone());
+            }
+            for (n, v) in &vars {
+                sink.out.extend_from_slice(format!("{n}={v}\n").as_bytes());
+            }
+            return Flow::Next(0);
+        }
+        // A host Spawn can set variables but not remove them, so `-i` and `-u`
+        // cannot be honoured in front of a command. Refuse, rather than run the
+        // command with variables the caller asked to be gone.
+        if e.clear || !e.unset.is_empty() {
+            sink.eline("env: -i and -u are not supported with a command on this host");
+            return Flow::Next(125);
+        }
+        let mut over: Vec<(String, String)> = env.to_vec();
+        over.extend(e.assign);
+        if over.is_empty() {
+            return self.dispatch(&e.command, &[], stdin, sink);
+        }
+        Flow::Next(self.external(&e.command, &over, stdin, sink))
     }
 
     /// Run a program that is not implemented here: directly, with no shell in
@@ -2386,6 +2441,14 @@ fn utility(os: &dyn Os, name: &str, args: &[String], stdin: &mut Input, sink: &m
         "cp" => cp(os, args, sink),
         "mv" => mv(os, args, sink),
         "mkdir" => mkdir(os, args, sink),
+        "tr" => tr(args, stdin, sink),
+        "tee" => tee(os, args, stdin, sink),
+        "touch" => touch(os, args, sink),
+        "which" => which(os, args, sink),
+        "expr" => expr(args, sink),
+        "yes" => yes(args, sink),
+        "readlink" => readlink(os, args, sink),
+        "stat" => stat(os, args, sink),
         "basename" => match args {
             [p] | [p, _] => {
                 let trimmed = p.trim_end_matches('/');
@@ -4065,23 +4128,6 @@ fn find(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
     Util::Done(status)
 }
 
-fn date(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
-    match args {
-        [f] if f.starts_with('+') => {
-            // The host renders the format in local time, and declines a format
-            // it does not accept.
-            match os.format_local(os.now(), &f[1..]) {
-                Some(text) => {
-                    sink.out.extend_from_slice(format!("{text}\n").as_bytes());
-                    Util::Done(0)
-                }
-                None => Util::Decline,
-            }
-        }
-        _ => Util::Decline,
-    }
-}
-
 // ════════════════════════════════════════════════════════════════════════
 // File changes: rm, cp, mv, mkdir
 // ════════════════════════════════════════════════════════════════════════
@@ -4514,6 +4560,1042 @@ fn new_dirs(os: &dyn Os, path: &str, parents: bool) -> Result<Vec<String>, Strin
     }
     missing.reverse();
     Ok(missing)
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Text filters, files, search, environment and time
+// ════════════════════════════════════════════════════════════════════════
+//
+// Each one prints what GNU coreutils prints for the flags it runs. A flag
+// it does not run declines, and the external program runs instead.
+
+/// What `yes` writes at most, in bytes. The subset's sink has no signal that
+/// the reader has gone (a closed pipe), so an endless writer needs a bound.
+const YES_CAP: usize = 64 * 1024 * 1024;
+
+/// The `date` format when none is given, as GNU prints it.
+const DATE_DEFAULT: &str = "%a %b %e %H:%M:%S %Z %Y";
+
+/// Why a `tr` set was not expanded.
+enum SetErr {
+    /// A form this subset does not run: `[=c=]`, `[c*n]`, octal escapes, an
+    /// unknown class name.
+    Decline,
+    /// A range whose end sorts before its start.
+    Reversed(u8, u8),
+}
+
+/// One unit of a `tr` set: a byte, or a character class.
+enum TrUnit {
+    Byte(u8),
+    Class(Vec<u8>),
+}
+
+/// The bytes of the named character class, in ascending order. `None` for a
+/// class this subset does not run.
+fn tr_class(name: &[u8]) -> Option<Vec<u8>> {
+    let range = |a: u8, b: u8| (a..=b).collect::<Vec<u8>>();
+    Some(match name {
+        b"upper" => range(b'A', b'Z'),
+        b"lower" => range(b'a', b'z'),
+        b"digit" => range(b'0', b'9'),
+        b"alpha" => [range(b'A', b'Z'), range(b'a', b'z')].concat(),
+        b"alnum" => [range(b'0', b'9'), range(b'A', b'Z'), range(b'a', b'z')].concat(),
+        b"space" => vec![9, 10, 11, 12, 13, 32],
+        _ => return None,
+    })
+}
+
+/// The unit that starts at `b[i]`, and the index after it.
+fn tr_unit(b: &[u8], i: usize) -> Result<(TrUnit, usize), SetErr> {
+    match b[i] {
+        b'\\' => {
+            let Some(&c) = b.get(i + 1) else {
+                return Err(SetErr::Decline);
+            };
+            let v = match c {
+                b'n' => b'\n',
+                b't' => b'\t',
+                b'r' => b'\r',
+                b'\\' => b'\\',
+                _ => return Err(SetErr::Decline),
+            };
+            Ok((TrUnit::Byte(v), i + 2))
+        }
+        b'[' if b.get(i + 1) == Some(&b':') => {
+            match b[i + 2..].windows(2).position(|w| w == b":]") {
+                Some(p) => {
+                    let end = i + 2 + p;
+                    match tr_class(&b[i + 2..end]) {
+                        Some(class) => Ok((TrUnit::Class(class), end + 2)),
+                        None => Err(SetErr::Decline),
+                    }
+                }
+                // No closing `:]`: the bracket is an ordinary byte.
+                None => Ok((TrUnit::Byte(b'['), i + 1)),
+            }
+        }
+        b'[' if b.get(i + 1) == Some(&b'=') || b.get(i + 2) == Some(&b'*') => Err(SetErr::Decline),
+        c => Ok((TrUnit::Byte(c), i + 1)),
+    }
+}
+
+/// The bytes a `tr` set names, in order: ranges expanded, classes expanded,
+/// escapes read.
+fn tr_set(s: &str) -> Result<Vec<u8>, SetErr> {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        let (unit, next) = tr_unit(b, i)?;
+        if let TrUnit::Byte(from) = unit {
+            if next + 1 < b.len() && b[next] == b'-' {
+                match tr_unit(b, next + 1)? {
+                    (TrUnit::Byte(to), after) => {
+                        if from > to {
+                            return Err(SetErr::Reversed(from, to));
+                        }
+                        out.extend(from..=to);
+                        i = after;
+                        continue;
+                    }
+                    (TrUnit::Class(_), _) => return Err(SetErr::Decline),
+                }
+            }
+        }
+        match unit {
+            TrUnit::Byte(x) => out.push(x),
+            TrUnit::Class(c) => out.extend_from_slice(&c),
+        }
+        i = next;
+    }
+    Ok(out)
+}
+
+/// `tr [-cCds] SET1 [SET2]`, over stdin. Translates when SET2 is given without
+/// `-d`; squeezes when `-s` is given, over SET2 if there is one and SET1 if not.
+/// `-c` complements SET1 in ascending byte order, as GNU does.
+fn tr(args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+    let Some((flags, sets)) = short_flags(args, "cCds") else {
+        return Util::Decline;
+    };
+    let complement = flags.contains(&'c') || flags.contains(&'C');
+    let delete = flags.contains(&'d');
+    let squeeze = flags.contains(&'s');
+    let two = match sets.len() {
+        0 => return usage(sink, "tr", "tr: missing operand"),
+        1 => false,
+        2 => true,
+        _ => return Util::Decline,
+    };
+    // `tr -d SET1 SET2` without `-s` is GNU's "extra operand": let it say so.
+    if two && delete && !squeeze {
+        return Util::Decline;
+    }
+    let translate = two && !delete;
+    // One set needs exactly one of -d and -s; with neither, or both, GNU
+    // asks for a second set, so that case is left to it.
+    if !two && delete == squeeze {
+        return Util::Decline;
+    }
+    let mut set1 = match tr_set(&sets[0]) {
+        Ok(v) => v,
+        Err(SetErr::Decline) => return Util::Decline,
+        Err(SetErr::Reversed(a, b)) => {
+            sink.eline(&format!(
+                "tr: range-endpoints of '{}-{}' are in reverse collating sequence order",
+                a as char, b as char
+            ));
+            return Util::Done(1);
+        }
+    };
+    let set2 = if two {
+        match tr_set(&sets[1]) {
+            Ok(v) => v,
+            Err(SetErr::Decline) => return Util::Decline,
+            Err(SetErr::Reversed(a, b)) => {
+                sink.eline(&format!(
+                    "tr: range-endpoints of '{}-{}' are in reverse collating sequence order",
+                    a as char, b as char
+                ));
+                return Util::Done(1);
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    if translate && set2.is_empty() {
+        return Util::Decline;
+    }
+    if complement {
+        set1 = (0..=255u8).filter(|b| !set1.contains(b)).collect();
+    }
+    let mut map: [u8; 256] = core::array::from_fn(|i| i as u8);
+    if translate {
+        // SET2 is padded with its last byte, as GNU pads it; a repeated byte
+        // in SET1 takes the later mapping.
+        let last = set2[set2.len() - 1];
+        for (k, &from) in set1.iter().enumerate() {
+            map[from as usize] = set2.get(k).copied().unwrap_or(last);
+        }
+    }
+    let mut del = [false; 256];
+    if delete {
+        for &b in &set1 {
+            del[b as usize] = true;
+        }
+    }
+    let mut sq = [false; 256];
+    if squeeze {
+        let squeeze_set: &Vec<u8> = if two { &set2 } else { &set1 };
+        for &b in squeeze_set {
+            sq[b as usize] = true;
+        }
+    }
+    let data = stdin.read_all();
+    let mut last: Option<u8> = None;
+    for &b in &data {
+        if del[b as usize] {
+            continue;
+        }
+        let o = map[b as usize];
+        if squeeze && sq[o as usize] && last == Some(o) {
+            continue;
+        }
+        sink.out.push(o);
+        last = Some(o);
+    }
+    Util::Done(0)
+}
+
+/// `tee [-a] FILE...`: stdin to stdout and to each file. Each file is a write
+/// the gate admits, with `-a` an append.
+fn tee(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util {
+    let Some((flags, files)) = short_flags(args, "a") else {
+        return Util::Decline;
+    };
+    // GNU reads "-" as a file operand's stdin-like name in some versions; this
+    // subset does not guess which.
+    if files.iter().any(|f| f == "-") {
+        return Util::Decline;
+    }
+    let append = flags.contains(&'a');
+    let data = stdin.read_all();
+    sink.out.extend_from_slice(&data);
+    let mut status = 0;
+    for f in &files {
+        match os.gate().guarded_write(os, f, &data, append) {
+            Ok(()) => {}
+            Err(WriteError::Refused(r)) => return refused(sink, &r),
+            Err(WriteError::Io(e)) => {
+                sink.eline(&format!("tee: {f}: {}", io_reason(&e)));
+                status = 1;
+            }
+        }
+    }
+    Util::Done(status)
+}
+
+/// `touch [-c] FILE...`. A file that is absent is created empty, through the
+/// gate. A file that is there is left as it is: the [`Os`] trait has no way to
+/// set a modification time, so touching an existing file succeeds and changes
+/// nothing (its mtime does not move). `-c` creates nothing.
+fn touch(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let Some((flags, files)) = short_flags(args, "c") else {
+        return Util::Decline;
+    };
+    if files.is_empty() {
+        return usage(sink, "touch", "touch: missing file operand");
+    }
+    let no_create = flags.contains(&'c');
+    let mut status = 0;
+    for f in &files {
+        match os.metadata(f) {
+            Ok(_) => continue,
+            Err(e) if e.kind == ErrorKind::NotFound => {
+                if no_create {
+                    continue;
+                }
+            }
+            Err(e) => {
+                sink.eline(&format!("touch: cannot touch '{f}': {}", io_reason(&e)));
+                status = 1;
+                continue;
+            }
+        }
+        match os.gate().guarded_write(os, f, &[], false) {
+            Ok(()) => {}
+            Err(WriteError::Refused(r)) => return refused(sink, &r),
+            Err(WriteError::Io(e)) => {
+                sink.eline(&format!("touch: cannot touch '{f}': {}", io_reason(&e)));
+                status = 1;
+            }
+        }
+    }
+    Util::Done(status)
+}
+
+/// Whether `cand` names a usable program: a file that is not a directory and,
+/// where the host has permission bits, one of them executable. On a host
+/// without them, each of `exts` (from PATHEXT) is tried after the bare name.
+fn which_hit(os: &dyn Os, cand: &str, exts: &[String]) -> Option<String> {
+    let mut names = alloc::vec![String::from(cand)];
+    names.extend(exts.iter().map(|e| format!("{cand}{e}")));
+    let unix = os.has_unix_metadata();
+    names.into_iter().find(|p| {
+        os.metadata(p)
+            .is_ok_and(|m| m.kind != FileKind::Dir && (!unix || m.mode & 0o111 != 0))
+    })
+}
+
+/// `which NAME...`: the first match for each name on PATH, one per line. A
+/// name with a `/` is checked as it is. Exit 1 when any name is not found,
+/// and nothing is printed for it, as GNU and debianutils `which` do.
+fn which(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let Some((_, names)) = short_flags(args, "") else {
+        return Util::Decline;
+    };
+    if names.is_empty() {
+        return Util::Decline;
+    }
+    // The host reports Windows by having no Unix metadata (`ls -l` relies on
+    // the same signal). Its PATH is `;`-separated, and its programs take
+    // extensions from PATHEXT.
+    let unix = os.has_unix_metadata();
+    let sep = if unix { ':' } else { ';' };
+    let exts: Vec<String> = if unix {
+        Vec::new()
+    } else {
+        os.env_var("PATHEXT")
+            .unwrap_or_default()
+            .split(';')
+            .filter(|e| !e.is_empty())
+            .map(String::from)
+            .collect()
+    };
+    let path = os.env_var("PATH").unwrap_or_default();
+    let mut status = 0;
+    for name in &names {
+        let found = if name.contains('/') {
+            which_hit(os, name, &exts)
+        } else {
+            path.split(sep).find_map(|d| {
+                let d = if d.is_empty() { "." } else { d };
+                which_hit(os, &join(d, name), &exts)
+            })
+        };
+        match found {
+            Some(p) => sink.out.extend_from_slice(format!("{p}\n").as_bytes()),
+            None => status = 1,
+        }
+    }
+    Util::Done(status)
+}
+
+/// A value `expr` computes: its text. An integer is its decimal text.
+type ExprVal = String;
+
+/// Why `expr` did not compute a value.
+enum ExprErr {
+    /// Not a syntax this subset runs (a back-reference, a regex it cannot
+    /// compile, no arguments): the external program answers.
+    Decline,
+    Syntax,
+    NonInteger,
+    DivZero,
+}
+
+/// Whether `s` is an optional `-` and one or more digits.
+fn looks_int(s: &str) -> bool {
+    let d = s.strip_prefix('-').unwrap_or(s);
+    !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `s` as an integer, when it is one that fits.
+fn int_of(s: &str) -> Option<i64> {
+    if looks_int(s) {
+        s.parse().ok()
+    } else {
+        None
+    }
+}
+
+/// `s` as an integer for arithmetic. Not one is an error.
+fn num(s: &str) -> Result<i64, ExprErr> {
+    if !looks_int(s) {
+        return Err(ExprErr::NonInteger);
+    }
+    s.parse().map_err(|_| ExprErr::Decline)
+}
+
+/// `expr`'s null-or-zero test: the empty string, or an integer zero.
+fn is_null(s: &str) -> bool {
+    s.is_empty() || int_of(s) == Some(0)
+}
+
+/// `STRING : REGEX`: anchored at the start, as `expr` anchors it. With a
+/// `\(...\)` in the pattern the result is its first group (empty when there
+/// is no match); without one, the length of the match (0 when none).
+fn regex_match(s: &str, pat: &str) -> Result<ExprVal, ExprErr> {
+    let Some(conv) = bre_to_regex(pat) else {
+        return Err(ExprErr::Decline);
+    };
+    let Ok(re) = re::Regex::new(&format!("^(?:{conv})")) else {
+        return Err(ExprErr::Decline);
+    };
+    let bytes = s.as_bytes();
+    let grouped = pat.contains("\\(");
+    let Some(&(_, end)) = re.find_spans(bytes).first() else {
+        return Ok(if grouped { String::new() } else { "0".into() });
+    };
+    if grouped {
+        // Replacing the whole anchored match with `$1` leaves exactly the
+        // group. The trailing `.*` only widens the match; it cannot change the
+        // first match's groups.
+        let Ok(re2) = re::Regex::new(&format!("^(?:{conv})(?s:.*)")) else {
+            return Err(ExprErr::Decline);
+        };
+        let rep = re2.replace(bytes, b"$1", false);
+        return Ok(String::from_utf8_lossy(&rep).into_owned());
+    }
+    Ok(String::from_utf8_lossy(&bytes[..end])
+        .chars()
+        .count()
+        .to_string())
+}
+
+/// The recursive-descent parser for `expr`, with GNU's precedence, lowest
+/// first: `|`, `&`, comparisons, `+ -`, `* / %`, `:`, then operands and the
+/// functions `length`, `substr`, `index` and `match`.
+struct Expr<'a> {
+    t: &'a [String],
+    i: usize,
+}
+
+impl<'a> Expr<'a> {
+    fn peek(&self) -> Option<&'a str> {
+        self.t.get(self.i).map(String::as_str)
+    }
+
+    fn take(&mut self) -> Option<&'a str> {
+        let v = self.peek();
+        self.i += 1;
+        v
+    }
+
+    /// The `n` operands after the current token are all there.
+    fn has(&self, n: usize) -> bool {
+        self.t.len().saturating_sub(self.i) >= n
+    }
+
+    fn or(&mut self) -> Result<ExprVal, ExprErr> {
+        let mut l = self.and()?;
+        while self.peek() == Some("|") {
+            self.i += 1;
+            let r = self.and()?;
+            if is_null(&l) {
+                l = r;
+            }
+        }
+        Ok(l)
+    }
+
+    fn and(&mut self) -> Result<ExprVal, ExprErr> {
+        let mut l = self.cmp()?;
+        while self.peek() == Some("&") {
+            self.i += 1;
+            let r = self.cmp()?;
+            if is_null(&l) || is_null(&r) {
+                l = "0".into();
+            }
+        }
+        Ok(l)
+    }
+
+    fn cmp(&mut self) -> Result<ExprVal, ExprErr> {
+        let mut l = self.add()?;
+        while let Some(op) = self
+            .peek()
+            .filter(|o| matches!(*o, "=" | "!=" | "<" | "<=" | ">" | ">="))
+        {
+            self.i += 1;
+            let r = self.add()?;
+            // Integers compare as numbers; anything else compares as bytes.
+            let ord = match (int_of(&l), int_of(&r)) {
+                (Some(a), Some(b)) => a.cmp(&b),
+                _ => l.as_bytes().cmp(r.as_bytes()),
+            };
+            let yes = match op {
+                "=" => ord.is_eq(),
+                "!=" => ord.is_ne(),
+                "<" => ord.is_lt(),
+                "<=" => ord.is_le(),
+                ">" => ord.is_gt(),
+                _ => ord.is_ge(),
+            };
+            l = String::from(if yes { "1" } else { "0" });
+        }
+        Ok(l)
+    }
+
+    fn add(&mut self) -> Result<ExprVal, ExprErr> {
+        let mut l = self.mul()?;
+        while matches!(self.peek(), Some("+") | Some("-")) {
+            let op = self.take().unwrap_or("+");
+            let r = self.mul()?;
+            let (a, b) = (num(&l)?, num(&r)?);
+            let v = if op == "+" {
+                a.checked_add(b)
+            } else {
+                a.checked_sub(b)
+            };
+            l = v.ok_or(ExprErr::Decline)?.to_string();
+        }
+        Ok(l)
+    }
+
+    fn mul(&mut self) -> Result<ExprVal, ExprErr> {
+        let mut l = self.matching()?;
+        while matches!(self.peek(), Some("*") | Some("/") | Some("%")) {
+            let op = self.take().unwrap_or("*");
+            let r = self.matching()?;
+            let (a, b) = (num(&l)?, num(&r)?);
+            let v = match op {
+                "*" => a.checked_mul(b),
+                _ if b == 0 => return Err(ExprErr::DivZero),
+                "/" => a.checked_div(b),
+                _ => a.checked_rem(b),
+            };
+            l = v.ok_or(ExprErr::Decline)?.to_string();
+        }
+        Ok(l)
+    }
+
+    fn matching(&mut self) -> Result<ExprVal, ExprErr> {
+        let mut l = self.primary()?;
+        while self.peek() == Some(":") {
+            self.i += 1;
+            let r = self.primary()?;
+            l = regex_match(&l, &r)?;
+        }
+        Ok(l)
+    }
+
+    fn primary(&mut self) -> Result<ExprVal, ExprErr> {
+        let Some(t) = self.take() else {
+            return Err(ExprErr::Syntax);
+        };
+        match t {
+            "(" => {
+                let v = self.or()?;
+                if self.take() != Some(")") {
+                    return Err(ExprErr::Syntax);
+                }
+                Ok(v)
+            }
+            ")" => Err(ExprErr::Syntax),
+            // A function with too few operands is GNU's to answer.
+            "length" if self.has(1) => {
+                Ok(self.take().unwrap_or_default().chars().count().to_string())
+            }
+            "substr" if self.has(3) => {
+                let s = self.take().unwrap_or_default();
+                let pos = self.take().and_then(int_of);
+                let len = self.take().and_then(int_of);
+                let (Some(pos), Some(len)) = (pos, len) else {
+                    return Ok(String::new());
+                };
+                if pos < 1 || len < 1 {
+                    return Ok(String::new());
+                }
+                let take = len as usize;
+                Ok(s.chars().skip(pos as usize - 1).take(take).collect())
+            }
+            "index" if self.has(2) => {
+                let s = self.take().unwrap_or_default();
+                let set = self.take().unwrap_or_default();
+                let at = s.chars().position(|c| set.contains(c)).map_or(0, |p| p + 1);
+                Ok(at.to_string())
+            }
+            "match" if self.has(2) => {
+                let s = self.take().unwrap_or_default();
+                let pat = self.take().unwrap_or_default();
+                regex_match(s, &pat)
+            }
+            _ => Ok(t.to_string()),
+        }
+    }
+}
+
+/// `expr EXPRESSION`. The value goes to stdout; the status is 1 when the value
+/// is null or zero, 0 otherwise, and 2 on an error. Comparisons of two integers
+/// are numeric; other comparisons are bytewise (GNU uses the collation).
+fn expr(args: &[String], sink: &mut Sink) -> Util {
+    if args.is_empty() || args[0] == "--help" || args[0] == "--version" {
+        return Util::Decline;
+    }
+    let mut p = Expr { t: args, i: 0 };
+    let res = match p.or() {
+        Ok(v) if p.i == args.len() => Ok(v),
+        Ok(_) => Err(ExprErr::Syntax),
+        Err(e) => Err(e),
+    };
+    match res {
+        Ok(v) => {
+            let status = if is_null(&v) { 1 } else { 0 };
+            sink.out.extend_from_slice(format!("{v}\n").as_bytes());
+            Util::Done(status)
+        }
+        Err(ExprErr::Decline) => Util::Decline,
+        Err(ExprErr::Syntax) => {
+            sink.eline("expr: syntax error");
+            Util::Done(2)
+        }
+        Err(ExprErr::NonInteger) => {
+            sink.eline("expr: non-integer argument");
+            Util::Done(2)
+        }
+        Err(ExprErr::DivZero) => {
+            sink.eline("expr: division by zero");
+            Util::Done(2)
+        }
+    }
+}
+
+/// Writes `line` into `out` until `out` has grown by at least `cap` bytes.
+fn yes_into(out: &mut Vec<u8>, line: &[u8], cap: usize) {
+    let start = out.len();
+    while out.len() - start < cap {
+        out.extend_from_slice(line);
+    }
+}
+
+/// `yes [STRING...]`: `STRING...` (default `y`) joined by spaces, on a line,
+/// until the output reaches [`YES_CAP`]. GNU never stops on its own; here the
+/// bound is the only stop, because the sink cannot say the reader has gone. The
+/// status is 0, which is what the pipeline it feeds reports.
+fn yes(args: &[String], sink: &mut Sink) -> Util {
+    if args
+        .first()
+        .is_some_and(|a| a == "--help" || a == "--version")
+    {
+        return Util::Decline;
+    }
+    let mut line = if args.is_empty() {
+        String::from("y")
+    } else {
+        args.join(" ")
+    };
+    line.push('\n');
+    yes_into(&mut sink.out, line.as_bytes(), YES_CAP);
+    Util::Done(0)
+}
+
+/// `readlink [-f] FILE...`: each link's target, one per line. `-f` gives the
+/// canonical path, and the last component may be missing, as GNU allows.
+fn readlink(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let Some((flags, files)) = short_flags(args, "f") else {
+        return Util::Decline;
+    };
+    if files.is_empty() {
+        return usage(sink, "readlink", "readlink: missing operand");
+    }
+    let canonical = flags.contains(&'f');
+    let mut status = 0;
+    for f in &files {
+        let res = if canonical {
+            canonical_path(os, f)
+        } else {
+            os.read_link(f)
+        };
+        match res {
+            Ok(p) => sink.out.extend_from_slice(format!("{p}\n").as_bytes()),
+            Err(e) => {
+                sink.eline(&format!("readlink: {f}: {}", io_reason(&e)));
+                status = 1;
+            }
+        }
+    }
+    Util::Done(status)
+}
+
+/// The canonical path of `path`. When only its last component is missing,
+/// the parent is canonicalized and the name joined on, as `readlink -f` does.
+fn canonical_path(os: &dyn Os, path: &str) -> Result<String, OsError> {
+    match os.canonicalize(path) {
+        Err(e) if e.kind == ErrorKind::NotFound => {
+            let base = base_name(path);
+            if base.is_empty() || base == "." || base == ".." {
+                return Err(e);
+            }
+            let parent = os.canonicalize(&parent_of(path))?;
+            Ok(join(&parent, base))
+        }
+        other => other,
+    }
+}
+
+/// The GNU `stat -c` specifiers this host's [`Meta`] can answer. `%i` (the
+/// inode) and the rest are refused.
+const STAT_SPECS: &str = "nsFaUGYhugbf%";
+
+/// Refuses a format with a specifier outside [`STAT_SPECS`], before any file is
+/// looked at.
+fn stat_check(format: &str) -> Result<(), String> {
+    let mut it = format.chars();
+    while let Some(c) = it.next() {
+        if c != '%' {
+            continue;
+        }
+        match it.next() {
+            Some(s) if STAT_SPECS.contains(s) => {}
+            Some(s) => return Err(format!("stat: unsupported format specifier '%{s}'")),
+            None => return Err(String::from("stat: format ends in '%'")),
+        }
+    }
+    Ok(())
+}
+
+/// The name `stat` gives a file type, from [`Meta`]. `None` for a kind GNU
+/// would describe in a way this subset has not measured.
+fn stat_kind(m: &Meta) -> Option<&'static str> {
+    Some(match m.kind {
+        FileKind::File if m.len == 0 => "regular empty file",
+        FileKind::File => "regular file",
+        FileKind::Dir => "directory",
+        FileKind::Symlink => "symbolic link",
+        FileKind::BlockDevice => "block special file",
+        FileKind::CharDevice => "character special file",
+        FileKind::Fifo => "fifo",
+        FileKind::Socket => "socket",
+        FileKind::Other => return None,
+    })
+}
+
+/// One `stat -c` line for `m`, the metadata of `name`. Backslashes in the
+/// format are not escapes here: GNU reads escapes only for `--printf`.
+fn stat_render(os: &dyn Os, format: &str, name: &str, m: &Meta) -> Result<String, String> {
+    let mut out = String::new();
+    let mut it = format.chars();
+    while let Some(c) = it.next() {
+        if c != '%' {
+            out.push(c);
+            continue;
+        }
+        match it.next() {
+            Some('%') => out.push('%'),
+            Some('n') => out.push_str(name),
+            Some('s') => out.push_str(&m.len.to_string()),
+            Some('F') => match stat_kind(m) {
+                Some(k) => out.push_str(k),
+                None => return Err(format!("stat: cannot describe the file type of '{name}'")),
+            },
+            Some('a') => out.push_str(&format!("{:o}", m.mode & 0o7777)),
+            Some('U') => out.push_str(&os.user_name(m.uid).unwrap_or_else(|| m.uid.to_string())),
+            Some('G') => out.push_str(&os.group_name(m.gid).unwrap_or_else(|| m.gid.to_string())),
+            Some('Y') => out.push_str(&m.mtime.to_string()),
+            Some('h') => out.push_str(&m.nlink.to_string()),
+            Some('u') => out.push_str(&m.uid.to_string()),
+            Some('g') => out.push_str(&m.gid.to_string()),
+            Some('b') => out.push_str(&m.blocks.to_string()),
+            Some('f') => out.push_str(&format!("{:x}", m.mode)),
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+/// `stat -c FORMAT FILE...`. The default multi-line layout (device, inode,
+/// the three times) is not reproduced, so `-c` is required. Symbolic links are
+/// not followed, as GNU `stat` does not follow them without `-L`.
+fn stat(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let mut format: Option<String> = None;
+    let mut files: Vec<&str> = Vec::new();
+    let mut options = true;
+    let mut i = 0;
+    while i < args.len() {
+        let a = args[i].as_str();
+        if options && a == "--" {
+            options = false;
+        } else if options && a == "-c" {
+            match args.get(i + 1) {
+                Some(f) => {
+                    format = Some(f.clone());
+                    i += 1;
+                }
+                None => return Util::Decline,
+            }
+        } else if options && a.starts_with("--format=") {
+            format = Some(a["--format=".len()..].to_string());
+        } else if options && a.len() > 1 && a.starts_with('-') {
+            return Util::Decline;
+        } else {
+            files.push(a);
+        }
+        i += 1;
+    }
+    if files.is_empty() {
+        return usage(sink, "stat", "stat: missing operand");
+    }
+    let Some(format) = format else {
+        sink.eline("stat: this host needs -c FORMAT; the default layout is not reproduced");
+        return Util::Done(1);
+    };
+    if let Err(msg) = stat_check(&format) {
+        sink.eline(&msg);
+        return Util::Done(1);
+    }
+    let mut status = 0;
+    for f in files {
+        let m = match os.symlink_metadata(f) {
+            Ok(m) => m,
+            Err(e) => {
+                sink.eline(&format!("stat: cannot stat '{f}': {}", io_reason(&e)));
+                status = 1;
+                continue;
+            }
+        };
+        match stat_render(os, &format, f, &m) {
+            Ok(line) => sink.out.extend_from_slice(format!("{line}\n").as_bytes()),
+            Err(msg) => {
+                sink.eline(&msg);
+                status = 1;
+            }
+        }
+    }
+    Util::Done(status)
+}
+
+/// The operands of `env`: `-i` (or `-`), `-u NAME`, leading `NAME=VALUE`
+/// operands, and the command with its arguments, if any.
+struct EnvArgs {
+    clear: bool,
+    unset: Vec<String>,
+    assign: Vec<(String, String)>,
+    command: Vec<String>,
+}
+
+/// Parses `env`'s arguments. `None` for an option this subset does not run.
+fn env_args(args: &[String]) -> Option<EnvArgs> {
+    let mut e = EnvArgs {
+        clear: false,
+        unset: Vec::new(),
+        assign: Vec::new(),
+        command: Vec::new(),
+    };
+    let mut options = true;
+    let mut i = 0;
+    while i < args.len() {
+        let a = args[i].as_str();
+        if options && a == "--" {
+            options = false;
+        } else if options && (a == "-" || a == "-i") {
+            e.clear = true;
+        } else if options && a == "-u" {
+            e.unset.push(args.get(i + 1)?.clone());
+            i += 1;
+        } else if options && a.starts_with("--unset=") {
+            e.unset.push(a["--unset=".len()..].to_string());
+        } else if options && a.len() > 1 && a.starts_with('-') {
+            return None;
+        } else {
+            break;
+        }
+        i += 1;
+    }
+    while i < args.len() {
+        match args[i].split_once('=') {
+            Some((n, v)) if !n.is_empty() => e.assign.push((n.into(), v.into())),
+            _ => break,
+        }
+        i += 1;
+    }
+    e.command = args[i..].to_vec();
+    Some(e)
+}
+
+/// `date` with `-u` (UTC) or the local time, `+FORMAT` or GNU's default. The
+/// UTC form is computed here, so it works where the host has no local
+/// formatter. Local time needs the host's [`Os::format_local`], which declines
+/// a format it does not accept, and then so does `date`.
+fn date(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
+    let mut utc = false;
+    let mut format: Option<&str> = None;
+    for a in args {
+        if a == "-u" || a == "--utc" {
+            utc = true;
+        } else if let Some(f) = a.strip_prefix('+') {
+            if format.is_some() {
+                return Util::Decline;
+            }
+            format = Some(f);
+        } else {
+            return Util::Decline;
+        }
+    }
+    let at = os.now();
+    let f = format.unwrap_or(DATE_DEFAULT);
+    let text = if utc {
+        format_utc(at, f)
+    } else {
+        os.format_local(at, f)
+    };
+    match text {
+        Some(t) => {
+            sink.out.extend_from_slice(format!("{t}\n").as_bytes());
+            Util::Done(0)
+        }
+        None => Util::Decline,
+    }
+}
+
+/// The fields of a UTC instant that [`render_utc`] needs.
+struct Utc {
+    year: i64,
+    month: u32,
+    day: u32,
+    /// 0 is Sunday.
+    wday: u32,
+    /// 1-based.
+    yday: u32,
+    hour: u32,
+    min: u32,
+    sec: u32,
+    epoch: i64,
+}
+
+/// Days since 1970-01-01 to (year, month, day), in the proleptic Gregorian
+/// calendar (H. Hinnant's `civil_from_days`).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    (y, m, d)
+}
+
+/// The inverse of [`civil_from_days`]: (year, month, day) to days since
+/// 1970-01-01.
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let mp = i64::from(if m > 2 { m - 3 } else { m + 9 });
+    let doy = (153 * mp + 2) / 5 + i64::from(d) - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The UTC fields of `at`. `None` for a year outside 1000..=9999, which this
+/// formatter does not render.
+fn utc_fields(at: Timestamp) -> Option<Utc> {
+    let days = at.secs.div_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    if !(1000..=9999).contains(&year) {
+        return None;
+    }
+    let of_day = at.secs.rem_euclid(86_400) as u32;
+    Some(Utc {
+        year,
+        month,
+        day,
+        wday: (days + 4).rem_euclid(7) as u32,
+        yday: (days - days_from_civil(year, 1, 1) + 1) as u32,
+        hour: of_day / 3600,
+        min: of_day % 3600 / 60,
+        sec: of_day % 60,
+        epoch: at.secs,
+    })
+}
+
+/// `at` in UTC, rendered with a `strftime` format. Supports the conversions
+/// `date` is commonly given; any other one, a trailing `%`, or a year outside
+/// 1000..=9999 gives `None`, so the caller declines rather than guess.
+fn format_utc(at: Timestamp, format: &str) -> Option<String> {
+    let t = utc_fields(at)?;
+    let mut out = String::new();
+    render_utc(&t, format, &mut out)?;
+    Some(out)
+}
+
+fn render_utc(t: &Utc, format: &str, out: &mut String) -> Option<()> {
+    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const DAYS_LONG: [&str; 7] = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+    ];
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    const MONTHS_LONG: [&str; 12] = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    let h12 = if t.hour % 12 == 0 { 12 } else { t.hour % 12 };
+    let mut it = format.chars();
+    while let Some(c) = it.next() {
+        if c != '%' {
+            out.push(c);
+            continue;
+        }
+        match it.next()? {
+            '%' => out.push('%'),
+            'n' => out.push('\n'),
+            't' => out.push('\t'),
+            'a' => out.push_str(DAYS[t.wday as usize]),
+            'A' => out.push_str(DAYS_LONG[t.wday as usize]),
+            'b' | 'h' => out.push_str(MONTHS[t.month as usize - 1]),
+            'B' => out.push_str(MONTHS_LONG[t.month as usize - 1]),
+            'C' => out.push_str(&format!("{:02}", t.year / 100)),
+            'c' => render_utc(t, "%a %b %e %H:%M:%S %Y", out)?,
+            'd' => out.push_str(&format!("{:02}", t.day)),
+            'D' | 'x' => render_utc(t, "%m/%d/%y", out)?,
+            'e' => out.push_str(&format!("{:>2}", t.day)),
+            'F' => render_utc(t, "%Y-%m-%d", out)?,
+            'H' => out.push_str(&format!("{:02}", t.hour)),
+            'I' => out.push_str(&format!("{:02}", h12)),
+            'j' => out.push_str(&format!("{:03}", t.yday)),
+            'k' => out.push_str(&format!("{:>2}", t.hour)),
+            'l' => out.push_str(&format!("{:>2}", h12)),
+            'm' => out.push_str(&format!("{:02}", t.month)),
+            'M' => out.push_str(&format!("{:02}", t.min)),
+            'p' => out.push_str(if t.hour < 12 { "AM" } else { "PM" }),
+            'P' => out.push_str(if t.hour < 12 { "am" } else { "pm" }),
+            'r' => render_utc(t, "%I:%M:%S %p", out)?,
+            'R' => render_utc(t, "%H:%M", out)?,
+            'S' => out.push_str(&format!("{:02}", t.sec)),
+            's' => out.push_str(&t.epoch.to_string()),
+            'T' | 'X' => render_utc(t, "%H:%M:%S", out)?,
+            'u' => out.push_str(&(if t.wday == 0 { 7 } else { t.wday }).to_string()),
+            'w' => out.push_str(&t.wday.to_string()),
+            'y' => out.push_str(&format!("{:02}", t.year % 100)),
+            'Y' => out.push_str(&t.year.to_string()),
+            'Z' => out.push_str("UTC"),
+            'z' => out.push_str("+0000"),
+            _ => return None,
+        }
+    }
+    Some(())
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -5065,12 +6147,20 @@ mod tests {
     }
 
     impl Os for FakeOs {
+        fn env_vars(&self) -> Vec<(String, String)> {
+            self.env
+                .iter()
+                .map(|(n, v)| (n.clone(), v.clone()))
+                .collect()
+        }
+
         fn metadata(&self, path: &str) -> Result<Meta, OsError> {
             self.note("metadata");
             let meta = |kind, len| Meta {
                 kind,
                 len,
-                mode: 0o644,
+                // Executable, so `which` finds the fake programs.
+                mode: 0o755,
                 uid: 0,
                 gid: 0,
                 nlink: 1,
@@ -5414,6 +6504,17 @@ mod tests {
     }
 
     impl Gate for MemOs {
+        fn guarded_write(
+            &self,
+            os: &dyn Os,
+            path: &str,
+            data: &[u8],
+            append: bool,
+        ) -> Result<(), WriteError> {
+            self.admit()?;
+            os.write_file(path, data, append).map_err(WriteError::Io)
+        }
+
         fn guarded_remove(
             &self,
             os: &dyn Os,
@@ -5769,6 +6870,343 @@ mod tests {
                 Some("not supported by this host".into())
             );
         }
+    }
+
+    /// `tr`: each expected value is what GNU coreutils `tr` prints for the same
+    /// command, `printf '...' | tr ...`, under the same name in the comment.
+    #[test]
+    fn tr_translates_deletes_and_squeezes_like_gnu() {
+        // tr a-y b-z: h->i e->f l->m o->p.
+        assert_eq!(sh("printf hello | tr a-y b-z"), ("ifmmp".into(), 0));
+        // tr '[:lower:]' '[:upper:]'.
+        assert_eq!(
+            sh("printf 'Hello World' | tr '[:lower:]' '[:upper:]'"),
+            ("HELLO WORLD".into(), 0)
+        );
+        // tr -d '[:digit:]'.
+        assert_eq!(sh("printf 'a1b2c3' | tr -d '[:digit:]'"), ("abc".into(), 0));
+        assert_eq!(sh("printf hello | tr -d l"), ("heo".into(), 0));
+        // tr -s 'a-d': runs of one byte collapse.
+        assert_eq!(sh("printf aabbccdd | tr -s 'a-d'"), ("abcd".into(), 0));
+        assert_eq!(
+            sh("printf 'hello   world' | tr -s ' '"),
+            ("hello world".into(), 0)
+        );
+        // tr -s ' ' _: translate, then squeeze SET2.
+        assert_eq!(sh("printf 'a  b' | tr -s ' ' _"), ("a_b".into(), 0));
+        // tr abc x: SET2 is padded with its last byte.
+        assert_eq!(sh("printf abc | tr abc x"), ("xxx".into(), 0));
+        // tr -cd a-z: delete the complement of a-z.
+        assert_eq!(sh("printf 'a1b!' | tr -cd a-z"), ("ab".into(), 0));
+        // tr -c a-z _: every complement byte maps to _.
+        assert_eq!(sh("printf 'a-b' | tr -c a-z _"), ("a_b".into(), 0));
+        // tr '\n' ' ': the escape is read by tr, not by the shell.
+        assert_eq!(sh("printf 'a\\nb' | tr '\\n' ' '"), ("a b".into(), 0));
+        // GNU: tr z-a b => "tr: range-endpoints of 'z-a' are in reverse
+        // collating sequence order", status 1.
+        assert_eq!(
+            sh_err(&TestHost, "printf x | tr z-a b"),
+            (
+                "tr: range-endpoints of 'z-a' are in reverse collating sequence order\n".into(),
+                1
+            )
+        );
+        // GNU: tr => "tr: missing operand" and the usage hint.
+        assert_eq!(
+            sh_err(&TestHost, "tr"),
+            (
+                "tr: missing operand\nTry 'tr --help' for more information.\n".into(),
+                1
+            )
+        );
+    }
+
+    /// `tee` writes each file through the gate, and `-a` appends. A refusal
+    /// writes nothing and returns the gate's status.
+    #[test]
+    fn tee_copies_stdin_through_the_gate() {
+        let os = MemOs::new(true, &[("/w", None), ("/w/a", Some("A"))]);
+        // GNU: printf hi | tee /w/t => "hi" on stdout, and the file holds "hi".
+        assert_eq!(sh_on(&os, "printf hi | tee /w/t"), ("hi".into(), 0));
+        assert_eq!(os.contents("/w/t"), Some(b"hi".to_vec()));
+        assert_eq!(sh_on(&os, "printf more | tee -a /w/t"), ("more".into(), 0));
+        assert_eq!(os.contents("/w/t"), Some(b"himore".to_vec()));
+        assert_eq!(sh_on(&os, "printf new | tee /w/t"), ("new".into(), 0));
+        assert_eq!(os.contents("/w/t"), Some(b"new".to_vec()));
+        assert_eq!(
+            sh_err(&os, "printf x | tee /nodir/t"),
+            ("tee: /nodir/t: No such file or directory\n".into(), 1)
+        );
+        // A refusal from the gate writes nothing, and its status is the gate's.
+        let refuse = MemOs::new(false, &[("/w", None)]);
+        assert_eq!(
+            sh_err(&refuse, "tee /w/t"),
+            ("refused by test gate\n".into(), 7)
+        );
+        assert!(!refuse.has("/w/t"));
+    }
+
+    /// `touch` creates an absent file through the gate. An existing file is
+    /// left unchanged and succeeds, since the trait cannot set a time. `-c`
+    /// creates nothing.
+    #[test]
+    fn touch_creates_through_the_gate_and_leaves_existing_files() {
+        let os = MemOs::new(true, &[("/w", None), ("/w/a", Some("A"))]);
+        // GNU: touch /w/n creates an empty file.
+        assert_eq!(sh_err(&os, "touch /w/n"), (String::new(), 0));
+        assert_eq!(os.contents("/w/n"), Some(Vec::new()));
+        assert_eq!(sh_err(&os, "touch /w/a"), (String::new(), 0));
+        assert_eq!(os.contents("/w/a"), Some(b"A".to_vec()));
+        // GNU: touch -c /w/q creates nothing and succeeds.
+        assert_eq!(sh_err(&os, "touch -c /w/q"), (String::new(), 0));
+        assert!(!os.has("/w/q"));
+        // GNU: touch /nodir/x => "touch: cannot touch '/nodir/x': No such file
+        // or directory", status 1.
+        assert_eq!(
+            sh_err(&os, "touch /nodir/x"),
+            (
+                "touch: cannot touch '/nodir/x': No such file or directory\n".into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "touch"),
+            (
+                "touch: missing file operand\nTry 'touch --help' for more information.\n".into(),
+                1
+            )
+        );
+        // A refusal from the gate creates nothing.
+        let refuse = MemOs::new(false, &[("/w", None)]);
+        assert_eq!(
+            sh_err(&refuse, "touch /w/n"),
+            ("refused by test gate\n".into(), 7)
+        );
+        assert!(!refuse.has("/w/n"));
+    }
+
+    /// `which` prints the first match on PATH for each name. A name with a `/`
+    /// is checked as it is. A name that is not found sets status 1.
+    #[test]
+    fn which_finds_the_first_executable_on_path() {
+        let mut os = FakeOs::default();
+        os.dirs.insert("/nope".into());
+        os.dirs.insert("/usr".into());
+        os.dirs.insert("/usr/bin".into());
+        os.files.insert("/usr/bin/tool".into(), b"x".to_vec());
+        os.env.insert("PATH".into(), "/nope:/usr/bin".into());
+        // GNU: which tool => /usr/bin/tool.
+        assert_eq!(sh_on(&os, "which tool"), ("/usr/bin/tool\n".into(), 0));
+        assert_eq!(
+            sh_on(&os, "which tool missing"),
+            ("/usr/bin/tool\n".into(), 1)
+        );
+        assert_eq!(
+            sh_on(&os, "which /usr/bin/tool"),
+            ("/usr/bin/tool\n".into(), 0)
+        );
+        assert_eq!(sh_on(&os, "which missing"), (String::new(), 1));
+    }
+
+    /// `env` lists the environment sorted, with `-i`, `-u` and assignments
+    /// applied; with a command, it runs it the way `NAME=VALUE cmd` runs.
+    #[test]
+    fn env_lists_and_runs_like_a_prefix_assignment() {
+        let mut os = FakeOs::default();
+        os.env.insert("HOME".into(), "/h".into());
+        os.env.insert("PATH".into(), "/bin".into());
+        assert_eq!(sh_on(&os, "env"), ("HOME=/h\nPATH=/bin\n".into(), 0));
+        assert_eq!(sh_on(&os, "env -u HOME"), ("PATH=/bin\n".into(), 0));
+        assert_eq!(sh_on(&os, "env -i A=1 B=2"), ("A=1\nB=2\n".into(), 0));
+        assert_eq!(
+            sh_on(&os, "X=2 env"),
+            ("HOME=/h\nPATH=/bin\nX=2\n".into(), 0)
+        );
+        // FakeOs has no gate, so a program it would run is refused, and the
+        // prefix form and the env form are refused alike.
+        let refused = "ish: no policy gate on this host: refusing\n";
+        assert_eq!(sh_err(&os, "env A=1 nosuch"), (refused.into(), 126));
+        assert_eq!(sh_err(&os, "A=1 nosuch"), (refused.into(), 126));
+        // -i and -u cannot be applied to a command on this host.
+        assert_eq!(
+            sh_err(&os, "env -i nosuch"),
+            (
+                "env: -i and -u are not supported with a command on this host\n".into(),
+                125
+            )
+        );
+    }
+
+    /// `readlink -f` canonicalizes, and a missing last component is allowed,
+    /// as GNU allows it. A missing directory is an error.
+    #[test]
+    fn readlink_canonicalizes_like_gnu() {
+        let mut os = FakeOs::default();
+        os.dirs.insert("/w".into());
+        os.files.insert("/w/a.txt".into(), b"A".to_vec());
+        assert_eq!(sh_on(&os, "readlink -f /w/a.txt"), ("/w/a.txt\n".into(), 0));
+        // GNU: readlink -f /w/new => /w/new (the last component need not exist).
+        assert_eq!(sh_on(&os, "readlink -f /w/new"), ("/w/new\n".into(), 0));
+        assert_eq!(
+            sh_err(&os, "readlink -f /nope/x"),
+            ("readlink: /nope/x: No such file or directory\n".into(), 1)
+        );
+        assert_eq!(
+            sh_err(&os, "readlink"),
+            (
+                "readlink: missing operand\nTry 'readlink --help' for more information.\n".into(),
+                1
+            )
+        );
+    }
+
+    /// `stat -c`: each specifier the metadata has, GNU's text for it. `%i` is
+    /// refused, since the metadata has no inode, and so is the default layout.
+    #[test]
+    fn stat_formats_what_the_metadata_has() {
+        let mut os = FakeOs::default();
+        os.dirs.insert("/w".into());
+        os.files.insert("/w/a.txt".into(), b"hello\n".to_vec());
+        os.files.insert("/w/empty".into(), Vec::new());
+        // GNU: stat -c '%n %s %F %a %h' a.txt, for a 6-byte file, mode 755, one link.
+        assert_eq!(
+            sh_on(&os, "stat -c '%n %s %F %a %h' /w/a.txt"),
+            ("/w/a.txt 6 regular file 755 1\n".into(), 0)
+        );
+        assert_eq!(
+            sh_on(&os, "stat -c %F /w/empty"),
+            ("regular empty file\n".into(), 0)
+        );
+        assert_eq!(sh_on(&os, "stat -c %F /w"), ("directory\n".into(), 0));
+        // A user or group without a name prints its number; %% is a percent.
+        assert_eq!(
+            sh_on(&os, "stat -c '%U:%G %Y %u %%' /w/a.txt"),
+            ("0:0 0 0 %\n".into(), 0)
+        );
+        assert_eq!(
+            sh_err(&os, "stat -c %i /w/a.txt"),
+            ("stat: unsupported format specifier '%i'\n".into(), 1)
+        );
+        assert_eq!(
+            sh_err(&os, "stat /w/a.txt"),
+            (
+                "stat: this host needs -c FORMAT; the default layout is not reproduced\n".into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "stat -c %s /w/nope"),
+            (
+                "stat: cannot stat '/w/nope': No such file or directory\n".into(),
+                1
+            )
+        );
+        assert_eq!(
+            sh_err(&os, "stat"),
+            (
+                "stat: missing operand\nTry 'stat --help' for more information.\n".into(),
+                1
+            )
+        );
+    }
+
+    /// `yes` writes its line until the bound. The bound is what stops it:
+    /// the sink cannot say that a reader has gone.
+    #[test]
+    fn yes_stops_at_its_bound() {
+        let mut out = Vec::new();
+        yes_into(&mut out, b"y\n", 5);
+        assert_eq!(out, b"y\ny\ny\n".to_vec());
+        let mut out = Vec::new();
+        yes_into(&mut out, b"ab\n", 0);
+        assert!(out.is_empty());
+    }
+
+    /// `expr`: each value and status is GNU's for the same arguments.
+    #[test]
+    fn expr_computes_like_gnu() {
+        assert_eq!(sh("expr 1 + 2"), ("3\n".into(), 0));
+        assert_eq!(sh("expr 7 - 10"), ("-3\n".into(), 0));
+        assert_eq!(sh("expr 2 + 3 '*' 4"), ("14\n".into(), 0));
+        assert_eq!(sh("expr 1 + 2 '*' 3"), ("7\n".into(), 0));
+        assert_eq!(sh("expr '(' 2 + 3 ')' '*' 4"), ("20\n".into(), 0));
+        assert_eq!(sh("expr 7 / 2"), ("3\n".into(), 0));
+        assert_eq!(sh("expr 7 % 3"), ("1\n".into(), 0));
+        assert_eq!(sh("expr -7 % 3"), ("-1\n".into(), 0));
+        // A null or zero value is status 1.
+        assert_eq!(sh("expr 0"), ("0\n".into(), 1));
+        assert_eq!(sh("expr ''"), ("\n".into(), 1));
+        assert_eq!(sh("expr 1 = 1"), ("1\n".into(), 0));
+        assert_eq!(sh("expr abc '!=' abc"), ("0\n".into(), 1));
+        assert_eq!(sh("expr 10 '>' 9"), ("1\n".into(), 0));
+        assert_eq!(sh("expr 10 '<' 9"), ("0\n".into(), 1));
+        assert_eq!(sh("expr abc '<' abd"), ("1\n".into(), 0));
+        assert_eq!(sh("expr 1 '|' 2"), ("1\n".into(), 0));
+        assert_eq!(sh("expr 0 '|' 2"), ("2\n".into(), 0));
+        assert_eq!(sh("expr 0 '&' 2"), ("0\n".into(), 1));
+        assert_eq!(sh("expr 3 '&' 2"), ("3\n".into(), 0));
+        assert_eq!(sh("expr length abcdef"), ("6\n".into(), 0));
+        assert_eq!(sh("expr substr abcdef 2 3"), ("bcd\n".into(), 0));
+        assert_eq!(sh("expr substr abcdef 0 3"), ("\n".into(), 1));
+        assert_eq!(sh("expr index abcdef cf"), ("3\n".into(), 0));
+        assert_eq!(sh("expr index abc xyz"), ("0\n".into(), 1));
+        // Anchored: the match length, or 0; with \( \) the group.
+        assert_eq!(sh("expr abcdef : abc"), ("3\n".into(), 0));
+        assert_eq!(sh("expr abcdef : b"), ("0\n".into(), 1));
+        assert_eq!(sh("expr abc : 'a\\(b\\)c'"), ("b\n".into(), 0));
+        assert_eq!(sh("expr abc : 'x\\(b\\)'"), ("\n".into(), 1));
+        // Errors: status 2, the message on stderr.
+        assert_eq!(
+            sh_err(&TestHost, "expr 1 / 0"),
+            ("expr: division by zero\n".into(), 2)
+        );
+        assert_eq!(
+            sh_err(&TestHost, "expr abc + 1"),
+            ("expr: non-integer argument\n".into(), 2)
+        );
+        assert_eq!(
+            sh_err(&TestHost, "expr 1 +"),
+            ("expr: syntax error\n".into(), 2)
+        );
+        assert_eq!(
+            sh_err(&TestHost, "expr 1 2"),
+            ("expr: syntax error\n".into(), 2)
+        );
+    }
+
+    /// `date -u` and the pure UTC formatter. Expected values are GNU's
+    /// `date -u -d @SECS +FORMAT` for the same seconds.
+    #[test]
+    fn date_utc_matches_gnu() {
+        let at = |secs: i64| Timestamp { secs, nanos: 0 };
+        // GNU: date -u -d @0 => "Thu Jan  1 00:00:00 UTC 1970".
+        assert_eq!(
+            format_utc(at(0), DATE_DEFAULT),
+            Some("Thu Jan  1 00:00:00 UTC 1970".into())
+        );
+        // GNU: date -u -d @1000000000 => "Sun Sep  9 01:46:40 UTC 2001".
+        assert_eq!(
+            format_utc(at(1_000_000_000), DATE_DEFAULT),
+            Some("Sun Sep  9 01:46:40 UTC 2001".into())
+        );
+        // GNU: date -u -d @951782400 +'%Y-%m-%d %H:%M:%S %j %a' (a leap day).
+        assert_eq!(
+            format_utc(at(951_782_400), "%Y-%m-%d %H:%M:%S %j %a"),
+            Some("2000-02-29 00:00:00 060 Tue".into())
+        );
+        // GNU: date -u -d @1700000000 +'%F %T %u %I%p'.
+        assert_eq!(
+            format_utc(at(1_700_000_000), "%F %T %u %I%p"),
+            Some("2023-11-14 22:13:20 2 10PM".into())
+        );
+        // A conversion this formatter does not know, a trailing %, and a year
+        // it does not render all decline.
+        assert_eq!(format_utc(at(0), "%Q"), None);
+        assert_eq!(format_utc(at(0), "100%"), None);
+        assert_eq!(format_utc(at(1_000_000_000_000_000), "%Y"), None);
+        // Through the shell, with the test host's clock at 0.
+        assert_eq!(sh("date -u +%Y-%m-%d"), ("1970-01-01\n".into(), 0));
+        assert_eq!(sh("date -u"), ("Thu Jan  1 00:00:00 UTC 1970\n".into(), 0));
     }
 
     /// A session keeps variables, exports and `$?` from one run to the next,

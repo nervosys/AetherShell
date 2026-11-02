@@ -190,6 +190,21 @@ impl Os for HostOs {
         std::env::var(name).ok()
     }
 
+    /// Sorted, so that `env` prints the same order every run. Lossy UTF-8:
+    /// `std::env::vars` would panic on a value that is not Unicode.
+    fn env_vars(&self) -> Vec<(String, String)> {
+        let mut vars: Vec<(String, String)> = std::env::vars_os()
+            .map(|(n, v)| {
+                (
+                    n.to_string_lossy().into_owned(),
+                    v.to_string_lossy().into_owned(),
+                )
+            })
+            .collect();
+        vars.sort();
+        vars
+    }
+
     fn process_id(&self) -> u32 {
         std::process::id()
     }

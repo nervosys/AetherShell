@@ -295,6 +295,11 @@ pub trait Os {
     fn set_current_dir(&self, path: &str) -> Result<(), OsError>;
     /// The value of an environment variable; `None` when unset or not UTF-8.
     fn env_var(&self, name: &str) -> Option<String>;
+    /// Every environment variable the host has, for `env` with no command.
+    /// A host that cannot list them says none, and `env` prints none.
+    fn env_vars(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
     fn process_id(&self) -> u32;
     /// Runs a program to completion. Not gated: the subset calls
     /// [`Gate::admit_exec`] first.
