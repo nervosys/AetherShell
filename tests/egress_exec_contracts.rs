@@ -58,6 +58,9 @@ impl Egress {
             "GIT_CONFIG_SYSTEM",
             "GIT_CONFIG_PARAMETERS",
             "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_NOSYSTEM",
+            "XDG_CONFIG_HOME",
+            "ProgramData",
         ];
         let saved = names
             .iter()
@@ -78,6 +81,12 @@ impl Egress {
         // needs a config points HOME at its own directory.
         std::env::set_var("HOME", &empty_dir);
         std::env::set_var("USERPROFILE", &empty_dir);
+        // Git's own config is read from fake files only: the global files live under the
+        // empty home, and the system files are dropped (GIT_CONFIG_NOSYSTEM, which git
+        // honours), so no test reads the real /etc/gitconfig or ProgramData file.
+        std::env::set_var("XDG_CONFIG_HOME", &empty_dir);
+        std::env::set_var("ProgramData", &empty_dir);
+        std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
         let audit_log = std::env::temp_dir().join(format!(
             "ae_egress_audit_{tag}_{}.jsonl",
             std::process::id()
@@ -686,12 +695,17 @@ fn git_contact_urls_follow_the_remote_and_insteadof() {
     use iron_shell::safety::git_contact_urls;
     let plain = "[remote \"origin\"]\n\turl = https://a.example.com/x\n";
     assert_eq!(
-        git_contact_urls(plain, MAIN, false),
+        git_contact_urls(&[], plain, MAIN, false),
         Ok(vec!["https://a.example.com/x".to_string()])
     );
     // A detached HEAD uses origin.
     assert_eq!(
-        git_contact_urls(plain, "0123456789abcdef0123456789abcdef01234567\n", false),
+        git_contact_urls(
+            &[],
+            plain,
+            "0123456789abcdef0123456789abcdef01234567\n",
+            false
+        ),
         Ok(vec!["https://a.example.com/x".to_string()])
     );
     // insteadOf: longest matching prefix wins.
@@ -699,7 +713,7 @@ fn git_contact_urls_follow_the_remote_and_insteadof() {
                  [url \"https://long.example.com/\"]\n\tinsteadOf = gh:o/\n\
                  [remote \"origin\"]\n\turl = gh:o/r\n";
     assert_eq!(
-        git_contact_urls(rules, MAIN, false),
+        git_contact_urls(&[], rules, MAIN, false),
         Ok(vec!["https://long.example.com/r".to_string()])
     );
     // pushInsteadOf applies to push and takes precedence over insteadOf.
@@ -707,11 +721,11 @@ fn git_contact_urls_follow_the_remote_and_insteadof() {
                 [url \"https://other.example.com/\"]\n\tinsteadOf = https://a.example.com/\n\
                 [remote \"origin\"]\n\turl = https://a.example.com/x\n";
     assert_eq!(
-        git_contact_urls(push, MAIN, true),
+        git_contact_urls(&[], push, MAIN, true),
         Ok(vec!["https://push.example.com/x".to_string()])
     );
     assert_eq!(
-        git_contact_urls(push, MAIN, false),
+        git_contact_urls(&[], push, MAIN, false),
         Ok(vec!["https://other.example.com/x".to_string()])
     );
     // remote.pushDefault picks the push remote; branch.<b>.pushRemote beats it.
@@ -719,33 +733,34 @@ fn git_contact_urls_follow_the_remote_and_insteadof() {
               [remote \"fork\"]\n\turl = https://b.example.com/x\n\
               [remote]\n\tpushDefault = fork\n";
     assert_eq!(
-        git_contact_urls(pd, MAIN, true),
+        git_contact_urls(&[], pd, MAIN, true),
         Ok(vec!["https://b.example.com/x".to_string()])
     );
     assert_eq!(
-        git_contact_urls(pd, MAIN, false),
+        git_contact_urls(&[], pd, MAIN, false),
         Ok(vec!["https://a.example.com/x".to_string()])
     );
     // A remote named `.` is local.
     let local = "[branch \"main\"]\n\tremote = .\n";
-    assert_eq!(git_contact_urls(local, MAIN, false), Ok(Vec::new()));
+    assert_eq!(git_contact_urls(&[], local, MAIN, false), Ok(Vec::new()));
     // Comments, quotes and key case.
     let quoted = "[Remote \"origin\"] # the main one\n\tURL = \"https://a.example.com/x\" ; note\n";
     assert_eq!(
-        git_contact_urls(quoted, MAIN, false),
+        git_contact_urls(&[], quoted, MAIN, false),
         Ok(vec!["https://a.example.com/x".to_string()])
     );
     // Refusals: an include, an escape, a missing remote, no URL, a bad HEAD.
-    assert!(git_contact_urls("[include]\n\tpath = x\n", MAIN, false).is_err());
-    assert!(git_contact_urls("[remote \"origin\"]\n\turl = C:\\x\n", MAIN, false).is_err());
+    assert!(git_contact_urls(&[], "[include]\n\tpath = x\n", MAIN, false).is_err());
+    assert!(git_contact_urls(&[], "[remote \"origin\"]\n\turl = C:\\x\n", MAIN, false).is_err());
     assert!(git_contact_urls(
+        &[],
         "[remote \"up\"]\n\turl = https://x.example.com/\n",
         MAIN,
         false
     )
     .is_err());
-    assert!(git_contact_urls("[remote \"origin\"]\n", MAIN, false).is_err());
-    assert!(git_contact_urls(plain, "not a head\n", false).is_err());
+    assert!(git_contact_urls(&[], "[remote \"origin\"]\n", MAIN, false).is_err());
+    assert!(git_contact_urls(&[], plain, "not a head\n", false).is_err());
 }
 
 /// The config reader keeps the entries it understands and refuses the rest.
@@ -764,6 +779,228 @@ fn git_config_entries_parse_sections_and_keys() {
         git_config_entries("url = x\n").is_err(),
         "a key before any section"
     );
+}
+
+/// Pure: the repository's values win over the lower levels, a lower level fills
+/// in a value the repository does not set, the later lower file wins, and
+/// rewrites from every level are combined, the longest prefix first.
+#[test]
+fn lower_levels_fill_in_values_and_rewrites_combine() {
+    use iron_shell::safety::git_contact_urls;
+    let global = "[url \"https://global.example.com/\"]\n\tinsteadOf = gh:\n\
+                  [remote \"origin\"]\n\turl = https://evil.example.invalid/x\n";
+    let repo = "[remote \"origin\"]\n\turl = https://git.example.com/x\n";
+    let bare = "[core]\n\tbare = false\n";
+    // The repository's url wins over the global one.
+    assert_eq!(
+        git_contact_urls(&[global], repo, MAIN, false),
+        Ok(vec!["https://git.example.com/x".to_string()])
+    );
+    // With no repository remote, the global one is used.
+    assert_eq!(
+        git_contact_urls(&[global], bare, MAIN, false),
+        Ok(vec!["https://evil.example.invalid/x".to_string()])
+    );
+    // A url is multi-valued, as git reads it: a lower level's urls all count, and each
+    // is judged, so a system url is not hidden by a global one.
+    let system = "[remote \"origin\"]\n\turl = https://system.example.com/x\n";
+    assert_eq!(
+        git_contact_urls(&[system, global], bare, MAIN, false),
+        Ok(vec![
+            "https://system.example.com/x".to_string(),
+            "https://evil.example.invalid/x".to_string()
+        ])
+    );
+    // A global rewrite applies to the repository's remote.
+    let short = "[remote \"origin\"]\n\turl = gh:o/r\n";
+    assert_eq!(
+        git_contact_urls(&[global], short, MAIN, false),
+        Ok(vec!["https://global.example.com/o/r".to_string()])
+    );
+    // Rewrites combine across levels: the repository's longer prefix wins.
+    let long = "[url \"https://long.example.com/\"]\n\tinsteadOf = gh:o/\n\
+                [remote \"origin\"]\n\turl = gh:o/r\n";
+    assert_eq!(
+        git_contact_urls(&[global], long, MAIN, false),
+        Ok(vec!["https://long.example.com/r".to_string()])
+    );
+    // An include at any level refuses.
+    assert!(git_contact_urls(&["[include]\n\tpath = x\n"], repo, MAIN, false).is_err());
+}
+
+/// Pure: which config files are read, in git's order, for a given environment.
+/// The fake environment is a closure, so no file is touched.
+#[test]
+fn git_config_files_follow_git_order() {
+    use iron_shell::safety::git_config_paths;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+    let home = PathBuf::from("/fake/home");
+    let with = |vars: &'static [(&'static str, &'static str)]| {
+        move |name: &str| -> Option<OsString> {
+            vars.iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| OsString::from(v))
+        }
+    };
+    // System, then ~/.config/git/config, then ~/.gitconfig.
+    assert_eq!(
+        git_config_paths(with(
+            &[("HOME", "/fake/home"), ("ProgramData", "/fake/pd"),]
+        )),
+        vec![
+            PathBuf::from("/etc/gitconfig"),
+            PathBuf::from("/fake/pd").join("Git").join("config"),
+            home.join(".config").join("git").join("config"),
+            home.join(".gitconfig"),
+        ]
+    );
+    // XDG_CONFIG_HOME replaces ~/.config, and GIT_CONFIG_NOSYSTEM=1 drops the system files.
+    assert_eq!(
+        git_config_paths(with(&[
+            ("HOME", "/fake/home"),
+            ("XDG_CONFIG_HOME", "/fake/xdg"),
+            ("GIT_CONFIG_NOSYSTEM", "1"),
+        ])),
+        vec![
+            PathBuf::from("/fake/xdg").join("git").join("config"),
+            home.join(".gitconfig"),
+        ]
+    );
+    // An empty XDG_CONFIG_HOME is unset; GIT_CONFIG_NOSYSTEM=0 keeps the system files.
+    assert_eq!(
+        git_config_paths(with(&[
+            ("HOME", "/fake/home"),
+            ("XDG_CONFIG_HOME", ""),
+            ("GIT_CONFIG_NOSYSTEM", "0"),
+        ]))[0],
+        PathBuf::from("/etc/gitconfig")
+    );
+    // HOME falls back to USERPROFILE.
+    assert_eq!(
+        git_config_paths(with(&[("USERPROFILE", "/fake/up")])).last(),
+        Some(&PathBuf::from("/fake/up").join(".gitconfig"))
+    );
+}
+
+/// A global `~/.gitconfig` and `$XDG_CONFIG_HOME/git/config` are read: an
+/// `insteadOf` in either rewrites the remote to an off-list host.
+#[test]
+fn global_config_insteadof_is_judged() {
+    let _g = lock();
+    let e = Egress::new("git_global", Some("example.com"));
+    let repo = Repo::new("git_global", "[remote \"origin\"]\n\turl = gh:o/r\n", MAIN);
+    let _cwd = Cwd::enter(&repo.dir);
+    std::fs::write(
+        e.empty_dir.join(".gitconfig"),
+        "[url \"https://evil.example.invalid/\"]\n\tinsteadOf = gh:\n",
+    )
+    .expect("fake ~/.gitconfig");
+    let r = call("git_fetch", vec![]);
+    let (_, message) = egress_refusal(&r).expect("a ~/.gitconfig insteadOf is judged");
+    assert!(message.contains("evil.example.invalid"), "{message}");
+    // The same rule in the XDG file, with ~/.gitconfig gone.
+    std::fs::remove_file(e.empty_dir.join(".gitconfig")).expect("remove fake ~/.gitconfig");
+    std::fs::create_dir_all(e.empty_dir.join("git")).expect("fake XDG git dir");
+    std::fs::write(
+        e.empty_dir.join("git").join("config"),
+        "[url \"https://xdg.example.invalid/\"]\n\tinsteadOf = gh:\n",
+    )
+    .expect("fake XDG config");
+    let r = call("git_pull", vec![]);
+    let (_, message) = egress_refusal(&r).expect("an XDG config insteadOf is judged");
+    assert!(message.contains("xdg.example.invalid"), "{message}");
+}
+
+/// An `include` in a global file refuses as unknown, as it does in the repository.
+#[test]
+fn an_include_in_a_global_file_refuses_as_unknown() {
+    let _g = lock();
+    let e = Egress::new("git_global_inc", Some("example.com"));
+    let repo = origin_repo("git_global_inc", "https://git.example.com/x.git");
+    let _cwd = Cwd::enter(&repo.dir);
+    std::fs::write(e.empty_dir.join(".gitconfig"), "[include]\n\tpath = ../x\n")
+        .expect("fake ~/.gitconfig");
+    let r = call("git_fetch", vec![]);
+    let (code, message) = egress_refusal(&r).expect("an include in a global file refuses");
+    assert_eq!(code, ErrorCode::PolicyDeny);
+    assert!(message.contains("include"), "{message}");
+}
+
+/// A worktree's `.git` file names its gitdir: `HEAD` is read from the gitdir and
+/// `config` from the common directory that the gitdir's `commondir` names.
+#[test]
+fn a_worktrees_remote_is_read_from_its_gitdir_and_common_dir() {
+    let _g = lock();
+    let _e = Egress::new("git_wt", Some("example.com"));
+    let root = std::env::temp_dir().join(format!("ae_git_wt_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let common = root.join("main").join(".git");
+    let gitdir = common.join("worktrees").join("wt");
+    let wt = root.join("wt");
+    std::fs::create_dir_all(&gitdir).expect("gitdir");
+    std::fs::create_dir_all(&wt).expect("worktree");
+    // The main checkout is on main, whose remote is origin (on the list). The
+    // worktree is on feature, whose remote `up` is off the list. Only a HEAD read
+    // from the gitdir and a config read from the commondir gives the refusal.
+    std::fs::write(
+        common.join("config"),
+        "[remote \"origin\"]\n\turl = https://git.example.com/x\n\
+         [remote \"up\"]\n\turl = https://evil.example.invalid/x\n\
+         [branch \"feature\"]\n\tremote = up\n",
+    )
+    .expect("common config");
+    std::fs::write(common.join("HEAD"), MAIN).expect("main HEAD");
+    std::fs::write(gitdir.join("HEAD"), "ref: refs/heads/feature\n").expect("gitdir HEAD");
+    std::fs::write(gitdir.join("commondir"), "../..\n").expect("commondir");
+    std::fs::write(wt.join(".git"), format!("gitdir: {}\n", gitdir.display())).expect(".git file");
+    {
+        let _cwd = Cwd::enter(&wt);
+        let r = call("git_pull", vec![]);
+        let (_, message) =
+            egress_refusal(&r).expect("the worktree's branch remote is off the list");
+        assert!(message.contains("evil.example.invalid"), "{message}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A malformed worktree pointer refuses as unknown, and the refusal says so: a
+/// `.git` file with no `gitdir:`, a gitdir that does not exist, and a gitdir whose
+/// `commondir` names a directory that does not exist.
+#[test]
+fn a_malformed_worktree_pointer_refuses_as_unknown() {
+    let _g = lock();
+    let _e = Egress::new("git_ptr", Some("example.com"));
+    let root = std::env::temp_dir().join(format!("ae_git_ptr_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("gd")).expect("gd");
+    std::fs::write(root.join("gd").join("HEAD"), MAIN).expect("gd HEAD");
+    std::fs::write(root.join("gd").join("commondir"), "missing\n").expect("gd commondir");
+    let cases = [
+        ("garbage", "garbage\n".to_string()),
+        (
+            "no-gitdir",
+            format!("gitdir: {}\n", root.join("nowhere").display()),
+        ),
+        (
+            "no-commondir",
+            format!("gitdir: {}\n", root.join("gd").display()),
+        ),
+    ];
+    for (label, pointer) in cases {
+        let wt = root.join(label);
+        std::fs::create_dir_all(&wt).expect("worktree");
+        std::fs::write(wt.join(".git"), pointer).expect(".git file");
+        let _cwd = Cwd::enter(&wt);
+        for (name, args) in git_remote_cases() {
+            let r = call(name, args);
+            let (code, message) = egress_refusal(&r)
+                .unwrap_or_else(|| panic!("{name} in {label} must be refused; got {r:?}"));
+            assert_eq!(code, ErrorCode::PolicyDeny, "{name} in {label}");
+            assert!(message.contains("worktree"), "{name} in {label}: {message}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// The same git builtins with a wildcard allowlist are not refused by this check.

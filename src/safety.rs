@@ -5076,11 +5076,13 @@ pub fn egress_permitted(targets: &[String], allow: &str) -> Result<(), String> {
 // they contact the remote the repository's `.git/config` names. The reader below
 // is pure (it is fed text), so tests pass it strings.
 //
-// NOT READ: the global (`~/.gitconfig`, `$XDG_CONFIG_HOME/git/config`) and system
-// config. An `insteadOf` there rewrites a URL this check does not see. Setting
-// GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, GIT_CONFIG, GIT_CONFIG_PARAMETERS,
-// GIT_CONFIG_COUNT or GIT_DIR in the environment changes what git reads, so those
-// refuse as unknown. Only the repository's own config is judged.
+// READ: the repository's config (for a worktree, its common directory's) and the
+// lower levels `git_config_layers` names: the system files, then the global files
+// (`$XDG_CONFIG_HOME/git/config` or `$HOME/.config/git/config`, then
+// `$HOME/.gitconfig`). The repository's value wins; rewrites from every level are
+// combined. Setting GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, GIT_CONFIG,
+// GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT or GIT_DIR in the environment changes
+// what git reads, so those refuse as unknown.
 // ---------------------------------------------------------------------------
 
 /// What one git remote URL contacts.
@@ -5103,7 +5105,7 @@ const GIT_SHARE_UNKNOWN: &str = "the remote is a Windows share path, which opens
 const GIT_ENV_OVERRIDE: &str = "a GIT_CONFIG*, GIT_DIR setting is in the environment, so the remote cannot be read from .git/config";
 const GIT_NO_REPO: &str =
     "no git repository is found from the working directory, so the remote cannot be read";
-const GIT_WORKTREE_FILE: &str = "the .git here is a file (a worktree or submodule), which is not read, so the remote cannot be read";
+const GIT_POINTER_MALFORMED: &str = "the .git here is a worktree or submodule file, or its commondir, that does not point to a readable git directory, so the remote cannot be read";
 const GIT_CONFIG_UNREADABLE: &str = ".git/config cannot be read, so the remote cannot be read";
 const GIT_HEAD_UNREADABLE: &str =
     ".git/HEAD cannot be read, so the branch and its remote cannot be read";
@@ -5272,25 +5274,50 @@ fn git_head_branch(head: &str) -> Result<Option<String>, &'static str> {
     Err(GIT_HEAD_UNREADABLE)
 }
 
-/// The URLs the command would contact, from the repository's config and HEAD text.
+/// The URLs the command would contact, from the config and HEAD text.
+///
+/// `lower` is the config text of the levels git reads below the repository,
+/// lowest precedence first: the system files, then the global files (see
+/// [`git_config_layers`]). `config` is the repository's own config and `head`
+/// its HEAD. A single value (the remote, its URLs, the branch's remote) comes
+/// from the repository when the repository sets it, else from the lower levels,
+/// the later file winning, as git reads them. Rewrites (`url.<base>.insteadOf`,
+/// and `pushInsteadOf` for push) are combined across every level, and the
+/// longest matching prefix wins.
 ///
 /// The remote is the current branch's `branch.<b>.remote` (for push,
 /// `branch.<b>.pushRemote` then `remote.pushDefault` first), else `origin`. A
 /// remote named `.` is local and yields no URL. The URL is `remote.<n>.pushurl`
-/// for push when set, else `remote.<n>.url`. Then `url.<base>.insteadOf` rewrites
-/// it, longest matching prefix, and for push `url.<base>.pushInsteadOf` takes
-/// precedence and falls back to `insteadOf`. Returns `Err` when the remote cannot
-/// be determined from this text: an include, a `vcs` helper, no such remote, no
-/// URL, or an unreadable HEAD.
-pub fn git_contact_urls(config: &str, head: &str, push: bool) -> Result<Vec<String>, &'static str> {
-    let entries = git_config_entries(config)?;
+/// for push when set, else `remote.<n>.url`. Returns `Err` when the remote cannot
+/// be determined from this text: an include at any level, a `vcs` helper, no
+/// such remote, no URL, or an unreadable HEAD.
+pub fn git_contact_urls(
+    lower: &[&str],
+    config: &str,
+    head: &str,
+    push: bool,
+) -> Result<Vec<String>, &'static str> {
+    let mut lower_entries = Vec::new();
+    for text in lower {
+        lower_entries.extend(git_config_entries(text)?);
+    }
+    let repo_entries = git_config_entries(config)?;
     let branch = git_head_branch(head)?;
+    let all = || repo_entries.iter().chain(lower_entries.iter());
     let values = |section: &str, sub: Option<&str>, key: &str| -> Vec<String> {
-        entries
-            .iter()
-            .filter(|e| e.section == section && e.subsection.as_deref() == sub && e.key == key)
-            .map(|e| e.value.clone())
-            .collect()
+        let pick = |entries: &[GitConfigEntry]| -> Vec<String> {
+            entries
+                .iter()
+                .filter(|e| e.section == section && e.subsection.as_deref() == sub && e.key == key)
+                .map(|e| e.value.clone())
+                .collect()
+        };
+        let own = pick(&repo_entries);
+        if own.is_empty() {
+            pick(&lower_entries)
+        } else {
+            own
+        }
     };
     let mut remote: Option<String> = None;
     if push {
@@ -5310,13 +5337,12 @@ pub fn git_contact_urls(config: &str, head: &str, push: bool) -> Result<Vec<Stri
     if remote == "." {
         return Ok(Vec::new());
     }
-    if !entries
-        .iter()
-        .any(|e| e.section == "remote" && e.subsection.as_deref() == Some(remote.as_str()))
-    {
+    if !all().any(|e| e.section == "remote" && e.subsection.as_deref() == Some(remote.as_str())) {
         return Err(GIT_REMOTE_MISSING);
     }
-    if !values("remote", Some(&remote), "vcs").is_empty() {
+    if all().any(|e| {
+        e.section == "remote" && e.subsection.as_deref() == Some(remote.as_str()) && e.key == "vcs"
+    }) {
         return Err(GIT_REMOTE_VCS);
     }
     let mut urls = if push {
@@ -5330,10 +5356,9 @@ pub fn git_contact_urls(config: &str, head: &str, push: bool) -> Result<Vec<Stri
     if urls.is_empty() {
         return Err(GIT_REMOTE_NO_URL);
     }
-    // (base, prefix) pairs: `[url "base"] insteadOf = prefix`.
+    // (base, prefix) pairs: `[url "base"] insteadOf = prefix`, from every level.
     let rules = |key: &str| -> Vec<(String, String)> {
-        entries
-            .iter()
+        all()
             .filter(|e| e.section == "url" && e.key == key)
             .filter_map(|e| e.subsection.clone().map(|b| (b, e.value.clone())))
             .filter(|(_, prefix)| !prefix.is_empty())
@@ -5413,8 +5438,11 @@ pub fn check_git_remote_egress(builtin: &str, push: bool) -> Result<(), SafetyEr
     check_egress(builtin, &targets)
 }
 
-/// The URLs the working repository's remote resolves to, read from `.git/config`
-/// and `.git/HEAD` found by walking up from the working directory.
+/// The URLs the working repository's remote resolves to. The `.git` is found by
+/// walking up from the working directory. A worktree's `.git` file is followed
+/// once to its gitdir (which holds `HEAD`), and that gitdir's `commondir` once
+/// to the common directory (which holds `config`). The lower levels come from
+/// [`git_config_layers`].
 fn git_urls_in_working_repo(push: bool) -> Result<Vec<String>, &'static str> {
     if GIT_OVERRIDE_VARS
         .iter()
@@ -5423,20 +5451,141 @@ fn git_urls_in_working_repo(push: bool) -> Result<Vec<String>, &'static str> {
         return Err(GIT_ENV_OVERRIDE);
     }
     let cwd = std::env::current_dir().map_err(|_| GIT_NO_REPO)?;
-    let git = cwd
+    let dot_git = cwd
         .ancestors()
         .map(|d| d.join(".git"))
         .find(|p| p.exists())
         .ok_or(GIT_NO_REPO)?;
-    if git.is_file() {
-        return Err(GIT_WORKTREE_FILE);
+    let (git_dir, common_dir) = git_dirs_of(&dot_git)?;
+    let config = read_git_file(&common_dir.join("config")).ok_or(GIT_CONFIG_UNREADABLE)?;
+    let head = read_git_file(&git_dir.join("HEAD")).ok_or(GIT_HEAD_UNREADABLE)?;
+    let layers = git_config_layers()?;
+    let lower: Vec<&str> = layers.iter().map(String::as_str).collect();
+    git_contact_urls(&lower, &config, &head, push)
+}
+
+/// The gitdir and the common directory of the `.git` at `dot_git`. A directory is
+/// both. A file must read `gitdir: <path>`, relative to the file's directory or
+/// absolute. A malformed pointer, a remote share path (probing it would reach a
+/// host, see [`names_a_remote_share`]), or a target that is not a directory
+/// refuses as unknown.
+fn git_dirs_of(
+    dot_git: &std::path::Path,
+) -> Result<(std::path::PathBuf, std::path::PathBuf), &'static str> {
+    if dot_git.is_dir() {
+        let common = common_dir_of(dot_git)?;
+        return Ok((dot_git.to_path_buf(), common));
     }
-    if !git.is_dir() {
+    if !dot_git.is_file() {
         return Err(GIT_NO_REPO);
     }
-    let config = read_git_file(&git.join("config")).ok_or(GIT_CONFIG_UNREADABLE)?;
-    let head = read_git_file(&git.join("HEAD")).ok_or(GIT_HEAD_UNREADABLE)?;
-    git_contact_urls(&config, &head, push)
+    let text = read_git_file(dot_git).ok_or(GIT_POINTER_MALFORMED)?;
+    let target = text
+        .lines()
+        .next()
+        .and_then(|l| l.trim().strip_prefix("gitdir:"))
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && !names_a_remote_share(t))
+        .ok_or(GIT_POINTER_MALFORMED)?;
+    let base = dot_git.parent().ok_or(GIT_POINTER_MALFORMED)?;
+    let git_dir = base.join(target);
+    if !git_dir.is_dir() {
+        return Err(GIT_POINTER_MALFORMED);
+    }
+    let common = common_dir_of(&git_dir)?;
+    Ok((git_dir, common))
+}
+
+/// The common directory of a gitdir: the path its `commondir` file names,
+/// relative to the gitdir, or the gitdir itself when there is no such file. The
+/// file is read once and not followed.
+fn common_dir_of(git_dir: &std::path::Path) -> Result<std::path::PathBuf, &'static str> {
+    let file = git_dir.join("commondir");
+    if !file.try_exists().map_err(|_| GIT_POINTER_MALFORMED)? {
+        return Ok(git_dir.to_path_buf());
+    }
+    let text = read_git_file(&file).ok_or(GIT_POINTER_MALFORMED)?;
+    let rel = text.lines().next().unwrap_or("").trim();
+    if rel.is_empty() || names_a_remote_share(rel) {
+        return Err(GIT_POINTER_MALFORMED);
+    }
+    let common = git_dir.join(rel);
+    if !common.is_dir() {
+        return Err(GIT_POINTER_MALFORMED);
+    }
+    Ok(common)
+}
+
+/// The config text git reads below the repository, lowest precedence first: the
+/// system files, then the global files. See [`git_config_paths`] for which files.
+fn git_config_layers() -> Result<Vec<String>, &'static str> {
+    read_config_layers(&git_config_paths(|name| std::env::var_os(name)))
+}
+
+/// The config files git reads below the repository, lowest precedence first,
+/// with `var` as the environment.
+///
+/// System: `/etc/gitconfig` and `%ProgramData%\Git\config`. Git for Windows also
+/// reads its own `etc\gitconfig` under its install directory; that path is not
+/// located here, so a rewrite in it is not seen. `GIT_CONFIG_NOSYSTEM`, which
+/// git honours, drops the system files.
+///
+/// Global, as git reads them: `$XDG_CONFIG_HOME/git/config` when that is set and
+/// not empty, else `$HOME/.config/git/config`; then `$HOME/.gitconfig`. `HOME`
+/// falls back to `USERPROFILE`, as git on Windows does.
+pub fn git_config_paths(
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Vec<std::path::PathBuf> {
+    use std::path::PathBuf;
+    let set = |name: &str| var(name).filter(|v| !v.is_empty());
+    let truthy = |name: &str| {
+        set(name).is_some_and(|v| {
+            let v = v.to_string_lossy().trim().to_ascii_lowercase();
+            !matches!(v.as_str(), "0" | "false" | "no" | "off")
+        })
+    };
+    let mut paths: Vec<PathBuf> = Vec::new();
+    if !truthy("GIT_CONFIG_NOSYSTEM") {
+        paths.push(PathBuf::from("/etc/gitconfig"));
+        if let Some(pd) = set("ProgramData") {
+            paths.push(PathBuf::from(pd).join("Git").join("config"));
+        }
+    }
+    let home = set("HOME")
+        .or_else(|| set("USERPROFILE"))
+        .map(PathBuf::from);
+    match set("XDG_CONFIG_HOME") {
+        Some(xdg) => paths.push(PathBuf::from(xdg).join("git").join("config")),
+        None => {
+            if let Some(h) = &home {
+                paths.push(h.join(".config").join("git").join("config"));
+            }
+        }
+    }
+    if let Some(h) = &home {
+        paths.push(h.join(".gitconfig"));
+    }
+    paths
+}
+
+/// The text of each file in `paths` that exists, in order. A missing file is
+/// skipped. A file that cannot be read, is over 1 MiB, or names a remote share
+/// (probing it would reach a host) refuses as unknown. The parser refuses an
+/// include at any level.
+fn read_config_layers(paths: &[std::path::PathBuf]) -> Result<Vec<String>, &'static str> {
+    let mut out = Vec::new();
+    for path in paths {
+        if names_a_remote_share(&path.to_string_lossy()) {
+            return Err(GIT_CONFIG_UNREADABLE);
+        }
+        match path.try_exists() {
+            Ok(false) => continue,
+            Ok(true) => {}
+            Err(_) => return Err(GIT_CONFIG_UNREADABLE),
+        }
+        out.push(read_git_file(path).ok_or(GIT_CONFIG_UNREADABLE)?);
+    }
+    Ok(out)
 }
 
 /// A git file's text, at most 1 MiB. `None` when it cannot be read.

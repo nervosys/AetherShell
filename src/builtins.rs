@@ -50879,6 +50879,34 @@ fn bi_refactor_rename(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     rename_refactor::run("refactor_rename", args, input)
 }
 
+/// Renames `from` to `to` without replacing an existing `to`. A file is first
+/// hard-linked to `to`, which fails with `AlreadyExists` when `to` is taken, and
+/// only then is `from` removed; if that removal fails the new link is removed
+/// too, so the file is never left under both names. This closes the window
+/// between a caller's "destination is free" check and the rename itself, which
+/// `std::fs::rename` leaves open because it replaces its destination.
+///
+/// Two cases keep the plain `std::fs::rename`, so the caller's check is the only
+/// guard there, as before: a directory (hard links are for files), and a volume
+/// that cannot hard-link (FAT, some network shares), where any hard-link error
+/// other than `AlreadyExists` falls back to it. A symlink is not a file here, so
+/// it takes the fallback too.
+pub fn rename_file_no_replace(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    if !std::fs::symlink_metadata(from)?.is_file() {
+        return std::fs::rename(from, to);
+    }
+    match std::fs::hard_link(from, to) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Err(e),
+        Err(_) => return std::fs::rename(from, to),
+    }
+    if let Err(e) = std::fs::remove_file(from) {
+        let _ = std::fs::remove_file(to);
+        return Err(e);
+    }
+    Ok(())
+}
+
 /// refactor_rename_file(from, to) - rename a file or directory inside the
 /// workspace. The destination must not exist: the rename would otherwise
 /// replace it without a word. Both paths are inside the workspace, checked
@@ -50915,7 +50943,19 @@ fn bi_refactor_rename_file(args: Vec<Value>, input: Option<Value>) -> Result<Val
     let to = guard_local_write(B, &to)?;
     crate::tx::snapshot(&from);
     crate::tx::snapshot(&to);
-    std::fs::rename(&from, &to).map_err(|e| crate::safety::fs_error(B, &from, &e))?;
+    // The destination was checked free above. `rename_file_no_replace` keeps it free
+    // at the rename too, where a plain rename would replace one that appeared since.
+    match rename_file_no_replace(std::path::Path::new(&from), std::path::Path::new(&to)) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(crate::safety::bad_arg(
+                B,
+                "a destination that does not exist yet",
+                &format!("the existing path {to}"),
+            ));
+        }
+        Err(e) => return Err(crate::safety::fs_error(B, &from, &e)),
+    }
     Ok(Value::Bool(true))
 }
 

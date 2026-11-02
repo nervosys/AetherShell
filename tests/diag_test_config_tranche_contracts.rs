@@ -579,3 +579,41 @@ fn syntax_add_refuses_malformed_entries_before_anything_is_saved() {
         "E_BAD_ARG",
     );
 }
+
+// ── refactor_rename_file: no replace at the rename ───────────────────────────
+
+/// `rename_file_no_replace` never replaces an existing destination: the call
+/// fails and both files are as they were. A plain rename would overwrite `b`.
+#[test]
+fn rename_no_replace_leaves_an_existing_destination_and_the_source_intact() {
+    let sb = Sandbox::new("rename_no_replace");
+    let a = sb.root.join("a.txt");
+    let b = sb.root.join("b.txt");
+    std::fs::write(&a, "alpha").unwrap();
+    std::fs::write(&b, "beta").unwrap();
+    let err = iron_shell::builtins::rename_file_no_replace(&a, &b)
+        .expect_err("an existing destination must refuse");
+    assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+    assert_eq!(
+        std::fs::read_to_string(&a).unwrap(),
+        "alpha",
+        "source changed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&b).unwrap(),
+        "beta",
+        "destination was replaced"
+    );
+}
+
+/// A normal rename moves the file to a free name and leaves nothing at the source.
+#[test]
+fn rename_no_replace_moves_a_file_to_a_free_name() {
+    let sb = Sandbox::new("rename_no_replace_ok");
+    let a = sb.root.join("a.txt");
+    let c = sb.root.join("c.txt");
+    std::fs::write(&a, "alpha").unwrap();
+    iron_shell::builtins::rename_file_no_replace(&a, &c).expect("rename");
+    assert!(!a.exists(), "source still present");
+    assert_eq!(std::fs::read_to_string(&c).unwrap(), "alpha");
+}
