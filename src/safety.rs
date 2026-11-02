@@ -4975,6 +4975,22 @@ pub fn container_mirror_refusal(
     mirror_refusal_in(&container_mirror_paths(&var))
 }
 
+/// [`container_mirror_refusal`] for one runtime. Docker reads only daemon.json
+/// and podman only registries.conf, so the other runtime's file says nothing
+/// about where this call connects.
+pub fn runtime_mirror_refusal(
+    builtin: &str,
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<(), &'static str> {
+    let docker = builtin.starts_with("docker");
+    if !docker && var("CONTAINERS_REGISTRIES_CONF").is_some_and(|v| !v.is_empty()) {
+        return Err(MIRROR_ENV);
+    }
+    let mut paths = container_mirror_paths(&var);
+    paths.retain(|(format, _)| docker == matches!(format, MirrorConfig::DaemonJson));
+    mirror_refusal_in(&paths)
+}
+
 /// The egress check for the container commands that pull an image (`docker_run`,
 /// `podman_run`, `docker_pull`, `docker_push`, `podman_pull`, `podman_push`). The
 /// registry the reference names is judged by the caller; a daemon or
@@ -4992,7 +5008,7 @@ pub fn check_container_mirror_egress(builtin: &str) -> Result<(), SafetyError> {
     if allow.split([';', ',']).any(|e| e.trim() == "*") {
         return Ok(());
     }
-    match container_mirror_refusal(|name| std::env::var_os(name)) {
+    match runtime_mirror_refusal(builtin, |name| std::env::var_os(name)) {
         Ok(()) => Ok(()),
         Err(reason) => check_egress_unknown(builtin, reason),
     }

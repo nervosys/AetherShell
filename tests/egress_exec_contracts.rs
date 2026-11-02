@@ -799,6 +799,31 @@ fn only_a_backslash_that_can_change_the_destination_refuses() {
     assert!(git_config_entries("[http]\n\tproxy = a\\\n[remote \"o\"]\n").is_err());
 }
 
+/// Each runtime answers only for the config it reads. The home directory is
+/// a fake one, so no host file is consulted for the user-level path.
+#[test]
+fn a_runtime_is_judged_by_its_own_mirror_config() {
+    use iron_shell::safety::runtime_mirror_refusal;
+    let dir = std::env::temp_dir().join(format!("ish-mirror-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".config/containers")).unwrap();
+    std::fs::write(
+        dir.join(".config/containers/registries.conf"),
+        "unqualified-search-registries = [\"quay.example\"]\n",
+    )
+    .unwrap();
+    let home = dir.clone().into_os_string();
+    let var = |name: &str| (name == "HOME").then(|| home.clone());
+    assert!(
+        runtime_mirror_refusal("podman_run", var).is_err(),
+        "podman reads registries.conf"
+    );
+    assert!(
+        runtime_mirror_refusal("docker_run", var).is_ok(),
+        "docker does not read registries.conf"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn lower_levels_fill_in_values_and_rewrites_combine() {
     use iron_shell::safety::git_contact_urls;
@@ -1291,9 +1316,6 @@ fn a_containers_registries_override_makes_the_pull_destination_unknown() {
     let _e = Egress::new("mirror_env", Some("docker.io"));
     std::env::set_var("CONTAINERS_REGISTRIES_CONF", "/ae-fake/registries.conf");
     let cases: Vec<(&str, Vec<Value>)> = vec![
-        ("docker_pull", vec![s("alpine:3")]),
-        ("docker_push", vec![s("alpine:3")]),
-        ("docker_run", vec![s("alpine:3")]),
         ("podman_pull", vec![s("alpine:3")]),
         ("podman_run", vec![s("alpine:3")]),
     ];
