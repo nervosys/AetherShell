@@ -4847,44 +4847,112 @@ pub enum MirrorConfig {
     RegistriesConf,
 }
 
+/// The most `registries.conf.d` drop-in files the mirror check reads, in all.
+const MIRROR_DROPIN_MAX_FILES: usize = 64;
+
+/// The value of `name` as a path, or `None` when it is unset or empty.
+fn nonempty_path(
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    name: &str,
+) -> Option<std::path::PathBuf> {
+    var(name)
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
+/// `HOME`, falling back to `USERPROFILE` as the ssh and git readers do.
+fn home_dir(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
+    nonempty_path(var, "HOME").or_else(|| nonempty_path(var, "USERPROFILE"))
+}
+
+/// The user config directory the container and rootless docker tools read:
+/// `$XDG_CONFIG_HOME` when it is set and non-empty, else `$HOME/.config`. When
+/// `XDG_CONFIG_HOME` is set, `$HOME/.config` is not read for these files.
+fn user_config_dir(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
+    nonempty_path(var, "XDG_CONFIG_HOME").or_else(|| home_dir(var).map(|h| h.join(".config")))
+}
+
+/// The docker CLI's `config.json`: `$DOCKER_CONFIG` when set and non-empty, else
+/// `$HOME/.docker`.
+fn docker_config_json(
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<std::path::PathBuf> {
+    match nonempty_path(var, "DOCKER_CONFIG") {
+        Some(dir) => Some(dir.join("config.json")),
+        None => home_dir(var).map(|h| h.join(".docker").join("config.json")),
+    }
+}
+
+/// Whether `name` is set and non-empty.
+fn var_is_set(var: &dyn Fn(&str) -> Option<std::ffi::OsString>, name: &str) -> bool {
+    var(name).is_some_and(|v| !v.is_empty())
+}
+
 /// The config files that can redirect the registry a pull reaches, with the
 /// format each is read as, for `var` as the environment. Docker's daemon reads
-/// `daemon.json` from `/etc/docker`, `%ProgramData%\docker\config` and
-/// `$HOME/.docker`. Containers read `registries.conf` from `/etc/containers` and
-/// `$HOME/.config/containers`. `HOME` falls back to `USERPROFILE`, as the ssh and
-/// git readers do. An unset or empty variable names no location.
+/// `daemon.json` from `/etc/docker`, `%ProgramData%\docker\config`, `$HOME/.docker`
+/// and, rootless, `$XDG_CONFIG_HOME/docker` (or `$HOME/.config/docker`). Containers
+/// read `registries.conf` from `/etc/containers` and `$XDG_CONFIG_HOME/containers`
+/// (or `$HOME/.config/containers`); their drop-ins are in
+/// [`container_dropin_dirs`]. An unset or empty variable names no location.
 pub fn container_mirror_paths(
     var: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Vec<(MirrorConfig, std::path::PathBuf)> {
-    use std::path::PathBuf;
-    let set = |name: &str| var(name).filter(|v| !v.is_empty());
-    let home = set("HOME")
-        .or_else(|| set("USERPROFILE"))
-        .map(PathBuf::from);
+    container_mirror_paths_at(&var, std::path::Path::new("/"))
+}
+
+/// [`container_mirror_paths`] with `system` as the root of the system directories.
+/// `/` in use; a test passes a temp directory, so no real `/etc` path is named.
+fn container_mirror_paths_at(
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    system: &std::path::Path,
+) -> Vec<(MirrorConfig, std::path::PathBuf)> {
     let mut out = vec![(
         MirrorConfig::DaemonJson,
-        PathBuf::from("/etc/docker/daemon.json"),
+        system.join("etc").join("docker").join("daemon.json"),
     )];
-    if let Some(pd) = set("ProgramData") {
-        let path = PathBuf::from(pd)
-            .join("docker")
-            .join("config")
-            .join("daemon.json");
+    if let Some(pd) = nonempty_path(var, "ProgramData") {
+        let path = pd.join("docker").join("config").join("daemon.json");
         out.push((MirrorConfig::DaemonJson, path));
     }
     out.push((
         MirrorConfig::RegistriesConf,
-        PathBuf::from("/etc/containers/registries.conf"),
+        system
+            .join("etc")
+            .join("containers")
+            .join("registries.conf"),
     ));
-    if let Some(h) = &home {
+    if let Some(h) = home_dir(var) {
         out.push((
             MirrorConfig::DaemonJson,
             h.join(".docker").join("daemon.json"),
         ));
+    }
+    if let Some(c) = user_config_dir(var) {
         out.push((
             MirrorConfig::RegistriesConf,
-            h.join(".config").join("containers").join("registries.conf"),
+            c.join("containers").join("registries.conf"),
         ));
+        out.push((
+            MirrorConfig::DaemonJson,
+            c.join("docker").join("daemon.json"),
+        ));
+    }
+    out
+}
+
+/// The `registries.conf.d` drop-in directories podman and buildah read: every
+/// `*.conf` in each is read as a registries.conf, in name order.
+fn container_dropin_dirs(
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    system: &std::path::Path,
+) -> Vec<std::path::PathBuf> {
+    let mut out = vec![system
+        .join("etc")
+        .join("containers")
+        .join("registries.conf.d")];
+    if let Some(c) = user_config_dir(var) {
+        out.push(c.join("containers").join("registries.conf.d"));
     }
     out
 }
@@ -4897,6 +4965,14 @@ const MIRROR_NAMED: &str =
     "a docker daemon.json or containers registries.conf names a registry mirror or an unqualified search list, so the registry the pull reaches cannot be read";
 const MIRROR_ENV: &str =
     "CONTAINERS_REGISTRIES_CONF names a registries.conf this check does not read, so a registry mirror in it cannot be ruled out";
+const MIRROR_TOO_MANY: &str =
+    "a containers registries.conf.d holds more drop-in files than the check reads, so a registry mirror in them cannot be ruled out";
+const MIRROR_REMOTE_DOCKER: &str =
+    "DOCKER_HOST or DOCKER_CONTEXT names a daemon whose config this check does not read, so a registry mirror in it cannot be ruled out";
+const MIRROR_CONTEXT_DOCKER: &str =
+    "the docker config.json names a current context, which selects a daemon whose config this check does not read, so a registry mirror in it cannot be ruled out";
+const MIRROR_REMOTE_PODMAN: &str =
+    "CONTAINER_HOST or CONTAINER_CONNECTION names an engine whose config this check does not read, so a registry mirror in it cannot be ruled out";
 
 /// Whether a docker `daemon.json` names a mirror: `registry-mirrors` is a
 /// non-empty list. Absent or `null` is no mirror. Anything else that does not
@@ -4977,33 +5053,125 @@ fn mirror_refusal_in(paths: &[(MirrorConfig, std::path::PathBuf)]) -> Result<(),
     Ok(())
 }
 
+/// The `*.conf` files in the drop-in directories, each directory's in name order.
+/// A missing directory holds none. A directory that exists but cannot be listed
+/// refuses, and so does a listing with more than [`MIRROR_DROPIN_MAX_FILES`] files.
+/// Only `*.conf` names are read, as podman reads them.
+fn dropin_files(
+    dirs: &[std::path::PathBuf],
+) -> Result<Vec<(MirrorConfig, std::path::PathBuf)>, &'static str> {
+    let mut out = Vec::new();
+    for dir in dirs {
+        if names_a_remote_share(&dir.to_string_lossy()) {
+            return Err(MIRROR_UNREADABLE);
+        }
+        match dir.try_exists() {
+            Ok(false) => continue,
+            Ok(true) => {}
+            Err(_) => return Err(MIRROR_UNREADABLE),
+        }
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(dir).map_err(|_| MIRROR_UNREADABLE)? {
+            let name = entry.map_err(|_| MIRROR_UNREADABLE)?.file_name();
+            if name.to_string_lossy().ends_with(".conf") {
+                names.push(name);
+            }
+        }
+        names.sort();
+        for name in names {
+            if out.len() == MIRROR_DROPIN_MAX_FILES {
+                return Err(MIRROR_TOO_MANY);
+            }
+            out.push((MirrorConfig::RegistriesConf, dir.join(name)));
+        }
+    }
+    Ok(out)
+}
+
+/// The docker CLI's `currentContext` in `config.json`. The default (absent, null,
+/// empty or `default`) is no switch. Any other context selects a daemon this check
+/// does not read. A missing file is no switch; a file that cannot be read, does not
+/// parse as a JSON object, or has a non-string context refuses.
+fn docker_context_refusal(
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<(), &'static str> {
+    let Some(path) = docker_config_json(var) else {
+        return Ok(());
+    };
+    if names_a_remote_share(&path.to_string_lossy()) {
+        return Err(MIRROR_UNREADABLE);
+    }
+    match path.try_exists() {
+        Ok(false) => return Ok(()),
+        Ok(true) => {}
+        Err(_) => return Err(MIRROR_UNREADABLE),
+    }
+    let text = read_git_file(&path).ok_or(MIRROR_UNREADABLE)?;
+    let value: serde_json::Value = serde_json::from_str(&text).map_err(|_| MIRROR_UNPARSED)?;
+    let object = value.as_object().ok_or(MIRROR_UNPARSED)?;
+    match object.get("currentContext") {
+        None | Some(serde_json::Value::Null) => Ok(()),
+        Some(serde_json::Value::String(c)) if c.is_empty() || c == "default" => Ok(()),
+        Some(serde_json::Value::String(_)) => Err(MIRROR_CONTEXT_DOCKER),
+        Some(_) => Err(MIRROR_UNPARSED),
+    }
+}
+
 /// Whether the container config can redirect a pull, for `var` as the environment.
 /// `CONTAINERS_REGISTRIES_CONF` set (podman's own override) names a file this does
 /// not read, so it refuses without reading anything. Otherwise the files of
-/// [`container_mirror_paths`] are read.
+/// [`container_mirror_paths`] and the drop-ins are read.
 pub fn container_mirror_refusal(
     var: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Result<(), &'static str> {
-    if var("CONTAINERS_REGISTRIES_CONF").is_some_and(|v| !v.is_empty()) {
+    let env: &dyn Fn(&str) -> Option<std::ffi::OsString> = &var;
+    if var_is_set(env, "CONTAINERS_REGISTRIES_CONF") {
         return Err(MIRROR_ENV);
     }
-    mirror_refusal_in(&container_mirror_paths(&var))
+    let system = std::path::Path::new("/");
+    mirror_refusal_in(&container_mirror_paths_at(env, system))?;
+    mirror_refusal_in(&dropin_files(&container_dropin_dirs(env, system))?)
 }
 
-/// [`container_mirror_refusal`] for one runtime. Docker reads only daemon.json
-/// and podman only registries.conf, so the other runtime's file says nothing
-/// about where this call connects.
+/// [`container_mirror_refusal`] for one runtime, with `system` as the root of the
+/// system directories. Docker reads only `daemon.json` and the `currentContext` of
+/// its `config.json`; podman reads only `registries.conf` and its drop-ins, so the
+/// other runtime's files say nothing about where this call connects. A remote
+/// daemon or engine named by the environment is not one whose config is read, so
+/// it refuses before any file is read.
+pub fn runtime_mirror_refusal_at(
+    builtin: &str,
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
+    system: &std::path::Path,
+) -> Result<(), &'static str> {
+    let env: &dyn Fn(&str) -> Option<std::ffi::OsString> = &var;
+    if builtin.starts_with("docker") {
+        if var_is_set(env, "DOCKER_HOST") || var_is_set(env, "DOCKER_CONTEXT") {
+            return Err(MIRROR_REMOTE_DOCKER);
+        }
+        docker_context_refusal(env)?;
+        let mut paths = container_mirror_paths_at(env, system);
+        paths.retain(|(format, _)| *format == MirrorConfig::DaemonJson);
+        return mirror_refusal_in(&paths);
+    }
+    if var_is_set(env, "CONTAINER_HOST") || var_is_set(env, "CONTAINER_CONNECTION") {
+        return Err(MIRROR_REMOTE_PODMAN);
+    }
+    if var_is_set(env, "CONTAINERS_REGISTRIES_CONF") {
+        return Err(MIRROR_ENV);
+    }
+    let mut paths = container_mirror_paths_at(env, system);
+    paths.retain(|(format, _)| *format == MirrorConfig::RegistriesConf);
+    mirror_refusal_in(&paths)?;
+    mirror_refusal_in(&dropin_files(&container_dropin_dirs(env, system))?)
+}
+
+/// [`runtime_mirror_refusal_at`] with the real system root.
 pub fn runtime_mirror_refusal(
     builtin: &str,
     var: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Result<(), &'static str> {
-    let docker = builtin.starts_with("docker");
-    if !docker && var("CONTAINERS_REGISTRIES_CONF").is_some_and(|v| !v.is_empty()) {
-        return Err(MIRROR_ENV);
-    }
-    let mut paths = container_mirror_paths(&var);
-    paths.retain(|(format, _)| docker == matches!(format, MirrorConfig::DaemonJson));
-    mirror_refusal_in(&paths)
+    runtime_mirror_refusal_at(builtin, var, std::path::Path::new("/"))
 }
 
 /// The egress check for the container commands that pull an image (`docker_run`,
@@ -7900,6 +8068,10 @@ mod mirror_and_git_install_tests {
                         .join("containers")
                         .join("registries.conf"),
                 ),
+                (
+                    MirrorConfig::DaemonJson,
+                    home.join(".config").join("docker").join("daemon.json"),
+                ),
             ]
         );
     }
@@ -7928,6 +8100,356 @@ mod mirror_and_git_install_tests {
                 .join(".docker")
                 .join("daemon.json"),
         )));
+    }
+
+    #[test]
+    fn a_set_xdg_config_home_replaces_the_home_config_user_files() {
+        let root = Path::new("/fake/root");
+        let xdg = PathBuf::from("/fake/xdg");
+        let home_config = PathBuf::from("/fake/home").join(".config");
+        let paths = container_mirror_paths_at(
+            &env_of(&[("HOME", "/fake/home"), ("XDG_CONFIG_HOME", "/fake/xdg")]),
+            root,
+        );
+        assert!(paths.contains(&(
+            MirrorConfig::RegistriesConf,
+            xdg.join("containers").join("registries.conf"),
+        )));
+        assert!(paths.contains(&(
+            MirrorConfig::DaemonJson,
+            xdg.join("docker").join("daemon.json"),
+        )));
+        assert!(
+            !paths.iter().any(|(_, p)| p.starts_with(&home_config)),
+            "$HOME/.config is not read when XDG_CONFIG_HOME is set: {paths:?}"
+        );
+        // An empty XDG_CONFIG_HOME is unset.
+        let paths = container_mirror_paths_at(
+            &env_of(&[("HOME", "/fake/home"), ("XDG_CONFIG_HOME", "")]),
+            root,
+        );
+        assert!(paths.contains(&(
+            MirrorConfig::RegistriesConf,
+            home_config.join("containers").join("registries.conf"),
+        )));
+    }
+
+    /// A temp root with a system directory and a home, for the container tests.
+    /// Each test names its own root, so no real `/etc` file or home is read.
+    struct MirrorFixture {
+        root: PathBuf,
+    }
+
+    impl MirrorFixture {
+        fn new(tag: &str) -> Self {
+            Self {
+                root: temp_dir(tag),
+            }
+        }
+        fn system(&self) -> PathBuf {
+            self.root.join("sys")
+        }
+        fn home(&self) -> PathBuf {
+            self.root.join("home")
+        }
+        fn xdg(&self) -> PathBuf {
+            self.root.join("xdg")
+        }
+        fn put(&self, path: PathBuf, text: &str) {
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("fixture dir");
+            std::fs::write(&path, text).expect("fixture file");
+        }
+        /// The environment: `HOME` is the fixture's home, plus `extra`. Nothing
+        /// else is read from the real environment.
+        fn env(&self, extra: &[(&str, String)]) -> impl Fn(&str) -> Option<OsString> {
+            let mut pairs: Vec<(String, String)> = vec![(
+                "HOME".to_string(),
+                self.home().to_string_lossy().into_owned(),
+            )];
+            pairs.extend(extra.iter().map(|(k, v)| (k.to_string(), v.clone())));
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| k == name)
+                    .map(|(_, v)| OsString::from(v))
+            }
+        }
+    }
+
+    impl Drop for MirrorFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    const MIRROR_CONF: &str =
+        "[[registry]]\nlocation = \"docker.io\"\n\n[[registry.mirror]]\nlocation = \"m.example.invalid\"\n";
+
+    #[test]
+    fn dropins_are_listed_in_name_order_and_only_conf_files_count() {
+        let f = MirrorFixture::new("dropin_order");
+        let dir = f.system().join("etc/containers/registries.conf.d");
+        f.put(dir.join("b.conf"), "");
+        f.put(dir.join("a.conf"), "");
+        f.put(dir.join("notes.txt"), MIRROR_CONF);
+        assert_eq!(
+            dropin_files(&[dir.clone()]),
+            Ok(vec![
+                (MirrorConfig::RegistriesConf, dir.join("a.conf")),
+                (MirrorConfig::RegistriesConf, dir.join("b.conf")),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_system_dropin_that_names_a_mirror_refuses_podman_and_docker_ignores_it() {
+        let f = MirrorFixture::new("dropin_system");
+        f.put(
+            f.system()
+                .join("etc/containers/registries.conf.d/mirror.conf"),
+            MIRROR_CONF,
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&[]), &f.system()),
+            Err(MIRROR_NAMED)
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("docker_run", f.env(&[]), &f.system()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_user_dropin_is_read_under_xdg_config_home_or_home_config() {
+        let f = MirrorFixture::new("dropin_user");
+        let xdg = [("XDG_CONFIG_HOME", f.xdg().to_string_lossy().into_owned())];
+        f.put(
+            f.xdg().join("containers/registries.conf.d/m.conf"),
+            MIRROR_CONF,
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&xdg), &f.system()),
+            Err(MIRROR_NAMED)
+        );
+        // Without XDG_CONFIG_HOME the user directory is $HOME/.config, which is empty.
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&[]), &f.system()),
+            Ok(())
+        );
+        f.put(
+            f.home().join(".config/containers/registries.conf.d/m.conf"),
+            MIRROR_CONF,
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&[]), &f.system()),
+            Err(MIRROR_NAMED)
+        );
+    }
+
+    #[test]
+    fn an_absent_dropin_directory_or_a_non_conf_file_is_no_mirror() {
+        let f = MirrorFixture::new("dropin_absent");
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&[]), &f.system()),
+            Ok(())
+        );
+        f.put(
+            f.system()
+                .join("etc/containers/registries.conf.d/notes.txt"),
+            MIRROR_CONF,
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&[]), &f.system()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_dropin_path_that_exists_but_cannot_be_listed_refuses() {
+        let f = MirrorFixture::new("dropin_unlistable");
+        // A file where the directory should be: it exists and cannot be listed.
+        f.put(f.system().join("etc/containers/registries.conf.d"), "");
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&[]), &f.system()),
+            Err(MIRROR_UNREADABLE)
+        );
+    }
+
+    #[test]
+    fn more_than_64_dropin_files_refuse_and_64_do_not() {
+        let f = MirrorFixture::new("dropin_cap");
+        let dir = f.system().join("etc/containers/registries.conf.d");
+        for i in 0..64 {
+            f.put(dir.join(format!("{i:02}.conf")), "");
+        }
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&[]), &f.system()),
+            Ok(())
+        );
+        f.put(dir.join("64.conf"), "");
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&[]), &f.system()),
+            Err(MIRROR_TOO_MANY)
+        );
+    }
+
+    #[test]
+    fn rootless_docker_daemon_json_is_read_under_xdg_or_home_config() {
+        let f = MirrorFixture::new("rootless_docker");
+        let mirror_json = r#"{"registry-mirrors": ["https://m.example.invalid"]}"#;
+        let xdg = [("XDG_CONFIG_HOME", f.xdg().to_string_lossy().into_owned())];
+        f.put(f.xdg().join("docker/daemon.json"), mirror_json);
+        assert_eq!(
+            runtime_mirror_refusal_at("docker_run", f.env(&xdg), &f.system()),
+            Err(MIRROR_NAMED)
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("docker_run", f.env(&[]), &f.system()),
+            Ok(())
+        );
+        f.put(f.home().join(".config/docker/daemon.json"), mirror_json);
+        assert_eq!(
+            runtime_mirror_refusal_at("docker_run", f.env(&[]), &f.system()),
+            Err(MIRROR_NAMED)
+        );
+        // podman does not read daemon.json.
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&[]), &f.system()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_remote_docker_daemon_refuses_for_docker_only() {
+        let f = MirrorFixture::new("docker_remote");
+        for name in ["DOCKER_HOST", "DOCKER_CONTEXT"] {
+            assert_eq!(
+                runtime_mirror_refusal_at(
+                    "docker_pull",
+                    f.env(&[(name, "x".to_string())]),
+                    &f.system()
+                ),
+                Err(MIRROR_REMOTE_DOCKER),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            runtime_mirror_refusal_at(
+                "docker_pull",
+                f.env(&[("DOCKER_HOST", String::new())]),
+                &f.system()
+            ),
+            Ok(()),
+            "an empty DOCKER_HOST is unset"
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at(
+                "podman_pull",
+                f.env(&[("DOCKER_HOST", "x".to_string())]),
+                &f.system()
+            ),
+            Ok(()),
+            "podman does not read DOCKER_HOST"
+        );
+    }
+
+    #[test]
+    fn a_remote_podman_engine_refuses_for_podman_only() {
+        let f = MirrorFixture::new("podman_remote");
+        for name in ["CONTAINER_HOST", "CONTAINER_CONNECTION"] {
+            assert_eq!(
+                runtime_mirror_refusal_at(
+                    "podman_pull",
+                    f.env(&[(name, "x".to_string())]),
+                    &f.system()
+                ),
+                Err(MIRROR_REMOTE_PODMAN),
+                "{name}"
+            );
+            assert_eq!(
+                runtime_mirror_refusal_at(
+                    "docker_pull",
+                    f.env(&[(name, "x".to_string())]),
+                    &f.system()
+                ),
+                Ok(()),
+                "docker does not read {name}"
+            );
+        }
+        assert_eq!(
+            runtime_mirror_refusal_at(
+                "podman_pull",
+                f.env(&[("CONTAINER_HOST", String::new())]),
+                &f.system()
+            ),
+            Ok(()),
+            "an empty CONTAINER_HOST is unset"
+        );
+    }
+
+    #[test]
+    fn a_switched_docker_context_in_config_json_refuses_for_docker() {
+        let f = MirrorFixture::new("docker_context");
+        let cfg = f.home().join(".docker/config.json");
+        f.put(cfg.clone(), r#"{"currentContext": "remote"}"#);
+        assert_eq!(
+            runtime_mirror_refusal_at("docker_run", f.env(&[]), &f.system()),
+            Err(MIRROR_CONTEXT_DOCKER)
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("podman_run", f.env(&[]), &f.system()),
+            Ok(()),
+            "podman does not read the docker config.json"
+        );
+        for text in [
+            r#"{"currentContext": "default"}"#,
+            "{}",
+            r#"{"currentContext": null}"#,
+            r#"{"currentContext": ""}"#,
+        ] {
+            f.put(cfg.clone(), text);
+            assert_eq!(
+                runtime_mirror_refusal_at("docker_run", f.env(&[]), &f.system()),
+                Ok(()),
+                "{text}"
+            );
+        }
+        f.put(cfg.clone(), "{ not json");
+        assert_eq!(
+            runtime_mirror_refusal_at("docker_run", f.env(&[]), &f.system()),
+            Err(MIRROR_UNPARSED)
+        );
+        f.put(cfg.clone(), r#"{"currentContext": 5}"#);
+        assert_eq!(
+            runtime_mirror_refusal_at("docker_run", f.env(&[]), &f.system()),
+            Err(MIRROR_UNPARSED)
+        );
+    }
+
+    #[test]
+    fn docker_config_env_names_the_config_json_instead_of_home() {
+        let f = MirrorFixture::new("docker_config_env");
+        f.put(
+            f.home().join(".docker/config.json"),
+            r#"{"currentContext": "remote"}"#,
+        );
+        let dc = [(
+            "DOCKER_CONFIG",
+            f.root.join("dc").to_string_lossy().into_owned(),
+        )];
+        assert_eq!(
+            runtime_mirror_refusal_at("docker_run", f.env(&dc), &f.system()),
+            Ok(()),
+            "HOME's config.json is not read when DOCKER_CONFIG is set"
+        );
+        f.put(
+            f.root.join("dc/config.json"),
+            r#"{"currentContext": "remote"}"#,
+        );
+        assert_eq!(
+            runtime_mirror_refusal_at("docker_run", f.env(&dc), &f.system()),
+            Err(MIRROR_CONTEXT_DOCKER)
+        );
     }
 
     fn temp_dir(tag: &str) -> PathBuf {

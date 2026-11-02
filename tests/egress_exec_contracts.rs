@@ -64,6 +64,12 @@ impl Egress {
             // podman's own registries.conf override: when set, the container
             // mirror check refuses instead of reading a file.
             "CONTAINERS_REGISTRIES_CONF",
+            // Each names a remote daemon or engine, which the mirror check refuses.
+            "DOCKER_HOST",
+            "DOCKER_CONTEXT",
+            "DOCKER_CONFIG",
+            "CONTAINER_HOST",
+            "CONTAINER_CONNECTION",
         ];
         let saved = names
             .iter()
@@ -91,6 +97,15 @@ impl Egress {
         std::env::set_var("ProgramData", &empty_dir);
         std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
         std::env::remove_var("CONTAINERS_REGISTRIES_CONF");
+        for n in [
+            "DOCKER_HOST",
+            "DOCKER_CONTEXT",
+            "DOCKER_CONFIG",
+            "CONTAINER_HOST",
+            "CONTAINER_CONNECTION",
+        ] {
+            std::env::remove_var(n);
+        }
         let audit_log = std::env::temp_dir().join(format!(
             "ae_egress_audit_{tag}_{}.jsonl",
             std::process::id()
@@ -799,12 +814,13 @@ fn only_a_backslash_that_can_change_the_destination_refuses() {
     assert!(git_config_entries("[http]\n\tproxy = a\\\n[remote \"o\"]\n").is_err());
 }
 
-/// Each runtime answers only for the config it reads. The home directory is
-/// a fake one, so no host file is consulted for the user-level path.
+/// Each runtime answers only for the config it reads. The home directory and the
+/// system root are fakes, so no host file is consulted.
 #[test]
 fn a_runtime_is_judged_by_its_own_mirror_config() {
-    use iron_shell::safety::runtime_mirror_refusal;
+    use iron_shell::safety::runtime_mirror_refusal_at;
     let dir = std::env::temp_dir().join(format!("ish-mirror-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join(".config/containers")).unwrap();
     std::fs::write(
         dir.join(".config/containers/registries.conf"),
@@ -814,11 +830,11 @@ fn a_runtime_is_judged_by_its_own_mirror_config() {
     let home = dir.clone().into_os_string();
     let var = |name: &str| (name == "HOME").then(|| home.clone());
     assert!(
-        runtime_mirror_refusal("podman_run", var).is_err(),
+        runtime_mirror_refusal_at("podman_run", var, &dir).is_err(),
         "podman reads registries.conf"
     );
     assert!(
-        runtime_mirror_refusal("docker_run", var).is_ok(),
+        runtime_mirror_refusal_at("docker_run", var, &dir).is_ok(),
         "docker does not read registries.conf"
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -1333,6 +1349,37 @@ fn a_containers_registries_override_makes_the_pull_destination_unknown() {
                 && message.contains("an allowlist is set"),
             "{name}: the refusal says why: {message}"
         );
+    }
+}
+
+/// A remote daemon or engine named by the environment (`DOCKER_HOST` for docker,
+/// `CONTAINER_HOST` for podman) is a config this check does not read, so under an
+/// allowlist the pull is refused, even though the registry the image names is on
+/// the list.
+#[test]
+fn a_remote_container_host_makes_the_pull_destination_unknown() {
+    let _g = lock();
+    let _e = Egress::new("remote_host", Some("docker.io"));
+    for (var, name, args) in [
+        ("DOCKER_HOST", "docker_pull", vec![s("alpine:3")]),
+        ("DOCKER_CONTEXT", "docker_run", vec![s("alpine:3")]),
+        ("CONTAINER_HOST", "podman_pull", vec![s("alpine:3")]),
+        ("CONTAINER_CONNECTION", "podman_run", vec![s("alpine:3")]),
+    ] {
+        std::env::set_var(var, "remote");
+        let r = call(name, args);
+        let (code, message) = egress_refusal(&r)
+            .unwrap_or_else(|| panic!("{name} with {var} must be refused; got {r:?}"));
+        assert_eq!(code, ErrorCode::PolicyDeny, "{name}");
+        assert!(
+            message.starts_with(&format!("{name}: egress denied")),
+            "{name}: {message}"
+        );
+        assert!(
+            message.contains(var) && message.contains("an allowlist is set"),
+            "{name}: the refusal names the variable: {message}"
+        );
+        std::env::remove_var(var);
     }
 }
 
