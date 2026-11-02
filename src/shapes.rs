@@ -48,19 +48,19 @@ pub fn observe(v: &Value) -> String {
         Value::Str(_) => "str".to_string(),
         Value::Uri(_) => "uri".to_string(),
         Value::Table(_) => "table".to_string(),
-        Value::Array(items) => {
-            let mut it = items.iter().map(observe);
-            match it.next() {
-                None => "array<any>".to_string(),
-                Some(first) => {
-                    if it.all(|s| s == first) {
-                        format!("array<{first}>")
-                    } else {
-                        "array<any>".to_string()
-                    }
+        Value::Array(items) => match items.split_first() {
+            None => "array<any>".to_string(),
+            Some((first, rest)) => {
+                // The first element's shape is rendered once; every other row is
+                // compared against it without rendering its own string.
+                let first = observe(first);
+                if rest.iter().all(|item| shape_is(item, &first)) {
+                    format!("array<{first}>")
+                } else {
+                    "array<any>".to_string()
                 }
             }
-        }
+        },
         Value::Record(map) => {
             let mut parts = Vec::new();
             for (k, val) in map.iter().take(MAX_FIELDS) {
@@ -74,6 +74,68 @@ pub fn observe(v: &Value) -> String {
         }
         // Everything else is a value an agent cannot usefully destructure.
         _ => "any".to_string(),
+    }
+}
+
+/// Whether `observe(v) == expected`, without rendering `v`'s shape to a string.
+///
+/// `observe` is the reference: this walks the same fragments, in the same order,
+/// that `observe` would concatenate, and checks each against `expected` as it
+/// goes. Comparing the emitted text (rather than the value's structure) keeps the
+/// answer identical even where two different structures render the same — a key
+/// such as `a:int,b` can make one record look like two fields. Nested arrays are
+/// the one case rendered whole, since their element agreement needs `observe`.
+fn shape_is(v: &Value, expected: &str) -> bool {
+    let want = expected.as_bytes();
+    let mut pos = 0usize;
+    let matched = emit_fragments(v, &mut |frag: &str| {
+        let end = pos + frag.len();
+        if want.get(pos..end) == Some(frag.as_bytes()) {
+            pos = end;
+            true
+        } else {
+            false
+        }
+    });
+    matched && pos == want.len()
+}
+
+/// Feed each fragment of `observe(v)`, in order, to `sink`. Stops and returns
+/// `false` as soon as `sink` refuses one.
+fn emit_fragments<F: FnMut(&str) -> bool>(v: &Value, sink: &mut F) -> bool {
+    match v {
+        Value::Null => sink("null"),
+        Value::Bool(_) => sink("bool"),
+        Value::Int(_) => sink("int"),
+        Value::Float(_) => sink("float"),
+        Value::Str(_) => sink("str"),
+        Value::Uri(_) => sink("uri"),
+        Value::Table(_) => sink("table"),
+        Value::Array(_) => sink(&observe(v)),
+        Value::Record(map) => {
+            if !sink("record{") {
+                return false;
+            }
+            for (i, (k, val)) in map.iter().take(MAX_FIELDS).enumerate() {
+                if i > 0 && !sink(",") {
+                    return false;
+                }
+                if !sink(k.as_str()) || !sink(":") || !emit_fragments(val, sink) {
+                    return false;
+                }
+            }
+            // `more > 0` only when at least MAX_FIELDS fields were emitted above,
+            // so the elision marker always follows a comma.
+            let more = map.len().saturating_sub(MAX_FIELDS);
+            if more > 0 {
+                let marker = format!("+{more}");
+                if !sink(",") || !sink(marker.as_str()) {
+                    return false;
+                }
+            }
+            sink("}")
+        }
+        _ => sink("any"),
     }
 }
 
@@ -297,5 +359,244 @@ mod tests {
         // Polymorphic: proven *not* to have a fixed shape, so nothing is claimed.
         assert_eq!(shape_of("first"), None);
         assert_eq!(shape_of("no_such_builtin"), None);
+    }
+
+    /// The pre-optimisation `observe`, kept verbatim as the oracle. The fast path
+    /// must agree with it on every value, so it is not allowed to drift.
+    fn observe_reference(v: &Value) -> String {
+        match v {
+            Value::Null => "null".to_string(),
+            Value::Bool(_) => "bool".to_string(),
+            Value::Int(_) => "int".to_string(),
+            Value::Float(_) => "float".to_string(),
+            Value::Str(_) => "str".to_string(),
+            Value::Uri(_) => "uri".to_string(),
+            Value::Table(_) => "table".to_string(),
+            Value::Array(items) => {
+                let mut it = items.iter().map(observe_reference);
+                match it.next() {
+                    None => "array<any>".to_string(),
+                    Some(first) => {
+                        if it.all(|s| s == first) {
+                            format!("array<{first}>")
+                        } else {
+                            "array<any>".to_string()
+                        }
+                    }
+                }
+            }
+            Value::Record(map) => {
+                let mut parts = Vec::new();
+                for (k, val) in map.iter().take(MAX_FIELDS) {
+                    parts.push(format!("{k}:{}", observe_reference(val)));
+                }
+                let more = map.len().saturating_sub(MAX_FIELDS);
+                if more > 0 {
+                    parts.push(format!("+{more}"));
+                }
+                format!("record{{{}}}", parts.join(","))
+            }
+            _ => "any".to_string(),
+        }
+    }
+
+    fn int_row(id: i64) -> Value {
+        rec(&[("id", Value::Int(id)), ("name", Value::Str("row".into()))])
+    }
+
+    fn wide(extra: usize, last: Value) -> Value {
+        let mut m = BTreeMap::new();
+        for i in 0..(MAX_FIELDS + extra) {
+            m.insert(format!("f{i:02}"), Value::Int(i as i64));
+        }
+        m.insert(format!("f{:02}", MAX_FIELDS + extra - 1), last);
+        Value::Record(m)
+    }
+
+    fn varied_values() -> Vec<Value> {
+        let table = Value::Table(crate::value::Table {
+            rows: vec![],
+            schema: vec!["a".into()],
+        });
+        let mut differing_last: Vec<Value> = (0..1000).map(int_row).collect();
+        differing_last.push(rec(&[
+            ("id", Value::Str("x".into())),
+            ("name", Value::Str("row".into())),
+        ]));
+        let mut extra_field_last: Vec<Value> = (0..1000).map(int_row).collect();
+        extra_field_last.push(rec(&[
+            ("id", Value::Int(1)),
+            ("name", Value::Str("row".into())),
+            ("extra", Value::Bool(true)),
+        ]));
+        vec![
+            Value::Null,
+            Value::Bool(false),
+            Value::Int(-7),
+            Value::Float(1.5),
+            Value::Str("s".into()),
+            Value::Uri("https://example.com".into()),
+            table.clone(),
+            Value::Array(vec![]),
+            Value::Array(vec![table.clone(), table.clone()]),
+            Value::Array(vec![Value::Int(1), Value::Int(2)]),
+            Value::Array(vec![Value::Int(1), Value::Str("a".into())]),
+            Value::Array(vec![Value::Null, Value::Null]),
+            Value::Array(vec![
+                Value::Array(vec![]),
+                Value::Array(vec![Value::Int(1)]),
+            ]),
+            Value::Array(vec![
+                Value::Array(vec![Value::Int(1)]),
+                Value::Array(vec![Value::Int(2)]),
+            ]),
+            Value::Array(vec![
+                Value::Array(vec![Value::Int(1)]),
+                Value::Array(vec![Value::Str("x".into())]),
+            ]),
+            rec(&[]),
+            rec(&[("n", Value::Null), ("s", Value::Str("".into()))]),
+            rec(&[("inner", rec(&[("deep", Value::Array(vec![int_row(1)]))]))]),
+            // A ragged array of records, and records that differ only in value.
+            Value::Array(vec![int_row(1), rec(&[("id", Value::Int(2))])]),
+            Value::Array((0..50).map(int_row).collect()),
+            Value::Array(differing_last),
+            Value::Array(extra_field_last),
+            // Two records whose rendering collides: one key `a:int,b` of type str
+            // renders exactly like the two fields `a:int` and `b:str`.
+            Value::Array(vec![
+                rec(&[("a:int,b", Value::Str("x".into()))]),
+                rec(&[("a", Value::Int(1)), ("b", Value::Str("x".into()))]),
+            ]),
+            // A field beyond the 12-field window does not change the shape.
+            Value::Array(vec![
+                wide(2, Value::Int(9)),
+                wide(2, Value::Str("hidden".into())),
+            ]),
+            // A difference inside the window does: `f00` is a str in the second row.
+            Value::Array(vec![wide(2, Value::Int(9)), {
+                let mut m = BTreeMap::new();
+                for i in 0..(MAX_FIELDS + 2) {
+                    let val = if i == 0 {
+                        Value::Str("x".into())
+                    } else {
+                        Value::Int(i as i64)
+                    };
+                    m.insert(format!("f{i:02}"), val);
+                }
+                Value::Record(m)
+            }]),
+            // A wide record whose elided count differs.
+            Value::Array(vec![wide(0, Value::Int(0)), wide(3, Value::Int(0))]),
+        ]
+    }
+
+    #[test]
+    fn observe_matches_the_reference_on_varied_values() {
+        for v in varied_values() {
+            assert_eq!(observe(&v), observe_reference(&v), "value {v:?}");
+        }
+    }
+
+    #[test]
+    fn a_differing_row_at_the_very_end_is_not_skipped() {
+        let mut rows: Vec<Value> = (0..100_000).map(int_row).collect();
+        assert_eq!(
+            observe(&Value::Array(rows.clone())),
+            "array<record{id:int,name:str}>"
+        );
+        rows.push(rec(&[
+            ("id", Value::Str("x".into())),
+            ("name", Value::Str("row".into())),
+        ]));
+        assert_eq!(observe(&Value::Array(rows)), "array<any>");
+    }
+
+    /// Small deterministic generator, so a failure is reproducible from its seed.
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            self.0 >> 33
+        }
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+    }
+
+    fn gen_key(g: &mut Lcg) -> String {
+        // Characters that appear in the rendering, so collisions are reachable.
+        const ALPHABET: &[&str] = &["a", "b", "i", "n", "t", ":", ",", "{", "}", "+"];
+        let len = 1 + g.below(3);
+        (0..len)
+            .map(|_| ALPHABET[g.below(ALPHABET.len() as u64) as usize])
+            .collect()
+    }
+
+    fn gen_value(g: &mut Lcg, depth: u32) -> Value {
+        let kinds = if depth == 0 { 7 } else { 9 };
+        match g.below(kinds) {
+            0 => Value::Null,
+            1 => Value::Bool(g.below(2) == 0),
+            2 => Value::Int(g.below(100) as i64),
+            3 => Value::Float(0.5),
+            4 => Value::Str(gen_key(g)),
+            5 => Value::Uri("u".into()),
+            6 => Value::Table(crate::value::Table {
+                rows: vec![],
+                schema: vec![],
+            }),
+            7 => {
+                // Uniform arrays are the interesting case: most rows share a
+                // prototype, and an occasional one differs, at any position.
+                let proto = gen_value(g, depth - 1);
+                let len = g.below(6);
+                let items = (0..len)
+                    .map(|_| {
+                        if g.below(5) == 0 {
+                            gen_value(g, depth - 1)
+                        } else {
+                            proto.clone()
+                        }
+                    })
+                    .collect();
+                Value::Array(items)
+            }
+            _ => {
+                let mut m = BTreeMap::new();
+                for _ in 0..g.below(16) {
+                    m.insert(gen_key(g), gen_value(g, depth - 1));
+                }
+                Value::Record(m)
+            }
+        }
+    }
+
+    #[test]
+    fn observe_matches_the_reference_on_generated_values() {
+        let mut g = Lcg(0x5eed);
+        for _ in 0..4000 {
+            let v = gen_value(&mut g, 3);
+            assert_eq!(observe(&v), observe_reference(&v), "value {v:?}");
+        }
+    }
+
+    #[test]
+    fn the_comparator_agrees_with_string_equality_on_generated_pairs() {
+        // The fast path's real claim: `shape_is(v, observe(w))` is exactly the
+        // reference's `observe(v) == observe(w)`, for both answers.
+        let mut g = Lcg(0xfeed);
+        let mut equal = 0;
+        for _ in 0..20_000 {
+            let v = gen_value(&mut g, 2);
+            let w = gen_value(&mut g, 2);
+            let expected = observe_reference(&v) == observe_reference(&w);
+            assert_eq!(shape_is(&v, &observe(&w)), expected, "v {v:?} w {w:?}");
+            equal += usize::from(expected);
+        }
+        assert!(equal > 0, "the generator never produced equal shapes");
     }
 }
