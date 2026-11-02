@@ -784,6 +784,17 @@ fn git_config_entries_parse_sections_and_keys() {
 /// Pure: the repository's values win over the lower levels, a lower level fills
 /// in a value the repository does not set, the later lower file wins, and
 /// rewrites from every level are combined, the longest prefix first.
+/// A Windows path in an unrelated setting must not refuse every fetch, but an
+/// escape that could change a destination or hide a key still does.
+#[test]
+fn only_a_backslash_that_can_change_the_destination_refuses() {
+    use iron_shell::safety::git_config_entries;
+    assert!(git_config_entries("[http]\n\tsslCAInfo = C:\\certs\\ca.pem\n").is_ok());
+    assert!(git_config_entries("[remote \"o\"]\n\turl = a\\tb\n").is_err());
+    assert!(git_config_entries("[url \"x\"]\n\tinsteadOf = a\\b\n").is_err());
+    assert!(git_config_entries("[http]\n\tproxy = a\\\n[remote \"o\"]\n").is_err());
+}
+
 #[test]
 fn lower_levels_fill_in_values_and_rewrites_combine() {
     use iron_shell::safety::git_contact_urls;

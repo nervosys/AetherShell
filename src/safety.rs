@@ -5177,8 +5177,9 @@ pub struct GitConfigEntry {
 
 /// Parse a git config file's text. Section and key names are lower-cased; a
 /// subsection keeps its case. An inline `#` or `;` outside quotes starts a
-/// comment, and quotes are removed from values. A backslash in a value or a
-/// subsection name is refused (git's escape rules are not read), as is an
+/// comment, and quotes are removed from values. A backslash in a value of a
+/// section that names a destination, in a subsection name, or ending any value
+/// is refused (git's escape rules are not read), as is an
 /// `include` or `includeIf` section and any line this reader does not understand.
 pub fn git_config_entries(text: &str) -> Result<Vec<GitConfigEntry>, &'static str> {
     let mut out = Vec::new();
@@ -5225,7 +5226,11 @@ pub fn git_config_entries(text: &str) -> Result<Vec<GitConfigEntry>, &'static st
         if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
             return Err(GIT_CONFIG_UNPARSED);
         }
-        if val.contains('\\') {
+        // A trailing backslash continues the line, so it can hide a key. Elsewhere
+        // only the sections that name a destination need their escapes read: a
+        // Windows path in `http.sslCAInfo` says nothing about where git connects.
+        let names_a_destination = matches!(section.as_str(), "remote" | "url" | "branch");
+        if val.ends_with('\\') || (names_a_destination && val.contains('\\')) {
             return Err(GIT_CONFIG_ESCAPE);
         }
         out.push(GitConfigEntry {
