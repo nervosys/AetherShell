@@ -291,8 +291,13 @@ impl Os for HostOs {
         if let Some(w) = writer {
             let _ = w.join();
         }
+        #[cfg(unix)]
+        let signal = std::os::unix::process::ExitStatusExt::signal(&out.status);
+        #[cfg(not(unix))]
+        let signal = None;
         Ok(Captured {
             status: out.status.code(),
+            signal,
             stdout: out.stdout,
             stderr: out.stderr,
         })
@@ -513,9 +518,73 @@ impl Os for HostOs {
         Err(unsupported_here())
     }
 
+    fn set_times(&self, path: &str, at: Timestamp) -> Result<(), OsError> {
+        set_file_times(path, at)
+    }
+
     fn gate(&self) -> &dyn Gate {
         self
     }
+}
+
+/// Sets the access and modification times of `path` to `at`, as `utimensat`
+/// does for GNU `touch`. The file is opened only for its attributes, so a
+/// read-only file can have its times set. On Unix it is opened without
+/// blocking, so a FIFO is not waited for; on Windows a directory is opened
+/// with backup semantics, so a directory can be touched too.
+#[cfg(unix)]
+fn set_file_times(path: &str, at: Timestamp) -> Result<(), OsError> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let when = system_time(at)?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|e| os_error(&e))?;
+    file.set_times(
+        std::fs::FileTimes::new()
+            .set_accessed(when)
+            .set_modified(when),
+    )
+    .map_err(|e| os_error(&e))
+}
+
+#[cfg(windows)]
+fn set_file_times(path: &str, at: Timestamp) -> Result<(), OsError> {
+    use std::os::windows::fs::OpenOptionsExt;
+    // FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES, and FILE_FLAG_BACKUP_SEMANTICS
+    // so that a directory opens.
+    const ATTRIBUTES: u32 = 0x0080 | 0x0100;
+    const BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    let when = system_time(at)?;
+    let file = std::fs::OpenOptions::new()
+        .access_mode(ATTRIBUTES)
+        .custom_flags(BACKUP_SEMANTICS)
+        .open(path)
+        .map_err(|e| os_error(&e))?;
+    file.set_times(
+        std::fs::FileTimes::new()
+            .set_accessed(when)
+            .set_modified(when),
+    )
+    .map_err(|e| os_error(&e))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn set_file_times(_path: &str, _at: Timestamp) -> Result<(), OsError> {
+    Err(unsupported_here())
+}
+
+/// `at` as a `SystemTime`. A time before the epoch is refused: the shell's
+/// own clock never gives one, and a `touch` to one is not a thing GNU does.
+#[cfg(any(unix, windows))]
+fn system_time(at: Timestamp) -> Result<std::time::SystemTime, OsError> {
+    let secs = u64::try_from(at.secs).map_err(|_| OsError {
+        kind: ErrorKind::Other,
+        errno: None,
+        message: "time before 1970-01-01 cannot be set".into(),
+    })?;
+    Ok(std::time::UNIX_EPOCH + std::time::Duration::new(secs, at.nanos))
 }
 
 /// The guard and the journal for a change one of the posix file utilities is
@@ -681,6 +750,29 @@ impl Gate for HostOs {
             })
         })?;
         os.set_mode(&resolved, mode).map_err(WriteError::Io)
+    }
+
+    /// Set the times of `path` to now for `touch`, through the guard as a
+    /// write is. The old times cannot be journalled back, so the change is
+    /// not reversible, and the guard is told so.
+    fn guarded_touch(&self, os: &dyn Os, path: &str) -> Result<(), WriteError> {
+        let resolved = safety::resolve_path_str(path);
+        safety::guard(safety::GuardCtx {
+            builtin: "posix",
+            effect: safety::Effect::WriteLocal,
+            what: "set times",
+            targets: vec![resolved.clone()],
+            blast_radius: serde_json::json!({ "path": resolved }),
+            reversible: false,
+            fs_paths: true,
+        })
+        .map_err(|e| {
+            WriteError::Refused(Refusal {
+                message: e.to_string(),
+                code: e.code.exit_code(),
+            })
+        })?;
+        os.set_times(&resolved, os.now()).map_err(WriteError::Io)
     }
 
     fn admit_exec(&self, argv: &str) -> Result<(), Refusal> {

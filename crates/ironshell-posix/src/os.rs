@@ -116,6 +116,9 @@ pub struct Spawn {
 pub struct Captured {
     /// The exit code, or `None` when the child ended on a signal.
     pub status: Option<i32>,
+    /// The signal that ended the child, when `status` is `None` and the host
+    /// can say which one (a Unix host does; a host without signals says none).
+    pub signal: Option<i32>,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
 }
@@ -232,6 +235,13 @@ pub trait Gate {
     /// Set the permission bits of `path` to `mode` for `chmod`.
     fn guarded_chmod(&self, os: &dyn Os, path: &str, mode: u32) -> Result<(), WriteError> {
         let _ = (os, path, mode);
+        Err(WriteError::Refused(unconfigured()))
+    }
+
+    /// Set the access and modification times of an existing `path` to now,
+    /// for `touch`.
+    fn guarded_touch(&self, os: &dyn Os, path: &str) -> Result<(), WriteError> {
+        let _ = (os, path);
         Err(WriteError::Refused(unconfigured()))
     }
 }
@@ -414,6 +424,13 @@ pub trait Os {
     /// reaches a mode change through [`Gate::guarded_chmod`].
     fn set_mode(&self, path: &str, mode: u32) -> Result<(), OsError> {
         let _ = (path, mode);
+        Err(unsupported())
+    }
+    /// Sets the access and modification times of `path` to `at`, for `touch`.
+    /// Not gated here: the subset reaches a time change through
+    /// [`Gate::guarded_touch`].
+    fn set_times(&self, path: &str, at: Timestamp) -> Result<(), OsError> {
+        let _ = (path, at);
         Err(unsupported())
     }
 

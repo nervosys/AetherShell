@@ -1125,6 +1125,20 @@ enum Util {
     Decline,
 }
 
+/// How the last program [`Shell::external`] tried to start ended. xargs reads
+/// it after each run: GNU's messages and statuses depend on whether a program
+/// ran and exited, ran and was killed by a signal, or could not start.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ChildEnd {
+    /// The program ran and exited with this status.
+    Exit(i32),
+    /// The program ran and was killed by this signal.
+    Signal(i32),
+    /// The program could not be started: the reason GNU prints, and the
+    /// status it exits with.
+    NotStarted { reason: String, code: i32 },
+}
+
 struct Shell<'a> {
     vars: BTreeMap<String, String>,
     exported: BTreeSet<String>,
@@ -1136,6 +1150,9 @@ struct Shell<'a> {
     /// The host the shell's file, directory, environment and process
     /// operations go through.
     os: &'a dyn Os,
+    /// How the last program run ended, or `None` when the last command was
+    /// not a program (a utility, or a refusal).
+    child_end: Option<ChildEnd>,
 }
 
 const SHELL_NAME: &str = "ish";
@@ -1935,18 +1952,38 @@ impl<'a> Shell<'a> {
                 }
             }
         }
-        // 124, 125, 126 and 127 end the run, as GNU's do; 1 to 125 is "some
-        // command failed" (123), and the run goes on.
+        // GNU's rules, by how the run ended. A program that could not start
+        // stops the runs with its status (127 when it is missing, 126 when it
+        // is not executable). A program killed by a signal stops them with 125.
+        // A program that exits 255 stops them with 124. Any other exit is "some
+        // command failed" (123) and the runs go on: a program's own 126 or 127
+        // does not stop them. A run that is not a program (a utility, or a
+        // refusal) keeps the codes it always had: 126 and 127 stop it.
         let mut stop: Option<i32> = None;
         let mut failed = false;
         for run in &runs {
             let mut inner = Sink::new(self.os, ErrMode::Capture);
+            self.child_end = None;
             let c = match self.dispatch(run, env, &mut Input::buf(Vec::new()), &mut inner) {
                 Flow::Next(c) => c,
                 _ => 1,
             };
+            let end = self.child_end.take();
+            if let Some(ChildEnd::NotStarted { reason, code }) = end {
+                // The shell's own line for a program it could not start is
+                // replaced by GNU's, which names xargs.
+                sink.eline(&format!("xargs: {}: {reason}", run[0]));
+                stop = Some(code);
+                break;
+            }
             sink.out.extend_from_slice(&inner.out);
             sink.ewrite(&inner.err);
+            if let Some(ChildEnd::Signal(s)) = end {
+                sink.eline(&format!("xargs: {}: terminated by signal {s}", run[0]));
+                stop = Some(125);
+                break;
+            }
+            let program = matches!(end, Some(ChildEnd::Exit(_)));
             match c {
                 0 => {}
                 255 => {
@@ -1957,13 +1994,8 @@ impl<'a> Shell<'a> {
                     stop = Some(124);
                     break;
                 }
-                126 | 127 => {
+                126 | 127 if !program => {
                     stop = Some(c);
-                    break;
-                }
-                // A program killed by a signal is reported as 128 by the host.
-                128.. => {
-                    stop = Some(125);
                     break;
                 }
                 _ => failed = true,
@@ -2034,10 +2066,18 @@ impl<'a> Shell<'a> {
             Ok(o) => o,
             Err(SpawnError::Start(e)) if e.kind == ErrorKind::NotFound => {
                 sink.eline(&format!("{SHELL_NAME}: {}: command not found", argv[0]));
+                self.child_end = Some(ChildEnd::NotStarted {
+                    reason: io_reason(&e),
+                    code: 127,
+                });
                 return 127;
             }
             Err(SpawnError::Start(e)) => {
                 sink.eline(&format!("{SHELL_NAME}: {}: {}", argv[0], io_reason(&e)));
+                self.child_end = Some(ChildEnd::NotStarted {
+                    reason: io_reason(&e),
+                    code: 126,
+                });
                 return 126;
             }
             Err(SpawnError::Wait(e)) => {
@@ -2055,7 +2095,16 @@ impl<'a> Shell<'a> {
         if !out.stderr.is_empty() {
             sink.ewrite(&out.stderr);
         }
-        out.status.unwrap_or(128)
+        // A program killed by a signal is 128 plus the signal, as the shell
+        // reports it. A host that gives neither an exit code nor a signal
+        // reports 128.
+        let (code, end) = match (out.status, out.signal) {
+            (Some(c), _) => (c, ChildEnd::Exit(c)),
+            (None, Some(s)) => (128 + s, ChildEnd::Signal(s)),
+            (None, None) => (128, ChildEnd::Exit(128)),
+        };
+        self.child_end = Some(end);
+        code
     }
 }
 
@@ -5633,9 +5682,8 @@ fn tee(os: &dyn Os, args: &[String], stdin: &mut Input, sink: &mut Sink) -> Util
 }
 
 /// `touch [-c] FILE...`. A file that is absent is created empty, through the
-/// gate. A file that is there is left as it is: the [`Os`] trait has no way to
-/// set a modification time, so touching an existing file succeeds and changes
-/// nothing (its mtime does not move). `-c` creates nothing.
+/// gate. A file that is there has its access and modification times set to
+/// now, as GNU does, through [`Gate::guarded_touch`]. `-c` creates nothing.
 fn touch(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
     let Some((flags, files)) = short_flags(args, "c") else {
         return Util::Decline;
@@ -5646,20 +5694,21 @@ fn touch(os: &dyn Os, args: &[String], sink: &mut Sink) -> Util {
     let no_create = flags.contains(&'c');
     let mut status = 0;
     for f in &files {
-        match os.metadata(f) {
-            Ok(_) => continue,
+        let res = match os.metadata(f) {
+            Ok(_) => os.gate().guarded_touch(os, f),
             Err(e) if e.kind == ErrorKind::NotFound => {
                 if no_create {
                     continue;
                 }
+                os.gate().guarded_write(os, f, &[], false)
             }
             Err(e) => {
                 sink.eline(&format!("touch: cannot touch '{f}': {}", io_reason(&e)));
                 status = 1;
                 continue;
             }
-        }
-        match os.gate().guarded_write(os, f, &[], false) {
+        };
+        match res {
             Ok(()) => {}
             Err(WriteError::Refused(r)) => return refused(sink, &r),
             Err(WriteError::Io(e)) => {
@@ -6500,6 +6549,7 @@ impl<'a> Session<'a> {
                 last: 0,
                 glob_refused: None,
                 os,
+                child_end: None,
             },
         }
     }
@@ -6692,6 +6742,9 @@ mod tests {
         ) -> Result<(), WriteError> {
             os.write_file(path, data, append).map_err(WriteError::Io)
         }
+        fn guarded_touch(&self, os: &dyn Os, path: &str) -> Result<(), WriteError> {
+            os.set_times(path, os.now()).map_err(WriteError::Io)
+        }
         fn guarded_remove(
             &self,
             os: &dyn Os,
@@ -6759,6 +6812,7 @@ mod tests {
             last: 0,
             glob_refused: None,
             os,
+            child_end: None,
         };
         let mut stdin = Input::buf(Vec::new());
         let mut sink = Sink::new(os, ErrMode::Null);
@@ -7020,6 +7074,14 @@ mod tests {
             self.slept.borrow_mut().push(d);
             Ok(())
         }
+        fn set_times(&self, path: &str, _at: Timestamp) -> Result<(), OsError> {
+            self.note("set_times");
+            if self.files.contains_key(path) || self.dirs.contains(path) {
+                Ok(())
+            } else {
+                Err(Self::missing())
+            }
+        }
         fn uname(&self) -> Result<Uname, OsError> {
             self.host_uname.clone().ok_or_else(Self::missing)
         }
@@ -7188,6 +7250,15 @@ mod tests {
         programs: core::cell::Cell<Option<i32>>,
         /// Whether the host has Unix mode bits.
         unix: bool,
+        /// The times `touch` set, by path, in the order they were set.
+        touched: core::cell::RefCell<Vec<(String, Timestamp)>>,
+        /// What `now` reports, in whole seconds since the epoch.
+        clock: core::cell::Cell<i64>,
+        /// The signal a program ends on, when `programs` is set: the program
+        /// is killed by it, and reports no exit code.
+        program_signal: core::cell::Cell<Option<i32>>,
+        /// Whether a program cannot start, as a missing file cannot.
+        program_missing: core::cell::Cell<bool>,
     }
 
     impl MemOs {
@@ -7205,6 +7276,10 @@ mod tests {
                 live: Default::default(),
                 programs: core::cell::Cell::new(None),
                 unix: true,
+                touched: Default::default(),
+                clock: core::cell::Cell::new(0),
+                program_signal: core::cell::Cell::new(None),
+                program_missing: core::cell::Cell::new(false),
             }
         }
         fn has(&self, path: &str) -> bool {
@@ -7384,10 +7459,20 @@ mod tests {
         }
         fn run_program(&self, _spec: Spawn) -> Result<Captured, SpawnError> {
             match self.programs.get() {
-                Some(code) => Ok(Captured {
-                    status: Some(code),
-                    stdout: Vec::new(),
-                    stderr: Vec::new(),
+                Some(_) if self.program_missing.get() => Err(SpawnError::Start(FakeOs::missing())),
+                Some(code) => Ok(match self.program_signal.get() {
+                    Some(sig) => Captured {
+                        status: None,
+                        signal: Some(sig),
+                        stdout: Vec::new(),
+                        stderr: Vec::new(),
+                    },
+                    None => Captured {
+                        status: Some(code),
+                        signal: None,
+                        stdout: Vec::new(),
+                        stderr: Vec::new(),
+                    },
                 }),
                 None => Err(SpawnError::Start(FakeOs::missing())),
             }
@@ -7400,6 +7485,13 @@ mod tests {
                 return Err(FakeOs::missing());
             }
             self.modes.borrow_mut().insert(path.into(), mode);
+            Ok(())
+        }
+        fn set_times(&self, path: &str, at: Timestamp) -> Result<(), OsError> {
+            if !self.has(path) {
+                return Err(FakeOs::missing());
+            }
+            self.touched.borrow_mut().push((path.into(), at));
             Ok(())
         }
         fn can_signal(&self) -> bool {
@@ -7423,7 +7515,10 @@ mod tests {
         }
         fn read_stdin_to_end(&self, _out: &mut Vec<u8>) {}
         fn now(&self) -> Timestamp {
-            Timestamp { secs: 0, nanos: 0 }
+            Timestamp {
+                secs: self.clock.get(),
+                nanos: 0,
+            }
         }
         fn format_local(&self, _at: Timestamp, _format: &str) -> Option<String> {
             None
@@ -7485,6 +7580,10 @@ mod tests {
             self.admit()?;
             os.set_mode(path, mode).map_err(WriteError::Io)
         }
+        fn guarded_touch(&self, os: &dyn Os, path: &str) -> Result<(), WriteError> {
+            self.admit()?;
+            os.set_times(path, os.now()).map_err(WriteError::Io)
+        }
     }
 
     /// [`sh_on`] that returns what the shell printed to standard error, and
@@ -7497,6 +7596,7 @@ mod tests {
             last: 0,
             glob_refused: None,
             os,
+            child_end: None,
         };
         let mut stdin = Input::buf(Vec::new());
         let mut sink = Sink::new(os, ErrMode::Capture);
@@ -8178,10 +8278,9 @@ mod tests {
         assert_eq!(sh("printf 'a\\n' | xargs true").1, 0);
     }
 
-    /// `xargs`'s statuses follow GNU: 123 when a run exits 1 to 125 and the runs
-    /// go on; 124 for 255, 125 for a signal (the host reports 128), 126 and 127
-    /// end the runs at once. `prog` is a program the test host runs with the
-    /// status it is given.
+    /// `xargs`'s statuses follow GNU: 123 when a run exits 1 to 127 and the runs
+    /// go on; 124 for 255; 125 for a signal; a refusal's 126 ends the runs at
+    /// once. `prog` is a program the test host runs with the status it is given.
     #[test]
     fn xargs_statuses_follow_gnu() {
         let os = MemOs::new(true, &[]);
@@ -8192,15 +8291,59 @@ mod tests {
         assert_eq!(sh_err(&os, run).1, 123);
         os.programs.set(Some(0));
         assert_eq!(sh_err(&os, run).1, 0);
+        // GNU: a program's own 126, 127 or 128 is an exit code like any other:
+        // 123 at the end, and the runs go on. GNU on WSL: `sh -c 'exit 127'`
+        // and `exit 128` each give 123.
         os.programs.set(Some(126));
-        assert_eq!(sh_err(&os, run).1, 126);
+        assert_eq!(sh_err(&os, run), (String::new(), 123));
         os.programs.set(Some(127));
-        assert_eq!(sh_err(&os, run).1, 127);
+        assert_eq!(sh_err(&os, run), (String::new(), 123));
         os.programs.set(Some(128));
-        assert_eq!(sh_err(&os, run).1, 125);
+        assert_eq!(sh_err(&os, run), (String::new(), 123));
         // With no program at all, the gate's refusal is the run's status.
         os.programs.set(None);
         assert_eq!(sh_err(&os, run).1, 126);
+    }
+
+    /// GNU's messages and statuses for a program that cannot start, one killed
+    /// by a signal, and one that exits 255. The shell's own line for a program
+    /// it cannot start is replaced by xargs's, and a plain `prog` keeps the
+    /// shell's wording and status.
+    #[test]
+    fn xargs_reports_missing_and_signalled_programs_as_gnu_does() {
+        let os = MemOs::new(true, &[]);
+        let run = "printf 'a\\nb\\n' | xargs -n1 prog";
+        // GNU on WSL: xargs -n1 nosuchprog_zz prints one line and exits 127.
+        os.programs.set(Some(0));
+        os.program_missing.set(true);
+        assert_eq!(
+            sh_err(&os, run),
+            ("xargs: prog: No such file or directory\n".into(), 127)
+        );
+        assert_eq!(
+            sh_err(&os, "prog"),
+            ("ish: prog: command not found\n".into(), 127)
+        );
+        os.program_missing.set(false);
+        // GNU on WSL: a child killed by TERM is "terminated by signal 15",
+        // and the runs stop with 125.
+        os.program_signal.set(Some(15));
+        assert_eq!(
+            sh_err(&os, run),
+            ("xargs: prog: terminated by signal 15\n".into(), 125)
+        );
+        // Outside xargs the shell reports a signalled program as 128 + signal.
+        assert_eq!(sh_err(&os, "prog"), (String::new(), 143));
+        os.program_signal.set(None);
+        // GNU on WSL: a child that exits 255 aborts the runs with 124.
+        os.programs.set(Some(255));
+        assert_eq!(
+            sh_err(&os, run),
+            (
+                "xargs: prog: exited with status 255; aborting\n".into(),
+                124
+            )
+        );
     }
 
     /// `xargs` refuses more than 100,000 runs before it starts any, and an
@@ -8305,17 +8448,35 @@ mod tests {
         assert!(!refuse.has("/w/t"));
     }
 
-    /// `touch` creates an absent file through the gate. An existing file is
-    /// left unchanged and succeeds, since the trait cannot set a time. `-c`
-    /// creates nothing.
+    /// `touch` creates an absent file through the gate. An existing file keeps
+    /// its contents and has its times set to now, through the gate, as GNU
+    /// does. `-c` creates nothing.
     #[test]
-    fn touch_creates_through_the_gate_and_leaves_existing_files() {
+    fn touch_creates_through_the_gate_and_sets_existing_times() {
         let os = MemOs::new(true, &[("/w", None), ("/w/a", Some("A"))]);
+        os.clock.set(1_000_000);
         // GNU: touch /w/n creates an empty file.
         assert_eq!(sh_err(&os, "touch /w/n"), (String::new(), 0));
         assert_eq!(os.contents("/w/n"), Some(Vec::new()));
+        assert!(os.touched.borrow().is_empty(), "a new file is not re-timed");
+        // GNU: touch /w/a sets its times to now and leaves its contents.
         assert_eq!(sh_err(&os, "touch /w/a"), (String::new(), 0));
         assert_eq!(os.contents("/w/a"), Some(b"A".to_vec()));
+        assert_eq!(
+            *os.touched.borrow(),
+            vec![(
+                "/w/a".to_string(),
+                Timestamp {
+                    secs: 1_000_000,
+                    nanos: 0
+                }
+            )]
+        );
+        // Touching a directory sets its times too.
+        assert_eq!(sh_err(&os, "touch /w"), (String::new(), 0));
+        assert_eq!(os.touched.borrow().len(), 2);
+        // A file that is there and not refused is not created or re-created.
+        assert!(os.has("/w/a"));
         // GNU: touch -c /w/q creates nothing and succeeds.
         assert_eq!(sh_err(&os, "touch -c /w/q"), (String::new(), 0));
         assert!(!os.has("/w/q"));
@@ -8342,6 +8503,26 @@ mod tests {
             ("refused by test gate\n".into(), 7)
         );
         assert!(!refuse.has("/w/n"));
+        // A refusal on an existing file sets no time.
+        let refuse = MemOs::new(false, &[("/w", None), ("/w/a", Some("A"))]);
+        assert_eq!(
+            sh_err(&refuse, "touch /w/a"),
+            ("refused by test gate\n".into(), 7)
+        );
+        assert!(refuse.touched.borrow().is_empty());
+    }
+
+    /// The test host that records its calls notes `set_times`, and a time
+    /// for a path that is not there fails as a missing file does.
+    #[test]
+    fn fake_host_records_set_times() {
+        let mut os = FakeOs::default();
+        os.files.insert("/w/a".into(), b"A".to_vec());
+        let at = Timestamp { secs: 1, nanos: 0 };
+        assert!(os.set_times("/w/a", at).is_ok());
+        assert_eq!(*os.calls.borrow(), vec!["set_times"]);
+        let missing = os.set_times("/w/missing", at).unwrap_err();
+        assert_eq!(missing.kind, ErrorKind::NotFound);
     }
 
     /// `which` prints the first match on PATH for each name. A name with a `/`
