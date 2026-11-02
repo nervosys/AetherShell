@@ -412,18 +412,18 @@ impl Os for HostOs {
         })
     }
 
-    /// `USER` or `LOGNAME`, then the entry for the effective user, on Unix;
-    /// `USERNAME` on Windows.
+    /// The account entry for the effective user, as GNU `whoami` reports it, on
+    /// Unix; `USER` or `LOGNAME` only when the uid has no entry, since after
+    /// `su` they still name the previous user. `USERNAME` on Windows.
     #[cfg(unix)]
     fn user_name_current(&self) -> Option<String> {
-        for var in ["USER", "LOGNAME"] {
-            if let Some(v) = std::env::var(var).ok().filter(|v| !v.is_empty()) {
-                return Some(v);
-            }
-        }
         // SAFETY: geteuid has no preconditions and cannot fail.
         let uid = unsafe { libc::geteuid() };
-        self.user_name(uid)
+        self.user_name(uid).or_else(|| {
+            ["USER", "LOGNAME"]
+                .into_iter()
+                .find_map(|var| std::env::var(var).ok().filter(|v| !v.is_empty()))
+        })
     }
 
     #[cfg(not(unix))]
