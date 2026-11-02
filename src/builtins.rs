@@ -4307,7 +4307,7 @@ fn call_with_input_inner(
         // Reversible sessions (see crate::journal).
         "undo" | "rewind" => bi_undo(args, input),
         "journal" => bi_journal(),
-        "record_summary" => bi_record_summary(input),
+        "record_summary" => bi_record_summary(args, input),
         "journal_clear" => bi_journal_clear(input),
 
         // A `[builtins]` entry of a loaded plugin (see crate::plugins). Core names
@@ -20323,8 +20323,8 @@ fn journal_rows(entries: &[crate::journal::Entry]) -> Vec<Value> {
 /// `journal()` — the recorded steps, and how many of them can be reversed.
 /// record_summary(): this session's opt-in evaluation records, summarised; see
 /// src/record.rs. Zeros and `enabled: false` unless IRONSHELL_RECORD is set.
-fn bi_record_summary(input: Option<Value>) -> Result<Value> {
-    refuse_pipeline_input("record_summary", &input)?;
+fn bi_record_summary(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
+    no_args_or_input("record_summary", &args, &input)?;
     Ok(crate::record::summary())
 }
 

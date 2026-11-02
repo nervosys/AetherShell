@@ -303,6 +303,20 @@ fn record_summary_refuses_piped_input() {
 }
 
 #[test]
+fn record_summary_refuses_arguments() {
+    let _sb = Sandbox::new("args");
+    let mut env = Env::new();
+    let err = iron_shell::builtins::call_with_input(
+        "record_summary",
+        vec![Value::Int(1)],
+        None,
+        &mut env,
+    )
+    .expect_err("an argument must be refused, not ignored");
+    assert!(err.to_string().contains("E_BAD_ARG"), "{err}");
+}
+
+#[test]
 fn a_record_that_cannot_be_written_does_not_change_the_result() {
     let sb = Sandbox::new("unwritable");
     // The session directory is a regular file, so creating records fails.

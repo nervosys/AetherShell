@@ -4070,6 +4070,20 @@ pub static SIGNATURES: &[Signature] = &[
         ],
     },
     Signature {
+        name: "record_summary",
+        category: None,
+        subject_required: false,
+        aliases: &[],
+        subject: None,
+        params: &[],
+        returns: "Record",
+        doc: "This session's opt-in evaluation records, summarised: attempts, failures, refusals, by_code, retries, recoveries and first_try_ok. Recording is off unless IRONSHELL_RECORD is 1 (hashes only) or full (with source text); off, every count is 0 and enabled is false. Records stay in record.jsonl in the session directory.",
+        examples: &[
+            ("typeof(record_summary())", "Record"),
+            (r#"(try { record_summary(1) } catch e { e.error.code })"#, "E_BAD_ARG"),
+        ],
+    },
+    Signature {
         name: "tx_status",
         category: None,
         subject_required: false,
