@@ -12,7 +12,8 @@
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
-use iron_shell::agent_api::{process_request, AgentRequest, AgentResponse};
+use iron_shell::agent_api::server::{stream_eval_events, stream_pipeline_events};
+use iron_shell::agent_api::{process_request, AgentRequest, AgentResponse, PipelineStep};
 use iron_shell::env::Env;
 use iron_shell::record::Surface;
 use iron_shell::value::Value;
@@ -334,4 +335,242 @@ fn a_record_that_cannot_be_written_does_not_change_the_result() {
     assert_eq!(on.result, off.result);
     assert_eq!(on.error, off.error);
     assert_eq!(on.result, Some(json!("AB")));
+}
+
+// ---------------------------------------------------------------------------
+// Surfaces the first version did not reach: pipelines, streamed evaluations,
+// calls whose arguments do not convert, and POSIX-subset scripts.
+// ---------------------------------------------------------------------------
+
+/// A pipeline of the given steps, run through the Agent API.
+fn pipeline(steps: J, input: Option<J>) -> AgentResponse {
+    let steps: Vec<PipelineStep> = serde_json::from_value(steps).expect("valid steps");
+    process_request(&AgentRequest::Pipeline { steps, input })
+}
+
+/// Runs `ish` as its own process, with the record variables set for it. The
+/// POSIX path exits the process, so it cannot be run in-process.
+fn run_ish(sb: &Sandbox, args: &[&str], level: &str) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_ish"))
+        .args(args)
+        .env("IRONSHELL_SESSION_DIR", sb.session())
+        .env("IRONSHELL_RECORD", level)
+        .env_remove("IRONSHELL_MODE")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("run ish")
+}
+
+#[test]
+fn a_pipeline_is_one_api_attempt_with_its_steps_as_heads() {
+    let sb = Sandbox::new("pipeline");
+    std::env::set_var("IRONSHELL_RECORD", "1");
+
+    let r = pipeline(
+        json!([{ "builtin": "reverse" }, { "builtin": "len" }]),
+        Some(json!([1, 2, 3])),
+    );
+    assert!(r.success, "{:?}", r.error);
+
+    let lines = sb.lines();
+    assert_eq!(lines.len(), 1, "one pipeline, one line");
+    assert_eq!(lines[0]["surface"], json!("api"));
+    assert_eq!(lines[0]["ok"], json!(true));
+    assert_eq!(lines[0]["heads"], json!(["reverse", "len"]));
+}
+
+#[test]
+fn a_failing_pipeline_step_keeps_its_code_and_retryability() {
+    let sb = Sandbox::new("pipeline-fail");
+    std::env::set_var("IRONSHELL_RECORD", "1");
+
+    let r = pipeline(
+        json!([{ "builtin": "no_such_builtin_for_record_test" }]),
+        None,
+    );
+    assert!(!r.success);
+
+    let lines = sb.lines();
+    assert_eq!(lines.len(), 1);
+    let line = &lines[0];
+    assert_eq!(line["surface"], json!("api"));
+    assert_eq!(line["ok"], json!(false));
+    assert_eq!(line["code"], json!("E_UNKNOWN_BUILTIN"));
+    assert_eq!(line["retryable"], json!(true));
+    assert_eq!(line["refused"], json!(false));
+    assert_eq!(line["heads"], json!(["no_such_builtin_for_record_test"]));
+}
+
+#[test]
+fn a_refused_pipeline_step_is_flagged_as_refused() {
+    let sb = Sandbox::new("pipeline-refused");
+    std::env::set_var("IRONSHELL_RECORD", "1");
+    std::env::set_var("IRONSHELL_MODE", "agent");
+
+    let target = sb.root.join("no-such-file-for-record-test");
+    let r = pipeline(
+        json!([{ "builtin": "rm", "args": [shell_path(&target)] }]),
+        None,
+    );
+    assert!(!r.success, "agent mode must refuse rm without approval");
+
+    let lines = sb.lines();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["refused"], json!(true), "line: {}", lines[0]);
+    assert_eq!(lines[0]["agent"], json!(true));
+}
+
+#[test]
+fn a_streamed_pipeline_is_one_api_attempt() {
+    let sb = Sandbox::new("stream-pipeline");
+    std::env::set_var("IRONSHELL_RECORD", "1");
+
+    let steps: Vec<PipelineStep> =
+        serde_json::from_value(json!([{ "builtin": "reverse" }, { "builtin": "len" }]))
+            .expect("valid steps");
+    let events = stream_pipeline_events(&steps, Some(&json!([1, 2, 3])), None);
+    assert_eq!(events.last().map(|e| e.event.as_str()), Some("complete"));
+
+    let lines = sb.lines();
+    assert_eq!(lines.len(), 1, "one streamed pipeline, one line");
+    assert_eq!(lines[0]["surface"], json!("api"));
+    assert_eq!(lines[0]["ok"], json!(true));
+    assert_eq!(lines[0]["heads"], json!(["reverse", "len"]));
+}
+
+#[test]
+fn a_streamed_eval_is_one_api_attempt_with_its_source_under_full() {
+    let sb = Sandbox::new("stream-eval");
+    std::env::set_var("IRONSHELL_RECORD", "full");
+
+    let ok = stream_eval_events("str.upper(\"ab\")", None);
+    assert_eq!(ok.last().map(|e| e.event.as_str()), Some("complete"));
+    let bad = stream_eval_events("no_such_builtin_for_record_test(1)", None);
+    assert_eq!(bad.last().map(|e| e.event.as_str()), Some("error"));
+
+    let lines = sb.lines();
+    assert_eq!(lines.len(), 2, "one line per streamed evaluation");
+    assert_eq!(lines[0]["surface"], json!("api"));
+    assert_eq!(lines[0]["ok"], json!(true));
+    assert_eq!(lines[0]["cmd"], json!("str.upper(\"ab\")"));
+    assert_eq!(lines[0]["heads"], json!(["str.upper"]));
+    assert_eq!(lines[1]["ok"], json!(false));
+    assert_eq!(lines[1]["code"], json!("E_UNKNOWN_BUILTIN"));
+}
+
+#[test]
+fn a_call_whose_arguments_do_not_convert_is_a_failed_attempt() {
+    let sb = Sandbox::new("call-bad-args");
+    std::env::set_var("IRONSHELL_RECORD", "1");
+
+    // `reverse` declares no parameter named `nope`, so the arguments cannot
+    // become IronShell source and nothing runs.
+    let r = process_request(&AgentRequest::Call {
+        builtin: "reverse".to_string(),
+        args: json!({ "nope": 1 }),
+    });
+    assert!(!r.success);
+    assert_eq!(r.code.as_deref(), Some("E_BAD_ARG"));
+
+    let lines = sb.lines();
+    assert_eq!(lines.len(), 1, "the refused call is still one attempt");
+    let line = &lines[0];
+    assert_eq!(line["surface"], json!("api"));
+    assert_eq!(line["ok"], json!(false));
+    assert_eq!(line["code"], json!("E_BAD_ARG"));
+    assert_eq!(line["retryable"], json!(true));
+    assert_eq!(line["heads"], json!(["reverse"]));
+    assert_eq!(
+        line["cmd_hash"],
+        json!("cbf29ce484222325"),
+        "hash of the empty source"
+    );
+}
+
+#[test]
+fn a_posix_script_is_recorded_under_sh_with_its_command_heads() {
+    let sb = Sandbox::new("sh");
+    let out = run_ish(
+        &sb,
+        &[
+            "--bash",
+            "-c",
+            "if test 1 -eq 1; then echo hi; fi; echo done | wc -l",
+        ],
+        "1",
+    );
+    assert!(out.status.success(), "script must run: {out:?}");
+
+    let lines = sb.lines();
+    assert_eq!(lines.len(), 1, "one script, one line");
+    let line = &lines[0];
+    assert_eq!(line["surface"], json!("sh"));
+    assert_eq!(line["ok"], json!(true));
+    assert!(line.get("code").is_none());
+    assert_eq!(line["heads"], json!(["test", "echo", "echo", "wc"]));
+    assert!(line.get("cmd").is_none(), "no source text under `1`");
+}
+
+#[test]
+fn a_nonzero_posix_status_is_a_failed_sh_attempt_without_a_code() {
+    let sb = Sandbox::new("sh-status");
+    let out = run_ish(&sb, &["--bash", "-c", "echo x; exit 3"], "1");
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "the script's own status is kept"
+    );
+
+    let lines = sb.lines();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["surface"], json!("sh"));
+    assert_eq!(lines[0]["ok"], json!(false));
+    assert!(
+        lines[0].get("code").is_none(),
+        "a script's exit is not an IronShell code"
+    );
+    assert_eq!(lines[0]["refused"], json!(false));
+}
+
+#[test]
+fn a_posix_script_stores_its_source_only_under_full() {
+    let sb = Sandbox::new("sh-full");
+    let out = run_ish(&sb, &["--bash", "-c", "echo hi"], "full");
+    assert!(out.status.success());
+
+    let lines = sb.lines();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["surface"], json!("sh"));
+    assert_eq!(lines[0]["cmd"], json!("echo hi"));
+    assert_eq!(lines[0]["heads"], json!(["echo"]));
+}
+
+#[test]
+fn an_empty_head_never_counts_as_a_retry() {
+    let sb = Sandbox::new("empty-head");
+    std::env::set_var("IRONSHELL_RECORD", "1");
+
+    // Two failed scripts whose first word is not a literal. They share the
+    // empty head, which names no command, so neither is a retry of the other.
+    let rows = [
+        json!({"v":1,"ts":1000,"seq":0,"surface":"sh","agent":false,"heads":[""],
+               "cmd_hash":"0000000000000001","ok":false,"refused":false,"ms":1}),
+        json!({"v":1,"ts":2000,"seq":1,"surface":"sh","agent":false,"heads":[""],
+               "cmd_hash":"0000000000000002","ok":true,"refused":false,"ms":1}),
+    ];
+    let mut text = String::new();
+    for row in &rows {
+        text.push_str(&row.to_string());
+        text.push('\n');
+    }
+    std::fs::write(sb.record_file(), text).expect("write record file");
+
+    let mut env = Env::new();
+    let summary = iron_shell::builtins::call("record_summary", vec![], &mut env)
+        .expect("record_summary runs");
+    let Value::Record(m) = summary else {
+        panic!("record_summary must return a Record");
+    };
+    assert_eq!(m["retries"], Value::Int(0));
+    assert_eq!(m["recoveries"], Value::Int(0));
 }

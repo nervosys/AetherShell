@@ -85,10 +85,20 @@ Off by default. With `IRONSHELL_RECORD=1`, each top-level evaluation appends one
 JSON line to `record.jsonl` in the session directory (`IRONSHELL_SESSION_DIR`, or
 the per-project cache directory). Nothing is sent anywhere. Each line holds a
 version, a timestamp, a per-process sequence number, the surface (`c`, `file`,
-`repl`, `api`), whether agent mode was on, the names of the builtins called at the
+`repl`, `api`, `sh`), whether agent mode was on, the names of the builtins called at the
 top level, a 64-bit FNV-1a hash of the source, the duration, and on failure the
 error code, whether it is retryable, and whether it was a refusal. Outputs and
 argument values are not stored.
+
+Each Agent API evaluation is one attempt: `eval`, `call`, `pipeline`, and their
+streamed and WebSocket forms. A pipeline is recorded as the
+IronShell source its steps compile to. A POSIX-subset script (`ish -b`, `--bash`
+input, and `.sh` files it runs natively) has surface `sh`. Its heads are the first
+word of each command, or an empty string when that word is not a literal. Its `ok`
+means exit status 0, and a non-zero status has no code, because the script's own
+exit is not an IronShell failure. A failure that a `try { } catch { }` handles is
+not an attempt, so it is not recorded; only a failure that leaves the evaluation
+is.
 
 `IRONSHELL_RECORD=full` also stores the source text in a `cmd` field. Use it only
 when that text is safe to keep, since it can contain secrets.

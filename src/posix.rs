@@ -4106,6 +4106,70 @@ pub fn supports(src: &str) -> Result<(), String> {
     parse(src).map(|_| ()).map_err(|Unsupported(w)| w)
 }
 
+/// The first word of each simple command in `src`, in source order, for the
+/// evaluation recorder. Commands inside `if`, loops and groups are included. A
+/// first word that is not a plain literal (`$cmd`, `$(…)`) is an empty string,
+/// and an assignment with no words names no command, so it is not listed.
+/// Source outside the subset has no heads.
+pub fn heads(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(list) = parse(src) {
+        walk_list(&list, &mut out);
+    }
+    out
+}
+
+fn walk_list(list: &List, out: &mut Vec<String>) {
+    for ao in list {
+        walk_pipeline(&ao.first, out);
+        for (_, p) in &ao.rest {
+            walk_pipeline(p, out);
+        }
+    }
+}
+
+fn walk_pipeline(p: &Pipeline, out: &mut Vec<String>) {
+    for cmd in &p.cmds {
+        match cmd {
+            Cmd::Simple { words, .. } => {
+                if let Some(first) = words.first() {
+                    out.push(literal_text(first));
+                }
+            }
+            Cmd::If {
+                branches,
+                otherwise,
+                ..
+            } => {
+                for (cond, body) in branches {
+                    walk_list(cond, out);
+                    walk_list(body, out);
+                }
+                if let Some(list) = otherwise {
+                    walk_list(list, out);
+                }
+            }
+            Cmd::For { body, .. } | Cmd::Group { body, .. } => walk_list(body, out),
+            Cmd::While { cond, body, .. } => {
+                walk_list(cond, out);
+                walk_list(body, out);
+            }
+        }
+    }
+}
+
+/// The text of a word made only of literal parts, or empty when any part is a
+/// parameter or command substitution.
+fn literal_text(word: &Word) -> String {
+    word.iter()
+        .map(|part| match part {
+            Part::Lit(s, _) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect::<Option<String>>()
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

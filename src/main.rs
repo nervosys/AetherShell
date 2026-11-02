@@ -1181,7 +1181,15 @@ fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
 /// outside the subset, before anything has run, so the caller falls back to
 /// the transpiler exactly as it did before the subset existed.
 fn run_posix_or_fall_back(src: &str) {
+    let started = std::time::Instant::now();
     if let Some(status) = iron_shell::posix::run(src) {
+        iron_shell::record::note_status(
+            iron_shell::record::Surface::Sh,
+            src,
+            iron_shell::posix::heads,
+            status,
+            started.elapsed(),
+        );
         std::process::exit(status);
     }
 }

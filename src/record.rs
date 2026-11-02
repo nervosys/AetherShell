@@ -55,8 +55,12 @@ pub enum Surface {
     File,
     /// The interactive REPL.
     Repl,
-    /// The Agent API (`eval` and `call`).
+    /// The Agent API (`eval`, `call`, `pipeline`, and the streamed forms).
     Api,
+    /// A script the in-process POSIX subset ran (`ish -b`, `.sh` files, and
+    /// `--bash` input). A script outside the subset is recorded under the
+    /// surface of the transpiled run instead.
+    Sh,
 }
 
 impl Surface {
@@ -66,6 +70,7 @@ impl Surface {
             Surface::File => "file",
             Surface::Repl => "repl",
             Surface::Api => "api",
+            Surface::Sh => "sh",
         }
     }
 }
@@ -113,7 +118,7 @@ struct Entry<'a> {
     cmd: Option<&'a str>,
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    code: Option<&'static str>,
+    code: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     retryable: Option<bool>,
     refused: bool,
@@ -143,9 +148,68 @@ fn failure_of(e: &anyhow::Error) -> (&'static str, bool) {
     (code.as_str(), code.retryable())
 }
 
-/// Record one top-level evaluation. Does nothing unless recording is on, and
-/// never fails: a record that cannot be written is dropped.
+/// Record one top-level evaluation of IronShell source. Does nothing unless
+/// recording is on, and never fails: a record that cannot be written is dropped.
 pub fn note<T>(surface: Surface, code: &str, outcome: &anyhow::Result<T>, elapsed: Duration) {
+    if !enabled() {
+        return;
+    }
+    let (ok, code_str, retryable) = match outcome {
+        Ok(_) => (true, None, None),
+        Err(e) => {
+            let (c, retry) = failure_of(e);
+            (false, Some(c), Some(retry))
+        }
+    };
+    write_record(surface, code, heads_of, ok, code_str, retryable, elapsed);
+}
+
+/// Record one attempt whose outcome is already classified, for the surfaces
+/// that have no `anyhow` error to classify (a pipeline's failing step, a call
+/// whose arguments did not convert). `heads` runs only when recording is on.
+pub fn note_outcome(
+    surface: Surface,
+    source: &str,
+    heads: impl FnOnce(&str) -> Vec<String>,
+    outcome: Result<(), ErrorCode>,
+    elapsed: Duration,
+) {
+    if !enabled() {
+        return;
+    }
+    let (ok, code_str, retryable) = match outcome {
+        Ok(()) => (true, None, None),
+        Err(c) => (false, Some(c.as_str()), Some(c.retryable())),
+    };
+    write_record(surface, source, heads, ok, code_str, retryable, elapsed);
+}
+
+/// Record one script run by the POSIX subset. `ok` means exit status 0. A
+/// non-zero status carries no code: the script's own exit is not an IronShell
+/// failure. `heads` runs only when recording is on.
+pub fn note_status(
+    surface: Surface,
+    source: &str,
+    heads: impl FnOnce(&str) -> Vec<String>,
+    status: i32,
+    elapsed: Duration,
+) {
+    if !enabled() {
+        return;
+    }
+    write_record(surface, source, heads, status == 0, None, None, elapsed);
+}
+
+/// Build one line and append it. Callers have checked that recording is on.
+fn write_record(
+    surface: Surface,
+    code: &str,
+    heads: impl FnOnce(&str) -> Vec<String>,
+    ok: bool,
+    code_str: Option<&str>,
+    retryable: Option<bool>,
+    elapsed: Duration,
+) {
     let level = level();
     if level == Level::Off {
         return;
@@ -154,13 +218,8 @@ pub fn note<T>(surface: Surface, code: &str, outcome: &anyhow::Result<T>, elapse
         return;
     };
     let source = code.trim();
-    let (ok, code_str, retryable) = match outcome {
-        Ok(_) => (true, None, None),
-        Err(e) => {
-            let (c, retry) = failure_of(e);
-            (false, Some(c), Some(retry))
-        }
-    };
+    let mut heads = heads(source);
+    heads.truncate(MAX_HEADS);
     let refused = code_str.is_some_and(|c| REFUSAL_CODES.contains(&c));
     let entry = Entry {
         v: 1,
@@ -168,7 +227,7 @@ pub fn note<T>(surface: Surface, code: &str, outcome: &anyhow::Result<T>, elapse
         seq: SEQ.fetch_add(1, Ordering::Relaxed),
         surface: surface.as_str(),
         agent: safety::current_mode() == safety::Mode::Agent,
-        heads: heads_of(source),
+        heads,
         cmd_hash: format!("{:016x}", fnv1a64(source.as_bytes())),
         cmd: (level == Level::Full).then_some(source),
         ok,
@@ -209,7 +268,7 @@ fn append(dir: &Path, line: &str) -> std::io::Result<()> {
 /// contributes that name. Lambda bodies are not entered, so the names a
 /// `map(fn(x) => …)` calls inside its lambda are not listed. Source that does
 /// not parse has no heads.
-fn heads_of(source: &str) -> Vec<String> {
+pub fn heads_of(source: &str) -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(stmts) = crate::parser::parse_program(source) {
         for stmt in &stmts {
@@ -316,11 +375,14 @@ impl Row {
             ok: v.get("ok")?.as_bool()?,
             refused: v.get("refused").and_then(|r| r.as_bool()).unwrap_or(false),
             code: v.get("code").and_then(|c| c.as_str()).map(str::to_string),
+            // An empty head is a script command whose first word is not a
+            // literal (`$cmd arg`). It names nothing, so it cannot match a retry.
             head: v
                 .get("heads")
                 .and_then(|h| h.as_array())
                 .and_then(|h| h.first())
                 .and_then(|h| h.as_str())
+                .filter(|h| !h.is_empty())
                 .map(str::to_string),
         })
     }

@@ -485,10 +485,20 @@ fn structured_error_fields(error: &str) -> Option<(String, Option<String>)> {
 
 /// Execute a single builtin call
 fn execute_call(builtin: &str, args: &JsonValue) -> AgentResponse {
+    let started = std::time::Instant::now();
     // Convert JSON args to IronShell code
     let code = match args_to_code(builtin, args) {
         Ok(c) => c,
         Err(e) => {
+            // No IronShell source was built, so the attempt is recorded under
+            // its builtin name alone.
+            crate::record::note_outcome(
+                crate::record::Surface::Api,
+                "",
+                |_| vec![builtin.to_string()],
+                Err(crate::safety::ErrorCode::BadArg),
+                started.elapsed(),
+            );
             return AgentResponse {
                 code: Some("E_BAD_ARG".to_string()),
                 hint: None,
@@ -497,7 +507,7 @@ fn execute_call(builtin: &str, args: &JsonValue) -> AgentResponse {
                 error: Some(format!("Failed to convert arguments: {}", e)),
                 result_type: None,
                 metadata: Some(json!({"code": "E_BAD_ARG"})),
-            }
+            };
         }
     };
 
@@ -529,6 +539,9 @@ struct PipelineFailure {
     message: String,
     /// The pipeline as one program, once it had been assembled.
     code_attempted: Option<String>,
+    /// The failure's code, for the evaluation recorder. A step's own error
+    /// keeps its code; a pipeline that could not be built is `E_BAD_ARG`.
+    code: crate::safety::ErrorCode,
 }
 
 /// Name of the environment slot that carries stage `j`'s output to stage `j + 1`.
@@ -562,13 +575,44 @@ fn single_expression(source: &str) -> Result<Expr, String> {
 fn run_pipeline_steps(
     steps: &[PipelineStep],
     input: Option<&JsonValue>,
+    on_step_done: impl FnMut(usize),
+) -> Result<(Value, String), PipelineFailure> {
+    // Every route through the runner is one attempt: `pipeline`, the
+    // `execute` and `stream/pipeline` forms, and the WebSocket all come here.
+    let started = std::time::Instant::now();
+    let outcome = run_pipeline_steps_unrecorded(steps, input, on_step_done);
+    match &outcome {
+        Ok((_, code)) => crate::record::note_outcome(
+            crate::record::Surface::Api,
+            code,
+            crate::record::heads_of,
+            Ok(()),
+            started.elapsed(),
+        ),
+        Err(failure) => crate::record::note_outcome(
+            crate::record::Surface::Api,
+            failure.code_attempted.as_deref().unwrap_or(""),
+            crate::record::heads_of,
+            Err(failure.code),
+            started.elapsed(),
+        ),
+    }
+    outcome
+}
+
+fn run_pipeline_steps_unrecorded(
+    steps: &[PipelineStep],
+    input: Option<&JsonValue>,
     mut on_step_done: impl FnMut(usize),
 ) -> Result<(Value, String), PipelineFailure> {
+    use crate::safety::ErrorCode;
+
     if steps.is_empty() {
         return Err(PipelineFailure {
             step: None,
             message: "Pipeline must have at least one step".to_string(),
             code_attempted: None,
+            code: ErrorCode::BadArg,
         });
     }
 
@@ -578,6 +622,7 @@ fn run_pipeline_steps(
             step: None,
             message: format!("Failed to build pipeline input: {}", e),
             code_attempted: None,
+            code: ErrorCode::BadArg,
         })?;
         stage_codes.push(literal);
     }
@@ -586,6 +631,7 @@ fn run_pipeline_steps(
             step: None,
             message: format!("Failed to build step '{}': {}", step.builtin, e),
             code_attempted: None,
+            code: ErrorCode::BadArg,
         })?;
         stage_codes.push(code);
     }
@@ -596,6 +642,7 @@ fn run_pipeline_steps(
             step: None,
             message: e.to_string(),
             code_attempted: Some(joined),
+            code: ErrorCode::BadArg,
         });
     }
     let mut stage_exprs = Vec::with_capacity(stage_codes.len());
@@ -612,6 +659,7 @@ fn run_pipeline_steps(
                     step: None,
                     message,
                     code_attempted: Some(joined.clone()),
+                    code: ErrorCode::BadArg,
                 })
             }
         }
@@ -624,19 +672,22 @@ fn run_pipeline_steps(
     let mut output = Value::Null;
     for (j, expr) in stage_exprs.into_iter().enumerate() {
         let step = j.checked_sub(offset);
-        let fail = |message: String| PipelineFailure {
+        let fail = |message: String, code: ErrorCode| PipelineFailure {
             step,
             message,
             code_attempted: Some(joined.clone()),
+            code,
         };
         // Statements start with no pipe input; so does each stage.
         env.set_input(None);
-        let value = eval_expr(&expr, &mut env).map_err(|e| fail(format!("{}", e)))?;
+        let value = eval_expr(&expr, &mut env)
+            .map_err(|e| fail(format!("{}", e), crate::safety::code_of(&e)))?;
         if let Some(i) = step {
             on_step_done(i);
         }
         if j < last_stage {
-            env.set_var(pipeline_slot(j), value).map_err(fail)?;
+            env.set_var(pipeline_slot(j), value)
+                .map_err(|message| fail(message, ErrorCode::Unknown))?;
         } else {
             output = value;
         }
@@ -648,6 +699,7 @@ fn run_pipeline_steps(
             step: steps.len().checked_sub(1),
             message: format!("uncaught error: {msg}"),
             code_attempted: Some(joined),
+            code: ErrorCode::Unknown,
         });
     }
     Ok((output, joined))
@@ -5158,10 +5210,17 @@ pub mod server {
         // value being materialized first, then chunked for the wire.
         let mut env = crate::modules::env_with_modules();
         let mut items: Vec<JsonValue> = Vec::new();
+        let started = std::time::Instant::now();
         let result = {
             let mut emit = |v: crate::value::Value| items.push(v.to_json());
             crate::eval::eval_stream(code, &mut env, &mut emit)
         };
+        crate::record::note(
+            crate::record::Surface::Api,
+            code,
+            &result,
+            started.elapsed(),
+        );
         match result {
             Ok(n) => {
                 for (seq, chunk) in items.chunks(50).enumerate() {
