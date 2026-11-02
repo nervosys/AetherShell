@@ -77,6 +77,25 @@ file = "~/.local/share/ironshell/ironshell.log"
 | `OLLAMA_HOST`       | Ollama server URL      | `http://localhost:11434`     |
 | `AGENT_ALLOW_CMDS`  | Allowed agent commands | `ls,cat,grep`                |
 | `IRONSHELL_LOG`   | Log level              | `debug`, `info`, `warn`      |
+| `IRONSHELL_RECORD` | Local evaluation records (off unless set) | `1`, `full` |
+
+### Local evaluation records (`IRONSHELL_RECORD`)
+
+Off by default. With `IRONSHELL_RECORD=1`, each top-level evaluation appends one
+JSON line to `record.jsonl` in the session directory (`IRONSHELL_SESSION_DIR`, or
+the per-project cache directory). Nothing is sent anywhere. Each line holds a
+version, a timestamp, a per-process sequence number, the surface (`c`, `file`,
+`repl`, `api`), whether agent mode was on, the names of the builtins called at the
+top level, a 64-bit FNV-1a hash of the source, the duration, and on failure the
+error code, whether it is retryable, and whether it was a refusal. Outputs and
+argument values are not stored.
+
+`IRONSHELL_RECORD=full` also stores the source text in a `cmd` field. Use it only
+when that text is safe to keep, since it can contain secrets.
+
+`record_summary()` reads the current session's file and reports attempts,
+failures, refusals, failures by code, retries, recoveries and first-try successes.
+Any other value of the variable records nothing.
 
 ### Setting Environment Variables
 

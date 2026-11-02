@@ -718,27 +718,22 @@ fn execute_eval(code: &str) -> AgentResponse {
     // `file.read(…)`/`sys.hostname()` in it fails as a field access on Null.
     let mut env = crate::modules::env_with_modules();
 
-    match parse_program(code) {
-        Ok(stmts) => match eval_program(&stmts, &mut env) {
-            Ok(value) => response_from_value(value, code),
-            Err(e) => AgentResponse {
-                code: None,
-                hint: None,
-                success: false,
-                result: None,
-                error: Some(format!("{}", e)),
-                result_type: None,
-                metadata: Some(json!({
-                    "code_attempted": code
-                })),
-            },
-        },
+    let started = std::time::Instant::now();
+    let outcome = parse_program(code).and_then(|stmts| eval_program(&stmts, &mut env));
+    crate::record::note(
+        crate::record::Surface::Api,
+        code,
+        &outcome,
+        started.elapsed(),
+    );
+    match outcome {
+        Ok(value) => response_from_value(value, code),
+        // A parse failure is the structured `E_PARSE` JSON, as the CLI reports it.
         Err(e) => AgentResponse {
             code: None,
             hint: None,
             success: false,
             result: None,
-            // The structured `E_PARSE` JSON, as the CLI reports it.
             error: Some(e.to_string()),
             result_type: None,
             metadata: Some(json!({

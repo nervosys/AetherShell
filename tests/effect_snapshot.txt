@@ -1036,6 +1036,7 @@ read_text	ReadLocal
 readelf	ReadLocal
 readelf_headers	ReadLocal
 readelf_sections	ReadLocal
+record_summary	ReadLocal
 recursive_agent	Network
 reduce	Pure
 refactor_add_parameter	Pure

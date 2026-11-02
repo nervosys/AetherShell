@@ -217,6 +217,9 @@ pub mod prompt;
 /// AI providers — provider registry and model routing.
 #[cfg(feature = "native")]
 pub mod providers;
+/// Opt-in, local-only recording of evaluation attempts (`IRONSHELL_RECORD`).
+#[cfg(feature = "native")]
+pub mod record;
 /// REPL — interactive read-eval-print loop.
 #[cfg(feature = "native")]
 pub mod repl;

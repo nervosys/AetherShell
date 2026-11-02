@@ -161,6 +161,12 @@ pub fn run(env: &mut Env) -> Result<()> {
         let started = std::time::Instant::now();
         let result = eval_line(env, code);
         last_duration_ms = started.elapsed().as_millis() as u64;
+        crate::record::note(
+            crate::record::Surface::Repl,
+            code,
+            &result,
+            started.elapsed(),
+        );
 
         match result {
             Ok(v) => {
@@ -225,7 +231,15 @@ fn print_result(out: &str) {
 
 /// One-liner (e.g. `ish -c 'code'`)
 pub fn run_one(env: &mut Env, code: &str) -> Result<i32> {
-    match eval_line(env, code) {
+    run_one_as(env, code, crate::record::Surface::C)
+}
+
+/// [`run_one`] for a given surface, which only the recorder reads.
+pub fn run_one_as(env: &mut Env, code: &str, surface: crate::record::Surface) -> Result<i32> {
+    let started = std::time::Instant::now();
+    let result = eval_line(env, code);
+    crate::record::note(surface, code, &result, started.elapsed());
+    match result {
         Ok(v) => {
             let budget = std::env::var("IRONSHELL_TOKEN_BUDGET")
                 .ok()

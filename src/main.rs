@@ -1173,7 +1173,7 @@ fn run_file(path: &str, explicit_mode: Option<TranspileMode>) -> Result<()> {
 
     // `import` paths in this file resolve against its own directory.
     let _entry = iron_shell::module_loader::enter_entry_file(std::path::Path::new(path));
-    run_code(&code)
+    run_code_as(&code, iron_shell::record::Surface::File)
 }
 
 /// Run shell source natively when it is inside the POSIX subset
@@ -1187,8 +1187,12 @@ fn run_posix_or_fall_back(src: &str) {
 }
 
 fn run_code(code: &str) -> Result<()> {
+    run_code_as(code, iron_shell::record::Surface::C)
+}
+
+fn run_code_as(code: &str, surface: iron_shell::record::Surface) -> Result<()> {
     let mut env = create_env_with_modules();
-    let exit_code = iron_shell::repl::run_one(&mut env, code)?;
+    let exit_code = iron_shell::repl::run_one_as(&mut env, code, surface)?;
     // The process ends here, and freeing the environment -- ~120 module
     // records, a few thousand small allocations -- was 14% of the
     // instructions `ish -c 1` executes. Neither `Env` nor `Value` has a `Drop`

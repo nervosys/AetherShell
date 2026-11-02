@@ -1311,7 +1311,9 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "platform_cpu_count" | "platform_detect_tools" | "platform_has_container"
         | "platform_has_sudo" | "platform_has_tool" | "platform_pkg_managers"
         | "session_history" | "journal" | "query_audit" | "audit_query" | "audit_statistics"
-        | "audit_stats" | "tx_status" | "handle" | "handles" => Some(Effect::ReadLocal),
+        | "audit_stats" | "tx_status" | "handle" | "handles" | "record_summary" => {
+            Some(Effect::ReadLocal)
+        }
         // Runs `<tool> --version` on a PATH binary the caller names, unsandboxed,
         // whenever a requirement is a version string (`get_tool_version`). A bare
         // presence check only scans PATH, but the call can execute any program on
@@ -2468,6 +2470,19 @@ fn classify_uncoded(e: &anyhow::Error) -> Option<(ErrorCode, &'static str)> {
         }
     }
     None
+}
+
+/// The code an error that reached a boundary carries, without consuming it.
+///
+/// A [`SafetyError`] answers with its own code. Anything else gets the same
+/// classification [`ensure_structured`] applies (absence, permission, I/O), and
+/// `E_UNKNOWN` when that finds nothing. Used by [`crate::record`], which must
+/// read the code of an error it is about to pass on unchanged.
+pub fn code_of(e: &anyhow::Error) -> ErrorCode {
+    if let Some(se) = e.downcast_ref::<SafetyError>() {
+        return se.code;
+    }
+    classify_uncoded(e).map_or(ErrorCode::Unknown, |(code, _)| code)
 }
 
 /// Give an otherwise-uncoded failure a stable code (`E_UNKNOWN`).

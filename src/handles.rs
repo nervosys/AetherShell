@@ -40,7 +40,7 @@ use std::time::SystemTime;
 /// projects do not share handles while successive calls in one project do.
 /// Returns `None` when no cache directory can be determined, in which case
 /// handles degrade to memory-only rather than failing.
-fn session_dir() -> Option<PathBuf> {
+pub(crate) fn session_dir() -> Option<PathBuf> {
     if let Ok(d) = std::env::var("IRONSHELL_SESSION_DIR") {
         return Some(PathBuf::from(d));
     }

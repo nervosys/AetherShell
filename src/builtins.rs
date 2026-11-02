@@ -4052,6 +4052,7 @@ pub const FALLBACK_BUILTINS: &[(&str, &str)] = &[
     ("ontology_owl", "bi_ontology_owl"),
     ("ontology_shacl", "bi_ontology_shacl"),
     ("open", "bi_open"),
+    ("record_summary", "bi_record_summary"),
     ("rewind", "bi_undo"),
     ("select", "bi_select_object"),
     ("select-object", "bi_select_object"),
@@ -4306,6 +4307,7 @@ fn call_with_input_inner(
         // Reversible sessions (see crate::journal).
         "undo" | "rewind" => bi_undo(args, input),
         "journal" => bi_journal(),
+        "record_summary" => bi_record_summary(input),
         "journal_clear" => bi_journal_clear(input),
 
         // A `[builtins]` entry of a loaded plugin (see crate::plugins). Core names
@@ -20319,6 +20321,13 @@ fn journal_rows(entries: &[crate::journal::Entry]) -> Vec<Value> {
 }
 
 /// `journal()` — the recorded steps, and how many of them can be reversed.
+/// record_summary(): this session's opt-in evaluation records, summarised; see
+/// src/record.rs. Zeros and `enabled: false` unless IRONSHELL_RECORD is set.
+fn bi_record_summary(input: Option<Value>) -> Result<Value> {
+    refuse_pipeline_input("record_summary", &input)?;
+    Ok(crate::record::summary())
+}
+
 fn bi_journal() -> Result<Value> {
     let entries = crate::journal::entries();
     let reversible = crate::journal::reversible_count();
