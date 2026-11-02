@@ -56621,8 +56621,9 @@ fn container_run(
     container_operand(builtin, "image", image)?;
     // `run` pulls the image when it is not present, from the registry the
     // reference names (see `image_registry`), so that registry is judged here.
-    // A daemon-level mirror (registry-mirrors in daemon.json) is not read.
+    // A daemon or registries.conf mirror is judged by check_container_mirror_egress.
     crate::safety::check_egress(builtin, &[format!("https://{}", image_registry(image))])?;
+    crate::safety::check_container_mirror_egress(builtin)?;
     let argv = argv_arg(builtin, "command", args.get(1), false)?;
     let flags = match args.get(2) {
         None => Vec::new(),
@@ -56806,8 +56807,10 @@ fn container_image_op(
     refuse_pipeline(builtin, input)?;
     let image = str_operand(builtin, "image", args.first())?;
     container_operand(builtin, "image", image)?;
-    // The registry is the one the reference names; see `image_registry`.
+    // The registry is the one the reference names; see `image_registry`. A mirror
+    // in the daemon or registries.conf is judged by check_container_mirror_egress.
     crate::safety::check_egress(builtin, &[format!("https://{}", image_registry(image))])?;
+    crate::safety::check_container_mirror_egress(builtin)?;
     let text = container_cli(builtin, program, &[verb, "--", image], true)?;
     Ok(Value::Str(text))
 }

@@ -61,6 +61,9 @@ impl Egress {
             "GIT_CONFIG_NOSYSTEM",
             "XDG_CONFIG_HOME",
             "ProgramData",
+            // podman's own registries.conf override: when set, the container
+            // mirror check refuses instead of reading a file.
+            "CONTAINERS_REGISTRIES_CONF",
         ];
         let saved = names
             .iter()
@@ -87,6 +90,7 @@ impl Egress {
         std::env::set_var("XDG_CONFIG_HOME", &empty_dir);
         std::env::set_var("ProgramData", &empty_dir);
         std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
+        std::env::remove_var("CONTAINERS_REGISTRIES_CONF");
         let audit_log = std::env::temp_dir().join(format!(
             "ae_egress_audit_{tag}_{}.jsonl",
             std::process::id()
@@ -1275,4 +1279,95 @@ fn an_allowlisted_alias_whose_hostname_is_off_the_list_is_refused() {
         message.contains("evil.example"),
         "the refusal names the resolved host: {message}"
     );
+}
+
+/// A registry mirror in podman's own override (`CONTAINERS_REGISTRIES_CONF`) names
+/// a file the mirror check does not read, so under an allowlist the pull's
+/// destination is unknown and the call is refused, before anything runs. The
+/// registry the image names is on the list here, so the refusal is the mirror's.
+#[test]
+fn a_containers_registries_override_makes_the_pull_destination_unknown() {
+    let _g = lock();
+    let _e = Egress::new("mirror_env", Some("docker.io"));
+    std::env::set_var("CONTAINERS_REGISTRIES_CONF", "/ae-fake/registries.conf");
+    let cases: Vec<(&str, Vec<Value>)> = vec![
+        ("docker_pull", vec![s("alpine:3")]),
+        ("docker_push", vec![s("alpine:3")]),
+        ("docker_run", vec![s("alpine:3")]),
+        ("podman_pull", vec![s("alpine:3")]),
+        ("podman_run", vec![s("alpine:3")]),
+    ];
+    for (name, args) in cases {
+        let r = call(name, args);
+        let (code, message) = egress_refusal(&r)
+            .unwrap_or_else(|| panic!("{name} must be refused by the mirror check; got {r:?}"));
+        assert_eq!(code, ErrorCode::PolicyDeny, "{name}");
+        assert!(
+            message.starts_with(&format!("{name}: egress denied")),
+            "{name}: {message}"
+        );
+        assert!(
+            message.contains("CONTAINERS_REGISTRIES_CONF")
+                && message.contains("an allowlist is set"),
+            "{name}: the refusal says why: {message}"
+        );
+    }
+}
+
+/// Without an allowlist, or with `*`, the mirror check refuses nothing, even with
+/// the override set.
+#[test]
+fn the_container_mirror_check_is_off_without_an_allowlist_or_with_a_wildcard() {
+    let _g = lock();
+    for allow in [None, Some("*")] {
+        let _e = Egress::new("mirror_off", allow);
+        std::env::set_var("CONTAINERS_REGISTRIES_CONF", "/ae-fake/registries.conf");
+        for (name, args) in [
+            ("docker_pull", vec![s("alpine:3")]),
+            ("podman_run", vec![s("alpine:3")]),
+        ] {
+            let r = call(name, args);
+            assert!(
+                !refused_by_egress(&r),
+                "{name} with allowlist {allow:?} must not be refused by the mirror check; got {r:?}"
+            );
+        }
+    }
+}
+
+/// Git for Windows reads `etc\gitconfig` and `mingw64\etc\gitconfig` under its
+/// install directory, found from the `git.exe` on PATH. The path list names both
+/// files; nothing is read (the test only lists paths) and nothing is run.
+#[cfg(windows)]
+#[test]
+fn git_for_windows_install_config_is_in_the_system_layer() {
+    use iron_shell::safety::git_config_paths;
+    let _g = lock();
+    let e = Egress::new("git_winsys", Some("example.com"));
+    let install = e.empty_dir.join("Git");
+    let cmd = install.join("cmd");
+    std::fs::create_dir_all(&cmd).expect("fake install cmd dir");
+    std::fs::write(cmd.join("git.exe"), b"").expect("fake git.exe, never run");
+    let path = cmd.to_string_lossy().into_owned();
+    let paths = git_config_paths(|name: &str| match name {
+        "PATH" => Some(OsString::from(&path)),
+        "HOME" => Some(OsString::from(&e.empty_dir)),
+        _ => None,
+    });
+    assert!(
+        paths.contains(&install.join("etc").join("gitconfig")),
+        "the install's etc\\gitconfig is in the system layer: {paths:?}"
+    );
+    assert!(
+        paths.contains(&install.join("mingw64").join("etc").join("gitconfig")),
+        "the install's mingw64\\etc\\gitconfig is in the system layer: {paths:?}"
+    );
+    // The same list without git on PATH has neither file.
+    let without = git_config_paths(|name: &str| match name {
+        "PATH" => Some(e.empty_dir.join("nope").into_os_string()),
+        _ => None,
+    });
+    assert!(!without
+        .iter()
+        .any(|p| p.to_string_lossy().contains("mingw64")));
 }

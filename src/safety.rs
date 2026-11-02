@@ -4822,6 +4822,182 @@ pub fn check_egress_unknown(builtin: &str, reason: &str) -> Result<(), SafetyErr
     ))
 }
 
+/// Which container config file can name a registry mirror, and how it is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MirrorConfig {
+    /// Docker's `daemon.json`: `registry-mirrors`.
+    DaemonJson,
+    /// containers' `registries.conf` (podman, buildah): `[[registry.mirror]]` and
+    /// `unqualified-search-registries`.
+    RegistriesConf,
+}
+
+/// The config files that can redirect the registry a pull reaches, with the
+/// format each is read as, for `var` as the environment. Docker's daemon reads
+/// `daemon.json` from `/etc/docker`, `%ProgramData%\docker\config` and
+/// `$HOME/.docker`. Containers read `registries.conf` from `/etc/containers` and
+/// `$HOME/.config/containers`. `HOME` falls back to `USERPROFILE`, as the ssh and
+/// git readers do. An unset or empty variable names no location.
+pub fn container_mirror_paths(
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Vec<(MirrorConfig, std::path::PathBuf)> {
+    use std::path::PathBuf;
+    let set = |name: &str| var(name).filter(|v| !v.is_empty());
+    let home = set("HOME")
+        .or_else(|| set("USERPROFILE"))
+        .map(PathBuf::from);
+    let mut out = vec![(
+        MirrorConfig::DaemonJson,
+        PathBuf::from("/etc/docker/daemon.json"),
+    )];
+    if let Some(pd) = set("ProgramData") {
+        let path = PathBuf::from(pd)
+            .join("docker")
+            .join("config")
+            .join("daemon.json");
+        out.push((MirrorConfig::DaemonJson, path));
+    }
+    out.push((
+        MirrorConfig::RegistriesConf,
+        PathBuf::from("/etc/containers/registries.conf"),
+    ));
+    if let Some(h) = &home {
+        out.push((
+            MirrorConfig::DaemonJson,
+            h.join(".docker").join("daemon.json"),
+        ));
+        out.push((
+            MirrorConfig::RegistriesConf,
+            h.join(".config").join("containers").join("registries.conf"),
+        ));
+    }
+    out
+}
+
+const MIRROR_UNREADABLE: &str =
+    "a docker daemon.json or containers registries.conf cannot be read, so a registry mirror in it cannot be ruled out";
+const MIRROR_UNPARSED: &str =
+    "a docker daemon.json or containers registries.conf does not parse, so a registry mirror in it cannot be ruled out";
+const MIRROR_NAMED: &str =
+    "a docker daemon.json or containers registries.conf names a registry mirror or an unqualified search list, so the registry the pull reaches cannot be read";
+const MIRROR_ENV: &str =
+    "CONTAINERS_REGISTRIES_CONF names a registries.conf this check does not read, so a registry mirror in it cannot be ruled out";
+
+/// Whether a docker `daemon.json` names a mirror: `registry-mirrors` is a
+/// non-empty list. Absent or `null` is no mirror. Anything else that does not
+/// parse as a JSON object, or a `registry-mirrors` that is not a list, is `Err`.
+pub fn daemon_json_mirrors(text: &str) -> Result<bool, &'static str> {
+    let value: serde_json::Value = serde_json::from_str(text).map_err(|_| MIRROR_UNPARSED)?;
+    let object = value.as_object().ok_or(MIRROR_UNPARSED)?;
+    match object.get("registry-mirrors") {
+        None | Some(serde_json::Value::Null) => Ok(false),
+        Some(serde_json::Value::Array(list)) => Ok(!list.is_empty()),
+        Some(_) => Err(MIRROR_UNPARSED),
+    }
+}
+
+/// Whether a containers `registries.conf` can redirect a pull: a non-empty
+/// `unqualified-search-registries` (or the v1 `[registries.search]` list), or a
+/// `[[registry.mirror]]` table under any `[[registry]]`. Text that does not parse,
+/// or a key of the wrong type, is `Err`.
+pub fn registries_conf_redirects(text: &str) -> Result<bool, &'static str> {
+    fn in_use(v: Option<&toml::Value>) -> Result<bool, &'static str> {
+        match v {
+            None => Ok(false),
+            Some(toml::Value::Array(list)) => Ok(!list.is_empty()),
+            Some(_) => Err(MIRROR_UNPARSED),
+        }
+    }
+    let doc: toml::Table = text.parse().map_err(|_| MIRROR_UNPARSED)?;
+    if in_use(doc.get("unqualified-search-registries"))? {
+        return Ok(true);
+    }
+    let v1_search = doc
+        .get("registries")
+        .and_then(|r| r.get("search"))
+        .and_then(|s| s.get("registries"));
+    if in_use(v1_search)? {
+        return Ok(true);
+    }
+    match doc.get("registry") {
+        None => Ok(false),
+        Some(toml::Value::Array(entries)) => {
+            for entry in entries {
+                let table = entry.as_table().ok_or(MIRROR_UNPARSED)?;
+                match table.get("mirror") {
+                    None => {}
+                    Some(toml::Value::Array(list)) if list.is_empty() => {}
+                    Some(_) => return Ok(true),
+                }
+            }
+            Ok(false)
+        }
+        Some(_) => Err(MIRROR_UNPARSED),
+    }
+}
+
+/// Reads each listed file that exists and returns the refusal reason if one can
+/// redirect a registry. A missing file is no mirror. An unreadable file, one over
+/// 1 MiB, one on a remote share (probing it would reach a host), or one that does
+/// not parse refuses. The contents are never part of the reason.
+fn mirror_refusal_in(paths: &[(MirrorConfig, std::path::PathBuf)]) -> Result<(), &'static str> {
+    for (format, path) in paths {
+        if names_a_remote_share(&path.to_string_lossy()) {
+            return Err(MIRROR_UNREADABLE);
+        }
+        match path.try_exists() {
+            Ok(false) => continue,
+            Ok(true) => {}
+            Err(_) => return Err(MIRROR_UNREADABLE),
+        }
+        let text = read_git_file(path).ok_or(MIRROR_UNREADABLE)?;
+        let names = match format {
+            MirrorConfig::DaemonJson => daemon_json_mirrors(&text),
+            MirrorConfig::RegistriesConf => registries_conf_redirects(&text),
+        };
+        if names? {
+            return Err(MIRROR_NAMED);
+        }
+    }
+    Ok(())
+}
+
+/// Whether the container config can redirect a pull, for `var` as the environment.
+/// `CONTAINERS_REGISTRIES_CONF` set (podman's own override) names a file this does
+/// not read, so it refuses without reading anything. Otherwise the files of
+/// [`container_mirror_paths`] are read.
+pub fn container_mirror_refusal(
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<(), &'static str> {
+    if var("CONTAINERS_REGISTRIES_CONF").is_some_and(|v| !v.is_empty()) {
+        return Err(MIRROR_ENV);
+    }
+    mirror_refusal_in(&container_mirror_paths(&var))
+}
+
+/// The egress check for the container commands that pull an image (`docker_run`,
+/// `podman_run`, `docker_pull`, `docker_push`, `podman_pull`, `podman_push`). The
+/// registry the reference names is judged by the caller; a daemon or
+/// registries.conf mirror redirects the request to a registry nobody judged, so
+/// under an allowlist such a mirror makes the destination unknown and the call is
+/// refused through [`check_egress_unknown`]. Without an allowlist, or under the
+/// permissive policy or a `*` allowlist, nothing is read.
+pub fn check_container_mirror_egress(builtin: &str) -> Result<(), SafetyError> {
+    if policy_permissive() {
+        return Ok(());
+    }
+    let Some(allow) = net_allowlist() else {
+        return Ok(());
+    };
+    if allow.split([';', ',']).any(|e| e.trim() == "*") {
+        return Ok(());
+    }
+    match container_mirror_refusal(|name| std::env::var_os(name)) {
+        Ok(()) => Ok(()),
+        Err(reason) => check_egress_unknown(builtin, reason),
+    }
+}
+
 /// The most of `~/.ssh/config` the egress check reads. A larger file is refused
 /// under an allowlist, since its destinations cannot be read in full.
 const SSH_CONFIG_MAX_BYTES: u64 = 1024 * 1024;
@@ -5530,10 +5706,10 @@ fn git_config_layers() -> Result<Vec<String>, &'static str> {
 /// The config files git reads below the repository, lowest precedence first,
 /// with `var` as the environment.
 ///
-/// System: `/etc/gitconfig` and `%ProgramData%\Git\config`. Git for Windows also
-/// reads its own `etc\gitconfig` under its install directory; that path is not
-/// located here, so a rewrite in it is not seen. `GIT_CONFIG_NOSYSTEM`, which
-/// git honours, drops the system files.
+/// System: `/etc/gitconfig` and `%ProgramData%\Git\config`. On Windows, Git for
+/// Windows also reads `etc\gitconfig` and `mingw64\etc\gitconfig` under its
+/// install directory, which [`git_install_dir`] finds from the `git.exe` on
+/// `PATH`. `GIT_CONFIG_NOSYSTEM`, which git honours, drops the system files.
 ///
 /// Global, as git reads them: `$XDG_CONFIG_HOME/git/config` when that is set and
 /// not empty, else `$HOME/.config/git/config`; then `$HOME/.gitconfig`. `HOME`
@@ -5555,6 +5731,10 @@ pub fn git_config_paths(
         if let Some(pd) = set("ProgramData") {
             paths.push(PathBuf::from(pd).join("Git").join("config"));
         }
+        if let Some(install) = set("PATH").and_then(|p| git_install_dir(&p)) {
+            paths.push(install.join("etc").join("gitconfig"));
+            paths.push(install.join("mingw64").join("etc").join("gitconfig"));
+        }
     }
     let home = set("HOME")
         .or_else(|| set("USERPROFILE"))
@@ -5571,6 +5751,47 @@ pub fn git_config_paths(
         paths.push(h.join(".gitconfig"));
     }
     paths
+}
+
+/// The directory a Git for Windows install lives in, derived from the path of a
+/// `git` program. The wrapper is `<install>\cmd\git.exe` and the program itself is
+/// `<install>\mingw64\bin\git.exe`; `<install>\bin\git.exe` is read the same way.
+/// The string is the only input: nothing is run and nothing is probed. `None`
+/// when the name is not git or the directory is not one of those shapes.
+pub fn git_install_dir_of(git_exe: &str) -> Option<String> {
+    let parts: Vec<&str> = git_exe.split(['\\', '/']).collect();
+    let (name, dirs) = parts.split_last()?;
+    if !name.eq_ignore_ascii_case("git.exe") && !name.eq_ignore_ascii_case("git") {
+        return None;
+    }
+    let last = dirs.last()?.to_ascii_lowercase();
+    let keep = match last.as_str() {
+        "cmd" => dirs.len() - 1,
+        "bin" if dirs.len() >= 2 && dirs[dirs.len() - 2].eq_ignore_ascii_case("mingw64") => {
+            dirs.len() - 2
+        }
+        "bin" => dirs.len() - 1,
+        _ => return None,
+    };
+    if keep == 0 {
+        return None;
+    }
+    Some(dirs[..keep].join("\\"))
+}
+
+/// The Git for Windows install directory, from the first `git.exe` on `path_var`
+/// (the program is located, never run). Windows only: elsewhere git's system
+/// config is not under the install. A PATH entry on a remote share is skipped,
+/// since testing for a file there would reach a host.
+fn git_install_dir(path_var: &std::ffi::OsStr) -> Option<std::path::PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let git = std::env::split_paths(path_var)
+        .filter(|dir| !names_a_remote_share(&dir.to_string_lossy()))
+        .map(|dir| dir.join("git.exe"))
+        .find(|p| p.is_file())?;
+    git_install_dir_of(&git.to_string_lossy()).map(std::path::PathBuf::from)
 }
 
 /// The text of each file in `paths` that exists, in order. A missing file is
@@ -7524,5 +7745,282 @@ mod tests {
         let se = err.downcast_ref::<SafetyError>().expect("a SafetyError");
         assert_eq!(se.code, ErrorCode::BadState);
         assert!(se.message.contains("feature_set"), "{}", se.message);
+    }
+}
+
+#[cfg(test)]
+mod mirror_and_git_install_tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    fn env_of(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<OsString> {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| OsString::from(v))
+        }
+    }
+
+    #[test]
+    fn daemon_json_names_a_mirror_only_when_the_list_is_non_empty() {
+        assert_eq!(daemon_json_mirrors("{}"), Ok(false));
+        assert_eq!(
+            daemon_json_mirrors(r#"{"registry-mirrors": []}"#),
+            Ok(false)
+        );
+        assert_eq!(
+            daemon_json_mirrors(r#"{"registry-mirrors": null}"#),
+            Ok(false)
+        );
+        assert_eq!(
+            daemon_json_mirrors(r#"{"registry-mirrors": ["https://mirror.example.invalid"]}"#),
+            Ok(true)
+        );
+        assert_eq!(
+            daemon_json_mirrors(r#"{"log-level": "info", "registry-mirrors": ["https://m"]}"#),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn daemon_json_that_does_not_parse_fails_closed() {
+        assert!(daemon_json_mirrors("").is_err());
+        assert!(daemon_json_mirrors("{").is_err());
+        assert!(daemon_json_mirrors("[]").is_err());
+        assert!(daemon_json_mirrors(r#"{"registry-mirrors": "https://m"}"#).is_err());
+        assert!(daemon_json_mirrors(r#"{"registry-mirrors": {"a": 1}}"#).is_err());
+    }
+
+    #[test]
+    fn registries_conf_names_a_mirror_or_a_search_list_in_use() {
+        let mirror = "[[registry]]\nlocation = \"docker.io\"\n\n[[registry.mirror]]\nlocation = \"mirror.example.invalid\"\n";
+        assert_eq!(registries_conf_redirects(mirror), Ok(true));
+        assert_eq!(
+            registries_conf_redirects("unqualified-search-registries = [\"docker.io\"]\n"),
+            Ok(true)
+        );
+        // The v1 layout keeps its search list under [registries.search].
+        assert_eq!(
+            registries_conf_redirects("[registries.search]\nregistries = [\"quay.io\"]\n"),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn registries_conf_without_a_mirror_or_search_list_is_no_redirect() {
+        assert_eq!(registries_conf_redirects(""), Ok(false));
+        assert_eq!(
+            registries_conf_redirects("unqualified-search-registries = []\n"),
+            Ok(false)
+        );
+        assert_eq!(
+            registries_conf_redirects("[[registry]]\nlocation = \"docker.io\"\n"),
+            Ok(false)
+        );
+        assert_eq!(
+            registries_conf_redirects("[[registry]]\nlocation = \"docker.io\"\nmirror = []\n"),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn registries_conf_that_does_not_parse_fails_closed() {
+        assert!(registries_conf_redirects("not = [toml").is_err());
+        assert!(
+            registries_conf_redirects("unqualified-search-registries = \"docker.io\"\n").is_err()
+        );
+        assert!(registries_conf_redirects("registry = \"docker.io\"\n").is_err());
+    }
+
+    #[test]
+    fn mirror_paths_follow_docker_and_containers_locations() {
+        let home = PathBuf::from("/fake/home");
+        let paths = container_mirror_paths(env_of(&[
+            ("HOME", "/fake/home"),
+            ("ProgramData", "/fake/pd"),
+        ]));
+        assert_eq!(
+            paths,
+            vec![
+                (
+                    MirrorConfig::DaemonJson,
+                    PathBuf::from("/etc/docker/daemon.json")
+                ),
+                (
+                    MirrorConfig::DaemonJson,
+                    PathBuf::from("/fake/pd")
+                        .join("docker")
+                        .join("config")
+                        .join("daemon.json"),
+                ),
+                (
+                    MirrorConfig::RegistriesConf,
+                    PathBuf::from("/etc/containers/registries.conf"),
+                ),
+                (
+                    MirrorConfig::DaemonJson,
+                    home.join(".docker").join("daemon.json")
+                ),
+                (
+                    MirrorConfig::RegistriesConf,
+                    home.join(".config")
+                        .join("containers")
+                        .join("registries.conf"),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unset_or_empty_variable_names_no_mirror_location() {
+        let paths = container_mirror_paths(env_of(&[("HOME", ""), ("ProgramData", "")]));
+        assert_eq!(
+            paths,
+            vec![
+                (
+                    MirrorConfig::DaemonJson,
+                    PathBuf::from("/etc/docker/daemon.json")
+                ),
+                (
+                    MirrorConfig::RegistriesConf,
+                    PathBuf::from("/etc/containers/registries.conf"),
+                ),
+            ]
+        );
+        // HOME falls back to USERPROFILE.
+        let paths = container_mirror_paths(env_of(&[("USERPROFILE", "/fake/up")]));
+        assert!(paths.contains(&(
+            MirrorConfig::DaemonJson,
+            PathBuf::from("/fake/up")
+                .join(".docker")
+                .join("daemon.json"),
+        )));
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ae_mirror_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    /// Only temp files are read here: `mirror_refusal_in` takes the list, so the
+    /// real /etc files are never part of the test.
+    #[test]
+    fn a_listed_file_that_names_a_mirror_refuses_and_an_absent_one_does_not() {
+        let dir = temp_dir("list");
+        let absent = dir.join("absent.json");
+        let daemon = dir.join("daemon.json");
+        let conf = dir.join("registries.conf");
+        std::fs::write(&daemon, "{}").expect("daemon.json");
+        std::fs::write(
+            &conf,
+            "[[registry]]\nlocation = \"docker.io\"\n\n[[registry.mirror]]\nlocation = \"m\"\n",
+        )
+        .expect("registries.conf");
+        assert_eq!(
+            mirror_refusal_in(&[(MirrorConfig::DaemonJson, absent.clone())]),
+            Ok(())
+        );
+        assert_eq!(
+            mirror_refusal_in(&[(MirrorConfig::DaemonJson, daemon.clone())]),
+            Ok(())
+        );
+        assert_eq!(
+            mirror_refusal_in(&[
+                (MirrorConfig::DaemonJson, absent.clone()),
+                (MirrorConfig::RegistriesConf, conf.clone()),
+            ]),
+            Err(MIRROR_NAMED)
+        );
+        // The format decides how a file is read: the registries.conf text is not
+        // a daemon.json, so it does not parse as one.
+        assert_eq!(
+            mirror_refusal_in(&[(MirrorConfig::DaemonJson, conf.clone())]),
+            Err(MIRROR_UNPARSED)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_listed_file_that_cannot_be_parsed_refuses() {
+        let dir = temp_dir("bad");
+        let bad = dir.join("daemon.json");
+        std::fs::write(&bad, "{ not json").expect("bad daemon.json");
+        assert_eq!(
+            mirror_refusal_in(&[(MirrorConfig::DaemonJson, bad)]),
+            Err(MIRROR_UNPARSED)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_remote_share_path_refuses_without_being_probed() {
+        if !cfg!(windows) {
+            return;
+        }
+        assert_eq!(
+            mirror_refusal_in(&[(
+                MirrorConfig::DaemonJson,
+                PathBuf::from(r"\\ae-no-such-host\share\daemon.json"),
+            )]),
+            Err(MIRROR_UNREADABLE)
+        );
+    }
+
+    #[test]
+    fn containers_conf_override_refuses_without_reading_anything() {
+        assert_eq!(
+            container_mirror_refusal(env_of(&[("CONTAINERS_REGISTRIES_CONF", "/fake/x.conf")])),
+            Err(MIRROR_ENV)
+        );
+    }
+
+    #[test]
+    fn git_install_dir_is_derived_from_the_program_path_alone() {
+        let root = r"C:\Program Files\Git";
+        assert_eq!(
+            git_install_dir_of(r"C:\Program Files\Git\cmd\git.exe").as_deref(),
+            Some(root)
+        );
+        assert_eq!(
+            git_install_dir_of(r"C:\Program Files\Git\mingw64\bin\git.exe").as_deref(),
+            Some(root)
+        );
+        assert_eq!(
+            git_install_dir_of(r"C:\Program Files\Git\bin\git.exe").as_deref(),
+            Some(root)
+        );
+        // Forward slashes and an upper-case name are the same program.
+        assert_eq!(
+            git_install_dir_of("D:/Tools/Git/cmd/GIT.EXE").as_deref(),
+            Some(r"D:\Tools\Git")
+        );
+        // Not a git program, or not in a directory the install uses.
+        assert_eq!(
+            git_install_dir_of(r"C:\Program Files\Git\cmd\git-lfs.exe"),
+            None
+        );
+        assert_eq!(git_install_dir_of(r"C:\Program Files\Git\git.exe"), None);
+        assert_eq!(git_install_dir_of(r"C:\Tools\Git\usr\bin\rev.exe"), None);
+        assert_eq!(git_install_dir_of("git.exe"), None);
+    }
+
+    #[test]
+    fn git_config_paths_add_the_install_files_only_when_git_is_on_path() {
+        // No PATH, or a PATH without git, adds nothing. This never probes a real
+        // directory: the names are fakes that do not exist.
+        let plain = git_config_paths(env_of(&[("HOME", "/fake/home")]));
+        assert_eq!(plain[0], PathBuf::from("/etc/gitconfig"));
+        assert!(!plain
+            .iter()
+            .any(|p| p.ends_with("gitconfig") && p.to_string_lossy().contains("mingw64")));
+        let none = git_config_paths(env_of(&[
+            ("HOME", "/fake/home"),
+            ("PATH", r"\\ae-no-such-host\share"),
+        ]));
+        assert_eq!(none, plain);
     }
 }
