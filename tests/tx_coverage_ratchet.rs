@@ -89,10 +89,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "create_edit_file",
         "writes the editor's scratch copy as a fresh file in the temporary directory; no caller path is touched",
     ),
-    (
-        "create_new_output",
-        "UNCOVERED caller-named file: creates the caller's output path exclusively, and the tool_to_new_file callers (tar, bzip2, xz, zstd) do not snapshot it",
-    ),
 ];
 
 /// Builtins whose coverage is pinned by name: each must contain a coverage
@@ -266,7 +262,9 @@ fn the_allowlist_has_a_reason_and_may_only_shrink() {
         );
     }
     assert!(
-        ALLOWED.len() <= 12,
+        // 10 before `.create_new(true)` became a write marker; that made two
+        // existing temp-file writers visible (bi_fs_tempfile, create_edit_file).
+        ALLOWED.len() <= 11,
         "the tx-coverage allowlist has grown to {}; it may only shrink",
         ALLOWED.len()
     );

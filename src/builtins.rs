@@ -62261,6 +62261,9 @@ fn tool_to_new_file(builtin: &str, tool: &str, argv: &[&str], out_path: &str) ->
 /// Creates a new file for a tool's output. Existing files are refused, and the
 /// check and the create are one open, so a file that appears meanwhile is refused too.
 fn create_new_output(builtin: &str, path: &str) -> Result<std::fs::File> {
+    // Record that the path did not exist, so a transaction's rollback removes the
+    // file this creates (tar, bzip2, xz and zstd outputs all come through here).
+    crate::tx::snapshot(path);
     std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
