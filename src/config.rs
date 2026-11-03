@@ -485,7 +485,10 @@ impl ShellConfig {
             })
     }
 
-    /// Get the main config file path
+    /// The one config file: the file `load` reads, and the file `save` writes.
+    /// `IRONSHELL_CONFIG` if set; else `config.toml` in the config directory
+    /// if it exists; else `~/.ironshellrc` if it exists; else (no file yet)
+    /// `config.toml` in the config directory.
     pub fn config_file() -> PathBuf {
         // Check IRONSHELL_CONFIG env var first
         if let Ok(path) = std::env::var("IRONSHELL_CONFIG") {
@@ -556,12 +559,15 @@ impl ShellConfig {
         }
     }
 
-    /// Save configuration to disk
+    /// Save configuration to disk, to the file `config_file` names: the file
+    /// `load` reads, or the file a first save creates. Saving and loading
+    /// use the same path, so a saved change is the one the shell reads.
     pub fn save(&self) -> Result<()> {
-        let config_dir = Self::config_dir();
-        fs::create_dir_all(&config_dir)?;
+        let config_file = Self::config_file();
+        if let Some(parent) = config_file.parent() {
+            fs::create_dir_all(parent)?;
+        }
 
-        let config_file = config_dir.join("config.toml");
         let content = toml::to_string_pretty(self)?;
         fs::write(&config_file, content)?;
         Ok(())

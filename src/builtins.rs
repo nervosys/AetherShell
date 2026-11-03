@@ -5628,7 +5628,8 @@ fn config_value_ok(path: &str, value: &Value) -> Result<()> {
     }
 }
 
-/// config_set(path, value) - set one config value and save the config file.
+/// config_set(path, value) - set one config value, save the config file that
+/// `ShellConfig::config_file` names, and reload it into the running shell.
 /// The path and value are checked before the file is read; a value of the
 /// wrong type or outside its range is E_BAD_ARG and nothing is saved.
 fn bi_config_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
@@ -5689,6 +5690,14 @@ fn bi_config_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             B,
             &format!("the config file could not be written: {e}"),
             "config_path",
+        )
+    })?;
+    // Make the running shell use the saved value, as config_reload does.
+    reload_config().map_err(|e| {
+        crate::safety::bad_state(
+            B,
+            &format!("the saved configuration could not be reloaded: {e}"),
+            "fix the config file (see config_path()) and reload",
         )
     })?;
     let shown = match value {
