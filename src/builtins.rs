@@ -5763,20 +5763,31 @@ fn bi_config_init(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         )
     })?;
 
-    let config_file = ShellConfig::config_dir().join("config.toml");
-    if !config_file.exists() {
-        let default_config = ShellConfig::generate_default_config();
-        fs::write(&config_file, default_config)
-            .map_err(|e| crate::safety::fs_error(B, &config_file, &e))?;
-        Ok(Value::Str(format!(
-            "Created config file: {}",
-            config_file.display()
-        )))
-    } else {
-        Ok(Value::Str(format!(
+    // The file the shell reads and `config_set` writes (IRONSHELL_CONFIG, or
+    // the existing config file). `create_new` never overwrites one.
+    let config_file = ShellConfig::config_file();
+    if let Some(parent) = config_file.parent() {
+        fs::create_dir_all(parent).map_err(|e| crate::safety::fs_error(B, parent, &e))?;
+    }
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&config_file)
+    {
+        Ok(mut file) => {
+            use std::io::Write as _;
+            file.write_all(ShellConfig::generate_default_config().as_bytes())
+                .map_err(|e| crate::safety::fs_error(B, &config_file, &e))?;
+            Ok(Value::Str(format!(
+                "Created config file: {}",
+                config_file.display()
+            )))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(Value::Str(format!(
             "Config file already exists: {}",
             config_file.display()
-        )))
+        ))),
+        Err(e) => Err(crate::safety::fs_error(B, &config_file, &e)),
     }
 }
 

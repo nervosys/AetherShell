@@ -636,7 +636,7 @@ comment = "#6c7086"
 # Prompt format - placeholders: {symbol}, {cwd}, {user}, {host}, {git_branch}, {time}, {status}
 format = "{symbol}"
 # Continuation prompt for multi-line input
-continuation = "... "
+continuation = "… "
 # Right-side prompt (optional)
 right = ""
 # Show git branch in prompt
@@ -719,8 +719,9 @@ share = false
 timestamps = true
 
 [editor]
-# External editor command
-external = ""
+# External editor command for `edit`. Unset, it is $EDITOR, else notepad
+# (Windows) or vi. Uncomment to set it.
+# external = "nvim"
 # Tab display width
 tab_width = 4
 # Enable syntax highlighting
@@ -1644,5 +1645,41 @@ mod tests {
         assert!(default_config.contains("[shell]"));
         assert!(default_config.contains("[colors]"));
         assert!(default_config.contains("[prompt]"));
+    }
+
+    /// Walks two JSON values and names the first path where they differ.
+    fn first_difference(
+        path: &str,
+        got: &serde_json::Value,
+        want: &serde_json::Value,
+    ) -> Option<String> {
+        use serde_json::Value;
+        match (got, want) {
+            (Value::Object(g), Value::Object(w)) => {
+                let mut keys: Vec<&String> = g.keys().chain(w.keys()).collect();
+                keys.sort();
+                keys.dedup();
+                keys.into_iter().find_map(|k| {
+                    let sub = format!("{path}.{k}");
+                    match (g.get(k), w.get(k)) {
+                        (Some(a), Some(b)) => first_difference(&sub, a, b),
+                        _ => Some(format!("{sub}: present in only one side")),
+                    }
+                })
+            }
+            _ if got == want => None,
+            _ => Some(format!("{path}: loaded {got}, default {want}")),
+        }
+    }
+
+    #[test]
+    fn generated_default_config_loads_to_the_defaults() {
+        let generated: ShellConfig = toml::from_str(&ShellConfig::generate_default_config())
+            .expect("the generated config parses");
+        let got = serde_json::to_value(&generated).expect("serialize generated");
+        let want = serde_json::to_value(ShellConfig::default()).expect("serialize default");
+        if let Some(diff) = first_difference("config", &got, &want) {
+            panic!("generate_default_config() disagrees with Default: {diff}");
+        }
     }
 }
