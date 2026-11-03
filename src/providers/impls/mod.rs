@@ -22,7 +22,18 @@ use std::sync::Arc;
 /// secret, region), which is not implemented. The OpenAI-style bearer request
 /// this used to build sent the AWS secret access key as a token. The refusal is
 /// returned before any provider or HTTP client exists.
+///
+/// A base URL that still holds a `{...}` template (Azure's default is one) is
+/// refused the same way, with `E_BAD_STATE`, before anything is constructed, so
+/// the API key is never sent to a literal placeholder host.
 pub fn create_provider(config: ProviderConfig) -> anyhow::Result<Arc<dyn LLMProvider>> {
+    // Bedrock first: its own refusal names the real cause.
+    if config.provider == ProviderType::Bedrock {
+        return Err(bedrock_refusal());
+    }
+    if let Some(placeholder) = unfilled_placeholder(&config.effective_base_url()) {
+        return Err(unfilled_base_url_refusal(config.provider, &placeholder));
+    }
     let provider: Arc<dyn LLMProvider> = match config.provider {
         ProviderType::OpenAI => Arc::new(OpenAIProvider::new(config)),
         ProviderType::Anthropic => Arc::new(AnthropicProvider::new(config)),
@@ -60,6 +71,31 @@ fn bedrock_refusal() -> anyhow::Error {
         "Amazon Bedrock is not supported: it needs AWS SigV4 request signing, which IronShell does not implement; NOTHING WAS SENT",
         "use anthropic:, openai: or irongate: instead",
     )
+}
+
+/// The first `{...}` template left in a base URL, or the lone brace that marks
+/// one. `None` when the URL has no braces at all.
+fn unfilled_placeholder(url: &str) -> Option<String> {
+    let start = url.find(|c: char| c == '{' || c == '}')?;
+    let rest = &url[start..];
+    let len = rest.find('}').map_or(rest.len(), |end| end + 1);
+    Some(rest[..len].to_string())
+}
+
+/// The structured refusal for a base URL that still has a template in it
+/// (`E_BAD_STATE`). It names the call that supplies the real URL and never the
+/// key. For Azure it also says which variable the provider layer does not read.
+fn unfilled_base_url_refusal(provider: ProviderType, placeholder: &str) -> anyhow::Error {
+    let state = match provider {
+        ProviderType::Azure => format!(
+            "azure: base URL still has the unfilled placeholder {placeholder}; set the real endpoint with ProviderConfig::with_base_url (AZURE_OPENAI_ENDPOINT is read only by the default ai() path, not by the provider layer); NOTHING WAS SENT"
+        ),
+        other => format!(
+            "{}: base URL still has the unfilled placeholder {placeholder}; set the real URL with ProviderConfig::with_base_url; NOTHING WAS SENT",
+            other.scheme()
+        ),
+    };
+    crate::safety::bad_state("ai", &state, "ProviderConfig::with_base_url")
 }
 
 #[cfg(test)]
@@ -122,5 +158,73 @@ mod tests {
             Err(e) => e,
         };
         assert_eq!(code_of(&err), ErrorCode::Unimplemented);
+    }
+
+    /// Fake value, planted only in this process's environment for the test.
+    const PLANTED_AZURE_KEY: &str = "FAKE-AZURE-KEY-FOR-TEST-ONLY-0000";
+
+    #[test]
+    fn azure_without_a_real_endpoint_is_refused_and_the_key_is_not_echoed() {
+        std::env::set_var("AZURE_OPENAI_API_KEY", PLANTED_AZURE_KEY);
+        let config = ProviderConfig::from_env(ProviderType::Azure).with_env_key();
+        std::env::remove_var("AZURE_OPENAI_API_KEY");
+        assert_eq!(config.api_key.as_deref(), Some(PLANTED_AZURE_KEY));
+
+        let err = match create_provider(config) {
+            Ok(_) => panic!("azure with a placeholder URL must not construct a provider"),
+            Err(e) => e,
+        };
+        assert_eq!(code_of(&err), ErrorCode::BadState);
+        let text = format!("{err:#}");
+        assert!(
+            !text.contains(PLANTED_AZURE_KEY),
+            "error leaked the key: {text}"
+        );
+        assert!(
+            text.contains("azure"),
+            "refusal should name the provider: {text}"
+        );
+        assert!(
+            text.contains("with_base_url"),
+            "refusal should name the setting: {text}"
+        );
+    }
+
+    #[test]
+    fn azure_uri_is_refused_by_the_bridge_before_any_request() {
+        let err = match UniversalBackend::from_uri("azure:gpt-4o/my-deployment") {
+            Ok(_) => panic!("an azure: URI with no endpoint must not produce a backend"),
+            Err(e) => e,
+        };
+        assert_eq!(code_of(&err), ErrorCode::BadState);
+    }
+
+    #[test]
+    fn azure_with_a_real_endpoint_builds_a_config_without_braces() {
+        let config = ProviderConfig::new(ProviderType::Azure)
+            .with_base_url("https://fake-resource.openai.azure.com/openai/deployments/fake")
+            .with_api_key(PLANTED_AZURE_KEY);
+        assert!(!config.effective_base_url().contains('{'));
+        assert!(
+            create_provider(config).is_ok(),
+            "a real endpoint must build a provider"
+        );
+    }
+
+    #[test]
+    fn a_placeholder_override_is_refused_for_any_provider() {
+        let config = ProviderConfig::new(ProviderType::OpenAI).with_base_url("https://{host}/v1");
+        let err = match create_provider(config) {
+            Ok(_) => panic!("a templated base URL must not construct a provider"),
+            Err(e) => e,
+        };
+        assert_eq!(code_of(&err), ErrorCode::BadState);
+    }
+
+    #[test]
+    fn a_normal_url_provider_is_unaffected() {
+        let config = ProviderConfig::new(ProviderType::OpenAI);
+        assert_eq!(config.effective_base_url(), "https://api.openai.com/v1");
+        assert!(create_provider(config).is_ok());
     }
 }

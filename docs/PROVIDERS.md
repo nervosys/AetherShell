@@ -31,7 +31,7 @@ src/providers/
 | OpenAI       | `openai:`     | `openai:gpt-4o`                   | Full support      |
 | Anthropic    | `anthropic:`  | `anthropic:claude-3-5-sonnet`     | Native API        |
 | Google       | `google:`     | `google:gemini-1.5-pro`           | Native API        |
-| Azure OpenAI | `azure:`      | `azure:gpt-4/deployment`          | OpenAI-compatible |
+| Azure OpenAI | `azure:`      | `azure:gpt-4/deployment`          | OpenAI-compatible; refused by the provider layer until a real base URL is set (`ProviderConfig::with_base_url`), because its default URL is a template |
 | AWS Bedrock  | `bedrock:`    | (refused)                         | Not supported yet: needs SigV4 signing, which is not implemented |
 | Ollama       | `ollama:`     | `ollama:llama3`                   | Local, native API |
 | Together AI  | `together:`   | `together:meta-llama/Llama-3-70b` | OpenAI-compatible |

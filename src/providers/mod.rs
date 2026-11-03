@@ -176,6 +176,9 @@ impl ProviderType {
         }
     }
 
+    /// Azure and Bedrock return a template with `{...}` placeholders that
+    /// nothing fills in. `create_provider` refuses such a URL, so these are
+    /// never sent to.
     pub fn default_base_url(&self) -> &'static str {
         match self {
             // Kept in step with `model_plane::gate_url`'s default; `IRONGATE_URL`
