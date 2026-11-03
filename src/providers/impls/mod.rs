@@ -76,7 +76,7 @@ fn bedrock_refusal() -> anyhow::Error {
 /// The first `{...}` template left in a base URL, or the lone brace that marks
 /// one. `None` when the URL has no braces at all.
 fn unfilled_placeholder(url: &str) -> Option<String> {
-    let start = url.find(|c: char| c == '{' || c == '}')?;
+    let start = url.find(['{', '}'])?;
     let rest = &url[start..];
     let len = rest.find('}').map_or(rest.len(), |end| end + 1);
     Some(rest[..len].to_string())
