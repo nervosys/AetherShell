@@ -223,9 +223,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mode is unchanged, and so is a variable the caller sets explicitly on the
   command.
 - **Every child process strips the shell's settings.** Spawns in `src/` that did
-  not go through a shared runner now strip the `IRONSHELL_*` variables as well,
-  among them `proc_spawn`, `ssh_tunnel`, `sudo_exec`, `archive`, `test_watch`,
-  and the clipboard, editor, taskkill, PowerShell and decoder launchers.
+  not go through a shared runner now get the same scrub as the runners: the
+  `IRONSHELL_*` settings that confine a shell are kept and the rest removed, and
+  in agent mode credentials are removed too. Among them are `proc_spawn`,
+  `ssh_tunnel`, `sudo_exec`, `archive`, `test_watch`, and the clipboard, editor,
+  taskkill, PowerShell and decoder launchers. Every spawn is now built by
+  `safety::child_command`; the one exception is `aimodel`'s background daemon,
+  which re-runs its own binary and needs `IRONSHELL_MODEL_DIR`.
 - **Exec-class builtins obey `IRONSHELL_NET_ALLOW`.** Builtins that reach the
   network through a program (ssh, scp and rsync, git remotes, container
   runtimes, registry-fetching tools, package managers and terraform) were
