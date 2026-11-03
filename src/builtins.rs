@@ -50887,19 +50887,36 @@ fn bi_refactor_rename(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     rename_refactor::run("refactor_rename", args, input)
 }
 
-/// Renames `from` to `to` without replacing an existing `to`. A file is first
-/// hard-linked to `to`, which fails with `AlreadyExists` when `to` is taken, and
-/// only then is `from` removed; if that removal fails the new link is removed
-/// too, so the file is never left under both names. This closes the window
-/// between a caller's "destination is free" check and the rename itself, which
-/// `std::fs::rename` leaves open because it replaces its destination.
+/// Renames `from` to `to` without replacing an existing `to`. The check that the
+/// destination is free is the caller's, and it is not enough on its own: another
+/// process can create `to` between the check and the rename. So the rename
+/// itself refuses an existing destination, atomically, where the platform has a
+/// primitive for it:
 ///
-/// Two cases keep the plain `std::fs::rename`, so the caller's check is the only
-/// guard there, as before: a directory (hard links are for files), and a volume
-/// that cannot hard-link (FAT, some network shares), where any hard-link error
-/// other than `AlreadyExists` falls back to it. A symlink is not a file here, so
-/// it takes the fallback too.
+/// - Linux and Android: `renameat2` with `RENAME_NOREPLACE`. It applies to files,
+///   directories and symlinks alike.
+/// - macOS: `renamex_np` with `RENAME_EXCL`. Also every kind of entry.
+/// - Windows: `MoveFileExW` with no replace flag, which fails with
+///   `ERROR_ALREADY_EXISTS` for a directory as well as a file. `std::fs::rename`
+///   passes `MOVEFILE_REPLACE_EXISTING`, which is why it is not used here.
+///
+/// An existing destination is reported as `AlreadyExists`, whatever the entry.
+///
+/// Where the primitive is missing or refuses for another reason (a filesystem
+/// or kernel without it, `EINVAL` or `ENOSYS` on Linux, `ENOTSUP` or `EINVAL`
+/// on macOS, any other failure on Windows), the older fallback runs. A
+/// directory, or a symlink, takes the plain `std::fs::rename`, which replaces
+/// its destination. A file first gets a hard link to `to`, which fails with
+/// `AlreadyExists` when `to` is taken, and only then is `from` removed; if that
+/// removal fails the new link is removed too, so the file is never left under
+/// both names. A volume that cannot hard-link (FAT, some network shares) falls
+/// back to `std::fs::rename` on any hard-link error other than `AlreadyExists`.
+/// So on those systems the caller's check is the only guard, as before. On
+/// other targets the fallback is all there is.
 pub fn rename_file_no_replace(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    if let Some(done) = rename_no_replace_atomic(from, to) {
+        return done;
+    }
     if !std::fs::symlink_metadata(from)?.is_file() {
         return std::fs::rename(from, to);
     }
@@ -50913,6 +50930,237 @@ pub fn rename_file_no_replace(from: &std::path::Path, to: &std::path::Path) -> s
         return Err(e);
     }
     Ok(())
+}
+
+/// The atomic no-replace rename for this platform, or `None` when the primitive
+/// is not there or refuses in a way the fallback handles (see
+/// `rename_file_no_replace`). `Some` is the final answer.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn rename_no_replace_atomic(
+    from: &std::path::Path,
+    to: &std::path::Path,
+) -> Option<std::io::Result<()>> {
+    const RENAME_NOREPLACE: libc::c_uint = 1;
+    let (from, to) = match c_paths(from, to) {
+        Ok(pair) => pair,
+        Err(e) => return Some(Err(e)),
+    };
+    // SAFETY: both strings are NUL-terminated and outlive the call. AT_FDCWD makes
+    // relative paths resolve against the working directory, as std::fs does.
+    let rc = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            RENAME_NOREPLACE,
+        )
+    };
+    if rc == 0 {
+        return Some(Ok(()));
+    }
+    let err = std::io::Error::last_os_error();
+    match err.raw_os_error() {
+        // No renameat2 in the kernel (ENOSYS), or no RENAME_NOREPLACE on this
+        // filesystem (EINVAL): the fallback.
+        Some(libc::EINVAL) | Some(libc::ENOSYS) => None,
+        _ => Some(Err(err)),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn rename_no_replace_atomic(
+    from: &std::path::Path,
+    to: &std::path::Path,
+) -> Option<std::io::Result<()>> {
+    extern "C" {
+        fn renamex_np(
+            from: *const libc::c_char,
+            to: *const libc::c_char,
+            flags: libc::c_uint,
+        ) -> libc::c_int;
+    }
+    const RENAME_EXCL: libc::c_uint = 0x4;
+    let (from, to) = match c_paths(from, to) {
+        Ok(pair) => pair,
+        Err(e) => return Some(Err(e)),
+    };
+    // SAFETY: both strings are NUL-terminated and outlive the call.
+    let rc = unsafe { renamex_np(from.as_ptr(), to.as_ptr(), RENAME_EXCL) };
+    if rc == 0 {
+        return Some(Ok(()));
+    }
+    let err = std::io::Error::last_os_error();
+    match err.raw_os_error() {
+        // The volume does not support exclusive renames: the fallback.
+        Some(libc::ENOTSUP) | Some(libc::EINVAL) => None,
+        _ => Some(Err(err)),
+    }
+}
+
+#[cfg(windows)]
+fn rename_no_replace_atomic(
+    from: &std::path::Path,
+    to: &std::path::Path,
+) -> Option<std::io::Result<()>> {
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+    let from = match wide_path(from) {
+        Ok(w) => w,
+        Err(e) => return Some(Err(e)),
+    };
+    let to = match wide_path(to) {
+        Ok(w) => w,
+        Err(e) => return Some(Err(e)),
+    };
+    // SAFETY: both buffers are NUL-terminated and outlive the call. Flags 0 means
+    // no MOVEFILE_REPLACE_EXISTING, so an existing destination is an error.
+    let ok = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) };
+    if ok != 0 {
+        return Some(Ok(()));
+    }
+    let err = std::io::Error::last_os_error();
+    match err.raw_os_error() {
+        // ERROR_FILE_EXISTS and ERROR_ALREADY_EXISTS: the destination is taken.
+        Some(80) | Some(183) => Some(Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            err,
+        ))),
+        _ => None,
+    }
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    windows
+)))]
+fn rename_no_replace_atomic(
+    _from: &std::path::Path,
+    _to: &std::path::Path,
+) -> Option<std::io::Result<()>> {
+    None
+}
+
+/// Both paths as NUL-terminated C strings. A path with an interior NUL cannot be
+/// passed to the kernel, so it is refused as `InvalidInput`.
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+fn c_paths(
+    from: &std::path::Path,
+    to: &std::path::Path,
+) -> std::io::Result<(std::ffi::CString, std::ffi::CString)> {
+    use std::os::unix::ffi::OsStrExt;
+    let bad = || std::io::Error::from(std::io::ErrorKind::InvalidInput);
+    let from = std::ffi::CString::new(from.as_os_str().as_bytes()).map_err(|_| bad())?;
+    let to = std::ffi::CString::new(to.as_os_str().as_bytes()).map_err(|_| bad())?;
+    Ok((from, to))
+}
+
+/// A path as NUL-terminated UTF-16, for the Windows calls. An interior NUL would
+/// cut the path short, so it is refused as `InvalidInput`.
+#[cfg(windows)]
+fn wide_path(path: &std::path::Path) -> std::io::Result<Vec<u16>> {
+    use std::os::windows::ffi::OsStrExt;
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    if wide.contains(&0) {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    }
+    wide.push(0);
+    Ok(wide)
+}
+
+#[cfg(test)]
+mod rename_no_replace_tests {
+    use super::rename_file_no_replace;
+    use std::io::ErrorKind;
+    use std::path::PathBuf;
+
+    /// A scratch directory for one test, removed when the test ends.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("ish-rename-noreplace-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A directory renamed onto an existing empty directory is refused, and both
+    /// directories are as they were. On Windows this is the case that a plain
+    /// `std::fs::rename` (MOVEFILE_REPLACE_EXISTING) would change.
+    #[test]
+    fn directory_onto_an_existing_empty_directory_is_refused_and_both_stay() {
+        let s = Scratch::new("dir_onto_empty_dir");
+        let src = s.0.join("src_dir");
+        let dst = s.0.join("dst_dir");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("marker.txt"), "src").unwrap();
+        std::fs::create_dir(&dst).unwrap();
+        let err =
+            rename_file_no_replace(&src, &dst).expect_err("an existing destination must refuse");
+        assert_eq!(err.kind(), ErrorKind::AlreadyExists);
+        assert_eq!(
+            std::fs::read_to_string(src.join("marker.txt")).unwrap(),
+            "src",
+            "source directory changed"
+        );
+        assert!(dst.is_dir(), "destination directory was removed");
+        assert_eq!(
+            std::fs::read_dir(&dst).unwrap().count(),
+            0,
+            "destination directory gained entries"
+        );
+    }
+
+    /// A file renamed onto an existing file is refused, and both are as they were.
+    #[test]
+    fn file_onto_an_existing_file_is_refused_and_both_stay() {
+        let s = Scratch::new("file_onto_file");
+        let a = s.0.join("a.txt");
+        let b = s.0.join("b.txt");
+        std::fs::write(&a, "alpha").unwrap();
+        std::fs::write(&b, "beta").unwrap();
+        let err = rename_file_no_replace(&a, &b).expect_err("an existing destination must refuse");
+        assert_eq!(err.kind(), ErrorKind::AlreadyExists);
+        assert_eq!(
+            std::fs::read_to_string(&a).unwrap(),
+            "alpha",
+            "source changed"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&b).unwrap(),
+            "beta",
+            "destination replaced"
+        );
+    }
+
+    /// A directory renamed to a free name moves, and nothing is left at the source.
+    #[test]
+    fn directory_to_a_free_name_succeeds() {
+        let s = Scratch::new("dir_free");
+        let src = s.0.join("src_dir");
+        let dst = s.0.join("moved_dir");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("marker.txt"), "src").unwrap();
+        rename_file_no_replace(&src, &dst).expect("rename to a free name");
+        assert!(!src.exists(), "source still present");
+        assert_eq!(
+            std::fs::read_to_string(dst.join("marker.txt")).unwrap(),
+            "src"
+        );
+    }
 }
 
 /// refactor_rename_file(from, to) - rename a file or directory inside the
