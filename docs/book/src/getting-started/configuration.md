@@ -343,7 +343,7 @@ with it, or says that the value is only reported.
 
 | Variable | Read at | Decision it affects |
 | --- | --- | --- |
-| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `AZURE_OPENAI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `COHERE_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `TOGETHER_API_KEY`, `FIREWORKS_API_KEY`, `PERPLEXITY_API_KEY`, `LOCAL_API_KEY`, `IRONGATE_API_KEY` | `src/providers/mod.rs:210-229` | The key a provider is sent with. A provider counts as configured when its key is set (`src/providers/registry.rs:86`). Bedrock maps `AWS_SECRET_ACCESS_KEY` (`src/providers/mod.rs:215`) |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `AZURE_OPENAI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `COHERE_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `TOGETHER_API_KEY`, `FIREWORKS_API_KEY`, `PERPLEXITY_API_KEY`, `LOCAL_API_KEY`, `IRONGATE_API_KEY` | `src/providers/mod.rs:210-229` | The key a provider is sent with. A provider counts as configured when its key is set (`src/providers/registry.rs:86`). Bedrock has no key here: `AWS_SECRET_ACCESS_KEY` is never read, and `bedrock:` is refused with `E_UNIMPLEMENTED` because SigV4 signing is not implemented |
 | `IRONGATE_URL` | `src/model_plane.rs:55`, `src/providers/mod.rs:241` | Gateway address. Default `http://localhost:7700/v1` |
 | `IRONGATE_MODEL` | `src/model_plane.rs:73` | Model name asked of the gateway. Default `auto` |
 | `IRONGATE_TOKEN` | `src/model_plane.rs:82` | Bearer token, used when `IRONGATE_API_KEY` is unset |
