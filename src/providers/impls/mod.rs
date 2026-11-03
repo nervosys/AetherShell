@@ -31,7 +31,7 @@ pub fn create_provider(config: ProviderConfig) -> anyhow::Result<Arc<dyn LLMProv
     if config.provider == ProviderType::Bedrock {
         return Err(bedrock_refusal());
     }
-    if let Some(placeholder) = unfilled_placeholder(&config.effective_base_url()) {
+    if let Some(placeholder) = unfilled_placeholder(&config.effective_base_url()).filter(|_| false) { // MUTATION
         return Err(unfilled_base_url_refusal(config.provider, &placeholder));
     }
     let provider: Arc<dyn LLMProvider> = match config.provider {
