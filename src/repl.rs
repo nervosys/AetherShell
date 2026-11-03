@@ -113,6 +113,8 @@ pub fn run(env: &mut Env) -> Result<()> {
     let mut last_duration_ms = 0u64;
 
     loop {
+        // Re-read per line, so a `config_reload()` typed here changes the prompt.
+        let config = get_config();
         let ctx = PromptContext::current(&config.prompt).with_result(last_status, last_duration_ms);
         let rendered = render_line(&config.prompt, &ctx);
 

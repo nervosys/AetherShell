@@ -16,13 +16,13 @@ IronShell uses the first of these that applies:
 3. `~/.ironshellrc`, if it exists. It is parsed as TOML if it looks like TOML; otherwise it is read as legacy `key = value` lines. The legacy keys it reads are `color`/`colors`, `theme`, `vi_mode`/`vi-mode`, `auto_cd`/`auto-cd`, `banner`/`show_banner`, `history_size`/`history-size`, `editor`/`EDITOR`, `ai_model`/`model`, and `ai_provider`/`provider`. Other lines are ignored.
 4. Otherwise the built-in defaults. IronShell does not create a file at startup.
 
-If the file exists but does not parse, IronShell starts with the defaults and prints no message. `config_set()` and `config_reload()` report the error.
+If the file exists but cannot be read or does not parse, IronShell starts with the defaults and prints one line to stderr naming the file and the error. `config_set()` and `config_reload()` report the error.
 
 ### Creating and changing it
 
 - `config_init()` writes a commented default file to the config directory. It does nothing if `config.toml` already exists.
 - `config_set(path, value)` changes one key and saves the file. It accepts only these paths: `colors.enabled`, `colors.force`, `colors.true_color`, `colors.theme`, `shell.show_banner`, `shell.show_tips`, `shell.vi_mode`, `shell.auto_cd`, `ai.default_model`, `ai.default_provider`, `ai.max_tokens`, `ai.streaming`, `history.enabled`, `history.max_size`.
-- Changes take effect the next time IronShell starts. `config_reload()` re-reads the file, but it does not replace the settings in use.
+- Edits to the file take effect when you run `config_reload()` or start IronShell again. `config_reload()` replaces the settings in use; if the file cannot be read or does not parse, it fails and the settings in use stay.
 
 Unknown keys are ignored. A key you leave out takes the default shown below.
 

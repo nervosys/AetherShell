@@ -12082,7 +12082,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Bool",
-        doc: "Reload the shell configuration from disk. A config that cannot be read is E_BAD_STATE.",
+        doc: "Reload the shell configuration from disk and make it the one in use, so the prompt, colors and every other setting read by the running shell change at once. A config file that cannot be read or does not parse is E_BAD_STATE, and the settings in use stay as they were.",
         examples: &[
             (r#"config_reload()"#, r#"true"#),
         ],

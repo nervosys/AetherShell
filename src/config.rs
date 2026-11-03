@@ -22,19 +22,59 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
-/// Global configuration instance
-static CONFIG: OnceLock<ShellConfig> = OnceLock::new();
+/// The configuration in use. The lock is held only long enough to clone or
+/// swap the `Arc`, so a reader never sees a half-replaced configuration.
+static CONFIG: OnceLock<RwLock<Arc<ShellConfig>>> = OnceLock::new();
 
-/// Get the global configuration (loads on first access)
-pub fn get_config() -> &'static ShellConfig {
-    CONFIG.get_or_init(|| ShellConfig::load().unwrap_or_default())
+/// The slot, filled on first access.
+fn config_slot() -> &'static RwLock<Arc<ShellConfig>> {
+    CONFIG.get_or_init(|| RwLock::new(Arc::new(load_at_startup())))
 }
 
-/// Reload configuration from disk
-pub fn reload_config() -> Result<ShellConfig> {
-    ShellConfig::load()
+/// First load. A missing file gives the defaults silently. A file that exists
+/// but cannot be read or parsed also gives the defaults, with one line on
+/// stderr naming the file and the error.
+fn load_at_startup() -> ShellConfig {
+    match ShellConfig::load() {
+        Ok(config) => config,
+        Err(e) => {
+            // The TOML error spans several lines (a source snippet); keep the
+            // message on one line so it can be found by its prefix.
+            let detail = e
+                .root_cause()
+                .to_string()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            eprintln!(
+                "ish: config {}: {detail}; using defaults",
+                ShellConfig::config_file().display()
+            );
+            ShellConfig::default()
+        }
+    }
+}
+
+/// Get the configuration in use (loads on first access). The returned `Arc`
+/// is a snapshot: a later `reload_config` does not change it.
+pub fn get_config() -> Arc<ShellConfig> {
+    let guard = config_slot().read().unwrap_or_else(PoisonError::into_inner);
+    Arc::clone(&guard)
+}
+
+/// Reload configuration from disk and make it the one in use. If the file
+/// cannot be read or parsed, the error is returned and the configuration in
+/// use stays as it was.
+pub fn reload_config() -> Result<Arc<ShellConfig>> {
+    // Fill the slot first, so the first-load message is printed even when a
+    // reload is the first access.
+    let slot = config_slot();
+    let fresh = Arc::new(ShellConfig::load()?);
+    let mut guard = slot.write().unwrap_or_else(PoisonError::into_inner);
+    *guard = Arc::clone(&fresh);
+    Ok(fresh)
 }
 
 /// Main shell configuration
