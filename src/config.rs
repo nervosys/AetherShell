@@ -8,7 +8,7 @@
 //! Additional configuration files:
 //! - `$XDG_CONFIG_HOME/ironshell/theme.toml` - Custom color themes
 //! - `$XDG_CONFIG_HOME/ironshell/aliases.toml` - Command aliases
-//! - `$XDG_CONFIG_HOME/ironshell/init.ish` - Startup script (executed on shell start)
+//! - `$XDG_CONFIG_HOME/ironshell/init.ish` - Startup script path (reported by `config_path`; not executed)
 //!
 //! Data directory: `$XDG_DATA_HOME/ironshell/` (typically `~/.local/share/ironshell/`)
 //! - `history` - Command history
