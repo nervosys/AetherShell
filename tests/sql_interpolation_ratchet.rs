@@ -67,7 +67,10 @@ const ALLOWED: &[(&str, &str)] = &[
 
 fn builtins_source() -> String {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/builtins.rs");
-    std::fs::read_to_string(path).expect("src/builtins.rs is readable")
+    // `safety::child_command(` is a process constructor too: read it as `Command::new(`.
+    std::fs::read_to_string(path)
+        .expect("src/builtins.rs is readable")
+        .replace("child_command(", "Command::new(")
 }
 
 /// Does this format-string literal look like SQL?

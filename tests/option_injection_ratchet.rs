@@ -94,7 +94,10 @@ const ALLOWED: &[(&str, &str)] = &[
 
 fn source() -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/builtins.rs");
-    std::fs::read_to_string(path).expect("src/builtins.rs is readable")
+    // `safety::child_command(` is a process constructor too: read it as `Command::new(`.
+    std::fs::read_to_string(path)
+        .expect("src/builtins.rs is readable")
+        .replace("child_command(", "Command::new(")
 }
 
 /// Every spawn of a risky tool, as (tool, enclosing fn, body-so-far, arg window).

@@ -42,7 +42,8 @@ fn source_files() -> Vec<String> {
                 walk(&p, out);
             } else if p.extension().and_then(|s| s.to_str()) == Some("rs") {
                 if let Ok(text) = std::fs::read_to_string(&p) {
-                    out.push(text);
+                    // `safety::child_command(` is a process constructor too: read it as `Command::new(`.
+                    out.push(text.replace("child_command(", "Command::new("));
                 }
             }
         }
@@ -796,7 +797,8 @@ fn dispatch_rows() -> Vec<Option<String>> {
     let src = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/builtins.rs"),
     )
-    .expect("src/builtins.rs is readable");
+    .expect("src/builtins.rs is readable")
+    .replace("child_command(", "Command::new(");
     let lines: Vec<&str> = src.lines().collect();
     let start = lines
         .iter()

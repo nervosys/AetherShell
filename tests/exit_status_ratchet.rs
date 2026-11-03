@@ -39,7 +39,11 @@
 
 fn source() -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/builtins.rs");
-    std::fs::read_to_string(path).unwrap().replace("\r\n", "\n")
+    // `safety::child_command(` is a process constructor too: read it as `Command::new(`.
+    std::fs::read_to_string(path)
+        .unwrap()
+        .replace("\r\n", "\n")
+        .replace("child_command(", "Command::new(")
 }
 
 /// Split at every top-level `fn` so each chunk is one function body.

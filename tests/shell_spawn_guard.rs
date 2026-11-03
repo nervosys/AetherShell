@@ -53,7 +53,10 @@ const SOURCES: &[&str] = &[
 
 fn source(rel: &str) -> Option<String> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel);
-    std::fs::read_to_string(path).ok()
+    // `safety::child_command(` is a process constructor too: read it as `Command::new(`.
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|t| t.replace("child_command(", "Command::new("))
 }
 
 /// Is the program on this line one of the parsing shells?
