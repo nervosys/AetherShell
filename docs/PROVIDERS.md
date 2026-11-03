@@ -32,7 +32,7 @@ src/providers/
 | Anthropic    | `anthropic:`  | `anthropic:claude-3-5-sonnet`     | Native API        |
 | Google       | `google:`     | `google:gemini-1.5-pro`           | Native API        |
 | Azure OpenAI | `azure:`      | `azure:gpt-4/deployment`          | OpenAI-compatible |
-| AWS Bedrock  | `bedrock:`    | `bedrock:anthropic.claude-v2`     | OpenAI-compatible |
+| AWS Bedrock  | `bedrock:`    | (refused)                         | Not supported yet: needs SigV4 signing, which is not implemented |
 | Ollama       | `ollama:`     | `ollama:llama3`                   | Local, native API |
 | Together AI  | `together:`   | `together:meta-llama/Llama-3-70b` | OpenAI-compatible |
 | Groq         | `groq:`       | `groq:mixtral-8x7b`               | OpenAI-compatible |

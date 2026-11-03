@@ -12,7 +12,7 @@
 //! | Anthropic | `anthropic:` | `anthropic:claude-3-5-sonnet` |
 //! | Google | `google:` | `google:gemini-pro` |
 //! | Azure OpenAI | `azure:` | `azure:gpt-4/deployment-name` |
-//! | AWS Bedrock | `bedrock:` | `bedrock:anthropic.claude-v2` |
+//! | AWS Bedrock (not supported yet: refused, SigV4 signing is not implemented) | `bedrock:` | `bedrock:anthropic.claude-v2` |
 //! | Ollama | `ollama:` | `ollama:llama3` |
 //! | Together AI | `together:` | `together:meta-llama/Llama-3-70b` |
 //! | Groq | `groq:` | `groq:mixtral-8x7b` |
@@ -212,7 +212,9 @@ impl ProviderType {
             Self::Anthropic => Some("ANTHROPIC_API_KEY"),
             Self::Google => Some("GOOGLE_API_KEY"),
             Self::Azure => Some("AZURE_OPENAI_API_KEY"),
-            Self::Bedrock => Some("AWS_SECRET_ACCESS_KEY"),
+            // No key: Bedrock needs SigV4 signing, which is not implemented, so
+            // create_provider refuses it and the AWS secret is never read.
+            Self::Bedrock => None,
             Self::Ollama => None,
             Self::Together => Some("TOGETHER_API_KEY"),
             Self::Groq => Some("GROQ_API_KEY"),

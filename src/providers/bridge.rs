@@ -100,7 +100,7 @@ pub fn complete_with_provider(prompt: &str, model_uri: Option<&str>) -> Result<S
     };
 
     let config = ProviderConfig::from_env(uri.provider).with_env_key();
-    let provider = create_provider(config);
+    let provider = create_provider(config)?;
 
     let rt = Runtime::new().map_err(|e| anyhow!("Failed to create async runtime: {}", e))?;
 
@@ -123,7 +123,7 @@ pub fn chat_with_provider(messages: &[ChatMessage], model_uri: Option<&str>) -> 
     };
 
     let config = ProviderConfig::from_env(uri.provider).with_env_key();
-    let provider = create_provider(config);
+    let provider = create_provider(config)?;
 
     let msgs: Vec<Message> = messages.iter().map(chat_message_to_message).collect();
     let request = ChatRequest::new(uri, msgs);
@@ -140,7 +140,7 @@ pub fn chat_with_provider(messages: &[ChatMessage], model_uri: Option<&str>) -> 
 pub fn list_provider_models(provider_uri: &str) -> Result<Vec<String>> {
     let provider_type = ProviderType::from_scheme(provider_uri)?;
     let config = ProviderConfig::from_env(provider_type).with_env_key();
-    let provider = create_provider(config);
+    let provider = create_provider(config)?;
 
     let rt = Runtime::new().map_err(|e| anyhow!("Failed to create async runtime: {}", e))?;
     let models = rt
@@ -159,7 +159,7 @@ pub fn embed_with_provider(texts: &[String], model_uri: Option<&str>) -> Result<
     };
 
     let config = ProviderConfig::from_env(uri.provider).with_env_key();
-    let provider = create_provider(config);
+    let provider = create_provider(config)?;
 
     let request = EmbeddingRequest {
         model: uri,
@@ -183,18 +183,18 @@ pub struct UniversalBackend {
 }
 
 impl UniversalBackend {
-    pub fn new(model_uri: ModelUri) -> Self {
+    pub fn new(model_uri: ModelUri) -> Result<Self> {
         let config = ProviderConfig::from_env(model_uri.provider).with_env_key();
-        let provider = create_provider(config);
-        Self {
+        let provider = create_provider(config)?;
+        Ok(Self {
             provider,
             model_uri,
-        }
+        })
     }
 
     pub fn from_uri(uri_str: &str) -> Result<Self> {
         let model_uri = ModelUri::parse(uri_str)?;
-        Ok(Self::new(model_uri))
+        Self::new(model_uri)
     }
 }
 
