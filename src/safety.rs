@@ -1905,6 +1905,22 @@ pub fn bad_state(builtin: &str, state: &str, needs: &str) -> anyhow::Error {
     })
 }
 
+/// Build a structured "precondition not met" error (`E_BAD_STATE`) whose hint
+/// is the caller's own sentence, for a state no other builtin establishes
+/// (`bad_state`'s "call X first" would send the caller to the wrong place).
+pub fn bad_state_with_hint(builtin: &str, state: &str, hint: &str) -> anyhow::Error {
+    anyhow::Error::new(SafetyError {
+        code: ErrorCode::BadState,
+        message: format!("{builtin}: {state}"),
+        builtin: builtin.to_string(),
+        hint: hint.to_string(),
+        approval: None,
+        did_you_mean: Vec::new(),
+        expected: "the precondition named in the message".to_string(),
+        got: state.to_string(),
+    })
+}
+
 /// Build an `E_IO` error for a fault in the environment the call depends on,
 /// such as the system clock or an attached client, rather than in the call.
 pub fn io_fault(builtin: &str, what: &str, hint: &str) -> anyhow::Error {

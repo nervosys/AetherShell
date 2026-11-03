@@ -4049,7 +4049,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[req("ops", Ty::Array, "the Array of ops a plan described")],
         returns: "Record",
-        doc: "Run a plan atomically: every op applies or none does, and a failure rolls the batch back. In agent mode the batch runs only when its plan token has been approved out of band (IRONSHELL_APPROVE or IRONSHELL_APPROVE_ALL); otherwise it answers {status: needs_approval, token}. An approval is spent by the apply it authorises, and an agent cannot approve its own token. Paths are confined to the workspace in agent mode or when IRONSHELL_WORKSPACE is set; a path outside it fails the batch. Returns {status: applied, applied} or {status: failed, error, rolled_back, restored}.",
+        doc: "Run a plan atomically: every op applies or none does, and a failure rolls the batch back. In agent mode the batch runs only when its plan token has been approved out of band (IRONSHELL_APPROVE or IRONSHELL_APPROVE_ALL); otherwise it answers {status: needs_approval, token}. An approval is spent by the apply it authorises, and an agent cannot approve its own token. Paths are confined to the workspace in agent mode or when IRONSHELL_WORKSPACE is set; a path outside it fails the batch. Returns {status: applied, applied} or {status: failed, error, rolled_back, restored}. When IRONSHELL_AUDIT_REQUIRED is set and the audit record of a batch that was applied cannot be written, the call is E_IO: the changes stay in place, the error says so, and the batch is not reported as applied.",
         examples: &[
             (r#"(try { apply() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { apply("write") } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -7731,7 +7731,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("severity", Ty::Str, "info, warning or critical; info when absent"),
         ],
         returns: "Record",
-        doc: "Record an entry the agent asserts about its own work. It is kept in the in-process audit list (at most 10000 entries, then E_BUDGET_EXCEEDED) and, when a chained audit log is active, in that log labelled decision asserted, so an assertion is attributable and cannot be quietly edited. Returns {status: logged, id}. Text fields must be strings of at most 4096 bytes with no control characters; an unknown severity is E_BAD_ARG.",
+        doc: "Record an entry the agent asserts about its own work. It is kept in the in-process audit list (at most 10000 entries, then E_BUDGET_EXCEEDED) and, when a chained audit log is active, in that log labelled decision asserted, so an assertion is attributable and cannot be quietly edited. Returns {status: logged, id}. Text fields must be strings of at most 4096 bytes with no control characters; an unknown severity is E_BAD_ARG. When IRONSHELL_AUDIT_REQUIRED is set and the chained log cannot be written, the call is E_IO and the entry is neither kept nor reported as logged.",
         examples: &[
             (r#"audit_log("example-action", "example-resource").status"#, r#"logged"#),
             (r#"audit_log("example-action", "example-resource", "with details").status"#, r#"logged"#),
@@ -8253,10 +8253,11 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Any),
         params: &[opt("success", Ty::Bool, "whether it succeeded; default true"), opt("result", Ty::Any, "what it produced")],
         returns: "Bool",
-        doc: "Tell the UI an agent has finished.",
+        doc: "Tell the UI an agent has finished. The success flag, when given, must be a Bool; any other type (such as \"false\" or 0) is E_BAD_ARG rather than success.",
         examples: &[
             (r#"a2ui_agent_completed("a1")"#, r#"true"#),
             (r#"a2ui_agent_completed("a1", false, "timed out")"#, r#"true"#),
+            (r#"(try { a2ui_agent_completed("a1", "false") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],
     },
     Signature {
@@ -11495,7 +11496,7 @@ pub static SIGNATURES: &[Signature] = &[
         name: "syntax_add", category: None, subject_required: false, aliases: &[], subject: Some(Ty::Record),
         params: &[],
         returns: "Bool",
-        doc: "Add one entry to the syntax knowledge base, which is saved to ~/.ironshell/syntax_kb.json, and return true. The entry is a Record with fields id (required; letters, digits, '_', '-' or '.', at most 128), name (required, non-blank), specification (required String), category (protocol, language, encoding, command or query; any other non-empty value makes a custom category; default custom) and examples (Array of String, optional). Piped or as the argument, never both. A misspelt field, a field of the wrong type, or an id already in the knowledge base is E_BAD_ARG, and nothing is saved in those cases. The file is under the home directory and not IRONSHELL_DATA_HOME; a failure to save is E_IO.",
+        doc: "Add one entry to the syntax knowledge base, which is saved to ~/.ironshell/syntax_kb.json, and return true. The entry is a Record with fields id (required; letters, digits, '_', '-' or '.', at most 128), name (required, non-blank), specification (required String), category (protocol, language, encoding, command or query; any other non-empty value makes a custom category; default custom) and examples (Array of String, optional). Piped or as the argument, never both. A misspelt field, a field of the wrong type, or an id already in the knowledge base is E_BAD_ARG, and nothing is saved in those cases. The file is under the home directory and not IRONSHELL_DATA_HOME; a failure to save is E_IO. If the file exists but does not load (corrupt or unreadable), syntax_add is E_BAD_STATE and saves nothing: the file is left untouched and never overwritten, while queries still answer from the knowledge base in memory.",
         examples: &[
             (r#"(try { syntax_add({id: "x"}) } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { syntax_add({id: "x", name: "X", specification: "s", exmples: []}) } catch e { e.error.code })"#, "E_BAD_ARG"),
@@ -13335,7 +13336,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Bool",
-        doc: "End the login session, reporting whether there was one.",
+        doc: "End the login session, reporting whether there was one. The local login is cleared first; if the auth store cannot end the session, the call is E_IO and says so, rather than reporting a clean logout.",
         examples: &[
             (r#"rbac_logout()"#, r#"false"#),
         ],

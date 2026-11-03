@@ -1088,18 +1088,22 @@ impl AuthManager {
 
     /// Logout / invalidate session
     pub fn logout(&self, session_id: &str) -> Result<()> {
-        if let Ok(mut sessions) = self.sessions.write() {
-            if let Some(session) = sessions.get_mut(session_id) {
-                session.active = false;
+        // A poisoned session table is an error, not a silent no-op: the session
+        // is not ended, so the caller must not be told it was.
+        let mut sessions = self
+            .sessions
+            .write()
+            .map_err(|_| crate::safety::lock_poisoned("rbac", "the session table"))?;
+        if let Some(session) = sessions.get_mut(session_id) {
+            session.active = false;
 
-                self.audit(
-                    AuditEntry::new(AuditEventType::Logout, "logout")
-                        .with_user(&session.user_id)
-                        .with_detail("session_id", session_id),
-                );
+            self.audit(
+                AuditEntry::new(AuditEventType::Logout, "logout")
+                    .with_user(&session.user_id)
+                    .with_detail("session_id", session_id),
+            );
 
-                return Ok(());
-            }
+            return Ok(());
         }
         Err(anyhow!("Session not found"))
     }

@@ -14033,6 +14033,18 @@ use std::sync::{Mutex, OnceLock};
 // Global syntax knowledge base
 static SYNTAX_KB: OnceLock<Mutex<SyntaxKB>> = OnceLock::new();
 
+// Why ~/.ironshell/syntax_kb.json did not load, when the file exists but cannot
+// be read or parsed. None when storage is live. Set by the first
+// get_syntax_kb(); the knowledge base then runs in memory and saves nothing.
+static SYNTAX_KB_LOAD_ERROR: OnceLock<Option<String>> = OnceLock::new();
+
+/// The reason the syntax knowledge base is not persisted, or None when its
+/// storage loaded. Forces the load first, so the answer is never stale.
+fn syntax_kb_load_error() -> Option<&'static str> {
+    let _ = get_syntax_kb();
+    SYNTAX_KB_LOAD_ERROR.get().and_then(|e| e.as_deref())
+}
+
 fn get_syntax_kb() -> &'static Mutex<SyntaxKB> {
     SYNTAX_KB.get_or_init(|| {
         // Try to load from ~/.ironshell/syntax_kb.json
@@ -14048,7 +14060,17 @@ fn get_syntax_kb() -> &'static Mutex<SyntaxKB> {
             let _ = std::fs::create_dir_all(parent);
         }
 
-        let kb = SyntaxKB::with_storage(storage_path).unwrap_or_else(|_| SyntaxKB::new());
+        let (kb, load_error) = match SyntaxKB::with_storage(storage_path.clone()) {
+            Ok(kb) => (kb, None),
+            Err(e) => (
+                SyntaxKB::new(),
+                Some(format!(
+                    "the syntax knowledge base file {} did not load ({e})",
+                    storage_path.display()
+                )),
+            ),
+        };
+        let _ = SYNTAX_KB_LOAD_ERROR.set(load_error);
         Mutex::new(kb)
     })
 }
@@ -14298,6 +14320,13 @@ fn bi_syntax_add(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         metadata: std::collections::HashMap::new(),
     };
 
+    if let Some(why) = syntax_kb_load_error() {
+        return Err(crate::safety::bad_state_with_hint(
+            B,
+            &format!("{why}; the entry was not saved and the file was left untouched"),
+            "repair or move the syntax knowledge base file so it loads, then retry; the shell does not overwrite it",
+        ));
+    }
     let mut kb = get_syntax_kb().lock().map_err(|_| {
         crate::safety::bad_state(
             B,
@@ -21098,13 +21127,24 @@ fn bi_apply(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         r.insert("rolled_back".to_string(), Value::Bool(false));
         r.insert("restored".to_string(), Value::Int(0));
     } else {
-        let _ = crate::safety::audit(
+        // The operations and the commit have already happened, so a failed
+        // required audit write cannot undo them. It must still not report
+        // "applied" as if the record were kept.
+        if let Err(e) = crate::safety::audit(
             "apply",
             crate::safety::Effect::Destructive,
             "applied",
             &token,
             serde_json::json!({ "operations": applied }),
-        );
+        ) {
+            return Err(crate::safety::io_fault(
+                "apply",
+                &format!(
+                    "the {applied} operations WERE applied and committed, but the required audit record could not be written: {e}"
+                ),
+                "the changes are in place; do not re-run this plan. Fix the audit log path (IRONSHELL_AUDIT_REQUIRED is set) and check the audit log",
+            ));
+        }
         r.insert("status".to_string(), Value::Str("applied".to_string()));
         r.insert("applied".to_string(), Value::Int(applied));
     }
@@ -22161,7 +22201,18 @@ fn bi_rbac_logout(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::set_principal(None);
     match was {
         Some(s) => {
-            let _ = GLOBAL_AUTH.logout(&s.session_id);
+            // The local principal was cleared above. If the auth store cannot
+            // end the session, say so rather than report a clean logout.
+            GLOBAL_AUTH.logout(&s.session_id).map_err(|e| {
+                crate::safety::io_fault(
+                    "rbac_logout",
+                    &format!(
+                        "the local login was cleared, but the auth store did not end session {}: {e}",
+                        s.session_id
+                    ),
+                    "this shell is anonymous again; the session may stay valid in the auth store until it expires, so revoke it there",
+                )
+            })?;
             Ok(Value::Bool(true))
         }
         None => Ok(Value::Bool(false)),
@@ -23335,8 +23386,10 @@ fn bi_audit_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     // The chained log is what `audit_verify` checks. An assertion that lands
     // there is attributable and tamper-evident; `decision: asserted` says it
-    // is a claim, not a decision the shell made.
-    let _ = crate::safety::audit(
+    // is a claim, not a decision the shell made. A required write that fails
+    // is an error here, not a "logged" result: the entry is not kept in memory
+    // either, so nothing reports it as logged.
+    if let Err(e) = crate::safety::audit(
         "audit_log",
         crate::safety::Effect::WriteLocal,
         "asserted",
@@ -23348,7 +23401,13 @@ fn bi_audit_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             "severity": severity.as_str(),
             "user": user,
         }),
-    );
+    ) {
+        return Err(crate::safety::io_fault(
+            "audit_log",
+            &format!("the audit entry was not logged: {e}"),
+            "the required audit log could not be written (IRONSHELL_AUDIT_REQUIRED is set); fix the audit log path or unset IRONSHELL_AUDIT_REQUIRED, then retry",
+        ));
+    }
 
     let entry = AuditEntry {
         id: id.clone(),
@@ -24380,16 +24439,19 @@ fn bi_a2ui_agent_completed(args: Vec<Value>, input: Option<Value>) -> Result<Val
         .map(|v| v.to_display_string())
         .ok_or_else(|| crate::safety::arg_err("a2ui_agent_completed: missing agent_id"))?;
 
-    let success = args
-        .get(1)
-        .and_then(|v| {
-            if let Value::Bool(b) = v {
-                Some(*b)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(true);
+    // An absent flag means success; a supplied flag must be a Bool. A string
+    // such as "false" or a 0 is refused, not read as success.
+    let success = match args.get(1) {
+        None => true,
+        Some(Value::Bool(b)) => *b,
+        Some(other) => {
+            return Err(crate::safety::bad_arg(
+                "a2ui_agent_completed",
+                "a success flag that is a Bool (true or false), or no flag",
+                other.type_name(),
+            ))
+        }
+    };
 
     let result = args.get(2).map(|v| v.to_display_string());
 
