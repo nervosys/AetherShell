@@ -84,6 +84,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`benches/agentic/results/latency-warm.md`).
 - **`ish --explain` / `explain_effects(code)`**: every call in a program, its
   effect class and the agent-mode decision, without running it.
+- **Local evaluation records (`IRONSHELL_RECORD`)**: `IRONSHELL_RECORD=1`
+  appends one JSON line per top-level evaluation to `record.jsonl` in the
+  session directory, with the surface, agent mode, the top-level builtin names,
+  a hash of the source, the duration and, on failure, the error code and its
+  retryable and refused flags. `IRONSHELL_RECORD=full` also stores the source
+  text. Any other value leaves recording off, and nothing leaves the machine.
+  Write errors are ignored, so recording never changes an outcome. It covers
+  `ish -c`, script files, the REPL, the Agent API's eval, call, pipeline and
+  stream requests, and scripts run by the POSIX subset (surface `sh`).
+  `record_summary()` reads the file back and reports attempts, failures,
+  refusals, retries, recoveries and first-try successes; it refuses arguments.
+- **`IRONSHELL_MAX_OUTPUT_BYTES` caps one-shot output**: caps the printed result
+  of `ish -c` at that many bytes, cut on a UTF-8 boundary, and reports on stderr
+  how many bytes were omitted. The exit status is decided before anything is
+  printed, errors are not cut, and unset means no cap. A streaming child's
+  stdout is not capped.
+- **`ontology_manifest` names the modules**: the root manifest has a `modules`
+  field, a sorted, de-duplicated, space-joined string of the module namespaces
+  (`file`, `sys`, ...), without member lists. `ish agent schema --module <name>`
+  lists a module's members.
 
 ### Performance
 
@@ -133,6 +153,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (the same name and core counts). `proc_list` and `proc_cmdline` read
   sysinfo and the process's own times instead of `Get-Process` and
   Win32_Process.
+- The module table is built once per process instead of on every eval, so Eval,
+  Call and Pipeline requests and `ish -c` no longer rebuild about 800 builtin
+  references. An eval that writes into a module cannot reach the next eval. The
+  median of the agent eval benchmark fell from 283 us to 164 us and 240 us in
+  two runs on a loaded Windows host.
+- `observe` compares row shapes without rendering each row. On a 1,000,000-row
+  array of small records its mean fell from 843 ms to 383 ms (three interleaved
+  Windows release runs). The output is unchanged: the previous function is kept
+  as a test oracle, with a differential test over generated values.
+- The handle store stops deep-copying values. `put` no longer clones the stored
+  value to describe it, `list` no longer clones each value before blanking it,
+  and a handled result moves into the store instead of being cloned. On
+  `arr.range(1000000) | map(...)` in agent mode, `render_handle`'s median fell
+  from 2.7 s to 1.7 s over six paired runs. The value a `put` returns is Null.
 
 ### Changed
 
@@ -181,6 +215,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing read, unless `IRONSHELL_SECRETS=allow` or `IRONSHELL_POLICY=permissive`: a
   copied password has no shape for redaction to catch. `clipboard_types` is
   not gated.
+- **Agent-mode children lose credentials.** In agent mode a child process no
+  longer inherits environment variables whose names the redaction list matches
+  (`safety::is_secret_name`). This applies to every child the shell starts. To
+  pass one through, name it exactly in `IRONSHELL_CHILD_ENV_KEEP`
+  (comma-separated), for a tool that needs it, such as `gh` and its token. Human
+  mode is unchanged, and so is a variable the caller sets explicitly on the
+  command.
+- **Every child process strips the shell's settings.** Spawns in `src/` that did
+  not go through a shared runner now strip the `IRONSHELL_*` variables as well,
+  among them `proc_spawn`, `ssh_tunnel`, `sudo_exec`, `archive`, `test_watch`,
+  and the clipboard, editor, taskkill, PowerShell and decoder launchers.
+- **Exec-class builtins obey `IRONSHELL_NET_ALLOW`.** Builtins that reach the
+  network through a program (ssh, scp and rsync, git remotes, container
+  runtimes, registry-fetching tools, package managers and terraform) were
+  checked against the allowlist only when they were `Network`-class. Where the
+  destination is in the arguments it is now judged before the program starts:
+  the ssh hosts, both `ssh_tunnel` hosts, and the registry an image reference
+  names. Where it is not, a set allowlist refuses the call with `E_POLICY_DENY`
+  and says why. Under `*`, a destination that cannot be read is allowed, as
+  every host is. With no allowlist nothing changes. The refusals are:
+  - **ssh**: `ssh_exec`, `ssh_copy_id`, `ssh_tunnel`, `scp_upload`,
+    `scp_download` and `rsync_sync` judge the `HostName` that `~/.ssh/config`
+    gives an alias, not the name written, so an alias cannot pass an allowlist
+    that names another host. A `Host` block counts only when it applies to the
+    name: an applying wildcard block that sets `HostName`, `ProxyJump` or
+    `ProxyCommand`, or an applying exact block that sets `ProxyJump` or
+    `ProxyCommand`, refuses. `Include` and `Match` anywhere in the file refuse.
+  - **git remotes**: `git_fetch`, `git_pull` and `git_push` judge the remote
+    that the repository's `.git/config` names (the branch's remote, else
+    `origin`; `pushRemote` and `remote.pushDefault` for a push), after
+    `insteadOf` and `pushInsteadOf`, and read the global and system git config
+    too. A remote that cannot be determined (`ext::`, `fd::`, a remote helper,
+    an include, a missing remote, an unreadable config, a `GIT_CONFIG*`
+    override) is refused.
+  - **Registry-fetching tools**: `uv_run`, `cargo_build_cmd`, `cargo_test_cmd`,
+    `cargo_run`, `go_build`, `go_test`, `go_run`, `deno_run`, `mise_use` and
+    `pre_commit_run` are refused, since a mirror in `pip.conf`, `.npmrc`, cargo,
+    `GOPROXY` or uv configuration could redirect them. So are calls whose source
+    is named by a file rather than by the call: build contexts, compose files,
+    chart repositories, terraform configuration, and rustup, asdf and
+    marketplace sources.
+  - **Packages and terraform**: `pkg_install`, `pkg_update`, `pkg_upgrade`,
+    `pkg_add_source` (with an update), `pkg_changelog` and, on Windows, the
+    winget arms of `pkg_search` and `pkg_info` are refused. The apt side of
+    `pkg_search` and `pkg_info` reads the local index and is not.
+    `terraform_state`, `terraform_output` and `terraform_workspace` with a name
+    (`workspace select`) are refused; `workspace show` reads a local file and is
+    not.
+  - **Containers**: `docker_run`, `podman_run`, `docker_pull`, `docker_push` and
+    `podman_pull` judge the registry the image reference names, and refuse when
+    a config the runtime reads could send the pull elsewhere: a
+    `registry-mirrors` entry in `daemon.json`, a `[[registry.mirror]]` table or
+    an unqualified search list in `registries.conf` (including its
+    `registries.conf.d` drop-ins), a remote or switched daemon (`DOCKER_HOST`,
+    `DOCKER_CONTEXT`, `CONTAINER_HOST`, `CONTAINER_CONNECTION`, a non-default
+    `currentContext`), or a config file that cannot be read or parsed. Each
+    runtime is judged by the config it reads, and both `$XDG_CONFIG_HOME` and
+    `$HOME/.config` are read. A mirror set by `dockerd --config-file` is not
+    seen. `buildah_build`, `trivy_scan`, `trivy_image` and `gh_repo` are refused
+    as unknown; `skopeo` refuses `docker://` references and passes the local
+    transports.
+- **Transactions refuse more builtins.** Inside `tx_begin`, these are refused
+  before their body runs: `exit`, `platform_check_reqs`, `platform_require`,
+  `platform_satisfies`, the RBAC writers (`create_role`, `role_create`,
+  `grant_permission`, `role_grant`, `revoke_permission`, `role_revoke`),
+  `sso_logout`, `logout_sso`, `cluster_remove_node`, `remove_node`,
+  `repl_disconnect`, `rag_clear`, `sess_eval`, `cloud_config`, the `workspace_*`
+  writers, and `agent`, `swarm`, `ai`, `ai_add_route`, `ai_convert_model`,
+  `ai_local_generate`, `ai_reset_usage`, `ai_set_default`,
+  `ai_set_load_balancing`, `handle_drop`, `journal_clear`, `rewind`, `undo` and
+  `vault_convert`, including their fallback spellings. The `tx_*` builtins are
+  no longer recorded in the undo journal, so `tx_begin` and `tx_commit` keep the
+  redo stack and capture no path argument.
+- **Stated-Pure builtins are classified from their bodies.** A name that no
+  classification covers falls through to `Pure`, which agent mode allows without
+  approval. Each name below was read and moved to the class its body shows:
+  - **Privileged**: `role_create`, `create_role`, `role_grant`,
+    `grant_permission`, `role_revoke` and `revoke_permission`, which write the
+    legacy RBAC store.
+  - **Exec**: `sess_eval`, which evaluates caller-supplied code;
+    `platform_check_reqs`, `platform_require` and `platform_satisfies`, which
+    run `<tool> --version` on a named program.
+  - **Process**: `exit`, which ends the host process.
+  - **WriteLocal** (in-process state, no caller path): `approve`,
+    `governor_reset`, the `a2ui_*` names, the `a2a_*` and `nanda_*` writers,
+    `job_cancel`, `finetune_cancel` and `cancel_finetune`, the `tx_*` builtins,
+    `env_unset`, `feature_enable`, `feature_disable`, `rag_clear`,
+    `handle_drop`, and session and cache writers from the audit, `try_repair`
+    among them.
+  - **ReadLocal**: the in-process readers of the `a2a_*`, `nanda_*`, `job_*`,
+    `finetune_*` and `kg_*` families, `rlm_stats`, `audit_export`,
+    `export_audit`, `monitor_uptime`, `remote_exec` and `workspace_sync` (both
+    read a table and then refuse or sync nothing), `helm_repos`, `Get-Content`,
+    `Get-Files`, and read names from the audit such as `find`, `pwd` and
+    `session_history`.
+- **`governor_reset` is refused in agent mode.** An agent that could reset the
+  governor would clear its own operation, file, process, network and wall-clock
+  budget, so the reset is refused there, as `approve` already was. Human mode
+  still resets. The limits are read from environment variables at startup, so
+  raise them before the shell launches.
 
 ### Added (platform backends)
 
@@ -825,6 +959,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `from_json` and `jq_query` reported malformed JSON as `E_UNKNOWN`.
 - `AGENTS.md` claimed the agentic syntax saves "~60-70%" of tokens; measured,
   it saves 27.5% of command tokens and 0% of output.
+- **A handle is never replaced by another writer.** `put` creates a handle's
+  file exclusively, and a taken id is listed past. Before, a foreign write made
+  between the tally and the write could be silently replaced, so that process's
+  id returned someone else's data. This also closes the race between listing the
+  directory and writing to it.
+- **An id that is not a handle never reaches the file system.**
+  `handle_drop("../x")` deleted `x.json` outside the session directory, and
+  `handle` read the same path. Ids are checked before any path is built.
+- **`refactor_rename_file` never replaces what it renames onto, and checks both
+  ends.** The move uses a no-replace rename that is atomic on each OS
+  (`renameat2` with `RENAME_NOREPLACE` on Linux, `renamex_np` with `RENAME_EXCL`
+  on macOS, `MoveFileExW` without `REPLACE_EXISTING` on Windows), with a hard
+  link as the last fallback, so a directory created after the caller's check is
+  no longer replaced. Before, a file could be renamed into `.git/hooks`, since
+  the destination was not checked against the protected paths; both ends now go
+  through the guard the other writers use.
+- **UNC paths are judged by their host before any file system probe.**
+  `validate_safe_path`, `ls`, `cat`, glob expansion and `find` stat a string
+  before the egress check, so a `\\host\share` or `//host/share` argument opened
+  an SMB session to that host even under `IRONSHELL_NET_ALLOW`. The allowlist
+  now runs first. A host it cannot read (a device path, or a host containing
+  `@`, `:` or a backslash) fails closed under an allowlist; with no allowlist
+  nothing changes. A verbatim local path such as `\\?\C:\x` names no host and is
+  not refused. `from_json` no longer stats a remote-share string while it builds
+  its error hint.
+- **`ai()` takes one prompt, and the docs now say so.** `ai()` reads only its
+  prompt (the first argument or piped input) and, from an optional record,
+  `images`, `audio` and `video`. It ignores its `model` and `context` fields, so
+  the examples, the language spec, the Copilot instructions and the AI backend
+  notes that passed them are corrected, and the provider comes from
+  `IRONSHELL_AI`. `IRONSHELL_AI=auto` is not handled and fails with `Unknown AI
+  provider`. `ai` now has a signature that says `model` is accepted and unused,
+  so agents can discover it and the Agent API accepts its named arguments. The
+  code keeps its behaviour, by decision.
+- **The LangChain tool text names `read_text`.** It told the model to call
+  `read_file`, which no builtin answers to. A contract test now checks every
+  name the text lists against the dispatcher.
 
 ## [12.0.2] - 2026-09-03
 
