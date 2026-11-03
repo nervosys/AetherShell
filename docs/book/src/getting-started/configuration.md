@@ -1,70 +1,236 @@
 # Configuration
 
-IronShell can be configured through environment variables and config files.
+IronShell reads one TOML settings file and environment variables. AI models are stored in a separate directory, described under [Model Storage](#model-storage). Some keys in the TOML file are read but have no effect; the tables below say which.
 
 ## Configuration File
 
-The main configuration file is located at:
-- Linux/macOS: `~/.config/ironshell/config.toml`
-- Windows: `%APPDATA%\ironshell\config.toml`
+### Where it is read from
 
-### Example Configuration
+IronShell uses the first of these that applies:
+
+1. The file named by `IRONSHELL_CONFIG`, if that variable is set. It is used even if it does not exist; then the defaults apply.
+2. `config.toml` in the config directory, if that file exists. The config directory is `IRONSHELL_CONFIG_HOME` if set. Otherwise it is an `ironshell` directory in the OS config directory:
+   - Linux: `$XDG_CONFIG_HOME/ironshell` (`~/.config/ironshell` when `XDG_CONFIG_HOME` is unset)
+   - macOS: `~/Library/Application Support/ironshell`
+   - Windows: `%APPDATA%\ironshell\config.toml`
+3. `~/.ironshellrc`, if it exists. It is parsed as TOML if it looks like TOML; otherwise it is read as legacy `key = value` lines. The legacy keys it reads are `color`/`colors`, `theme`, `vi_mode`/`vi-mode`, `auto_cd`/`auto-cd`, `banner`/`show_banner`, `history_size`/`history-size`, `editor`/`EDITOR`, `ai_model`/`model`, and `ai_provider`/`provider`. Other lines are ignored.
+4. Otherwise the built-in defaults. IronShell does not create a file at startup.
+
+If the file exists but does not parse, IronShell starts with the defaults and prints no message. `config_set()` and `config_reload()` report the error.
+
+### Creating and changing it
+
+- `config_init()` writes a commented default file to the config directory. It does nothing if `config.toml` already exists.
+- `config_set(path, value)` changes one key and saves the file. It accepts only these paths: `colors.enabled`, `colors.force`, `colors.true_color`, `colors.theme`, `shell.show_banner`, `shell.show_tips`, `shell.vi_mode`, `shell.auto_cd`, `ai.default_model`, `ai.default_provider`, `ai.max_tokens`, `ai.streaming`, `history.enabled`, `history.max_size`.
+- Changes take effect the next time IronShell starts. `config_reload()` re-reads the file, but it does not replace the settings in use.
+
+Unknown keys are ignored. A key you leave out takes the default shown below.
+
+### Example
+
+The values are the built-in defaults.
 
 ```toml
-# IronShell Configuration
+[shell]
+show_banner = true
+show_tips = true
+default_directory = ""
+vi_mode = false
+auto_cd = false
+glob_expansion = true
+command_correction = true
+bell_style = "none"
 
-[general]
-# Default shell features
-history_size = 10000
-auto_save_history = true
-multiline_prompt = true
+[colors]
+enabled = true
+theme = "catppuccin"
+force = false
+true_color = true
+
+[colors.custom]          # used when theme = "custom"
+number = "#a6e3a1"
+string = "#a6e3a1"
+boolean = "#cba6f7"
+keyword = "#cba6f7"
+punctuation = "#89b4fa"
+key = "#89dceb"
+uri = "#f9e2af"
+error = "#f38ba8"
+warning = "#fab387"
+success = "#a6e3a1"
+dim = "#6c7086"
+comment = "#6c7086"
+
+[prompt]
+format = "{symbol}"
+continuation = "… "
+right = ""
+show_git = true
+show_time = true
+time_threshold_ms = 1000
+transient = false
+style = "classic"
+symbol = "❯"
+segments = ["os", "cwd", "git", "status", "duration"]
+powerline_separator = ""
+abbreviate_path = true
+max_path_segments = 0
+two_line = false
+show_user_host = false
+show_git_dirty = false
+autosuggestions = true
+
+[prompt.segment_colors]  # e.g. cwd = "#1e1e2e:#89b4fa"
+
+[prompt.abbreviations]   # e.g. gs = "git.status()"
 
 [ai]
-# Default AI provider
 default_provider = "openai"
 default_model = "gpt-4o-mini"
-
-# Response settings
+suggestions = false
 max_tokens = 4096
 temperature = 0.7
-stream = true
+streaming = true
+allowed_tools = []
+blocked_tools = []
+max_agent_steps = 10
 
-[ai.providers.openai]
-api_key = "${OPENAI_API_KEY}"  # Use env var
-base_url = "https://api.openai.com/v1"
+[history]
+enabled = true
+max_size = 10000
+ignore_duplicates = true
+ignore_space = true
+ignore_patterns = ["^exit$", "^quit$"]
+share = false
+timestamps = true
 
-[ai.providers.anthropic]
-api_key = "${ANTHROPIC_API_KEY}"
-default_model = "claude-3-sonnet-20240229"
+[editor]
+# external defaults to $EDITOR, else notepad on Windows or vi elsewhere
+tab_width = 4
+syntax_highlighting = true
+line_numbers = true
+auto_indent = true
+bracket_matching = true
 
-[ai.providers.ollama]
-base_url = "http://localhost:11434"
-default_model = "llama3"
+[keybindings]
+mode = "emacs"
 
-[tui]
-# TUI settings
-theme = "catppuccin-mocha"
-show_images = true
-image_protocol = "kitty"  # kitty, iterm, sixel
-max_image_width = 80
-show_timestamps = true
+[keybindings.custom]
 
-[agent]
-# Agent defaults
-allowed_commands = ["ls", "cat", "grep", "find", "curl"]
-max_tool_calls = 10
-timeout_seconds = 300
+[aliases]
 
-[server]
-# API server settings
-host = "127.0.0.1"
-port = 3002
-enable_cors = true
-
-[logging]
-level = "info"  # debug, info, warn, error
-file = "~/.local/share/ironshell/ironshell.log"
+[env]
 ```
+
+### Keys
+
+"Applied" means the shell's own code uses the value. "Not applied" means the key is read into the config and shown by `config()` and `config_get()`, and `config_set()` can change it, but nothing else in the shell acts on it.
+
+#### `[shell]`
+
+| Key | Type | Default | Status |
+| --- | --- | --- | --- |
+| `show_banner` | Bool | `true` | Applied: the REPL banner |
+| `show_tips` | Bool | `true` | Not applied |
+| `default_directory` | String | `""` | Not applied |
+| `vi_mode` | Bool | `false` | Not applied |
+| `auto_cd` | Bool | `false` | Not applied |
+| `glob_expansion` | Bool | `true` | Not applied |
+| `command_correction` | Bool | `true` | Not applied |
+| `bell_style` | String | `"none"` | Not applied |
+
+#### `[colors]`
+
+| Key | Type | Default | Status |
+| --- | --- | --- | --- |
+| `enabled` | Bool | `true` | Applied: `false` turns colour off. `NO_COLOR` also turns it off |
+| `theme` | String | `"catppuccin"` | Applied. Names are those `Theme::from_str` accepts, such as `catppuccin`, `catppuccin-latte`, `monokai`, `dracula`, `nord`, `gruvbox`, `tokyonight`. An unknown name gives Catppuccin. `"custom"` uses `[colors.custom]` |
+| `force` | Bool | `false` | Not applied. Forced colour comes from the `FORCE_COLOR` or `CLICOLOR_FORCE` environment variables |
+| `true_color` | Bool | `true` | Applied |
+
+`[colors.custom]` holds hex colours for `number`, `string`, `boolean`, `keyword`, `punctuation`, `key`, `uri`, `error`, `warning`, `success`, `dim` and `comment`. Its defaults are the Catppuccin Mocha colours shown in the example. It is applied when `theme = "custom"`.
+
+#### `[prompt]`
+
+Applied. The prompt and the line editor use these keys.
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `format` | String | `"{symbol}"` |
+| `continuation` | String | `"… "` |
+| `right` | String | `""` |
+| `show_git` | Bool | `true` |
+| `show_time` | Bool | `true` |
+| `time_threshold_ms` | Integer | `1000` |
+| `transient` | Bool | `false` |
+| `style` | String | `"classic"`: `classic`, `fish`, `powerline`, `pure` or `custom` |
+| `symbol` | String | `"❯"` |
+| `segments` | Array of String | `["os", "cwd", "git", "status", "duration"]`: `os`, `user`, `host`, `user@host`, `cwd`, `git`, `status`, `duration`, `time`, `symbol`; other values are shown as literal text |
+| `powerline_separator` | String | `""` (needs a Nerd Font) |
+| `abbreviate_path` | Bool | `true` |
+| `max_path_segments` | Integer | `0` (keep all) |
+| `two_line` | Bool | `false` |
+| `show_user_host` | Bool | `false` |
+| `show_git_dirty` | Bool | `false` (costs a `git status` per prompt) |
+| `autosuggestions` | Bool | `true` |
+| `[prompt.segment_colors]` | Table | empty. Values are `"#fg"` or `"#fg:#bg"` |
+| `[prompt.abbreviations]` | Table | empty. Abbreviations expand when you press space |
+
+#### `[ai]`
+
+Not applied to `ai()`, to agents or to the TUI. These keys are read and shown by `config()` and `config_get()`, and `config_set()` can change some of them. The provider and model come from `IRONSHELL_AI` and the variables in [AI Provider Setup](#ai-provider-setup).
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `default_provider` | String | `"openai"` |
+| `default_model` | String | `"gpt-4o-mini"` |
+| `suggestions` | Bool | `false` |
+| `max_tokens` | Integer | `4096` |
+| `temperature` | Float | `0.7` |
+| `streaming` | Bool | `true` |
+| `allowed_tools` | Array of String | `[]` |
+| `blocked_tools` | Array of String | `[]` |
+| `max_agent_steps` | Integer | `10` |
+
+#### `[history]`
+
+| Key | Type | Default | Status |
+| --- | --- | --- | --- |
+| `enabled` | Bool | `true` | Applied: when `false`, history is neither loaded nor saved |
+| `max_size` | Integer | `10000` | Not applied |
+| `ignore_duplicates` | Bool | `true` | Applied |
+| `ignore_space` | Bool | `true` | Applied: commands that start with a space are not saved |
+| `ignore_patterns` | Array of String | `["^exit$", "^quit$"]` | Not applied |
+| `share` | Bool | `false` | Not applied |
+| `timestamps` | Bool | `true` | Not applied |
+
+History is saved to the `history` file in the data directory.
+
+#### `[editor]`
+
+Not applied. The `external` default is `$EDITOR`, else `notepad` on Windows or `vi` elsewhere.
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `external` | String | `$EDITOR`, else `notepad` or `vi` |
+| `tab_width` | Integer | `4` |
+| `syntax_highlighting` | Bool | `true` |
+| `line_numbers` | Bool | `true` |
+| `auto_indent` | Bool | `true` |
+| `bracket_matching` | Bool | `true` |
+
+#### `[keybindings]`
+
+Not applied.
+
+| Key | Type | Default |
+| --- | --- | --- |
+| `mode` | String | `"emacs"` |
+| `[keybindings.custom]` | Table | empty |
+
+#### `[aliases]` and `[env]`
+
+Not applied. `[aliases]` is a map from a name to a command. `[env]` is a map of variable names to values. IronShell does not set these variables. The settings are parsed and kept, but nothing reads them.
 
 ## Environment Variables
 
@@ -267,13 +433,16 @@ env_set("OPENAI_API_KEY", "sk-your-key-here")
 
 ## AI Provider Setup
 
+`IRONSHELL_AI` chooses the backend that `ai()` uses. The `[ai]` keys in `config.toml` do not choose it. Set the key variable for the provider, then select the provider with `IRONSHELL_AI`. `IRONSHELL_AI=<name>:<model>` also sets the model for the providers listed below.
+
 ### OpenAI
 
 ```bash
 export OPENAI_API_KEY="sk-..."
+export OPENAI_MODEL="gpt-4o"   # optional
 ```
 
-Available models: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`
+With `IRONSHELL_AI=openai`, the model is `OPENAI_MODEL`, or `gpt-4o-mini` when that is unset.
 
 ### Anthropic (Claude)
 
@@ -281,7 +450,7 @@ Available models: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-Available models: `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`
+With `IRONSHELL_AI=anthropic` (or `claude`) the model is `claude-sonnet-4-20250514`. No variable changes it. Use `IRONSHELL_AI=anthropic:<model>` to choose another model.
 
 ### Google (Gemini)
 
@@ -289,7 +458,7 @@ Available models: `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`
 export GOOGLE_API_KEY="AIza..."
 ```
 
-Available models: `gemini-pro`, `gemini-pro-vision`
+With `IRONSHELL_AI=google` (or `gemini`) the model is `gemini-2.5-flash`. Use `IRONSHELL_AI=google:<model>` to choose another model.
 
 ### Local Models (Ollama)
 
@@ -301,6 +470,26 @@ Available models: `gemini-pro`, `gemini-pro-vision`
 IRONSHELL_AI=ollama ish -c 'ai("Hello")'
 ```
 
+`OLLAMA_URL` sets the server (default `http://localhost:11434`), and `OLLAMA_MODEL` sets the model (default `llama3`).
+
+### Other providers
+
+| `IRONSHELL_AI` value | Key variable | Model when none is given |
+| --- | --- | --- |
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| `groq` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| `together` | `TOGETHER_API_KEY` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+| `fireworks` | `FIREWORKS_API_KEY` | `accounts/fireworks/models/llama-v3p3-70b-instruct` |
+| `perplexity` | `PERPLEXITY_API_KEY` | `sonar` |
+| `xai` (`grok`) | `XAI_API_KEY` | `grok-3` |
+| `openrouter` | `OPENROUTER_API_KEY` | `openai/gpt-4o` |
+| `mistral` | `MISTRAL_API_KEY` | `mistral-large-latest` |
+| `cohere` | `COHERE_API_KEY` | `command-a` |
+| `azure` | `AZURE_OPENAI_API_KEY`, endpoint from `AZURE_OPENAI_ENDPOINT` | `gpt-4o` |
+| `vllm` | none (no key is sent) | `default`, at `VLLM_BASE_URL` (default `http://localhost:8000/v1`) |
+| `llamacpp` (`llama_cpp`) | none | `default`, at `http://localhost:8080/v1` |
+| `local` (`lmstudio`) | none (no key is sent) | `default`, at `http://localhost:1234/v1` |
+
 ### Multiple Providers
 
 `ai()` takes no model argument. Choose the provider per run with `IRONSHELL_AI`:
@@ -311,39 +500,60 @@ IRONSHELL_AI=ollama ish -c 'ai("Query")'
 IRONSHELL_AI=openrouter ish -c 'ai("Query")'
 ```
 
+## Model Storage
+
+AI model files and their index are stored in an `ai-models` directory, not in the IronShell data directory. `IRONSHELL_DATA_HOME` does not move them.
+
+- **Data directory** (models, metadata, cache, index): `$XDG_DATA_HOME/ai-models` if `XDG_DATA_HOME` is set, else `$HOME/.local/share/ai-models` if `HOME` is set, else `%APPDATA%\ai-models`.
+- **Config directory** (`config.toml`, `providers.toml`, `aliases.toml`): `$XDG_CONFIG_HOME/ai-models`, else `$HOME/.config/ai-models`, else `%APPDATA%\ai-models`.
+
+Inside the data directory:
+
+- `models/gguf`, `models/safetensors`, `models/pytorch` and `models/onnx` hold the model files, one directory per format.
+- `metadata/` holds model metadata.
+- `cache/` holds temporary files and downloads.
+- `index.json` is the model index.
+
+The `storage` section of the `ai-models` `config.toml` can set `custom_data_dir` and `custom_config_dir` to use other directories. It can also set `max_cache_size_gb` and `auto_cleanup_days`. The same file holds the `[server]`, `[providers]`, `[security]` and `[logging]` sections for the model API. `IRONSHELL_MODEL_DIR` adds one more directory that is scanned for local models.
+
 ## Command-Line Options
 
-```bash
-ish --help
-
-Options:
-  -e, --eval <CODE>       Evaluate code directly
-  -c, --command <CMD>     Run a single command
-  --tui                   Start in TUI mode
-  --no-history           Disable history
-  --config <PATH>        Use alternate config file
-  --log-level <LEVEL>    Set log level
-  --server               Start API server mode
-  --port <PORT>          API server port (default: 3002)
+```text
+ish [OPTIONS] [FILE]
+ish <SUBCOMMAND>
 ```
 
-## Profile Scripts
+With no file, no `-c` and no subcommand, `ish` starts the REPL.
 
-IronShell runs profile scripts on startup:
+| Option | Meaning |
+| --- | --- |
+| `FILE` | Run this script |
+| `-c, --command <CMD>` | Run one command string and exit |
+| `-b, --bash` | Bash compatibility. With no `FILE` or `-c`, read the script from stdin |
+| `-z, --zsh` | Zsh compatibility. With no `FILE` or `-c`, read from stdin |
+| `-p, --pwsh` | PowerShell compatibility. With no `FILE` or `-c`, read from stdin |
+| `-a, --agentic` | Agentic syntax. With no `FILE` or `-c`, read from stdin |
+| `--agent` | Agent mode: default-deny for dangerous effects (`IRONSHELL_MODE=agent`) |
+| `--workspace <DIR>` | Workspace root that confines writes (`IRONSHELL_WORKSPACE`) |
+| `--policy <strict\|permissive>` | Safety policy (`IRONSHELL_POLICY`) |
+| `--budget <N>` | Token budget for output (`IRONSHELL_TOKEN_BUDGET`) |
+| `--explain` | Print the static effect report as JSON instead of running. Use with `-c`, a file, or stdin |
+| `--deterministic` | Canonical, byte-stable JSON output (`IRONSHELL_DETERMINISTIC=1`) |
+| `-h, --help` | Print help |
+| `-V, --version` | Print the version |
 
-- `~/.config/ironshell/init.ish` - Runs on every startup
-- `~/.config/ironshell/login.ish` - Runs on login shells
+Subcommands:
 
-Example `init.ish`:
+| Subcommand | Alias | Meaning |
+| --- | --- | --- |
+| `tui` | | Start the terminal UI |
+| `ai` | `model` | AI models: `serve [--host 127.0.0.1] [--port 8080] [--cors]`, `list [--provider <P>] [--local]` (alias `ls`), `download <MODEL>`, `config`, `keys store\|get\|delete\|list` (alias `key`) |
+| `mcp` | `mcp-server` | MCP server: `serve [--host 127.0.0.1] [--port 3001] [--cors] [--safety caution] [--admin]`, `tools [--category <C>]`, `stdio` (JSON-RPC over stdin and stdout) |
+| `agent` | `agent-api` | Agent API: `serve [--host 127.0.0.1] [--port 3002] [--cors] [--token <T>] [--request-timeout 300]`, `execute [REQUEST]` (alias `exec`; reads stdin when no request is given), `schema [--format compact] [--output <F>] [--module <M>] [-q <TEXT>]`, `builtins [--category <C>] [--json]` (alias `ls`), `interactive` |
+| `assist` | `ai-assist` | Natural language to IronShell code: `[QUERY] [-x] [-i] [-c] [-s]`. `-x` runs the result, `-i` is interactive, `-c` adds system context, `-s` suggests commands |
 
-```ironshell
-# Set up aliases
-let ll = fn() => ls "." | sort_by("modified", "desc")
-let search = fn(pattern) => grep pattern "."
+`ish agent serve` listens on port 3002 by default, and `ish ai serve` on port 8080. The API token can come from `IRONSHELL_API_TOKEN` instead of `--token`, which keeps it out of the process list.
 
-# Configure AI
-env_set("IRONSHELL_AI", "openai")
+## Startup Scripts
 
-# Welcome message
-print("Welcome to IronShell! 🐚")
-```
+IronShell does not run a startup script. `config_path()` reports the path of `init.ish` in the config directory, but nothing executes that file. No code reads `login.ish`.
