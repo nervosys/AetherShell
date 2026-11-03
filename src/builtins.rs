@@ -10583,6 +10583,10 @@ fn bi_ai_providers() -> Result<Value> {
                 "has_key".to_string(),
                 Value::Bool(std::env::var(env_key).is_ok()),
             );
+        } else if matches!(p, crate::providers::ProviderType::Bedrock) {
+            // Bedrock is refused (no SigV4 signing), so it has no usable key.
+            rec.insert("has_key".to_string(), Value::Bool(false));
+            rec.insert("available".to_string(), Value::Bool(false));
         } else {
             rec.insert("has_key".to_string(), Value::Bool(true));
         }
