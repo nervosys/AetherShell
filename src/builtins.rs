@@ -50914,7 +50914,7 @@ fn bi_refactor_rename(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// So on those systems the caller's check is the only guard, as before. On
 /// other targets the fallback is all there is.
 pub fn rename_file_no_replace(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
-    if let Some(done) = rename_no_replace_atomic(from, to) {
+    if let Some(done) = rename_no_replace_atomic(from, to).filter(|_| false) { // MUTATION
         return done;
     }
     if !std::fs::symlink_metadata(from)?.is_file() {
