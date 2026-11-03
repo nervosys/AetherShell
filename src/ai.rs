@@ -212,7 +212,7 @@ pub fn query_gpu_memory() -> Vec<GpuMemoryInfo> {
 /// line is never half-parsed into zeros.
 pub fn try_query_gpu_memory() -> Result<Vec<GpuMemoryInfo>> {
     const QUERY: &str = "--query-gpu=index,name,memory.total,memory.used,memory.free";
-    let mut cmd = std::process::Command::new("nvidia-smi");
+    let mut cmd = crate::safety::child_command("nvidia-smi");
     cmd.args([QUERY, "--format=csv,noheader,nounits"]);
     // A GPU query that does not answer in 30s is stopped and reported.
     let out = crate::safety::output_with_timeout(cmd, 30)

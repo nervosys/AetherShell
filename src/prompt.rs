@@ -398,7 +398,7 @@ pub fn parse_head(head: &str) -> GitInfo {
 
 /// Ask git whether the worktree is dirty. Opt-in — this is the expensive path.
 fn worktree_dirty(repo: &Path) -> bool {
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = crate::safety::child_command("git");
     cmd.arg("-C")
         .arg(repo)
         .args(["status", "--porcelain", "--untracked-files=no"]);

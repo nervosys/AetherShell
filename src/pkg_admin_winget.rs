@@ -20,7 +20,7 @@ use crate::safety;
 use crate::value::Value;
 use anyhow::Result;
 use std::collections::HashSet;
-use std::process::{Command, Output};
+use std::process::Output;
 
 /// The longest identifier this module passes to winget.
 const ID_MAX: usize = 128;
@@ -316,7 +316,7 @@ fn run(builtin: &str, args: &[&str]) -> Result<Output> {
     use std::process::Stdio;
     use std::time::Duration;
 
-    let mut cmd = Command::new("winget");
+    let mut cmd = crate::safety::child_command("winget");
     cmd.args(args).stdin(Stdio::null());
     let run = super::super::run_tree_cmd(
         cmd,

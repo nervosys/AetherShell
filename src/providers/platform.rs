@@ -215,7 +215,7 @@ fn detect_linux_package_manager() -> PackageManagerType {
 /// hangs is treated as a tool that is not there, and so is one that fails:
 /// a docker that cannot answer `--version` was counted as installed.
 fn probe_runs(tool: &str) -> bool {
-    let mut cmd = std::process::Command::new(tool);
+    let mut cmd = crate::safety::child_command(tool);
     cmd.arg("--version");
     crate::safety::output_with_timeout(cmd, 10)
         .map(|o| o.status.success())
@@ -241,7 +241,7 @@ fn detect_windows_container() -> Option<ContainerType> {
             return Some(ContainerType::Docker);
         }
         // Check for WSL
-        let mut cmd = std::process::Command::new("wsl");
+        let mut cmd = crate::safety::child_command("wsl");
         cmd.arg("--version");
         // A hung `wsl --version` probe, bounded at 10s, means WSL is not usable;
         // so does one that exits non-zero (no WSL, or one too old to answer).
@@ -822,7 +822,7 @@ impl PlatformExecutor {
         let args = self.substitute_params(&impl_.args_template, params);
 
         // Execute command
-        let mut cmd = std::process::Command::new(&impl_.command);
+        let mut cmd = crate::safety::child_command(&impl_.command);
         cmd.args(&args).envs(&impl_.env_vars);
         // An operation that does not finish in 30s is stopped with its tree.
         let output = crate::safety::output_with_timeout(cmd, 30)
@@ -937,10 +937,9 @@ impl PlatformExecutor {
         #[cfg(windows)]
         {
             // Simplified Windows elevation check
-            use std::process::Command;
             // `net session` answers quickly when it works; a hung probe, bounded
             // at 10s, counts as not elevated.
-            let mut cmd = Command::new("net");
+            let mut cmd = crate::safety::child_command("net");
             cmd.args(["session"]);
             match crate::safety::output_with_timeout(cmd, 10) {
                 Ok(output) => output.status.success(),

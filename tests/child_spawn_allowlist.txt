@@ -1,0 +1,8 @@
+# Raw `Command::new(` calls allowed in src/, one per line: `path: count: reason`.
+# A count is the number of raw occurrences in the file's text, comments included.
+# The ratchet fails on a count above this, and on a count below it until the
+# number here is lowered. Every spawn in src/ goes through
+# `safety::child_command`, which strips the shell's own settings; these are the
+# exceptions.
+src/safety.rs: 2: the constructor child_command itself, and a doc comment that quotes the raw call
+src/bin/aimodel.rs: 2: the detached daemon re-runs its own binary, and the daemon reads IRONSHELL_MODEL_DIR (providers.rs), which the strip would remove

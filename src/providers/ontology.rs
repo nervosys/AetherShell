@@ -40,7 +40,7 @@ pub fn tool_version_within(tool_name: &str, secs: u64) -> Option<String> {
     };
 
     for flag in version_flags {
-        let mut cmd = std::process::Command::new(tool_name);
+        let mut cmd = crate::safety::child_command(tool_name);
         cmd.arg(flag);
         if let Ok(output) = crate::safety::output_with_timeout(cmd, secs) {
             let stdout = String::from_utf8_lossy(&output.stdout);

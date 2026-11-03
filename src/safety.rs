@@ -2042,6 +2042,16 @@ pub(crate) fn strip_ironshell_env(cmd: &mut std::process::Command) {
     }
 }
 
+/// A `Command` for a program the shell starts, with the shell's own settings
+/// already stripped (see [`strip_ironshell_env`]). Every spawn in `src/` goes
+/// through here, so none inherits a credential or an opt-out by accident.
+/// `tests/child_spawn_ratchet.rs` keeps a raw constructor call out of `src/`.
+pub fn child_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    strip_ironshell_env(&mut cmd);
+    cmd
+}
+
 /// The variable that names credentials a child keeps in agent mode, as
 /// comma-separated exact names. Read by [`strip_ironshell_env`].
 pub const CHILD_ENV_KEEP: &str = "IRONSHELL_CHILD_ENV_KEEP";

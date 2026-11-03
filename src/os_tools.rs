@@ -8341,7 +8341,7 @@ pub fn execute_tool_safe(
         #[cfg(windows)]
         {
             // A hung `net session` probe, bounded at 10s, counts as not admin.
-            let mut cmd = std::process::Command::new("net");
+            let mut cmd = crate::safety::child_command("net");
             cmd.args(["session"]);
             let admin_check = crate::safety::output_with_timeout(cmd, 10);
             if !admin_check.map(|o| o.status.success()).unwrap_or(false) {

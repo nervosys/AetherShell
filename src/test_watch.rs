@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{ErrorKind, Read};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{mpsc, Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
@@ -352,7 +352,7 @@ fn kill_tree(child: &mut std::process::Child) {
 
 fn run_once(name: &str, argv: &[String], limit: Duration) -> Result<Finished> {
     let started = Instant::now();
-    let mut command = Command::new(&argv[0]);
+    let mut command = crate::safety::child_command(&argv[0]);
     safety::strip_ironshell_env(&mut command);
     command
         .args(&argv[1..])

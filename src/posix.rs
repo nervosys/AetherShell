@@ -1746,7 +1746,7 @@ impl Shell {
                 return 126;
             }
         }
-        let mut cmd = std::process::Command::new(&argv[0]);
+        let mut cmd = crate::safety::child_command(&argv[0]);
         cmd.args(&argv[1..]);
         for n in &self.exported {
             if let Some(v) = self.vars.get(n) {

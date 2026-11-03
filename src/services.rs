@@ -472,7 +472,7 @@ mod unix_sudo {
     use super::*;
     use crate::safety::{policy_deny, spawn_error};
     use std::io::{ErrorKind, Read};
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::time::{Duration, Instant};
 
@@ -550,7 +550,7 @@ mod unix_sudo {
         use std::os::unix::process::CommandExt;
 
         const BUILTIN: &str = "sudo_exec";
-        let mut cmd = Command::new(SUDO);
+        let mut cmd = crate::safety::child_command(SUDO);
         crate::safety::strip_ironshell_env(&mut cmd);
         cmd.arg("-n")
             .arg("--")
@@ -655,7 +655,6 @@ mod win_sudo {
     use crate::builtins::{run_tree_cmd, windows_is_admin, Keep, TreeError};
     use crate::safety::{policy_deny, spawn_error};
     use std::path::Path;
-    use std::process::Command;
     use std::time::Duration;
 
     pub(super) fn sudo(spec: SudoSpec) -> Result<Value> {
@@ -690,7 +689,7 @@ mod win_sudo {
             ));
         }
 
-        let mut command = Command::new(&program);
+        let mut command = crate::safety::child_command(&program);
         command.args(&spec.argv[1..]);
         let run = run_tree_cmd(
             command,
@@ -1325,7 +1324,6 @@ mod linux {
     use std::io::{ErrorKind, Write};
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     use std::path::{Path, PathBuf};
-    use std::process::Command;
 
     const SYSTEMCTL: &str = "/usr/bin/systemctl";
     const GETENT: &str = "/usr/bin/getent";
@@ -1338,7 +1336,7 @@ mod linux {
     }
 
     fn run_tool(builtin: &str, args: &[&str]) -> Result<std::process::Output> {
-        let mut cmd = Command::new(SYSTEMCTL);
+        let mut cmd = crate::safety::child_command(SYSTEMCTL);
         cmd.args(args);
         crate::safety::output_with_timeout(cmd, TOOL_TIMEOUT_SECS).map_err(|e| {
             if e.kind() == ErrorKind::TimedOut {
@@ -1436,7 +1434,7 @@ mod linux {
     }
 
     fn account_exists(user: &str) -> Result<()> {
-        let mut cmd = Command::new(GETENT);
+        let mut cmd = crate::safety::child_command(GETENT);
         cmd.args(["passwd", user]);
         let out = crate::safety::output_with_timeout(cmd, TOOL_TIMEOUT_SECS)
             .map_err(|e| spawn_error("svc_create", GETENT, &e))?;
@@ -1645,7 +1643,6 @@ mod launchd {
     use std::io::{ErrorKind, Write};
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     use std::path::{Path, PathBuf};
-    use std::process::Command;
 
     const LAUNCHCTL: &str = "/bin/launchctl";
     const PLUTIL: &str = "/usr/bin/plutil";
@@ -1696,7 +1693,7 @@ mod launchd {
     }
 
     fn launchctl(builtin: &str, args: &[&str]) -> Result<std::process::Output> {
-        let mut cmd = Command::new(LAUNCHCTL);
+        let mut cmd = crate::safety::child_command(LAUNCHCTL);
         cmd.args(args);
         bounded_cmd_output(builtin, "launchctl", cmd, TOOL_TIMEOUT_SECS)
     }
@@ -1727,7 +1724,7 @@ mod launchd {
     }
 
     fn account_exists(user: &str) -> Result<()> {
-        let mut cmd = Command::new(ID);
+        let mut cmd = crate::safety::child_command(ID);
         cmd.args(["-u", user]);
         let out = bounded_cmd_output("svc_create", "id", cmd, TOOL_TIMEOUT_SECS)?;
         match out.status.code() {
@@ -1828,7 +1825,7 @@ mod launchd {
             std::os::unix::fs::chown(&tmp, Some(0), Some(0))
                 .map_err(|e| fs_error(BUILTIN, &tmp, &e))?;
 
-            let mut lint = Command::new(PLUTIL);
+            let mut lint = crate::safety::child_command(PLUTIL);
             lint.arg("-lint").arg(&tmp);
             let out = bounded_cmd_output(BUILTIN, "plutil", lint, TOOL_TIMEOUT_SECS)?;
             if !out.status.success() {

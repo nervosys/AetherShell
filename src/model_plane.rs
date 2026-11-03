@@ -251,7 +251,7 @@ const VAULT_CONVERT_SECS: u64 = 3600;
 #[doc(hidden)]
 pub fn vault_run_within(args: &[&str], secs: u64) -> Result<String> {
     let bin = vault_bin();
-    let mut cmd = std::process::Command::new(&bin);
+    let mut cmd = crate::safety::child_command(&bin);
     cmd.args(args);
     let out = crate::safety::output_with_timeout(cmd, secs).map_err(|e| {
         if let Some(coded) = crate::safety::io_budget_error(&e) {
@@ -296,7 +296,7 @@ pub fn vault_run_within(args: &[&str], secs: u64) -> Result<String> {
 /// Is the vault CLI present?
 pub fn vault_available() -> bool {
     // A probe that does not answer in 10s counts as unavailable.
-    let mut cmd = std::process::Command::new(vault_bin());
+    let mut cmd = crate::safety::child_command(vault_bin());
     cmd.arg("--version");
     crate::safety::output_with_timeout(cmd, 10)
         .map(|o| o.status.success())

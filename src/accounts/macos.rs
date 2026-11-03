@@ -34,7 +34,7 @@
 
 use anyhow::Result;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use super::{
     record, refuse_in_transaction, strings, GroupAdd, GroupDel, GroupMod, UserAdd, UserDel,
@@ -851,7 +851,7 @@ fn spawn(builtin: &str, tool: &str, args: &[&str]) -> Result<Output> {
         .map(|dir| format!("{dir}/{tool}"))
         .find(|candidate| Path::new(candidate).is_file())
         .unwrap_or_else(|| tool.to_string());
-    let mut cmd = Command::new(program);
+    let mut cmd = crate::safety::child_command(program);
     cmd.args(args);
     crate::builtins::bounded_cmd_output(builtin, tool, cmd, TOOL_DEADLINE_SECS)
 }

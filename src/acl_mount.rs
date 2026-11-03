@@ -822,7 +822,7 @@ mod sys {
     /// coded tool failure carrying stderr; a missing program is E_TOOL_MISSING.
     fn run(builtin: &str, program: &str, args: &[&str]) -> Result<String> {
         let name = program.rsplit('/').next().unwrap_or(program);
-        let mut cmd = std::process::Command::new(program);
+        let mut cmd = crate::safety::child_command(program);
         cmd.args(args).env("LC_ALL", "C");
         // A mount tool that does not finish in 30s is stopped with its tree and
         // refused as a budget error, not reported as a failure to start.
@@ -1179,7 +1179,7 @@ mod sys {
     /// system is E_OS_DENIED. Any other non-zero exit is a coded tool failure
     /// carrying stderr. A run that does not finish in 30s is stopped.
     fn run(builtin: &str, args: &[&str]) -> Result<String> {
-        let mut cmd = std::process::Command::new(icacls_program());
+        let mut cmd = crate::safety::child_command(icacls_program());
         cmd.args(args);
         let output = safety::output_with_timeout(cmd, 30).map_err(|e| {
             if e.kind() == std::io::ErrorKind::TimedOut {
@@ -1272,7 +1272,7 @@ mod sys {
         env: &[(&str, &str)],
     ) -> Result<std::process::Output> {
         let full = format!("$ErrorActionPreference = 'Stop'\n{script}");
-        let mut cmd = std::process::Command::new("powershell.exe");
+        let mut cmd = crate::safety::child_command("powershell.exe");
         cmd.args(["-NoProfile", "-NonInteractive", "-Command", &full]);
         cmd.env_remove("PSModulePath");
         for (name, value) in env {
@@ -1672,7 +1672,7 @@ mod sys {
     /// a budget error; a program that cannot start is a spawn error.
     fn execute(builtin: &str, program: &str, args: &[&str]) -> Result<std::process::Output> {
         let name = program.rsplit('/').next().unwrap_or(program);
-        let mut cmd = std::process::Command::new(program);
+        let mut cmd = crate::safety::child_command(program);
         cmd.args(args).env("LC_ALL", "C");
         safety::output_with_timeout(cmd, 30).map_err(|e| {
             if e.kind() == std::io::ErrorKind::TimedOut {

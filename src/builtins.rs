@@ -4,7 +4,6 @@ use anyhow::{Context, Result};
 use serde_json;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::process::Command;
 use sysinfo::{Disks, Networks, System};
 use walkdir::WalkDir;
 
@@ -24692,7 +24691,7 @@ fn bi_proc_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "proc_list",
             "ps",
             {
-                let mut c = Command::new("ps");
+                let mut c = crate::safety::child_command("ps");
                 c.arg("aux");
                 c
             },
@@ -25007,7 +25006,7 @@ fn bi_proc_kill(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
                 ))
             }
         };
-        let mut cmd = std::process::Command::new("taskkill");
+        let mut cmd = crate::safety::child_command("taskkill");
         cmd.args(["/PID", &pid.to_string()]);
         if tree {
             cmd.arg("/T");
@@ -25315,7 +25314,7 @@ fn bi_proc_spawn(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     // Executed directly, never through a shell (CWE-78). The child is not
     // waited for here; proc_wait reaps it.
-    let mut command = Command::new(&cmd);
+    let mut command = crate::safety::child_command(&cmd);
     crate::safety::strip_ironshell_env(&mut command);
     command.args(&spawn_args);
     // With a deadline the child leads its own process group, so the stop can
@@ -25567,7 +25566,7 @@ fn proc_child_pids(pid: i64) -> Result<Vec<i64>> {
 
 #[cfg(not(windows))]
 fn proc_child_pids(pid: i64) -> Result<Vec<i64>> {
-    let mut cmd = Command::new("pgrep");
+    let mut cmd = crate::safety::child_command("pgrep");
     cmd.args(["-P", &pid.to_string()]);
     let out = bounded_cmd_output("proc_children", "pgrep", cmd, PROBE_DEADLINE_SECS)?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -25810,7 +25809,7 @@ fn bi_proc_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "proc_priority",
             "ps",
             {
-                let mut c = Command::new("ps");
+                let mut c = crate::safety::child_command("ps");
                 c.args(["-o", "ni=", "-p", &pid.to_string()]);
                 c
             },
@@ -25875,7 +25874,7 @@ fn bi_proc_set_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value>
             pid,
             crate::safety::ps_quote(class)
         );
-        let mut bounded_cmd = Command::new("powershell");
+        let mut bounded_cmd = crate::safety::child_command("powershell");
         bounded_cmd.args(["-Command", &cmd]);
         let out = bounded_cmd_output(
             "proc_set_priority",
@@ -25895,7 +25894,7 @@ fn bi_proc_set_priority(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     }
     #[cfg(not(windows))]
     {
-        let mut cmd = Command::new("renice");
+        let mut cmd = crate::safety::child_command("renice");
         cmd.args(["-n", &priority.to_string(), "-p", &pid.to_string()]);
         let out = bounded_cmd_output("proc_set_priority", "renice", cmd, TOOL_DEADLINE_SECS)?;
         if !out.status.success() {
@@ -25956,7 +25955,7 @@ fn bi_proc_cpu_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "proc_cpu_usage",
             "ps", // LC_ALL=C: a decimal comma would not parse.
             {
-                let mut c = Command::new("ps");
+                let mut c = crate::safety::child_command("ps");
                 c.env("LC_ALL", "C")
                     .args(["-o", "%cpu=", "-p", &pid.to_string()]);
                 c
@@ -25993,7 +25992,7 @@ fn bi_proc_mem_usage(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "proc_mem_usage",
             "ps",
             {
-                let mut c = Command::new("ps");
+                let mut c = crate::safety::child_command("ps");
                 c.args(["-o", "rss=", "-p", &pid.to_string()]);
                 c
             },
@@ -26034,7 +26033,7 @@ fn bi_proc_threads(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             "proc_threads",
             "ps",
             {
-                let mut c = Command::new("ps");
+                let mut c = crate::safety::child_command("ps");
                 c.args(["-M", "-p", &pid.to_string()]);
                 c
             },
@@ -26154,7 +26153,7 @@ fn proc_cwd_of(pid: i64) -> Result<String> {
         "proc_cwd",
         "lsof",
         {
-            let mut c = Command::new("lsof");
+            let mut c = crate::safety::child_command("lsof");
             c.args(["-p", &pid.to_string(), "-Fn", "-d", "cwd"]);
             c
         },
@@ -26240,7 +26239,7 @@ fn proc_exe_of(pid: i64) -> Result<String> {
         "proc_exe",
         "ps",
         {
-            let mut c = Command::new("ps");
+            let mut c = crate::safety::child_command("ps");
             c.args(["-p", &pid.to_string(), "-o", "comm="]);
             c
         },
@@ -26321,7 +26320,7 @@ fn proc_cmdline_of(pid: i64) -> Result<Vec<String>> {
         "proc_cmdline",
         "ps",
         {
-            let mut c = Command::new("ps");
+            let mut c = crate::safety::child_command("ps");
             c.args(["-p", &pid.to_string(), "-o", "args="]);
             c
         },
@@ -26443,7 +26442,7 @@ fn proc_signal(builtin: &str, pid: i64, name: &str) -> Result<Value> {
         pid,
         nt
     );
-    let mut c = Command::new("powershell");
+    let mut c = crate::safety::child_command("powershell");
     c.args(["-NoProfile", "-NonInteractive", "-Command", &cmd]);
     let out = bounded_cmd_output(builtin, "powershell", c, TOOL_DEADLINE_SECS)?;
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -27731,7 +27730,7 @@ fn bi_fs_df(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(not(target_os = "windows"))]
     {
         // df -h works on both Linux and macOS
-        let mut cmd = std::process::Command::new("df");
+        let mut cmd = crate::safety::child_command("df");
         cmd.args(["-h"]);
         let output = bounded_cmd_output("fs_df", "df", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
@@ -27816,7 +27815,7 @@ fn bi_fs_mounts(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "macos")]
     {
         // macOS: use mount command (no /proc/mounts)
-        let cmd = std::process::Command::new("mount");
+        let cmd = crate::safety::child_command("mount");
         let output = bounded_cmd_output("fs_mounts", "mount", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout);
@@ -27994,7 +27993,7 @@ fn net_refuse_in_transaction(name: &str) -> Result<()> {
 /// wall-clock bound. A missing tool is E_TOOL_MISSING; no answer in time is a
 /// coded budget stop.
 fn net_run(name: &str, tool: &str, argv: &[&str], secs: u64) -> Result<std::process::Output> {
-    let mut cmd = std::process::Command::new(tool);
+    let mut cmd = crate::safety::child_command(tool);
     cmd.args(argv);
     crate::safety::output_with_timeout(cmd, secs).map_err(|e| {
         if e.kind() == std::io::ErrorKind::TimedOut {
@@ -30029,7 +30028,7 @@ fn bi_net_scan(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn os_name_probe() -> Option<String> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-Command",
             "(Get-CimInstance Win32_OperatingSystem).Caption",
@@ -30053,14 +30052,14 @@ fn os_name_probe() -> Option<String> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut name_cmd = std::process::Command::new("sw_vers");
+        let mut name_cmd = crate::safety::child_command("sw_vers");
         name_cmd.args(["-productName"]);
         let name = bounded_cmd_output("sys_info", "sw_vers", name_cmd, PROBE_DEADLINE_SECS)
             .ok()
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .filter(|n| !n.is_empty())?;
-        let mut ver_cmd = std::process::Command::new("sw_vers");
+        let mut ver_cmd = crate::safety::child_command("sw_vers");
         ver_cmd.args(["-productVersion"]);
         let ver = bounded_cmd_output("sys_info", "sw_vers", ver_cmd, PROBE_DEADLINE_SECS)
             .ok()
@@ -30272,7 +30271,7 @@ fn bi_sys_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let mut cmd = std::process::Command::new("uname");
+        let mut cmd = crate::safety::child_command("uname");
         cmd.args(["-r"]);
         return Ok(Value::Str(probe_text("sys_kernel", "uname", cmd)?));
     }
@@ -30312,7 +30311,7 @@ fn bi_sys_uptime(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "macos")]
     {
         // macOS: sysctl kern.boottime returns "{ sec = 1234567890, usec = 0 }"
-        let mut cmd = std::process::Command::new("sysctl");
+        let mut cmd = crate::safety::child_command("sysctl");
         cmd.args(["-n", "kern.boottime"]);
         let output = bounded_cmd_output("sys_uptime", "sysctl", cmd, PROBE_DEADLINE_SECS)?;
         let text = probe_stdout("sys_uptime", "sysctl -n kern.boottime", output)?;
@@ -30400,7 +30399,7 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // the first try.
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("sysctl");
+        let mut cmd = crate::safety::child_command("sysctl");
         cmd.args(["-n", "kern.boottime"]);
         let output = bounded_cmd_output("sys_boot_time", "sysctl", cmd, PROBE_DEADLINE_SECS)?;
         let text = probe_stdout("sys_boot_time", "sysctl -n kern.boottime", output)?;
@@ -30417,7 +30416,7 @@ fn bi_sys_boot_time(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // back in the local zone and converted to UTC.
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
-        let mut cmd = std::process::Command::new("uptime");
+        let mut cmd = crate::safety::child_command("uptime");
         cmd.args(["-s"]);
         let output = bounded_cmd_output("sys_boot_time", "uptime", cmd, PROBE_DEADLINE_SECS)?;
         let text = probe_stdout("sys_boot_time", "uptime -s", output)?;
@@ -30523,7 +30522,7 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         let mut rec = std::collections::BTreeMap::new();
         // CPU brand string
-        let mut brand = std::process::Command::new("sysctl");
+        let mut brand = crate::safety::child_command("sysctl");
         brand.args(["-n", "machdep.cpu.brand_string"]);
         if let Ok(output) = bounded_cmd_output("sys_cpu_info", "sysctl", brand, PROBE_DEADLINE_SECS)
         {
@@ -30535,7 +30534,7 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             }
         }
         // Core count
-        let mut physical = std::process::Command::new("sysctl");
+        let mut physical = crate::safety::child_command("sysctl");
         physical.args(["-n", "hw.physicalcpu"]);
         if let Ok(output) =
             bounded_cmd_output("sys_cpu_info", "sysctl", physical, PROBE_DEADLINE_SECS)
@@ -30556,7 +30555,7 @@ fn bi_sys_cpu_info(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // CPU frequency (MHz). `hw.cpufrequency` is missing on Apple Silicon,
         // so a failed query leaves `mhz` out; a reading that is not a number
         // is refused instead of read as 0 MHz.
-        let mut freq = std::process::Command::new("sysctl");
+        let mut freq = crate::safety::child_command("sysctl");
         freq.args(["-n", "hw.cpufrequency"]);
         if let Ok(output) = bounded_cmd_output("sys_cpu_info", "sysctl", freq, PROBE_DEADLINE_SECS)
         {
@@ -30633,7 +30632,7 @@ fn bi_sys_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("sysctl");
+        let mut cmd = crate::safety::child_command("sysctl");
         cmd.args(["-n", "hw.cpufrequency"]);
         let output = bounded_cmd_output("sys_cpu_freq", "sysctl", cmd, PROBE_DEADLINE_SECS)?;
         if !output.status.success() {
@@ -30816,7 +30815,7 @@ fn bi_sys_load_avg(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "macos")]
     {
         // macOS: sysctl vm.loadavg returns "{ 1.23 4.56 7.89 }"
-        let mut loadavg = std::process::Command::new("sysctl");
+        let mut loadavg = crate::safety::child_command("sysctl");
         loadavg.args(["-n", "vm.loadavg"]);
         let output = bounded_cmd_output("sys_load_avg", "sysctl", loadavg, PROBE_DEADLINE_SECS)?;
         let text = probe_stdout("sys_load_avg", "sysctl -n vm.loadavg", output)?;
@@ -31090,7 +31089,7 @@ mod quiet_sys_tests {
 fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-Command",
             "Get-LocalUser | Select-Object Name,Enabled,LastLogon | ConvertTo-Json",
@@ -31155,7 +31154,7 @@ fn bi_sys_users(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_sys_groups(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-Command",
             "Get-LocalGroup | Select-Object Name,Description | ConvertTo-Json",
@@ -31462,7 +31461,7 @@ fn systemd_units(builtin: &str, stdout: &str) -> Result<Value> {
 fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-Command",
             "Get-Service | Select-Object Name,DisplayName,Status | ConvertTo-Json",
@@ -31481,7 +31480,7 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("systemctl");
+        let mut cmd = crate::safety::child_command("systemctl");
         cmd.args([
             "list-units",
             "--type=service",
@@ -31504,7 +31503,7 @@ fn bi_svc_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("launchctl");
+        let mut cmd = crate::safety::child_command("launchctl");
         cmd.arg("list");
         // A failing launchctl used to answer an empty service list, which reads
         // as "no services". It is an error now.
@@ -31557,7 +31556,7 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("svc_status", std::slice::from_ref(&name))?;
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd
             .args([
                 "-Command",
@@ -31608,7 +31607,7 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         // `systemctl is-active` says "inactive" for a unit that does not
         // exist, so a missing service read as a stopped one. LoadState tells
         // them apart.
-        let mut cmd = std::process::Command::new("systemctl");
+        let mut cmd = crate::safety::child_command("systemctl");
         cmd.args([
             "show",
             "-p",
@@ -31655,7 +31654,7 @@ fn bi_svc_status(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("launchctl");
+        let mut cmd = crate::safety::child_command("launchctl");
         cmd.args(["list", &name]);
         let output = bounded_cmd_output("svc_status", "launchctl", cmd, PROBE_DEADLINE_SECS)?;
         // `launchctl list <label>` fails for a label that is not loaded, which
@@ -31837,7 +31836,7 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd
             .args([
                 "-Command",
@@ -31887,7 +31886,7 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("journalctl");
+        let mut cmd = crate::safety::child_command("journalctl");
         cmd.args([
             "-u",
             &name,
@@ -31927,7 +31926,7 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             return Ok(Value::Array(entries));
         }
         // Fallback: text parsing
-        let mut cmd = std::process::Command::new("journalctl");
+        let mut cmd = crate::safety::child_command("journalctl");
         cmd.args(["-u", &name, "-n", &lines.to_string(), "--no-pager"]);
         let output = bounded_cmd_output("svc_logs", "journalctl", cmd, TOOL_DEADLINE_SECS)?;
         // Unreadable journals (no systemd, no permission) answered [].
@@ -31964,7 +31963,7 @@ fn bi_svc_logs(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
                 &name,
             ));
         }
-        let mut cmd = std::process::Command::new("log");
+        let mut cmd = crate::safety::child_command("log");
         cmd.args([
             "show",
             "--predicate",
@@ -32044,7 +32043,7 @@ fn bi_cron_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     #[cfg(windows)]
     {
         let script = "$ErrorActionPreference='Stop'; $OutputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=$OutputEncoding; ConvertTo-Json -InputObject @(Get-ScheduledTask -ErrorAction Stop | Select-Object TaskName,@{Name='State';Expression={$_.State.ToString()}},TaskPath) -Depth 3 -Compress";
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-NoLogo",
             "-NoProfile",
@@ -32058,7 +32057,7 @@ fn bi_cron_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(unix)]
     {
-        let mut cmd = std::process::Command::new("crontab");
+        let mut cmd = crate::safety::child_command("crontab");
         cmd.arg("-l")
             .env("LC_ALL", "C")
             .stdin(std::process::Stdio::null());
@@ -32616,7 +32615,7 @@ fn bi_at_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(unix)]
     {
-        let mut cmd = std::process::Command::new("atq");
+        let mut cmd = crate::safety::child_command("atq");
         cmd.stdin(std::process::Stdio::null());
         let output = bounded_cmd_output("at_list", "atq", cmd, PROBE_DEADLINE_SECS)?;
         parse_at_queue(output)
@@ -32752,7 +32751,7 @@ fn bi_at_remove(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd
             .args(["-Command", "Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location | ConvertTo-Json"]);
         let output = bounded_cmd_output("startup_list", "powershell", cmd, PROBE_DEADLINE_SECS)?;
@@ -32797,7 +32796,7 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("systemctl");
+        let mut cmd = crate::safety::child_command("systemctl");
         cmd.args([
             "list-unit-files",
             "--type=service",
@@ -32838,7 +32837,7 @@ fn bi_startup_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("launchctl");
+        let mut cmd = crate::safety::child_command("launchctl");
         cmd.args(["list"]);
         let output = bounded_cmd_output("startup_list", "launchctl", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
@@ -32921,7 +32920,7 @@ fn zip_command(
     update: bool,
 ) -> (&'static str, std::process::Command) {
     if cfg!(target_os = "windows") {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         if update {
             let script = crate::ps_script!(
                 "Compress-Archive -Path {} -Update -DestinationPath {}",
@@ -32939,7 +32938,7 @@ fn zip_command(
         }
         ("powershell", cmd)
     } else {
-        let mut cmd = std::process::Command::new("zip");
+        let mut cmd = crate::safety::child_command("zip");
         cmd.arg("-q");
         if update {
             cmd.arg("-u");
@@ -33124,7 +33123,7 @@ fn zip_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Opti
 /// The member names of a compressed tar archive, as `tar -tf` lists them.
 fn tar_tool_entry_names(builtin: &str, archive: &str) -> Result<Vec<(String, Option<String>)>> {
     crate::safety::reject_option_like(builtin, &[archive.to_string()])?;
-    let mut cmd = std::process::Command::new("tar");
+    let mut cmd = crate::safety::child_command("tar");
     cmd.arg("-tf").arg(archive);
     let out = bounded_cmd_output(builtin, "tar", cmd, TOOL_DEADLINE_SECS)?;
     if !out.status.success() {
@@ -33170,7 +33169,7 @@ fn tar_decompressed_entries(
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
     crate::safety::reject_option_like(builtin, &[archive.to_string()])?;
-    let mut decoder = std::process::Command::new(tool);
+    let mut decoder = crate::safety::child_command(tool);
     crate::safety::strip_ironshell_env(&mut decoder);
     let mut child = match decoder
         .arg("-dc")
@@ -33343,7 +33342,7 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             crate::safety::ps_quote(&archive),
             crate::safety::ps_quote(&dest)
         );
-        let mut bounded_cmd = std::process::Command::new("powershell");
+        let mut bounded_cmd = crate::safety::child_command("powershell");
         bounded_cmd.args(["-Command", &cmd]);
         // Archives can be large; extraction is bounded by the long deadline.
         let output = bounded_cmd_output(
@@ -33368,7 +33367,7 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         crate::safety::reject_option_like("zip_extract", std::slice::from_ref(&dest))?;
         let dest = guard_local_write("zip_extract", &dest)?;
         check_archive_protected("zip_extract", &dest, &members)?;
-        let mut cmd = std::process::Command::new("unzip");
+        let mut cmd = crate::safety::child_command("unzip");
         cmd.args([&archive, "-d", &dest]);
         // Archives can be large; extraction is bounded by the long deadline.
         let output = bounded_cmd_output("zip_extract", "unzip", cmd, TOOL_LONG_DEADLINE_SECS)?;
@@ -33511,7 +33510,7 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // tar writes anything.
     let members = tar_archive_entries("tar_extract", &archive)?;
     check_archive_entries("tar_extract", members.iter().cloned())?;
-    let mut cmd = std::process::Command::new("tar");
+    let mut cmd = crate::safety::child_command("tar");
     cmd.args(["-xvf", &archive]);
     if let Some(d) = dest {
         crate::safety::reject_option_like("tar_extract", std::slice::from_ref(&d))?;
@@ -34019,7 +34018,7 @@ fn bi_bzip2_compress(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let file = crate::safety::resolve_path_str(&file);
     let out = guard_local_write("bzip2_compress", &format!("{file}.bz2"))?;
     crate::tx::snapshot(&out); // absent until written: bzip2 will not replace it
-    let mut cmd = std::process::Command::new("bzip2");
+    let mut cmd = crate::safety::child_command("bzip2");
     cmd.args(["-k", &file]);
     // Compressing a large file can outlast the short deadlines.
     let output = bounded_cmd_output("bzip2_compress", "bzip2", cmd, TOOL_LONG_DEADLINE_SECS)?;
@@ -34249,7 +34248,7 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like("group_members", std::slice::from_ref(&group))?;
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-Command",
             &crate::ps_script!(
@@ -34287,7 +34286,7 @@ fn bi_group_members(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let mut cmd = std::process::Command::new("getent");
+        let mut cmd = crate::safety::child_command("getent");
         cmd.args(["group", &group]);
         let output = bounded_cmd_output("group_members", "getent", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
@@ -34982,29 +34981,29 @@ fn bi_pkg_search(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = match pm {
         "apt" => {
-            let mut cmd = std::process::Command::new("apt-cache");
+            let mut cmd = crate::safety::child_command("apt-cache");
             cmd.args(["search", &query]);
             bounded_cmd_output("pkg_search", "apt-cache", cmd, TOOL_DEADLINE_SECS)?
         }
         "dnf" | "yum" => {
-            let mut cmd = std::process::Command::new(pm);
+            let mut cmd = crate::safety::child_command(pm);
             cmd.args(["search", &query]);
             bounded_cmd_output("pkg_search", pm, cmd, TOOL_DEADLINE_SECS)?
         }
         "pacman" => {
-            let mut cmd = std::process::Command::new("pacman");
+            let mut cmd = crate::safety::child_command("pacman");
             cmd.args(["-Ss", &query]);
             bounded_cmd_output("pkg_search", "pacman", cmd, TOOL_DEADLINE_SECS)?
         }
         "brew" => {
-            let mut cmd = std::process::Command::new("brew");
+            let mut cmd = crate::safety::child_command("brew");
             cmd.args(["search", &query]);
             bounded_cmd_output("pkg_search", "brew", cmd, TOOL_DEADLINE_SECS)?
         }
         "winget" => {
             // `winget search` queries the online sources. apt-cache reads its local index.
             crate::safety::check_egress_unknown("pkg_search", PKG_EGRESS_REASON)?;
-            let mut cmd = std::process::Command::new("winget");
+            let mut cmd = crate::safety::child_command("winget");
             cmd.args(["search", &query]);
             bounded_cmd_output("pkg_search", "winget", cmd, TOOL_DEADLINE_SECS)?
         }
@@ -35093,29 +35092,29 @@ fn bi_pkg_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = match pm {
         "apt" => {
-            let mut cmd = std::process::Command::new("apt-cache");
+            let mut cmd = crate::safety::child_command("apt-cache");
             cmd.args(["show", &package]);
             bounded_cmd_output("pkg_info", "apt-cache", cmd, TOOL_DEADLINE_SECS)?
         }
         "dnf" | "yum" => {
-            let mut cmd = std::process::Command::new(pm);
+            let mut cmd = crate::safety::child_command(pm);
             cmd.args(["info", &package]);
             bounded_cmd_output("pkg_info", pm, cmd, TOOL_DEADLINE_SECS)?
         }
         "pacman" => {
-            let mut cmd = std::process::Command::new("pacman");
+            let mut cmd = crate::safety::child_command("pacman");
             cmd.args(["-Qi", &package]);
             bounded_cmd_output("pkg_info", "pacman", cmd, TOOL_DEADLINE_SECS)?
         }
         "brew" => {
-            let mut cmd = std::process::Command::new("brew");
+            let mut cmd = crate::safety::child_command("brew");
             cmd.args(["info", &package]);
             bounded_cmd_output("pkg_info", "brew", cmd, TOOL_DEADLINE_SECS)?
         }
         "winget" => {
             // `winget show` reads the manifest from the online sources.
             crate::safety::check_egress_unknown("pkg_info", PKG_EGRESS_REASON)?;
-            let mut cmd = std::process::Command::new("winget");
+            let mut cmd = crate::safety::child_command("winget");
             cmd.args(["show", &package]);
             bounded_cmd_output("pkg_info", "winget", cmd, TOOL_DEADLINE_SECS)?
         }
@@ -35258,12 +35257,12 @@ fn bi_pkg_files(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = match pm {
         "apt" => {
-            let mut cmd = std::process::Command::new("dpkg");
+            let mut cmd = crate::safety::child_command("dpkg");
             cmd.args(["-L", &package]);
             bounded_cmd_output("pkg_files", "dpkg", cmd, TOOL_DEADLINE_SECS)?
         }
         "pacman" => {
-            let mut cmd = std::process::Command::new("pacman");
+            let mut cmd = crate::safety::child_command("pacman");
             cmd.args(["-Ql", &package]);
             bounded_cmd_output("pkg_files", "pacman", cmd, TOOL_DEADLINE_SECS)?
         }
@@ -35319,12 +35318,12 @@ fn bi_pkg_owner(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = match pm {
         "apt" => {
-            let mut cmd = std::process::Command::new("dpkg");
+            let mut cmd = crate::safety::child_command("dpkg");
             cmd.args(["-S", &file]);
             bounded_cmd_output("pkg_owner", "dpkg", cmd, TOOL_DEADLINE_SECS)?
         }
         "pacman" => {
-            let mut cmd = std::process::Command::new("pacman");
+            let mut cmd = crate::safety::child_command("pacman");
             cmd.args(["-Qo", &file]);
             bounded_cmd_output("pkg_owner", "pacman", cmd, TOOL_DEADLINE_SECS)?
         }
@@ -35399,7 +35398,7 @@ fn bi_pkg_verify(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = match pm {
         "apt" => {
-            let mut cmd = std::process::Command::new("dpkg");
+            let mut cmd = crate::safety::child_command("dpkg");
             cmd.args(["-V", &package]);
             // Verifying every installed file of a package can be slow.
             bounded_cmd_output("pkg_verify", "dpkg", cmd, TOOL_LONG_DEADLINE_SECS)?
@@ -35506,12 +35505,12 @@ fn bi_pkg_deps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = match pm {
         "apt" => {
-            let mut cmd = std::process::Command::new("apt-cache");
+            let mut cmd = crate::safety::child_command("apt-cache");
             cmd.args(["depends", &package]);
             bounded_cmd_output("pkg_deps", "apt-cache", cmd, TOOL_DEADLINE_SECS)?
         }
         "pacman" => {
-            let mut cmd = std::process::Command::new("pacman");
+            let mut cmd = crate::safety::child_command("pacman");
             cmd.args(["-Si", &package]);
             bounded_cmd_output("pkg_deps", "pacman", cmd, TOOL_DEADLINE_SECS)?
         }
@@ -35555,12 +35554,12 @@ fn bi_pkg_rdeps(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     let output = match pm {
         "apt" => {
-            let mut cmd = std::process::Command::new("apt-cache");
+            let mut cmd = crate::safety::child_command("apt-cache");
             cmd.args(["rdepends", &package]);
             bounded_cmd_output("pkg_rdeps", "apt-cache", cmd, TOOL_DEADLINE_SECS)?
         }
         "pacman" => {
-            let mut cmd = std::process::Command::new("pacman");
+            let mut cmd = crate::safety::child_command("pacman");
             cmd.args(["-Sii", &package]);
             bounded_cmd_output("pkg_rdeps", "pacman", cmd, TOOL_DEADLINE_SECS)?
         }
@@ -35934,7 +35933,7 @@ fn win_gpu_record(g: &WinGpu) -> Value {
 /// Runs the GPU probe. `None` when PowerShell fails or prints no JSON.
 #[cfg(target_os = "windows")]
 fn win_gpu_probe(builtin: &str) -> Result<Option<Vec<WinGpu>>> {
-    let mut cmd = std::process::Command::new("powershell");
+    let mut cmd = crate::safety::child_command("powershell");
     cmd.args(["-Command", WIN_GPU_PROBE_SCRIPT]);
     let output = bounded_cmd_output(builtin, "powershell", cmd, PROBE_DEADLINE_SECS)?;
     if !output.status.success() {
@@ -35956,7 +35955,7 @@ fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
         // Use sh -c for proper shell pipeline expansion
-        let mut cmd = std::process::Command::new("sh");
+        let mut cmd = crate::safety::child_command("sh");
         cmd.args(["-c", "lspci | grep -iE 'vga|3d|display'"]);
         let output = bounded_cmd_output("hw_gpu", "sh", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
@@ -35982,7 +35981,7 @@ fn bi_hw_gpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("system_profiler");
+        let mut cmd = crate::safety::child_command("system_profiler");
         cmd.args(["SPDisplaysDataType", "-json"]);
         // A failing system_profiler, or output that is not the expected JSON,
         // used to answer Null ("no GPU"). Both are errors now.
@@ -36034,7 +36033,7 @@ fn bi_hw_network(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-Command",
             "Get-PnpDevice -Class USB | Select-Object FriendlyName,Status | ConvertTo-Json",
@@ -36068,7 +36067,7 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let cmd = std::process::Command::new("lsusb");
+        let cmd = crate::safety::child_command("lsusb");
         let output = bounded_cmd_output("hw_usb", "lsusb", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
@@ -36084,7 +36083,7 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("system_profiler");
+        let mut cmd = crate::safety::child_command("system_profiler");
         cmd.args(["SPUSBDataType", "-json"]);
         let output = bounded_cmd_output("hw_usb", "system_profiler", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
@@ -36122,7 +36121,7 @@ fn bi_hw_usb(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
-        let cmd = std::process::Command::new("lspci");
+        let cmd = crate::safety::child_command("lspci");
         let output = bounded_cmd_output("hw_pci", "lspci", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
             let devices: Vec<Value> = String::from_utf8_lossy(&output.stdout)
@@ -36143,7 +36142,7 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-Command",
             "Get-PnpDevice | Select-Object FriendlyName,Class | ConvertTo-Json",
@@ -36177,7 +36176,7 @@ fn bi_hw_pci(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("system_profiler");
+        let mut cmd = crate::safety::child_command("system_profiler");
         cmd.args(["SPPCIDataType", "-json"]);
         let output = bounded_cmd_output("hw_pci", "system_profiler", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
@@ -36222,7 +36221,7 @@ fn bi_hw_audio(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-Command",
             "Get-CimInstance Win32_SoundDevice | Select-Object Name,Status | ConvertTo-Json",
@@ -36256,7 +36255,7 @@ fn bi_hw_audio(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("aplay");
+        let mut cmd = crate::safety::child_command("aplay");
         cmd.args(["-l"]);
         let output = bounded_cmd_output("hw_audio", "aplay", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
@@ -36274,7 +36273,7 @@ fn bi_hw_audio(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("system_profiler");
+        let mut cmd = crate::safety::child_command("system_profiler");
         cmd.args(["SPAudioDataType", "-json"]);
         let output = bounded_cmd_output("hw_audio", "system_profiler", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
@@ -36385,7 +36384,7 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns Record {capacity: Int (%), status: String, name: String (Windows)}
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd
             .args(["-Command", "Get-CimInstance Win32_Battery | Select-Object Name,EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json"]);
         let output = bounded_cmd_output("hw_battery", "powershell", cmd, PROBE_DEADLINE_SECS)?;
@@ -36427,7 +36426,7 @@ fn bi_hw_battery(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("pmset");
+        let mut cmd = crate::safety::child_command("pmset");
         cmd.args(["-g", "batt"]);
         let output = bounded_cmd_output("hw_battery", "pmset", cmd, PROBE_DEADLINE_SECS)?;
         if output.status.success() {
@@ -36482,7 +36481,7 @@ fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Returns consistent Array of Records {name: String, temp_c: Float}
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd
             .args(["-Command", "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi 2>$null | Select-Object InstanceName,CurrentTemperature | ConvertTo-Json"]);
         let output = bounded_cmd_output("hw_sensors", "powershell", cmd, PROBE_DEADLINE_SECS)?;
@@ -36549,7 +36548,7 @@ fn bi_hw_sensors(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         // macOS doesn't expose thermal sensors easily without IOKit bindings;
         // use powermetrics or osx-cpu-temp if available, fallback to empty
-        let mut sensors_cmd = std::process::Command::new("sh");
+        let mut sensors_cmd = crate::safety::child_command("sh");
         sensors_cmd.args(["-c", "which osx-cpu-temp && osx-cpu-temp"]);
         let output = bounded_cmd_output("hw_sensors", "sh", sensors_cmd, PROBE_DEADLINE_SECS);
         if let Ok(out) = output {
@@ -36839,7 +36838,7 @@ fn gui_json_answer(name: &str, tool: &str, output: &std::process::Output) -> Res
 #[cfg(target_os = "windows")]
 fn gui_powershell(name: &str, script: &str) -> Result<std::process::Output> {
     let full = format!("$ErrorActionPreference = 'Stop'\n{script}");
-    let mut cmd = std::process::Command::new("powershell");
+    let mut cmd = crate::safety::child_command("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-Command", &full]);
     bounded_cmd_output(name, "powershell", cmd, TOOL_DEADLINE_SECS)
 }
@@ -37193,7 +37192,7 @@ fn gui_macos_jxa(
     reason: &str,
     hint: &str,
 ) -> Result<std::process::Output> {
-    let mut cmd = std::process::Command::new("/usr/bin/osascript");
+    let mut cmd = crate::safety::child_command("/usr/bin/osascript");
     cmd.args(["-l", "JavaScript", "-e", script]);
     cmd.args(argv);
     let output = bounded_cmd_output(name, "osascript", cmd, TOOL_DEADLINE_SECS)?;
@@ -37580,7 +37579,7 @@ ConvertTo-Json -InputObject @([WindowHelper]::windows)
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("wmctrl");
+        let mut cmd = crate::safety::child_command("wmctrl");
         cmd.arg("-l");
         let output = bounded_cmd_output("gui_list_windows", "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
@@ -37697,7 +37696,7 @@ if (-not [WindowFocus]::SetForegroundWindow($hwnd)) {{ exit 4 }}
                 vec!["-a".into(), label.clone()]
             }
         };
-        let mut cmd = std::process::Command::new("wmctrl");
+        let mut cmd = crate::safety::child_command("wmctrl");
         cmd.args(&args);
         let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &label, 1, &output)
@@ -37760,7 +37759,7 @@ if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
     {
         crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
         let pattern = format!("^{}$", gui_regex_escape(&title));
-        let mut cmd = std::process::Command::new("xdotool");
+        let mut cmd = crate::safety::child_command("xdotool");
         cmd.args([
             "search",
             "--limit",
@@ -37822,7 +37821,7 @@ if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
     #[cfg(target_os = "linux")]
     {
         crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
-        let mut cmd = std::process::Command::new("wmctrl");
+        let mut cmd = crate::safety::child_command("wmctrl");
         cmd.args(["-r", &title, "-b", "add,maximized_vert,maximized_horz"]);
         let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
@@ -37877,7 +37876,7 @@ if ($hwnd -eq [IntPtr]::Zero) {{ exit 3 }}
     #[cfg(target_os = "linux")]
     {
         crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
-        let mut cmd = std::process::Command::new("wmctrl");
+        let mut cmd = crate::safety::child_command("wmctrl");
         cmd.args(["-c", &title]);
         let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
@@ -37936,7 +37935,7 @@ if (-not [WindowMove]::SetWindowPos($hwnd, [IntPtr]::Zero, {}, {}, 0, 0, 0x0001)
     #[cfg(target_os = "linux")]
     {
         crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
-        let mut cmd = std::process::Command::new("wmctrl");
+        let mut cmd = crate::safety::child_command("wmctrl");
         cmd.args(["-r", &title, "-e", &format!("0,{x},{y},-1,-1")]);
         let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
@@ -38001,7 +38000,7 @@ if (-not [WindowResize]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, {}, {}, 0x000
     #[cfg(target_os = "linux")]
     {
         crate::safety::reject_option_like(NAME, std::slice::from_ref(&title))?;
-        let mut cmd = std::process::Command::new("wmctrl");
+        let mut cmd = crate::safety::child_command("wmctrl");
         cmd.args(["-r", &title, "-e", &format!("0,-1,-1,{w},{h}")]);
         let output = bounded_cmd_output(NAME, "wmctrl", cmd, TOOL_DEADLINE_SECS)?;
         gui_window_action(NAME, "wmctrl", &title, 1, &output)
@@ -38072,7 +38071,7 @@ $bitmap.Dispose()
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("scrot");
+        let mut cmd = crate::safety::child_command("scrot");
         cmd.arg(&path);
         let output = bounded_cmd_output(NAME, "scrot", cmd, TOOL_DEADLINE_SECS)?;
         if output.status.success() {
@@ -38088,7 +38087,7 @@ $bitmap.Dispose()
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("screencapture");
+        let mut cmd = crate::safety::child_command("screencapture");
         cmd.args(["-x", &path]);
         let output = bounded_cmd_output(NAME, "screencapture", cmd, TOOL_DEADLINE_SECS)?;
         if output.status.success() {
@@ -38285,7 +38284,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
             return Err(crate::safety::no_ui(NAME));
         }
         let path = guard_local_write(NAME, &path)?;
-        let mut find = std::process::Command::new("xwininfo");
+        let mut find = crate::safety::child_command("xwininfo");
         find.args(["-name", &title]);
         let found = bounded_cmd_output(NAME, "xwininfo", find, PROBE_DEADLINE_SECS)?;
         let stdout = String::from_utf8_lossy(&found.stdout);
@@ -38321,7 +38320,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
                     "its output named no window id",
                 )
             })?;
-        let mut capture = std::process::Command::new("import");
+        let mut capture = crate::safety::child_command("import");
         capture.args(["-window", &id, "png:-"]);
         let shot = bounded_cmd_output(NAME, "import", capture, TOOL_DEADLINE_SECS)?;
         if !shot.status.success() {
@@ -38347,7 +38346,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
     #[cfg(target_os = "windows")]
     {
         let path = guard_local_write(NAME, &path)?;
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-NoProfile",
             "-NonInteractive",
@@ -38371,7 +38370,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
     #[cfg(target_os = "macos")]
     {
         let path = guard_local_write(NAME, &path)?;
-        let mut find = std::process::Command::new("osascript");
+        let mut find = crate::safety::child_command("osascript");
         find.args(["-l", "JavaScript", "-e", MACOS_WINDOW_ID_JXA]);
         find.env("AE_SHOT_TITLE", &title);
         let found = bounded_cmd_output(NAME, "osascript", find, PROBE_DEADLINE_SECS)?;
@@ -38406,7 +38405,7 @@ fn bi_gui_screenshot_window(args: Vec<Value>, input: Option<Value>) -> Result<Va
                 })?,
         };
         crate::tx::snapshot(&path); // record pre-capture state if a transaction is active
-        let mut capture = std::process::Command::new("screencapture");
+        let mut capture = crate::safety::child_command("screencapture");
         capture.args(["-x", "-o", "-l", &id.to_string(), &path]);
         let shot = bounded_cmd_output(NAME, "screencapture", capture, TOOL_DEADLINE_SECS)?;
         if !shot.status.success() {
@@ -38457,7 +38456,7 @@ if (-not [MouseMove]::SetCursorPos({}, {})) {{ exit 4 }}
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("xdotool");
+        let mut cmd = crate::safety::child_command("xdotool");
         cmd.args(["mousemove", &x.to_string(), &y.to_string()]);
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
@@ -38510,7 +38509,7 @@ public class MouseClick {{
             "middle" => "2",
             _ => "1",
         };
-        let mut cmd = std::process::Command::new("xdotool");
+        let mut cmd = crate::safety::child_command("xdotool");
         cmd.args(["click", btn]);
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
@@ -38575,7 +38574,7 @@ if (-not [MouseDrag]::SetCursorPos({}, {})) {{ exit 4 }}
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("xdotool");
+        let mut cmd = crate::safety::child_command("xdotool");
         cmd.args([
             "mousemove",
             &x1.to_string(),
@@ -38655,7 +38654,7 @@ public class MouseScroll {{
     #[cfg(target_os = "linux")]
     {
         let dir = if amount > 0 { "4" } else { "5" };
-        let mut cmd = std::process::Command::new("xdotool");
+        let mut cmd = crate::safety::child_command("xdotool");
         cmd.args(["click", "--repeat", &amount.unsigned_abs().to_string(), dir]);
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
@@ -38698,7 +38697,7 @@ if (-not [MousePos]::GetCursorPos([ref]$point)) { exit 4 }
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("xdotool");
+        let mut cmd = crate::safety::child_command("xdotool");
         cmd.arg("getmouselocation");
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
@@ -38779,7 +38778,7 @@ Add-Type -AssemblyName System.Windows.Forms
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("xdotool");
+        let mut cmd = crate::safety::child_command("xdotool");
         cmd.args(["key", &gui_xdotool_key(&key)]);
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
@@ -38835,7 +38834,7 @@ Add-Type -AssemblyName System.Windows.Forms
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("xdotool");
+        let mut cmd = crate::safety::child_command("xdotool");
         cmd.args(["key", &gui_xdotool_key(&key)]);
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
@@ -38883,7 +38882,7 @@ Add-Type -AssemblyName System.Windows.Forms
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("xdotool");
+        let mut cmd = crate::safety::child_command("xdotool");
         cmd.args(["type", "--", &text]);
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "xdotool", &output)
@@ -38928,7 +38927,7 @@ $title = New-Object System.Text.StringBuilder 256
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("xdotool");
+        let mut cmd = crate::safety::child_command("xdotool");
         cmd.args(["getactivewindow", "getwindowname"]);
         let output = bounded_cmd_output(NAME, "xdotool", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
@@ -38974,7 +38973,7 @@ $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     }
     #[cfg(target_os = "linux")]
     {
-        let cmd = std::process::Command::new("xdpyinfo");
+        let cmd = crate::safety::child_command("xdpyinfo");
         let output = bounded_cmd_output(NAME, "xdpyinfo", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
@@ -39244,7 +39243,7 @@ fn bi_gui_ocr(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     crate::safety::reject_option_like(NAME, std::slice::from_ref(&image_path))?;
     // A read is guarded like any other read: inside the workspace in agent mode.
     let image_path = guard_local_read(NAME, &image_path)?;
-    let mut cmd = std::process::Command::new("tesseract");
+    let mut cmd = crate::safety::child_command("tesseract");
     cmd.args([&image_path, "stdout"]);
     let output = bounded_cmd_output(NAME, "tesseract", cmd, TOOL_DEADLINE_SECS)?;
     if output.status.success() {
@@ -39296,14 +39295,14 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
     {
         // `--` ends notify-send's options, so a title or message that begins
         // with a dash is text.
-        let mut cmd = std::process::Command::new("notify-send");
+        let mut cmd = crate::safety::child_command("notify-send");
         cmd.args(["--", &title, &message]);
         let output = bounded_cmd_output(NAME, "notify-send", cmd, TOOL_DEADLINE_SECS)?;
         gui_action(NAME, "notify-send", &output)
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("osascript");
+        let mut cmd = crate::safety::child_command("osascript");
         cmd.args([
             "-e",
             &crate::applescript!(
@@ -39356,14 +39355,14 @@ Add-Type -AssemblyName System.Windows.Forms
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("zenity");
+        let mut cmd = crate::safety::child_command("zenity");
         cmd.args(["--info", "--title", &title, "--text", &message]);
         let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_ack(NAME, "zenity", &output)
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("osascript");
+        let mut cmd = crate::safety::child_command("osascript");
         cmd.args([
             "-e",
             &crate::applescript!(
@@ -39414,7 +39413,7 @@ Add-Type -AssemblyName Microsoft.VisualBasic
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("zenity");
+        let mut cmd = crate::safety::child_command("zenity");
         cmd.args(["--entry", "--title", &title, "--text", &prompt]);
         let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_answer(NAME, "zenity", Some(1), &output)
@@ -39454,7 +39453,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("zenity");
+        let mut cmd = crate::safety::child_command("zenity");
         cmd.args(["--file-selection", "--title", &title]);
         let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_answer(NAME, "zenity", Some(1), &output)
@@ -39494,7 +39493,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("zenity");
+        let mut cmd = crate::safety::child_command("zenity");
         cmd.args(["--file-selection", "--save", "--title", &title]);
         let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_answer(NAME, "zenity", Some(1), &output)
@@ -39534,7 +39533,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ $dialog
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("zenity");
+        let mut cmd = crate::safety::child_command("zenity");
         cmd.args(["--file-selection", "--directory", "--title", &title]);
         let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         gui_dialog_answer(NAME, "zenity", Some(1), &output)
@@ -39599,7 +39598,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("zenity");
+        let mut cmd = crate::safety::child_command("zenity");
         cmd.arg("--color-selection");
         let output = bounded_cmd_output(NAME, "zenity", cmd, GUI_DIALOG_DEADLINE_SECS)?;
         if output.status.code() == Some(1) {
@@ -39988,7 +39987,7 @@ fn open_in_browser(builtin: &str, url: &str) -> Result<Value> {
         // `rundll32 url.dll,FileProtocolHandler` is the same ShellExecute
         // dispatch with no shell in front of it. Spawned, not waited on: a
         // browser runs until the user closes it.
-        let mut browser = std::process::Command::new("rundll32.exe");
+        let mut browser = crate::safety::child_command("rundll32.exe");
         crate::safety::strip_ironshell_env(&mut browser);
         browser
             .args(["url.dll,FileProtocolHandler", url])
@@ -40001,13 +40000,13 @@ fn open_in_browser(builtin: &str, url: &str) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("open");
+        let mut cmd = crate::safety::child_command("open");
         cmd.arg(url);
         return launcher_result(builtin, "open", crate::safety::output_with_timeout(cmd, 30));
     }
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("xdg-open");
+        let mut cmd = crate::safety::child_command("xdg-open");
         cmd.arg(url);
         return launcher_result(
             builtin,
@@ -41482,7 +41481,7 @@ fn linux_clipboard_tool(
     tool: &str,
     args: &[&str],
 ) -> Result<Option<std::process::Output>> {
-    let mut cmd = std::process::Command::new(tool);
+    let mut cmd = crate::safety::child_command(tool);
     cmd.args(args);
     match crate::safety::output_with_timeout(cmd, TOOL_DEADLINE_SECS) {
         Ok(out) => Ok(Some(out)),
@@ -41600,7 +41599,7 @@ fn bi_clipboard_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let cmd = std::process::Command::new("pbpaste");
+        let cmd = crate::safety::child_command("pbpaste");
         let output = bounded_cmd_output(NAME, "pbpaste", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
             return Err(crate::safety::tool_failed(
@@ -41681,7 +41680,7 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-NoProfile",
             "-NonInteractive",
@@ -41701,7 +41700,7 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     }
     #[cfg(target_os = "macos")]
     {
-        let mut clip = std::process::Command::new("pbcopy");
+        let mut clip = crate::safety::child_command("pbcopy");
         crate::safety::strip_ironshell_env(&mut clip);
         let child = clip
             .stdin(std::process::Stdio::piped())
@@ -41729,7 +41728,7 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         linux_x11_clipboard_display(NAME)?;
         // xclip first, xsel when xclip is not installed. A tool that is
         // installed and fails is an error, whichever it is.
-        let mut xclip = std::process::Command::new("xclip");
+        let mut xclip = crate::safety::child_command("xclip");
         crate::safety::strip_ironshell_env(&mut xclip);
         let (tool, child) = match xclip
             .args(["-selection", "clipboard"])
@@ -41738,7 +41737,7 @@ fn bi_clipboard_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         {
             Ok(child) => ("xclip", child),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => ("xsel", {
-                let mut xsel = std::process::Command::new("xsel");
+                let mut xsel = crate::safety::child_command("xsel");
                 crate::safety::strip_ironshell_env(&mut xsel);
                 xsel.args(["--clipboard", "--input"])
                     .stdin(std::process::Stdio::piped())
@@ -41799,7 +41798,7 @@ fn bi_clipboard_types(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // an image. It now asks the clipboard what it holds.
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd
             .args([
                 "-NoProfile",
@@ -41906,7 +41905,7 @@ fn bi_clipboard_types(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     {
         // `clipboard info` lists the classes on the pasteboard. Nothing is read
         // beyond their names and sizes.
-        let mut cmd = std::process::Command::new("osascript");
+        let mut cmd = crate::safety::child_command("osascript");
         cmd.args(["-e", "clipboard info"]);
         let output = bounded_cmd_output("clipboard_types", "osascript", cmd, TOOL_DEADLINE_SECS)?;
         if !output.status.success() {
@@ -42179,7 +42178,7 @@ $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
 "#,
         crate::safety::ps_quote(prompt.trim_end_matches(": ").trim_end_matches(':'))
     );
-    let mut shell = std::process::Command::new("powershell");
+    let mut shell = crate::safety::child_command("powershell");
     crate::safety::strip_ironshell_env(&mut shell);
     let output = shell
         .args(["-Command", &ps_script])
@@ -42202,11 +42201,11 @@ $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
 #[cfg(unix)]
 fn read_terminal_password(name: &str, prompt: &str) -> Result<String> {
     eprint!("{prompt}");
-    let mut stty = std::process::Command::new("stty");
+    let mut stty = crate::safety::child_command("stty");
     crate::safety::strip_ironshell_env(&mut stty);
     let _ = stty.arg("-echo").status();
     let answer = stdin_lines::read_blocking(name);
-    let mut stty = std::process::Command::new("stty");
+    let mut stty = crate::safety::child_command("stty");
     crate::safety::strip_ironshell_env(&mut stty);
     let _ = stty.arg("echo").status();
     eprintln!();
@@ -42455,7 +42454,7 @@ fn create_edit_file(name: &str, text: &str) -> Result<std::path::PathBuf> {
 
 /// Runs `editor` on `path` with the terminal inherited, without a shell.
 fn run_editor(name: &str, editor: &str, path: &std::path::Path) -> Result<()> {
-    let mut cmd = std::process::Command::new(editor);
+    let mut cmd = crate::safety::child_command(editor);
     crate::safety::strip_ironshell_env(&mut cmd);
     let status = cmd
         .arg(path)
@@ -43899,7 +43898,7 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::tx::snapshot(&db_path);
 
     sqlite_db_file("db_sqlite_exec", &db_path)?;
-    let mut cmd = std::process::Command::new("sqlite3");
+    let mut cmd = crate::safety::child_command("sqlite3");
     cmd.args([&db_path, &sql]);
     let output = bounded_cmd_output("db_sqlite_exec", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
     // Every mutating sqlite builtin comes through here, and a SQL error was a
@@ -43983,7 +43982,7 @@ fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let db_path = guard_local_write("db_sqlite_create", &db_path)?;
     // Just touch the file to create empty database
     sqlite_db_file("db_sqlite_create", &db_path)?;
-    let mut cmd = std::process::Command::new("sqlite3");
+    let mut cmd = crate::safety::child_command("sqlite3");
     cmd.args([&db_path, "SELECT 1"]);
     let output = bounded_cmd_output("db_sqlite_create", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
     if !output.status.success() {
@@ -44041,7 +44040,7 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     let backup_path = guard_local_write("db_sqlite_backup", &backup_path)?;
     crate::tx::snapshot(&backup_path);
     sqlite_db_file("db_sqlite_backup", &db_path)?;
-    let mut cmd = std::process::Command::new("sqlite3");
+    let mut cmd = crate::safety::child_command("sqlite3");
     cmd.args([&db_path, &format!(".backup '{}'", backup_path)]);
     let output = bounded_cmd_output("db_sqlite_backup", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
 
@@ -44273,7 +44272,7 @@ fn bi_db_sqlite_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     crate::safety::reject_sqlite_dot_command("db_sqlite_to_csv", &query)?;
     crate::safety::reject_option_like("db_sqlite_to_csv", std::slice::from_ref(&db_path))?;
     sqlite_db_file("db_sqlite_to_csv", &db_path)?;
-    let mut cmd = std::process::Command::new("sqlite3");
+    let mut cmd = crate::safety::child_command("sqlite3");
     cmd.args(["-header", "-csv", &db_path, &query]);
     let output = bounded_cmd_output("db_sqlite_to_csv", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
 
@@ -44840,7 +44839,7 @@ if (-not $done) { throw 'the clipboard stayed busy' }"#;
 fn windows_clipboard_image(name: &str) -> Result<Value> {
     use base64::Engine;
     let script = WINDOWS_IMAGE_GET_SCRIPT.replace("LIMIT", &CLIPBOARD_IMAGE_MAX.to_string());
-    let mut cmd = std::process::Command::new("powershell");
+    let mut cmd = crate::safety::child_command("powershell");
     cmd.args([
         "-NoProfile",
         "-NonInteractive",
@@ -44978,7 +44977,7 @@ fn macos_clipboard_image(name: &str) -> Result<Value> {
 
 #[cfg(target_os = "macos")]
 fn macos_clipboard_image_to(name: &str, path: &std::path::Path) -> Result<Value> {
-    let mut cmd = std::process::Command::new("osascript");
+    let mut cmd = crate::safety::child_command("osascript");
     cmd.arg("-e").arg(MACOS_IMAGE_GET_SCRIPT).arg(path);
     let output = bounded_cmd_output(name, "osascript", cmd, TOOL_DEADLINE_SECS)?;
     if !output.status.success() {
@@ -45035,7 +45034,7 @@ fn macos_clipboard_set_image(name: &str, mime: &str, path: &std::path::Path) -> 
     // with "-", so it cannot be read as an option.
     let absolute =
         std::fs::canonicalize(path).map_err(|e| crate::safety::fs_error(name, path, &e))?;
-    let mut cmd = std::process::Command::new("osascript");
+    let mut cmd = crate::safety::child_command("osascript");
     cmd.arg("-e")
         .arg(MACOS_IMAGE_SET_SCRIPT)
         .arg(&absolute)
@@ -45287,7 +45286,7 @@ fn linux_clipboard_set_image(name: &str, mime: &str, bytes: Vec<u8>) -> Result<(
     } else {
         ("xclip", vec!["-selection", "clipboard", "-t", mime, "-i"])
     };
-    let mut clip = std::process::Command::new(tool);
+    let mut clip = crate::safety::child_command(tool);
     crate::safety::strip_ironshell_env(&mut clip);
     let child = clip
         .args(&tool_args)
@@ -45314,7 +45313,7 @@ fn bi_clipboard_history(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     crate::safety::clipboard_read_gate(NAME)?;
     #[cfg(target_os = "windows")]
     {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-NoProfile",
             "-NonInteractive",
@@ -46496,7 +46495,7 @@ fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         ));
     }
     sqlite_db_file("db_sqlite_dump", &db_path)?;
-    let mut cmd = std::process::Command::new("sqlite3");
+    let mut cmd = crate::safety::child_command("sqlite3");
     cmd.args([&db_path, ".dump"]);
     let output = bounded_cmd_output("db_sqlite_dump", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
 
@@ -48861,7 +48860,7 @@ fn bi_nanda_quorum(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// own config could otherwise make a ReadLocal builtin execute code. It is a
 /// speed-up only; git answers the same without it.
 fn git_command() -> std::process::Command {
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = crate::safety::child_command("git");
     cmd.args(["-c", "core.fsmonitor=false"]);
     cmd
 }
@@ -49553,17 +49552,17 @@ fn bi_code_format(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     crate::tx::snapshot(&file);
     let (program, cmd) = match ext {
         "rs" => {
-            let mut cmd = std::process::Command::new("rustfmt");
+            let mut cmd = crate::safety::child_command("rustfmt");
             cmd.arg(&file);
             ("rustfmt", cmd)
         }
         "py" => {
-            let mut cmd = std::process::Command::new("black");
+            let mut cmd = crate::safety::child_command("black");
             cmd.arg(&file);
             ("black", cmd)
         }
         "js" | "ts" => {
-            let mut cmd = std::process::Command::new("prettier");
+            let mut cmd = crate::safety::child_command("prettier");
             cmd.args(["--write", &file]);
             ("prettier", cmd)
         }
@@ -50846,7 +50845,7 @@ fn bi_diag_explain(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         .map(|s| s.to_string())
         .ok_or_else(|| crate::safety::arg_err("error code required"))?;
     crate::safety::reject_option_like("diag_explain", std::slice::from_ref(&code))?;
-    let mut cmd = std::process::Command::new("rustc");
+    let mut cmd = crate::safety::child_command("rustc");
     cmd.args(["--explain", &code]);
     let output = bounded_cmd_output("diag_explain", "rustc", cmd, TOOL_DEADLINE_SECS)?;
     // A code rustc does not know ("E9999") answered "".
@@ -51519,7 +51518,7 @@ fn bi_env_detect(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_python(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("python");
+    let mut cmd = crate::safety::child_command("python");
     cmd.args(["--version"]);
     let output = bounded_cmd_output("env_python", "python", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
@@ -51546,7 +51545,7 @@ fn bi_env_python(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_node(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("node");
+    let mut cmd = crate::safety::child_command("node");
     cmd.args(["--version"]);
     let output = bounded_cmd_output("env_node", "node", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
@@ -51573,7 +51572,7 @@ fn bi_env_node(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_rust(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("rustc");
+    let mut cmd = crate::safety::child_command("rustc");
     cmd.args(["--version"]);
     let output = bounded_cmd_output("env_rust", "rustc", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
@@ -51600,7 +51599,7 @@ fn bi_env_rust(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_go(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("go");
+    let mut cmd = crate::safety::child_command("go");
     cmd.args(["version"]);
     cmd.env("GOTOOLCHAIN", "local");
     let output = bounded_cmd_output("env_go", "go", cmd, PROBE_DEADLINE_SECS)?;
@@ -51628,7 +51627,7 @@ fn bi_env_go(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_java(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("java");
+    let mut cmd = crate::safety::child_command("java");
     cmd.args(["--version"]);
     let output = bounded_cmd_output("env_java", "java", cmd, PROBE_DEADLINE_SECS)?;
     // Same exit-status gap as the rest of the family; this one takes only
@@ -51652,7 +51651,7 @@ fn bi_env_java(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_dotnet(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("dotnet");
+    let mut cmd = crate::safety::child_command("dotnet");
     cmd.args(["--version"]);
     let output = bounded_cmd_output("env_dotnet", "dotnet", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
@@ -51679,7 +51678,7 @@ fn bi_env_dotnet(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_ruby(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("ruby");
+    let mut cmd = crate::safety::child_command("ruby");
     cmd.args(["--version"]);
     let output = bounded_cmd_output("env_ruby", "ruby", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
@@ -51811,7 +51810,7 @@ fn bi_env_unset(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 }
 
 fn bi_env_docker(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("docker");
+    let mut cmd = crate::safety::child_command("docker");
     cmd.args(["--version"]);
     let output = bounded_cmd_output("env_docker", "docker", cmd, PROBE_DEADLINE_SECS)?;
     // The exit status was ignored, so a failed command's output came
@@ -52135,7 +52134,7 @@ fn get_tool_version(tool: &str) -> Option<String> {
     if tool == "bazel" && resolves_to_bazelisk() {
         return Some("bazelisk (Bazel is downloaded on first use; not run)".to_string());
     }
-    let mut cmd = std::process::Command::new(tool);
+    let mut cmd = crate::safety::child_command(tool);
     cmd.args(version_args);
     for (k, v) in [
         ("CHECKPOINT_DISABLE", "1"),    // HashiCorp: packer, terraform, vault
@@ -52250,11 +52249,11 @@ fn bi_platform_snapshot(_args: Vec<Value>, input: Option<Value>) -> Result<Value
 
     #[cfg(not(target_os = "windows"))]
     {
-        let mut cmd = std::process::Command::new("uname");
+        let mut cmd = crate::safety::child_command("uname");
         cmd.arg("-r");
         let kernel = probe_text("platform_snapshot", "uname", cmd)?;
         snapshot.insert("kernel".to_string(), Value::Str(kernel));
-        let mut cmd = std::process::Command::new("uname");
+        let mut cmd = crate::safety::child_command("uname");
         cmd.arg("-v");
         let build = probe_text("platform_snapshot", "uname", cmd)?;
         snapshot.insert("build".to_string(), Value::Str(build));
@@ -52360,7 +52359,7 @@ fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
     #[allow(unreachable_code)]
     let mut failure: Option<anyhow::Error> = None;
     if cfg!(target_os = "macos") {
-        let mut cmd = std::process::Command::new("sw_vers");
+        let mut cmd = crate::safety::child_command("sw_vers");
         cmd.arg("-productVersion");
         match probe_text("platform_os_version", "sw_vers", cmd) {
             Ok(text) => return Ok(Value::Str(text)),
@@ -52379,7 +52378,7 @@ fn bi_platform_os_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
                 }
             }
         }
-        let mut cmd = std::process::Command::new("uname");
+        let mut cmd = crate::safety::child_command("uname");
         cmd.arg("-r");
         match probe_text("platform_os_version", "uname", cmd) {
             Ok(text) => return Ok(Value::Str(text)),
@@ -52405,7 +52404,7 @@ fn bi_platform_kernel(_args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         ));
     }
     #[allow(unreachable_code)]
-    let mut cmd = std::process::Command::new("uname");
+    let mut cmd = crate::safety::child_command("uname");
     cmd.arg("-r");
     Ok(Value::Str(probe_text("platform_kernel", "uname", cmd)?))
 }
@@ -52421,11 +52420,11 @@ fn bi_platform_build(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     }
     #[allow(unreachable_code)]
     let build = if cfg!(target_os = "macos") {
-        let mut cmd = std::process::Command::new("sw_vers");
+        let mut cmd = crate::safety::child_command("sw_vers");
         cmd.arg("-buildVersion");
         probe_text("platform_build", "sw_vers", cmd)?
     } else if cfg!(target_os = "linux") {
-        let mut cmd = std::process::Command::new("uname");
+        let mut cmd = crate::safety::child_command("uname");
         cmd.arg("-v");
         probe_text("platform_build", "uname", cmd)?
     } else {
@@ -52459,7 +52458,7 @@ fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
         return non_empty_machine_id(id.trim().to_string());
     }
     if cfg!(target_os = "macos") {
-        let mut cmd = std::process::Command::new("ioreg");
+        let mut cmd = crate::safety::child_command("ioreg");
         cmd.args(["-rd1", "-c", "IOPlatformExpertDevice"]);
         let text = probe_text("platform_machine_id", "ioreg", cmd)?;
         let uuid = text
@@ -52470,7 +52469,7 @@ fn bi_platform_machine_id(_args: Vec<Value>, _input: Option<Value>) -> Result<Va
         return non_empty_machine_id(uuid.to_string());
     }
     if cfg!(target_os = "windows") {
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-NoProfile",
             "-Command",
@@ -54450,7 +54449,7 @@ fn bi_platform_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ];
 
     for lib in check_libs {
-        let mut cmd = std::process::Command::new("pkg-config");
+        let mut cmd = crate::safety::child_command("pkg-config");
         cmd.args(["--modversion", lib]);
         if let Ok(out) = bounded_cmd_output("platform_libs", "pkg-config", cmd, PROBE_DEADLINE_SECS)
         {
@@ -54470,7 +54469,7 @@ fn bi_platform_lib_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
     // A missing pkg-config and an absent library were both null, so "not
     // installed" could not be told from "could not ask". Null now means only
     // the library is unknown to pkg-config.
-    let mut cmd = std::process::Command::new("pkg-config");
+    let mut cmd = crate::safety::child_command("pkg-config");
     cmd.args(["--modversion", lib]);
     let out = bounded_cmd_output(
         "platform_lib_version",
@@ -54588,7 +54587,7 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
 
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("ldd");
+        let mut cmd = crate::safety::child_command("ldd");
         cmd.arg("--version");
         let out = bounded_cmd_output("platform_system_libs", "ldd", cmd, PROBE_DEADLINE_SECS)?;
         let stdout = String::from_utf8_lossy(&out.stdout);
@@ -54617,7 +54616,7 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
             .iter()
             .filter(|p| std::path::Path::new(p).exists())
         {
-            let mut cmd = std::process::Command::new("strings");
+            let mut cmd = crate::safety::child_command("strings");
             cmd.arg(path);
             match bounded_cmd_output("platform_system_libs", "strings", cmd, PROBE_DEADLINE_SECS) {
                 Ok(out) => {
@@ -54653,13 +54652,13 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
 
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("xcrun");
+        let mut cmd = crate::safety::child_command("xcrun");
         cmd.args(["--show-sdk-version"]);
         let out = bounded_cmd_output("platform_system_libs", "xcrun", cmd, PROBE_DEADLINE_SECS)?;
         let sdk = probe_stdout("platform_system_libs", "xcrun", out)?;
         info.insert("macos_sdk".to_string(), Value::Str(sdk));
 
-        let mut cmd = std::process::Command::new("xcodebuild");
+        let mut cmd = crate::safety::child_command("xcodebuild");
         cmd.arg("-version");
         let out = bounded_cmd_output(
             "platform_system_libs",
@@ -54689,7 +54688,7 @@ fn bi_platform_system_libs(_args: Vec<Value>, _input: Option<Value>) -> Result<V
         }
         // `cl` is on PATH only in a Developer prompt, so a missing `cl` is the
         // answer "no MSVC". Any other failure to run it is refused.
-        let cmd = std::process::Command::new("cl");
+        let cmd = crate::safety::child_command("cl");
         match bounded_cmd_output("platform_system_libs", "cl", cmd, PROBE_DEADLINE_SECS) {
             Ok(out) => match msvc_from_cl(&String::from_utf8_lossy(&out.stderr)) {
                 Some(line) => {
@@ -54721,7 +54720,7 @@ mod platform_probe_status_tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn the_version_strings_are_the_ones_ver_printed() {
-        let mut cmd = std::process::Command::new("cmd");
+        let mut cmd = crate::safety::child_command("cmd");
         cmd.args(["/c", "ver"]);
         let out = bounded_cmd_output("platform_os_version", "cmd", cmd, PROBE_DEADLINE_SECS)
             .expect("cmd runs");
@@ -54878,7 +54877,7 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         "ios" | "macos" | "xcode" => {
             // A failing xcrun used to answer "" (or Null when it failed to
             // start). Absent xcrun is still "not installed".
-            let mut cmd = std::process::Command::new("xcrun");
+            let mut cmd = crate::safety::child_command("xcrun");
             cmd.args(["--show-sdk-version"]);
             if let Some(version) = probe_text_if_installed("platform_sdk_version", "xcrun", cmd)? {
                 return Ok(Value::Str(version));
@@ -54891,7 +54890,7 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         }
         "dotnet" => {
             // A probe error used to fall through to Null ("not installed").
-            let mut cmd = std::process::Command::new("dotnet");
+            let mut cmd = crate::safety::child_command("dotnet");
             cmd.args(["--list-sdks"]);
             if let Some(text) = probe_text_if_installed("platform_sdk_version", "dotnet", cmd)? {
                 let sdks: Vec<Value> = text.lines().map(|l| Value::Str(l.to_string())).collect();
@@ -54921,7 +54920,7 @@ fn bi_platform_sdk_version(args: Vec<Value>, _input: Option<Value>) -> Result<Va
 fn bi_platform_libc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("ldd");
+        let mut cmd = crate::safety::child_command("ldd");
         cmd.arg("--version");
         if let Ok(out) = bounded_cmd_output("platform_libc", "ldd", cmd, PROBE_DEADLINE_SECS) {
             let ver = String::from_utf8_lossy(&out.stdout);
@@ -54946,7 +54945,7 @@ fn bi_platform_libc(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     #[cfg(target_os = "windows")]
     {
         // MSVC runtime
-        let mut cmd = std::process::Command::new("where");
+        let mut cmd = crate::safety::child_command("where");
         cmd.arg("ucrtbase.dll");
         if let Ok(out) = bounded_cmd_output("platform_libc", "where", cmd, PROBE_DEADLINE_SECS) {
             if out.status.success() {
@@ -55236,7 +55235,7 @@ fn bi_platform_libcpp(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 fn bi_platform_ssl_version(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // Try openssl first
-    let mut cmd = std::process::Command::new("openssl");
+    let mut cmd = crate::safety::child_command("openssl");
     cmd.arg("version");
     if let Ok(out) = bounded_cmd_output("platform_ssl_version", "openssl", cmd, PROBE_DEADLINE_SECS)
     {
@@ -55247,7 +55246,7 @@ fn bi_platform_ssl_version(_args: Vec<Value>, _input: Option<Value>) -> Result<V
         }
     }
     // Try pkg-config
-    let mut cmd = std::process::Command::new("pkg-config");
+    let mut cmd = crate::safety::child_command("pkg-config");
     cmd.args(["--modversion", "openssl"]);
     if let Ok(out) = bounded_cmd_output(
         "platform_ssl_version",
@@ -55271,7 +55270,7 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     // nvcc's output was recorded without checking its exit status, so a failing
     // nvcc filled in the toolkit line from whatever it printed. A tool that is
     // not installed is still just absent.
-    let mut cmd = std::process::Command::new("nvcc");
+    let mut cmd = crate::safety::child_command("nvcc");
     cmd.arg("--version");
     if let Some(output) = probe_text_if_installed("platform_cuda_version", "nvcc", cmd)? {
         for line in output.lines() {
@@ -55288,7 +55287,7 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     // NVIDIA driver version
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("nvidia-smi");
+        let mut cmd = crate::safety::child_command("nvidia-smi");
         cmd.args(["--query-gpu=driver_version", "--format=csv,noheader"]);
         // A failing nvidia-smi used to be skipped; it is an error now.
         if let Some(ver) = probe_text_if_installed("platform_cuda_version", "nvidia-smi", cmd)? {
@@ -55297,7 +55296,7 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
     }
     #[cfg(target_os = "windows")]
     {
-        let cmd = std::process::Command::new("nvidia-smi");
+        let cmd = crate::safety::child_command("nvidia-smi");
         // A failing nvidia-smi used to be skipped; it is an error now.
         if let Some(output) = probe_text_if_installed("platform_cuda_version", "nvidia-smi", cmd)? {
             for line in output.lines() {
@@ -55319,7 +55318,7 @@ fn bi_platform_cuda_version(_args: Vec<Value>, _input: Option<Value>) -> Result<
 
     // Check for ROCm/HIP as alternative
     // hipcc's output was recorded without an exit-status check, as nvcc's was.
-    let mut cmd = std::process::Command::new("hipcc");
+    let mut cmd = crate::safety::child_command("hipcc");
     cmd.arg("--version");
     if let Some(ver) = probe_text_if_installed("platform_cuda_version", "hipcc", cmd)? {
         if let Some(line) = ver.lines().next() {
@@ -55417,11 +55416,11 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     {
         // A failed sysctl used to put its empty stdout in as `name` (""), or
         // drop the count silently. Each probe is an error now if it fails.
-        let mut cmd = std::process::Command::new("sysctl");
+        let mut cmd = crate::safety::child_command("sysctl");
         cmd.args(["-n", "machdep.cpu.brand_string"]);
         let name = probe_text("platform_cpu", "sysctl", cmd)?;
         info.insert("name".to_string(), Value::Str(name));
-        let mut cmd = std::process::Command::new("sysctl");
+        let mut cmd = crate::safety::child_command("sysctl");
         cmd.args(["-n", "hw.physicalcpu"]);
         let cores = probe_text("platform_cpu", "sysctl", cmd)?;
         let cores = cores.parse::<i64>().map_err(|e| {
@@ -55432,7 +55431,7 @@ fn bi_platform_cpu(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             )
         })?;
         info.insert("cores".to_string(), Value::Int(cores));
-        let mut cmd = std::process::Command::new("sysctl");
+        let mut cmd = crate::safety::child_command("sysctl");
         cmd.args(["-n", "hw.logicalcpu"]);
         let logical = probe_text("platform_cpu", "sysctl", cmd)?;
         let logical = logical.parse::<i64>().map_err(|e| {
@@ -55493,7 +55492,7 @@ fn bi_platform_cpu_freq(_args: Vec<Value>, _input: Option<Value>) -> Result<Valu
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("sysctl");
+        let mut cmd = crate::safety::child_command("sysctl");
         cmd.args(["-n", "hw.cpufrequency"]);
         // A sysctl that exits non-zero has no hw.cpufrequency (Apple Silicon),
         // which is the Null below. probe_text checks the exit status.
@@ -55583,7 +55582,7 @@ fn bi_platform_memory(_args: Vec<Value>, input: Option<Value>) -> Result<Value> 
 
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("sysctl");
+        let mut cmd = crate::safety::child_command("sysctl");
         cmd.args(["-n", "hw.memsize"]);
         let out = bounded_cmd_output("platform_memory", "sysctl", cmd, PROBE_DEADLINE_SECS)
             .map_err(|e| {
@@ -55662,7 +55661,7 @@ fn bi_platform_memory_total(_args: Vec<Value>, _input: Option<Value>) -> Result<
     }
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("sysctl");
+        let mut cmd = crate::safety::child_command("sysctl");
         cmd.args(["-n", "hw.memsize"]);
         // probe_text refuses a non-zero exit with its code and stderr.
         let text = probe_text("platform_memory_total", "sysctl", cmd)?;
@@ -55734,7 +55733,7 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("df");
+        let mut cmd = crate::safety::child_command("df");
         cmd.args(["-B1", "--output=source,target,fstype,size,avail"]);
         // A failed df used to list no disks. Its exit status is checked now.
         let output = probe_text("platform_disks", "df", cmd)?;
@@ -55769,7 +55768,7 @@ fn bi_platform_disks(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
 
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = std::process::Command::new("df");
+        let mut cmd = crate::safety::child_command("df");
         cmd.args(["-b"]);
         // A failed df used to list no disks. Its exit status is checked now.
         let output = probe_text("platform_disks", "df", cmd)?;
@@ -55934,7 +55933,7 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // but failing is an error: it used to read as none. A row with too few
     // columns is also an error. A single field that is not a number (nvidia-smi
     // prints [N/A] for some) stays absent, as before.
-    let mut cmd = std::process::Command::new("nvidia-smi");
+    let mut cmd = crate::safety::child_command("nvidia-smi");
     cmd.args(["--query-gpu=index,name,memory.total,memory.free,driver_version,temperature.gpu,utilization.gpu", "--format=csv,noheader,nounits"]);
     match bounded_cmd_output("platform_gpus", "nvidia-smi", cmd, PROBE_DEADLINE_SECS) {
         Ok(out) => {
@@ -55980,7 +55979,7 @@ fn bi_platform_gpus(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     // AMD GPUs via rocm-smi (Linux), in the same record shape as the NVIDIA rows.
     #[cfg(target_os = "linux")]
     if gpus.is_empty() {
-        let mut cmd = std::process::Command::new("rocm-smi");
+        let mut cmd = crate::safety::child_command("rocm-smi");
         cmd.args([
             "--showproductname",
             "--showmeminfo",
@@ -56065,7 +56064,7 @@ fn gpu_memory_record(output: &str) -> Result<Value> {
 }
 
 fn bi_platform_gpu_memory(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("nvidia-smi");
+    let mut cmd = crate::safety::child_command("nvidia-smi");
     cmd.args([
         "--query-gpu=memory.total,memory.used,memory.free",
         "--format=csv,noheader,nounits",
@@ -56119,7 +56118,7 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
 
     #[cfg(target_os = "linux")]
     {
-        let mut cmd = std::process::Command::new("ip");
+        let mut cmd = crate::safety::child_command("ip");
         cmd.args(["--json", "addr"]);
         if let Ok(out) = bounded_cmd_output(
             "platform_network_interfaces",
@@ -56161,7 +56160,7 @@ fn bi_platform_network_interfaces(_args: Vec<Value>, _input: Option<Value>) -> R
 
     #[cfg(target_os = "macos")]
     {
-        let cmd = std::process::Command::new("ifconfig");
+        let cmd = crate::safety::child_command("ifconfig");
         if let Ok(out) = bounded_cmd_output(
             "platform_network_interfaces",
             "ifconfig",
@@ -57768,7 +57767,7 @@ pub(crate) fn run_tree(
     stdout_keep: Keep,
     stderr_keep: Keep,
 ) -> std::result::Result<TreeRun, TreeError> {
-    let mut command = std::process::Command::new(program);
+    let mut command = crate::safety::child_command(program);
     command.args(args);
     configure(&mut command);
     run_tree_cmd(command, stdin, limit, stdout_keep, stderr_keep)
@@ -57985,7 +57984,7 @@ pub fn __test_container_cli(program: &str, args: &[&str], deadline_secs: u64) ->
 /// its deadline given in seconds. Not part of the public API.
 #[doc(hidden)]
 pub fn __test_run_checked(tool: &str, args: &[&str], deadline_secs: u64) -> Result<String> {
-    let mut cmd = std::process::Command::new(tool);
+    let mut cmd = crate::safety::child_command(tool);
     cmd.args(args);
     run_checked("test", tool, cmd, deadline_secs).map(|(out, _)| out)
 }
@@ -58223,9 +58222,9 @@ fn kill_group(pid: u32) {
 /// [`TASKKILL_LIMIT`]. It runs with argv (no shell) and its output is discarded.
 #[cfg(windows)]
 pub(crate) fn taskkill_tree(pid: u32) {
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     let pid_text = pid.to_string();
-    let mut cmd = Command::new("taskkill");
+    let mut cmd = crate::safety::child_command("taskkill");
     crate::safety::strip_ironshell_env(&mut cmd);
     let Ok(mut killer) = cmd
         .args(["/T", "/F", "/PID", pid_text.as_str()])
@@ -59034,7 +59033,7 @@ fn bi_helm_status(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// Run a command, return stdout on success or an error with stderr.
 fn vm_run_cmd(program: &str, args: &[&str]) -> Result<String> {
-    let mut cmd = std::process::Command::new(program);
+    let mut cmd = crate::safety::child_command(program);
     cmd.args(args);
     // A deadline is a budget, not a missing tool, so it keeps its own code.
     let output = crate::safety::output_with_timeout(cmd, TOOL_DEADLINE_SECS).map_err(|e| {
@@ -59178,7 +59177,7 @@ fn detect_hypervisor() -> Result<&'static str> {
     #[cfg(target_os = "windows")]
     {
         // On Windows, prefer Hyper-V
-        let mut cmd = std::process::Command::new("powershell");
+        let mut cmd = crate::safety::child_command("powershell");
         cmd.args([
             "-NoProfile",
             "-Command",
@@ -59189,13 +59188,13 @@ fn detect_hypervisor() -> Result<&'static str> {
         }
     }
     // Try virsh (Linux / macOS with libvirt)
-    let mut cmd = std::process::Command::new("virsh");
+    let mut cmd = crate::safety::child_command("virsh");
     cmd.arg("version");
     if hypervisor_probe_ok("virsh", cmd)? {
         return Ok("virsh");
     }
     // Try VBoxManage
-    let mut cmd = std::process::Command::new("VBoxManage");
+    let mut cmd = crate::safety::child_command("VBoxManage");
     cmd.arg("--version");
     if hypervisor_probe_ok("VBoxManage", cmd)? {
         return Ok("vboxmanage");
@@ -61186,7 +61185,7 @@ const WIN_PKG_HISTORY_SCRIPT: &str = r#"$ErrorActionPreference='Stop'; $OutputEn
 /// an empty one.
 #[cfg(windows)]
 fn win_event_rows(builtin: &str, script: &str) -> Result<Vec<Value>> {
-    let mut cmd = std::process::Command::new("powershell");
+    let mut cmd = crate::safety::child_command("powershell");
     cmd.args([
         "-NoLogo",
         "-NoProfile",
@@ -61969,7 +61968,7 @@ fn run_checked(
 fn tool_to_new_file(builtin: &str, tool: &str, argv: &[&str], out_path: &str) -> Result<()> {
     let file = create_new_output(builtin, out_path)?;
     let sink = std::sync::Arc::new(std::sync::Mutex::new(file));
-    let mut cmd = std::process::Command::new(tool);
+    let mut cmd = crate::safety::child_command(tool);
     cmd.args(argv);
     let result = run_tool(
         builtin,
@@ -62246,7 +62245,7 @@ fn bi_ssh_exec(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // builtin table. Checked after the arguments, so a refused call is not audited
     // as a run.
     crate::safety::guard_exec("ssh_exec", format!("ssh {} {}", host, command))?;
-    let mut cmd = std::process::Command::new("ssh");
+    let mut cmd = crate::safety::child_command("ssh");
     cmd.args(SSH_OPTS);
     if let Some(p) = port {
         cmd.arg("-p").arg(p.to_string());
@@ -62350,7 +62349,7 @@ fn bi_ssh_tunnel(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ));
     let stderr_path = stderr_path.to_string_lossy().into_owned();
     let stderr_file = create_new_output("ssh_tunnel", &stderr_path)?;
-    let mut cmd = std::process::Command::new("ssh");
+    let mut cmd = crate::safety::child_command("ssh");
     crate::safety::strip_ironshell_env(&mut cmd);
     cmd.args(["-N", "-o", "ExitOnForwardFailure=yes"])
         .args(SSH_OPTS)
@@ -62471,7 +62470,7 @@ fn bi_ssh_keygen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let public = format!("{filename}.pub");
     refuse_existing("ssh_keygen", &filename)?;
     refuse_existing("ssh_keygen", &public)?;
-    let mut cmd = std::process::Command::new("ssh-keygen");
+    let mut cmd = crate::safety::child_command("ssh-keygen");
     cmd.args(["-t", key_type.as_str(), "-f", filename.as_str(), "-N", ""]);
     match run_checked("ssh_keygen", "ssh-keygen", cmd, LOCAL_DEADLINE_SECS) {
         Ok((output, _)) => Ok(rec(vec![
@@ -62543,7 +62542,7 @@ fn bi_ssh_copy_id(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         let remote = format!(
             "mkdir -p ~/.ssh && (grep -qxF '{key}' ~/.ssh/authorized_keys 2>/dev/null || echo '{key}' >> ~/.ssh/authorized_keys) && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
         );
-        let mut cmd = std::process::Command::new("ssh");
+        let mut cmd = crate::safety::child_command("ssh");
         cmd.args(["-T", "-o", "ConnectTimeout=20"])
             .arg(&host)
             .arg(&remote);
@@ -62554,7 +62553,7 @@ fn bi_ssh_copy_id(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             ("host", Value::Str(host)),
         ]))
     } else {
-        let mut cmd = std::process::Command::new("ssh-copy-id");
+        let mut cmd = crate::safety::child_command("ssh-copy-id");
         cmd.args(["-i", key_file.as_str()]).arg(&host);
         run_checked("ssh_copy_id", "ssh-copy-id", cmd, NETWORK_DEADLINE_SECS)?;
         Ok(rec(vec![
@@ -62680,7 +62679,7 @@ fn bi_scp_upload(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let local_path = crate::safety::resolve_path_str(&local_path);
     scp_local_arg("scp_upload", &local_path)?;
     regular_file_arg("scp_upload", &local_path)?;
-    let mut cmd = std::process::Command::new("scp");
+    let mut cmd = crate::safety::child_command("scp");
     cmd.args(SCP_OPTS);
     if let Some(p) = port {
         cmd.arg("-P").arg(p.to_string());
@@ -62730,7 +62729,7 @@ fn bi_scp_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let local_path = guard_local_write("scp_download", &local_path)?;
     scp_local_arg("scp_download", &local_path)?;
     refuse_existing("scp_download", &local_path)?;
-    let mut cmd = std::process::Command::new("scp");
+    let mut cmd = crate::safety::child_command("scp");
     cmd.args(SCP_OPTS);
     if let Some(p) = port {
         cmd.arg("-P").arg(p.to_string());
@@ -62905,7 +62904,7 @@ fn bi_openssl_cert_info(args: Vec<Value>, input: Option<Value>) -> Result<Value>
     };
     refuse_option("openssl_cert_info", &file_path)?;
     let file_path = crate::safety::resolve_path_str(&file_path);
-    let mut cmd = std::process::Command::new("openssl");
+    let mut cmd = crate::safety::child_command("openssl");
     cmd.args(["x509", "-in", file_path.as_str(), "-text", "-noout"]);
     let (out, _) = run_checked("openssl_cert_info", "openssl", cmd, LOCAL_DEADLINE_SECS)?;
     let mut m = BTreeMap::new();
@@ -63002,7 +63001,7 @@ fn bi_openssl_genrsa(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let file_path = guard_local_write("openssl_genrsa", &file_path)?;
     refuse_existing("openssl_genrsa", &file_path)?;
     let bits_text = bits.to_string();
-    let mut cmd = std::process::Command::new("openssl");
+    let mut cmd = crate::safety::child_command("openssl");
     cmd.args(["genrsa", "-out", file_path.as_str(), bits_text.as_str()]);
     let (raw, _) = match run_checked("openssl_genrsa", "openssl", cmd, LOCAL_DEADLINE_SECS) {
         Ok(done) => done,
@@ -63149,7 +63148,7 @@ fn bi_gpg_encrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     regular_file_arg("gpg_encrypt", &input)?;
     let output_file = guard_local_write("gpg_encrypt", &format!("{input}.gpg"))?;
     refuse_existing("gpg_encrypt", &output_file)?;
-    let mut cmd = std::process::Command::new("gpg");
+    let mut cmd = crate::safety::child_command("gpg");
     cmd.args([
         "--batch",
         "--no-tty",
@@ -63202,7 +63201,7 @@ fn bi_gpg_decrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .unwrap_or_else(|| format!("{input}.decrypted"));
     let output_file = guard_local_write("gpg_decrypt", &stem)?;
     refuse_existing("gpg_decrypt", &output_file)?;
-    let mut cmd = std::process::Command::new("gpg");
+    let mut cmd = crate::safety::child_command("gpg");
     cmd.args([
         "--batch",
         "--no-tty",
@@ -64654,7 +64653,7 @@ fn bi_perf_stat(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         // The argv runs as given: argv[0] is the program, found on PATH, with no
         // shell and no perf in between.
         let limit = std::time::Duration::from_secs(120);
-        let mut cmd = std::process::Command::new(&argv[0]);
+        let mut cmd = crate::safety::child_command(&argv[0]);
         cmd.args(&argv[1..]);
         let mut sampled = None;
         let tree = run_tree_cmd_observed(
@@ -67914,7 +67913,7 @@ fn bi_age_encrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         &crate::safety::resolve_path_str(&output_file),
     )?;
     refuse_existing("age_encrypt", &output_file)?;
-    let mut cmd = std::process::Command::new("age");
+    let mut cmd = crate::safety::child_command("age");
     cmd.args([
         "-r",
         recipient.as_str(),
@@ -67983,7 +67982,7 @@ fn bi_age_decrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         &crate::safety::resolve_path_str(&output_file),
     )?;
     refuse_existing("age_decrypt", &output_file)?;
-    let mut cmd = std::process::Command::new("age");
+    let mut cmd = crate::safety::child_command("age");
     cmd.args([
         "-d",
         "-i",
@@ -68021,7 +68020,7 @@ fn bi_age_keygen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let output_file =
         guard_local_write("age_keygen", &crate::safety::resolve_path_str(&output_file))?;
     refuse_existing("age_keygen", &output_file)?;
-    let mut cmd = std::process::Command::new("age-keygen");
+    let mut cmd = crate::safety::child_command("age-keygen");
     cmd.args(["-o", output_file.as_str()]);
     // With -o, age-keygen writes the identity to the file and prints the public
     // key on stderr. Its stdout is discarded, so the identity cannot be returned.
@@ -68519,7 +68518,7 @@ fn bi_jq_filter(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     refuse_option("jq_filter", &filter)?;
     let json_str = jq_json_arg("jq_filter", &args, input)?;
-    let mut cmd = std::process::Command::new("jq");
+    let mut cmd = crate::safety::child_command("jq");
     cmd.arg(filter.as_str());
     let out = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
     let (status, stderr) = run_tool(
@@ -69218,7 +69217,7 @@ fn devtool_terminal(builtin: &str) -> Result<()> {
 /// Run an attach with the terminal's streams inherited, so the user is the one
 /// talking to the session. Only called after [`devtool_terminal`].
 fn devtool_attach(builtin: &str, program: &str, args: &[&str], label: &str) -> Result<()> {
-    let mut cmd = std::process::Command::new(program);
+    let mut cmd = crate::safety::child_command(program);
     crate::safety::strip_ironshell_env(&mut cmd);
     let status = cmd
         .args(args)
@@ -69660,7 +69659,7 @@ fn bi_netstat_info(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     } else {
         vec!["-tuln".to_string()]
     };
-    let mut cmd = std::process::Command::new("netstat");
+    let mut cmd = crate::safety::child_command("netstat");
     cmd.args(&flags);
     let out = bounded_cmd_output("netstat", "netstat", cmd, PROBE_DEADLINE_SECS)?;
     if !out.status.success() {
@@ -69991,7 +69990,7 @@ fn tmux_unparsed() -> anyhow::Error {
 }
 
 fn bi_tmux_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("tmux");
+    let mut cmd = crate::safety::child_command("tmux");
     cmd.args([
         "list-sessions",
         "-F",
@@ -70161,7 +70160,7 @@ fn bi_screen_new(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// screen list — List screen sessions.
 fn bi_screen_list(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("screen");
+    let mut cmd = crate::safety::child_command("screen");
     cmd.args(["-ls"]);
     let output = bounded_cmd_output("screen_list", "screen", cmd, PROBE_DEADLINE_SECS)?;
     screen_sessions(
@@ -70767,7 +70766,7 @@ fn bi_objdump_disasm(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     };
     // The path goes to objdump positionally; a leading `-` would be an option.
     crate::safety::reject_option_like("objdump_disasm", std::slice::from_ref(&path))?;
-    let mut cmd = std::process::Command::new("objdump");
+    let mut cmd = crate::safety::child_command("objdump");
     cmd.args(["-d", &path]);
     let output = bounded_cmd_output("objdump_disasm", "objdump", cmd, TOOL_DEADLINE_SECS);
     match output {
@@ -70808,7 +70807,7 @@ fn bi_objdump_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     };
     // The path goes to objdump positionally; a leading `-` would be an option.
     crate::safety::reject_option_like("objdump_headers", std::slice::from_ref(&path))?;
-    let mut cmd = std::process::Command::new("objdump");
+    let mut cmd = crate::safety::child_command("objdump");
     cmd.args(["-h", &path]);
     let output = bounded_cmd_output("objdump_headers", "objdump", cmd, TOOL_DEADLINE_SECS);
     match output {
@@ -70882,7 +70881,7 @@ fn bi_readelf_headers(args: Vec<Value>, _input: Option<Value>) -> Result<Value> 
     };
     // The path goes to readelf positionally; a leading `-` would be an option.
     crate::safety::reject_option_like("readelf_headers", std::slice::from_ref(&path))?;
-    let mut cmd = std::process::Command::new("readelf");
+    let mut cmd = crate::safety::child_command("readelf");
     cmd.args(["-h", &path]);
     let output = bounded_cmd_output("readelf_headers", "readelf", cmd, TOOL_DEADLINE_SECS);
     match output {
@@ -70923,7 +70922,7 @@ fn bi_readelf_sections(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     };
     // The path goes to readelf positionally; a leading `-` would be an option.
     crate::safety::reject_option_like("readelf_sections", std::slice::from_ref(&path))?;
-    let mut cmd = std::process::Command::new("readelf");
+    let mut cmd = crate::safety::child_command("readelf");
     cmd.args(["-S", &path]);
     let output = bounded_cmd_output("readelf_sections", "readelf", cmd, TOOL_DEADLINE_SECS);
     match output {
@@ -71660,7 +71659,7 @@ fn bi_lazygit_open(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // stdio is inherited, so lazygit draws on the user's terminal. Its stderr
     // therefore cannot be captured for a tail; the failure carries only the
     // exit status.
-    let mut cmd = std::process::Command::new("lazygit");
+    let mut cmd = crate::safety::child_command("lazygit");
     crate::safety::strip_ironshell_env(&mut cmd);
     let status = cmd
         .arg("-p")
@@ -72002,7 +72001,7 @@ fn bi_task_run(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     refuse_option("task_run", &task_name)?;
 
-    let mut cmd = std::process::Command::new("task");
+    let mut cmd = crate::safety::child_command("task");
     cmd.arg(&task_name);
     let (stdout, stderr) = run_checked("task_run", "task", cmd, LOCAL_DEADLINE_SECS)?;
     let mut rec = BTreeMap::new();
@@ -72022,7 +72021,7 @@ fn bi_task_list(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             &format!("{} argument(s)", args.len()),
         ));
     }
-    let mut cmd = std::process::Command::new("task");
+    let mut cmd = crate::safety::child_command("task");
     cmd.arg("--list");
     let (stdout, _stderr) = run_checked("task_list", "task", cmd, LOCAL_DEADLINE_SECS)?;
     Ok(Value::Str(stdout.trim().to_string()))
@@ -72549,7 +72548,7 @@ fn bi_pipx_install(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// pipx list — List pipx-installed packages.
 fn bi_pipx_list(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("pipx");
+    let mut cmd = crate::safety::child_command("pipx");
     cmd.arg("list");
     let output = bounded_cmd_output("pipx_list", "pipx", cmd, PROBE_DEADLINE_SECS);
     match output {
@@ -72745,7 +72744,7 @@ fn bi_cargo_test_cmd(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// rustup show — Show installed Rust toolchains.
 fn bi_rustup_show(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("rustup");
+    let mut cmd = crate::safety::child_command("rustup");
     cmd.arg("show");
     let output = bounded_cmd_output("rustup_show", "rustup", cmd, PROBE_DEADLINE_SECS);
     match output {
@@ -73020,7 +73019,7 @@ fn bi_buildah_build(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 
 /// buildah images — List Buildah images.
 fn bi_buildah_images(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let mut cmd = std::process::Command::new("buildah");
+    let mut cmd = crate::safety::child_command("buildah");
     cmd.args(["images", "--json"]);
     let output = bounded_cmd_output("buildah_images", "buildah", cmd, TOOL_DEADLINE_SECS);
     match output {
@@ -73200,7 +73199,7 @@ fn bi_shellcheck_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         _ => return Err(crate::safety::arg_err("shellcheck requires a script path")),
     };
     crate::safety::reject_option_like("shellcheck", std::slice::from_ref(&path))?;
-    let mut cmd = std::process::Command::new("shellcheck");
+    let mut cmd = crate::safety::child_command("shellcheck");
     cmd.args(["--format=json", &path]);
     let output = bounded_cmd_output("shellcheck_check", "shellcheck", cmd, TOOL_DEADLINE_SECS);
     match output {
@@ -73264,7 +73263,7 @@ fn bi_yamllint_check(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         _ => return Err(crate::safety::arg_err("yamllint requires a file path")),
     };
     crate::safety::reject_option_like("yamllint", std::slice::from_ref(&path))?;
-    let mut cmd = std::process::Command::new("yamllint");
+    let mut cmd = crate::safety::child_command("yamllint");
     cmd.args(["-f", "parsable", &path]);
     let output = bounded_cmd_output("yamllint_check", "yamllint", cmd, TOOL_DEADLINE_SECS);
     match output {
@@ -74800,7 +74799,7 @@ mod archive_prescan_tests {
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(dir.join("src").join("a.txt"), "a").unwrap();
         let archive = dir.join("t.tar.xz");
-        let made = std::process::Command::new("tar")
+        let made = crate::safety::child_command("tar")
             .arg("-cJf")
             .arg(&archive)
             .arg("-C")
@@ -74842,7 +74841,7 @@ mod archive_prescan_tests {
             b.append(&h, std::io::empty()).unwrap();
             b.finish().unwrap();
         }
-        let xz = std::process::Command::new("xz")
+        let xz = crate::safety::child_command("xz")
             .arg("-c")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -74876,7 +74875,7 @@ mod archive_prescan_tests {
         let archive = dir.join("bad.tar.xz");
         // xz magic, then garbage.
         std::fs::write(&archive, [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00, 1, 2, 3, 4]).unwrap();
-        let mut xz = std::process::Command::new("xz");
+        let mut xz = crate::safety::child_command("xz");
         xz.arg("--version");
         let have_xz = bounded_cmd_output("tar_extract", "xz", xz, PROBE_DEADLINE_SECS).is_ok();
         let listed = tar_archive_entries("tar_extract", archive.to_str().unwrap());
@@ -75100,13 +75099,13 @@ mod clip_deadline_tests {
     /// Reads all of its input and exits 0.
     #[cfg(unix)]
     fn reads_stdin_and_exits() -> Command {
-        let mut c = Command::new("sh");
+        let mut c = crate::safety::child_command("sh");
         c.args(["-c", "cat >/dev/null"]);
         c
     }
     #[cfg(windows)]
     fn reads_stdin_and_exits() -> Command {
-        let mut c = Command::new("cmd");
+        let mut c = crate::safety::child_command("cmd");
         c.args(["/C", "more"]);
         c
     }
@@ -75114,13 +75113,13 @@ mod clip_deadline_tests {
     /// Ignores its input and runs for about five seconds.
     #[cfg(unix)]
     fn ignores_stdin_and_sleeps() -> Command {
-        let mut c = Command::new("sh");
+        let mut c = crate::safety::child_command("sh");
         c.args(["-c", "sleep 5"]);
         c
     }
     #[cfg(windows)]
     fn ignores_stdin_and_sleeps() -> Command {
-        let mut c = Command::new("cmd");
+        let mut c = crate::safety::child_command("cmd");
         c.args(["/C", "ping -n 6 127.0.0.1"]);
         c
     }
@@ -75128,13 +75127,13 @@ mod clip_deadline_tests {
     /// Exits 0 at once, without reading its input.
     #[cfg(unix)]
     fn exits_without_reading() -> Command {
-        let mut c = Command::new("sh");
+        let mut c = crate::safety::child_command("sh");
         c.args(["-c", "exit 0"]);
         c
     }
     #[cfg(windows)]
     fn exits_without_reading() -> Command {
-        let mut c = Command::new("cmd");
+        let mut c = crate::safety::child_command("cmd");
         c.args(["/C", "exit 0"]);
         c
     }

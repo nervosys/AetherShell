@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
@@ -41,7 +40,7 @@ const MANIFEST_PROBE_MAX_OUTPUT: usize = 1024 * 1024;
 /// time and output. A breach is a coded budget error; a failure to start is
 /// the io error with its context.
 fn run_manifest_probe(exe: &Path, args: &[&str]) -> Result<std::process::Output> {
-    let mut cmd = Command::new(exe);
+    let mut cmd = crate::safety::child_command(exe);
     cmd.args(args);
     let run = crate::builtins::run_tree_cmd(
         cmd,
@@ -783,7 +782,7 @@ impl ExternalToolRegistry {
         let start = Instant::now();
 
         // Build command
-        let mut cmd = Command::new(&tool.executable_path);
+        let mut cmd = crate::safety::child_command(&tool.executable_path);
 
         // Set working directory
         if let Some(ref wd) = tool.manifest.agent.working_dir {

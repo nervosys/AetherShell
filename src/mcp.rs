@@ -681,11 +681,9 @@ impl McpServer {
 
     /// Execute a tool with the given arguments
     fn execute_tool(&self, tool: &OSTool, args: &HashMap<String, JsonValue>) -> Result<String> {
-        use std::process::Command;
-
         // Build command
         let cmd_name = tool.command_for_current_os();
-        let mut cmd = Command::new(&cmd_name);
+        let mut cmd = crate::safety::child_command(&cmd_name);
 
         // Add arguments based on tool parameters
         for param in &tool.parameters {

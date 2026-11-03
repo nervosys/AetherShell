@@ -27,7 +27,7 @@ use crate::value::Value;
 use anyhow::Result;
 use regex::Regex;
 use std::collections::{BTreeMap, HashSet};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::sync::OnceLock;
 
 #[cfg(windows)]
@@ -664,7 +664,7 @@ pub(crate) fn exec_for(
     use std::process::Stdio;
     use std::time::Duration;
 
-    let mut cmd = Command::new(format!("/usr/bin/{tool}"));
+    let mut cmd = crate::safety::child_command(format!("/usr/bin/{tool}"));
     cmd.args(args)
         .env("DEBIAN_FRONTEND", "noninteractive")
         .env("LC_ALL", "C")

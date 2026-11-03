@@ -426,15 +426,56 @@ fn the_named_well_known_credentials_are_secret_names() {
     }
 }
 
+/// The constructor every spawn in `src` now uses, with no runner in between.
+/// The shell's own setting and a planted credential must not reach it in agent
+/// mode, and the mode itself must.
+#[test]
+fn a_child_command_spawn_scrubs_the_shell_and_its_credentials() {
+    let _guard = lock();
+    let (program, args) = env_printer();
+    std::env::set_var("IRONSHELL_MODE", "agent");
+    std::env::set_var(MARKER, MARKER_VALUE);
+    std::env::set_var(FAKE_SECRET, FAKE_VALUE);
+    let mut cmd = iron_shell::safety::child_command(program);
+    cmd.args(&args);
+    let output = cmd.output();
+    for name in [MARKER, FAKE_SECRET] {
+        std::env::remove_var(name);
+    }
+    std::env::remove_var("IRONSHELL_MODE");
+    let output = output.expect("the env printer runs");
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+
+    let names = names_in(&text);
+    assert!(
+        !has_name(&names, MARKER),
+        "a child_command spawn inherited {MARKER}; its variables were: {}",
+        listed(&names)
+    );
+    assert!(
+        !has_name(&names, FAKE_SECRET),
+        "a child_command spawn in agent mode inherited the credential {FAKE_SECRET}; its variables were: {}",
+        listed(&names)
+    );
+    assert!(
+        has_name(&names, "IRONSHELL_MODE"),
+        "a child_command spawn in agent mode must carry the mode; its variables were: {}",
+        listed(&names)
+    );
+    assert!(
+        has_name(&names, "PATH"),
+        "an ordinary variable must still reach a child_command spawn; its variables were: {}",
+        listed(&names)
+    );
+}
+
 /// Files that start a program outside a runner that strips the shell's
 /// variables, with how many such starts each may keep. A count only goes
 /// down: a new unguarded start fails, and so does a count that has dropped
-/// without its allowance being lowered.
-const UNGUARDED_SPAWNS: &[(&str, usize)] = &[
-    // Command builders whose caller runs them (zip_command, git_command), and
-    // spawns in #[test] fixtures.
-    ("builtins.rs", 11),
-];
+/// without its allowance being lowered. Every spawn in src now goes through
+/// `safety::child_command`, which strips, so this list is empty; the raw
+/// constructor is pinned by tests/child_spawn_ratchet.rs.
+const UNGUARDED_SPAWNS: &[(&str, usize)] = &[];
 
 /// Calls that run a child with the shell's variables stripped, directly or
 /// through another such runner.

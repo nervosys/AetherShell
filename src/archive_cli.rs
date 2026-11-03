@@ -20,7 +20,7 @@
 use anyhow::Result;
 use std::fs::File;
 use std::io::{ErrorKind, Read};
-use std::process::{Child, ChildStderr, Command, ExitStatus, Stdio};
+use std::process::{Child, ChildStderr, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
@@ -340,7 +340,7 @@ fn overran(builtin: &str, codec: Codec) -> anyhow::Error {
 /// caller value is a path, which the caller has already run through
 /// reject_option_like and which follows a `--` where the tool takes one.
 fn spawn(builtin: &str, argv: &[String], stdin: Stdio, stdout: Stdio) -> Result<Child> {
-    let mut command = Command::new(&argv[0]);
+    let mut command = crate::safety::child_command(&argv[0]);
     safety::strip_ironshell_env(&mut command);
     command
         .args(&argv[1..])

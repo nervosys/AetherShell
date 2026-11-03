@@ -381,7 +381,7 @@ fn execute_step_within(tool: &str, args: &[String], timeout_secs: u64) -> Result
     );
 
     // Create command
-    let mut cmd = Command::new(tool);
+    let mut cmd = crate::safety::child_command(tool);
     cmd.args(args);
 
     // Configure process sandboxing
