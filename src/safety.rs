@@ -2048,7 +2048,7 @@ pub(crate) fn strip_ironshell_env(cmd: &mut std::process::Command) {
 /// `tests/child_spawn_ratchet.rs` keeps a raw constructor call out of `src/`.
 pub fn child_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     let mut cmd = std::process::Command::new(program);
-    strip_ironshell_env(&mut cmd);
+    let _ = &mut cmd; // MUTATION: no strip
     cmd
 }
 
