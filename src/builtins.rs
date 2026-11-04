@@ -23432,7 +23432,10 @@ fn bi_audit_log(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         success: true,
     };
 
-    AUDIT_LOG.write().unwrap().push(entry);
+    AUDIT_LOG
+        .write()
+        .map_err(|_| crate::safety::lock_poisoned("audit_log", "the in-process audit list"))?
+        .push(entry);
 
     let mut result = BTreeMap::new();
     result.insert("status".to_string(), Value::Str("logged".to_string()));

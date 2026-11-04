@@ -3645,6 +3645,17 @@ fn mirror_to_sink(line: &str) -> std::io::Result<()> {
     write_record(&mut f, line)
 }
 
+/// Poison the audit lock, as a panic while holding it would.
+/// Not part of the public API.
+#[doc(hidden)]
+pub fn __test_poison_audit_lock() {
+    let _ = std::thread::spawn(|| {
+        let _held = AUDIT.lock();
+        panic!("poisoning the audit lock for a test");
+    })
+    .join();
+}
+
 /// Append a tamper-evident audit entry. Best-effort: a write failure logs a
 /// warning but never blocks the guarded operation, unless
 /// `IRONSHELL_AUDIT_REQUIRED=1`, in which case the error is returned.
@@ -3660,9 +3671,20 @@ pub fn audit(
         None => return Ok(()),
     };
 
+    // The chain state behind a poisoned lock cannot be trusted, so nothing is
+    // written. That was silent even when the entry was required: audit_log said
+    // "logged" and apply said "applied" with no record made.
     let mut state = match AUDIT.lock() {
         Ok(s) => s,
-        Err(_) => return Ok(()),
+        Err(_) => {
+            let reason =
+                "the audit log is unusable: an earlier call panicked while holding its lock";
+            if truthy_env("IRONSHELL_AUDIT_REQUIRED") {
+                return Err(reason.to_string());
+            }
+            tracing::error!(target: "security_audit", "audit entry dropped: {}", reason);
+            return Ok(());
+        }
     };
     // If the active log path changed (multi-workspace use, tests), reset the
     // chain and reload the new file's tail rather than continuing a stale chain.
