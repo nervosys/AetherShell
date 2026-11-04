@@ -447,6 +447,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `config_set` says when a key is stored but not applied. Its reply ends with `(not applied: ...)` for the nine keys the shell saves but nothing reads yet, instead of implying that `ai()` will use a new `ai.default_model`.
 - `db_sqlite_backup` of an absent database is `E_NOT_FOUND`. sqlite3 created the
   source and wrote an empty backup, and the builtin answered true. `:memory:` is
   `E_BAD_ARG`, and `db_sqlite_to_csv` no longer creates a database it was asked

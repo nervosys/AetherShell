@@ -430,7 +430,10 @@ fn config_set_and_config_init_write_only_inside_the_sandbox() {
     let file = sb.base.join("config").join("config.toml");
 
     let set = call("config_set", vec![s("ai.max_tokens"), Value::Int(2048)]).expect("config_set");
-    assert_eq!(set, s("Config saved: ai.max_tokens = 2048"));
+    assert_eq!(
+        set,
+        s("Config saved: ai.max_tokens = 2048 (not applied: the shell stores this key but nothing acts on it yet)")
+    );
     let text = std::fs::read_to_string(&file).expect("config file written");
     assert!(
         text.contains("2048"),

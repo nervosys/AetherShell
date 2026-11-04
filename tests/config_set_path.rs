@@ -171,3 +171,23 @@ fn a_legacy_home_file_in_use_is_written_back() {
         "config_set wrote config.toml although ~/.ironshellrc is the file in use"
     );
 }
+
+/// (e) A key the shell stores but does not act on is marked "not applied" in
+/// the reply; a key the shell acts on is not.
+#[test]
+fn reply_marks_only_keys_that_are_not_applied() {
+    let fx = Fixture::new("not-applied");
+    let custom = fx.root.join("custom.toml");
+
+    let out = fx.run(Some(&custom), r#"config_set("shell.vi_mode", true)"#);
+    assert!(
+        stdout_ok(&out).contains("not applied"),
+        "config_set did not mark shell.vi_mode as not applied"
+    );
+
+    let out = fx.run(Some(&custom), r#"config_set("colors.enabled", true)"#);
+    assert!(
+        !stdout_ok(&out).contains("not applied"),
+        "config_set marked colors.enabled as not applied"
+    );
+}

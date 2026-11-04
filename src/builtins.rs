@@ -5628,6 +5628,19 @@ fn config_value_ok(path: &str, value: &Value) -> Result<()> {
     }
 }
 
+// Keys config_set stores but nothing in the shell reads yet; its reply says so.
+const CONFIG_NOT_APPLIED: &[&str] = &[
+    "colors.force",
+    "shell.show_tips",
+    "shell.vi_mode",
+    "shell.auto_cd",
+    "ai.default_model",
+    "ai.default_provider",
+    "ai.max_tokens",
+    "ai.streaming",
+    "history.max_size",
+];
+
 /// config_set(path, value) - set one config value, save the config file that
 /// `ShellConfig::config_file` names, and reload it into the running shell.
 /// The path and value are checked before the file is read; a value of the
@@ -5706,6 +5719,11 @@ fn bi_config_set(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         Value::Int(n) => n.to_string(),
         other => other.type_name().to_string(),
     };
+    if CONFIG_NOT_APPLIED.contains(&path.as_str()) {
+        return Ok(Value::Str(format!(
+            "Config saved: {path} = {shown} (not applied: the shell stores this key but nothing acts on it yet)"
+        )));
+    }
     Ok(Value::Str(format!("Config saved: {path} = {shown}")))
 }
 
