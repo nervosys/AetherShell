@@ -1508,7 +1508,15 @@ mod linux {
             if spec.enable {
                 let _ = run_tool(BUILTIN, &["disable", unit.as_str()]);
             }
-            let _ = std::fs::remove_file(&unit_path);
+            let mut e = e;
+            if let Err(rm) = std::fs::remove_file(&unit_path) {
+                if rm.kind() != std::io::ErrorKind::NotFound {
+                    e = e.context(format!(
+                        "{} was left behind and could not be removed: {rm}",
+                        unit_path.display()
+                    ));
+                }
+            }
             let _ = run_tool(BUILTIN, &["daemon-reload"]);
             return Err(e);
         }
@@ -1902,7 +1910,15 @@ mod launchd {
             let plist = path.display().to_string();
             if let Err(e) = launchctl_checked(BUILTIN, &["bootstrap", "system", plist.as_str()]) {
                 // Undo the file, so no half-created service stays.
-                let _ = std::fs::remove_file(&path);
+                let mut e = e;
+                if let Err(rm) = std::fs::remove_file(&path) {
+                    if rm.kind() != std::io::ErrorKind::NotFound {
+                        e = e.context(format!(
+                            "{} was left behind and could not be removed: {rm}",
+                            path.display()
+                        ));
+                    }
+                }
                 return Err(e);
             }
         }

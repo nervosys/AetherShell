@@ -34025,23 +34025,28 @@ fn gzip_file_capped(
         Ok(false) => {
             // The writer is closed by now (it is local to the branch above), so
             // the partial file can be removed on every platform.
-            remove_partial(out_path);
-            Err(crate::safety::budget_exceeded(
-                builtin,
-                format!("{input} decompresses to more than {cap} bytes and was stopped"),
-                "the output would be cut short, so it is refused and no file is left; check that the archive is the one you meant",
+            Err(fail_removing_partial(
+                crate::safety::budget_exceeded(
+                    builtin,
+                    format!("{input} decompresses to more than {cap} bytes and was stopped"),
+                    "the output would be cut short, so it is refused and no file is left; check that the archive is the one you meant",
+                ),
+                out_path,
             ))
         }
         Err(e) => {
-            remove_partial(out_path); // no half-written output
-            Err(crate::safety::bad_arg(
-                builtin,
-                if decompress {
-                    "valid gzip data"
-                } else {
-                    "a readable file"
-                },
-                &format!("{input}: {e}"),
+            // no half-written output
+            Err(fail_removing_partial(
+                crate::safety::bad_arg(
+                    builtin,
+                    if decompress {
+                        "valid gzip data"
+                    } else {
+                        "a readable file"
+                    },
+                    &format!("{input}: {e}"),
+                ),
+                out_path,
             ))
         }
     }
@@ -51105,8 +51110,9 @@ fn bi_refactor_rename(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
 /// directory, or a symlink, takes the plain `std::fs::rename`, which replaces
 /// its destination. A file first gets a hard link to `to`, which fails with
 /// `AlreadyExists` when `to` is taken, and only then is `from` removed; if that
-/// removal fails the new link is removed too, so the file is never left under
-/// both names. A volume that cannot hard-link (FAT, some network shares) falls
+/// removal fails the new link is removed too, so the file is left under both
+/// names only when that removal fails as well, and the error then says so. A volume
+/// that cannot hard-link (FAT, some network shares) falls
 /// back to `std::fs::rename` on any hard-link error other than `AlreadyExists`.
 /// So on those systems the caller's check is the only guard, as before. On
 /// other targets the fallback is all there is.
@@ -51123,7 +51129,17 @@ pub fn rename_file_no_replace(from: &std::path::Path, to: &std::path::Path) -> s
         Err(_) => return std::fs::rename(from, to),
     }
     if let Err(e) = std::fs::remove_file(from) {
-        let _ = std::fs::remove_file(to);
+        if let Err(undo) = std::fs::remove_file(to) {
+            if undo.kind() != std::io::ErrorKind::NotFound {
+                return Err(std::io::Error::new(
+                    e.kind(),
+                    format!(
+                        "{e}; and the new name {} could not be removed, so the file now has both names",
+                        to.display()
+                    ),
+                ));
+            }
+        }
         return Err(e);
     }
     Ok(())
@@ -62469,9 +62485,57 @@ fn refuse_existing(builtin: &str, path: &str) -> Result<()> {
 }
 
 /// Removes a file a failed run may have left. Only ever called on a path that
-/// was checked absent before the run, so the file is the run's own.
+/// was checked absent before the run, so the file is the run's own. A failure
+/// other than absence is logged; output that may be secret, or that the caller
+/// is told is gone, goes through `fail_removing_partial` so the error names it.
 fn remove_partial(path: &str) {
-    let _ = std::fs::remove_file(path);
+    if let Err(e) = std::fs::remove_file(path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!("{path} was left behind by a failed run and could not be removed: {e}");
+        }
+    }
+}
+
+/// Removes a failed run's output and returns the run's error, naming the file if
+/// it could not be removed. For output that may be secret or that the caller is
+/// told is gone: the caller has to know it is still there.
+fn fail_removing_partial(error: anyhow::Error, path: &str) -> anyhow::Error {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => error.context(format!(
+            "{path} was left behind and could not be removed: {e}"
+        )),
+        _ => error,
+    }
+}
+
+#[cfg(test)]
+mod partial_cleanup_tests {
+    use super::fail_removing_partial;
+
+    #[test]
+    fn a_partial_that_cannot_be_removed_is_named_and_keeps_the_code() {
+        // remove_file never deletes a directory, on any platform, so a directory
+        // stands in for a partial output that cannot be removed.
+        let dir = std::env::temp_dir().join(format!("ish-partial-cleanup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create the stand-in directory");
+        let dir_str = dir.to_str().expect("temp path is UTF-8");
+        let err = fail_removing_partial(crate::safety::bad_arg("t", "x", "y"), dir_str);
+        let plain = crate::safety::bad_arg("t", "x", "y");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(crate::safety::code_of(&err), crate::safety::code_of(&plain));
+        assert!(format!("{err:#}").contains("left behind"), "got: {err:#}");
+    }
+
+    #[test]
+    fn a_partial_already_gone_adds_nothing() {
+        let path = std::env::temp_dir().join(format!("ish-partial-absent-{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let path_str = path.to_str().expect("temp path is UTF-8");
+        let expected = format!("{:#}", crate::safety::bad_arg("t", "x", "y"));
+        let err = fail_removing_partial(crate::safety::bad_arg("t", "x", "y"), path_str);
+        assert_eq!(format!("{err:#}"), expected);
+    }
 }
 
 /// A caller value in a positional slot, refused when it could be read as an option.
@@ -62932,9 +62996,10 @@ fn bi_ssh_keygen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         ])),
         Err(e) => {
             // Both paths were checked absent above, so anything there now is ours.
-            remove_partial(&filename);
-            remove_partial(&public);
-            Err(e)
+            Err(fail_removing_partial(
+                fail_removing_partial(e, &filename),
+                &public,
+            ))
         }
     }
 }
@@ -63611,10 +63676,7 @@ fn bi_gpg_encrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     ]);
     let (raw, _) = match run_checked("gpg_encrypt", "gpg", cmd, LOCAL_DEADLINE_SECS) {
         Ok(done) => done,
-        Err(e) => {
-            remove_partial(&output_file);
-            return Err(e);
-        }
+        Err(e) => return Err(fail_removing_partial(e, &output_file)),
     };
     Ok(rec(vec![
         ("action", s("encrypt")),
@@ -63661,8 +63723,7 @@ fn bi_gpg_decrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         input.as_str(),
     ]);
     if let Err(e) = run_checked("gpg_decrypt", "gpg", cmd, LOCAL_DEADLINE_SECS) {
-        remove_partial(&output_file);
-        return Err(e);
+        return Err(fail_removing_partial(e, &output_file));
     }
     Ok(rec(vec![
         ("action", s("decrypt")),
@@ -68372,8 +68433,7 @@ fn bi_age_encrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         input_file.as_str(),
     ]);
     if let Err(e) = run_checked("age_encrypt", "age", cmd, LOCAL_DEADLINE_SECS) {
-        remove_partial(&output_file);
-        return Err(e);
+        return Err(fail_removing_partial(e, &output_file));
     }
     let mut rec = BTreeMap::new();
     rec.insert("input".to_string(), Value::Str(input_file));
@@ -68442,8 +68502,7 @@ fn bi_age_decrypt(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         input_file.as_str(),
     ]);
     if let Err(e) = run_checked("age_decrypt", "age", cmd, LOCAL_DEADLINE_SECS) {
-        remove_partial(&output_file);
-        return Err(e);
+        return Err(fail_removing_partial(e, &output_file));
     }
     let mut rec = BTreeMap::new();
     rec.insert("input".to_string(), Value::Str(input_file));
@@ -68476,10 +68535,7 @@ fn bi_age_keygen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // key on stderr. Its stdout is discarded, so the identity cannot be returned.
     let (_, stderr) = match run_checked("age_keygen", "age-keygen", cmd, LOCAL_DEADLINE_SECS) {
         Ok(done) => done,
-        Err(e) => {
-            remove_partial(&output_file);
-            return Err(e);
-        }
+        Err(e) => return Err(fail_removing_partial(e, &output_file)),
     };
     let public_key = stderr
         .lines()
@@ -68487,12 +68543,9 @@ fn bi_age_keygen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         .map(|k| k.trim().to_string())
         .filter(|k| !k.is_empty());
     let Some(public_key) = public_key else {
-        remove_partial(&output_file);
-        return Err(crate::safety::tool_failed(
-            "age_keygen",
-            "age-keygen",
-            Some(0),
-            &stderr,
+        return Err(fail_removing_partial(
+            crate::safety::tool_failed("age_keygen", "age-keygen", Some(0), &stderr),
+            &output_file,
         ));
     };
     let mut rec = BTreeMap::new();

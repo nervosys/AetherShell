@@ -447,6 +447,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A failed run's error now names output it could not remove, such as a private key or decrypted plaintext, so the caller knows the file is still on disk.
 - `journal_clear` and `session_end` report a journal directory they could not remove.
   They said the steps could no longer be undone while a later process would load
   them. Failing to forget one undone step or the redo stack logs a warning.

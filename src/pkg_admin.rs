@@ -433,7 +433,14 @@ pub(super) fn add_source(args: Vec<Value>, input: Option<Value>) -> Result<Value
 
     if update {
         if let Err(e) = checked(B, "apt-get", &apt_argv("update")) {
-            let _ = std::fs::remove_file(&path);
+            let mut e = e;
+            if let Err(rm) = std::fs::remove_file(&path) {
+                if rm.kind() != std::io::ErrorKind::NotFound {
+                    e = e.context(format!(
+                        "{path} was left behind and could not be removed: {rm}"
+                    ));
+                }
+            }
             return Err(e);
         }
     }
