@@ -20,6 +20,12 @@ jobs:
         name: Test (${{ matrix.os }})
         timeout-minutes: 40
         runs-on: ${{ matrix.os }}
+        # Over 300 test binaries each link the whole library. With full debug
+        # info they fill the runner's disk, and ld then dies with a bus error
+        # (signal 7) that reads like a toolchain bug. Line tables keep the
+        # file and line in a backtrace.
+        env:
+            CARGO_PROFILE_DEV_DEBUG: line-tables-only
         strategy:
             fail-fast: false
             matrix:
