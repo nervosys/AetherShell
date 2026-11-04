@@ -447,6 +447,28 @@ async fn main() -> Result<()> {
     }
 }
 
+/// The address a daemon's startup check connects to. A wildcard bind is
+/// probed on the loopback address of the same family.
+fn daemon_probe_host(host: &str) -> &str {
+    match host {
+        "0.0.0.0" => "127.0.0.1",
+        "::" => "::1",
+        other => other,
+    }
+}
+
+/// Refuse to start a daemon on a port that something already answers on.
+fn refuse_port_in_use(host: &str, port: u16) -> Result<()> {
+    if std::net::TcpStream::connect((daemon_probe_host(host), port)).is_ok() {
+        return Err(anyhow::anyhow!(
+            "port {} on {} is already in use; stop that server or choose another port",
+            port,
+            host
+        ));
+    }
+    Ok(())
+}
+
 /// Wait until the daemon child accepts connections. Err if it exits first;
 /// Ok(false) if it is alive but not listening when the wait ends.
 fn confirm_daemon_started(
@@ -457,11 +479,7 @@ fn confirm_daemon_started(
 ) -> Result<bool> {
     use std::net::{TcpStream, ToSocketAddrs};
 
-    let probe_host = match host {
-        "0.0.0.0" => "127.0.0.1",
-        "::" => "::1",
-        other => other,
-    };
+    let probe_host = daemon_probe_host(host);
     let addr = (probe_host, port)
         .to_socket_addrs()?
         .next()
@@ -491,18 +509,7 @@ async fn run_server(config: APIConfig, args: ServerArgs) -> Result<()> {
 
         // A server already on this port would answer the startup check below
         // for the daemon, so refuse before spawning.
-        let probe_host = match config.server.host.as_str() {
-            "0.0.0.0" => "127.0.0.1",
-            "::" => "::1",
-            other => other,
-        };
-        if std::net::TcpStream::connect((probe_host, config.server.port)).is_ok() {
-            return Err(anyhow::anyhow!(
-                "port {} on {} is already in use; stop that server or choose another port",
-                config.server.port,
-                config.server.host
-            ));
-        }
+        refuse_port_in_use(&config.server.host, config.server.port)?;
 
         #[cfg(unix)]
         {
@@ -1759,5 +1766,23 @@ mod tests {
             std::time::Duration::from_secs(10),
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn daemon_refuses_a_port_that_is_already_in_use() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a test port");
+        let port = listener.local_addr().expect("local address").port();
+        let err = refuse_port_in_use("127.0.0.1", port).expect_err("port is in use");
+        assert!(err.to_string().contains("already in use"), "{err}");
+
+        drop(listener);
+        assert!(refuse_port_in_use("127.0.0.1", port).is_ok());
+    }
+
+    #[test]
+    fn daemon_probe_host_maps_wildcards() {
+        assert_eq!(daemon_probe_host("0.0.0.0"), "127.0.0.1");
+        assert_eq!(daemon_probe_host("::"), "::1");
+        assert_eq!(daemon_probe_host("10.0.0.5"), "10.0.0.5");
     }
 }

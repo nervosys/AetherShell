@@ -6360,6 +6360,98 @@ pub mod server {
             drop(live);
         }
 
+        async fn into_status_and_json<R: axum::response::IntoResponse>(
+            response: R,
+        ) -> (StatusCode, JsonValue) {
+            let response = axum::response::IntoResponse::into_response(response);
+            let status = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .expect("response body");
+            let body = serde_json::from_slice(&bytes).expect("JSON body");
+            (status, body)
+        }
+
+        #[tokio::test]
+        async fn create_workflow_refuses_malformed_steps_and_stores_nothing() {
+            let state = Arc::new(test_state());
+            let (status, body) = into_status_and_json(
+                handle_create_workflow(
+                    Json(json!({"name": "w", "steps": "not a list"})),
+                    state.clone(),
+                )
+                .await,
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            assert_eq!(body["success"], false, "{body}");
+            assert!(state.workflows.read().await.is_empty());
+        }
+
+        #[tokio::test]
+        async fn create_workflow_without_steps_is_still_created() {
+            let state = Arc::new(test_state());
+            let (status, body) = into_status_and_json(
+                handle_create_workflow(Json(json!({"name": "w"})), state.clone()).await,
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED, "{body}");
+            let id = body["workflow_id"].as_str().expect("workflow_id");
+            let workflows = state.workflows.read().await;
+            assert_eq!(workflows.len(), 1);
+            assert!(workflows.contains_key(id));
+        }
+
+        #[tokio::test]
+        async fn publish_says_the_agent_was_not_stored() {
+            let state = Arc::new(test_state());
+            let (status, body) = into_status_and_json(
+                handle_publish_agent(Json(json!({"name": "a"})), state.clone()).await,
+            )
+            .await;
+            assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+            assert_eq!(body["success"], true, "{body}");
+            assert_eq!(body["stored"], false, "{body}");
+        }
+
+        #[tokio::test]
+        async fn search_reports_a_failed_registry_in_registry_error() {
+            // Loopback port 1 refuses at once, so no real registry is contacted.
+            let state = Arc::new(OrchestratorState {
+                marketplace: RwLock::new(Some(
+                    RegistryClient::new(Some("http://127.0.0.1:1".to_string()))
+                        .expect("registry client"),
+                )),
+                ..test_state()
+            });
+            let (status, body) = into_status_and_json(
+                handle_marketplace_search(axum::extract::Query(HashMap::new()), state.clone())
+                    .await,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body["success"], true, "{body}");
+            assert_eq!(body["source"], "local", "{body}");
+            assert!(
+                body["registry_error"]
+                    .as_str()
+                    .is_some_and(|e| !e.is_empty()),
+                "{body}"
+            );
+        }
+
+        #[tokio::test]
+        async fn search_with_no_registry_has_no_registry_error() {
+            let state = Arc::new(test_state());
+            let (status, body) = into_status_and_json(
+                handle_marketplace_search(axum::extract::Query(HashMap::new()), state.clone())
+                    .await,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert!(body["registry_error"].is_null(), "{body}");
+        }
+
         #[tokio::test]
         async fn evaluate_off_thread_returns_the_evaluation_result() {
             let response = evaluate_off_thread(
