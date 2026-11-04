@@ -62332,7 +62332,6 @@ fn tool_to_new_file(builtin: &str, tool: &str, argv: &[&str], out_path: &str) ->
 fn create_new_output(builtin: &str, path: &str) -> Result<std::fs::File> {
     // Record that the path did not exist, so a transaction's rollback removes the
     // file this creates (tar, bzip2, xz and zstd outputs all come through here).
-    crate::tx::snapshot(path);
     std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

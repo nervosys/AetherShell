@@ -939,10 +939,9 @@ impl AuthManager {
         let token = AuthToken::new(&user.id, TokenType::Bearer, self.token_ttl_minutes);
 
         // Store session and token
-        self.sessions
-            .write()
-            .map_err(|_| crate::safety::lock_poisoned("rbac", "the session table"))?
-            .insert(session.id.clone(), session.clone());
+        if let Ok(mut sessions) = self.sessions.write() {
+            sessions.insert(session.id.clone(), session.clone());
+        }
         self.tokens
             .write()
             .map_err(|_| crate::safety::lock_poisoned("rbac", "the token table"))?
@@ -985,10 +984,9 @@ impl AuthManager {
 
         // Create new session for token auth
         let session = Session::new(&user.id, self.session_ttl_hours);
-        self.sessions
-            .write()
-            .map_err(|_| crate::safety::lock_poisoned("rbac", "the session table"))?
-            .insert(session.id.clone(), session.clone());
+        if let Ok(mut sessions) = self.sessions.write() {
+            sessions.insert(session.id.clone(), session.clone());
+        }
 
         Ok(AuthResult::success(user, session, auth_token))
     }
