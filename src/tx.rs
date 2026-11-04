@@ -676,6 +676,20 @@ pub fn status() -> Option<(String, usize)> {
     })
 }
 
+/// Remove a finished transaction's journal. Its result stands either way, but
+/// what is left holds copies of the files the transaction changed, so say so.
+fn discard_journal(dir: &Path) {
+    if let Err(e) = std::fs::remove_dir_all(dir) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(
+                target: "journal",
+                "transaction journal {} could not be removed and holds copies of changed files: {e}",
+                dir.display()
+            );
+        }
+    }
+}
+
 /// Begin a transaction, or **nest** a child frame if one is already active.
 /// Returns the new frame's id.
 pub fn begin() -> Result<String> {
@@ -845,7 +859,7 @@ pub fn commit() -> Result<usize> {
         // Outermost commit: changes become durable, journal discarded.
         let dir = tx.dir.clone();
         *g = None;
-        let _ = std::fs::remove_dir_all(&dir);
+        discard_journal(&dir);
     }
     // Nested commit: leave `undos` in place — they are now owned by the parent
     // frame's range and will be reverted by a parent rollback if it occurs.
@@ -880,7 +894,7 @@ pub fn rollback() -> Result<usize> {
         let dir = tx.dir.clone();
         *g = None;
         if failures.is_empty() {
-            let _ = std::fs::remove_dir_all(&dir);
+            discard_journal(&dir);
         } else {
             kept = Some(dir);
         }

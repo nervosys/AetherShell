@@ -268,8 +268,29 @@ fn persist_in(dir: Option<PathBuf>, e: &Entry) {
 
 fn forget_in(dir: Option<PathBuf>, seq: usize) {
     if let Some(dir) = dir {
-        let _ = std::fs::remove_file(dir.join(format!("{seq:08}.json")));
+        let path = dir.join(format!("{seq:08}.json"));
+        if let Err(err) = remove_if_present(std::fs::remove_file(&path)) {
+            warn_left_behind(&path, &err);
+        }
     }
+}
+
+/// A path that is already gone is what removing it was for.
+fn remove_if_present(removed: std::io::Result<()>) -> std::io::Result<()> {
+    match removed {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
+/// A later process loads what is left here, so a step this process forgot can
+/// come back; and it may hold the contents of a file that was overwritten.
+fn warn_left_behind(path: &Path, err: &std::io::Error) {
+    tracing::warn!(
+        target: "journal",
+        "{} could not be removed, so a later process may load it: {err}",
+        path.display()
+    );
 }
 
 fn persist(e: &Entry) {
@@ -517,7 +538,9 @@ pub fn record_irreversible(builtin: &str, effect: Effect, why: &str) {
 fn discard_redo(s: &mut State) {
     s.redo.clear();
     if let Some(dir) = redo_dir() {
-        let _ = std::fs::remove_dir_all(dir);
+        if let Err(err) = remove_if_present(std::fs::remove_dir_all(&dir)) {
+            warn_left_behind(&dir, &err);
+        }
     }
 }
 
@@ -784,14 +807,24 @@ pub fn rollback_to(mark: usize) {
 /// Forget everything recorded, the journal and the redo stack alike. Does not
 /// touch the filesystem outside the session directory.
 pub fn clear() {
+    if let Err((dir, err)) = try_clear() {
+        warn_left_behind(&dir, &err);
+    }
+}
+
+/// [`clear`], saying which directory survived. What is left there comes back in
+/// a later process and may hold the contents of overwritten files, so a caller
+/// that tells someone the steps are gone has to know.
+pub fn try_clear() -> Result<(), (PathBuf, std::io::Error)> {
     {
         let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
         s.journal.clear();
         s.redo.clear();
     }
     if let Some(dir) = session_dir() {
-        let _ = std::fs::remove_dir_all(dir);
+        remove_if_present(std::fs::remove_dir_all(&dir)).map_err(|err| (dir, err))?;
     }
+    Ok(())
 }
 
 #[cfg(test)]

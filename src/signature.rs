@@ -6392,7 +6392,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "End the reversible session: keep every recorded change and forget the journal and the redo stack. No files are touched. Returns kept (steps forgotten), irreversible (how many of those could not be reversed in the first place) and discarded_redo (undone steps that can no longer be re-applied). Afterwards session_undo() and session_redo() have nothing to do. Journalling is on in agent mode or with IRONSHELL_JOURNAL=on.",
+        doc: "End the reversible session: keep every recorded change and forget the journal and the redo stack. No files outside the journal are touched, and a journal directory that cannot be removed is E_IO. Returns kept (steps forgotten), irreversible (how many of those could not be reversed in the first place) and discarded_redo (undone steps that can no longer be re-applied). Afterwards session_undo() and session_redo() have nothing to do. Journalling is on in agent mode or with IRONSHELL_JOURNAL=on.",
         examples: &[(r#"typeof(session_end())"#, r#"Record"#)],
     },
     Signature {
@@ -13366,7 +13366,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[],
         returns: "Record",
-        doc: "Forget every recorded step of this session, so none of them can be undone. Touches no files; takes no arguments.",
+        doc: "Forget every recorded step of this session, so none of them can be undone. Touches no files outside the journal; takes no arguments. A journal directory that cannot be removed is E_IO, since a later process would load it.",
         examples: &[
             (r#"(try { journal_clear("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
         ],

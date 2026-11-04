@@ -447,6 +447,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `journal_clear` and `session_end` report a journal directory they could not remove.
+  They said the steps could no longer be undone while a later process would load
+  them. Failing to forget one undone step or the redo stack logs a warning.
 - On Unix the undo journal and the transaction backups hold prior file contents, so they are now private to the user: 0700 directories and 0600 files. An undo entry that cannot be persisted privately is not written, and a warning is logged (the entry is then not kept past this process). A rollback reports a file whose mode it could not restore, instead of reporting success. A failed automatic checkpoint save is logged rather than dropped silently.
 
 - `aimodel remove` reports a model it could not delete. The index entry stays so the

@@ -339,7 +339,7 @@ Create a new task.
 
 ### POST `/api/v1/orchestration/workflows`
 
-Create a new workflow definition.
+Store a new workflow definition. Nothing executes it: this API keeps definitions and their status, and no step is run.
 
 **Request body:**
 ```json
@@ -372,7 +372,7 @@ Get a specific workflow by ID.
 
 ### POST `/api/v1/orchestration/workflows/:id/cancel`
 
-Cancel a running workflow (sets status to `Failed`). Broadcasts a `workflow_update` event.
+Mark a workflow cancelled (sets status to `Failed`). Nothing is stopped, because this API does not run workflows. Broadcasts a `workflow_update` event.
 
 ### GET `/api/v1/orchestration/metrics`
 

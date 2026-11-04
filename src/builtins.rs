@@ -20423,7 +20423,7 @@ fn bi_journal() -> Result<Value> {
 fn bi_journal_clear(input: Option<Value>) -> Result<Value> {
     refuse_pipeline_input("journal_clear", &input)?;
     let n = crate::journal::entries().len();
-    crate::journal::clear();
+    clear_journal_or_refuse("journal_clear")?;
     let mut m = std::collections::BTreeMap::new();
     m.insert("forgotten".to_string(), Value::Int(n as i64));
     m.insert(
@@ -20431,6 +20431,21 @@ fn bi_journal_clear(input: Option<Value>) -> Result<Value> {
         Value::Str("no files changed; these steps can no longer be undone".to_string()),
     );
     Ok(Value::Record(m))
+}
+
+/// Clear the journal, or say what survived: an answer that the steps are gone
+/// must not stand while their files, which a later process loads, remain.
+fn clear_journal_or_refuse(builtin: &str) -> Result<()> {
+    crate::journal::try_clear().map_err(|(dir, err)| {
+        crate::safety::io_fault(
+            builtin,
+            &format!(
+                "the journal in {} could not be removed: {err}",
+                dir.display()
+            ),
+            "remove that directory by hand; it may hold the contents of overwritten files, and a later process will load what is left",
+        )
+    })
 }
 
 /// `handle(id)` — the full value behind a handle, exactly as computed.
@@ -51532,7 +51547,7 @@ fn bi_session_end(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let kept = entries.len();
     let irreversible = entries.iter().filter(|e| !e.reversible()).count();
     let discarded_redo = crate::journal::redo_count();
-    crate::journal::clear();
+    clear_journal_or_refuse("session_end")?;
     let mut m = std::collections::BTreeMap::new();
     m.insert("kept".to_string(), Value::Int(kept as i64));
     m.insert("irreversible".to_string(), Value::Int(irreversible as i64));
