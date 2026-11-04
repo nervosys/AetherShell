@@ -447,6 +447,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On Unix the undo journal and the transaction backups hold prior file contents, so they are now private to the user: 0700 directories and 0600 files. An undo entry that cannot be persisted privately is not written, and a warning is logged (the entry is then not kept past this process). A rollback reports a file whose mode it could not restore, instead of reporting success. A failed automatic checkpoint save is logged rather than dropped silently.
+
 - `aimodel remove` reports a model it could not delete. The index entry stays so the
   removal can be retried, instead of an orphaned file being reported as removed.
   Removing an alias that is not stored (`aimodel alias remove`) is an error, not a

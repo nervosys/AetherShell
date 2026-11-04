@@ -33,6 +33,9 @@ use crate::value::Value;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
 /// Largest single file captured. Beyond this the step is recorded as
 /// irreversible rather than silently skipped.
 const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
@@ -199,13 +202,67 @@ fn load_dir(dir: &Path) -> Vec<Entry> {
         .collect()
 }
 
+/// Create `dir` and make it private to the user. This runs on every persist, so
+/// a directory an earlier version made with default modes is tightened too; the
+/// entries it already holds are then shielded by the directory's mode.
+///
+/// Fails if the mode did not take: a directory that is not private must not
+/// receive the captured contents.
+fn make_private_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        if std::fs::metadata(dir)?.permissions().mode() & 0o077 != 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "the directory's mode did not become private",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Write `bytes` to `path`, private to the user on Unix. A file that already
+/// exists is narrowed to 0600 before its contents are written.
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(not(unix))]
+    return std::fs::write(path, bytes);
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        let existed = path.exists();
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        if existed {
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.write_all(bytes)
+    }
+}
+
+/// Persist one entry. If the directory cannot be made private, or the entry
+/// cannot be written, nothing is written and a warning says so: the in-memory
+/// entry stays usable for this process.
 fn persist_in(dir: Option<PathBuf>, e: &Entry) {
     let Some(dir) = dir else { return };
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
-    }
-    if let Ok(json) = serde_json::to_vec(&StoredEntry::from(e)) {
-        let _ = std::fs::write(dir.join(format!("{:08}.json", e.seq)), json);
+    let path = dir.join(format!("{:08}.json", e.seq));
+    let written = make_private_dir(&dir).and_then(|()| {
+        let json = serde_json::to_vec(&StoredEntry::from(e))
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        write_private(&path, &json)
+    });
+    if let Err(err) = written {
+        tracing::warn!(
+            target: "journal",
+            "undo entry {} was not persisted, so it will not survive this process: {}: {err}",
+            e.seq,
+            path.display()
+        );
     }
 }
 
@@ -775,5 +832,42 @@ mod tests {
         assert!(is_journal_builtin("journal"));
         assert!(is_journal_builtin("session_redo"));
         assert!(!is_journal_builtin("file_write"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_persisted_entry_is_private_and_tightens_its_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        // A directory of the test's own: persist_in takes the directory as an
+        // argument, so the real journal is never touched.
+        let dir =
+            std::env::temp_dir().join(format!("ironshell-journal-private-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // An entry as an earlier version wrote it, at the default mode.
+        let stale = dir.join("00000001.json");
+        std::fs::write(&stale, b"{}").unwrap();
+        std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let e = Entry {
+            seq: 1,
+            builtin: "file_write".into(),
+            effect: "write_local".into(),
+            path: "secret.txt".into(),
+            before: Before::Contents(b"secret".to_vec()),
+        };
+        persist_in(Some(dir.clone()), &e);
+
+        let dir_mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        let file_mode = std::fs::metadata(&stale).unwrap().permissions().mode() & 0o777;
+        let stored = std::fs::read(&stale).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(dir_mode, 0o700);
+        assert_eq!(file_mode, 0o600);
+        assert!(
+            serde_json::from_slice::<StoredEntry>(&stored).is_ok(),
+            "the entry was written"
+        );
     }
 }

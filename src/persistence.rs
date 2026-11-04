@@ -1192,7 +1192,9 @@ impl PersistenceManager {
                             checksum,
                         };
 
-                        let _ = backend.save_checkpoint(&checkpoint).await;
+                        if let Err(e) = backend.save_checkpoint(&checkpoint).await {
+                            tracing::warn!("automatic checkpoint was not saved: {e}");
+                        }
                     }
                 }
             }

@@ -356,3 +356,38 @@ fn a_rollback_that_cannot_clear_a_directory_reports_it() {
     );
     assert_eq!(restored, "before", "what can be restored still is");
 }
+
+/// A transaction's backups hold prior file contents, so they are private to the
+/// user: the backup directory is 0700 and no backup file is open to group or
+/// others. A rollback puts the content back, under the file's 0600 mode.
+#[cfg(unix)]
+#[test]
+fn a_transaction_backup_of_a_private_file_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let _l = TX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _c = TxCleanup;
+    let p = scratch_path("private-backup.txt");
+    std::fs::write(&p, "secret").unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    let id = iron_shell::tx::begin().unwrap();
+    iron_shell::tx::snapshot(&p.to_string_lossy());
+    let journal = workspace().join(".ironshell").join("tx").join(&id);
+    let mode = |m: &std::fs::Metadata| m.permissions().mode() & 0o777;
+    assert_eq!(mode(&std::fs::metadata(&journal).unwrap()), 0o700);
+    let mut backups = 0;
+    for entry in std::fs::read_dir(&journal).unwrap() {
+        let meta = entry.unwrap().metadata().unwrap();
+        if meta.is_file() {
+            backups += 1;
+            assert_eq!(meta.permissions().mode() & 0o077, 0);
+        }
+    }
+    assert!(backups > 0, "the snapshot kept a backup");
+
+    std::fs::write(&p, "overwritten").unwrap();
+    iron_shell::tx::rollback().unwrap();
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "secret");
+    assert_eq!(mode(&std::fs::metadata(&p).unwrap()), 0o600);
+    let _ = std::fs::remove_file(&p);
+}

@@ -324,7 +324,7 @@ value counts as unset.
 | `IRONSHELL_CONFIG_HOME` | A directory (default: `ironshell` in the OS config directory) | Config directory (`config_dir`, `src/config.rs:408`) | Both |
 | `IRONSHELL_DATA_HOME` | A directory (default: `ironshell` in the OS data directory) | Data directory, including the alert store (`data_dir`, `src/config.rs:422`) | Both |
 | `IRONSHELL_CACHE_HOME` | A directory (default: `ironshell` in the OS cache directory) | Cache directory (`cache_dir`, `src/config.rs:436`) | Both |
-| `IRONSHELL_SESSION_DIR` | A directory | Session directory. Handles and `record.jsonl` go here directly; the journal uses a `journal` subdirectory (`src/handles.rs:44`, `src/journal.rs:106`) | Both |
+| `IRONSHELL_SESSION_DIR` | A directory | Session directory. Handles and `record.jsonl` go here directly; the journal uses a `journal` subdirectory (`src/handles.rs:44`, `src/journal.rs:106`). On Unix the journal is private to the user (0700 directories, 0600 files), but it holds prior file contents in plain text | Both |
 | `IRONSHELL_SESSION` | Any key string (unset: an MD5 of the working directory) | Names the per-project cache subdirectory for handles and the journal (`src/handles.rs:47`, `src/journal.rs:109`) | Both |
 | `IRONSHELL_FEATURES` | Comma-separated feature names | Features that are enabled in feature conditions in `cfg` expressions and in the feature registry (`src/eval.rs:23`, `src/builtins.rs:1608`) | Both |
 

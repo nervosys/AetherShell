@@ -149,8 +149,24 @@ fn copy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
 /// shares). The content had been copied, but the error made `snapshot` keep no
 /// backup, so a rollback restored nothing and still reported success. The
 /// content is what a rollback needs; the mode is restored when it can be.
+///
+/// On Unix the destination is created 0600, so the content is never in a wider
+/// file while it is copied. A file that already exists keeps its mode until the
+/// best-effort step below. If that step fails, a new copy stays at 0600, the
+/// safe direction.
 fn copy_file(from: &Path, to: &Path) -> std::io::Result<()> {
     let mut src = std::fs::File::open(from)?;
+    #[cfg(unix)]
+    let mut dst = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(to)?
+    };
+    #[cfg(not(unix))]
     let mut dst = std::fs::File::create(to)?;
     std::io::copy(&mut src, &mut dst)?;
     drop(dst);
@@ -264,6 +280,23 @@ fn restore_one(u: &Undo) -> std::result::Result<bool, String> {
                 let _ = std::fs::create_dir_all(parent);
             }
             copy_file(b, &u.original).map_err(|e| format!("`{at}`: {e}"))?;
+            // copy_file sets the mode on a best-effort basis. A rollback that put
+            // the content back under the wrong mode must not report success.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = |p: &Path| -> Result<u32, String> {
+                    let m = std::fs::metadata(p).map_err(|e| format!("`{at}`: {e}"))?;
+                    Ok(m.permissions().mode() & 0o7777)
+                };
+                let want = mode(b.as_path())?;
+                let got = mode(u.original.as_path())?;
+                if got != want {
+                    return Err(format!(
+                        "`{at}` was restored, but its mode could not be: {got:o} instead of {want:o}"
+                    ));
+                }
+            }
         }
         Ok(true)
     } else if let Some(removed) = remove_created_symlink(&u.original) {
@@ -671,6 +704,14 @@ pub fn begin() -> Result<String> {
             // an unknown fault.
             std::fs::create_dir_all(&dir)
                 .map_err(|e| crate::safety::fs_error("tx_begin", &dir, &e))?;
+            // The backups are prior file contents, so they are private to the
+            // user. The transaction does not start if that cannot be made so.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                    .map_err(|e| crate::safety::fs_error("tx_begin", &dir, &e))?;
+            }
             *g = Some(TxState {
                 dir,
                 undos: Vec::new(),
