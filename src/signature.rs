@@ -6364,7 +6364,7 @@ pub static SIGNATURES: &[Signature] = &[
             "undone steps to re-apply, from 1 to 10000; default 1",
         )],
         returns: "Record",
-        doc: "Re-apply the last n steps that session_undo() put back, most recently undone first. Returns reapplied, removed, skipped, failed, steps and complete, where complete is false if any step could not be re-applied. Each re-applied step is first recorded in the journal, so session_undo() reverses it. Covers local file contents only. Any new recorded write discards the redo stack (a write that is recorded and then refused still discards it), which is kept per session directory and bounded with the journal to 8 MiB per file and 64 MiB in total.",
+        doc: "Re-apply the last n steps that session_undo() put back, most recently undone first. Returns reapplied, removed, skipped, failed, steps and complete, where complete is false if any step could not be re-applied. Each re-applied step is first recorded in the journal, so session_undo() reverses it. A step whose re-apply fails stays on the redo stack and stops the redo, so it can be retried. Covers local file contents only. Any new recorded write discards the redo stack (a write that is recorded and then refused still discards it), which is kept per session directory and bounded with the journal to 8 MiB per file and 64 MiB in total.",
         examples: &[
             (r#"typeof(session_redo())"#, r#"Record"#),
             (r#"typeof(session_redo(2))"#, r#"Record"#),
@@ -13379,7 +13379,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: None,
         params: &[opt_range("steps", Ty::Int, 0, i64::MAX, "how many of the most recent recorded steps to put back, default 1")],
         returns: "Record",
-        doc: "Put back what the last steps overwrote, reporting each step and whether all of them were restored. Steps that cannot be reversed are listed, not hidden.",
+        doc: "Put back what the last steps overwrote, reporting each step and whether all of them were restored. Steps that cannot be reversed are listed, not hidden. A step whose restore fails stays in the journal and stops the undo, so it can be retried.",
         examples: &[
             (r#"(try { undo("x") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"(try { undo(-1) } catch e { e.error.code })"#, "E_BAD_ARG"),

@@ -347,3 +347,89 @@ fn a_call_that_failed_leaves_nothing_to_undo() {
         "with nothing recorded, undo is trivially complete"
     );
 }
+
+#[test]
+fn a_failed_undo_keeps_the_step_so_it_can_be_retried() {
+    // The only copy of the prior bytes lives in the step. A restore that fails
+    // must leave the step in the journal, so the caller can fix the cause and
+    // undo again; dropping it first lost the contents for good.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("failed_undo_retry");
+    let p = s.path("kept.txt");
+    std::fs::write(&p, "original").expect("seed");
+    call(
+        "file_write",
+        vec![Value::Str(p.clone()), Value::Str("clobbered".into())],
+    )
+    .expect("write");
+    assert_eq!(journal::entries().len(), 1);
+
+    // A directory where the file was: `fs::write` to a directory fails on every
+    // platform, so the restore cannot happen.
+    std::fs::remove_file(&p).expect("remove the file");
+    std::fs::create_dir(&p).expect("make a directory at the same path");
+
+    let failed = call("undo", vec![Value::Int(1)]).expect("undo");
+    assert_eq!(field(&failed, "failed"), Value::Int(1));
+    assert_eq!(field(&failed, "restored"), Value::Int(0));
+    assert_eq!(field(&failed, "complete"), Value::Bool(false));
+    assert_eq!(
+        journal::entries().len(),
+        1,
+        "a failed restore must leave the step journalled"
+    );
+
+    std::fs::remove_dir(&p).expect("clear the obstacle");
+    let retried = call("undo", vec![Value::Int(1)]).expect("retry");
+    assert_eq!(field(&retried, "restored"), Value::Int(1));
+    assert_eq!(field(&retried, "complete"), Value::Bool(true));
+    assert_eq!(
+        std::fs::read_to_string(&p).unwrap(),
+        "original",
+        "the retry must restore the exact prior bytes"
+    );
+    assert_eq!(
+        journal::entries().len(),
+        0,
+        "a restored step leaves the journal"
+    );
+}
+
+#[test]
+fn a_failed_undo_does_not_undo_older_steps_past_it() {
+    // Undo runs most recent first. When the newest step fails, the older one
+    // must stay as it is: undoing it would reverse the steps out of order.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("failed_undo_order");
+    let a = s.path("a.txt");
+    let b = s.path("b.txt");
+    std::fs::write(&a, "a0").expect("seed a");
+    std::fs::write(&b, "b0").expect("seed b");
+    call(
+        "file_write",
+        vec![Value::Str(a.clone()), Value::Str("a1".into())],
+    )
+    .expect("write a");
+    call(
+        "file_write",
+        vec![Value::Str(b.clone()), Value::Str("b1".into())],
+    )
+    .expect("write b");
+
+    std::fs::remove_file(&b).expect("remove b");
+    std::fs::create_dir(&b).expect("make a directory at b");
+
+    let result = call("undo", vec![Value::Int(2)]).expect("undo 2");
+    assert_eq!(field(&result, "failed"), Value::Int(1));
+    assert_eq!(field(&result, "restored"), Value::Int(0));
+    assert_eq!(
+        std::fs::read_to_string(&a).unwrap(),
+        "a1",
+        "the older step on a must not be undone past the failed one"
+    );
+    assert_eq!(
+        journal::entries().len(),
+        2,
+        "both steps stay journalled so the undo can be retried in order"
+    );
+}

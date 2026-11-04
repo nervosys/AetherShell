@@ -567,6 +567,9 @@ pub enum Outcome {
 /// Callers must surface those: a rewind that reports only its successes is how
 /// a partial restore gets mistaken for a complete one.
 ///
+/// A step whose restore fails stays in the journal, and the undo stops there,
+/// so the step can be retried and no older step is undone past it.
+///
 /// Each step that is actually reversed is pushed onto the redo stack, so
 /// [`redo`] can put it back. A step whose current state cannot be captured is
 /// still undone; it simply cannot be redone.
@@ -574,8 +577,8 @@ pub fn undo(n: usize) -> Vec<Outcome> {
     let mut s = state();
     let mut out = Vec::new();
     for _ in 0..n {
-        // Checked before the pop: a step left alone stays in the journal, and
-        // nothing older is undone past it, so the order is kept.
+        // Checked before anything is taken: a step left alone stays in the
+        // journal, and nothing older is undone past it, so the order is kept.
         if let Some(why) = s
             .journal
             .last()
@@ -585,54 +588,73 @@ pub fn undo(n: usize) -> Vec<Outcome> {
             out.push(Outcome::Skipped { what, why });
             break;
         }
-        let Some(entry) = s.journal.pop() else { break };
-        forget_persisted(entry.seq);
+        // Cloned, not popped. The entry stays in the journal and on disk until
+        // its restore has succeeded, because it holds the only copy of what the
+        // file held before the step: a failed restore that had already dropped
+        // it would leave the caller nothing to retry with.
+        let Some(entry) = s.journal.last().cloned() else {
+            break;
+        };
+        // The entry is still counted in held_bytes, so it is taken out for the
+        // capture below: the budget is what it was when the entry was popped.
+        let used = held_bytes(&s).saturating_sub(total_bytes(std::slice::from_ref(&entry)));
         let what = if entry.path.is_empty() {
             entry.builtin.clone()
         } else {
             entry.path.clone()
         };
-        match &entry.before {
+        let outcome = match &entry.before {
             Before::Contents(bytes) => {
-                let after = capture(&entry.path, held_bytes(&s));
+                let after = capture(&entry.path, used);
                 match std::fs::write(&entry.path, bytes) {
                     Ok(()) => {
                         push_redo(&mut s, &entry, after);
-                        out.push(Outcome::Restored(what));
+                        Outcome::Restored(what)
                     }
-                    Err(e) => out.push(Outcome::Failed {
+                    Err(e) => Outcome::Failed {
                         what,
                         why: e.to_string(),
-                    }),
+                    },
                 }
             }
             Before::Absent => {
-                let after = capture(&entry.path, held_bytes(&s));
+                let after = capture(&entry.path, used);
                 let p = Path::new(&entry.path);
                 if p.is_file() {
                     match std::fs::remove_file(p) {
                         Ok(()) => {
                             push_redo(&mut s, &entry, after);
-                            out.push(Outcome::Removed(what));
+                            Outcome::Removed(what)
                         }
-                        Err(e) => out.push(Outcome::Failed {
+                        Err(e) => Outcome::Failed {
                             what,
                             why: e.to_string(),
-                        }),
+                        },
                     }
                 } else {
                     // Never created, so there is nothing to take back.
-                    out.push(Outcome::Skipped {
+                    Outcome::Skipped {
                         what,
                         why: "was absent before and is absent now".into(),
-                    });
+                    }
                 }
             }
-            Before::Irreversible(why) => out.push(Outcome::Skipped {
+            Before::Irreversible(why) => Outcome::Skipped {
                 what,
                 why: why.clone(),
-            }),
+            },
+        };
+        if matches!(outcome, Outcome::Failed { .. }) {
+            // The step stays where it was, for a retry. Older steps are not
+            // undone past it.
+            out.push(outcome);
+            break;
         }
+        // Restored, removed, or finished with (nothing to take back): the step
+        // is done with, so it leaves the journal and the disk now.
+        s.journal.pop();
+        forget_persisted(entry.seq);
+        out.push(outcome);
     }
     out
 }
@@ -658,6 +680,9 @@ fn push_redo(s: &mut State, undone: &Entry, after: Result<Before, String>) {
 /// The state being replaced is captured as a new journal entry before the
 /// write, so the redo is itself undoable. That capture does not touch the redo
 /// stack: the stack is only consumed here.
+///
+/// As with [`undo`], a step whose re-apply fails stays on the redo stack, and
+/// the redo stops there, so it can be retried.
 pub fn redo(n: usize) -> Vec<Outcome> {
     let mut s = state();
     let mut out = Vec::new();
@@ -671,22 +696,30 @@ pub fn redo(n: usize) -> Vec<Outcome> {
             out.push(Outcome::Skipped { what, why });
             break;
         }
-        let Some(r) = s.redo.pop() else { break };
-        forget_redo_persisted(r.seq);
+        // Cloned, not popped: the step stays on the redo stack, and on disk,
+        // until it has been re-applied, so a failed re-apply can be retried.
+        let Some(r) = s.redo.last().cloned() else {
+            break;
+        };
+        // As in undo: the entry is still counted in held_bytes, so take it out
+        // for the capture below.
+        let used = held_bytes(&s).saturating_sub(redo_bytes(std::slice::from_ref(&r)));
         let what = if r.path.is_empty() {
             r.builtin.clone()
         } else {
             r.path.clone()
         };
-        // The file is not touched unless what it holds now is first kept.
-        let current = match capture(&r.path, held_bytes(&s)) {
+        // The file is not touched unless what it holds now is first kept. If
+        // that cannot be kept, the file is left alone and the step stays on the
+        // redo stack, so the redo stops here.
+        let current = match capture(&r.path, used) {
             Ok(current) => current,
             Err(why) => {
                 out.push(Outcome::Skipped {
                     what,
                     why: format!("current state not captured, so left as it is: {why}"),
                 });
-                continue;
+                break;
             }
         };
         let outcome = match &r.after {
@@ -707,23 +740,29 @@ pub fn redo(n: usize) -> Vec<Outcome> {
                         },
                     }
                 } else {
-                    out.push(Outcome::Skipped {
+                    Outcome::Skipped {
                         what,
                         why: "was absent after the step and is absent now".into(),
-                    });
-                    continue;
+                    }
                 }
             }
-            Before::Irreversible(why) => {
-                out.push(Outcome::Skipped {
-                    what,
-                    why: why.clone(),
-                });
-                continue;
-            }
+            Before::Irreversible(why) => Outcome::Skipped {
+                what,
+                why: why.clone(),
+            },
         };
-        let is_failure = matches!(outcome, Outcome::Failed { .. });
-        if !is_failure {
+        if matches!(outcome, Outcome::Failed { .. }) {
+            // Still on the redo stack, and on disk, for a retry. Nothing newer
+            // or older is re-applied past it.
+            out.push(outcome);
+            break;
+        }
+        // Re-applied, removed, or finished with: the step leaves the redo stack.
+        s.redo.pop();
+        forget_redo_persisted(r.seq);
+        if matches!(outcome, Outcome::Reapplied(_) | Outcome::Removed(_)) {
+            // Only a write that actually happened is recorded, so the redo is
+            // itself undoable.
             let entry = Entry {
                 seq: s.journal.len() + 1,
                 builtin: r.builtin,
