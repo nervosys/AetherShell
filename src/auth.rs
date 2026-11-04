@@ -881,19 +881,21 @@ impl AuthManager {
             .unwrap_or(true)
     }
 
-    /// Authenticate with credentials
-    pub fn authenticate(&self, credential: Credential) -> AuthResult {
+    /// Authenticate with credentials. `Err` means the session or token table
+    /// could not record the new session (a poisoned lock): a fault, not a
+    /// refusal, so the caller must not be told the login succeeded.
+    pub fn authenticate(&self, credential: Credential) -> Result<AuthResult> {
         match credential {
             Credential::Password { username, password } => {
                 self.authenticate_password(&username, &password)
             }
             Credential::Token { token } => self.authenticate_token(&token),
-            Credential::ApiKey { key } => self.authenticate_api_key(&key),
-            Credential::OAuth { provider, code } => self.authenticate_oauth(&provider, &code),
+            Credential::ApiKey { key } => Ok(self.authenticate_api_key(&key)),
+            Credential::OAuth { provider, code } => Ok(self.authenticate_oauth(&provider, &code)),
         }
     }
 
-    fn authenticate_password(&self, username: &str, password: &str) -> AuthResult {
+    fn authenticate_password(&self, username: &str, password: &str) -> Result<AuthResult> {
         let user = match self.rbac.get_user_by_username(username) {
             Some(u) => u,
             None => {
@@ -903,7 +905,7 @@ impl AuthManager {
                         .with_detail("username", username)
                         .with_result(AuditResult::Failure("User not found".to_string())),
                 );
-                return AuthResult::failure("Invalid credentials");
+                return Ok(AuthResult::failure("Invalid credentials"));
             }
         };
 
@@ -913,7 +915,7 @@ impl AuthManager {
                     .with_user(&user.id)
                     .with_result(AuditResult::Failure("User inactive".to_string())),
             );
-            return AuthResult::failure("User account is inactive");
+            return Ok(AuthResult::failure("User account is inactive"));
         }
 
         // Verify password
@@ -929,7 +931,7 @@ impl AuthManager {
                     .with_user(&user.id)
                     .with_result(AuditResult::Failure("Invalid password".to_string())),
             );
-            return AuthResult::failure("Invalid credentials");
+            return Ok(AuthResult::failure("Invalid credentials"));
         }
 
         // Create session and token
@@ -937,12 +939,14 @@ impl AuthManager {
         let token = AuthToken::new(&user.id, TokenType::Bearer, self.token_ttl_minutes);
 
         // Store session and token
-        if let Ok(mut sessions) = self.sessions.write() {
-            sessions.insert(session.id.clone(), session.clone());
-        }
-        if let Ok(mut tokens) = self.tokens.write() {
-            tokens.insert(token.token.clone(), token.clone());
-        }
+        self.sessions
+            .write()
+            .map_err(|_| crate::safety::lock_poisoned("rbac", "the session table"))?
+            .insert(session.id.clone(), session.clone());
+        self.tokens
+            .write()
+            .map_err(|_| crate::safety::lock_poisoned("rbac", "the token table"))?
+            .insert(token.token.clone(), token.clone());
 
         // Update last login
         if let Ok(mut users) = self.rbac.users.write() {
@@ -957,35 +961,36 @@ impl AuthManager {
                 .with_detail("session_id", &session.id),
         );
 
-        AuthResult::success(user, session, token)
+        Ok(AuthResult::success(user, session, token))
     }
 
-    fn authenticate_token(&self, token: &str) -> AuthResult {
+    fn authenticate_token(&self, token: &str) -> Result<AuthResult> {
         let auth_token = match self.tokens.read().ok().and_then(|t| t.get(token).cloned()) {
             Some(t) => t,
-            None => return AuthResult::failure("Invalid token"),
+            None => return Ok(AuthResult::failure("Invalid token")),
         };
 
         if !auth_token.is_valid() {
-            return AuthResult::failure("Token expired or revoked");
+            return Ok(AuthResult::failure("Token expired or revoked"));
         }
 
         let user = match self.rbac.get_user(&auth_token.user_id) {
             Some(u) => u,
-            None => return AuthResult::failure("User not found"),
+            None => return Ok(AuthResult::failure("User not found")),
         };
 
         if !user.active {
-            return AuthResult::failure("User account is inactive");
+            return Ok(AuthResult::failure("User account is inactive"));
         }
 
         // Create new session for token auth
         let session = Session::new(&user.id, self.session_ttl_hours);
-        if let Ok(mut sessions) = self.sessions.write() {
-            sessions.insert(session.id.clone(), session.clone());
-        }
+        self.sessions
+            .write()
+            .map_err(|_| crate::safety::lock_poisoned("rbac", "the session table"))?
+            .insert(session.id.clone(), session.clone());
 
-        AuthResult::success(user, session, auth_token)
+        Ok(AuthResult::success(user, session, auth_token))
     }
 
     fn authenticate_api_key(&self, key: &str) -> AuthResult {
@@ -1473,10 +1478,12 @@ mod tests {
 
         auth.register_user("logintest", "secret").unwrap();
 
-        let result = auth.authenticate(Credential::Password {
-            username: "logintest".to_string(),
-            password: "secret".to_string(),
-        });
+        let result = auth
+            .authenticate(Credential::Password {
+                username: "logintest".to_string(),
+                password: "secret".to_string(),
+            })
+            .unwrap();
 
         assert!(result.success);
         assert!(result.user.is_some());
@@ -1491,10 +1498,12 @@ mod tests {
 
         auth.register_user("user1", "correct").unwrap();
 
-        let result = auth.authenticate(Credential::Password {
-            username: "user1".to_string(),
-            password: "wrong".to_string(),
-        });
+        let result = auth
+            .authenticate(Credential::Password {
+                username: "user1".to_string(),
+                password: "wrong".to_string(),
+            })
+            .unwrap();
 
         assert!(!result.success);
         assert!(result.error.is_some());
@@ -1508,7 +1517,9 @@ mod tests {
         let user = auth.register_user("apiuser", "pass").unwrap();
         let (_, raw_key) = auth.create_api_key(&user.id, "test-key").unwrap();
 
-        let result = auth.authenticate(Credential::ApiKey { key: raw_key });
+        let result = auth
+            .authenticate(Credential::ApiKey { key: raw_key })
+            .unwrap();
 
         assert!(result.success);
     }
@@ -1520,14 +1531,16 @@ mod tests {
 
         auth.register_user("tokenuser", "pass").unwrap();
 
-        let login_result = auth.authenticate(Credential::Password {
-            username: "tokenuser".to_string(),
-            password: "pass".to_string(),
-        });
+        let login_result = auth
+            .authenticate(Credential::Password {
+                username: "tokenuser".to_string(),
+                password: "pass".to_string(),
+            })
+            .unwrap();
 
         let token = login_result.token.unwrap().token;
 
-        let result = auth.authenticate(Credential::Token { token });
+        let result = auth.authenticate(Credential::Token { token }).unwrap();
         assert!(result.success);
     }
 
@@ -1538,10 +1551,12 @@ mod tests {
 
         auth.register_user("sessuser", "pass").unwrap();
 
-        let result = auth.authenticate(Credential::Password {
-            username: "sessuser".to_string(),
-            password: "pass".to_string(),
-        });
+        let result = auth
+            .authenticate(Credential::Password {
+                username: "sessuser".to_string(),
+                password: "pass".to_string(),
+            })
+            .unwrap();
 
         let session_id = result.session.unwrap().id;
 
@@ -1556,10 +1571,12 @@ mod tests {
 
         auth.register_user("logoutuser", "pass").unwrap();
 
-        let result = auth.authenticate(Credential::Password {
-            username: "logoutuser".to_string(),
-            password: "pass".to_string(),
-        });
+        let result = auth
+            .authenticate(Credential::Password {
+                username: "logoutuser".to_string(),
+                password: "pass".to_string(),
+            })
+            .unwrap();
 
         let session_id = result.session.unwrap().id;
 
@@ -1567,6 +1584,48 @@ mod tests {
 
         // Session should no longer be valid
         assert!(auth.validate_session(&session_id).is_none());
+    }
+
+    #[test]
+    fn poisoned_session_table_fails_login_token_auth_and_logout() {
+        let rbac = Arc::new(RbacManager::new());
+        let auth = AuthManager::new(Arc::clone(&rbac));
+        auth.register_user("poisoned", "pass").unwrap();
+
+        // A session and token that exist before the table is poisoned.
+        let login = auth
+            .authenticate(Credential::Password {
+                username: "poisoned".to_string(),
+                password: "pass".to_string(),
+            })
+            .unwrap();
+        let session_id = login.session.unwrap().id;
+        let token = login.token.unwrap().token;
+
+        // Panic while holding the write guard: unwinding drops it and poisons the lock.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = auth.sessions.write().unwrap();
+            panic!("poisoning the session table for a test");
+        }));
+        assert!(auth.sessions.is_poisoned());
+
+        // Login reports the fault instead of a success with an unstored session.
+        let err = auth
+            .authenticate(Credential::Password {
+                username: "poisoned".to_string(),
+                password: "pass".to_string(),
+            })
+            .expect_err("login must fail while the session table is poisoned");
+        assert!(err.to_string().contains("the session table"), "{err}");
+
+        // Token auth stores a session too, so it fails the same way.
+        assert!(auth.authenticate(Credential::Token { token }).is_err());
+
+        // Logout cannot end the session, so it must say so.
+        let err = auth
+            .logout(&session_id)
+            .expect_err("logout must fail while the session table is poisoned");
+        assert!(err.to_string().contains("the session table"), "{err}");
     }
 
     #[test]
@@ -1579,7 +1638,8 @@ mod tests {
         auth.authenticate(Credential::Password {
             username: "audituser".to_string(),
             password: "pass".to_string(),
-        });
+        })
+        .unwrap();
 
         let audit = auth.get_audit_log(10);
         assert!(!audit.is_empty());
@@ -1597,16 +1657,20 @@ mod tests {
         let (api_key, raw_key) = auth.create_api_key(&user.id, "revoke-test").unwrap();
 
         // Should work before revocation
-        let result = auth.authenticate(Credential::ApiKey {
-            key: raw_key.clone(),
-        });
+        let result = auth
+            .authenticate(Credential::ApiKey {
+                key: raw_key.clone(),
+            })
+            .unwrap();
         assert!(result.success);
 
         // Revoke
         auth.revoke_api_key(&api_key.id).unwrap();
 
         // Should fail after revocation
-        let result = auth.authenticate(Credential::ApiKey { key: raw_key });
+        let result = auth
+            .authenticate(Credential::ApiKey { key: raw_key })
+            .unwrap();
         assert!(!result.success);
     }
 

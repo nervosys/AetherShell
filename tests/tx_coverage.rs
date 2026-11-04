@@ -288,3 +288,32 @@ fn a_rollback_that_cannot_restore_says_so_and_keeps_its_journal() {
     let _ = std::fs::remove_dir_all(&journal);
     let _ = std::fs::remove_file(&p);
 }
+
+/// gzip_decompress's output comes out of create_new_output, which snapshots the
+/// path it creates. The builtin snapshots that path itself first, which would
+/// hide that line, so this goes through the test hook: gzip_decompress without
+/// the builtin wrapper. Nothing else records the output's absence, so the
+/// rollback removes it only because create_new_output did.
+#[test]
+fn gzip_decompress_output_created_in_a_transaction_is_removed_by_rollback() {
+    let _lock = TX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _cleanup = TxCleanup;
+    let plain = scratch_path("gzrb.txt");
+    let gz = scratch_path("gzrb.txt.gz");
+    let _ = std::fs::remove_file(&gz);
+    std::fs::write(&plain, "payload\n").unwrap();
+    call("gzip_compress", vec![path_arg(&plain)]).unwrap();
+    assert!(gz.exists());
+    std::fs::remove_file(&plain).unwrap();
+
+    iron_shell::tx::begin().unwrap();
+    iron_shell::builtins::__test_gzip_decompress_capped(gz.to_str().unwrap(), 1 << 20).unwrap();
+    assert_eq!(std::fs::read_to_string(&plain).unwrap(), "payload\n");
+    iron_shell::tx::rollback().unwrap();
+    assert!(
+        !plain.exists(),
+        "rollback must remove the decompressed output"
+    );
+    assert!(gz.exists(), "the compressed input is not touched");
+    let _ = std::fs::remove_file(&gz);
+}

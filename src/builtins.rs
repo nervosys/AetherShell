@@ -22150,7 +22150,7 @@ fn bi_rbac_login(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     let result = GLOBAL_AUTH.authenticate(crate::auth::Credential::Password {
         username: username.clone(),
         password,
-    });
+    })?;
     if !result.success {
         // Deliberately unspecific: which half was wrong is the attacker's
         // question, and `AuthManager` has already recorded the detail in its
@@ -22176,15 +22176,17 @@ fn bi_rbac_login(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         )
     })?;
     let expires_at = session.expires_at.to_rfc3339();
+    let mut login = LOGIN_SESSION
+        .lock()
+        .map_err(|_| crate::safety::lock_poisoned("rbac_login", "the login record"))?;
+    *login = Some(LoginSession {
+        session_id: session.id.clone(),
+        user_id: user.id.clone(),
+        username: user.username.clone(),
+        expires_at: expires_at.clone(),
+    });
+    drop(login);
     crate::safety::set_principal(Some(user.id.clone()));
-    if let Ok(mut g) = LOGIN_SESSION.lock() {
-        *g = Some(LoginSession {
-            session_id: session.id.clone(),
-            user_id: user.id.clone(),
-            username: user.username.clone(),
-            expires_at: expires_at.clone(),
-        });
-    }
     let mut rec = BTreeMap::new();
     rec.insert("user".to_string(), Value::Str(user.username));
     rec.insert("user_id".to_string(), Value::Str(user.id));
@@ -22197,8 +22199,13 @@ fn bi_rbac_login(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// giving up authority is the one privilege operation that cannot be an
 /// escalation.
 fn bi_rbac_logout(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let was = LOGIN_SESSION.lock().ok().and_then(|mut g| g.take());
+    // The principal is cleared before the login record is read, so a record that
+    // cannot be read still leaves the shell anonymous.
     crate::safety::set_principal(None);
+    let was = LOGIN_SESSION
+        .lock()
+        .map_err(|_| crate::safety::lock_poisoned("rbac_logout", "the login record"))?
+        .take();
     match was {
         Some(s) => {
             // The local principal was cleared above. If the auth store cannot
