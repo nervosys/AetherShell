@@ -22229,7 +22229,12 @@ fn bi_rbac_logout(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 /// rbac_session() - The current login session as a record, or null when
 /// anonymous or expired. Read-only, so an agent can always ask who it is.
 fn bi_rbac_session(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
-    let Some(s) = LOGIN_SESSION.lock().ok().and_then(|g| g.clone()) else {
+    // A poisoned table is not "anonymous": the session in it may still be live.
+    let current = LOGIN_SESSION
+        .lock()
+        .map_err(|_| crate::safety::lock_poisoned("rbac_session", "the login session"))?
+        .clone();
+    let Some(s) = current else {
         return Ok(Value::Null);
     };
     // An expired session is not a session. Report it as gone and clear the
@@ -24041,6 +24046,10 @@ fn bi_a2ui_notify(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     Ok(Value::Record({
         let mut r = BTreeMap::new();
         r.insert("sent".to_string(), Value::Bool(true));
+        r.insert(
+            "ui_attached".to_string(),
+            Value::Bool(A2UI_CHANNEL.ui_attached()),
+        );
         r.insert("message".to_string(), Value::Str(message));
         r
     }))
@@ -44131,6 +44140,23 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
     // The backup is the file written; the database is only read.
     let backup_path = guard_local_write("db_sqlite_backup", &backup_path)?;
+    // sqlite3 opens an absent source by creating it, so this exited 0, wrote an
+    // empty backup and left an empty database at the source path. `:memory:` is
+    // equally empty in a new sqlite3 process.
+    if db_path == ":memory:" {
+        return Err(crate::safety::bad_arg(
+            "db_sqlite_backup",
+            "a database file; :memory: holds nothing in a new sqlite3 process",
+            &db_path,
+        ));
+    }
+    if !sqlite_db_exists(&db_path) {
+        return Err(crate::safety::not_found(
+            "db_sqlite_backup",
+            "database",
+            &db_path,
+        ));
+    }
     crate::tx::snapshot(&backup_path);
     sqlite_db_file("db_sqlite_backup", &db_path)?;
     let mut cmd = crate::safety::child_command("sqlite3");
@@ -44364,6 +44390,14 @@ fn bi_db_sqlite_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 
     crate::safety::reject_sqlite_dot_command("db_sqlite_to_csv", &query)?;
     crate::safety::reject_option_like("db_sqlite_to_csv", std::slice::from_ref(&db_path))?;
+    // sqlite3 creates an absent database, so an export would leave one behind.
+    if !sqlite_db_exists(&db_path) {
+        return Err(crate::safety::not_found(
+            "db_sqlite_to_csv",
+            "database",
+            &db_path,
+        ));
+    }
     sqlite_db_file("db_sqlite_to_csv", &db_path)?;
     let mut cmd = crate::safety::child_command("sqlite3");
     cmd.args(["-header", "-csv", &db_path, &query]);
@@ -46667,75 +46701,109 @@ fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value
 
     // Read JSON
     let content = read_text_capped("db_json_to_sqlite", &json_path)?;
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-        if let serde_json::Value::Array(arr) = json {
-            if let Some(first) = arr.first() {
-                if let serde_json::Value::Object(obj) = first {
-                    // Column names come from the *file*, so the injection payload
-                    // does not even have to be an argument: a JSON object key of
-                    // `x TEXT); DROP TABLE victim; --` closed the statement and
-                    // the sqlite3 CLI ran what followed. Identifiers are validated
-                    // for that reason, which also means a key that is not a legal
-                    // column name is now refused rather than producing broken SQL.
-                    let columns: Vec<String> = obj
-                        .keys()
-                        .map(|k| {
-                            Ok(format!(
-                                "{} TEXT",
-                                crate::safety::sql_identifier("db_json_to_sqlite", k)?
-                            ))
-                        })
-                        .collect::<Result<_>>()?;
-                    let create_sql = format!(
-                        "CREATE TABLE IF NOT EXISTS {} ({})",
-                        crate::safety::sql_identifier("db_json_to_sqlite", &table_name)?,
-                        columns.join(", ")
-                    );
-                    bi_db_sqlite_exec(
-                        vec![Value::Str(db_path.clone()), Value::Str(create_sql)],
-                        None,
-                    )?;
+    // Everything is checked and every statement built before the first write.
+    // This answered true after skipping any row that was not an object, wrote a
+    // nested value as NULL, and failed partway on a row with a key the table
+    // lacks, leaving the rows before it behind.
+    let json: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+        crate::safety::bad_arg(
+            "db_json_to_sqlite",
+            "a JSON file holding an array of objects",
+            &e.to_string(),
+        )
+    })?;
+    let serde_json::Value::Array(rows) = json else {
+        return Err(crate::safety::bad_arg(
+            "db_json_to_sqlite",
+            "a JSON array of objects",
+            "another JSON value",
+        ));
+    };
+    // An empty array names no columns, so no table can be made: nothing imported.
+    let Some(first) = rows.first() else {
+        return Ok(Value::Bool(false));
+    };
+    let serde_json::Value::Object(first) = first else {
+        return Err(crate::safety::bad_arg(
+            "db_json_to_sqlite",
+            "a JSON array of objects",
+            "row 0 is not an object",
+        ));
+    };
+    // Column names come from the *file*, so the injection payload does not even
+    // have to be an argument: a JSON object key of
+    // `x TEXT); DROP TABLE victim; --` closed the statement and the sqlite3 CLI
+    // ran what followed. Identifiers are validated for that reason, which also
+    // means a key that is not a legal column name is refused rather than
+    // producing broken SQL.
+    let columns: Vec<String> = first
+        .keys()
+        .map(|k| {
+            Ok(format!(
+                "{} TEXT",
+                crate::safety::sql_identifier("db_json_to_sqlite", k)?
+            ))
+        })
+        .collect::<Result<_>>()?;
+    let create_sql = format!(
+        "CREATE TABLE IF NOT EXISTS {} ({})",
+        crate::safety::sql_identifier("db_json_to_sqlite", &table_name)?,
+        columns.join(", ")
+    );
 
-                    // Insert rows
-                    for row in arr {
-                        if let serde_json::Value::Object(obj) = row {
-                            let cols: Vec<String> = obj
-                                .keys()
-                                .map(|k| crate::safety::sql_identifier("db_json_to_sqlite", k))
-                                .collect::<Result<_>>()?;
-                            let vals: Vec<String> = obj
-                                .values()
-                                .map(|v| {
-                                    Ok(match v {
-                                        serde_json::Value::String(s) => {
-                                            crate::safety::sql_literal("db_json_to_sqlite", s)?
-                                        }
-                                        serde_json::Value::Number(n) => n.to_string(),
-                                        serde_json::Value::Bool(b) => {
-                                            if *b { "1" } else { "0" }.to_string()
-                                        }
-                                        _ => "NULL".to_string(),
-                                    })
-                                })
-                                .collect::<Result<_>>()?;
-                            let insert_sql = format!(
-                                "INSERT INTO {} ({}) VALUES ({})",
-                                crate::safety::sql_identifier("db_json_to_sqlite", &table_name)?,
-                                cols.join(", "),
-                                vals.join(", ")
-                            );
-                            bi_db_sqlite_exec(
-                                vec![Value::Str(db_path.clone()), Value::Str(insert_sql)],
-                                None,
-                            )?;
-                        }
-                    }
-                    return Ok(Value::Bool(true));
-                }
-            }
+    let mut inserts = Vec::with_capacity(rows.len());
+    for (index, row) in rows.iter().enumerate() {
+        let serde_json::Value::Object(obj) = row else {
+            return Err(crate::safety::bad_arg(
+                "db_json_to_sqlite",
+                "a JSON array of objects",
+                &format!("row {index} is not an object"),
+            ));
+        };
+        if let Some(extra) = obj.keys().find(|k| !first.contains_key(*k)) {
+            return Err(crate::safety::bad_arg(
+                "db_json_to_sqlite",
+                "rows whose keys all appear in the first row, which names the columns",
+                &format!("row {index} has the key {extra:?}"),
+            ));
         }
+        let cols: Vec<String> = obj
+            .keys()
+            .map(|k| crate::safety::sql_identifier("db_json_to_sqlite", k))
+            .collect::<Result<_>>()?;
+        let vals: Vec<String> = obj
+            .values()
+            .map(|v| {
+                Ok(match v {
+                    serde_json::Value::String(s) => {
+                        crate::safety::sql_literal("db_json_to_sqlite", s)?
+                    }
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
+                    serde_json::Value::Null => "NULL".to_string(),
+                    nested => crate::safety::sql_literal("db_json_to_sqlite", &nested.to_string())?,
+                })
+            })
+            .collect::<Result<_>>()?;
+        inserts.push(format!(
+            "INSERT INTO {} ({}) VALUES ({})",
+            crate::safety::sql_identifier("db_json_to_sqlite", &table_name)?,
+            cols.join(", "),
+            vals.join(", ")
+        ));
     }
-    Ok(Value::Bool(false))
+
+    bi_db_sqlite_exec(
+        vec![Value::Str(db_path.clone()), Value::Str(create_sql)],
+        None,
+    )?;
+    for insert_sql in inserts {
+        bi_db_sqlite_exec(
+            vec![Value::Str(db_path.clone()), Value::Str(insert_sql)],
+            None,
+        )?;
+    }
+    Ok(Value::Bool(true))
 }
 
 fn bi_db_sqlite_to_json(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {

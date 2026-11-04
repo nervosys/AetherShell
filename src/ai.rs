@@ -1929,12 +1929,6 @@ lazy_static::lazy_static! {
     };
 }
 
-/// Configure MCP detection cache TTL (time-to-live)
-pub fn configure_mcp_cache_ttl(_ttl_seconds: u64) -> Result<()> {
-    // This will affect future cache entries
-    Ok(())
-}
-
 /// Clear MCP detection cache
 pub fn clear_mcp_cache() -> Result<()> {
     let mut cache = MCP_CACHE

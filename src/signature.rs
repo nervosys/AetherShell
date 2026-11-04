@@ -2010,7 +2010,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("table", Ty::Str, "table name; defaults to \"imported\""),
         ],
         returns: "Bool",
-        doc: "Import a JSON array of objects into a SQLite table.",
+        doc: "Import a JSON array of objects into a SQLite table, with one TEXT column per key of the first object. An empty array imports nothing and returns false. Refused before anything is written: invalid JSON, anything but an array of objects, and a row with a key the first object lacks. A nested array or object is stored as JSON text. Rows go in one at a time, so a failure partway keeps the earlier rows.",
         examples: &[(
             r#"db_json_to_sqlite("issues.db", "issues.json", "issues")"#,
             "true",
@@ -8212,7 +8212,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Any),
         params: &[opt("level", Ty::Any, "info, success, warning or error; a string or {level: ...}")],
         returns: "Record",
-        doc: "Send the user a notification. An unknown level is refused, not shown as info.",
+        doc: "Queue a notification for the user. sent means queued, not displayed; ui_attached says whether a UI has ever read the queue. An unknown level is refused, not shown as info.",
         examples: &[
             (r#"a2ui_notify("done").sent"#, r#"true"#),
             (r#"a2ui_notify("done", "success").sent"#, r#"true"#),
@@ -8226,7 +8226,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Any),
         params: &[],
         returns: "Bool",
-        doc: "Render text, {markdown: ...}, {json: ...} or any value in the UI. Invalid JSON is refused.",
+        doc: "Queue text, {markdown: ...}, {json: ...} or any value for rendering in the UI. Invalid JSON is refused. true means queued, not displayed: with no UI attached the event waits for one, and the oldest is dropped when the queue is full.",
         examples: &[
             (r#"a2ui_render("text")"#, r#"true"#),
         ],
@@ -8239,7 +8239,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Any),
         params: &[opt("task", Ty::Any, "what the agent is doing")],
         returns: "Bool",
-        doc: "Tell the UI an agent has started.",
+        doc: "Queue an event telling the UI an agent has started. true means queued, not displayed: with no UI attached the event waits for one, and the oldest is dropped when the queue is full.",
         examples: &[
             (r#"a2ui_agent_started("a1")"#, r#"true"#),
             (r#"a2ui_agent_started("a1", "indexing")"#, r#"true"#),
@@ -8253,7 +8253,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Any),
         params: &[opt("success", Ty::Bool, "whether it succeeded; default true"), opt("result", Ty::Any, "what it produced")],
         returns: "Bool",
-        doc: "Tell the UI an agent has finished. The success flag, when given, must be a Bool; any other type (such as \"false\" or 0) is E_BAD_ARG rather than success.",
+        doc: "Queue an event telling the UI an agent has finished; true means queued, not displayed. The success flag, when given, must be a Bool; any other type (such as \"false\" or 0) is E_BAD_ARG rather than success.",
         examples: &[
             (r#"a2ui_agent_completed("a1")"#, r#"true"#),
             (r#"a2ui_agent_completed("a1", false, "timed out")"#, r#"true"#),
@@ -8268,7 +8268,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Any),
         params: &[],
         returns: "Bool",
-        doc: "Set the status-bar text.",
+        doc: "Queue new status-bar text. true means queued, not displayed: with no UI attached the event waits for one, and the oldest is dropped when the queue is full.",
         examples: &[
             (r#"a2ui_status("working")"#, r#"true"#),
         ],
@@ -8281,7 +8281,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Any),
         params: &[opt("level", Ty::Str, "info, success, warning or error"), opt("duration_ms", Ty::Numeric, "default 3000")],
         returns: "Bool",
-        doc: "Show a transient notification. An unknown level is refused.",
+        doc: "Queue a transient notification. An unknown level is refused. true means queued, not displayed: with no UI attached the event waits for one, and the oldest is dropped when the queue is full.",
         examples: &[
             (r#"a2ui_toast("saved")"#, r#"true"#),
             (r#"a2ui_toast("saved", "success", 1000)"#, r#"true"#),
@@ -8360,7 +8360,7 @@ pub static SIGNATURES: &[Signature] = &[
         subject: Some(Ty::Str),
         params: &[],
         returns: "Bool",
-        doc: "Mark a progress indicator done. The id is the progress_id a2ui_progress returned.",
+        doc: "Queue the completion of a progress indicator. The id is the progress_id a2ui_progress returned. true means queued, not displayed: with no UI attached the event waits for one, and the oldest is dropped when the queue is full.",
         examples: &[
             (r#"(try { a2ui_progress_complete("not-a-uuid") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"a2ui_progress_complete("9b2e6f0a-6b1c-4f7e-8a7e-2c4d1e5f6a7b")"#, "true"),
@@ -8377,7 +8377,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("rows", Ty::Array, "rows as arrays or as records keyed by header; or piped"),
         ],
         returns: "Bool",
-        doc: "Show a table in the UI. A row that is neither an array nor a record is refused.",
+        doc: "Queue a table for the UI. A row that is neither an array nor a record is refused. true means queued, not displayed: with no UI attached the event waits for one, and the oldest is dropped when the queue is full.",
         examples: &[
             (r#"(try { a2ui_render_table("h") } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"a2ui_render_table(["a"], [["1"]])"#, "true"),
@@ -8394,7 +8394,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt("code", Ty::Any, "the source text; or piped"),
         ],
         returns: "Bool",
-        doc: "Show code, with its language, in the UI.",
+        doc: "Queue code, with its language, for the UI. true means queued, not displayed: with no UI attached the event waits for one, and the oldest is dropped when the queue is full.",
         examples: &[
             (r#"(try { a2ui_render_code() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"a2ui_render_code("rust", "fn main() {}")"#, "true"),
@@ -8412,7 +8412,7 @@ pub static SIGNATURES: &[Signature] = &[
             opt_range("step", Ty::Int, 0, i64::MAX, "the step number, 0 or more"),
         ],
         returns: "Bool",
-        doc: "Show an agent's reasoning in the UI. The event is queued for a UI.",
+        doc: "Queue an agent's reasoning for the UI. true means queued, not displayed: with no UI attached the event waits for one, and the oldest is dropped when the queue is full.",
         examples: &[
             (r#"(try { a2ui_agent_thinking() } catch e { e.error.code })"#, "E_BAD_ARG"),
             (r#"a2ui_agent_thinking("a1", "planning", 2)"#, "true"),
@@ -10440,7 +10440,7 @@ pub static SIGNATURES: &[Signature] = &[
     Signature {
         name: "db_sqlite_backup", category: None, subject_required: false, aliases: &[],
         subject: None, params: &[req("db", Ty::Str, "source SQLite database"), opt("destination", Ty::Str, "default source path plus .backup; no quotes or newlines")], returns: "Bool",
-        doc: "Back up a database using the sqlite3 CLI. Return true on success or a coded tool error on failure.",
+        doc: "Back up an existing database using the sqlite3 CLI. An absent source is E_NOT_FOUND, not an empty backup, and :memory: is E_BAD_ARG. Return true on success or a coded tool error on failure.",
         examples: &[(r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_backup"); let f = d + "/source.db"; file_copy("tests/fixtures/sample.db", f); let result = db_sqlite_backup(f); rmdir(d, true); result"#, "true"), (r#"db_sqlite_dump("tests/fixtures/sample.db"); let d = fs_tempdir("ae_backup"); let result = db_sqlite_backup("tests/fixtures/sample.db", d + "/copy.db"); rmdir(d, true); result"#, "true")],
     },
     Signature {

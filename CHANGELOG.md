@@ -447,6 +447,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `db_sqlite_backup` of an absent database is `E_NOT_FOUND`. sqlite3 created the
+  source and wrote an empty backup, and the builtin answered true. `:memory:` is
+  `E_BAD_ARG`, and `db_sqlite_to_csv` no longer creates a database it was asked
+  to read.
+- `db_json_to_sqlite` no longer answers true after dropping data. A row that is
+  not an object, or has a key the first row lacks, and invalid JSON are `E_BAD_ARG`
+  before anything is written; a nested value is stored as JSON text, not NULL.
+- `a2ui_notify` also returns `ui_attached`, and the a2ui docs say `true` means
+  queued, not displayed. `rbac_session` over a poisoned lock is an error rather
+  than "anonymous". The no-op `ai::configure_mcp_cache_ttl` is gone.
 - A child the shell starts keeps only the `IRONSHELL_*` settings that confine a shell (mode, policy, workspace, limits, allowlist, audit). Credentials, AI routing and opt-outs such as `IRONSHELL_APPROVE` and `IRONSHELL_REDACT=off` are removed at the shared process runners, so a builtin's child cannot read `IRONSHELL_API_KEY`, and in agent mode every child carries `IRONSHELL_MODE=agent`, so an `ish` it starts stays gated.
 - The Agent API schema can be narrowed. `GET /api/v1/schema` and `GET /api/v1/schema/:format` take `module` (for example `file`) and `q` (a case-insensitive substring of name or description), as does the `schema` action; the filter is applied before any provider format is built, so all of them shrink. An unknown module is a 400 with `E_BAD_ARG` and `did_you_mean`. The schema cache is keyed by the filter, so a filtered answer is never served for an unfiltered request. `ish agent schema` gains `--module` and `--q`.
 - The handle store no longer lists its session directory on every `put`. A 4,000-put session fell from 33.7 s to 2.8 to 4.3 s (two runs after the change). The count and highest id are kept between puts and re-read only when the directory's mtime moves (another process wrote or removed a handle) or when the count is within 64 of the cap, so the limit holds against a second writer.
