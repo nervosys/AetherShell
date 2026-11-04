@@ -248,8 +248,17 @@ fn restore_one(u: &Undo) -> std::result::Result<bool, String> {
             ));
         };
         if u.is_dir {
-            let _ = std::fs::remove_dir_all(&u.original);
+            // What cannot be cleared stays beside the restored tree, so the
+            // directory is not what it was. Restore what can be, then say so:
+            // this failure was dropped and the rollback reported success.
+            let cleared = match std::fs::remove_dir_all(&u.original) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    Err(format!("`{at}` could not be cleared before restoring: {e}"))
+                }
+                _ => Ok(()),
+            };
             copy_tree(b, &u.original).map_err(|e| format!("`{at}`: {e}"))?;
+            cleared?;
         } else {
             if let Some(parent) = u.original.parent() {
                 let _ = std::fs::create_dir_all(parent);

@@ -317,3 +317,42 @@ fn gzip_decompress_output_created_in_a_transaction_is_removed_by_rollback() {
     assert!(gz.exists(), "the compressed input is not touched");
     let _ = std::fs::remove_file(&gz);
 }
+
+/// A file the transaction added beneath a directory that cannot be cleared
+/// survives the rollback, so the rollback must not report success.
+#[cfg(unix)]
+#[test]
+fn a_rollback_that_cannot_clear_a_directory_reports_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let _l = TX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _c = TxCleanup;
+    let dir = scratch_path("rollback-dir-clear");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let keep = dir.join("keep.txt");
+    std::fs::write(&keep, "before").unwrap();
+
+    iron_shell::tx::begin().unwrap();
+    iron_shell::tx::snapshot(&dir.to_string_lossy());
+    std::fs::write(&keep, "after").unwrap();
+    let stuck = dir.join("added");
+    std::fs::create_dir(&stuck).unwrap();
+    std::fs::write(stuck.join("x"), "x").unwrap();
+    std::fs::set_permissions(&stuck, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let is_root = std::fs::write(stuck.join("probe"), "").is_ok();
+
+    let rolled = iron_shell::tx::rollback();
+    let _ = std::fs::set_permissions(&stuck, std::fs::Permissions::from_mode(0o755));
+    let restored = std::fs::read_to_string(&keep).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    if is_root {
+        eprintln!("skipping: root ignores the directory's mode");
+        return;
+    }
+    let err = rolled.expect_err("the added file survived, so this is not a clean rollback");
+    assert!(
+        format!("{err:#}").contains("could not be cleared"),
+        "{err:#}"
+    );
+    assert_eq!(restored, "before", "what can be restored still is");
+}
