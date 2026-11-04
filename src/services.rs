@@ -1511,10 +1511,13 @@ mod linux {
             let mut e = e;
             if let Err(rm) = std::fs::remove_file(&unit_path) {
                 if rm.kind() != std::io::ErrorKind::NotFound {
-                    e = e.context(format!(
-                        "{} was left behind and could not be removed: {rm}",
-                        unit_path.display()
-                    ));
+                    e = crate::safety::with_note(
+                        e,
+                        &format!(
+                            "{} was left behind and could not be removed: {rm}",
+                            unit_path.display()
+                        ),
+                    );
                 }
             }
             let _ = run_tool(BUILTIN, &["daemon-reload"]);
@@ -1913,10 +1916,13 @@ mod launchd {
                 let mut e = e;
                 if let Err(rm) = std::fs::remove_file(&path) {
                     if rm.kind() != std::io::ErrorKind::NotFound {
-                        e = e.context(format!(
-                            "{} was left behind and could not be removed: {rm}",
-                            path.display()
-                        ));
+                        e = crate::safety::with_note(
+                            e,
+                            &format!(
+                                "{} was left behind and could not be removed: {rm}",
+                                path.display()
+                            ),
+                        );
                     }
                 }
                 return Err(e);

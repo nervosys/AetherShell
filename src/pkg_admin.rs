@@ -436,9 +436,10 @@ pub(super) fn add_source(args: Vec<Value>, input: Option<Value>) -> Result<Value
             let mut e = e;
             if let Err(rm) = std::fs::remove_file(&path) {
                 if rm.kind() != std::io::ErrorKind::NotFound {
-                    e = e.context(format!(
-                        "{path} was left behind and could not be removed: {rm}"
-                    ));
+                    e = crate::safety::with_note(
+                        e,
+                        &format!("{path} was left behind and could not be removed: {rm}"),
+                    );
                 }
             }
             return Err(e);

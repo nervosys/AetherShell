@@ -34029,7 +34029,7 @@ fn gzip_file_capped(
                 crate::safety::budget_exceeded(
                     builtin,
                     format!("{input} decompresses to more than {cap} bytes and was stopped"),
-                    "the output would be cut short, so it is refused and no file is left; check that the archive is the one you meant",
+                    "the output would be cut short, so it is refused and the partial output is removed; check that the archive is the one you meant",
                 ),
                 out_path,
             ))
@@ -62501,9 +62501,10 @@ fn remove_partial(path: &str) {
 /// told is gone: the caller has to know it is still there.
 fn fail_removing_partial(error: anyhow::Error, path: &str) -> anyhow::Error {
     match std::fs::remove_file(path) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => error.context(format!(
-            "{path} was left behind and could not be removed: {e}"
-        )),
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => crate::safety::with_note(
+            error,
+            &format!("{path} was left behind and could not be removed: {e}"),
+        ),
         _ => error,
     }
 }
@@ -62524,7 +62525,11 @@ mod partial_cleanup_tests {
         let plain = crate::safety::bad_arg("t", "x", "y");
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(crate::safety::code_of(&err), crate::safety::code_of(&plain));
-        assert!(format!("{err:#}").contains("left behind"), "got: {err:#}");
+        // Where an agent reads it: the coded error, not an anyhow context layer.
+        let coded = err
+            .downcast_ref::<crate::safety::SafetyError>()
+            .expect("still a coded error");
+        assert!(coded.message.contains("left behind"), "got: {coded}");
     }
 
     #[test]

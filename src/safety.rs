@@ -2504,6 +2504,18 @@ fn classify_uncoded(e: &anyhow::Error) -> Option<(ErrorCode, &'static str)> {
 /// classification [`ensure_structured`] applies (absence, permission, I/O), and
 /// `E_UNKNOWN` when that finds nothing. Used by [`crate::record`], which must
 /// read the code of an error it is about to pass on unchanged.
+/// Add `note` to an error where its reader will see it. Agents get a coded error
+/// as its JSON, which `.context()` never reaches, so the note goes in the message.
+pub fn with_note(e: anyhow::Error, note: &str) -> anyhow::Error {
+    if let Some(se) = e.downcast_ref::<SafetyError>() {
+        let mut noted = se.clone();
+        noted.message = format!("{}; {note}", noted.message);
+        return anyhow::Error::new(noted);
+    }
+    let message = format!("{e:#}; {note}");
+    e.context(message)
+}
+
 pub fn code_of(e: &anyhow::Error) -> ErrorCode {
     if let Some(se) = e.downcast_ref::<SafetyError>() {
         return se.code;
