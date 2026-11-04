@@ -481,7 +481,10 @@ paths:
   /api/v1/marketplace/publish:
     post:
       operationId: publishAgent
-      summary: Publish an agent to the marketplace
+      summary: Announce an agent to subscribers of the agents channel
+      description: >-
+        Broadcasts the agent on the agents channel. The agent is not stored and
+        is not sent to a marketplace registry.
       requestBody:
         required: true
         content:
@@ -489,8 +492,20 @@ paths:
             schema:
               type: object
       responses:
-        '201':
-          description: Agent published
+        '202':
+          description: Agent announced; not stored or sent to a registry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  stored:
+                    type: boolean
+                    enum: [false]
+                  message:
+                    type: string
 
   /api/v1/marketplace/search:
     get:

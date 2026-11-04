@@ -447,9 +447,62 @@ async fn main() -> Result<()> {
     }
 }
 
+/// Wait until the daemon child accepts connections. Err if it exits first;
+/// Ok(false) if it is alive but not listening when the wait ends.
+fn confirm_daemon_started(
+    child: &mut std::process::Child,
+    host: &str,
+    port: u16,
+    wait: std::time::Duration,
+) -> Result<bool> {
+    use std::net::{TcpStream, ToSocketAddrs};
+
+    let probe_host = match host {
+        "0.0.0.0" => "127.0.0.1",
+        "::" => "::1",
+        other => other,
+    };
+    let addr = (probe_host, port)
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("cannot resolve {}:{}", probe_host, port))?;
+
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Err(anyhow::anyhow!(
+                "server exited with {} during startup; run `aimodel server` without --daemon to see why",
+                status
+            ));
+        }
+        if TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(500)).is_ok() {
+            return Ok(true);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Ok(false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
 async fn run_server(config: APIConfig, args: ServerArgs) -> Result<()> {
     if args.daemon {
         println!("Starting server in daemon mode...");
+
+        // A server already on this port would answer the startup check below
+        // for the daemon, so refuse before spawning.
+        let probe_host = match config.server.host.as_str() {
+            "0.0.0.0" => "127.0.0.1",
+            "::" => "::1",
+            other => other,
+        };
+        if std::net::TcpStream::connect((probe_host, config.server.port)).is_ok() {
+            return Err(anyhow::anyhow!(
+                "port {} on {} is already in use; stop that server or choose another port",
+                config.server.port,
+                config.server.host
+            ));
+        }
 
         #[cfg(unix)]
         {
@@ -472,11 +525,19 @@ async fn run_server(config: APIConfig, args: ServerArgs) -> Result<()> {
             }
 
             // Spawn detached
-            let child = cmd
+            let mut child = cmd
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()?;
+
+            // Confirm the daemon is up before recording it
+            let started = confirm_daemon_started(
+                &mut child,
+                &config.server.host,
+                config.server.port,
+                std::time::Duration::from_secs(10),
+            )?;
 
             // Write PID file
             let pid_file = dirs::runtime_dir()
@@ -484,7 +545,16 @@ async fn run_server(config: APIConfig, args: ServerArgs) -> Result<()> {
                 .join("aimodel-server.pid");
             std::fs::write(&pid_file, child.id().to_string())?;
 
-            println!("Server started in background (PID: {})", child.id());
+            if started {
+                println!("Server started in background (PID: {})", child.id());
+            } else {
+                println!(
+                    "Server process running (PID: {}) but not yet accepting connections on {}:{}",
+                    child.id(),
+                    config.server.host,
+                    config.server.port
+                );
+            }
             println!("PID file: {}", pid_file.display());
             println!("To stop: kill {}", child.id());
             return Ok(());
@@ -514,12 +584,20 @@ async fn run_server(config: APIConfig, args: ServerArgs) -> Result<()> {
             }
 
             // Spawn detached on Windows
-            let child = cmd
+            let mut child = cmd
                 .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()?;
+
+            // Confirm the daemon is up before recording it
+            let started = confirm_daemon_started(
+                &mut child,
+                &config.server.host,
+                config.server.port,
+                std::time::Duration::from_secs(10),
+            )?;
 
             // Write PID file
             let pid_file = dirs::data_local_dir()
@@ -527,7 +605,16 @@ async fn run_server(config: APIConfig, args: ServerArgs) -> Result<()> {
                 .join("aimodel-server.pid");
             std::fs::write(&pid_file, child.id().to_string())?;
 
-            println!("Server started in background (PID: {})", child.id());
+            if started {
+                println!("Server started in background (PID: {})", child.id());
+            } else {
+                println!(
+                    "Server process running (PID: {}) but not yet accepting connections on {}:{}",
+                    child.id(),
+                    config.server.host,
+                    config.server.port
+                );
+            }
             println!("PID file: {}", pid_file.display());
             println!("To stop: taskkill /PID {} /F", child.id());
             return Ok(());
@@ -1643,4 +1730,34 @@ fn detect_model_format(path: &str) -> Result<ModelFormat> {
     // Default fallback
     println!("Warning: Could not auto-detect format, assuming PyTorch");
     Ok(ModelFormat::PyTorch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A child that exits at once is reported as an error, not as started.
+    #[test]
+    fn daemon_confirmation_fails_when_child_exits() {
+        let spawned = iron_shell::safety::child_command("rustc")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        let mut child = match spawned {
+            Ok(child) => child,
+            Err(e) => {
+                eprintln!("skipping: could not spawn rustc: {e}");
+                return;
+            }
+        };
+        let result = confirm_daemon_started(
+            &mut child,
+            "127.0.0.1",
+            1,
+            std::time::Duration::from_secs(10),
+        );
+        assert!(result.is_err());
+    }
 }

@@ -431,7 +431,9 @@ impl ConfigManager {
     /// Remove a model alias
     pub fn remove_alias(&self, alias: &str) -> Result<()> {
         let mut aliases = self.load_aliases()?;
-        aliases.remove(alias);
+        if aliases.remove(alias).is_none() {
+            return Err(anyhow::anyhow!("Alias {} not found", alias));
+        }
         self.save_aliases(&aliases)
     }
 
@@ -627,5 +629,32 @@ pub fn is_loopback(host: &str) -> bool {
     match h.parse::<std::net::IpAddr>() {
         Ok(ip) => ip.is_loopback(),
         Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Removing an alias that is not stored is an error and leaves the stored
+    /// aliases alone. Uses a temp dir set on the struct, never the real config dir.
+    #[test]
+    fn remove_alias_reports_an_absent_alias() {
+        let dir = std::env::temp_dir().join(format!("ae-remove-alias-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manager = ConfigManager {
+            config_dir: dir.clone(),
+        };
+
+        manager
+            .add_alias("fast".to_string(), "local/model".to_string())
+            .unwrap();
+        assert!(manager.remove_alias("slow").is_err());
+        assert_eq!(manager.load_aliases().unwrap().len(), 1);
+        assert!(manager.remove_alias("fast").is_ok());
+        assert!(manager.load_aliases().unwrap().is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

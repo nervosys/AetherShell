@@ -464,7 +464,7 @@ Uninstall an installed agent.
 
 ### POST `/api/v1/marketplace/publish`
 
-Publish an agent definition. Broadcasts an `agent_published` event.
+Announce an agent definition. Broadcasts an `agent_published` event on the agents channel and answers 202 with `"stored": false`; the agent is not stored and not sent to a marketplace registry.
 
 **Request body:**
 ```json

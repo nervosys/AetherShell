@@ -5668,10 +5668,23 @@ pub mod server {
         Json(body): Json<JsonValue>,
         state: Arc<OrchestratorState>,
     ) -> impl IntoResponse {
-        let steps: Vec<WorkflowStep> = body
-            .get("steps")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default();
+        // An absent `steps` is an empty workflow. A present value that does not
+        // parse is refused, and nothing is stored.
+        let steps: Vec<WorkflowStep> = match body.get("steps") {
+            None => Vec::new(),
+            Some(value) => match serde_json::from_value(value.clone()) {
+                Ok(steps) => steps,
+                Err(e) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "success": false,
+                            "error": format!("invalid steps: {}", e)
+                        })),
+                    );
+                }
+            },
+        };
 
         let workflow = Workflow {
             id: uuid::Uuid::new_v4().to_string(),
@@ -5853,7 +5866,8 @@ pub mod server {
             .unwrap_or("unnamed")
             .to_string();
 
-        // Store in orchestrator state as a published agent
+        // Announce on the agents channel only. The agent is not stored, and it
+        // is not sent to a marketplace registry.
         state
             .broadcast_to_channel(
                 "agents",
@@ -5871,10 +5885,14 @@ pub mod server {
             .await;
 
         (
-            StatusCode::CREATED,
+            StatusCode::ACCEPTED,
             Json(json!({
                 "success": true,
-                "message": format!("Agent '{}' published successfully", agent_name)
+                "stored": false,
+                "message": format!(
+                    "Agent '{}' announced to subscribers of the agents channel; it was not stored or sent to a marketplace registry",
+                    agent_name
+                )
             })),
         )
     }
@@ -5891,6 +5909,9 @@ pub mod server {
             "name" => SortBy::Name,
             _ => SortBy::Downloads,
         });
+
+        // Set when the registry was tried and failed, so the local answer can say why.
+        let mut registry_error: Option<String> = None;
 
         // Try registry search first
         let marketplace = state.marketplace.read().await;
@@ -5941,8 +5962,9 @@ pub mod server {
                         "per_page": results.per_page,
                     }));
                 }
-                Err(_) => {
-                    // Fall through to local-only response
+                Err(e) => {
+                    // Fall through to the local-only response, which carries the error
+                    registry_error = Some(e.to_string());
                 }
             }
         }
@@ -5980,6 +6002,7 @@ pub mod server {
             "page": 1,
             "per_page": 20,
             "source": "local",
+            "registry_error": registry_error,
         }))
     }
 

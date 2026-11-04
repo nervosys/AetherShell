@@ -447,6 +447,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `aimodel remove` reports a model it could not delete. The index entry stays so the
+  removal can be retried, instead of an orphaned file being reported as removed.
+  Removing an alias that is not stored (`aimodel alias remove`) is an error, not a
+  success. `aimodel server --daemon` waits for the daemon to accept connections
+  before it reports it started, refuses a port that is already in use, and fails
+  if the daemon exits during startup.
+- The Agent API answers a malformed `steps` in `POST /api/v1/orchestration/workflows`
+  with 400 and stores nothing, instead of an empty workflow with 201. Its
+  `POST /api/v1/marketplace/publish` answers 202 with `"stored": false`, because it
+  only announces the agent on the agents channel. A marketplace search whose
+  registry failed still answers from local agents, with the error in `registry_error`.
 - A transaction rollback that cannot clear a directory it is restoring reports the
   failure. It restored the rest and answered success, leaving behind files the
   transaction had added.

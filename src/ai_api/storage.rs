@@ -294,46 +294,53 @@ impl ModelStorage {
         Ok(())
     }
 
-    /// Remove a model from storage
+    /// Remove a model from storage.
+    ///
+    /// Every file is attempted. The index entry is dropped only when all of
+    /// them are gone, so a model that could not be deleted stays listed and
+    /// the call can be retried.
     pub fn remove_model(&mut self, model_id: &str) -> Result<()> {
-        if let Some(metadata) = self.index.models.remove(model_id) {
-            // Remove model file
-            if fs::remove_file(&metadata.file_path).is_ok() {
-                // File removed successfully
-            }
+        let metadata = self
+            .index
+            .models
+            .get(model_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Model {} not found", model_id))?;
 
-            // Remove metadata file
-            let metadata_path = self
-                .data_dir
-                .join("metadata")
-                .join(format!("{}.json", model_id.replace('/', "_")));
-            if fs::remove_file(&metadata_path).is_ok() {
-                // Metadata file removed successfully
-            }
-
-            // Remove any config files
-            if let Some(config_path) = &metadata.config_path {
-                if fs::remove_file(config_path).is_ok() {
-                    // Config file removed successfully
-                }
-            }
-
-            // Remove tokenizer files
-            if let Some(tokenizer_path) = &metadata.tokenizer_path {
-                if fs::remove_file(tokenizer_path).is_ok() {
-                    // Tokenizer file removed successfully
-                }
-            }
-
-            // Update index
-            self.index.last_updated = Utc::now();
-            self.index.total_size = self.index.models.values().map(|m| m.size_bytes).sum();
-            self.save_index()?;
-
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Model {} not found", model_id))
+        let metadata_path = self
+            .data_dir
+            .join("metadata")
+            .join(format!("{}.json", model_id.replace('/', "_")));
+        let mut paths = vec![PathBuf::from(&metadata.file_path), metadata_path];
+        if let Some(config_path) = &metadata.config_path {
+            paths.push(PathBuf::from(config_path));
         }
+        if let Some(tokenizer_path) = &metadata.tokenizer_path {
+            paths.push(PathBuf::from(tokenizer_path));
+        }
+
+        let mut failures = Vec::new();
+        for path in &paths {
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => failures.push(format!("{}: {}", path.display(), e)),
+            }
+        }
+        if !failures.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Model {} was not removed; its entry stays in the index so it can be retried. Failed: {}",
+                model_id,
+                failures.join("; ")
+            ));
+        }
+
+        self.index.models.remove(model_id);
+        self.index.last_updated = Utc::now();
+        self.index.total_size = self.index.models.values().map(|m| m.size_bytes).sum();
+        self.save_index()?;
+
+        Ok(())
     }
 
     /// Get model metadata
@@ -519,5 +526,75 @@ mod tests {
         let chunked = sha256_file(&path).unwrap();
         fs::remove_file(&path).unwrap();
         assert_eq!(chunked, hex::encode(Sha256::digest(&bytes).unwrap()));
+    }
+
+    fn sample_metadata(id: &str, file_path: &str) -> LocalModelMetadata {
+        LocalModelMetadata {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: None,
+            version: "test".to_string(),
+            format: ModelFormat::GGUF,
+            file_path: file_path.to_string(),
+            config_path: None,
+            tokenizer_path: None,
+            size_bytes: 0,
+            sha256: String::new(),
+            downloaded_at: Utc::now(),
+            last_used: None,
+            usage_count: 0,
+            capabilities: ModelCapabilities {
+                chat: false,
+                completions: false,
+                embeddings: false,
+                image_generation: false,
+                image_understanding: false,
+                audio_generation: false,
+                audio_understanding: false,
+                video_understanding: false,
+                function_calling: false,
+                streaming: false,
+            },
+            parameters: HashMap::new(),
+            source: ModelSource {
+                origin: "local".to_string(),
+                url: None,
+                repository: None,
+                commit: None,
+                license: None,
+            },
+        }
+    }
+
+    /// A model whose file cannot be deleted stays listed, and a retry after
+    /// the obstacle is gone removes it. Uses a temp dir, never the real data dir.
+    #[test]
+    fn remove_model_keeps_entry_when_its_file_cannot_be_deleted() {
+        let base = std::env::temp_dir().join(format!("ae-remove-model-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let config = StorageConfig {
+            custom_data_dir: Some(base.join("data")),
+            custom_config_dir: Some(base.join("config")),
+            ..StorageConfig::default()
+        };
+        let mut storage = ModelStorage::new(&config).unwrap();
+
+        // A directory where the model file should be: remove_file fails on it.
+        let blocked = base.join("data").join("blocked.gguf");
+        fs::create_dir_all(&blocked).unwrap();
+        let model_id = "local/blocked";
+        storage.index.models.insert(
+            model_id.to_string(),
+            sample_metadata(model_id, &blocked.to_string_lossy()),
+        );
+
+        assert!(storage.remove_model(model_id).is_err());
+        assert!(storage.get_model_metadata(model_id).is_some());
+
+        fs::remove_dir(&blocked).unwrap();
+        assert!(storage.remove_model(model_id).is_ok());
+        assert!(storage.get_model_metadata(model_id).is_none());
+
+        let _ = fs::remove_dir_all(&base);
     }
 }
