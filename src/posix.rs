@@ -4089,13 +4089,30 @@ pub fn run(src: &str) -> Option<i32> {
     // next stage, not the terminal.
     for ao in &list {
         let flow = sh.run_and_or(ao, &mut stdin, &mut sink);
-        let _ = std::io::stdout().write_all(&sink.out);
-        let _ = std::io::stdout().flush();
+        // A failed write is this command's failure. A closed pipe (`| head`)
+        // is not reported: nobody is reading, as before.
+        let mut write_failed = false;
+        let written = std::io::stdout()
+            .write_all(&sink.out)
+            .and_then(|()| std::io::stdout().flush());
+        if let Err(e) = written {
+            if e.kind() != std::io::ErrorKind::BrokenPipe {
+                write_failed = true;
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "{SHELL_NAME}: write error: {}",
+                    io_reason(&e)
+                );
+            }
+        }
         sink.out.clear();
         match flow {
             Flow::Next(c) => status = c,
-            Flow::Exit(c) => return Some(c),
+            Flow::Exit(c) => return Some(if write_failed && c == 0 { 1 } else { c }),
             Flow::Break(_) | Flow::Continue(_) => {}
+        }
+        if write_failed && status == 0 {
+            status = 1;
         }
     }
     Some(status)

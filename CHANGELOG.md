@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `crypto_encrypt` and the key ids in signed audit logs keep their original
   labels, so both still verify.
 
+- **Delete old undo journals.** Agent mode's undo journal holds the previous
+  contents of files it overwrote, in plain text. Version 12.0.2 kept it in
+  `aethershell/journal` under the user cache directory (`~/.cache` on Linux)
+  with default permissions, and nothing removes it after the rename. Delete that
+  directory. Development builds of this release may have left the same under
+  `ironshell/journal` from before these directories became private.
+
 ### Added
 
 - **RSA and ECDSA signatures**: `crypto_sign` now signs with ECDSA P-256 (SHA-256) and P-384 (SHA-384), with ASN.1 DER signatures, and RSA PKCS#1 v1.5 with SHA-256, as well as Ed25519, from a PKCS#8 `PRIVATE KEY`, a PKCS#1 `RSA PRIVATE KEY` or a SEC1 `EC PRIVATE KEY` PEM; the record's `algorithm` names which. ECDSA signatures are deterministic (RFC 6979), so signing the same data with the same key twice gives the same bytes. `crypto_verify_signature` takes the raw public key `crypto_sign` returns or a `BEGIN PUBLIC KEY` PEM. Both run in-process on IronCrypto (`ironcrypto` 0.3.2), behind a strict bounds-checked DER reader. RSA keys must be 2048 to 4096 bits, for signing and verifying. `tests/crypto_sign_interop.rs` checks that `openssl dgst -sha256 -verify` accepts the signatures, and unit tests check that openssl's signatures, and the RFC 8032 Ed25519 vector, verify here.
@@ -447,6 +454,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ish -b` reports a failed write to stdout and exits nonzero; a closed pipe stays silent.
 - A failed run's error now names output it could not remove, such as a private key or decrypted plaintext, so the caller knows the file is still on disk.
 - `journal_clear` and `session_end` report a journal directory they could not remove.
   They said the steps could no longer be undone while a later process would load
