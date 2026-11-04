@@ -1776,7 +1776,9 @@ mod tests {
         assert!(err.to_string().contains("already in use"), "{err}");
 
         drop(listener);
-        assert!(refuse_port_in_use("127.0.0.1", port).is_ok());
+
+        // Port 1, not the one just freed: nothing guarantees that one stays quiet.
+        assert!(refuse_port_in_use("127.0.0.1", 1).is_ok());
     }
 
     #[test]
