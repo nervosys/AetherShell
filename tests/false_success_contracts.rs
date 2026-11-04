@@ -79,8 +79,14 @@ fn syntax_add_refuses_an_unloadable_kb_file_and_leaves_it_alone() {
         .expect_err("an entry that was not saved must not be reported as added");
     assert_eq!(code(&err), "E_BAD_STATE", "{err:#}");
     let text = format!("{err:#}");
-    assert!(text.contains("syntax_kb.json"), "the error must name the file: {text}");
-    assert!(text.contains("not saved"), "the error must say the entry was not saved: {text}");
+    assert!(
+        text.contains("syntax_kb.json"),
+        "the error must name the file: {text}"
+    );
+    assert!(
+        text.contains("not saved"),
+        "the error must say the entry was not saved: {text}"
+    );
 
     assert_eq!(
         std::fs::read(&file).expect("kb still there"),
@@ -120,11 +126,8 @@ fn a2ui_agent_completed_refuses_a_success_flag_that_is_not_a_bool() {
     let _g = lock();
     for flag in [Value::Str("false".into()), Value::Int(0)] {
         let shown = format!("{flag:?}");
-        let err = call(
-            "a2ui_agent_completed",
-            vec![Value::Str("x".into()), flag],
-        )
-        .expect_err("a non-Bool success flag must be refused, not read as success");
+        let err = call("a2ui_agent_completed", vec![Value::Str("x".into()), flag])
+            .expect_err("a non-Bool success flag must be refused, not read as success");
         assert_eq!(code(&err), "E_BAD_ARG", "flag {shown}: {err:#}");
     }
 }
