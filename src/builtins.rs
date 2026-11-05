@@ -13923,7 +13923,8 @@ fn env_value(builtin: &str, value: &Value) -> Result<String> {
     Ok(text.to_string())
 }
 
-/// Refuse, in agent mode, any change to an `IRONSHELL_*` variable.
+/// Refuse, in agent mode, any change to a variable that steers a child program
+/// or the destination of data (see `safety::env_name_steers_children`).
 ///
 /// The approval gate and its mode switch are read from the process
 /// environment on every call: `IRONSHELL_MODE`/`IRONSHELL_AGENT` decide whether
@@ -13935,13 +13936,16 @@ fn env_value(builtin: &str, value: &Value) -> Result<String> {
 /// or switch the gate off. Fail closed: the agent may not touch them. Human
 /// mode is unchanged.
 fn refuse_gate_env(builtin: &str, name: &str) -> Result<()> {
-    if crate::safety::current_mode() == crate::safety::Mode::Agent
-        && name.to_ascii_uppercase().starts_with("IRONSHELL_")
-    {
+    if crate::safety::env_change_refused(name) {
         return Err(crate::safety::policy_deny(
             builtin,
-            format!("{builtin}: an agent may not change the approval gate's environment ({name})"),
-            "IRONSHELL_* variables are set by whoever launches the agent, not by the agent",
+            format!(
+                "{builtin}: an agent may not change {name}: it steers the approval gate, \
+                 a child program, its loader or configuration, or where data is sent"
+            ),
+            "variables that steer child programs and network destinations (PATH, GIT_*, \
+             IRONGATE_*, *_PROXY, provider keys and endpoints, ...) are set by whoever \
+             launches the agent, not by the agent",
         ));
     }
     Ok(())
@@ -26262,20 +26266,31 @@ fn proc_env_of(pid: i64) -> Result<BTreeMap<String, Value>> {
 fn bi_proc_env(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     proc_check("proc_env", &args, &input, 1)?;
     let pid = proc_pid("proc_env", args.first())?;
-    if proc_is_self(pid) {
+    // Both branches answer through `gate_env_secret`, as `env()` and `env_vars()`
+    // do: a secret-named variable of another process is a credential as well.
+    let rec: BTreeMap<String, Value> = if proc_is_self(pid) {
         // This shell's own environment, answered in-process on every OS.
-        let rec = std::env::vars_os()
+        std::env::vars_os()
             .map(|(k, v)| {
-                (
-                    k.to_string_lossy().into_owned(),
-                    Value::Str(v.to_string_lossy().into_owned()),
-                )
+                let k = k.to_string_lossy().into_owned();
+                let gated = gate_env_secret(&k, v.to_string_lossy().into_owned());
+                (k, gated)
             })
-            .collect::<BTreeMap<String, Value>>();
-        return Ok(Value::Record(rec));
-    }
-    proc_require("proc_env", pid)?;
-    Ok(Value::Record(proc_env_of(pid)?))
+            .collect()
+    } else {
+        proc_require("proc_env", pid)?;
+        proc_env_of(pid)?
+            .into_iter()
+            .map(|(k, v)| {
+                let gated = match v {
+                    Value::Str(s) => gate_env_secret(&k, s),
+                    other => other,
+                };
+                (k, gated)
+            })
+            .collect()
+    };
+    Ok(Value::Record(rec))
 }
 
 #[cfg(target_os = "linux")]
@@ -49182,7 +49197,7 @@ fn bi_git_diff(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     let path = git_dir_arg("git_diff", &path)?;
     let mut cmd = git_command();
-    cmd.args(["diff", "--no-ext-diff"]);
+    cmd.args(["diff", "--no-ext-diff", "--no-textconv"]);
     cmd.current_dir(&path);
     let output = bounded_cmd_output("git_diff", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_diff", &output, &path)?;
@@ -49199,7 +49214,7 @@ fn bi_git_diff_staged(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     };
     let path = git_dir_arg("git_diff_staged", &path)?;
     let mut cmd = git_command();
-    cmd.args(["diff", "--no-ext-diff", "--staged"]);
+    cmd.args(["diff", "--no-ext-diff", "--no-textconv", "--staged"]);
     cmd.current_dir(&path);
     let output = bounded_cmd_output("git_diff_staged", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_diff_staged", &output, &path)?;
@@ -49497,7 +49512,7 @@ fn bi_git_show(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         value
     };
     let mut cmd = git_command();
-    cmd.args(["show", "--no-ext-diff", &commit]);
+    cmd.args(["show", "--no-ext-diff", "--no-textconv", &commit]);
     let output = bounded_cmd_output("git_show", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("git_show", &output, ".")?;
     Ok(Value::Str(
@@ -51712,7 +51727,7 @@ fn bi_session_diff_since(args: Vec<Value>, input: Option<Value>) -> Result<Value
         .unwrap_or("HEAD~1".to_string());
     crate::safety::reject_option_like("session_diff_since", std::slice::from_ref(&commit))?;
     let mut cmd = git_command();
-    cmd.args(["diff", "--no-ext-diff", &commit]);
+    cmd.args(["diff", "--no-ext-diff", "--no-textconv", &commit]);
     let output = bounded_cmd_output("session_diff_since", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_diff_since", &output, ".")?;
     Ok(Value::Str(
@@ -51751,7 +51766,7 @@ fn bi_session_export(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     // Same again: labelled `ReadLocal`, writes an arbitrary path.
     let file = guard_local_write("session_export", &file)?;
     let mut cmd = git_command();
-    cmd.args(["diff", "--no-ext-diff"]);
+    cmd.args(["diff", "--no-ext-diff", "--no-textconv"]);
     let output = bounded_cmd_output("session_export", "git", cmd, TOOL_DEADLINE_SECS)?;
     git_succeeded("session_export", &output, ".")?;
     crate::tx::snapshot(&file); // record pre-export state if a transaction is active

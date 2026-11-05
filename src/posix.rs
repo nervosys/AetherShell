@@ -986,6 +986,24 @@ enum ErrMode {
     Capture,
 }
 
+/// Refuse, in agent mode, to set or export a variable that steers a child
+/// program (see `safety::env_name_steers_children`). Prints the refusal to the
+/// shell's error stream and returns true when the change must not be made.
+fn refuse_steering(sink: &mut Sink, name: &str) -> bool {
+    if !crate::safety::env_change_refused(name) {
+        return false;
+    }
+    let refusal = crate::safety::policy_deny(
+        "posix",
+        format!(
+            "{name}: an agent may not change this variable: it steers the programs, libraries or network destinations the shell uses"
+        ),
+        "variables that steer child programs are set by whoever launches the agent, not by the agent",
+    );
+    sink.eline(&refusal.to_string());
+    true
+}
+
 struct Sink {
     out: Vec<u8>,
     err_mode: ErrMode,
@@ -1060,6 +1078,13 @@ impl Shell {
     }
 
     fn set_var(&mut self, name: &str, value: String) {
+        // A steering name is not stored at all in agent mode, so no path into
+        // here can make `$PATH` or `$HOME` something the agent chose. The callers
+        // that can report it (assignment, export, for, read) refuse first; this
+        // catches the rest, such as `${NAME:=value}`, which cannot.
+        if crate::safety::env_change_refused(name) {
+            return;
+        }
         self.vars.insert(name.to_string(), value);
     }
 
@@ -1442,6 +1467,9 @@ impl Shell {
             Cmd::For {
                 var, items, body, ..
             } => {
+                if refuse_steering(sink, var) {
+                    return Flow::Next(126);
+                }
                 let mut values = Vec::new();
                 for w in items {
                     values.extend(self.expand(w, stdin));
@@ -1523,6 +1551,9 @@ impl Shell {
         }
         let mut env_overrides = Vec::new();
         for (name, w) in assigns {
+            if refuse_steering(sink, name) {
+                return Flow::Next(126);
+            }
             let v = self.expand(w, stdin).join(" ");
             if argv.is_empty() {
                 self.set_var(name, v);
@@ -1587,6 +1618,9 @@ impl Shell {
                         Some((n, v)) => (n.to_string(), Some(v.to_string())),
                         None => (a.clone(), None),
                     };
+                    if refuse_steering(sink, &n) {
+                        return Flow::Next(126);
+                    }
                     if let Some(v) = v {
                         self.set_var(&n, v);
                     }
@@ -1661,6 +1695,17 @@ impl Shell {
         if names.is_empty() {
             names.push("REPLY".into());
         }
+        if let Some(name) = names.iter().find(|n| crate::safety::env_change_refused(n)) {
+            let refusal = crate::safety::policy_deny(
+                "posix",
+                format!(
+                    "{name}: an agent may not read into this variable: it steers child programs"
+                ),
+                "variables that steer child programs are set by whoever launches the agent",
+            );
+            let _ = writeln!(std::io::stderr(), "{refusal}");
+            return 126;
+        }
         let line = match stdin.read_line() {
             Ok(line) => line,
             Err(why) => {
@@ -1733,14 +1778,14 @@ impl Shell {
                 .iter()
                 .map(String::as_str)
                 .chain(env.iter().map(|(n, _)| n.as_str()))
-                .find(|n| n.to_ascii_uppercase().starts_with("IRONSHELL_"));
+                .find(|n| crate::safety::env_name_steers_children(n));
             if let Some(name) = gate_var {
                 let refusal = crate::safety::policy_deny(
                     "posix",
                     format!(
-                        "{name}: an agent may not pass an IRONSHELL_* variable to a child process"
+                        "{name}: an agent may not pass this variable to a child process: it steers the programs, libraries or network destinations the child uses"
                     ),
-                    "IRONSHELL_* variables are set by whoever launches the agent",
+                    "variables that steer child programs are set by whoever launches the agent, not by the agent",
                 );
                 sink.eline(&refusal.to_string());
                 return 126;

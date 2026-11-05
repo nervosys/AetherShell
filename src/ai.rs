@@ -969,6 +969,22 @@ fn complete_via_compat(
         .ok_or_else(|| anyhow!("No content in response from {}", base_url))
 }
 
+/// The IronGate endpoint an `ai()` call will reach, for its approval descriptor.
+///
+/// The router reads `IRONSHELL_AI` and `IRONSHELL_AI_ROUTER`, which only the
+/// launcher sets. With no provider named it tries IronGate first, so the URL is
+/// reported whenever the gate is a possible route. `None` when another provider
+/// is named, or when the registry router chooses at run time.
+pub fn ai_gate_destination() -> Option<String> {
+    if std::env::var("IRONSHELL_AI_ROUTER").ok().as_deref() == Some("registry") {
+        return None;
+    }
+    let provider = std::env::var("IRONSHELL_AI").unwrap_or_default();
+    let scheme = provider.split(':').next().unwrap_or("");
+    let gate_named = matches!(scheme, "irongate" | "gate" | "iron");
+    (provider.is_empty() || gate_named).then(crate::model_plane::gate_url)
+}
+
 /// Map provider scheme to (base_url, api_key_env_var)
 fn provider_base_url(scheme: &str) -> Option<(String, String)> {
     match scheme {

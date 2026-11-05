@@ -6770,12 +6770,20 @@ pub fn guard_dispatch(builtin: &str, args: &[crate::value::Value]) -> Result<(),
     // silently authorised the destructive call, which is the exact opposite of
     // what content-binding is for. Every argument goes in, typed.
     let argv = serde_json::to_value(args).unwrap_or(Json::Null);
+    // The approval named only the prompt. An `ai` call also sends the gateway key
+    // to a destination, so the descriptor (and therefore the token) carries it.
+    let mut blast_radius = json!({ "args": argv });
+    if builtin == "ai" {
+        if let Some(destination) = crate::ai::ai_gate_destination() {
+            blast_radius["destination"] = json!(destination);
+        }
+    }
     guard(GuardCtx {
         builtin,
         effect,
         what: effect.as_str(),
         targets,
-        blast_radius: json!({ "args": argv }),
+        blast_radius,
         // Honest rather than optimistic: a journalled file write can be rewound,
         // but this path covers process/exec/destructive classes whose effects
         // reach outside the filesystem, and claiming reversibility would make an
@@ -6890,6 +6898,95 @@ pub fn env_secret_gated(name: &str) -> bool {
         && redaction_enabled()
         && !secrets_permitted()
         && is_secret_name(name)
+}
+
+/// Whether the environment variable `name` steers a child program, the code
+/// loaded into it, its configuration or credentials, or the network destination
+/// of the data it is given. An agent may not change such a variable.
+///
+/// Matched case-insensitively, as Windows matches names. Exact names decide
+/// which program runs (`PATH`, `PATHEXT`, `COMSPEC`), what it reads as home and
+/// configuration (`HOME`, `APPDATA`, `GIT`, `KUBECONFIG`), and which startup
+/// file or interpreter path it loads (`BASH_ENV`, `NODE_OPTIONS`, `PYTHONPATH`).
+/// Prefixes cover whole families: the shell's and the gateway's own settings,
+/// the git, loader (`LD_`, `DYLD_`) and toolchain families. Suffixes cover
+/// proxies (`HTTP_PROXY`, `https_proxy`) and every provider endpoint or key.
+pub(crate) fn env_name_steers_children(name: &str) -> bool {
+    const EXACT: &[&str] = &[
+        "PATH",
+        "PATHEXT",
+        "HOME",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "COMSPEC",
+        "SYSTEMROOT",
+        "IFS",
+        "BASH_ENV",
+        "ENV",
+        "ZDOTDIR",
+        "SHELL",
+        "PAGER",
+        "EDITOR",
+        "VISUAL",
+        "BROWSER",
+        "PYTHONPATH",
+        "PYTHONSTARTUP",
+        "PYTHONHOME",
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "PERL5LIB",
+        "PERL5OPT",
+        "RUBYOPT",
+        "RUBYLIB",
+        "CURL_HOME",
+        "WGETRC",
+        "SSH_ASKPASS",
+        "SUDO_ASKPASS",
+        "SSH_AUTH_SOCK",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "NODE_EXTRA_CA_CERTS",
+        "DOCKER_HOST",
+        "DOCKER_CONFIG",
+        "KUBECONFIG",
+        "GNUPGHOME",
+        "MANPAGER",
+        "GIT",
+    ];
+    const PREFIXES: &[&str] = &[
+        "IRONSHELL_",
+        "IRONGATE_",
+        "GIT_",
+        "LD_",
+        "DYLD_",
+        "XDG_",
+        "CARGO_",
+        "RUSTC_",
+        "NPM_CONFIG_",
+        "PIP_",
+    ];
+    const SUFFIXES: &[&str] = &[
+        "_PROXY",
+        "_API_KEY",
+        "_TOKEN",
+        "_BASE_URL",
+        "_API_BASE",
+        "_ENDPOINT",
+    ];
+    let upper = name.to_ascii_uppercase();
+    EXACT.contains(&upper.as_str())
+        || PREFIXES.iter().any(|p| upper.starts_with(p))
+        || SUFFIXES.iter().any(|s| upper.ends_with(s))
+}
+
+/// Whether this process must refuse to change the variable `name`: agent mode,
+/// and a name that [`env_name_steers_children`] classes as steering.
+pub(crate) fn env_change_refused(name: &str) -> bool {
+    current_mode() == Mode::Agent && env_name_steers_children(name)
 }
 
 /// Refuse to read the clipboard's contents in agent mode unless the operator
