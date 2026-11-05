@@ -396,6 +396,65 @@ fn a_failed_undo_keeps_the_step_so_it_can_be_retried() {
 }
 
 #[test]
+fn undo_leaves_a_newer_file_it_cannot_keep() {
+    // The file changed after the step, and the new version is over the capture
+    // limit, so redo could not bring it back. Overwriting it would lose it.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("undo_keeps_newer");
+    let p = s.path("data.bin");
+    std::fs::write(&p, "original").expect("seed");
+    call(
+        "file_write",
+        vec![Value::Str(p.clone()), Value::Str("step".into())],
+    )
+    .expect("write");
+    let newer = vec![b'n'; 9 * 1024 * 1024];
+    std::fs::write(&p, &newer).expect("a later change, too large to capture");
+
+    let refused = call("undo", vec![Value::Int(1)]).expect("undo");
+    assert_eq!(field(&refused, "restored"), Value::Int(0));
+    assert_eq!(field(&refused, "complete"), Value::Bool(false));
+    assert!(
+        std::fs::read(&p).unwrap() == newer,
+        "the newer version must not be overwritten"
+    );
+    assert_eq!(journal::entries().len(), 1, "the step stays journalled");
+
+    // The way through that the refusal names: move the file, then undo.
+    let moved = s.path("data.moved");
+    std::fs::rename(&p, &moved).expect("move away");
+    let retried = call("undo", vec![Value::Int(1)]).expect("retry");
+    assert_eq!(field(&retried, "restored"), Value::Int(1));
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "original");
+    assert!(std::fs::read(&moved).unwrap() == newer);
+    assert_eq!(journal::entries().len(), 0);
+}
+
+#[test]
+fn undo_does_not_remove_a_created_file_it_cannot_keep() {
+    // The same loss by another route: the step created the file, so undoing it
+    // deletes the file, including whatever was written to it since.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("undo_keeps_created");
+    let p = s.path("made.bin");
+    call(
+        "file_write",
+        vec![Value::Str(p.clone()), Value::Str("step".into())],
+    )
+    .expect("write");
+    let newer = vec![b'n'; 9 * 1024 * 1024];
+    std::fs::write(&p, &newer).expect("a later change, too large to capture");
+
+    let refused = call("undo", vec![Value::Int(1)]).expect("undo");
+    assert_eq!(field(&refused, "complete"), Value::Bool(false));
+    assert!(
+        std::fs::read(&p).unwrap() == newer,
+        "the newer version must not be removed"
+    );
+    assert_eq!(journal::entries().len(), 1, "the step stays journalled");
+}
+
+#[test]
 fn a_failed_undo_does_not_undo_older_steps_past_it() {
     // Undo runs most recent first. When the newest step fails, the older one
     // must stay as it is: undoing it would reverse the steps out of order.

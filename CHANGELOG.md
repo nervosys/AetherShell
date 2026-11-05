@@ -454,6 +454,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `undo` no longer destroys a file it cannot keep for `redo`. A file changed after the step and now over the 8 MiB capture limit, or past the session's capture budget, was overwritten or deleted with no copy kept. Now it is left alone, the step stays in the journal, and the reply says to move the file away to undo the step.
 - A failed undo keeps its step. It used to drop the step before restoring, which discarded the only saved copy of the prior contents; now the step stays in the journal and the undo stops there rather than undoing older steps past it, so it can be retried. The same holds for redo.
 - `ish -b` reports a failed write to stdout and exits nonzero; a closed pipe stays silent.
 - A failed run's error now names output it could not remove, such as a private key or decrypted plaintext, so the caller knows the file is still on disk.

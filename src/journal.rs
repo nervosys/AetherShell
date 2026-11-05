@@ -571,8 +571,10 @@ pub enum Outcome {
 /// so the step can be retried and no older step is undone past it.
 ///
 /// Each step that is actually reversed is pushed onto the redo stack, so
-/// [`redo`] can put it back. A step whose current state cannot be captured is
-/// still undone; it simply cannot be redone.
+/// [`redo`] can put it back. A file that holds something undo cannot keep, such
+/// as a version over the capture limit, is left alone and the undo stops there:
+/// it may have changed since the step, and overwriting it would lose that
+/// version for good. Moving the file away lets the step be undone.
 pub fn undo(n: usize) -> Vec<Outcome> {
     let mut s = state();
     let mut out = Vec::new();
@@ -603,22 +605,33 @@ pub fn undo(n: usize) -> Vec<Outcome> {
         } else {
             entry.path.clone()
         };
-        let outcome = match &entry.before {
-            Before::Contents(bytes) => {
-                let after = capture(&entry.path, used);
-                match std::fs::write(&entry.path, bytes) {
-                    Ok(()) => {
-                        push_redo(&mut s, &entry, after);
-                        Outcome::Restored(what)
-                    }
-                    Err(e) => Outcome::Failed {
-                        what,
-                        why: e.to_string(),
-                    },
-                }
+        let after = capture(&entry.path, used);
+        // As in redo: a file is not overwritten or removed unless what it holds
+        // now is first kept. A path that is not a file is not touched by this
+        // check; the restore below reports it.
+        if !matches!(entry.before, Before::Irreversible(_)) && Path::new(&entry.path).is_file() {
+            if let Err(why) = &after {
+                out.push(Outcome::Skipped {
+                    what,
+                    why: format!(
+                        "current contents could not be kept for redo, so left as they are:                          {why}. Move the file away to undo this step"
+                    ),
+                });
+                break;
             }
+        }
+        let outcome = match &entry.before {
+            Before::Contents(bytes) => match std::fs::write(&entry.path, bytes) {
+                Ok(()) => {
+                    push_redo(&mut s, &entry, after);
+                    Outcome::Restored(what)
+                }
+                Err(e) => Outcome::Failed {
+                    what,
+                    why: e.to_string(),
+                },
+            },
             Before::Absent => {
-                let after = capture(&entry.path, used);
                 let p = Path::new(&entry.path);
                 if p.is_file() {
                     match std::fs::remove_file(p) {
