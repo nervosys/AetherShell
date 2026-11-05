@@ -21335,7 +21335,7 @@ fn bi_safety_status(_args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     ];
     let mut policy = BTreeMap::new();
     for e in effects {
-        let d = match crate::safety::decide(e, mode) {
+        let d = match crate::safety::effective_decision(e, mode) {
             Decision::Allow => "allow",
             Decision::Deny => "deny",
             Decision::Approve => "approve",
@@ -60122,7 +60122,7 @@ fn ops_forge_flag_refused(flag: &str) -> bool {
 
 /// A forge call (gh or glab): one of `verbs` under `group`, then the flags and
 /// values that follow it. A read verb is bounded and deadline'd. A write verb
-/// changes a remote; the central Network gate approves it in agent mode, and it
+/// changes a remote; the central Network gate asks for approval in agent mode, and it
 /// gets the longer deadline.
 fn ops_forge(
     builtin: &str,

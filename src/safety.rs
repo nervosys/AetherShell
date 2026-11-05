@@ -24,11 +24,15 @@
 //! | Pure          | allow  | allow    |
 //! | ReadLocal     | allow  | allow    |
 //! | WriteLocal    | allow  | allow*   | (* jailed to workspace)
-//! | Network       | allow  | allow    |
+//! | Network       | allow  | approve† |
 //! | Process       | allow  | approve  |
 //! | Destructive   | allow  | approve* | (* jailed to workspace)
 //! | Exec          | allow  | approve  |
 //! | Privileged    | allow  | deny     |
+//!
+//! † `allow` once `IRONSHELL_NET_ALLOW` names destinations. `decide()` returns
+//! the table's answer; `effective_decision()`, which `guard` applies, asks for
+//! approval for `Network` in agent mode until an allowlist is set.
 //!
 //! `IRONSHELL_POLICY=permissive` makes agent mode behave like human mode (allow
 //! all) for trusted automation; `IRONSHELL_POLICY=strict` is the default.
@@ -498,6 +502,10 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "workflow_create" | "circuit_breaker_create"
         | "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check"
         | "proc_suspend" | "proc_resume" | "proc_set_priority"
+        // Reaps a child this process spawned (waitpid on Unix) and drops its
+        // SPAWNED entry. That changes the process table, so it is Process, not
+        // ReadLocal under the `proc_` prefix rule, which would otherwise claim it.
+        | "proc_wait"
         | "cron_disable"
         // Ending a tmux session runs no command, so it is process lifecycle
         // control like `kill`. tmux_new and tmux_send run caller text: Exec.
@@ -1191,6 +1199,11 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "file_edit" | "file_insert" | "file_patch" | "session_export"
         // `file_backup` copies onto `<path><suffix>`; the label said read.
         | "file_backup"
+        // `file_replace` calls `file_patch`, which rewrites the file. It was
+        // classed ReadLocal by the `file_` prefix rule, so nothing journalled it
+        // and `undo()` left the replacement in place (AS-2026-27). Its two
+        // aliases are named too, rather than inheriting through the group.
+        | "file_replace" | "text_replace" | "str_replace_in_file"
         | "write_file" | "write_json" | "text_write" | "save_json"
         | "gui_dialog_file_save"
         | "chmod" | "fs_chmod" | "fs_chown"
@@ -1487,6 +1500,10 @@ pub enum Decision {
 }
 
 /// The default policy table (§7.1). `permissive` short-circuits to allow-all.
+///
+/// This is the table's answer and nothing more. For `Network` in agent mode it
+/// is `Allow`, and that is not what a call gets: [`effective_decision`] adds the
+/// egress rule, which `guard` applies. Ask `effective_decision` what will happen.
 pub fn decide(effect: Effect, mode: Mode) -> Decision {
     if policy_permissive() {
         return Decision::Allow;
@@ -1501,6 +1518,27 @@ pub fn decide(effect: Effect, mode: Mode) -> Decision {
             Effect::Privileged => Decision::Deny,
         },
     }
+}
+
+/// The decision `guard` applies: [`decide`], plus the egress rule.
+///
+/// `decide` allows `Network` in agent mode, but reaching a host is a grant, not a
+/// default. With no `IRONSHELL_NET_ALLOW` allowlist, agent mode asks for approval
+/// first, so `http_get`, `web_fetch`, `git_fetch` and `ai` return
+/// `E_NEEDS_APPROVAL` until the operator names hosts or approves the call. Under
+/// an allowlist, `Allow` stands and `egress_permitted` judges the destination.
+/// Permissive policy allows everything.
+pub fn effective_decision(effect: Effect, mode: Mode) -> Decision {
+    let decision = decide(effect, mode);
+    if decision == Decision::Allow
+        && effect == Effect::Network
+        && mode == Mode::Agent
+        && !policy_permissive()
+        && net_allowlist().is_none()
+    {
+        return Decision::Approve;
+    }
+    decision
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -6555,22 +6593,10 @@ pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {
         return Ok(());
     }
 
-    // 3. Policy decision.
-    let mut decision = decide(ctx.effect, mode);
-    // Agent-mode egress with no allowlist configured asks first. `Network` is
-    // `Allow` in the policy table, which made the one uncontained case in E4's
-    // default agent posture (`http_get` to an arbitrary host) the channel an
-    // exfiltration would use. Deno's `--allow-net` is the precedent: reaching a
-    // host is a grant, not a default. An operator who wants the old behaviour
-    // sets `IRONSHELL_NET_ALLOW=*`; one who knows the hosts lists them.
-    if decision == Decision::Allow
-        && ctx.effect == Effect::Network
-        && mode == Mode::Agent
-        && !policy_permissive()
-        && net_allowlist().is_none()
-    {
-        decision = Decision::Approve;
-    }
+    // 3. Policy decision, with the egress rule `effective_decision` adds.
+    //    `Network` is `Allow` in the policy table; the rule that makes it ask in
+    //    agent mode is there, not here.
+    let decision = effective_decision(ctx.effect, mode);
     match decision {
         Decision::Allow => {
             let _ = audit(ctx.builtin, ctx.effect, "allow", &resource, json!({}));
@@ -7840,6 +7866,34 @@ mod tests {
         assert_eq!(decide(Effect::Destructive, Mode::Agent), Decision::Approve);
         assert_eq!(decide(Effect::Exec, Mode::Agent), Decision::Approve);
         assert_eq!(decide(Effect::Privileged, Mode::Agent), Decision::Deny);
+    }
+
+    #[test]
+    fn network_is_allow_in_the_table_and_approve_for_guard() {
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        // The table says Allow; the decision guard applies asks first.
+        assert_eq!(decide(Effect::Network, Mode::Agent), Decision::Allow);
+        assert_eq!(
+            effective_decision(Effect::Network, Mode::Agent),
+            Decision::Approve
+        );
+        assert_eq!(
+            effective_decision(Effect::Network, Mode::Human),
+            Decision::Allow
+        );
+        std::env::set_var("IRONSHELL_NET_ALLOW", "example.com");
+        assert_eq!(
+            effective_decision(Effect::Network, Mode::Agent),
+            Decision::Allow
+        );
+        clear_env();
+        std::env::set_var("IRONSHELL_POLICY", "permissive");
+        assert_eq!(
+            effective_decision(Effect::Network, Mode::Agent),
+            Decision::Allow
+        );
+        clear_env();
     }
 
     #[test]

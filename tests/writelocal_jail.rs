@@ -307,7 +307,11 @@ fn the_number_of_writelocal_builtins_relying_on_call_sites_is_measured() {
         // caller path to write.
         // 181 after the rename-file fix: refactor_rename_file now guards both ends
         // itself and is listed in SELF_GUARDED, so it leaves the unguarded count.
-        unguarded.len() <= 181,
+        // 184 after AS-2026-27: file_replace, text_replace and str_replace_in_file
+        // are WriteLocal now, so they are journalled. Each calls bi_file_patch,
+        // which jails and snapshots the path, but their own bodies do not guard
+        // it, so they count here and are not in SELF_GUARDED.
+        unguarded.len() <= 184,
         "{} of {} WriteLocal builtins are not in SELF_GUARDED, up from the \
          measured 150. Nothing in `guard_dispatch` jails them, so a new one that \
          writes a caller's path must guard it in its body. Adding another is \

@@ -20,7 +20,7 @@
 //! `eval` builtin's own effect and no more; that limit is stated in the output.
 
 use crate::ast::{Expr, Stmt};
-use crate::safety::{decide, effect_of, net_allowlist, Decision, Effect, Mode};
+use crate::safety::{effect_of, effective_decision, Decision, Effect, Mode};
 use crate::value::Value;
 use anyhow::Result;
 use std::collections::{BTreeMap, HashSet};
@@ -147,14 +147,10 @@ impl Walk<'_> {
     }
 }
 
-/// The agent-mode decision for one effect, including the egress rule that
-/// `safety::guard` adds on top of the policy table.
+/// The agent-mode decision for one effect, as `safety::guard` applies it: the
+/// policy table plus the egress rule (`safety::effective_decision`).
 fn agent_decision(effect: Effect) -> &'static str {
-    let d = decide(effect, Mode::Agent);
-    if d == Decision::Allow && effect == Effect::Network && net_allowlist().is_none() {
-        return "approve";
-    }
-    match d {
+    match effective_decision(effect, Mode::Agent) {
         Decision::Allow => "allow",
         Decision::Approve => "approve",
         Decision::Deny => "deny",
@@ -255,6 +251,7 @@ pub fn explain(code: &str) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::safety::net_allowlist;
 
     fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
         match v {

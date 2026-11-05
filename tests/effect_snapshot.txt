@@ -407,7 +407,7 @@ file_mkdir	WriteLocal
 file_move	Destructive
 file_patch	WriteLocal
 file_rename	Destructive
-file_replace	ReadLocal
+file_replace	WriteLocal
 file_type	ReadLocal
 file_write	WriteLocal
 find	ReadLocal
@@ -988,7 +988,7 @@ proc_spawn	Exec
 proc_start_time	ReadLocal
 proc_suspend	Process
 proc_threads	ReadLocal
-proc_wait	ReadLocal
+proc_wait	Process
 product	Pure
 progress_done	WriteLocal
 progress_update	WriteLocal
@@ -1201,7 +1201,7 @@ startup_list	ReadLocal
 stat	ReadLocal
 status_bar	WriteLocal
 str	Pure
-str_replace_in_file	ReadLocal
+str_replace_in_file	WriteLocal
 strace	Exec
 strace_cmd	Exec
 strings	ReadLocal
@@ -1285,7 +1285,7 @@ test_skipped	Pure
 test_snapshot	Pure
 test_watch	Exec
 text_edit	WriteLocal
-text_replace	ReadLocal
+text_replace	WriteLocal
 text_write	WriteLocal
 themes	Pure
 time	Pure

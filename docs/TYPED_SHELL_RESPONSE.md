@@ -804,7 +804,9 @@ unchanged. The middle column is that default, measured with no flags at all:
 agent mode does not set, which is the next caveat.
 
 *Network is metered, not denied.* The policy table
-(`src/safety.rs`) has `Network → allow` in agent mode; what stopped the egress
+(`src/safety.rs`) has `Network → allow` in agent mode, and `guard` turns that into
+approval unless `IRONSHELL_NET_ALLOW` is set (`effective_decision`; see the
+addendum below). What stopped the egress
 probe was the `IRONSHELL_MAX_NET` request-count governor set to zero. A quota
 bounds how *many* requests leave, not where they go. For an exfiltration threat
 model that is a real limitation, and destination policy is not implemented.

@@ -82,6 +82,39 @@ fn an_overwritten_file_is_restored_byte_for_byte() {
 }
 
 #[test]
+fn a_replaced_file_is_restored_byte_for_byte_whatever_the_alias() {
+    // AS-2026-27: `file_replace` was classed ReadLocal by the `file_` prefix
+    // rule, so nothing was journalled and `undo` left the replacement in place.
+    // Its two aliases share the implementation, and must be journalled the same.
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = Session::new("replace_undo");
+    for name in ["file_replace", "text_replace", "str_replace_in_file"] {
+        let p = s.path(&format!("{name}.txt"));
+        std::fs::write(&p, "alpha beta").expect("seed");
+
+        call(
+            name,
+            vec![
+                Value::Str(p.clone()),
+                Value::Str("alpha".into()),
+                Value::Str("gamma".into()),
+            ],
+        )
+        .unwrap_or_else(|e| panic!("{name} should succeed: {e}"));
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "gamma beta", "{name}");
+
+        let result = call("undo", vec![Value::Int(1)]).expect("undo");
+        assert_eq!(field(&result, "restored"), Value::Int(1), "{name}");
+        assert_eq!(field(&result, "complete"), Value::Bool(true), "{name}");
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap(),
+            "alpha beta",
+            "{name}: undo must restore the exact prior bytes"
+        );
+    }
+}
+
+#[test]
 fn a_file_created_by_the_agent_is_removed_again() {
     // The other half of restoring: a step that created something must be
     // reversible by deleting it, or "undo" leaves litter behind.

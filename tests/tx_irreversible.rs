@@ -93,6 +93,10 @@ const HARMLESS: &[(&str, &[&str])] = &[
             "status_bar", "ui_clear", "agent_started", "agent_completed", "agent_thinking",
         ],
     ),
+    (
+        "waits for a child and reaps it (proc_wait): no file changes, and an ended child is not restarted by a rollback",
+        &["proc_wait"],
+    ),
 ];
 
 /// Refuse in a transaction, or snapshot what they change, deeper than the
@@ -108,6 +112,9 @@ const SELF_COVERED: &[(&str, &str)] = &[
     ("cron_disable", "refuses (builtins.rs)"),
     ("cron_enable", "refuses (builtins.rs)"),
     ("cron_remove", "refuses (builtins.rs)"),
+    ("file_replace", "snapshots (builtins.rs, in file_patch, which it calls)"),
+    ("str_replace_in_file", "snapshots (builtins.rs, in file_patch, which it calls)"),
+    ("text_replace", "snapshots (builtins.rs, in file_patch, which it calls)"),
     ("db_json_to_sqlite", "snapshots (builtins.rs)"),
     ("db_kv_delete", "snapshots (builtins.rs)"),
     ("db_kv_set", "snapshots (builtins.rs)"),
