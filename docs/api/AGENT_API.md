@@ -444,6 +444,10 @@ Install an agent from the marketplace.
 { "name": "code-reviewer", "version": "1.0.0" }
 ```
 
+A name or version that is not one safe path segment (letters, digits, `-`, `_`,
+`.`; no `/`) is answered 400 with `"code": "E_BAD_ARG"`. The archive must match
+the registry's SHA-256 digest; a package without one is refused, and so is MD5.
+
 **Response (200):**
 ```json
 {

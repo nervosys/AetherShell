@@ -41,6 +41,18 @@ inside the archive are refused. A package the registry does not hold is
 `E_NOT_FOUND`; there is no fallback to the local catalogue, which holds
 records but no archives.
 
+Integrity: the archive must match the registry's SHA-256 digest (64 hex
+digits) before anything is written. A package with no digest, or a digest of
+any other shape, MD5 included, is refused with a coded error. The digest comes
+from the same registry as the archive, so it detects corruption and truncation
+in transit only. It does not detect a compromised registry. Packages are not
+signed and no publisher keys are checked; there is no signing scheme yet.
+
+Names: an agent name and version are one path segment: ASCII letters, digits,
+`-`, `_` and `.`, not starting with `.` or `-`. A `/` is refused, so scoped
+names are not supported. A refused name is `E_BAD_ARG`; through the API it is
+HTTP 400.
+
 Via the API:
 
 ```bash

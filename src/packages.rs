@@ -332,6 +332,24 @@ fn check_segment(s: &str, what: &str) -> Result<()> {
     }
 }
 
+/// Whether `s` has the shape of a SHA-256 digest: 64 hex digits. MD5 and every
+/// other length are refused by the callers, not weakened to a prefix match.
+pub(crate) fn is_sha256_hex(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Whether `bytes` hash to `expected` (a 64-hex SHA-256, case-insensitive).
+/// The comparison is constant-time. Callers check the shape first.
+pub(crate) fn sha256_matches(bytes: &[u8], expected: &str) -> Result<bool> {
+    use ironcrypto::core_types::traits::Digest;
+    let digest = ironcrypto::hash::Sha256::digest(bytes)
+        .map_err(|e| crate::safety::ic_failed("marketplace install", e))?;
+    Ok(ironcrypto::core_types::ct::verify(
+        hex::encode(digest).as_bytes(),
+        expected.to_ascii_lowercase().as_bytes(),
+    ))
+}
+
 /// Read a response body, refusing one longer than `max` bytes rather than
 /// buffering whatever a server chooses to send.
 #[cfg(not(target_arch = "wasm32"))]
@@ -459,14 +477,45 @@ impl RegistryClient {
         }
     }
 
-    /// Download a package tarball from the registry and cache it locally
+    /// Download a package tarball from the registry and cache it locally.
+    ///
+    /// `checksum` is the registry's SHA-256 digest for this package. The archive
+    /// is refused, and nothing is written, unless it is present, is 64 hex
+    /// digits, and matches the bytes received. The digest comes from the same
+    /// registry as the archive, so this detects corruption, not a compromised
+    /// registry.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn download_package(&self, name: &str, version: &str) -> Result<PathBuf> {
+    pub fn download_package(
+        &self,
+        name: &str,
+        version: &str,
+        checksum: Option<&str>,
+    ) -> Result<PathBuf> {
         // Both become directory names under the cache. A name that is not one
         // path segment would write outside it, and an absolute one would
         // replace the cache directory entirely.
         check_segment(name, "package name")?;
         check_segment(version, "package version")?;
+        let expected = match checksum {
+            Some(d) if is_sha256_hex(d) => d,
+            Some(d) => {
+                return Err(crate::safety::policy_deny(
+                    BUILTIN,
+                    format!(
+                        "package {name}@{version} has a digest of {} characters, not a SHA-256 (64 hex digits); refusing to install it",
+                        d.len()
+                    ),
+                    "the registry must publish a SHA-256 digest for each package; nothing was downloaded",
+                ))
+            }
+            None => {
+                return Err(crate::safety::policy_deny(
+                    BUILTIN,
+                    format!("package {name}@{version} has no published digest; refusing to install it"),
+                    "a package is installed only with the SHA-256 digest its registry publishes; nothing was downloaded",
+                ))
+            }
+        };
         let url = self.api_url(&format!(
             "/packages/{}/{}/download",
             urlencoding::encode(name),
@@ -494,6 +543,15 @@ impl RegistryClient {
         }
 
         let bytes = read_body_limited(resp, MAX_ARCHIVE_BYTES)?;
+
+        // Verify before anything is written or unpacked.
+        if !sha256_matches(&bytes, expected)? {
+            return Err(crate::safety::policy_deny(
+                BUILTIN,
+                format!("package {name}@{version} does not match its published SHA-256 digest; refusing to install it"),
+                "the download is corrupt or was altered in transit; nothing was written, so retry the install",
+            ));
+        }
 
         // Create cache directory: {cache_dir}/{name}/{version}/
         let pkg_dir = self.cache_dir.join(name).join(version);
@@ -525,7 +583,14 @@ impl RegistryClient {
         {
             let mut entry = entry.context("failed to read package archive entry")?;
             let kind = entry.header().entry_type();
-            if kind.is_symlink() || kind.is_hard_link() {
+            // Device nodes and FIFOs are not package content, and creating
+            // them would need the same trust as a link.
+            if kind.is_symlink()
+                || kind.is_hard_link()
+                || kind.is_character_special()
+                || kind.is_block_special()
+                || kind.is_fifo()
+            {
                 return Err(crate::safety::policy_deny(
                     BUILTIN,
                     format!(
@@ -862,7 +927,7 @@ mod tests {
     #[test]
     fn refused_segment_carries_its_code() {
         let err = RegistryClient::default()
-            .download_package("../escape", "1.0.0")
+            .download_package("../escape", "1.0.0", None)
             .unwrap_err();
         let se = err
             .downcast_ref::<crate::safety::SafetyError>()

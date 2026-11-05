@@ -2,8 +2,61 @@
 //!
 //! This module provides a registry for sharing and discovering IronShell agents.
 //! Agents can be published, searched, installed, and versioned.
+//!
+//! Trust: an installed agent is a file, and nothing here runs it. The package
+//! digest is SHA-256 and comes from the same registry as the package, so it
+//! detects corruption and truncation in transit. It does not detect a
+//! compromised registry, and nothing signs packages or checks a publisher key.
+//! Only a digest the registry publishes is checked; there is no signing scheme.
+//!
+//! Names: an agent name and version become directory names in the cache, so
+//! both are checked by `validate_package_name` at every entry point and again
+//! on what the registry sends back.
 
+use crate::packages::{is_sha256_hex, sha256_matches};
 use anyhow::Result;
+
+/// What a refused digest is, for the message: MD5 is named, since it is the
+/// one shape an older registry sends.
+fn describe_digest(digest: &str) -> String {
+    match digest.len() {
+        0 => "no digest".to_string(),
+        32 => "a 32-character digest, which is MD5 (MD5 is not accepted)".to_string(),
+        n => format!("a {n}-character digest"),
+    }
+}
+
+/// Longest agent name or version accepted.
+const MAX_NAME_LEN: usize = 128;
+
+/// Refuse an agent name or version that is not one safe path segment
+/// (`E_BAD_ARG`). Allowed: ASCII letters, digits, `-`, `_` and `.`, not
+/// starting with `.` or `-`, and not a Windows device name. A `/` is refused,
+/// so scoped (`scope/name`) names are not accepted: the client has never
+/// routed them.
+pub fn validate_package_name(name: &str, what: &str) -> Result<()> {
+    let ok = !name.is_empty()
+        && name.len() <= MAX_NAME_LEN
+        && !name.starts_with(['.', '-'])
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
+    let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit());
+    if ok && !device {
+        return Ok(());
+    }
+    Err(registry_coded(
+        crate::safety::ErrorCode::BadArg,
+        format!(
+            "marketplace: {what} {name:?} is not one safe name: use ASCII letters, digits, '-', '_' and '.', not starting with '.' or '-', at most {MAX_NAME_LEN} characters, and not a device name"
+        ),
+        "pass the agent's name or version as the registry lists it; a '/', '\\' or ':' is refused",
+    ))
+}
 
 /// A coded error for the registry client (`builtin` = "marketplace"), so a caller
 /// of `marketplace install` through the agent API can tell a missing agent from
@@ -239,11 +292,8 @@ pub struct InstalledAgent {
 }
 
 impl RegistryClient {
-    /// Create a new registry client
+    /// Create a new registry client over the user's agent cache
     pub fn new(registry_url: Option<String>) -> Result<Self> {
-        let registry_url =
-            registry_url.unwrap_or_else(|| "https://registry.ironshell.dev".to_string());
-
         let cache_dir = dirs::cache_dir()
             .ok_or_else(|| {
                 registry_coded(
@@ -254,6 +304,15 @@ impl RegistryClient {
             })?
             .join("ironshell")
             .join("agents");
+        Self::with_cache_dir(registry_url, cache_dir)
+    }
+
+    /// Create a registry client over `cache_dir`, which is created if absent.
+    /// `new` uses the user's cache; tests and hosts that keep the cache
+    /// elsewhere use this.
+    pub fn with_cache_dir(registry_url: Option<String>, cache_dir: PathBuf) -> Result<Self> {
+        let registry_url =
+            registry_url.unwrap_or_else(|| "https://registry.ironshell.dev".to_string());
 
         std::fs::create_dir_all(&cache_dir)?;
 
@@ -307,12 +366,20 @@ impl RegistryClient {
 
     /// Get agent details
     pub async fn get(&self, name: &str, version: Option<&str>) -> Result<PublishedAgent> {
+        validate_package_name(name, "agent name")?;
+        if let Some(v) = version {
+            validate_package_name(v, "agent version")?;
+        }
         let client = registry_client(30)?;
 
-        let version_suffix = version.map(|v| format!("/{}", v)).unwrap_or_default();
+        let version_suffix = version
+            .map(|v| format!("/{}", urlencoding::encode(v)))
+            .unwrap_or_default();
         let url = format!(
             "{}/api/v1/agents/{}{}",
-            self.registry_url, name, version_suffix
+            self.registry_url,
+            urlencoding::encode(name),
+            version_suffix
         );
 
         let response = registry_get(&client, &url).await?;
@@ -337,6 +404,13 @@ impl RegistryClient {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<InstalledAgent>> + Send + 'a>>
     {
         Box::pin(async move {
+            // The name selects a cache directory, so it is checked before the
+            // installed list, the registry, or the disk is touched.
+            validate_package_name(name, "agent name")?;
+            if let Some(v) = version {
+                validate_package_name(v, "agent version")?;
+            }
+
             // Check if already installed
             if let Some(installed) = self.installed.get(name) {
                 if version.is_none() || version == Some(&installed.manifest.version) {
@@ -347,6 +421,9 @@ impl RegistryClient {
             // Fetch agent from registry
             let agent = self.get(name, version).await?;
 
+            // The version in the registry's reply names a directory too.
+            validate_package_name(&agent.manifest.version, "agent version from the registry")?;
+
             // Install dependencies first
             for dep in &agent.manifest.dependencies {
                 self.install(&dep.name, Some(&dep.version)).await?;
@@ -356,7 +433,9 @@ impl RegistryClient {
             let client = registry_client(120)?;
             let url = format!(
                 "{}/api/v1/agents/{}/{}/download",
-                self.registry_url, name, agent.manifest.version
+                self.registry_url,
+                urlencoding::encode(name),
+                urlencoding::encode(&agent.manifest.version)
             );
 
             let response = registry_get(&client, &url).await?;
@@ -373,27 +452,21 @@ impl RegistryClient {
                 usize::try_from(crate::security::max_file_size_bytes()?).unwrap_or(usize::MAX);
             let bytes = crate::http_body::body_bytes_capped(response, max).await?;
 
-            // Verify the download against the registry checksum. New packages
-            // publish a SHA-256 (64-hex) digest; legacy packages a 32-hex MD5,
-            // still accepted on read (by length) so existing packages keep working.
-            // MD5 is collision-broken, so registries should migrate to SHA-256.
-            let checksum_ok = match agent.checksum.len() {
-                64 => {
-                    use ironcrypto::core_types::traits::Digest;
-                    let digest = ironcrypto::hash::Sha256::digest(&bytes)
-                        .map_err(|e| crate::safety::ic_failed("marketplace install", e))?;
-                    ironcrypto::core_types::ct::verify(
-                        hex::encode(digest).as_bytes(),
-                        agent.checksum.as_bytes(),
-                    )
-                }
-                // Legacy MD5 — not accepted under FIPS-strict mode (non-approved).
-                32 if !crate::safety::fips_enabled() => {
-                    format!("{:x}", md5::compute(&bytes)) == agent.checksum
-                }
-                _ => false,
-            };
-            if !checksum_ok {
+            // Verify the download against the registry's SHA-256 digest before
+            // anything is written. Only a 64-hex SHA-256 passes: MD5 is
+            // collision-broken, and a missing or other-shaped digest is refused.
+            if !is_sha256_hex(&agent.checksum) {
+                return Err(registry_coded(
+                    crate::safety::ErrorCode::Io,
+                    format!(
+                        "Agent {} has {}; only a SHA-256 digest (64 hex digits) is accepted, so it was not installed",
+                        name,
+                        describe_digest(&agent.checksum)
+                    ),
+                    "the registry must publish a SHA-256 digest for this agent; nothing was written, so retry after the registry fixes it",
+                ));
+            }
+            if !sha256_matches(&bytes, &agent.checksum)? {
                 return Err(registry_coded(
                     crate::safety::ErrorCode::Io,
                     format!("Checksum mismatch for agent {}", name),
@@ -431,17 +504,47 @@ impl RegistryClient {
 
     /// Uninstall an agent
     pub fn uninstall(&mut self, name: &str) -> Result<()> {
-        if let Some(installed) = self.installed.remove(name) {
-            std::fs::remove_dir_all(&installed.path)?;
-            self.save_installed()?;
-            Ok(())
-        } else {
-            Err(registry_coded(
+        validate_package_name(name, "agent name")?;
+        let Some(installed) = self.installed.get(name) else {
+            return Err(registry_coded(
                 crate::safety::ErrorCode::NotFound,
                 format!("Agent not installed: {}", name),
                 "list installed agents with marketplace list; nothing was removed",
-            ))
+            ));
+        };
+        // The record's path comes from installed.json, a file on disk, so it is
+        // resolved and must lie inside the cache before anything is deleted.
+        if let Some(dir) = self.cache_contained(&installed.path)? {
+            std::fs::remove_dir_all(dir)?;
         }
+        self.installed.remove(name);
+        self.save_installed()?;
+        Ok(())
+    }
+
+    /// Resolve an installed path and confirm it lies strictly inside the cache.
+    /// `Ok(None)` when the path does not exist, so there is nothing to remove.
+    /// A path that resolves outside the cache (through `..`, or a link) is
+    /// refused with `E_BAD_STATE`, and nothing is touched.
+    fn cache_contained(&self, path: &std::path::Path) -> Result<Option<PathBuf>> {
+        let cache = std::fs::canonicalize(&self.cache_dir)?;
+        let target = match std::fs::canonicalize(path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        if target != cache && target.starts_with(&cache) {
+            return Ok(Some(target));
+        }
+        Err(registry_coded(
+            crate::safety::ErrorCode::BadState,
+            format!(
+                "installed path {} is outside the agent cache {}; refusing to touch it",
+                path.display(),
+                cache.display()
+            ),
+            "the installed list (installed.json in the agent cache) names a path outside the cache; nothing was removed, so correct or delete that entry by hand",
+        ))
     }
 
     /// List installed agents
@@ -456,6 +559,8 @@ impl RegistryClient {
         agent_code: &str,
         api_key: &str,
     ) -> Result<PublishedAgent> {
+        validate_package_name(&manifest.name, "agent name")?;
+        validate_package_name(&manifest.version, "agent version")?;
         let client = registry_client(30)?;
 
         let url = format!("{}/api/v1/agents/publish", self.registry_url);
@@ -519,8 +624,14 @@ impl RegistryClient {
             )
         })?;
 
-        let code_path = installed.path.join("agent.ish");
-        Ok(std::fs::read_to_string(&code_path)?)
+        let dir = self.cache_contained(&installed.path)?.ok_or_else(|| {
+            registry_coded(
+                crate::safety::ErrorCode::NotFound,
+                format!("Agent {} has no files on disk", name),
+                "reinstall it with marketplace install",
+            )
+        })?;
+        Ok(std::fs::read_to_string(dir.join("agent.ish"))?)
     }
 }
 

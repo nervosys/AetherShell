@@ -67787,7 +67787,7 @@ fn bi_marketplace_install(args: Vec<Value>, _input: Option<Value>) -> Result<Val
         None => package_token("marketplace_install", "version", &pkg_info.version)?,
     };
     let install_path = client
-        .download_package(&name, &ver)
+        .download_package(&name, &ver, pkg_info.checksum.as_deref())
         .map_err(|e| registry_failure("marketplace_install", &e))?;
 
     // Update the local catalogue. A poisoned lock used to skip this and still

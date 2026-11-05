@@ -6097,6 +6097,30 @@ pub mod server {
         }))
     }
 
+    /// A name or version the registry client refuses (`E_BAD_ARG`), answered
+    /// as 400 before the client is consulted. `None` when both are safe.
+    fn marketplace_name_refusal(
+        name: &str,
+        version: Option<&str>,
+    ) -> Option<(StatusCode, Json<JsonValue>)> {
+        let checked =
+            crate::marketplace::validate_package_name(name, "agent name").and_then(|()| {
+                match version {
+                    Some(v) => crate::marketplace::validate_package_name(v, "agent version"),
+                    None => Ok(()),
+                }
+            });
+        let err = checked.err()?;
+        Some((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "code": "E_BAD_ARG",
+                "error": err.to_string(),
+            })),
+        ))
+    }
+
     async fn handle_marketplace_install(
         Json(body): Json<JsonValue>,
         state: Arc<OrchestratorState>,
@@ -6117,6 +6141,9 @@ pub mod server {
             .get("version")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
+        if let Some(refusal) = marketplace_name_refusal(&name, version.as_deref()) {
+            return refusal;
+        }
 
         let mut marketplace = state.marketplace.write().await;
         let client = match marketplace.as_mut() {
@@ -6188,6 +6215,9 @@ pub mod server {
                 )
             }
         };
+        if let Some(refusal) = marketplace_name_refusal(&name, None) {
+            return refusal;
+        }
 
         let mut marketplace = state.marketplace.write().await;
         let client = match marketplace.as_mut() {
@@ -6531,6 +6561,61 @@ pub mod server {
             .await;
             assert_eq!(status, StatusCode::OK, "{body}");
             assert!(body["registry_error"].is_null(), "{body}");
+        }
+
+        /// A traversal name is refused as 400 (`E_BAD_ARG`) on install and
+        /// uninstall, with no registry contacted and nothing written. The
+        /// client points at a dead loopback port, so a request would fail as
+        /// a network error instead.
+        #[tokio::test]
+        async fn marketplace_refuses_a_traversal_name_as_bad_arg() {
+            let cache = std::env::temp_dir().join(format!(
+                "ish-api-mp-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let client = crate::marketplace::RegistryClient::with_cache_dir(
+                Some("http://127.0.0.1:1".to_string()),
+                cache.clone(),
+            )
+            .expect("registry client over a temp cache");
+            let state = Arc::new(OrchestratorState {
+                marketplace: RwLock::new(Some(client)),
+                ..test_state()
+            });
+            for body in [
+                json!({"name": "../../escape"}),
+                json!({"name": "a/b"}),
+                json!({"name": "ok", "version": "..\\x"}),
+            ] {
+                let (status, out) = into_status_and_json(
+                    handle_marketplace_install(Json(body.clone()), state.clone()).await,
+                )
+                .await;
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{body} -> {out}");
+                assert_eq!(out["code"], "E_BAD_ARG", "{out}");
+            }
+            let (status, out) = into_status_and_json(
+                handle_marketplace_uninstall(Json(json!({"name": "../x"})), state.clone()).await,
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{out}");
+            assert_eq!(out["code"], "E_BAD_ARG", "{out}");
+
+            // With no client configured the refusal still comes first.
+            let bare = Arc::new(test_state());
+            let (status, out) = into_status_and_json(
+                handle_marketplace_install(Json(json!({"name": ".."})), bare).await,
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{out}");
+
+            // Nothing was written into the cache.
+            assert_eq!(std::fs::read_dir(&cache).unwrap().count(), 0);
+            let _ = std::fs::remove_dir_all(&cache);
         }
 
         #[tokio::test]

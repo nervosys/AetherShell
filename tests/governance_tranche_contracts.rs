@@ -789,7 +789,7 @@ fn registry_download_refuses_a_name_that_is_not_one_path_segment() {
         ("", "1"),
     ] {
         let err = client
-            .download_package(name, version)
+            .download_package(name, version, None)
             .expect_err("an unsafe segment must be refused before any request");
         assert!(err.to_string().contains("safe path segment"), "{err}");
     }
