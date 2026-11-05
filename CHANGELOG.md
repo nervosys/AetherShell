@@ -454,6 +454,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The MCP HTTP server's OS tools now pass the effect gate and check their arguments before anything runs: `POST /mcp/v1/tools/curl/execute` with `"method": "-o"` no longer writes the named path. A value outside a parameter's declared enum, or a string starting with `-` (unless the parameter is a declared flag), is refused as `E_BAD_ARG`, and an agent-mode exec returns `E_NEEDS_APPROVAL` as coded JSON. The server also gets a request deadline and a concurrency limit, runs tools on the blocking pool, and the streaming and WebSocket evaluation routes are bounded (refused with `E_BUDGET_EXCEEDED` past 16 in flight).
 - `undo` no longer destroys a file it cannot keep for `redo`. A file changed after the step and now over the 8 MiB capture limit, or past the session's capture budget, was overwritten or deleted with no copy kept. Now it is left alone, the step stays in the journal, and the reply says to move the file away to undo the step.
 - A failed undo keeps its step. It used to drop the step before restoring, which discarded the only saved copy of the prior contents; now the step stays in the journal and the undo stops there rather than undoing older steps past it, so it can be retried. The same holds for redo.
 - `ish -b` reports a failed write to stdout and exits nonzero; a closed pipe stays silent.

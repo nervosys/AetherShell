@@ -4118,10 +4118,67 @@ pub mod server {
     /// nothing about why.
     const MAX_QUEUE_WAIT: Duration = Duration::from_secs(30);
 
+    /// Evaluations in flight on the streaming (SSE) and WebSocket routes at
+    /// once. Those routes release their `admit` slot as soon as the response
+    /// head exists, so without this bound a client could open any number of
+    /// streams and run an evaluation in each.
+    const MAX_CONCURRENT_STREAMS: usize = 16;
+
+    /// The stream slots, shared by every SSE and WebSocket evaluation in this
+    /// process.
+    fn stream_slots() -> Arc<tokio::sync::Semaphore> {
+        static SLOTS: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> = std::sync::OnceLock::new();
+        SLOTS
+            .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_STREAMS)))
+            .clone()
+    }
+
+    /// Take a stream slot without waiting, or `None` when all are held. A
+    /// refusal is immediate: a streamed evaluation that queued would hold its
+    /// connection open for the wait as well as the work.
+    fn try_take_stream_slot(
+        slots: &Arc<tokio::sync::Semaphore>,
+    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        slots.clone().try_acquire_owned().ok()
+    }
+
+    fn stream_busy_detail() -> String {
+        format!("all {MAX_CONCURRENT_STREAMS} streaming evaluation slots are in use; retry later")
+    }
+
+    /// The 503 an SSE route answers when no stream slot is free.
+    fn stream_busy_response() -> Response {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [(header::RETRY_AFTER, "5")],
+            Json(serde_json::json!({
+                "error": "busy",
+                "code": "E_BUDGET_EXCEEDED",
+                "detail": stream_busy_detail(),
+            })),
+        )
+            .into_response()
+    }
+
+    /// The response a WebSocket `execute` gets when no stream slot is free.
+    fn ws_busy_response() -> AgentResponse {
+        AgentResponse {
+            code: Some("E_BUDGET_EXCEEDED".to_string()),
+            hint: Some(
+                "retry after an in-flight streamed or WebSocket evaluation finishes".to_string(),
+            ),
+            success: false,
+            result: None,
+            error: Some(stream_busy_detail()),
+            result_type: None,
+            metadata: None,
+        }
+    }
+
     /// Admits a request once one of the `max` slots in `permits` is free,
     /// holding it until the response head is produced, or answers 503 after
     /// `wait`. One semaphore is shared by every route.
-    async fn admit(
+    pub(crate) async fn admit(
         permits: Arc<tokio::sync::Semaphore>,
         max: usize,
         wait: Duration,
@@ -5072,9 +5129,14 @@ pub mod server {
     // ========================================================================
 
     /// Stream execution of a generic request
-    async fn handle_stream_execute(Json(request): Json<AgentRequest>) -> impl IntoResponse {
+    async fn handle_stream_execute(Json(request): Json<AgentRequest>) -> Response {
+        let Some(slot) = try_take_stream_slot(&stream_slots()) else {
+            return stream_busy_response();
+        };
         let deadline = eval_deadline();
         create_sse_response(async move {
+            // Held until the evaluation finishes; dropped with the stream if the client leaves.
+            let _slot = slot;
             match evaluate_off_thread(request, deadline).await {
                 Ok(response) => stream_events_from_response(response, 50),
                 Err(error) => vec![StreamEvent::error(&format!(
@@ -5082,6 +5144,7 @@ pub mod server {
                 ))],
             }
         })
+        .into_response()
     }
 
     /// Build streaming events from a response. A large array result is split into
@@ -5171,7 +5234,10 @@ pub mod server {
     }
 
     /// Stream pipeline execution with progress updates
-    async fn handle_stream_pipeline(Json(body): Json<JsonValue>) -> impl IntoResponse {
+    async fn handle_stream_pipeline(Json(body): Json<JsonValue>) -> Response {
+        let Some(slot) = try_take_stream_slot(&stream_slots()) else {
+            return stream_busy_response();
+        };
         let steps: Vec<PipelineStep> = serde_json::from_value(
             body.get("steps")
                 .cloned()
@@ -5183,6 +5249,8 @@ pub mod server {
         let deadline = eval_deadline();
 
         create_sse_response(async move {
+            // Held until the evaluation finishes; dropped with the stream if the client leaves.
+            let _slot = slot;
             // Evaluation is synchronous: keep it off the async workers, as run_blocking does.
             match tokio::task::spawn_blocking(move || {
                 stream_pipeline_events(&steps, input.as_ref(), deadline)
@@ -5193,6 +5261,7 @@ pub mod server {
                 Err(e) => vec![StreamEvent::error(&format!("request handler failed: {e}"))],
             }
         })
+        .into_response()
     }
 
     /// The SSE events for a streamed evaluation of `code`: `start`, then the
@@ -5237,7 +5306,10 @@ pub mod server {
     }
 
     /// Stream code evaluation
-    async fn handle_stream_eval(Json(body): Json<JsonValue>) -> impl IntoResponse {
+    async fn handle_stream_eval(Json(body): Json<JsonValue>) -> Response {
+        let Some(slot) = try_take_stream_slot(&stream_slots()) else {
+            return stream_busy_response();
+        };
         let code = body
             .get("code")
             .and_then(|v| v.as_str())
@@ -5246,12 +5318,15 @@ pub mod server {
         let deadline = eval_deadline();
 
         create_sse_response(async move {
+            // Held until the evaluation finishes; dropped with the stream if the client leaves.
+            let _slot = slot;
             // Evaluation is synchronous: keep it off the async workers, as run_blocking does.
             match tokio::task::spawn_blocking(move || stream_eval_events(&code, deadline)).await {
                 Ok(events) => events,
                 Err(e) => vec![StreamEvent::error(&format!("request handler failed: {e}"))],
             }
         })
+        .into_response()
     }
 
     /// Helper to create SSE response from events
@@ -5507,11 +5582,17 @@ pub mod server {
                     if let Ok(msg) = serde_json::from_str::<WsClientMessage>(&text) {
                         let response = match msg {
                             WsClientMessage::Execute { id, request } => {
-                                let response =
-                                    match evaluate_off_thread(request, eval_deadline()).await {
-                                        Ok(response) => response,
-                                        Err(error) => handler_failure(error),
-                                    };
+                                // The slot is held for the whole evaluation; a refused
+                                // request gets a coded response instead of queueing.
+                                let response = match try_take_stream_slot(&stream_slots()) {
+                                    Some(_slot) => {
+                                        match evaluate_off_thread(request, eval_deadline()).await {
+                                            Ok(response) => response,
+                                            Err(error) => handler_failure(error),
+                                        }
+                                    }
+                                    None => ws_busy_response(),
+                                };
                                 Some(WsServerMessage::Response { id, response })
                             }
                             WsClientMessage::Ping { id } => {
@@ -6463,6 +6544,34 @@ pub mod server {
             .await
             .expect("evaluation panicked");
             assert!(response.success);
+        }
+
+        /// The stream bound refuses at once once every slot is held, and a
+        /// released slot is available again. The handlers call this same
+        /// helper before they evaluate, so a mutation that drops the check
+        /// there would leave the limit unenforced.
+        #[test]
+        fn stream_slots_refuse_when_full_and_recover_on_release() {
+            let slots = Arc::new(tokio::sync::Semaphore::new(2));
+            let a = try_take_stream_slot(&slots).expect("first slot");
+            let b = try_take_stream_slot(&slots).expect("second slot");
+            assert!(
+                try_take_stream_slot(&slots).is_none(),
+                "a third streamed evaluation must be refused, not queued"
+            );
+            drop(a);
+            assert!(
+                try_take_stream_slot(&slots).is_some(),
+                "a released slot must be reusable"
+            );
+            drop(b);
+        }
+
+        #[test]
+        fn a_refused_stream_is_a_coded_busy_response() {
+            let r = ws_busy_response();
+            assert!(!r.success);
+            assert_eq!(r.code.as_deref(), Some("E_BUDGET_EXCEEDED"));
         }
     }
 }

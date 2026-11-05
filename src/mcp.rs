@@ -35,6 +35,56 @@ fn mcp_coded(code: crate::safety::ErrorCode, message: String, hint: &str) -> any
     })
 }
 
+/// Check caller-supplied OS tool arguments before anything is spawned.
+///
+/// A parameter that declares allowed values (`enum_values`, such as curl's
+/// `method`) must hold one of them. A string value beginning with `-` is
+/// refused, because the tool would parse it as an option: `method: "-o"` made
+/// curl write its response to whatever path the next argument named. The one
+/// exception is a parameter declared as a flag, which here means a parameter
+/// whose name begins with `-`; no OS tool declares one today.
+fn validate_tool_args(tool: &OSTool, args: &HashMap<String, JsonValue>) -> Result<()> {
+    for param in &tool.parameters {
+        let Some(value) = args.get(&param.name) else {
+            continue;
+        };
+        if !param.enum_values.is_empty() {
+            let allowed = matches!(value, JsonValue::String(s) if param.enum_values.contains(s));
+            if !allowed {
+                return Err(mcp_coded(
+                    crate::safety::ErrorCode::BadArg,
+                    format!(
+                        "{}: '{}' must be one of [{}]",
+                        tool.name,
+                        param.name,
+                        param.enum_values.join(", ")
+                    ),
+                    "pass one of the listed values for this parameter",
+                ));
+            }
+        }
+        if param.name.starts_with('-') {
+            continue;
+        }
+        let strings: Vec<&str> = match value {
+            JsonValue::String(s) => vec![s.as_str()],
+            JsonValue::Array(items) => items.iter().filter_map(|v| v.as_str()).collect(),
+            _ => Vec::new(),
+        };
+        if let Some(bad) = strings.iter().find(|s| s.starts_with('-')) {
+            return Err(mcp_coded(
+                crate::safety::ErrorCode::BadArg,
+                format!(
+                    "{}: '{}' is an option-like value {:?}, which the tool would read as a flag",
+                    tool.name, param.name, bad
+                ),
+                "pass a value that does not begin with '-'; a path that does is reachable as ./-name",
+            ));
+        }
+    }
+    Ok(())
+}
+
 const MCP_REMOTE_UNREACHABLE: &str =
     "the remote MCP server could not be reached; check the endpoint URL and that the server is running";
 const MCP_REMOTE_STATUS: &str =
@@ -679,23 +729,52 @@ impl McpServer {
         }
     }
 
-    /// Execute a tool with the given arguments
+    /// Execute a tool with the given arguments.
+    ///
+    /// Every route to an OS tool ends in `call_tool` and then here (the HTTP
+    /// server, `mcp_call` and the tests), so the argument checks and the effect
+    /// gate live in this one place rather than at each caller. Both run before
+    /// anything is spawned.
     fn execute_tool(&self, tool: &OSTool, args: &HashMap<String, JsonValue>) -> Result<String> {
-        // Build command
+        // Malformed input is refused first, so a bad call never reaches the
+        // approval step.
+        validate_tool_args(tool, args)?;
+
+        // The effect gate every program-running builtin passes (see
+        // `safety::guard_exec`). The targets are the program and the caller's
+        // argument values; the blast radius is the argument object. In agent
+        // mode this returns E_NEEDS_APPROVAL unless the call is approved.
         let cmd_name = tool.command_for_current_os();
+        let mut targets = vec![cmd_name.clone()];
+        let mut keys: Vec<&String> = args.keys().collect();
+        keys.sort();
+        for key in keys {
+            targets.push(match &args[key] {
+                JsonValue::String(s) => s.clone(),
+                other => other.to_string(),
+            });
+        }
+        crate::safety::guard(crate::safety::GuardCtx {
+            builtin: &tool.name,
+            effect: crate::safety::Effect::Exec,
+            what: "exec",
+            targets,
+            blast_radius: serde_json::to_value(args).unwrap_or(JsonValue::Null),
+            reversible: false,
+            // The targets are a program and its arguments, not a jailed path.
+            fs_paths: false,
+        })?;
+
+        // Build command
         let mut cmd = crate::safety::child_command(&cmd_name);
 
-        // Add arguments based on tool parameters
+        // Add arguments based on tool parameters. Values were validated above:
+        // strings are never option-like and enum parameters hold a declared value.
         for param in &tool.parameters {
             if let Some(value) = args.get(&param.name) {
                 match value {
                     JsonValue::String(s) => {
-                        // Handle flag-style parameters
-                        if param.name.starts_with('-') || s.starts_with('-') {
-                            cmd.arg(s);
-                        } else {
-                            cmd.arg(s);
-                        }
+                        cmd.arg(s);
                     }
                     JsonValue::Bool(true) => {
                         // Add flag for boolean true
@@ -1214,8 +1293,9 @@ pub mod server {
     };
     use std::net::SocketAddr;
     use std::sync::Arc;
-    use tokio::sync::RwLock;
+    use std::time::Duration;
     use tower_http::cors::{Any, CorsLayer};
+    use tower_http::timeout::TimeoutLayer;
 
     /// MCP HTTP Server configuration
     #[derive(Debug, Clone)]
@@ -1250,9 +1330,23 @@ pub mod server {
     }
 
     /// Shared state for the HTTP server
+    //
+    // No lock: the server never mutates the tool set after startup, and a read
+    // guard held across a blocking tool call would stall any writer for the
+    // length of that call.
     struct AppState {
-        mcp: RwLock<McpServer>,
+        mcp: Arc<McpServer>,
     }
+
+    /// A request may wait this long on a tool before the caller gets 408. It
+    /// sits above the tool's own deadline so an ordinary timeout still comes
+    /// back as the tool's coded error.
+    const MCP_REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
+    /// Requests in flight at once. Each can hold a blocking-pool thread for up
+    /// to the tool deadline.
+    const MCP_MAX_CONCURRENT_REQUESTS: usize = 16;
+    /// How long a request waits for a slot before it is answered 503.
+    const MCP_QUEUE_WAIT: Duration = Duration::from_secs(30);
 
     /// Start the MCP HTTP server
     /// Mint a bearer token, matching `agent_api`'s construction.
@@ -1330,9 +1424,7 @@ pub mod server {
         };
 
         let mcp = McpServer::with_config(mcp_config);
-        let state = Arc::new(AppState {
-            mcp: RwLock::new(mcp),
-        });
+        let state = Arc::new(AppState { mcp: Arc::new(mcp) });
 
         let mut app = Router::new()
             // MCP Protocol endpoints
@@ -1349,6 +1441,21 @@ pub mod server {
             // Info endpoint
             .route("/", get(handle_info))
             .with_state(state);
+
+        // The same admission scheme as agent_api: a per-request deadline, then
+        // one semaphore shared by every route. Both sit inside the auth layer
+        // added below, so an unauthenticated request never waits for a slot.
+        app = app.layer(TimeoutLayer::new(MCP_REQUEST_TIMEOUT));
+        let permits = Arc::new(tokio::sync::Semaphore::new(MCP_MAX_CONCURRENT_REQUESTS));
+        app = app.layer(axum::middleware::from_fn(move |req, next| {
+            crate::agent_api::server::admit(
+                permits.clone(),
+                MCP_MAX_CONCURRENT_REQUESTS,
+                MCP_QUEUE_WAIT,
+                req,
+                next,
+            )
+        }));
 
         // Security headers. These servers return JSON, never a page, so the
         // policy is simply "this is not a document": no sniffing, no framing,
@@ -1517,12 +1624,12 @@ pub mod server {
     }
 
     async fn handle_initialize(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-        let mcp = state.mcp.read().await;
+        let mcp = &state.mcp;
         Json(mcp.initialize())
     }
 
     async fn handle_list_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-        let mcp = state.mcp.read().await;
+        let mcp = &state.mcp;
         Json(json!({
             "tools": mcp.list_tools()
         }))
@@ -1532,7 +1639,7 @@ pub mod server {
     /// from `/tools` so the OS-tool list stays small; builtins are executed via
     /// the same `/tools/:name/execute` route (it falls back to builtins).
     async fn handle_list_builtin_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-        let mcp = state.mcp.read().await;
+        let mcp = &state.mcp;
         Json(json!({
             "tools": mcp.list_builtin_tools()
         }))
@@ -1548,20 +1655,32 @@ pub mod server {
         axum::extract::Path(name): axum::extract::Path<String>,
         Json(payload): Json<ToolCallRequest>,
     ) -> impl IntoResponse {
-        let mcp = state.mcp.read().await;
         // If `name` is a registered OS tool, run it; otherwise treat it as an
         // IronShell builtin and route through the safety-guarded dispatch
         // (effect policy, approval, jail, audit all apply). Builtin args come
         // from the conventional `args` array in the request.
-        let result = if mcp.get_tool(&name).is_some() {
-            mcp.call_tool(McpToolCall {
-                name,
-                arguments: payload.arguments,
-            })
-        } else {
-            let arguments = serde_json::json!(payload.arguments);
-            mcp.route_tool_call(&name, &arguments)
-        };
+        //
+        // Running a tool blocks on a child process for up to its deadline, so it
+        // runs on the blocking pool rather than an async worker.
+        let mcp = Arc::clone(&state.mcp);
+        let result = tokio::task::spawn_blocking(move || {
+            if mcp.get_tool(&name).is_some() {
+                mcp.call_tool(McpToolCall {
+                    name,
+                    arguments: payload.arguments,
+                })
+            } else {
+                let arguments = serde_json::json!(payload.arguments);
+                mcp.route_tool_call(&name, &arguments)
+            }
+        })
+        .await
+        .unwrap_or_else(|e| McpToolResult {
+            content: vec![McpContent::Text {
+                text: format!("tool task failed: {e}"),
+            }],
+            is_error: Some(true),
+        });
 
         if result.is_error.unwrap_or(false) {
             (StatusCode::BAD_REQUEST, Json(result))
@@ -1571,7 +1690,7 @@ pub mod server {
     }
 
     async fn handle_list_resources(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-        let mcp = state.mcp.read().await;
+        let mcp = &state.mcp;
         Json(json!({
             "resources": mcp.list_resources()
         }))
@@ -1581,7 +1700,7 @@ pub mod server {
         State(state): State<Arc<AppState>>,
         axum::extract::Path(uri): axum::extract::Path<String>,
     ) -> impl IntoResponse {
-        let mcp = state.mcp.read().await;
+        let mcp = &state.mcp;
         // URL decode the URI
         let decoded_uri = urlencoding::decode(&uri)
             .map(|s| s.into_owned())
@@ -1597,7 +1716,7 @@ pub mod server {
     }
 
     async fn handle_list_prompts(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-        let mcp = state.mcp.read().await;
+        let mcp = &state.mcp;
         Json(json!({
             "prompts": mcp.list_prompts()
         }))
@@ -1613,7 +1732,7 @@ pub mod server {
         axum::extract::Path(name): axum::extract::Path<String>,
         Json(payload): Json<PromptRequest>,
     ) -> impl IntoResponse {
-        let mcp = state.mcp.read().await;
+        let mcp = &state.mcp;
         match mcp.get_prompt(&name, &payload.arguments) {
             Ok(content) => (StatusCode::OK, Json(json!({ "messages": content }))),
             Err(e) => (

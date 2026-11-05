@@ -1068,7 +1068,8 @@ policy / jail / approval / audit, so any MCP client gets the full typed surface 
 the safety model with zero bespoke integration.
 
 **The HTTP servers require a bearer token.** Both `ish mcp serve` and the agent API
-mint one at startup and print it; every route except `/health` needs it:
+mint one at startup and print it; every route except `/health` needs it. Both run in
+agent mode (the effect gate and workspace jail apply) unless `IRONSHELL_MODE` is set:
 
 ```console
 $ ish mcp serve
