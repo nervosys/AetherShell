@@ -42944,9 +42944,9 @@ fn digest_hex(builtin: &str, algo: &str, bytes: &[u8]) -> Result<String> {
     crate::safety::require_fips_hash(algo)?;
     let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
     Ok(match algo.to_ascii_lowercase().as_str() {
+        // MD5: IronCrypto has none; a legacy digest the caller asked for (FIPS refuses it above).
         "md5" => format!("{:x}", md5::compute(bytes)),
-        // SHA-1 is not in IronCrypto, which implements no MD5 or SHA-1; it stays
-        // on the sha1 crate.
+        // SHA-1: IronCrypto has none, so it stays on the sha1 crate.
         "sha1" | "sha-1" => hex(&<sha1::Sha1 as sha1::Digest>::digest(bytes)),
         "sha256" | "sha-256" => ic_digest_hex::<ironcrypto::hash::Sha256>(builtin, bytes)?,
         "sha384" | "sha-384" => ic_digest_hex::<ironcrypto::hash::Sha384>(builtin, bytes)?,
@@ -43082,7 +43082,7 @@ fn bi_crypto_hmac(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             data.as_bytes(),
         )?,
         "md5" => {
-            // RFC 2104 compatibility: md5 0.7 predates the Digest trait.
+            // HMAC-MD5 by hand (RFC 2104): IronCrypto has no MD5, and md5 0.7 predates the Digest trait.
             let shortened;
             let key = if key.len() > 64 {
                 shortened = md5::compute(key.as_bytes()).0;

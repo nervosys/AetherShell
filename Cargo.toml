@@ -159,7 +159,6 @@ ironcrypto = { version = "0.3.2" }
 # crypto_cert_info and crypto_cert_verify, from IronSocketLayer's re-export of
 # IronPKI (pure Rust, over IronCrypto). No openssl process.
 ironsocketlayer = "0.7.1"
-sha2 = "0.10"
 sha1 = "0.10"  # already locked as a transitive dependency; hashing is in-process
 # Password hashing (Argon2id, PBKDF2-HMAC-SHA256) comes from IronCrypto.
 # Deliberately not sha2: `hash_key` (unsalted SHA-256) is right for a 256-bit
@@ -327,6 +326,8 @@ web-sys = { version = "0.3", features = [
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+# Independent SHA-256 oracle for the integration tests. The library hashes with IronCrypto.
+sha2 = "0.10"
 # Four-axis agentic evaluation (token efficiency, determinism, reliability, safety)
 # applied to IronShell's real engine in examples/agentic_eval.rs + the matching test.
 agentic-eval = { path = "crates/agentic-eval", version = "0.14" }

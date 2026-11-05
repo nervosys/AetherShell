@@ -113,6 +113,7 @@ fn session_dir() -> Option<PathBuf> {
         let cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
+        // MD5 names a directory, not a secret. IronCrypto has no MD5, and another hash would orphan existing journals.
         format!("{:x}", md5::compute(cwd.as_bytes()))
     });
     dirs::cache_dir().map(|c| c.join("ironshell").join("journal").join(key))

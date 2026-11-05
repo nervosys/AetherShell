@@ -1267,8 +1267,8 @@ fn verify_integrity(data: &str, stored: &str) -> bool {
     match stored.len() {
         64 => integrity_checksum(data)
             .is_ok_and(|c| ironcrypto::core_types::ct::verify(c.as_bytes(), stored.as_bytes())),
-        // Legacy MD5 — accepted only when not in FIPS-strict mode (MD5 is not a
-        // FIPS-approved algorithm, so FIPS mode fails closed on a legacy digest).
+        // Legacy MD5, read-only: IronCrypto has no MD5. Accepted only when not in
+        // FIPS-strict mode (MD5 is not FIPS-approved), so FIPS mode fails closed.
         32 if !crate::safety::fips_enabled() => format!("{:x}", md5::compute(data)) == stored,
         _ => false,
     }
