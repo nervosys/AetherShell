@@ -147,7 +147,7 @@ fn a_moved_audit_log_in_one_process_starts_with_a_marker_naming_the_old_one() {
         "IRONSHELL_AUDIT_LOG",
         "IRONSHELL_SESSION_DIR",
     ];
-    let before: Vec<_> = keys.iter().map(|k| std::env::var_os(k)).collect();
+    let before: Vec<_> = keys.iter().map(std::env::var_os).collect();
 
     std::env::set_var("IRONSHELL_MODE", "agent");
     std::env::set_var("IRONSHELL_SESSION_DIR", &d.session);

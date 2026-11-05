@@ -108,9 +108,18 @@ const SELF_COVERED: &[(&str, &str)] = &[
     ("cron_disable", "refuses (builtins.rs)"),
     ("cron_enable", "refuses (builtins.rs)"),
     ("cron_remove", "refuses (builtins.rs)"),
-    ("file_replace", "snapshots (builtins.rs, in file_patch, which it calls)"),
-    ("str_replace_in_file", "snapshots (builtins.rs, in file_patch, which it calls)"),
-    ("text_replace", "snapshots (builtins.rs, in file_patch, which it calls)"),
+    (
+        "file_replace",
+        "snapshots (builtins.rs, in file_patch, which it calls)",
+    ),
+    (
+        "str_replace_in_file",
+        "snapshots (builtins.rs, in file_patch, which it calls)",
+    ),
+    (
+        "text_replace",
+        "snapshots (builtins.rs, in file_patch, which it calls)",
+    ),
     ("db_json_to_sqlite", "snapshots (builtins.rs)"),
     ("db_kv_delete", "snapshots (builtins.rs)"),
     ("db_kv_set", "snapshots (builtins.rs)"),

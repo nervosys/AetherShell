@@ -28,6 +28,8 @@ fn lock_env() -> std::sync::MutexGuard<'static, ()> {
 /// Loopback is the only host the allowlist permits in these tests.
 fn allow_loopback_only() {
     std::env::set_var("IRONSHELL_NET_ALLOW", "127.0.0.1");
+    // The servers here are on loopback, which the address check otherwise refuses.
+    std::env::set_var("IRONSHELL_TEST_ALLOW_LOOPBACK", "1");
     std::env::remove_var("IRONSHELL_POLICY");
 }
 

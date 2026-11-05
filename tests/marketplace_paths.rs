@@ -135,7 +135,7 @@ fn tgz(entries: &[(&str, tar::EntryType, &[u8], Option<&str>)]) -> Vec<u8> {
     for (name, kind, data, link) in entries {
         let mut h = tar::Header::new_ustar();
         h.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
-        h.set_entry_type(kind.clone());
+        h.set_entry_type(*kind);
         h.set_size(data.len() as u64);
         h.set_mode(0o644);
         if let Some(l) = link {
@@ -380,8 +380,8 @@ fn archive_entries_cannot_escape_or_link_out() {
     assert!(!dest.parent().unwrap().join("escape.txt").exists());
 
     // A symlink to outside: refused outright, so no later entry can write through it.
-    let outside = root.join("outside.txt");
-    let target = outside.display().to_string();
+    // Short and fixed: a tar header holds 100 bytes, and a temp path can exceed that.
+    let target = "/ae-outside/outside.txt".to_string();
     // Alone, so the refusal is ours (the message names a link entry), not a
     // platform error from creating the link (Windows needs privilege for it).
     let (res, dest) = extract(

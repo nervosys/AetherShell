@@ -3118,6 +3118,11 @@ pub fn within_workspace(path: &str) -> bool {
         Ok(r) => r,
         Err(_) => return false,
     };
+    // On Windows the two readings of `..` can differ, so both must stay inside.
+    #[cfg(windows)]
+    if !matches!(resolve_walked(win32_path(path)), Some(r) if r.starts_with(&root)) {
+        return false;
+    }
     match resolve_for_jail(path) {
         Some(resolved) => resolved.starts_with(&root),
         None => false,
@@ -3257,7 +3262,30 @@ fn physical_path(path: &str) -> Option<PathBuf> {
 /// not yet exist. `None` when the path is outside the jail by construction (see
 /// [`physical_path`]).
 fn resolve_for_jail(path: &str) -> Option<PathBuf> {
-    let walked = physical_path(path)?;
+    resolve_walked(physical_path(path)?)
+}
+
+/// The path with `..` removed by text, as Win32 does before the file system sees
+/// it. On Windows the bytes land here, not where [`physical_path`] says: observed
+/// on a Windows runner, `lnk/../f` with `lnk` pointing at `a/b` wrote `f`, not
+/// `a/f`.
+#[cfg(windows)]
+fn win32_path(path: &str) -> PathBuf {
+    let mut out = PathBuf::new();
+    for seg in walk_segments(&absolute_form(path)) {
+        match seg {
+            WalkSeg::Prefix(prefix) => out = PathBuf::from(prefix),
+            WalkSeg::Root => out.push(std::path::Component::RootDir.as_os_str()),
+            WalkSeg::Parent => {
+                out.pop();
+            }
+            WalkSeg::Normal(name) => out.push(name),
+        }
+    }
+    out
+}
+
+fn resolve_walked(walked: PathBuf) -> Option<PathBuf> {
     for anc in walked.ancestors() {
         if let Ok(canon) = anc.canonicalize() {
             return Some(match walked.strip_prefix(anc) {

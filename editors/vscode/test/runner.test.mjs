@@ -90,12 +90,14 @@ test('the TUI is launched by subcommand, not by a flag', () => {
     assert.notDeepEqual(term.shellArgs, ['--tui'], 'ish rejects --tui');
 });
 
-test('running a file quotes the path, so a space does not split it', async () => {
+test('running a file passes the path as one argument, so no shell reads it', async () => {
     const runner = freshRunner();
-    await runner.runFile(h.doc('let x = 1', { fileName: 'C:/my projects/a.ish' }));
+    const fileName = 'C:/my projects/$(touch x)`y`.ish';
+    await runner.runFile(h.doc('let x = 1', { fileName }));
 
-    const sent = lastTerminal().sent.join('\n');
-    assert.match(sent, /"C:\/my projects\/a\.ish"/, `unquoted path: ${sent}`);
+    const terminal = lastTerminal();
+    assert.deepEqual(terminal.shellArgs, [fileName]);
+    assert.equal(terminal.sent.length, 0, 'nothing is typed into a shell');
 });
 
 test('the executable path is configurable, defaulting to ish on PATH', () => {

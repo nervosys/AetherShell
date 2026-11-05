@@ -221,17 +221,17 @@ fn a_link_inside_the_workspace_lands_where_the_os_puts_it() {
     if !link(Path::new("a/b"), &d.workspace.join("lnk"), true) {
         return;
     }
-    // The OS goes to a/b, then to its parent a, so the file is ws/a/f, not ws/f.
+    // Unix goes to a/b, then to its parent a, so the file is ws/a/f. Win32 removes
+    // `..` by text first, so there it is ws/f.
     let out = d.ish(&["-c", &format!(r#"file_write("{}", "x")"#, d.ws("lnk/../f"))]);
     assert!(out.status.success(), "{}", text(&out));
-    assert_eq!(
-        std::fs::read_to_string(d.workspace.join("a").join("f")).unwrap(),
-        "x"
-    );
-    assert!(
-        !present(&d.workspace.join("f")),
-        "landed at ws/f, not where the OS puts it"
-    );
+    let (lands, not) = if cfg!(windows) {
+        (d.workspace.join("f"), d.workspace.join("a").join("f"))
+    } else {
+        (d.workspace.join("a").join("f"), d.workspace.join("f"))
+    };
+    assert_eq!(std::fs::read_to_string(&lands).unwrap(), "x");
+    assert!(!present(&not), "landed at {}", not.display());
     assert!(!present(&d.outside.join("f")));
 }
 
@@ -268,6 +268,24 @@ fn a_nested_link_chain_leaving_the_workspace_is_refused() {
         "landed in outside/x: {}",
         text(&out)
     );
+}
+
+/// Walked through the link this is ws/f, but Win32 removes `..` by text and writes
+/// the parent of the workspace. The jail must judge where the bytes go.
+#[cfg(windows)]
+#[test]
+fn parents_after_a_link_are_judged_as_win32_resolves_them() {
+    let d = Dirs::new("win32-dots");
+    std::fs::create_dir_all(d.workspace.join("a").join("b")).unwrap();
+    if !link(Path::new("a/b"), &d.workspace.join("lnk"), true) {
+        return;
+    }
+    let out = d.ish(&[
+        "-c",
+        &format!(r#"file_write("{}", "x")"#, d.ws("lnk/../../f")),
+    ]);
+    assert_refused(&out, "parents after a link");
+    assert!(!present(&d.workspace.parent().unwrap().join("f")));
 }
 
 #[cfg(windows)]

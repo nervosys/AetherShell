@@ -44353,6 +44353,7 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
 /// The copy is staged beside `dest` and renamed over it once whole, so a failed
 /// backup leaves an existing one as it was.
 fn sqlite_vacuum_into(builtin: &str, db_path: &str, dest: &str) -> Result<()> {
+    crate::tx::snapshot(dest);
     let staged = format!("{dest}.part-{}", std::process::id());
     let _ = std::fs::remove_file(&staged);
     let copied = (|| -> Result<()> {
