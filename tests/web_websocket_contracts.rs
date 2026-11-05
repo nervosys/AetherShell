@@ -35,8 +35,35 @@ fn call(args: Vec<Value>) -> anyhow::Result<Value> {
     std::env::remove_var("IRONSHELL_MODE");
     std::env::remove_var("IRONSHELL_AGENT");
     isolate();
+    // These contracts talk to a loopback server, which the address check refuses.
+    std::env::set_var("IRONSHELL_TEST_ALLOW_LOOPBACK", "1");
     let mut env = Env::new();
     builtins::call("web_websocket", args, &mut env)
+}
+
+#[test]
+fn an_internal_address_is_refused_before_any_connection() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    listener.set_nonblocking(true).expect("nonblocking");
+    let port = listener.local_addr().expect("addr").port();
+    let _guard = MODE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
+    std::env::remove_var("IRONSHELL_TEST_ALLOW_LOOPBACK");
+    isolate();
+    for url in [
+        format!("ws://127.0.0.1:{port}/"),
+        format!("ws://[::ffff:127.0.0.1]:{port}/"),
+        "wss://169.254.169.254/".to_string(),
+    ] {
+        let mut env = Env::new();
+        let got = builtins::call("web_websocket", vec![text(&url)], &mut env);
+        assert_eq!(code_of(&got), "E_POLICY_DENY", "{url}");
+    }
+    assert!(
+        listener.accept().is_err(),
+        "the refused call must not connect"
+    );
 }
 
 fn text(s: &str) -> Value {

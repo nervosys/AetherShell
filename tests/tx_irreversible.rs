@@ -93,10 +93,6 @@ const HARMLESS: &[(&str, &[&str])] = &[
             "status_bar", "ui_clear", "agent_started", "agent_completed", "agent_thinking",
         ],
     ),
-    (
-        "waits for a child and reaps it (proc_wait): no file changes, and an ended child is not restarted by a rollback",
-        &["proc_wait"],
-    ),
 ];
 
 /// Refuse in a transaction, or snapshot what they change, deeper than the

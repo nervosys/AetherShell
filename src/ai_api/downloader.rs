@@ -143,6 +143,9 @@ impl ModelDownloader {
                 model_id, file.rfilename
             );
 
+            // The name comes from the remote listing, so it is checked before it
+            // becomes a path: `..` in it would write outside the temp directory.
+            check_listed_file_name(&file.rfilename)?;
             let local_path = temp_dir.join(&file.rfilename);
 
             // Create subdirectories if needed
@@ -646,12 +649,61 @@ async fn copy_capped(
     Ok(downloaded)
 }
 
+/// Refuse a file name from a remote listing unless it stays under the directory
+/// it is joined to: only plain path segments, separated by `/`.
+fn check_listed_file_name(name: &str) -> Result<()> {
+    let plain = !name.is_empty()
+        && !name.contains(['\\', ':', '\0'])
+        && name
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..");
+    if plain {
+        Ok(())
+    } else {
+        anyhow::bail!("the model listing names an unsafe file: {name:?}")
+    }
+}
+
 fn too_large(url: &str, max: u64) -> anyhow::Error {
     crate::safety::budget_exceeded(
         "model_download",
         format!("{url} is larger than {max} bytes"),
         "download the file by other means if it really is this large",
     )
+}
+
+#[cfg(test)]
+mod listed_file_name_tests {
+    use super::check_listed_file_name;
+
+    #[test]
+    fn a_listed_name_cannot_leave_the_directory() {
+        for bad in [
+            "",
+            "..",
+            "../x",
+            "a/../../x",
+            "/etc/x",
+            "a//b",
+            "./a",
+            "a\\..\\b",
+            "C:x",
+            "C:/x",
+        ] {
+            assert!(
+                check_listed_file_name(bad).is_err(),
+                "{bad:?} must be refused"
+            );
+        }
+        for good in [
+            "model.gguf",
+            "sub/dir/model-00001.safetensors",
+            "a b.bin",
+            "a..b",
+        ] {
+            assert!(check_listed_file_name(good).is_ok(), "{good:?} must pass");
+        }
+    }
 }
 
 #[cfg(test)]

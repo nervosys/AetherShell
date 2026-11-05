@@ -988,7 +988,7 @@ proc_spawn	Exec
 proc_start_time	ReadLocal
 proc_suspend	Process
 proc_threads	ReadLocal
-proc_wait	Process
+proc_wait	ReadLocal
 product	Pure
 progress_done	WriteLocal
 progress_update	WriteLocal

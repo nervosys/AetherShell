@@ -502,10 +502,6 @@ fn classified_effect(name: &str) -> Option<Effect> {
         | "workflow_create" | "circuit_breaker_create"
         | "proc_kill" | "kill" | "signal" | "pkill" | "sudo_check"
         | "proc_suspend" | "proc_resume" | "proc_set_priority"
-        // Reaps a child this process spawned (waitpid on Unix) and drops its
-        // SPAWNED entry. That changes the process table, so it is Process, not
-        // ReadLocal under the `proc_` prefix rule, which would otherwise claim it.
-        | "proc_wait"
         | "cron_disable"
         // Ending a tmux session runs no command, so it is process lifecycle
         // control like `kill`. tmux_new and tmux_send run caller text: Exec.

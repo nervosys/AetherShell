@@ -41156,12 +41156,26 @@ fn bi_web_websocket(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let parsed = url::Url::parse(&plan.url).map_err(|e| failed("could not parse", &e))?;
     let host = parsed.host_str().unwrap_or_default().to_string();
     let port = parsed.port_or_known_default().unwrap_or(80);
-    let addrs: Vec<std::net::SocketAddr> = std::net::ToSocketAddrs::to_socket_addrs(&(
-        host.trim_start_matches('[').trim_end_matches(']'),
-        port,
-    ))
-    .map_err(|e| failed("could not resolve", &e))?
-    .collect();
+    // The same address check as the HTTP builtins, under the HTTP name of the
+    // scheme, and the connection goes to the addresses it accepted.
+    let mut as_http = parsed.clone();
+    as_http
+        .set_scheme(if parsed.scheme() == "wss" {
+            "https"
+        } else {
+            "http"
+        })
+        .map_err(|()| failed("could not check", &"the URL's scheme"))?;
+    let checked = crate::security::check_http_url(NAME, as_http.as_str())?;
+    let addrs: Vec<std::net::SocketAddr> = match checked.pin() {
+        Some((_, pinned)) => pinned,
+        None => std::net::ToSocketAddrs::to_socket_addrs(&(
+            host.trim_start_matches('[').trim_end_matches(']'),
+            port,
+        ))
+        .map_err(|e| failed("could not resolve", &e))?
+        .collect(),
+    };
     let mut last_err: Option<std::io::Error> = None;
     let mut tcp = None;
     for addr in addrs {
