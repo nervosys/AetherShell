@@ -41,6 +41,9 @@ impl Dirs {
             .args(args)
             .current_dir(&self.ws)
             .env_remove("IRONSHELL_WORKSPACE")
+            .env_remove("IRONSHELL_PINNED_ROOT")
+            // A test below sets this in this process, and a child would inherit it.
+            .env_remove("IRONSHELL_AUDIT_LOG")
             .env("NO_COLOR", "1")
             .env("IRONSHELL_MODE", "agent")
             .env("IRONSHELL_SESSION_DIR", &self.session)
@@ -82,23 +85,24 @@ fn an_absolute_write_after_cd_outside_is_refused() {
 }
 
 #[test]
-fn a_relative_write_after_cd_outside_does_not_leave_the_workspace() {
-    // A relative redirection resolves against the pinned workspace, not the
-    // working directory, as `posix_redirect_jail` requires. So it lands in the
-    // workspace and nothing is written outside it.
+fn a_relative_write_after_cd_outside_is_refused() {
     let d = Dirs::new("rel");
-    // `pwd` after the `cd` shows the working directory really moved, so the
-    // write below was made from outside the workspace.
-    let script = format!("cd {}; pwd; echo x > f", p(&d.outside));
+    let script = format!("cd {}; echo x > f", p(&d.outside));
     let out = d.ish(&["-b", "-c", &script]);
-    assert!(out.status.success(), "{}", text(&out));
-    assert!(
-        text(&out).contains("outside"),
-        "cd did not move: {}",
-        text(&out)
-    );
+    assert!(!out.status.success(), "{}", text(&out));
+    assert!(text(&out).contains("E_OUTSIDE_WORKSPACE"), "{}", text(&out));
     assert!(!d.outside.join("f").exists());
-    assert!(d.ws.join("f").exists(), "{}", text(&out));
+    assert!(!d.ws.join("f").exists());
+}
+
+#[test]
+fn a_relative_write_after_cd_inside_follows_the_working_directory() {
+    let d = Dirs::new("inside");
+    std::fs::create_dir_all(d.ws.join("sub")).unwrap();
+    let out = d.ish(&["-b", "-c", "cd sub; echo x > f"]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(d.ws.join("sub").join("f").exists(), "{}", text(&out));
+    assert!(!d.ws.join("f").exists());
 }
 
 #[test]
@@ -115,6 +119,10 @@ fn builtin_writes_after_cd_keep_the_audit_log_in_the_workspace() {
     let log = std::fs::read_to_string(d.ws.join(".ironshell").join("audit.log"))
         .expect("the audit log is in the workspace");
     assert!(log.contains("c.txt"), "{log}");
+    assert!(
+        d.ws.join("sub").join("c.txt").exists(),
+        "a relative path follows the cd"
+    );
 }
 
 #[test]

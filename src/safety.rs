@@ -2028,6 +2028,7 @@ const CONFINING_ENV: &[&str] = &[
     "IRONSHELL_AGENT",
     "IRONSHELL_POLICY",
     "IRONSHELL_WORKSPACE",
+    PINNED_ROOT_ENV,
     "IRONSHELL_MAX_NET",
     "IRONSHELL_MAX_FILES",
     "IRONSHELL_MAX_OPS",
@@ -2739,30 +2740,41 @@ impl std::error::Error for SafetyError {}
 pub fn workspace_root() -> PathBuf {
     if let Ok(w) = std::env::var("IRONSHELL_WORKSPACE") {
         PathBuf::from(w)
+    } else if let Ok(pinned) = std::env::var(PINNED_ROOT_ENV) {
+        PathBuf::from(pinned)
     } else {
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
     }
 }
 
+/// Where [`pin_workspace_root`] records the root. It is separate from
+/// `IRONSHELL_WORKSPACE` because that variable also makes a relative path resolve
+/// against the workspace, and a pin must not: after `cd sub`, `echo x > f` still
+/// means `sub/f`.
+const PINNED_ROOT_ENV: &str = "IRONSHELL_PINNED_ROOT";
+
 /// Fix the workspace root for this process: in agent mode, with
-/// `IRONSHELL_WORKSPACE` unset, set it to the canonical current directory.
+/// `IRONSHELL_WORKSPACE` unset, record the canonical current directory.
 ///
 /// Called once by the binary after the mode is decided and before any work
 /// starts. After it, a `cd` moves the working directory but not the jail or
-/// the audit log, and a relative path still resolves against the workspace. A
+/// the audit log, and a relative path still follows the working directory. A
 /// child `ish` inherits the variable (it is in `CONFINING_ENV`), so it shares
 /// the same root. A variable the operator set, including `--workspace`, is
 /// left as it is. Human mode is unchanged. Library callers that never call
 /// this are covered by the audit log's path-change marker instead.
 pub fn pin_workspace_root() {
-    if current_mode() != Mode::Agent || std::env::var_os("IRONSHELL_WORKSPACE").is_some() {
+    if current_mode() != Mode::Agent
+        || std::env::var_os("IRONSHELL_WORKSPACE").is_some()
+        || std::env::var_os(PINNED_ROOT_ENV).is_some()
+    {
         return;
     }
     let Ok(cwd) = std::env::current_dir() else {
         return;
     };
     let canon = cwd.canonicalize().unwrap_or(cwd);
-    std::env::set_var("IRONSHELL_WORKSPACE", strip_verbatim_prefix(&canon));
+    std::env::set_var(PINNED_ROOT_ENV, strip_verbatim_prefix(&canon));
 }
 
 /// `canonicalize` on Windows returns the `\\?\C:\...` form. Strip it for the
@@ -3060,8 +3072,17 @@ pub fn resolve_path_str(path: &str) -> String {
     let p = std::path::Path::new(path);
     if p.is_absolute() || !jail_enforced(current_mode()) {
         path.to_string()
-    } else {
+    } else if std::env::var_os("IRONSHELL_WORKSPACE").is_some() {
         workspace_root().join(p).to_string_lossy().to_string()
+    } else {
+        // No workspace was named, so a relative path means what it means to any
+        // program: the working directory. The jail still judges the result
+        // against the pinned root.
+        std::env::current_dir()
+            .unwrap_or_else(|_| workspace_root())
+            .join(p)
+            .to_string_lossy()
+            .to_string()
     }
 }
 
