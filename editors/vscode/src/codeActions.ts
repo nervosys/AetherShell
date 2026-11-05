@@ -445,7 +445,7 @@ async function runAeCommand(
     const aePath = customPath || (process.platform === 'win32' ? 'ish.exe' : 'ish');
 
     return new Promise((resolve) => {
-        const proc = execFile(aePath, ['-e', code], {
+        const proc = execFile(aePath, ['-c', code], {
             timeout: 30000,
             maxBuffer: 1024 * 1024,
             env: aeChildEnv(config.get<string>('ai.provider', 'auto'))

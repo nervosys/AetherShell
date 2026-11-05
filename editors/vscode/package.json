@@ -40,7 +40,8 @@
       "description": "A workspace cannot choose the IronShell executable or language server binary.",
       "restrictedConfigurations": [
         "ironshell.lsp.path",
-        "ironshell.executable.path"
+        "ironshell.executable.path",
+        "ironshell.runOnSave"
       ]
     }
   },
