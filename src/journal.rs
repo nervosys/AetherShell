@@ -225,7 +225,7 @@ fn make_private_dir(dir: &Path) -> std::io::Result<()> {
 
 /// Write `bytes` to `path`, private to the user on Unix. A file that already
 /// exists is narrowed to 0600 before its contents are written.
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     #[cfg(not(unix))]
     return std::fs::write(path, bytes);
     #[cfg(unix)]

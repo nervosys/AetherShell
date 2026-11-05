@@ -24,6 +24,78 @@ pub fn sha256_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()?))
 }
 
+/// The longest model id accepted. Hugging Face repository names are far shorter.
+pub const MODEL_ID_MAX: usize = 256;
+
+/// Check that a model id can be used as a path, without escaping the model
+/// directories. Ids come from requests, so they are not trusted.
+///
+/// Accepted: ASCII letters, digits, `-`, `_`, `.` and `/`, in non-empty
+/// segments that do not start with `.`, with no `..` anywhere. That refuses
+/// `\` (a path separator on Windows), `:` (a drive prefix or an alternate
+/// data stream), NUL and other control characters, and a leading `/`.
+pub fn validate_model_id(id: &str) -> Result<()> {
+    if id.is_empty() || id.len() > MODEL_ID_MAX {
+        anyhow::bail!("model id must be 1 to {MODEL_ID_MAX} bytes long");
+    }
+    if !id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'/'))
+    {
+        anyhow::bail!(
+            "model id {id:?} has a character outside letters, digits, '-', '_', '.' and '/'"
+        );
+    }
+    if id.contains("..") {
+        anyhow::bail!("model id {id:?} contains '..'");
+    }
+    if id
+        .split('/')
+        .any(|seg| seg.is_empty() || seg.starts_with('.'))
+    {
+        anyhow::bail!("model id {id:?} has an empty segment or one starting with '.'");
+    }
+    Ok(())
+}
+
+/// The file-name stem for a model id: the id with `/` replaced by `_`, after
+/// [`validate_model_id`] has passed. Every path built from an id goes through
+/// here, so no path can carry an id that was not checked.
+pub fn model_file_stem(id: &str) -> Result<String> {
+    validate_model_id(id)?;
+    Ok(id.replace('/', "_"))
+}
+
+/// A model id for a model fetched from a direct URL: the URL's host and path,
+/// with every character outside the accepted set replaced by `_`, and empty,
+/// `.` and `..` segments dropped. The result always passes
+/// [`validate_model_id`], or this returns an error.
+pub fn url_model_id(url: &str) -> Result<String> {
+    let parsed = url::Url::parse(url)?;
+    let raw = format!("{}{}", parsed.host_str().unwrap_or(""), parsed.path());
+    let mut segments = Vec::new();
+    for seg in raw.split('/') {
+        let clean: String = seg
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>()
+            .replace("..", "_");
+        let clean = clean.trim_start_matches('.');
+        if !clean.is_empty() {
+            segments.push(clean.to_string());
+        }
+    }
+    let id = segments.join("/");
+    validate_model_id(&id)?;
+    Ok(id)
+}
+
 /// XDG Base Directory compliant storage for AI models
 ///
 /// Directory structure:
@@ -207,7 +279,7 @@ impl ModelStorage {
         // Generate filename from model ID
         let filename = format!(
             "{}.{}",
-            metadata.id.replace('/', "_"),
+            model_file_stem(&metadata.id)?,
             self.get_file_extension(&metadata.format)
         );
         let file_path = model_dir.join(&filename);
@@ -244,7 +316,7 @@ impl ModelStorage {
         fs::create_dir_all(&model_dir)?;
         let filename = format!(
             "{}.{}",
-            metadata.id.replace('/', "_"),
+            model_file_stem(&metadata.id)?,
             self.get_file_extension(&metadata.format)
         );
         let file_path = model_dir.join(&filename);
@@ -279,7 +351,7 @@ impl ModelStorage {
         let metadata_path = self
             .data_dir
             .join("metadata")
-            .join(format!("{}.json", updated_metadata.id.replace('/', "_")));
+            .join(format!("{}.json", model_file_stem(&updated_metadata.id)?));
         let metadata_content = serde_json::to_string_pretty(&updated_metadata)?;
         fs::write(&metadata_path, metadata_content)?;
 
@@ -310,7 +382,7 @@ impl ModelStorage {
         let metadata_path = self
             .data_dir
             .join("metadata")
-            .join(format!("{}.json", model_id.replace('/', "_")));
+            .join(format!("{}.json", model_file_stem(model_id)?));
         let mut paths = vec![PathBuf::from(&metadata.file_path), metadata_path];
         if let Some(config_path) = &metadata.config_path {
             paths.push(PathBuf::from(config_path));

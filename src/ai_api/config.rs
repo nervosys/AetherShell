@@ -25,6 +25,12 @@ pub struct ServerConfig {
     pub cors_origins: Vec<String>,
     pub enable_openapi: bool,
     pub openapi_path: String,
+    /// Extra `Host` header values the server answers to, in addition to
+    /// `localhost`, loopback addresses and the bind host. Anything else is
+    /// refused, which is what stops a DNS-rebinding page from reaching the
+    /// server. Empty by default.
+    #[serde(default)]
+    pub allowed_hosts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +109,11 @@ pub struct SecurityConfig {
     pub tls_key_path: Option<String>,
 }
 
+/// Per-client request limits, enforced by a fixed-window counter keyed on the
+/// peer IP. Over the limit a request gets `429`. `requests_per_minute` and
+/// `requests_per_hour` are enforced; a value of `0` leaves that window
+/// unlimited. `burst_size`, `by_api_key` and `enabled = false` are the only
+/// other settings; `burst_size` and `by_api_key` are not enforced.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitConfig {
     pub enabled: bool,
@@ -163,6 +174,7 @@ impl Default for ServerConfig {
             ],
             enable_openapi: true,
             openapi_path: "/docs".to_string(),
+            allowed_hosts: Vec::new(),
         }
     }
 }
@@ -369,11 +381,12 @@ impl ConfigManager {
         }
     }
 
-    /// Save configuration to file
+    /// Save configuration to file. It can hold `api_keys`, so on Unix it is
+    /// written 0600 (see `journal::write_private`).
     pub fn save_config(&self, config: &APIConfig) -> Result<()> {
         let config_path = self.config_dir.join("config.toml");
         let content = toml::to_string_pretty(config)?;
-        fs::write(&config_path, content)?;
+        crate::journal::write_private(&config_path, content.as_bytes())?;
         Ok(())
     }
 
@@ -392,11 +405,12 @@ impl ConfigManager {
         }
     }
 
-    /// Save provider configurations
+    /// Save provider configurations. These can hold `api_key`, so on Unix the
+    /// file is written 0600 as well.
     pub fn save_providers_config(&self, config: &ProvidersConfig) -> Result<()> {
         let providers_path = self.config_dir.join("providers.toml");
         let content = toml::to_string_pretty(config)?;
-        fs::write(&providers_path, content)?;
+        crate::journal::write_private(&providers_path, content.as_bytes())?;
         Ok(())
     }
 
@@ -571,49 +585,57 @@ llama = "meta-llama/Llama-2-7b-chat-hf"
     }
 }
 
-/// Fold a CLI `--require-api-key` flag into the configured value, and say
-/// whether the resulting posture leaves the server exposed.
+/// Fold a CLI `--require-api-key` flag into the configured value.
 ///
 /// The flag **may only ever turn authentication on**. `aimodel` used to assign
-/// it straight over the config —
+/// it straight over the config — `config.security.require_api_key =
+/// args.require_api_key` — and the flag is a bare `#[arg(long)] bool`, so it is
+/// `false` whenever absent. A user who wrote `require_api_key = true` in their
+/// config and then ran `aimodel server` had authentication silently switched
+/// **off**. A CLI flag may add a requirement; it may not silently drop one.
+pub fn resolve_auth_requirement(configured: bool, flag: bool) -> bool {
+    configured || flag
+}
+
+/// Refuse a configuration the server cannot run safely. Called before anything
+/// is bound, by `APIServer::start` and by `aimodel`.
 ///
-/// ```text
-/// config.security.require_api_key = args.require_api_key;
-/// ```
-///
-/// — and the flag is a bare `#[arg(long)] bool`, so it is `false` whenever it is
-/// absent. A user who wrote `require_api_key = true` in their config and then ran
-/// `aimodel server` had authentication silently switched **off**: the config was
-/// obeyed for `host`, `port` and `cors`, and reversed for the one setting where
-/// being wrong is a security failure rather than an inconvenience.
-///
-/// The other three overrides are fail-safe in the same position — a config value
-/// replaced by a CLI default lands on `127.0.0.1`, the original port, and CORS
-/// disabled, all of which are *more* restrictive. Only this one failed open,
-/// which is why only this one is `||` rather than assignment.
-///
-/// The returned warning covers the second half: `require_api_key` defaults to
-/// `false` and `host` is independently settable, so nothing couples "I made this
-/// reachable" to "I turned authentication on". Binding a non-loopback address
-/// without auth is a legitimate choice behind a trusted network boundary, so this
-/// warns rather than refuses — but it should never be silent.
-pub fn resolve_auth_requirement(
-    configured: bool,
-    flag: bool,
-    host: &str,
-) -> (bool, Option<String>) {
-    let effective = configured || flag;
-    let warning = if !effective && !is_loopback(host) {
-        Some(format!(
-            "server is binding {host} with no API key required — every route \
-             (model download, convert, delete, storage cleanup) is reachable by \
-             anything that can route to this host. Pass --require-api-key, or set \
-             [security] require_api_key = true and populate api_keys."
-        ))
-    } else {
-        None
-    };
-    (effective, warning)
+/// * `enable_tls` is refused: the server has no TLS. Serving plain HTTP while
+///   the config says TLS would mislead the operator, so a terminating proxy is
+///   the supported route.
+/// * A host that is not loopback is refused unless `require_api_key` is on and
+///   at least one key is configured. Its routes download, convert and delete
+///   models and spend provider keys, so they must not be open to the network.
+pub fn check_startup(server: &ServerConfig, security: &SecurityConfig) -> Result<()> {
+    if security.enable_tls {
+        anyhow::bail!(
+            "[security] enable_tls = true, but this server does not implement TLS, \
+             so it would serve plain HTTP under a TLS setting. Set enable_tls = false, \
+             bind 127.0.0.1, and put a TLS-terminating reverse proxy in front of it."
+        );
+    }
+    if is_loopback(&server.host) {
+        return Ok(());
+    }
+    let mut missing = Vec::new();
+    if !security.require_api_key {
+        missing.push("require_api_key = true (or --require-api-key)");
+    }
+    if security.api_keys.is_empty() {
+        missing.push("at least one entry in api_keys");
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "refusing to bind {host}: it is not a loopback address, so every route (model \
+         download, convert, delete, storage cleanup, provider validation) would be \
+         reachable by anything that can route to this host, and provider keys could be \
+         spent by it. To serve it, set [security] {needs}. To keep it local, bind \
+         127.0.0.1.",
+        host = server.host,
+        needs = missing.join(" and ")
+    )
 }
 
 /// Whether `host` names only this machine.

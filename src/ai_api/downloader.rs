@@ -1,4 +1,7 @@
-use crate::ai_api::{models::*, storage::ModelStorage};
+use crate::ai_api::{
+    models::*,
+    storage::{validate_model_id, ModelStorage},
+};
 use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -91,6 +94,9 @@ impl ModelDownloader {
 
     /// Download a model from Hugging Face
     pub async fn download_model(&mut self, request: DownloadRequest) -> Result<LocalModelMetadata> {
+        // The id becomes a file name and a metadata path, so it is checked
+        // before any request is made or any file is written.
+        validate_model_id(&request.model_id)?;
         match &request.source.origin {
             origin if origin == "huggingface" => self.download_huggingface_model(request).await,
             origin if origin == "url" => self.download_from_url(request).await,
@@ -207,10 +213,17 @@ impl ModelDownloader {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("URL required for URL source"))?;
 
+        // The first URL and every redirect hop must pass the same SSRF rules as
+        // the other fetch builtins: no loopback, private or link-local target.
+        // reqwest's default client follows redirects without looking at them,
+        // so this download uses a client whose redirect policy checks each hop.
+        crate::security::validate_http_url("download_model", &url)?;
+        let client = url_download_client()?;
+
         let temp_path = self
             .cache_dir
             .join(format!("temp_{}", uuid::Uuid::new_v4()));
-        let downloaded_size = self.download_file(&url, &temp_path).await?;
+        let downloaded_size = download_capped(&client, &url, &temp_path, MODEL_FILE_MAX).await?;
 
         let checksum = crate::ai_api::storage::sha256_file(&temp_path)?;
 
@@ -555,6 +568,28 @@ impl ModelDownloader {
 
         Ok(results)
     }
+}
+
+/// The client for a direct-URL download. It has the timeouts of the shared
+/// secure client, and every redirect target must pass `validate_http_url`
+/// before it is followed, with the same ten-hop ceiling reqwest uses.
+fn url_download_client() -> Result<Client> {
+    crate::tls::install_provider();
+    Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 10 {
+                return attempt.error("too many redirects");
+            }
+            let next = attempt.url().to_string();
+            match crate::security::validate_http_url("download_model", &next) {
+                Ok(_) => attempt.follow(),
+                Err(e) => attempt.error(format!("redirect to {next} refused: {e}")),
+            }
+        }))
+        .build()
+        .map_err(Into::into)
 }
 
 /// Streams `url` into `local_path`, refusing a declared or actual length over

@@ -242,11 +242,33 @@ pub enum ProviderAction {
     Configure {
         /// Provider name
         provider: String,
-        /// API key
-        #[arg(long)]
+        /// API key, or `-` to read it from stdin. A key on the command line
+        /// is visible in the process list and shell history; prefer `-`.
+        #[arg(long, conflicts_with = "api_key_stdin")]
         api_key: Option<String>,
+        /// Read the API key from stdin (same as `--api-key -`)
+        #[arg(long)]
+        api_key_stdin: bool,
     },
 }
+
+/// Read one API key line from stdin, trimmed. Used so a key does not have to
+/// appear on the command line.
+fn read_key_from_stdin() -> Result<String> {
+    use std::io::Read;
+    let mut buf = String::new();
+    std::io::stdin().read_to_string(&mut buf)?;
+    let key = buf.trim().to_string();
+    if key.is_empty() {
+        anyhow::bail!("no API key on stdin");
+    }
+    Ok(key)
+}
+
+/// Warning printed when a key arrives on the command line.
+const ARGV_KEY_WARNING: &str = "warning: an API key on the command line is visible to other users \
+     in the process list and is kept in shell history. Use --api-key-stdin, or --api-key -, \
+     and pipe the key in.";
 
 #[derive(Args)]
 pub struct AliasArgs {
@@ -420,15 +442,13 @@ async fn main() -> Result<()> {
         // it is `false` whenever absent, and assigning it turned authentication
         // *off* for anyone who had enabled it in their config file. A CLI flag
         // may add a requirement; it may not silently drop one.
-        let (require_key, exposure) = iron_shell::ai_api::config::resolve_auth_requirement(
+        config.security.require_api_key = iron_shell::ai_api::config::resolve_auth_requirement(
             config.security.require_api_key,
             args.require_api_key,
-            &config.server.host,
         );
-        config.security.require_api_key = require_key;
-        if let Some(warning) = exposure {
-            eprintln!("⚠  {warning}");
-        }
+        // A non-loopback bind without keys, or TLS, is refused here, before a
+        // daemon is spawned or anything is bound.
+        iron_shell::ai_api::config::check_startup(&config.server, &config.security)?;
     }
 
     match cli.command {
@@ -846,10 +866,39 @@ async fn run_convert(_config: APIConfig, args: ConvertArgs) -> Result<()> {
     Ok(())
 }
 
+/// Replace every stored key in a config with a marker, for display. Key
+/// values are never printed, not even partly.
+fn redact_config_keys(config: &mut APIConfig) {
+    const MARK: &str = "<redacted>";
+    for key in config.security.api_keys.iter_mut() {
+        *key = MARK.to_string();
+    }
+    let p = &mut config.providers;
+    let mut slots = vec![
+        &mut p.openai.api_key,
+        &mut p.anthropic.api_key,
+        &mut p.ollama.api_key,
+        &mut p.lmstudio.api_key,
+        &mut p.vllm.api_key,
+        &mut p.tensorrt_llm.api_key,
+        &mut p.sglang.api_key,
+        &mut p.llama_cpp.api_key,
+    ];
+    for custom in p.custom.values_mut() {
+        slots.push(&mut custom.api_key);
+    }
+    for slot in slots {
+        if slot.is_some() {
+            *slot = Some(MARK.to_string());
+        }
+    }
+}
+
 async fn run_config(config_manager: ConfigManager, args: ConfigArgs) -> Result<()> {
     match args.action {
         ConfigAction::Show => {
-            let config = config_manager.load_config()?;
+            let mut config = config_manager.load_config()?;
+            redact_config_keys(&mut config);
             println!("{}", toml::to_string_pretty(&config)?);
         }
         ConfigAction::Set { key, value } => {
@@ -1090,9 +1139,23 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                 println!("  ✗ Test failed: {}", e);
             }
         }
-        ProviderAction::Configure { provider, api_key } => {
+        ProviderAction::Configure {
+            provider,
+            api_key,
+            api_key_stdin,
+        } => {
             println!("Configuring provider: {}", provider);
-            if let Some(key) = api_key {
+            let key = match (api_key, api_key_stdin) {
+                (Some(k), _) if k == "-" => Some(read_key_from_stdin()?),
+                (Some(k), _) => {
+                    eprintln!("{ARGV_KEY_WARNING}");
+                    Some(k)
+                }
+                (None, true) => Some(read_key_from_stdin()?),
+                (None, false) => None,
+            };
+            if let Some(key) = key {
+                // The key itself is never printed, not even a prefix.
                 println!("API key provided (length: {})", key.len());
 
                 // Store the API key in the appropriate environment variable
@@ -1108,12 +1171,8 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
 
                 // Note: This only sets for current process. For persistent storage,
                 // we'd need to use the secure credential store
-                println!("  To persist this API key, add to your shell profile:");
-                println!(
-                    "    export {}=\"{}...\"",
-                    env_var_name,
-                    &key[..std::cmp::min(8, key.len())]
-                );
+                println!("  To persist this API key, set it in your shell profile:");
+                println!("    export {}=<your key>", env_var_name);
                 println!("  Or use the secure keyring:");
                 println!("    aimodel keys set {} [API_KEY]", provider);
             } else {
@@ -1128,11 +1187,7 @@ async fn run_provider(config: APIConfig, args: ProviderArgs) -> Result<()> {
                 };
 
                 if let Some(key) = env_var {
-                    println!(
-                        "  API key is configured ({}... length: {})",
-                        &key[..std::cmp::min(8, key.len())],
-                        key.len()
-                    );
+                    println!("  API key is configured (length: {})", key.len());
                 } else {
                     println!("  No API key configured for {}", provider);
                 }
@@ -1428,6 +1483,7 @@ async fn run_keys(args: KeysArgs) -> Result<()> {
     match args.action {
         KeysAction::Store { provider, key } => {
             let api_key = if let Some(k) = key {
+                eprintln!("{ARGV_KEY_WARNING}");
                 k
             } else {
                 // Read from stdin for security (doesn't show in shell history)
@@ -1463,15 +1519,9 @@ async fn run_keys(args: KeysArgs) -> Result<()> {
                 provider.clone(),
             )?;
 
+            // No part of the key is printed: not a prefix, not a suffix.
             if let Some(key) = config.get_api_key() {
-                // Only show first/last few characters for security
-                let masked = if key.len() > 12 {
-                    format!("{}...{}", &key[..6], &key[key.len() - 4..])
-                } else {
-                    "*".repeat(key.len())
-                };
-
-                println!("API key for '{}': {}", provider, masked);
+                println!("API key for '{}': set", provider);
                 println!("Key length: {} characters", key.len());
 
                 // Validate format
@@ -1479,7 +1529,7 @@ async fn run_keys(args: KeysArgs) -> Result<()> {
                     println!("⚠ Warning: {}", e);
                 }
             } else {
-                println!("No API key found for '{}'", provider);
+                println!("API key for '{}': not set", provider);
             }
         }
 
@@ -1539,7 +1589,7 @@ async fn run_keys(args: KeysArgs) -> Result<()> {
                 }
             }
 
-            println!("\nUse 'aimodel keys get <provider>' to view (masked) key details");
+            println!("\nUse 'aimodel keys get <provider>' to check whether a key is set");
         }
 
         KeysAction::Migrate { provider, yes } => {

@@ -43,6 +43,9 @@ where
     F: Future<Output = ()> + Send + 'static,
 {
     let (fired_tx, fired_rx) = tokio::sync::oneshot::channel::<()>();
+    // Connection info is attached so a handler can see the peer address. It is
+    // a no-op for routes that do not read it.
+    let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
     let server = axum::serve(listener, app).with_graceful_shutdown(async move {
         signal.await;
         let _ = fired_tx.send(());

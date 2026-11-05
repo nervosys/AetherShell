@@ -1,7 +1,11 @@
-use crate::ai_api::{config::APIConfig, models::*, AIModelAPI};
+use crate::ai_api::{
+    config::{APIConfig, RateLimitConfig, ServerConfig},
+    models::*,
+    AIModelAPI,
+};
 use anyhow::Result;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json, Response, Sse},
     routing::{get, post},
@@ -9,9 +13,11 @@ use axum::{
 };
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::Arc;
-use std::time::Duration;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -64,6 +70,9 @@ impl APIServer {
 
     /// Start the HTTP server
     pub async fn start(&self) -> Result<()> {
+        // Refused before anything is bound: a non-loopback address without keys,
+        // or TLS, which this server does not implement.
+        crate::ai_api::config::check_startup(&self.config.server, &self.config.security)?;
         let app = self.create_router().await?;
 
         let addr = format!("{}:{}", self.config.server.host, self.config.server.port);
@@ -134,8 +143,12 @@ impl APIServer {
             .max_age(std::time::Duration::from_secs(3600))
     }
 
-    /// Create the main router with all endpoints
-    async fn create_router(&self) -> Result<Router> {
+    /// Create the main router with all endpoints.
+    ///
+    /// Two layers wrap every route, including the Swagger UI: the `Host` check
+    /// (outermost, so a foreign host gets no response body at all) and the
+    /// per-IP rate limit when `security.rate_limiting.enabled` is set.
+    pub async fn create_router(&self) -> Result<Router> {
         let state = AppState {
             api: self.api.clone(),
             config: self.config.clone(),
@@ -197,6 +210,20 @@ impl APIServer {
                 ),
             );
         }
+
+        if self.config.security.rate_limiting.enabled {
+            let limiter = Arc::new(RateLimiter::new(&self.config.security.rate_limiting));
+            app = app.layer(axum::middleware::from_fn_with_state(
+                limiter,
+                rate_limit_middleware,
+            ));
+        }
+
+        let hosts = Arc::new(HostPolicy::new(&self.config.server));
+        app = app.layer(axum::middleware::from_fn_with_state(
+            hosts,
+            host_guard_middleware,
+        ));
 
         Ok(app)
     }
@@ -379,13 +406,14 @@ async fn download_model(
     State(state): State<AppState>,
     Path(model_id): Path<String>,
     headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
     body: Option<Json<DownloadModelRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
     use crate::ai_api::downloader::{DownloadRequest, ModelDownloader};
     use crate::ai_api::models::{ModelFormat, ModelSource};
     use crate::ai_api::storage::{ModelStorage, StorageConfig};
 
-    authorize_mutation(&headers, &state.config)?;
+    authorize_mutation(&headers, &state.config, peer_addr(peer))?;
 
     let req_body = body.map(|b| b.0).unwrap_or_else(|| DownloadModelRequest {
         source: None,
@@ -426,6 +454,29 @@ async fn download_model(
 
     // Determine source (default to huggingface)
     let source = req_body.source.unwrap_or_else(|| "huggingface".to_string());
+
+    // For a "url" source the path segment is the URL itself. Its stored id is
+    // derived from the URL; for any other source the segment is the id, and it
+    // must pass the id rules before it can name a file.
+    let (storage_id, url) = if source == "url" {
+        let id = crate::ai_api::storage::url_model_id(&model_id).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(APIError {
+                    error: ErrorDetail {
+                        message: format!("Invalid model URL: {}", e),
+                        error_type: "invalid_request_error".to_string(),
+                        param: Some("model_id".to_string()),
+                        code: None,
+                    },
+                }),
+            )
+        })?;
+        (id, Some(model_id.clone()))
+    } else {
+        validate_id_or_bad_request(&model_id)?;
+        (model_id.clone(), None)
+    };
     let format_preference =
         req_body
             .format
@@ -439,14 +490,10 @@ async fn download_model(
             });
 
     let download_request = DownloadRequest {
-        model_id: model_id.clone(),
+        model_id: storage_id,
         source: ModelSource {
             origin: source.clone(),
-            url: if source == "url" {
-                Some(model_id.clone())
-            } else {
-                None
-            },
+            url,
             repository: if source == "huggingface" {
                 Some(model_id.clone())
             } else {
@@ -499,13 +546,14 @@ async fn convert_model(
     State(state): State<AppState>,
     Path(model_id): Path<String>,
     headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
     Json(request): Json<ConvertModelRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
     use crate::ai_api::converters::ModelConverter;
     use crate::ai_api::models::ModelFormat;
     use crate::ai_api::storage::{ModelStorage, StorageConfig};
 
-    authorize_mutation(&headers, &state.config)?;
+    authorize_mutation(&headers, &state.config, peer_addr(peer))?;
 
     // Initialize storage
     let storage_config = StorageConfig::default();
@@ -599,10 +647,12 @@ async fn delete_model(
     State(state): State<AppState>,
     Path(model_id): Path<String>,
     headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
     use crate::ai_api::storage::{ModelStorage, StorageConfig};
 
-    authorize_mutation(&headers, &state.config)?;
+    authorize_mutation(&headers, &state.config, peer_addr(peer))?;
+    validate_id_or_bad_request(&model_id)?;
 
     // Initialize storage
     let storage_config = StorageConfig::default();
@@ -674,9 +724,15 @@ async fn list_providers(
 
 /// Validate provider endpoint
 async fn validate_provider(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(provider_id): Path<String>,
+    headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
+    // Reports whether provider keys are set and probes a local port, so it is
+    // not open to an anonymous caller.
+    authorize_mutation(&headers, &state.config, peer_addr(peer))?;
+
     // Check if provider is configured and test connectivity
     let valid_providers = ["openai", "anthropic", "local", "ollama", "huggingface"];
 
@@ -750,9 +806,14 @@ async fn validate_provider(
 
 /// Storage statistics endpoint
 async fn storage_stats(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
     use crate::ai_api::storage::{ModelStorage, StorageConfig};
+
+    // The response carries the data and config directories and the model list.
+    authorize_mutation(&headers, &state.config, peer_addr(peer))?;
 
     // Initialize storage
     let storage_config = StorageConfig::default();
@@ -790,10 +851,11 @@ async fn storage_stats(
 async fn cleanup_storage(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<APIError>)> {
     use crate::ai_api::storage::{ModelStorage, StorageConfig};
 
-    authorize_mutation(&headers, &state.config)?;
+    authorize_mutation(&headers, &state.config, peer_addr(peer))?;
 
     // Initialize storage
     let storage_config = StorageConfig::default();
@@ -1044,7 +1106,7 @@ fn validate_api_key(
         .and_then(|h| h.strip_prefix("Bearer "));
 
     if let Some(provided_key) = auth_header {
-        if config.security.api_keys.contains(&provided_key.to_string()) {
+        if key_accepted(provided_key, &config.security.api_keys) {
             Ok(())
         } else {
             Err((
@@ -1074,17 +1136,85 @@ fn validate_api_key(
     }
 }
 
-/// Authorize a request that changes local state (download, convert, delete,
-/// cleanup). Unlike the inference routes this check does not depend on
+/// Whether `presented` equals one of `keys`. Each key is compared in full, with
+/// no early exit, so the time taken does not show which key, or how much of a
+/// key, matched. The byte comparison is the same as `mcp.rs`
+/// (`mcp_tokens_match`) and `agent_api.rs` (`tokens_match`).
+fn key_accepted(presented: &str, keys: &[String]) -> bool {
+    let mut accepted = false;
+    for key in keys {
+        accepted |= token_eq(presented.as_bytes(), key.as_bytes());
+    }
+    accepted
+}
+
+/// Constant-time byte comparison. A length mismatch is decided first, so the
+/// length of a key can be learned, not its contents.
+fn token_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// The peer address a handler was served from, if the server attached it.
+/// Handlers called directly, without a socket, get `None`.
+fn peer_addr(peer: Option<ConnectInfo<SocketAddr>>) -> Option<SocketAddr> {
+    peer.map(|ConnectInfo(addr)| addr)
+}
+
+/// Whether the peer is on this machine. IPv4-mapped IPv6 loopback counts.
+fn peer_is_loopback(peer: Option<SocketAddr>) -> bool {
+    match peer.map(|a| a.ip()) {
+        Some(IpAddr::V4(v4)) => v4.is_loopback(),
+        Some(IpAddr::V6(v6)) => {
+            v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+        }
+        None => false,
+    }
+}
+
+/// Map a model-id check failure to a `400` with the reason.
+fn validate_id_or_bad_request(model_id: &str) -> Result<(), (StatusCode, Json<APIError>)> {
+    crate::ai_api::storage::validate_model_id(model_id).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: e.to_string(),
+                    error_type: "invalid_request_error".to_string(),
+                    param: Some("model_id".to_string()),
+                    code: None,
+                },
+            }),
+        )
+    })
+}
+
+/// Authorize a request that reads or changes local state: model download,
+/// convert, delete, storage cleanup and stats, and provider validation.
+/// Unlike the inference routes this check does not depend on
 /// `require_api_key`, because a default server leaves that flag off.
 ///
-/// Without a key, the request must carry a custom header. A browser cannot
-/// send a custom header cross-origin without a CORS preflight, and this
-/// server never approves one for that header, so a web page cannot reach
-/// these routes. curl and the CLI can set the header freely.
+/// With API keys configured, the request needs a matching bearer token.
+///
+/// With no keys, the server is bound to loopback (`check_startup` refuses a
+/// non-loopback bind without keys), and the request must carry an
+/// `X-IronShell-Client` header and come from a loopback peer. The header is
+/// self-asserted, so it is not a credential. It is a browser-CSRF measure: a
+/// page on another origin cannot send a custom header without a CORS
+/// preflight, and this server never approves one for that header. The
+/// loopback-peer check is what closes the rest: a request that reached a
+/// loopback socket from elsewhere (a forwarded port, a reverse proxy on this
+/// machine) is refused.
 fn authorize_mutation(
     headers: &HeaderMap,
     config: &APIConfig,
+    peer: Option<SocketAddr>,
 ) -> Result<(), (StatusCode, Json<APIError>)> {
     if config.security.require_api_key || !config.security.api_keys.is_empty() {
         return validate_api_key(headers, config);
@@ -1094,6 +1224,21 @@ fn authorize_mutation(
         .get("X-IronShell-Client")
         .and_then(|h| h.to_str().ok())
         .is_some_and(|v| !v.is_empty());
+
+    if !peer_is_loopback(peer) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: "Without an API key, this route accepts only loopback peers"
+                        .to_string(),
+                    error_type: "forbidden".to_string(),
+                    param: None,
+                    code: None,
+                },
+            }),
+        ));
+    }
 
     if has_client_header {
         Ok(())
@@ -1110,6 +1255,202 @@ fn authorize_mutation(
             }),
         ))
     }
+}
+
+/// The `Host` values this server answers to. A browser that has been
+/// rebound to this machine by DNS sends the attacker's name here, so any
+/// name outside this set is refused.
+pub struct HostPolicy {
+    extra: Vec<String>,
+}
+
+impl HostPolicy {
+    fn new(server: &ServerConfig) -> Self {
+        let mut extra: Vec<String> = server
+            .allowed_hosts
+            .iter()
+            .map(|h| normalize_host(h))
+            .collect();
+        // A specific bind address is named by its clients too. A wildcard is
+        // not a name any client sends, so it adds nothing.
+        let bind = normalize_host(&server.host);
+        if !bind.is_empty() && bind != "0.0.0.0" && bind != "::" {
+            extra.push(bind);
+        }
+        Self { extra }
+    }
+
+    fn allows(&self, host: &str) -> bool {
+        host == "localhost"
+            || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+            || self.extra.iter().any(|h| h == host)
+    }
+}
+
+fn normalize_host(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase()
+}
+
+/// The host name from a `Host` header value, `host[:port]`, with any port
+/// removed and brackets stripped from an IPv6 literal. `None` when the value
+/// is not that shape, which includes a bare IPv6 address.
+fn host_name(value: &str) -> Option<String> {
+    let v = value.trim();
+    let (host, port) = if let Some(rest) = v.strip_prefix('[') {
+        let end = rest.find(']')?;
+        let after = &rest[end + 1..];
+        let port = match after {
+            "" => None,
+            a => Some(a.strip_prefix(':')?),
+        };
+        (&rest[..end], port)
+    } else {
+        match v.rsplit_once(':') {
+            Some((h, p)) if !h.contains(':') => (h, Some(p)),
+            Some(_) => return None,
+            None => (v, None),
+        }
+    };
+    if let Some(p) = port {
+        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+    }
+    if host.is_empty() {
+        return None;
+    }
+    Some(normalize_host(host))
+}
+
+/// Refuses a request whose `Host` header is not an allowed name. Missing or
+/// malformed `Host` is refused too. `/health` is not exempt: it is reachable
+/// on the loopback names, which is all a local monitor needs.
+async fn host_guard_middleware(
+    State(policy): State<Arc<HostPolicy>>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let host = req
+        .headers()
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .and_then(host_name);
+    match host {
+        Some(h) if policy.allows(&h) => next.run(req).await,
+        _ => (
+            StatusCode::FORBIDDEN,
+            Json(APIError {
+                error: ErrorDetail {
+                    message: "Host header is not a name this server answers to".to_string(),
+                    error_type: "forbidden".to_string(),
+                    param: None,
+                    code: None,
+                },
+            }),
+        )
+            .into_response(),
+    }
+}
+
+const RATE_WINDOW_MINUTE: Duration = Duration::from_secs(60);
+const RATE_WINDOW_HOUR: Duration = Duration::from_secs(3600);
+/// Past this many tracked clients, windows that have expired are dropped.
+const RATE_TRACKED_MAX: usize = 10_000;
+
+#[derive(Clone, Copy)]
+struct RateWindow {
+    minute_start: Instant,
+    minute_count: u32,
+    hour_start: Instant,
+    hour_count: u32,
+}
+
+/// A fixed-window request counter per client IP. It is in-process and
+/// holds no more than one entry per recent client.
+pub struct RateLimiter {
+    per_minute: u32,
+    per_hour: u32,
+    windows: Mutex<HashMap<Option<IpAddr>, RateWindow>>,
+}
+
+impl RateLimiter {
+    pub fn new(config: &RateLimitConfig) -> Self {
+        Self {
+            per_minute: config.requests_per_minute,
+            per_hour: config.requests_per_hour,
+            windows: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Count a request from `key` (`None` when no peer address is known). A
+    /// request over either limit is refused and not counted. A limit of `0`
+    /// is no limit.
+    pub fn admit(&self, key: Option<IpAddr>, now: Instant) -> bool {
+        let mut windows = match self.windows.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if windows.len() > RATE_TRACKED_MAX {
+            windows.retain(|_, w| now.duration_since(w.hour_start) < RATE_WINDOW_HOUR);
+        }
+        let w = windows.entry(key).or_insert(RateWindow {
+            minute_start: now,
+            minute_count: 0,
+            hour_start: now,
+            hour_count: 0,
+        });
+        if now.duration_since(w.minute_start) >= RATE_WINDOW_MINUTE {
+            w.minute_start = now;
+            w.minute_count = 0;
+        }
+        if now.duration_since(w.hour_start) >= RATE_WINDOW_HOUR {
+            w.hour_start = now;
+            w.hour_count = 0;
+        }
+        let over_minute = self.per_minute > 0 && w.minute_count >= self.per_minute;
+        let over_hour = self.per_hour > 0 && w.hour_count >= self.per_hour;
+        if over_minute || over_hour {
+            return false;
+        }
+        w.minute_count += 1;
+        w.hour_count += 1;
+        true
+    }
+}
+
+async fn rate_limit_middleware(
+    State(limiter): State<Arc<RateLimiter>>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let key = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|c| c.0.ip());
+    if limiter.admit(key, Instant::now()) {
+        return next.run(req).await;
+    }
+    let mut response = (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(APIError {
+            error: ErrorDetail {
+                message: "Rate limit exceeded; retry later".to_string(),
+                error_type: "rate_limit_exceeded".to_string(),
+                param: None,
+                code: None,
+            },
+        }),
+    )
+        .into_response();
+    response.headers_mut().insert(
+        axum::http::header::RETRY_AFTER,
+        axum::http::HeaderValue::from_static("60"),
+    );
+    response
 }
 
 // Additional types for API responses
@@ -1167,9 +1508,11 @@ mod tests {
         // with a running server, which is beyond the scope of unit tests
     }
 
-    use super::authorize_mutation;
-    use crate::ai_api::config::APIConfig;
+    use super::{authorize_mutation, host_name, key_accepted, HostPolicy, RateLimiter};
+    use crate::ai_api::config::{APIConfig, RateLimitConfig};
     use axum::http::{HeaderMap, HeaderValue, StatusCode};
+    use std::net::{IpAddr, SocketAddr};
+    use std::time::{Duration, Instant};
 
     fn headers_with(name: &'static str, value: &'static str) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -1177,17 +1520,25 @@ mod tests {
         headers
     }
 
+    fn loopback_peer() -> Option<SocketAddr> {
+        Some("127.0.0.1:40000".parse().unwrap())
+    }
+
+    fn remote_peer() -> Option<SocketAddr> {
+        Some("192.0.2.7:40000".parse().unwrap())
+    }
+
     #[test]
     fn authorize_mutation_no_key_no_header_is_forbidden() {
         let config = APIConfig::default();
 
-        let err = authorize_mutation(&HeaderMap::new(), &config)
+        let err = authorize_mutation(&HeaderMap::new(), &config, loopback_peer())
             .expect_err("mutation without key or client header must be refused");
         assert_eq!(err.0, StatusCode::FORBIDDEN);
 
         // An empty header value does not count as the client marker.
         let empty = headers_with("X-IronShell-Client", "");
-        assert!(authorize_mutation(&empty, &config).is_err());
+        assert!(authorize_mutation(&empty, &config, loopback_peer()).is_err());
     }
 
     #[test]
@@ -1195,7 +1546,20 @@ mod tests {
         let config = APIConfig::default();
         let headers = headers_with("X-IronShell-Client", "1");
 
-        assert!(authorize_mutation(&headers, &config).is_ok());
+        assert!(authorize_mutation(&headers, &config, loopback_peer()).is_ok());
+    }
+
+    #[test]
+    fn authorize_mutation_no_key_needs_a_loopback_peer() {
+        // The header alone is self-asserted; a remote peer, or no peer at all
+        // (a handler called without a socket), is refused even with it.
+        let config = APIConfig::default();
+        let headers = headers_with("X-IronShell-Client", "1");
+
+        assert!(authorize_mutation(&headers, &config, remote_peer()).is_err());
+        assert!(authorize_mutation(&headers, &config, None).is_err());
+        let mapped: SocketAddr = "[::ffff:127.0.0.1]:40000".parse().unwrap();
+        assert!(authorize_mutation(&headers, &config, Some(mapped)).is_ok());
     }
 
     #[test]
@@ -1205,14 +1569,82 @@ mod tests {
         config.security.api_keys = vec!["secret".to_string()];
 
         // Missing bearer, and a wrong bearer, are both refused even with the header.
-        assert!(authorize_mutation(&HeaderMap::new(), &config).is_err());
+        assert!(authorize_mutation(&HeaderMap::new(), &config, loopback_peer()).is_err());
 
         let mut wrong = headers_with("X-IronShell-Client", "1");
         wrong.insert("Authorization", HeaderValue::from_static("Bearer nope"));
-        assert!(authorize_mutation(&wrong, &config).is_err());
+        assert!(authorize_mutation(&wrong, &config, loopback_peer()).is_err());
 
         let mut right = HeaderMap::new();
         right.insert("Authorization", HeaderValue::from_static("Bearer secret"));
-        assert!(authorize_mutation(&right, &config).is_ok());
+        assert!(authorize_mutation(&right, &config, remote_peer()).is_ok());
+    }
+
+    #[test]
+    fn key_match_checks_every_configured_key() {
+        let keys = vec!["alpha-key".to_string(), "beta-key".to_string()];
+        assert!(key_accepted("alpha-key", &keys));
+        assert!(key_accepted("beta-key", &keys));
+        assert!(!key_accepted("alpha-kez", &keys));
+        assert!(!key_accepted("alpha", &keys));
+        assert!(!key_accepted("", &keys));
+        assert!(!key_accepted("alpha-key", &[]));
+    }
+
+    #[test]
+    fn host_header_names_are_parsed() {
+        assert_eq!(host_name("localhost:8080").as_deref(), Some("localhost"));
+        assert_eq!(host_name("127.0.0.1").as_deref(), Some("127.0.0.1"));
+        assert_eq!(host_name("[::1]:8080").as_deref(), Some("::1"));
+        assert_eq!(host_name("[::1]").as_deref(), Some("::1"));
+        assert_eq!(
+            host_name("Evil.Example:443").as_deref(),
+            Some("evil.example")
+        );
+        // A bare IPv6 address is not a Host value, and neither is a bad port.
+        assert_eq!(host_name("::1"), None);
+        assert_eq!(host_name("localhost:"), None);
+        assert_eq!(host_name("localhost:80x"), None);
+        assert_eq!(host_name(":80"), None);
+    }
+
+    #[test]
+    fn host_policy_allows_loopback_and_the_bind_host_only() {
+        let mut server = crate::ai_api::config::ServerConfig::default();
+        server.host = "192.168.1.10".to_string();
+        let policy = HostPolicy::new(&server);
+        assert!(policy.allows("localhost"));
+        assert!(policy.allows("127.0.0.1"));
+        assert!(policy.allows("::1"));
+        assert!(policy.allows("192.168.1.10"));
+        assert!(!policy.allows("evil.example"));
+        assert!(!policy.allows("10.0.0.5"));
+
+        // A wildcard bind names no client, so it adds no host.
+        server.host = "0.0.0.0".to_string();
+        let policy = HostPolicy::new(&server);
+        assert!(!policy.allows("0.0.0.0"));
+        assert!(!policy.allows("evil.example"));
+    }
+
+    #[test]
+    fn rate_limit_refuses_past_the_minute_window_and_resets() {
+        let limits = RateLimitConfig {
+            requests_per_minute: 2,
+            requests_per_hour: 100,
+            ..RateLimitConfig::default()
+        };
+        let limiter = RateLimiter::new(&limits);
+        let ip: IpAddr = "203.0.113.9".parse().unwrap();
+        let other: IpAddr = "203.0.113.10".parse().unwrap();
+        let t0 = Instant::now();
+
+        assert!(limiter.admit(Some(ip), t0));
+        assert!(limiter.admit(Some(ip), t0));
+        assert!(!limiter.admit(Some(ip), t0), "third request in the window");
+        // Another client has its own count.
+        assert!(limiter.admit(Some(other), t0));
+        // The window ends after a minute.
+        assert!(limiter.admit(Some(ip), t0 + Duration::from_secs(61)));
     }
 }
