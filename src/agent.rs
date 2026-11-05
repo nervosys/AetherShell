@@ -489,6 +489,17 @@ fn configure_sandbox(_cmd: &mut Command) -> Result<()> {
     Ok(())
 }
 
+/// Writes a fixed warning to stderr from a `pre_exec` hook. `eprintln!` takes the
+/// stderr lock and may allocate, and neither is async-signal-safe between fork and
+/// exec (another thread may hold the lock at fork time). `write(2)` is safe there.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn warn_in_child(msg: &'static [u8]) {
+    // SAFETY: write(2) on fd 2 with a pointer and length from a static slice.
+    unsafe {
+        libc::write(2, msg.as_ptr().cast(), msg.len());
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn configure_sandbox(cmd: &mut Command) -> Result<()> {
     use std::os::unix::process::CommandExt;
@@ -506,7 +517,7 @@ fn configure_sandbox(cmd: &mut Command) -> Result<()> {
                 rlim_max: MAX_EXECUTION_TIMEOUT_SECS,
             };
             if setrlimit(RLIMIT_CPU, &cpu_limit) != 0 {
-                eprintln!("[AGENT] Warning: Failed to set CPU limit");
+                warn_in_child(b"[AGENT] Warning: Failed to set CPU limit\n");
             }
 
             // Memory limit: 512 MB
@@ -515,7 +526,7 @@ fn configure_sandbox(cmd: &mut Command) -> Result<()> {
                 rlim_max: 512 * 1024 * 1024,
             };
             if setrlimit(RLIMIT_AS, &mem_limit) != 0 {
-                eprintln!("[AGENT] Warning: Failed to set memory limit");
+                warn_in_child(b"[AGENT] Warning: Failed to set memory limit\n");
             }
 
             // File size limit: 100 MB
@@ -524,7 +535,7 @@ fn configure_sandbox(cmd: &mut Command) -> Result<()> {
                 rlim_max: 100 * 1024 * 1024,
             };
             if setrlimit(RLIMIT_FSIZE, &file_limit) != 0 {
-                eprintln!("[AGENT] Warning: Failed to set file size limit");
+                warn_in_child(b"[AGENT] Warning: Failed to set file size limit\n");
             }
 
             Ok(())
@@ -555,7 +566,7 @@ fn configure_sandbox(cmd: &mut Command) -> Result<()> {
                 rlim_max: MAX_EXECUTION_TIMEOUT_SECS,
             };
             if setrlimit(RLIMIT_CPU, &cpu_limit) != 0 {
-                eprintln!("[AGENT] Warning: Failed to set CPU limit");
+                warn_in_child(b"[AGENT] Warning: Failed to set CPU limit\n");
             }
 
             // Memory limit: 512 MB
@@ -564,7 +575,7 @@ fn configure_sandbox(cmd: &mut Command) -> Result<()> {
                 rlim_max: 512 * 1024 * 1024,
             };
             if setrlimit(RLIMIT_AS, &mem_limit) != 0 {
-                eprintln!("[AGENT] Warning: Failed to set memory limit");
+                warn_in_child(b"[AGENT] Warning: Failed to set memory limit\n");
             }
 
             // File size limit: 100 MB
@@ -573,7 +584,7 @@ fn configure_sandbox(cmd: &mut Command) -> Result<()> {
                 rlim_max: 100 * 1024 * 1024,
             };
             if setrlimit(RLIMIT_FSIZE, &file_limit) != 0 {
-                eprintln!("[AGENT] Warning: Failed to set file size limit");
+                warn_in_child(b"[AGENT] Warning: Failed to set file size limit\n");
             }
 
             Ok(())

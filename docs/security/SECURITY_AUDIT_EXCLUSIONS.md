@@ -2,7 +2,7 @@
 # This file documents legitimate security findings that are acceptable
 
 ## Unsafe Code Blocks
-- **src/agent.rs:373,420**: Legitimate unsafe blocks for system-level resource limiting (sandboxing)
+- **src/agent.rs:510,559**: Legitimate unsafe blocks for system-level resource limiting (sandboxing)
   - Used exclusively for security hardening (CPU/memory limits)
   - Platform-specific (Linux/macOS) resource control
   - Critical for preventing resource exhaustion attacks
@@ -22,7 +22,7 @@ All "secret" findings in documentation are example placeholders:
 
 ## Test Data (False Positives)
 - tests/ai_mcp.rs: Test JSON with "key": "value" - not actual secrets
-- src/agent.rs:562: Test arguments with generic key-value pairs
+- src/agent.rs:573: Test arguments with generic key-value pairs
 
 ## Security Compliance Status: ✅ APPROVED
 
