@@ -34,11 +34,11 @@ jobs:
         env:
             AE_DISPOSABLE_HOST: "1"
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-            - uses: dtolnay/rust-toolchain@stable
+            - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
-            - uses: Swatinem/rust-cache@v2
+            - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
             - name: Runner identity
               shell: pwsh
@@ -100,11 +100,11 @@ jobs:
         env:
             AE_DISPOSABLE_HOST: "1"
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-            - uses: dtolnay/rust-toolchain@stable
+            - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
-            - uses: Swatinem/rust-cache@v2
+            - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
             - name: Build the gated tests
               run: cargo test --no-run --test clipboard_image_admin --test screenshot_window_admin --test macos_window_admin --test macos_input_admin --test macos_service_admin --test macos_account_admin --test libcpp_contracts --test proc_env_macos --test macos_acl_admin --test macos_mount_admin --test macos_task_admin

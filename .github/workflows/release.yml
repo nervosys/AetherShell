@@ -24,7 +24,7 @@ jobs:
         outputs:
             version: ${{ steps.get_version.outputs.version }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
             - name: Get version
               id: get_version
@@ -67,13 +67,13 @@ jobs:
                       os: windows-latest
                       archive: zip
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-            - uses: dtolnay/rust-toolchain@stable
+            - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
               with:
                   targets: ${{ matrix.target }}
 
-            - uses: Swatinem/rust-cache@v2
+            - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
               with:
                   key: release-${{ matrix.target }}
 
@@ -111,7 +111,7 @@ jobs:
                   7z a ../../../ironshell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip ish.exe ae.exe aimodel.exe
 
             - name: Hand the archive to publish-release
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: release-${{ matrix.target }}
                   path: ironshell-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
@@ -122,13 +122,13 @@ jobs:
         needs: create-release
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-            - uses: dtolnay/rust-toolchain@stable
+            - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
               with:
                   targets: wasm32-unknown-unknown
 
-            - uses: Swatinem/rust-cache@v2
+            - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
             - name: Install wasm-pack
               run: cargo install wasm-pack
@@ -144,7 +144,7 @@ jobs:
                   tar czvf ../ironshell-wasm-${{ needs.create-release.outputs.version }}.tar.gz pkg/
 
             - name: Hand the archive to publish-release
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: release-wasm
                   path: ironshell-wasm-${{ needs.create-release.outputs.version }}.tar.gz
@@ -216,9 +216,9 @@ jobs:
         if: needs.publish-preflight.outputs.crates == 'true'
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-            - uses: dtolnay/rust-toolchain@stable
+            - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
             - name: Publish to crates.io
               env:
@@ -326,13 +326,13 @@ jobs:
         if: needs.publish-preflight.outputs.npm == 'true'
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-            - uses: dtolnay/rust-toolchain@stable
+            - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
               with:
                   targets: wasm32-unknown-unknown
 
-            - uses: actions/setup-node@v4
+            - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
               with:
                   node-version: "20"
                   registry-url: "https://registry.npmjs.org"
@@ -502,9 +502,9 @@ jobs:
         permissions:
             id-token: write
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-            - uses: actions/setup-python@v5
+            - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
               with:
                   python-version: "3.12"
 
@@ -517,7 +517,7 @@ jobs:
 
             - name: Publish to PyPI
               id: pypi_publish
-              uses: pypa/gh-action-pypi-publish@release/v1
+              uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
               with:
                   packages-dir: integrations/python/dist/
               # WARNING (2026-08-07, updated 2026-09-02): this has never
@@ -597,11 +597,11 @@ jobs:
         needs: [create-release, build-binaries]
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-            - uses: dtolnay/rust-toolchain@stable
+            - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
-            - uses: Swatinem/rust-cache@v2
+            - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
               with:
                   key: linux-packages
 
@@ -623,7 +623,7 @@ jobs:
               run: cargo generate-rpm
 
             - name: Hand the packages to publish-release
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: release-linux-packages
                   path: |
@@ -647,7 +647,7 @@ jobs:
         permissions:
             contents: write
         steps:
-            - uses: actions/download-artifact@v4
+            - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
               with:
                   pattern: release-*
                   path: dist
@@ -657,7 +657,7 @@ jobs:
               run: ls -la dist && test "$(ls dist | wc -l)" -ge 9
 
             - name: Create the release
-              uses: softprops/action-gh-release@v2
+              uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
               with:
                   tag_name: v${{ needs.create-release.outputs.version }}
                   name: IronShell v${{ needs.create-release.outputs.version }}
