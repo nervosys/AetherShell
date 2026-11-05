@@ -33212,6 +33212,29 @@ fn check_archive_entries(
     Ok(())
 }
 
+/// The most an archive may declare as uncompressed content before
+/// `zip_extract` or `tar_extract` refuses it: the sum of its members' sizes.
+const ARCHIVE_EXTRACT_MAX_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
+/// Refuse an archive whose members declare more than `ARCHIVE_EXTRACT_MAX_BYTES`
+/// in total, before anything is written. Declared sizes can lie: a zip's
+/// uncompressed size and a tar header's size are written by whoever made the
+/// archive, so a small archive can claim little and inflate to far more. This
+/// bounds what the archive claims, not what the extracting tool writes. The
+/// tool's deadline (`TOOL_LONG_DEADLINE_SECS`) is what bounds the work done.
+fn check_archive_budget(builtin: &str, declared: u64) -> Result<()> {
+    if declared > ARCHIVE_EXTRACT_MAX_BYTES {
+        return Err(crate::safety::budget_exceeded(
+            builtin,
+            format!(
+                "the archive declares {declared} bytes uncompressed, over the {ARCHIVE_EXTRACT_MAX_BYTES}-byte limit"
+            ),
+            "nothing was extracted; extract the parts you need, or split the archive",
+        ));
+    }
+    Ok(())
+}
+
 /// Refuse an archive whose members, or whose links' targets, would land on a
 /// path `guard` protects: the audit log, the governance files, or in agent
 /// mode a `.git` directory. The extracting tool writes them where the
@@ -33259,7 +33282,10 @@ const ARCHIVE_LINK_TARGET_MAX: u64 = 4096;
 /// List every entry of a zip archive, with the target of each symlink entry.
 /// The zip format stores a symlink as a member whose unix mode is `S_IFLNK` and
 /// whose content is the target path.
-fn zip_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Option<String>)>> {
+fn zip_archive_entries(
+    builtin: &str,
+    archive: &str,
+) -> Result<(Vec<(String, Option<String>)>, u64)> {
     use std::io::Read as _;
     let file =
         std::fs::File::open(archive).map_err(|e| crate::safety::fs_error(builtin, archive, &e))?;
@@ -33270,10 +33296,12 @@ fn zip_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Opti
         return Err(walk_over(builtin, WALK_MAX_ENTRIES));
     }
     let mut out = Vec::with_capacity(zip.len());
+    let mut declared: u64 = 0;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| {
             crate::safety::tool_failed(builtin, "zip", None, &format!("unreadable entry: {e}"))
         })?;
+        declared = declared.saturating_add(entry.size());
         let name = entry
             .name()
             .map(|n| n.into_owned())
@@ -33301,11 +33329,15 @@ fn zip_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Opti
         };
         out.push((name, target));
     }
-    Ok(out)
+    Ok((out, declared))
 }
 
-/// The member names of a compressed tar archive, as `tar -tf` lists them.
-fn tar_tool_entry_names(builtin: &str, archive: &str) -> Result<Vec<(String, Option<String>)>> {
+/// The member names of a compressed tar archive, as `tar -tf` lists them. The
+/// sizes are not listed, so the declared total is 0: `tar -tf` gives no size.
+fn tar_tool_entry_names(
+    builtin: &str,
+    archive: &str,
+) -> Result<(Vec<(String, Option<String>)>, u64)> {
     crate::safety::reject_option_like(builtin, &[archive.to_string()])?;
     let mut cmd = crate::safety::child_command("tar");
     cmd.arg("-tf").arg(archive);
@@ -33326,7 +33358,7 @@ fn tar_tool_entry_names(builtin: &str, archive: &str) -> Result<Vec<(String, Opt
         }
         names.push((line.to_string(), None));
     }
-    Ok(names)
+    Ok((names, 0))
 }
 
 /// The program that decompresses a bzip2, xz or zstd stream, by its first two
@@ -33349,7 +33381,7 @@ fn tar_decompressed_entries(
     builtin: &str,
     archive: &str,
     tool: &str,
-) -> Result<Option<Vec<(String, Option<String>)>>> {
+) -> Result<Option<(Vec<(String, Option<String>)>, u64)>> {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
     crate::safety::reject_option_like(builtin, &[archive.to_string()])?;
@@ -33423,10 +33455,20 @@ fn tar_decompressed_entries(
 }
 
 /// List every entry of a tar archive, with the target of each symlink and hard
-/// link. A plain or gzip-compressed tar is read in-process. A bzip2, xz or zstd
-/// stream is read in-process through its decompressor; where that program is
-/// not installed, only its member names are checked, as `tar -tf` lists them.
+/// link. See `tar_archive_listing` for the declared sizes.
 fn tar_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Option<String>)>> {
+    Ok(tar_archive_listing(builtin, archive)?.0)
+}
+
+/// The entries of a tar archive, and the total of their declared sizes. A plain
+/// or gzip-compressed tar is read in-process. A bzip2, xz or zstd stream is read
+/// in-process through its decompressor; where that program is not installed,
+/// only its member names are checked, as `tar -tf` lists them, and no size is
+/// known, so the declared total for that case is 0.
+fn tar_archive_listing(
+    builtin: &str,
+    archive: &str,
+) -> Result<(Vec<(String, Option<String>)>, u64)> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file =
         std::fs::File::open(archive).map_err(|e| crate::safety::fs_error(builtin, archive, &e))?;
@@ -33459,12 +33501,13 @@ fn tar_archive_entries(builtin: &str, archive: &str) -> Result<Vec<(String, Opti
 fn read_tar_entries<R: std::io::Read>(
     builtin: &str,
     reader: R,
-) -> Result<Vec<(String, Option<String>)>> {
+) -> Result<(Vec<(String, Option<String>)>, u64)> {
     let mut ar = tar::Archive::new(reader);
     let entries = ar.entries().map_err(|e| {
         crate::safety::tool_failed(builtin, "tar", None, &format!("not a tar archive: {e}"))
     })?;
     let mut out = Vec::new();
+    let mut declared: u64 = 0;
     for entry in entries {
         if out.len() >= WALK_MAX_ENTRIES {
             return Err(walk_over(builtin, WALK_MAX_ENTRIES));
@@ -33472,6 +33515,7 @@ fn read_tar_entries<R: std::io::Read>(
         let entry = entry.map_err(|e| {
             crate::safety::tool_failed(builtin, "tar", None, &format!("unreadable entry: {e}"))
         })?;
+        declared = declared.saturating_add(entry.size());
         let name = entry
             .path()
             .map_err(|e| crate::safety::tool_failed(builtin, "tar", None, &e.to_string()))?
@@ -33488,7 +33532,7 @@ fn read_tar_entries<R: std::io::Read>(
         };
         out.push((name, target));
     }
-    Ok(out)
+    Ok((out, declared))
 }
 
 fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -33514,8 +33558,9 @@ fn bi_zip_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     refuse_in_transaction("zip_extract", "extracting an archive cannot be rolled back")?;
     // Refuse a member that would land outside the destination before the tool
     // writes anything.
-    let members = zip_archive_entries("zip_extract", &archive)?;
+    let (members, declared) = zip_archive_entries("zip_extract", &archive)?;
     check_archive_entries("zip_extract", members.iter().cloned())?;
+    check_archive_budget("zip_extract", declared)?;
 
     #[cfg(target_os = "windows")]
     {
@@ -33692,8 +33737,9 @@ fn bi_tar_extract(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     refuse_in_transaction("tar_extract", "extracting an archive cannot be rolled back")?;
     // Refuse a member, or a link, that would land outside the destination before
     // tar writes anything.
-    let members = tar_archive_entries("tar_extract", &archive)?;
+    let (members, declared) = tar_archive_listing("tar_extract", &archive)?;
     check_archive_entries("tar_extract", members.iter().cloned())?;
+    check_archive_budget("tar_extract", declared)?;
     let mut cmd = crate::safety::child_command("tar");
     cmd.args(["-xvf", &archive]);
     if let Some(d) = dest {
@@ -75490,6 +75536,65 @@ mod archive_prescan_tests {
     fn too_many_entries_are_refused() {
         let items = (0..=WALK_MAX_ENTRIES).map(|_| ("a".to_string(), None));
         assert!(check_archive_entries("tar_extract", items).is_err());
+    }
+
+    #[test]
+    fn a_declared_total_over_the_budget_is_budget_exceeded() {
+        assert!(check_archive_budget("tar_extract", ARCHIVE_EXTRACT_MAX_BYTES).is_ok());
+        let err = check_archive_budget("tar_extract", ARCHIVE_EXTRACT_MAX_BYTES + 1)
+            .expect_err("one byte over must be refused");
+        assert!(format!("{err}").contains("E_BUDGET_EXCEEDED"), "{err}");
+    }
+
+    #[test]
+    fn a_zip_listing_totals_its_declared_sizes() {
+        use std::io::Write;
+        let dir =
+            std::env::temp_dir().join(format!("ae_budget_zip_{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("sizes.zip");
+        {
+            let file = std::fs::File::create(&archive).unwrap();
+            let mut w = zip::ZipWriter::new(file);
+            let opts = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            w.start_file("a.bin", opts).unwrap();
+            w.write_all(b"abc").unwrap();
+            w.start_file("b.bin", opts).unwrap();
+            w.write_all(b"defgh").unwrap();
+            w.finish().unwrap();
+        }
+        let listed = zip_archive_entries("zip_extract", archive.to_str().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+        let (names, declared) = listed.unwrap();
+        assert_eq!(names.len(), 2);
+        assert_eq!(declared, 8);
+    }
+
+    #[test]
+    fn a_tar_listing_totals_its_declared_sizes() {
+        let dir =
+            std::env::temp_dir().join(format!("ae_budget_tar_{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("sizes.tar");
+        {
+            let file = std::fs::File::create(&archive).unwrap();
+            let mut b = tar::Builder::new(file);
+            for (name, body) in [("a.bin", &b"abc"[..]), ("b.bin", &b"defgh"[..])] {
+                let mut h = tar::Header::new_gnu();
+                h.set_path(name).unwrap();
+                h.set_size(body.len() as u64);
+                h.set_mode(0o644);
+                h.set_cksum();
+                b.append(&h, body).unwrap();
+            }
+            b.finish().unwrap();
+        }
+        let listed = tar_archive_listing("tar_extract", archive.to_str().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+        let (names, declared) = listed.unwrap();
+        assert_eq!(names.len(), 2);
+        assert_eq!(declared, 8);
     }
 
     #[test]
