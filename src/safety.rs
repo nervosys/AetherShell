@@ -3040,7 +3040,10 @@ pub fn within_workspace(path: &str) -> bool {
         Ok(r) => r,
         Err(_) => return false,
     };
-    resolve_for_jail(path).starts_with(&root)
+    match resolve_for_jail(path) {
+        Some(resolved) => resolved.starts_with(&root),
+        None => false,
+    }
 }
 
 /// Why a journalled path may not be rewritten by `undo` or `redo` here, if it
@@ -3062,45 +3065,130 @@ pub fn rewind_refused(path: &str) -> Option<String> {
     )
 }
 
-/// Lexically resolve a path to an absolute, `..`/`.`-free form against the
-/// workspace root (no filesystem access; defends against traversal even for
-/// paths that don't exist on disk).
-fn lexical_abs(path: &str) -> PathBuf {
-    use std::path::Component;
-    let p = std::path::Path::new(path);
-    let abs = if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        workspace_root().join(p)
-    };
-    let mut out = PathBuf::new();
-    for comp in abs.components() {
-        match comp {
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::CurDir => {}
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
+/// The most symbolic links one jail check follows (Linux `SYMLOOP_MAX`). A chain
+/// longer than this, or a loop, makes the path count as outside the workspace.
+const MAX_LINK_HOPS: usize = 40;
+
+/// One component of a path that [`physical_path`] is walking.
+enum WalkSeg {
+    Prefix(std::ffi::OsString),
+    Root,
+    Parent,
+    Normal(std::ffi::OsString),
 }
 
-/// Resolve a path for jail comparison: lexically normalize it, then canonicalize
-/// its deepest existing ancestor (resolving symlinks) and re-append the clean,
-/// `..`-free remainder. This yields a path in the same canonical namespace as a
-/// canonicalized workspace root, even when the leaf does not yet exist.
-fn resolve_for_jail(path: &str) -> PathBuf {
-    let clean = lexical_abs(path);
-    for anc in clean.ancestors() {
-        if let Ok(canon) = anc.canonicalize() {
-            return match clean.strip_prefix(anc) {
-                Ok(rest) => canon.join(rest),
-                Err(_) => canon,
-            };
+/// The components of `path`, keeping `..` (which `Path::components` does not
+/// remove) and dropping only `.`.
+fn walk_segments(path: &Path) -> Vec<WalkSeg> {
+    use std::path::Component;
+    path.components()
+        .filter_map(|comp| match comp {
+            Component::Prefix(p) => Some(WalkSeg::Prefix(p.as_os_str().to_os_string())),
+            Component::RootDir => Some(WalkSeg::Root),
+            Component::CurDir => None,
+            Component::ParentDir => Some(WalkSeg::Parent),
+            Component::Normal(name) => Some(WalkSeg::Normal(name.to_os_string())),
+        })
+        .collect()
+}
+
+/// The absolute form of a user-supplied path, without any lexical cleaning: a
+/// relative path is joined to the workspace root, itself made absolute.
+fn absolute_form(path: &str) -> PathBuf {
+    let given = Path::new(path);
+    if given.is_absolute() {
+        return given.to_path_buf();
+    }
+    let root = workspace_root();
+    let root = if root.is_absolute() {
+        root
+    } else {
+        std::env::current_dir().unwrap_or_default().join(root)
+    };
+    root.join(given)
+}
+
+/// The place the OS would reach for `path`, with every symbolic link resolved in
+/// the order the OS resolves them.
+///
+/// The walk runs left to right from the absolute form. A normal component is
+/// appended, and if it is a link its target replaces it: a relative target is
+/// taken against the directory the walk has reached, and the walk restarts on
+/// the target followed by the rest of the path. A `..` pops what the walk has
+/// already resolved, so after `lnk/..` it is the parent of the link's target,
+/// as it is for the OS. The result holds no link in any component that exists.
+///
+/// A component that does not exist is appended as it is. A later `..` pops it,
+/// which matches what creating it would have done. Any other error reading a
+/// component, or more than [`MAX_LINK_HOPS`] links, gives `None`: the caller
+/// treats the path as outside the workspace.
+fn physical_path(path: &str) -> Option<PathBuf> {
+    let mut pending: std::collections::VecDeque<WalkSeg> =
+        walk_segments(&absolute_form(path)).into();
+    let mut out = PathBuf::new();
+    let mut hops = 0usize;
+    while let Some(seg) = pending.pop_front() {
+        match seg {
+            WalkSeg::Prefix(prefix) => out = PathBuf::from(prefix),
+            WalkSeg::Root => out.push(std::path::Component::RootDir.as_os_str()),
+            WalkSeg::Parent => {
+                out.pop();
+            }
+            WalkSeg::Normal(name) => {
+                let next = out.join(&name);
+                match std::fs::symlink_metadata(&next) {
+                    Ok(meta) if meta.file_type().is_symlink() => {
+                        hops += 1;
+                        if hops > MAX_LINK_HOPS {
+                            return None;
+                        }
+                        let target = std::fs::read_link(&next).ok()?;
+                        let target = if target.is_absolute() {
+                            target
+                        } else {
+                            out.join(target)
+                        };
+                        let mut restart: std::collections::VecDeque<WalkSeg> =
+                            walk_segments(&target).into();
+                        restart.append(&mut pending);
+                        pending = restart;
+                        out = PathBuf::new();
+                    }
+                    Ok(_) => out = next,
+                    Err(e)
+                        if matches!(
+                            e.kind(),
+                            std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                        ) =>
+                    {
+                        out = next
+                    }
+                    Err(_) => return None,
+                }
+            }
         }
     }
-    clean
+    Some(out)
+}
+
+/// Resolve a path for jail comparison: walk it with [`physical_path`], then
+/// canonicalize its deepest existing ancestor (resolving symlinks and the
+/// Windows spellings: 8.3 names, trailing dots, verbatim prefixes) and re-append
+/// the remainder, which holds no `..` and no link. This yields a path in the same
+/// canonical namespace as a canonicalized workspace root, even when the leaf does
+/// not yet exist. `None` when the path is outside the jail by construction (see
+/// [`physical_path`]).
+fn resolve_for_jail(path: &str) -> Option<PathBuf> {
+    let walked = physical_path(path)?;
+    for anc in walked.ancestors() {
+        if let Ok(canon) = anc.canonicalize() {
+            return Some(match walked.strip_prefix(anc) {
+                Ok(rest) => canon.join(rest),
+                Err(_) => canon,
+            });
+        }
+    }
+    Some(walked)
 }
 
 // ════════════════════════════════════════════════════════════════════════
