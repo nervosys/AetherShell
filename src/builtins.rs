@@ -44024,6 +44024,29 @@ fn sqlite_db_in_workspace(db_path: &str) -> Result<String> {
 }
 
 fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
+    let (db_path, sql) = sqlite_exec_prepare(args)?;
+    // Every mutating sqlite builtin (insert/update/delete/create_table/drop_table)
+    // routes through here, so snapshotting the db file at this single chokepoint
+    // makes those mutations reversible inside a transaction. No-op when no
+    // transaction is active.
+    crate::tx::snapshot(&db_path);
+    sqlite_exec_run(&db_path, &sql, false)
+}
+
+/// Runs a statement that a builtin of its own built and validated. The sqlite3
+/// CLI gets `-safe`, which refuses writefile(), ATTACH and the file
+/// dot-commands, so a `;` the builtin missed still cannot reach the filesystem.
+/// `db_sqlite_exec` takes arbitrary SQL, is classed Exec and asks for approval,
+/// so it does not go through here.
+fn sqlite_exec_contained(args: Vec<Value>) -> Result<Value> {
+    let (db_path, sql) = sqlite_exec_prepare(args)?;
+    crate::tx::snapshot(&db_path);
+    sqlite_exec_run(&db_path, &sql, true)
+}
+
+/// The arguments of a statement run, refused before anything is opened: a
+/// dot-command, an option-like path, and a path outside the workspace.
+fn sqlite_exec_prepare(args: Vec<Value>) -> Result<(String, String)> {
     let db_path = match args.first() {
         Some(Value::Str(s)) => s.clone(),
         other => {
@@ -44044,20 +44067,21 @@ fn bi_db_sqlite_exec(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
             ))
         }
     };
-
-    // Every mutating sqlite builtin (insert/update/delete/create_table/drop_table)
-    // routes through here, so snapshotting the db file at this single chokepoint
-    // makes those mutations reversible inside a transaction. No-op when no
-    // transaction is active.
     crate::safety::reject_sqlite_dot_command("db_sqlite_exec", &sql)?;
     crate::safety::reject_option_like("db_sqlite_exec", std::slice::from_ref(&db_path))?;
     let db_path = sqlite_db_in_workspace(&db_path)?;
+    Ok((db_path, sql))
+}
 
-    crate::tx::snapshot(&db_path);
-
-    sqlite_db_file("db_sqlite_exec", &db_path)?;
+fn sqlite_exec_run(db_path: &str, sql: &str, safe: bool) -> Result<Value> {
+    // Checked again where the path is handed to the CLI, which is where it matters.
+    crate::safety::reject_option_like("db_sqlite_exec", &[db_path.to_string()])?;
+    sqlite_db_file("db_sqlite_exec", db_path)?;
     let mut cmd = crate::safety::child_command("sqlite3");
-    cmd.args([&db_path, &sql]);
+    if safe {
+        cmd.arg("-safe");
+    }
+    cmd.args([db_path, sql]);
     let output = bounded_cmd_output("db_sqlite_exec", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
     // Every mutating sqlite builtin comes through here, and a SQL error was a
     // bare `false` with sqlite3's message discarded.
@@ -44141,7 +44165,7 @@ fn bi_db_sqlite_create(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     // Just touch the file to create empty database
     sqlite_db_file("db_sqlite_create", &db_path)?;
     let mut cmd = crate::safety::child_command("sqlite3");
-    cmd.args([&db_path, "SELECT 1"]);
+    cmd.args(["-safe", &db_path, "SELECT 1"]);
     let output = bounded_cmd_output("db_sqlite_create", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
     if !output.status.success() {
         return Err(crate::safety::tool_failed(
@@ -44215,19 +44239,34 @@ fn bi_db_sqlite_backup(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
     crate::tx::snapshot(&backup_path);
     sqlite_db_file("db_sqlite_backup", &db_path)?;
-    let mut cmd = crate::safety::child_command("sqlite3");
-    cmd.args([&db_path, &format!(".backup '{}'", backup_path)]);
-    let output = bounded_cmd_output("db_sqlite_backup", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
-
-    if !output.status.success() {
-        return Err(crate::safety::tool_failed(
-            "db_sqlite_backup",
-            "sqlite3",
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        ));
-    }
+    sqlite_vacuum_into("db_sqlite_backup", &db_path, &backup_path)?;
     Ok(Value::Bool(true))
+}
+
+/// Writes a copy of `db_path` to `dest` in-process with `VACUUM INTO`. This
+/// replaces the sqlite3 CLI's `.backup` dot-command: `-safe` refuses `.backup`,
+/// and here the destination is a bound parameter, not text inside a dot-command.
+/// The copy is staged beside `dest` and renamed over it once whole, so a failed
+/// backup leaves an existing one as it was.
+fn sqlite_vacuum_into(builtin: &str, db_path: &str, dest: &str) -> Result<()> {
+    let staged = format!("{dest}.part-{}", std::process::id());
+    let _ = std::fs::remove_file(&staged);
+    let copied = (|| -> Result<()> {
+        let conn = rusqlite::Connection::open_with_flags(
+            db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(|e| crate::safety::tool_failed(builtin, "VACUUM INTO", None, &e.to_string()))?;
+        conn.execute("VACUUM INTO ?1", [staged.as_str()])
+            .map_err(|e| {
+                crate::safety::tool_failed(builtin, "VACUUM INTO", None, &e.to_string())
+            })?;
+        std::fs::rename(&staged, dest).map_err(|e| crate::safety::fs_error(builtin, dest, &e))
+    })();
+    if copied.is_err() {
+        let _ = std::fs::remove_file(&staged);
+    }
+    copied
 }
 
 /// A coded budget refusal whose builtin name is left empty: the boundary
@@ -44456,7 +44495,8 @@ fn bi_db_sqlite_to_csv(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     }
     sqlite_db_file("db_sqlite_to_csv", &db_path)?;
     let mut cmd = crate::safety::child_command("sqlite3");
-    cmd.args(["-header", "-csv", &db_path, &query]);
+    // -readonly: a SELECT that carries a second statement cannot change the file.
+    cmd.args(["-safe", "-readonly", "-header", "-csv", &db_path, &query]);
     let output = bounded_cmd_output("db_sqlite_to_csv", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
 
     if output.status.success() {
@@ -44559,17 +44599,12 @@ fn bi_db_kv_set(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         crate::safety::sql_literal("db_kv_set", &value)?
     );
     // Ensure table exists, propagating its failure.
-    bi_db_sqlite_exec(
-        vec![
-            Value::Str(store_path.clone()),
-            Value::Str(
-                "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)".to_string(),
-            ),
-        ],
-        None,
-    )?;
+    sqlite_exec_contained(vec![
+        Value::Str(store_path.clone()),
+        Value::Str("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)".to_string()),
+    ])?;
 
-    bi_db_sqlite_exec(vec![Value::Str(store_path), Value::Str(query)], None)
+    sqlite_exec_contained(vec![Value::Str(store_path), Value::Str(query)])
 }
 
 fn bi_db_kv_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -44604,16 +44639,13 @@ fn bi_db_kv_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
         fs_paths: false,
     })?;
 
-    bi_db_sqlite_exec(
-        vec![
-            Value::Str(store_path),
-            Value::Str(format!(
-                "DELETE FROM kv WHERE key = {}",
-                crate::safety::sql_literal("db_kv_delete", &key)?
-            )),
-        ],
-        None,
-    )
+    sqlite_exec_contained(vec![
+        Value::Str(store_path),
+        Value::Str(format!(
+            "DELETE FROM kv WHERE key = {}",
+            crate::safety::sql_literal("db_kv_delete", &key)?
+        )),
+    ])
 }
 
 fn bi_db_kv_keys(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -46324,7 +46356,7 @@ fn bi_db_sqlite_insert(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         columns.join(", "),
         vals.join(", ")
     );
-    bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
+    sqlite_exec_contained(vec![Value::Str(db_path), Value::Str(sql)])
 }
 
 fn bi_db_sqlite_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -46374,6 +46406,7 @@ fn bi_db_sqlite_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
             "db_sqlite_update: values and WHERE clause must be nonempty",
         ));
     }
+    crate::safety::reject_sql_batch("db_sqlite_update", &where_clause)?;
 
     // Same as `db_sqlite_insert`: the record's keys are identifiers and are
     // caller-controlled. The WHERE clause is SQL by contract -- this builtin
@@ -46396,7 +46429,7 @@ fn bi_db_sqlite_update(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         sets.join(", "),
         where_clause
     );
-    bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
+    sqlite_exec_contained(vec![Value::Str(db_path), Value::Str(sql)])
 }
 
 fn bi_db_sqlite_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -46432,6 +46465,8 @@ fn bi_db_sqlite_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         }
     };
 
+    // Refused before the approval prompt: a malformed condition is not worth asking about.
+    crate::safety::reject_sql_batch("db_sqlite_delete", &where_clause)?;
     crate::safety::guard(crate::safety::GuardCtx {
         builtin: "db_sqlite_delete",
         effect: crate::safety::Effect::Destructive,
@@ -46451,7 +46486,7 @@ fn bi_db_sqlite_delete(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         crate::safety::sql_identifier("db_sqlite_delete", &table)?,
         where_clause
     );
-    bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
+    sqlite_exec_contained(vec![Value::Str(db_path), Value::Str(sql)])
 }
 
 fn bi_db_sqlite_count(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -46547,12 +46582,13 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
                     "db_sqlite_create_table: column definition must be nonempty",
                 ));
             }
+            crate::safety::reject_sql_batch("db_sqlite_create_table", s)?;
             let sql = format!(
                 "CREATE TABLE IF NOT EXISTS {} ({})",
                 crate::safety::sql_identifier("db_sqlite_create_table", &table)?,
                 s
             );
-            return bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None);
+            return sqlite_exec_contained(vec![Value::Str(db_path), Value::Str(sql)]);
         }
         other => {
             return Err(crate::safety::bad_arg(
@@ -46594,7 +46630,7 @@ fn bi_db_sqlite_create_table(args: Vec<Value>, _input: Option<Value>) -> Result<
         crate::safety::sql_identifier("db_sqlite_create_table", &table)?,
         col_defs.join(", ")
     );
-    bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
+    sqlite_exec_contained(vec![Value::Str(db_path), Value::Str(sql)])
 }
 
 fn bi_db_sqlite_drop_table(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -46636,7 +46672,7 @@ fn bi_db_sqlite_drop_table(args: Vec<Value>, _input: Option<Value>) -> Result<Va
         "DROP TABLE IF EXISTS {}",
         crate::safety::sql_identifier("db_sqlite_drop_table", &table)?
     );
-    bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
+    sqlite_exec_contained(vec![Value::Str(db_path), Value::Str(sql)])
 }
 
 fn bi_db_sqlite_vacuum(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -46651,10 +46687,7 @@ fn bi_db_sqlite_vacuum(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
         }
     };
 
-    bi_db_sqlite_exec(
-        vec![Value::Str(db_path), Value::Str("VACUUM".to_string())],
-        None,
-    )
+    sqlite_exec_contained(vec![Value::Str(db_path), Value::Str("VACUUM".to_string())])
 }
 
 fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -46679,7 +46712,7 @@ fn bi_db_sqlite_dump(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
     }
     sqlite_db_file("db_sqlite_dump", &db_path)?;
     let mut cmd = crate::safety::child_command("sqlite3");
-    cmd.args([&db_path, ".dump"]);
+    cmd.args(["-safe", "-readonly", &db_path, ".dump"]);
     let output = bounded_cmd_output("db_sqlite_dump", "sqlite3", cmd, TOOL_DEADLINE_SECS)?;
 
     if output.status.success() {
@@ -46719,7 +46752,7 @@ fn bi_db_sqlite_import(args: Vec<Value>, _input: Option<Value>) -> Result<Value>
     };
 
     let sql = read_text_capped("db_sqlite_import", &sql_file)?;
-    bi_db_sqlite_exec(vec![Value::Str(db_path), Value::Str(sql)], None)
+    sqlite_exec_contained(vec![Value::Str(db_path), Value::Str(sql)])
 }
 
 fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
@@ -46849,15 +46882,9 @@ fn bi_db_json_to_sqlite(args: Vec<Value>, _input: Option<Value>) -> Result<Value
         ));
     }
 
-    bi_db_sqlite_exec(
-        vec![Value::Str(db_path.clone()), Value::Str(create_sql)],
-        None,
-    )?;
+    sqlite_exec_contained(vec![Value::Str(db_path.clone()), Value::Str(create_sql)])?;
     for insert_sql in inserts {
-        bi_db_sqlite_exec(
-            vec![Value::Str(db_path.clone()), Value::Str(insert_sql)],
-            None,
-        )?;
+        sqlite_exec_contained(vec![Value::Str(db_path.clone()), Value::Str(insert_sql)])?;
     }
     Ok(Value::Bool(true))
 }
@@ -46908,15 +46935,10 @@ fn bi_db_kv_store(args: Vec<Value>, _input: Option<Value>) -> Result<Value> {
 
     // The result was discarded, so a store that could not be created was
     // reported as created.
-    bi_db_sqlite_exec(
-        vec![
-            Value::Str(store_path.clone()),
-            Value::Str(
-                "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)".to_string(),
-            ),
-        ],
-        None,
-    )?;
+    sqlite_exec_contained(vec![
+        Value::Str(store_path.clone()),
+        Value::Str("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)".to_string()),
+    ])?;
     Ok(Value::Str(store_path))
 }
 

@@ -4776,6 +4776,74 @@ pub fn reject_sqlite_dot_command(builtin: &str, sql: &str) -> anyhow::Result<()>
     Ok(())
 }
 
+/// Refuse a `;` that would end a statement, in a fragment the caller wrote and
+/// that is spliced into a statement of the builtin's own: a WHERE clause, or the
+/// raw text of a column definition. sqlite3 runs every `;`-separated statement
+/// it is handed, so a fragment carrying one can run another.
+///
+/// A `;` inside a string literal, a quoted identifier or a comment cannot end a
+/// statement, and is accepted. The scanner follows SQLite's lexical rules:
+/// `'...'` and `"..."` with a doubled quote as the escape (the close and the
+/// reopen leave the scanner in the same state), `` `...` `` and `[...]` as
+/// quoted identifiers, `--` to the end of the line, and `/* ... */`. A quote or
+/// comment left open runs to the end of the fragment, so a `;` after it is
+/// inside, which is what SQLite makes of it too.
+pub fn reject_sql_batch(builtin: &str, fragment: &str) -> anyhow::Result<()> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Lex {
+        Code,
+        Single,
+        Double,
+        Backtick,
+        Bracket,
+        Line,
+        Block,
+    }
+    let bytes = fragment.as_bytes();
+    let mut state = Lex::Code;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        let next = bytes.get(i + 1).copied();
+        match state {
+            Lex::Code => match b {
+                b'\'' => state = Lex::Single,
+                b'"' => state = Lex::Double,
+                b'`' => state = Lex::Backtick,
+                b'[' => state = Lex::Bracket,
+                b'-' if next == Some(b'-') => {
+                    state = Lex::Line;
+                    i += 1;
+                }
+                b'/' if next == Some(b'*') => {
+                    state = Lex::Block;
+                    i += 1;
+                }
+                b';' => {
+                    return Err(bad_arg(
+                        builtin,
+                        "one SQL statement: no `;` outside a string literal, quoted identifier or comment",
+                        "a `;` that would begin a second statement",
+                    ));
+                }
+                _ => {}
+            },
+            Lex::Single if b == b'\'' => state = Lex::Code,
+            Lex::Double if b == b'"' => state = Lex::Code,
+            Lex::Backtick if b == b'`' => state = Lex::Code,
+            Lex::Bracket if b == b']' => state = Lex::Code,
+            Lex::Line if b == b'\n' => state = Lex::Code,
+            Lex::Block if b == b'*' && next == Some(b'/') => {
+                state = Lex::Code;
+                i += 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
 /// Gate an effecting call. Returns `Ok(())` if the call may proceed (and records
 /// an audit entry), or a [`SafetyError`] with a stable code, an actionable hint,
 /// and — for approvable actions — a bound approval token.

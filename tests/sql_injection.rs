@@ -548,3 +548,331 @@ fn a_file_that_is_not_a_database_is_refused_not_run_as_sql() {
     let _ = std::fs::remove_file(&notes);
     assert!(ran.is_empty(), "not refused:\n{}", ran.join("\n"));
 }
+
+// ── `-safe` and `-readonly` on the sqlite3 CLI, and the batch refusal ────────
+//
+// Every builtin except `db_sqlite_exec` runs the CLI with `-safe`, which refuses
+// writefile(), ATTACH and the file dot-commands; the reads also run `-readonly`.
+// The WHERE clauses and raw column text are refused when they carry a `;` that
+// would start a second statement. Each test below checks the file, not the
+// return value.
+
+/// A directory outside the workspace that a smuggled statement would write into.
+fn outside(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("ae_sqli_outside_{tag}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// The text one query returns, read with the CLI's own defaults.
+fn query_text(db: &PathBuf, sql: &str) -> String {
+    let out = std::process::Command::new("sqlite3")
+        .arg(db)
+        .arg(sql)
+        .output()
+        .expect("query the database");
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+fn rec(pairs: &[(&str, Value)]) -> Value {
+    let mut m = std::collections::BTreeMap::new();
+    for (k, v) in pairs {
+        m.insert(k.to_string(), v.clone());
+    }
+    Value::Record(m)
+}
+
+#[test]
+fn to_csv_with_a_second_statement_cannot_change_the_database() {
+    if !have_sqlite3() {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let db = fixture("csv_drop");
+    // A SELECT is passed through as the caller's query, so the second statement
+    // reaches the CLI. `-readonly` must refuse it, and the refusal must be an error.
+    let r = call(
+        "db_sqlite_to_csv",
+        vec![s(&db.to_string_lossy()), s("SELECT 1; DROP TABLE victim;")],
+    );
+    assert!(
+        r.is_err(),
+        "a second statement in a read must be reported: {r:?}"
+    );
+    assert!(
+        victim_survives(&db),
+        "`db_sqlite_to_csv` ran a DROP TABLE carried in a SELECT; the CLI was not -readonly"
+    );
+}
+
+#[test]
+fn to_csv_cannot_write_a_file_through_writefile() {
+    if !have_sqlite3() {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let db = fixture("csv_writefile");
+    let dir = outside("writefile");
+    let marker = dir.join("marker");
+    let q = format!("SELECT writefile('{}','x')", marker.to_string_lossy());
+    let r = call("db_sqlite_to_csv", vec![s(&db.to_string_lossy()), s(&q)]);
+    assert!(r.is_err(), "writefile must be refused, not answered: {r:?}");
+    assert!(
+        !marker.exists(),
+        "`db_sqlite_to_csv` wrote a file outside the workspace through writefile(); \
+         the CLI must run with -safe"
+    );
+}
+
+#[test]
+fn to_csv_cannot_attach_a_database_outside_the_workspace() {
+    if !have_sqlite3() {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let db = fixture("csv_attach");
+    let dir = outside("attach");
+    let att = dir.join("attached.db");
+    let q = format!(
+        "SELECT 1 FROM victim; ATTACH '{}' AS o",
+        att.to_string_lossy()
+    );
+    let r = call("db_sqlite_to_csv", vec![s(&db.to_string_lossy()), s(&q)]);
+    assert!(r.is_err(), "ATTACH must be refused, not answered: {r:?}");
+    assert!(
+        !att.exists(),
+        "`db_sqlite_to_csv` created a database outside the workspace through ATTACH"
+    );
+}
+
+#[test]
+fn update_refuses_a_batch_in_its_where_clause() {
+    if !have_sqlite3() {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let db = fixture("upd_batch");
+    let err = call(
+        "db_sqlite_update",
+        vec![
+            s(&db.to_string_lossy()),
+            s("victim"),
+            rec(&[("id", Value::Int(2))]),
+            s("1=1; DROP TABLE victim"),
+        ],
+    )
+    .expect_err("a `;` that starts a second statement must be refused");
+    assert!(err.contains("E_BAD_ARG"), "expected E_BAD_ARG, got: {err}");
+    assert!(
+        victim_survives(&db),
+        "the refused update still ran its DROP"
+    );
+}
+
+#[test]
+fn a_where_clause_cannot_write_a_file_through_writefile() {
+    // The WHERE clause is caller SQL with no `;`, so only `-safe` stands between
+    // it and the filesystem.
+    if !have_sqlite3() {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let db = fixture("upd_writefile");
+    let dir = outside("upd_writefile");
+    let marker = dir.join("marker");
+    let cond = format!(
+        "id = 1 AND writefile('{}','x') IS NULL",
+        marker.to_string_lossy()
+    );
+    let r = call(
+        "db_sqlite_update",
+        vec![
+            s(&db.to_string_lossy()),
+            s("victim"),
+            rec(&[("id", Value::Int(2))]),
+            s(&cond),
+        ],
+    );
+    assert!(
+        r.is_err(),
+        "writefile in a WHERE clause must be refused: {r:?}"
+    );
+    assert!(
+        !marker.exists(),
+        "a WHERE clause wrote a file outside the workspace"
+    );
+}
+#[test]
+fn delete_and_create_table_refuse_a_batch_too() {
+    if !have_sqlite3() {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let db = fixture("del_batch");
+    let err = call(
+        "db_sqlite_delete",
+        vec![
+            s(&db.to_string_lossy()),
+            s("victim"),
+            s("1=1; DROP TABLE victim"),
+        ],
+    )
+    .expect_err("a batch in a DELETE condition must be refused");
+    assert!(err.contains("E_BAD_ARG"), "expected E_BAD_ARG, got: {err}");
+    assert!(victim_survives(&db));
+
+    let err = call(
+        "db_sqlite_create_table",
+        vec![
+            s(&db.to_string_lossy()),
+            s("t1"),
+            s("x TEXT); DROP TABLE victim; --"),
+        ],
+    )
+    .expect_err("a batch in raw column text must be refused");
+    assert!(err.contains("E_BAD_ARG"), "expected E_BAD_ARG, got: {err}");
+    assert!(victim_survives(&db));
+}
+
+#[test]
+fn a_semicolon_inside_a_string_literal_in_a_where_clause_still_works() {
+    if !have_sqlite3() {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let db = fixture("upd_literal");
+    let _ = query_text(
+        &db,
+        "CREATE TABLE notes(id INTEGER, tag TEXT); INSERT INTO notes VALUES (1,'a;b'),(2,'c');",
+    );
+    call(
+        "db_sqlite_update",
+        vec![
+            s(&db.to_string_lossy()),
+            s("notes"),
+            rec(&[("tag", s("x"))]),
+            s("tag = 'a;b'"),
+        ],
+    )
+    .expect("a `;` inside a string literal is not a second statement and must still work");
+    assert_eq!(
+        query_text(&db, "SELECT tag FROM notes WHERE id = 1;").trim(),
+        "x"
+    );
+    assert_eq!(
+        query_text(&db, "SELECT tag FROM notes WHERE id = 2;").trim(),
+        "c"
+    );
+}
+
+#[test]
+fn the_ordinary_builtins_still_work_under_safe_and_readonly() {
+    // The counterweight: `-safe` and `-readonly` must not break a normal call.
+    if !have_sqlite3() {
+        eprintln!("skipping: sqlite3 not on PATH");
+        return;
+    }
+    let _l = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let db = fixture("ordinary");
+    let dbs = db.to_string_lossy().into_owned();
+
+    let csv = match call(
+        "db_sqlite_to_csv",
+        vec![s(&dbs), s("SELECT id FROM victim")],
+    ) {
+        Ok(Value::Str(t)) => t,
+        other => panic!("a plain SELECT to CSV must succeed: {other:?}"),
+    };
+    assert!(csv.contains("id") && csv.contains('1'), "csv was {csv:?}");
+
+    call(
+        "db_sqlite_update",
+        vec![
+            s(&dbs),
+            s("victim"),
+            rec(&[("id", Value::Int(2))]),
+            s("id = 1"),
+        ],
+    )
+    .expect("a plain update must succeed");
+    assert_eq!(query_text(&db, "SELECT id FROM victim;").trim(), "2");
+
+    call(
+        "db_sqlite_create_table",
+        vec![s(&dbs), s("fresh"), rec(&[("id", s("INTEGER"))])],
+    )
+    .expect("create_table with a record must succeed");
+    call(
+        "db_sqlite_create_table",
+        vec![s(&dbs), s("raw"), s("a TEXT, b INTEGER")],
+    )
+    .expect("create_table with raw column text must succeed");
+    assert!(query_text(&db, "SELECT name FROM sqlite_master WHERE name='raw';").contains("raw"));
+
+    let bak = std::env::temp_dir().join("ae_sqli").join("ordinary.bak");
+    let _ = std::fs::remove_file(&bak);
+    call("db_sqlite_backup", vec![s(&dbs), s(&bak.to_string_lossy())])
+        .expect("a backup must succeed");
+    assert_eq!(
+        query_text(&bak, "SELECT id FROM victim;").trim(),
+        "2",
+        "the backup must be a copy of the database as it was"
+    );
+
+    match call("db_sqlite_dump", vec![s(&dbs)]) {
+        Ok(Value::Str(t)) => assert!(t.contains("CREATE TABLE victim"), "dump was {t:?}"),
+        other => panic!("dump must succeed: {other:?}"),
+    }
+}
+
+#[test]
+fn reject_sql_batch_refuses_a_separator_outside_quotes_and_comments() {
+    use iron_shell::safety::reject_sql_batch;
+    for frag in [
+        "1=1; DROP TABLE victim",
+        "1=1 -- note\n; DROP TABLE victim",
+        "a = 'x' ; DROP TABLE victim",
+        "a = 'it''s' ; DROP TABLE victim",
+        "a = \"q\" ; DROP TABLE victim",
+        "a = `q` ; DROP TABLE victim",
+        "a = [q] ; DROP TABLE victim",
+        "a = 1 /* c */ ; DROP TABLE victim",
+        "a = 1 ;",
+    ] {
+        let e = reject_sql_batch("t", frag).expect_err(frag);
+        assert!(
+            format!("{e:#}").contains("E_BAD_ARG"),
+            "{frag:?} must be E_BAD_ARG: {e:#}"
+        );
+    }
+}
+
+#[test]
+fn reject_sql_batch_accepts_a_separator_inside_a_literal_identifier_or_comment() {
+    use iron_shell::safety::reject_sql_batch;
+    for frag in [
+        "tag = 'a;b'",
+        "tag = 'it''s;ok'",
+        "\"a;b\" = 1",
+        "[a;b] = 1",
+        "`a;b` = 1",
+        "a = 1 -- ; not a separator\n",
+        "a = 1 /* ; */",
+        "a = 'x' -- '\n",
+        "a = '--;' AND b = 1",
+        "a = 1 /* it's */ AND b = 2",
+    ] {
+        assert!(
+            reject_sql_batch("t", frag).is_ok(),
+            "{frag:?} has no statement separator and must be accepted"
+        );
+    }
+}

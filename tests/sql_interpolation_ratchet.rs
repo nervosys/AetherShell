@@ -321,9 +321,10 @@ fn every_sqlite3_spawn_guards_its_path_arguments() {
     let src = builtins_source();
     let sites = sqlite_spawn_sites(&src);
     // Eight before the native query engine removed two sites; the native CSV
-    // importer removed another. Keep checking the five remaining CLI sites.
+    // importer removed another, and the backup now runs in-process (VACUUM INTO),
+    // so four CLI sites remain.
     assert!(
-        sites.len() >= 5,
+        sites.len() >= 4,
         "only {} sqlite3 spawn sites found; the scanner has drifted",
         sites.len()
     );
