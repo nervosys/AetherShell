@@ -353,6 +353,10 @@ fn run(cli: Cli) -> Result<()> {
     if serves_an_agent(&cli.subcommand) && std::env::var_os("IRONSHELL_MODE").is_none() {
         std::env::set_var("IRONSHELL_MODE", "agent");
     }
+    // The mode is now final for every route below (`--agent`, IRONSHELL_MODE,
+    // the serving subcommands, `-b`, `-c`, the REPL). Fix the workspace root
+    // before anything reads it: `cd` must not move the jail or the audit log.
+    iron_shell::safety::pin_workspace_root();
     if let Some(p) = &cli.policy {
         std::env::set_var("IRONSHELL_POLICY", p);
     }

@@ -2698,11 +2698,49 @@ impl std::error::Error for SafetyError {}
 // ════════════════════════════════════════════════════════════════════════
 
 /// The workspace root. `IRONSHELL_WORKSPACE` if set, else the current directory.
+///
+/// The fallback is the *live* working directory, so in an unpinned process a
+/// `cd` moves the jail and the audit log with it. [`pin_workspace_root`] stops
+/// that by setting the variable once, at startup, in agent mode.
 pub fn workspace_root() -> PathBuf {
     if let Ok(w) = std::env::var("IRONSHELL_WORKSPACE") {
         PathBuf::from(w)
     } else {
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    }
+}
+
+/// Fix the workspace root for this process: in agent mode, with
+/// `IRONSHELL_WORKSPACE` unset, set it to the canonical current directory.
+///
+/// Called once by the binary after the mode is decided and before any work
+/// starts. After it, a `cd` moves the working directory but not the jail or
+/// the audit log, and a relative path still resolves against the workspace. A
+/// child `ish` inherits the variable (it is in `CONFINING_ENV`), so it shares
+/// the same root. A variable the operator set, including `--workspace`, is
+/// left as it is. Human mode is unchanged. Library callers that never call
+/// this are covered by the audit log's path-change marker instead.
+pub fn pin_workspace_root() {
+    if current_mode() != Mode::Agent || std::env::var_os("IRONSHELL_WORKSPACE").is_some() {
+        return;
+    }
+    let Ok(cwd) = std::env::current_dir() else {
+        return;
+    };
+    let canon = cwd.canonicalize().unwrap_or(cwd);
+    std::env::set_var("IRONSHELL_WORKSPACE", strip_verbatim_prefix(&canon));
+}
+
+/// `canonicalize` on Windows returns the `\\?\C:\...` form. Strip it for the
+/// variable, so the root reads and passes to children as an ordinary path.
+/// Verbatim UNC (`\\?\UNC\...`) keeps its prefix, since there is no plain form.
+fn strip_verbatim_prefix(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with("UNC\\") && rest.as_bytes().get(1) == Some(&b':') => {
+            PathBuf::from(rest)
+        }
+        _ => p.to_path_buf(),
     }
 }
 
@@ -3701,10 +3739,36 @@ pub fn audit(
     // If the active log path changed (multi-workspace use, tests), reset the
     // chain and reload the new file's tail rather than continuing a stale chain.
     if state.path.as_deref() != Some(path.as_path()) {
+        let previous = state.path.take();
         state.seq = 0;
         state.last_hash = GENESIS_HASH.to_string();
         state.path = Some(path.clone());
         load_tail(&path, &mut state);
+
+        // A library caller that never pinned the workspace can still move the
+        // log by moving the working directory. The new chain must not start
+        // silently: say, in the new log, which log this process was writing.
+        // The marker chains like any entry, so `verify_audit` accepts it.
+        if let (Some(old), Mode::Agent) = (previous, current_mode()) {
+            let reason = format!(
+                "the audit log path changed within one process, from {} to {}; this log starts a new chain here",
+                old.display(),
+                path.display()
+            );
+            if let Ok((mseq, mhash, mline)) = build_entry(
+                &state,
+                "audit_chain",
+                Effect::Privileged,
+                "log-path-changed",
+                &reason,
+                json!({ "previous_log": old.display().to_string() }),
+            ) {
+                if append_line(&path, &mline).is_ok() {
+                    state.seq = mseq;
+                    state.last_hash = mhash;
+                }
+            }
+        }
     }
 
     // If the file no longer ends where we left it, say so *in the log itself*,
