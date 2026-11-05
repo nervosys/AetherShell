@@ -139,6 +139,9 @@ pub(super) fn guard_and_open(
     let timeout = Duration::from_millis(integer(name, args.get(2), 1000, 10000)? as u64);
     transaction(name)?;
     let addr = SocketAddr::new(ip, port);
+    if listen {
+        safety::refuse_remote_bind(name, ip)?;
+    }
     guard_network(name, &format!("tcp://{addr}"))?;
     // Check before opening and again during registration, including concurrent opens.
     if registry()
@@ -355,5 +358,31 @@ pub(super) fn guard_and_close(args: Vec<Value>, input: Option<Value>) -> Result<
         Ok(()) => Ok(Value::Bool(true)),
         Err(e) if e.kind() == std::io::ErrorKind::NotConnected => Ok(Value::Bool(true)),
         Err(e) => Err(io_error(name, e)),
+    }
+}
+
+#[cfg(test)]
+mod remote_bind_tests {
+    use super::*;
+
+    #[test]
+    fn agent_mode_tcp_listen_refuses_a_bind_beyond_loopback() {
+        let _l = safety::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev_mode = std::env::var_os("IRONSHELL_MODE");
+        let prev_allow = std::env::var_os("IRONSHELL_ALLOW_REMOTE_BIND");
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::remove_var("IRONSHELL_ALLOW_REMOTE_BIND");
+        // TEST-NET-1 is not assigned here, so the refusal must come before any bind.
+        let args = vec![Value::Str("192.0.2.1".into()), Value::Int(9)];
+        let result = guard_and_open("tcp_listen", args, None, true);
+        match prev_mode {
+            Some(v) => std::env::set_var("IRONSHELL_MODE", v),
+            None => std::env::remove_var("IRONSHELL_MODE"),
+        }
+        if let Some(v) = prev_allow {
+            std::env::set_var("IRONSHELL_ALLOW_REMOTE_BIND", v);
+        }
+        let err = result.expect_err("agent mode must refuse a remote listener");
+        assert!(format!("{err}").contains("in agent mode"), "{err}");
     }
 }

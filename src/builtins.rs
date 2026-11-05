@@ -71882,6 +71882,7 @@ fn bi_nc_listen(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         ));
     }
     let addr = std::net::SocketAddr::new(host, port);
+    crate::safety::refuse_remote_bind(NAME, host)?;
     guard_network(NAME, &format!("tcp://{addr}"))?;
     let io_timeout = crate::safety::bounded_io_timeout(
         NAME,
@@ -75923,6 +75924,36 @@ mod os_denied_tests {
         let e = bi_apply(vec![ops], None).unwrap_err();
         assert_eq!(code_of(&e), Some(crate::safety::ErrorCode::BudgetExceeded));
         assert!(!std::path::Path::new("never-written-0").exists());
+    }
+}
+
+#[cfg(test)]
+mod remote_bind_tests {
+    use super::*;
+
+    #[test]
+    fn agent_mode_nc_listen_refuses_a_bind_beyond_loopback() {
+        let _l = crate::safety::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev_mode = std::env::var_os("IRONSHELL_MODE");
+        let prev_allow = std::env::var_os("IRONSHELL_ALLOW_REMOTE_BIND");
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        std::env::remove_var("IRONSHELL_ALLOW_REMOTE_BIND");
+        // TEST-NET-1 is not assigned here, so even an unguarded bind could only
+        // fail; the refusal must come before any socket is made.
+        let mut opts = std::collections::BTreeMap::new();
+        opts.insert("host".to_string(), Value::Str("192.0.2.1".into()));
+        let result = bi_nc_listen(vec![Value::Int(9), Value::Record(opts)], None);
+        match prev_mode {
+            Some(v) => std::env::set_var("IRONSHELL_MODE", v),
+            None => std::env::remove_var("IRONSHELL_MODE"),
+        }
+        if let Some(v) = prev_allow {
+            std::env::set_var("IRONSHELL_ALLOW_REMOTE_BIND", v);
+        }
+        let err = result.expect_err("agent mode must refuse a remote bind");
+        assert!(format!("{err}").contains("in agent mode"), "{err}");
     }
 }
 

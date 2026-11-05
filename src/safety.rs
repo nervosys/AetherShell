@@ -1461,6 +1461,29 @@ pub fn refuse_if_headless(builtin: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// In agent mode a listener may bind only loopback, unless the operator sets
+/// `IRONSHELL_ALLOW_REMOTE_BIND` to `1` or `true`: the same opt-in `ish mcp
+/// serve` requires. An agent that binds `0.0.0.0` exposes the listener to every
+/// peer that can route to the host, and the agent never sees that exposure.
+pub fn refuse_remote_bind(builtin: &str, ip: std::net::IpAddr) -> anyhow::Result<()> {
+    if ip.is_loopback() || current_mode() != Mode::Agent {
+        return Ok(());
+    }
+    if matches!(
+        std::env::var("IRONSHELL_ALLOW_REMOTE_BIND").as_deref(),
+        Ok("1") | Ok("true")
+    ) {
+        return Ok(());
+    }
+    Err(policy_deny(
+        builtin,
+        format!(
+            "{builtin}: refusing to listen on {ip} in agent mode; a listener beyond loopback accepts peers from the network"
+        ),
+        "bind 127.0.0.1, or set IRONSHELL_ALLOW_REMOTE_BIND=true if this exposure is intended",
+    ))
+}
+
 /// The active execution mode, derived from the environment.
 /// `IRONSHELL_MODE=agent` matching is case-insensitive and ignores surrounding
 /// whitespace, as is `IRONSHELL_AGENT` (see [`truthy_env`]).
@@ -7797,6 +7820,27 @@ mod tests {
         // The audit layer resets its chain automatically when the log path
         // changes, so no manual state reset is needed here.
         p
+    }
+
+    #[test]
+    fn agent_mode_refuses_a_remote_bind_unless_allowed() {
+        use std::net::{IpAddr, Ipv4Addr};
+        let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        std::env::remove_var("IRONSHELL_ALLOW_REMOTE_BIND");
+        // TEST-NET-1: never assigned to a host, and nothing here is bound.
+        let remote = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+        let loopback = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        // Human mode is unchanged: any address may be bound.
+        assert!(refuse_remote_bind("nc_listen", remote).is_ok());
+        std::env::set_var("IRONSHELL_MODE", "agent");
+        assert!(refuse_remote_bind("nc_listen", loopback).is_ok());
+        let err = refuse_remote_bind("nc_listen", remote).expect_err("agent mode refuses");
+        assert!(format!("{err}").contains("in agent mode"), "{err}");
+        std::env::set_var("IRONSHELL_ALLOW_REMOTE_BIND", "true");
+        assert!(refuse_remote_bind("nc_listen", remote).is_ok());
+        clear_env();
+        std::env::remove_var("IRONSHELL_ALLOW_REMOTE_BIND");
     }
 
     #[test]
