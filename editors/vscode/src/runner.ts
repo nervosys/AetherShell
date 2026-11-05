@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
  */
 export class IronShellRunner {
     private terminal: vscode.Terminal | undefined;
+    private fileTerminal: vscode.Terminal | undefined;
     private outputChannel: vscode.OutputChannel;
 
     constructor(outputChannel: vscode.OutputChannel) {
@@ -63,12 +64,17 @@ export class IronShellRunner {
             await document.save();
         }
 
-        const terminal = this.getTerminal();
-        terminal.show();
-        terminal.sendText(`# Running: ${document.fileName}`);
-
-        const aePath = this.getIronShellPath();
-        terminal.sendText(`${aePath} "${document.fileName}"`);
+        // The file is passed to ish as one argument through shellArgs, not typed
+        // into a shell line. A file name holding $(...) or backticks is then a
+        // name, not a command. The previous run's terminal is closed first.
+        this.fileTerminal?.dispose();
+        const name = document.fileName.split(/[\\/]/).pop() ?? document.fileName;
+        this.fileTerminal = vscode.window.createTerminal({
+            name: `IronShell: ${name}`,
+            shellPath: this.getIronShellPath(),
+            shellArgs: [document.fileName],
+        });
+        this.fileTerminal.show();
     }
 
     /**

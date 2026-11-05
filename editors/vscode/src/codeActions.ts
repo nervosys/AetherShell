@@ -394,6 +394,44 @@ export function registerCodeActionCommands(context: vscode.ExtensionContext): vo
     );
 }
 
+/** Variables ish needs to start and find its files. Nothing else is passed on. */
+const AE_BASE_ENV = [
+    'PATH', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA',
+    'SYSTEMROOT', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE',
+];
+
+/** Provider credentials per `ironshell.ai.provider`. `auto` lets ish pick any
+ *  provider it finds a key for, so it gets all of them. */
+const AE_PROVIDER_ENV: Record<string, string[]> = {
+    openai: ['OPENAI_API_KEY'],
+    anthropic: ['ANTHROPIC_API_KEY'],
+    ollama: ['OLLAMA_HOST'],
+    auto: [
+        'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'GROQ_API_KEY',
+        'MISTRAL_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY', 'TOGETHER_API_KEY',
+        'FIREWORKS_API_KEY', 'XAI_API_KEY', 'COHERE_API_KEY', 'PERPLEXITY_API_KEY',
+        'AZURE_OPENAI_API_KEY', 'IRONGATE_API_KEY', 'OLLAMA_HOST',
+    ],
+};
+
+/**
+ * The environment for an ish child process: the base variables, the selected
+ * provider's own settings, and IRONSHELL_AI. The whole of process.env is not
+ * passed, so an unrelated token in the editor's environment does not reach ish.
+ * A feature that calls `ai(...)` needs the provider key; nothing else does.
+ */
+function aeChildEnv(provider: string): NodeJS.ProcessEnv {
+    const names = [...AE_BASE_ENV, ...(AE_PROVIDER_ENV[provider] ?? AE_PROVIDER_ENV.auto)];
+    const env: NodeJS.ProcessEnv = { IRONSHELL_AI: provider };
+    for (const name of names) {
+        const value = process.env[name];
+        if (value !== undefined) {
+            env[name] = value;
+        }
+    }
+    return env;
+}
+
 /**
  * Run an IronShell command and capture output
  */
@@ -410,7 +448,7 @@ async function runAeCommand(
         const proc = execFile(aePath, ['-e', code], {
             timeout: 30000,
             maxBuffer: 1024 * 1024,
-            env: { ...process.env, IRONSHELL_AI: config.get<string>('ai.provider', 'auto') }
+            env: aeChildEnv(config.get<string>('ai.provider', 'auto'))
         }, (error: Error | null, stdout: string, stderr: string) => {
             if (error) {
                 if ((error as any).killed || token?.isCancellationRequested) {

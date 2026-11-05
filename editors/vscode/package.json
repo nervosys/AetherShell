@@ -34,7 +34,15 @@
     "documentSymbolProvider": "true",
     "foldingRangeProvider": "true",
     "hoverProvider": "true",
-    "codeActionProvider": "true"
+    "codeActionProvider": "true",
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "A workspace cannot choose the IronShell executable or language server binary.",
+      "restrictedConfigurations": [
+        "ironshell.lsp.path",
+        "ironshell.executable.path"
+      ]
+    }
   },
   "contributes": {
     "languages": [
@@ -88,7 +96,8 @@
         "ironshell.lsp.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the IronShell language server binary."
+          "scope": "machine",
+          "description": "Path to the IronShell language server binary. Set in user settings only: a workspace cannot choose the binary."
         },
         "ironshell.lsp.enabled": {
           "type": "boolean",
@@ -108,7 +117,8 @@
         "ironshell.executable.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the IronShell executable (ish). If empty, uses 'ish' from PATH."
+          "scope": "machine",
+          "description": "Path to the IronShell executable (ish). If empty, uses 'ish' from PATH. Set in user settings only: a workspace cannot choose the binary."
         },
         "ironshell.ai.enabled": {
           "type": "boolean",
