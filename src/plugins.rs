@@ -42,9 +42,13 @@ fn plugin_coded(code: crate::safety::ErrorCode, message: String, hint: &str) -> 
 /// can tell an unreachable marketplace from one that does not list the plugin.
 #[cfg(feature = "native")]
 fn marketplace_fetch(builtin: &str, url: &str) -> Result<reqwest::blocking::Response> {
-    let client = crate::security::create_hop_checked_http_client()?;
+    // The first request goes to the fixed registry, unpinned, as it always has.
+    // Every redirect target is judged, and connected to at the address it was
+    // checked at.
+    let mut pin: Option<crate::security::CheckedHttpUrl> = None;
     let mut hop = url.to_string();
     for _ in 0..=crate::builtins::WEB_MAX_REDIRS {
+        let client = crate::security::create_hop_client(pin.as_ref())?;
         let response = client.get(&hop).send().map_err(|e| {
             plugin_coded(
                 crate::safety::ErrorCode::Network,
@@ -58,7 +62,10 @@ fn marketplace_fetch(builtin: &str, url: &str) -> Result<reqwest::blocking::Resp
             .and_then(|v| v.to_str().ok());
         match crate::security::judged_redirect(builtin, &hop, response.status().as_u16(), location)?
         {
-            Some(next) => hop = next,
+            Some(next) => {
+                hop = next.url.clone();
+                pin = Some(next);
+            }
             None => return Ok(response),
         }
     }

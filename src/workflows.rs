@@ -1022,7 +1022,6 @@ fn merge_branch_variables(parent: &mut WorkflowContext, branch: WorkflowContext)
 async fn http_step(method: String, url: String, body: Option<Value>) -> Result<Value> {
     tokio::task::spawn_blocking(move || {
         crate::builtins::guard_network("workflow_http", &url)?;
-        let url = crate::security::validate_http_url("workflow_http", &url)?;
         http_send(&method, &url, body)
     })
     .await
@@ -1034,9 +1033,6 @@ async fn http_step(method: String, url: String, body: Option<Value>) -> Result<V
 /// with the same hop ceiling `web_curl` uses. A 303, or a 301 or 302 answering a
 /// POST, continues as a GET without the body, as reqwest and curl do.
 fn http_send(method: &str, url: &str, body: Option<Value>) -> Result<Value> {
-    let client = crate::security::create_hop_checked_http_client()
-        .context("workflow http step: failed to create HTTP client")?;
-
     // The body is kept as text, so a redirect that keeps it can send it again.
     let (content_type, mut payload) = match body {
         None => (None, None),
@@ -1044,16 +1040,19 @@ fn http_send(method: &str, url: &str, body: Option<Value>) -> Result<Value> {
         Some(other) => (Some("application/json"), Some(other.to_json().to_string())),
     };
     let mut verb = method.to_string();
-    let mut hop = url.to_string();
+    // Each hop is checked, and connected to at the address its check accepted.
+    let mut hop = crate::security::check_http_url("workflow_http", url)?;
     let mut answer = None;
     for _ in 0..=crate::builtins::WEB_MAX_REDIRS {
+        let client = crate::security::create_hop_client(Some(&hop))
+            .context("workflow http step: failed to create HTTP client")?;
         let mut req = match verb.as_str() {
-            "GET" => client.get(&hop),
-            "POST" => client.post(&hop),
-            "PUT" => client.put(&hop),
-            "PATCH" => client.patch(&hop),
-            "DELETE" => client.delete(&hop),
-            "HEAD" => client.head(&hop),
+            "GET" => client.get(&hop.url),
+            "POST" => client.post(&hop.url),
+            "PUT" => client.put(&hop.url),
+            "PATCH" => client.patch(&hop.url),
+            "DELETE" => client.delete(&hop.url),
+            "HEAD" => client.head(&hop.url),
             other => {
                 return Err(crate::safety::arg_err(format!(
                     "workflow http step: unsupported method `{other}`"
@@ -1073,7 +1072,7 @@ fn http_send(method: &str, url: &str, body: Option<Value>) -> Result<Value> {
             .headers()
             .get(reqwest::header::LOCATION)
             .and_then(|v| v.to_str().ok());
-        match crate::security::judged_redirect("workflow_http", &hop, status, location)? {
+        match crate::security::judged_redirect("workflow_http", &hop.url, status, location)? {
             Some(next) => {
                 if (status == 303 && verb != "HEAD")
                     || (matches!(status, 301 | 302) && verb == "POST")

@@ -6324,9 +6324,14 @@ fn read_git_file(path: &std::path::Path) -> Option<String> {
 /// an allowed host could send the request anywhere. The hop is not a new call
 /// and asks for no new approval; it must stay inside the allowlist, and a hop
 /// from a public host may not land on this machine or a private network, the
-/// classic SSRF bounce. A request that began on a local address was aimed
-/// there on purpose and may stay local.
-pub fn guard_redirect(builtin: &str, from: &str, to: &str) -> anyhow::Result<()> {
+/// classic SSRF bounce. Every hop is judged, including one that began on a
+/// local address: the first URL is refused before any request is made, so
+/// no hop starts there.
+pub fn guard_redirect(
+    builtin: &str,
+    from: &str,
+    to: &str,
+) -> anyhow::Result<crate::security::CheckedHttpUrl> {
     let scheme = url::Url::parse(to).map(|u| u.scheme().to_string());
     if !matches!(scheme.as_deref(), Ok("http" | "https")) || to.chars().any(char::is_control) {
         let _ = audit(
@@ -6360,8 +6365,9 @@ pub fn guard_redirect(builtin: &str, from: &str, to: &str) -> anyhow::Result<()>
             }
         }
     }
-    if crate::security::validate_http_url(builtin, from).is_ok() {
-        if let Err(e) = crate::security::validate_http_url(builtin, to) {
+    match crate::security::check_http_url(builtin, to) {
+        Ok(checked) => Ok(checked),
+        Err(e) => {
             let _ = audit(
                 builtin,
                 Effect::Network,
@@ -6369,14 +6375,13 @@ pub fn guard_redirect(builtin: &str, from: &str, to: &str) -> anyhow::Result<()>
                 to,
                 json!({ "from": from, "detail": e.to_string() }),
             );
-            return Err(policy_deny(
+            Err(policy_deny(
                 builtin,
                 format!("{builtin}: {from} redirected to {to}, which is refused: {e}"),
                 "a public server may not redirect a request onto this machine or a private network",
-            ));
+            ))
         }
     }
-    Ok(())
 }
 
 pub fn guard(ctx: GuardCtx) -> Result<(), SafetyError> {

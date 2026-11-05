@@ -429,6 +429,9 @@ fn ae(dir: &Path, expr: &str) -> String {
         .env("IRONSHELL_SESSION_DIR", dir.join("session"))
         .env("IRONSHELL_WORKSPACE", dir)
         .env("IRONSHELL_NET_ALLOW", "127.0.0.1")
+        // The loopback listeners these tests start are the only targets; the
+        // seam exempts loopback alone (see security::check_http_url).
+        .env("IRONSHELL_TEST_ALLOW_LOOPBACK", "1")
         .env_remove("IRONSHELL_MODE")
         .env_remove("IRONSHELL_AGENT")
         .env_remove("IRONSHELL_POLICY")

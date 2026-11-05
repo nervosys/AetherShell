@@ -1093,7 +1093,72 @@ pub fn check_file_size_limit(size_bytes: u64) -> Result<()> {
 
 // ===================== SSRF PROTECTION (MED-008) =====================
 
-use std::net::{IpAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+
+/// An http(s) URL that the SSRF check accepted, with every address the check
+/// accepted for its host. A transfer pinned to those addresses connects to
+/// nothing the check did not see, so a second DNS answer cannot move it onto
+/// this machine or a private network (DNS rebinding). All of them are pinned,
+/// not one, so the client can still fall back between them as it would after a
+/// lookup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckedHttpUrl {
+    /// The URL as it was given.
+    pub url: String,
+    /// The host name, for a URL whose host is a name.
+    host: String,
+    port: u16,
+    addrs: Vec<IpAddr>,
+    /// True when the host is a name. An IP literal needs no resolution, so it
+    /// has nothing to pin.
+    by_name: bool,
+}
+
+impl CheckedHttpUrl {
+    /// The name, and the checked addresses to pin it to, or `None` for an IP
+    /// literal.
+    pub fn pin(&self) -> Option<(&str, Vec<SocketAddr>)> {
+        self.by_name.then(|| {
+            // IPv4 first. Observed on this host: with `localhost` pinned as
+            // [::1, 127.0.0.1], reqwest's connector failed on the refused IPv6
+            // address and did not reach the IPv4 one, where curl did. The order
+            // is the only change; every checked address stays in the list.
+            let mut ordered = self.addrs.clone();
+            ordered.sort_by_key(|ip| ip.is_ipv6());
+            let addrs = ordered
+                .iter()
+                .map(|ip| SocketAddr::new(*ip, self.port))
+                .collect();
+            (self.host.as_str(), addrs)
+        })
+    }
+
+    /// The `--resolve` argument that makes curl connect to the checked
+    /// addresses, or `None` for an IP literal. curl takes a comma-separated
+    /// list; an IPv6 address is in brackets.
+    pub fn curl_resolve(&self) -> Option<String> {
+        self.pin().map(|(host, _)| {
+            let list: Vec<String> = self
+                .addrs
+                .iter()
+                .map(|ip| match ip {
+                    IpAddr::V4(v4) => v4.to_string(),
+                    IpAddr::V6(v6) => format!("[{v6}]"),
+                })
+                .collect();
+            format!("{host}:{}:{}", self.port, list.join(","))
+        })
+    }
+}
+
+/// Test seam for the loopback tests. In a debug build, with
+/// `IRONSHELL_TEST_ALLOW_LOOPBACK=1`, loopback addresses and names pass the
+/// check; nothing else is exempted, and a release build ignores the variable.
+/// The variable starts with `IRONSHELL_`, so an agent cannot set it with
+/// `env_set`.
+fn loopback_allowed_for_tests() -> bool {
+    cfg!(debug_assertions) && std::env::var("IRONSHELL_TEST_ALLOW_LOOPBACK").is_ok_and(|v| v == "1")
+}
 
 /// Validate HTTP URL for SSRF prevention
 ///
@@ -1107,6 +1172,12 @@ use std::net::{IpAddr, ToSocketAddrs};
 /// - CWE-918: Server-Side Request Forgery (SSRF)
 /// - OWASP ASVS v4.0 Section 13.1
 pub fn validate_http_url(builtin: &str, url_str: &str) -> Result<String> {
+    check_http_url(builtin, url_str).map(|checked| checked.url)
+}
+
+/// [`validate_http_url`], returning the addresses the check accepted so that the
+/// transfer can be pinned to it.
+pub fn check_http_url(builtin: &str, url_str: &str) -> Result<CheckedHttpUrl> {
     // Parse URL
     // Every refusal below was bare prose, and `http_get` wrapped it in a
     // label, so an SSRF refusal reached an agent as E_UNKNOWN "URL
@@ -1125,72 +1196,128 @@ pub fn validate_http_url(builtin: &str, url_str: &str) -> Result<String> {
         ));
     }
 
-    // Get host
+    // Get host. `url` has already normalised decimal, octal and hex IPv4
+    // hosts (`2130706433`, `0x7f.1`) to dotted form, so the literal checks
+    // below see 127.0.0.1 for each of them.
     let host = parsed
         .host_str()
         .ok_or_else(|| crate::safety::bad_arg(builtin, "a URL with a host", "none"))?;
+    let exempt = loopback_allowed_for_tests();
 
     // Block localhost variants
     let localhost_names = ["localhost", "127.0.0.1", "::1", "0.0.0.0", "[::]"];
-    for localhost in &localhost_names {
-        if host.eq_ignore_ascii_case(localhost) {
+    let loopback_name = ["localhost", "127.0.0.1", "::1", "[::1]"]
+        .iter()
+        .any(|n| host.eq_ignore_ascii_case(n));
+    let names_this_machine = localhost_names.iter().any(|n| host.eq_ignore_ascii_case(n));
+    if names_this_machine && !(exempt && loopback_name) {
+        return Err(crate::safety::policy_deny(
+            builtin,
+            format!("access to {host} is blocked: it is this machine (SSRF protection)"),
+            "this is a security policy, not a malformed call; use a public host",
+        ));
+    }
+
+    // Resolve the host and check every address it gives. The port only
+    // matters to the pin, which must name the port the transfer uses.
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let by_name = matches!(parsed.host(), Some(url::Host::Domain(_)));
+    let addrs: Vec<SocketAddr> = match format!("{host}:{port}").to_socket_addrs() {
+        Ok(addrs) => addrs.collect(),
+        // DNS resolution failed - could be intentional
+        // Block to be safe
+        Err(_) => return Err(crate::safety::not_found(builtin, "resolvable host", host)),
+    };
+    // A name that resolves to nothing was not checked, so it is not accepted.
+    if addrs.is_empty() {
+        return Err(crate::safety::not_found(builtin, "resolvable host", host));
+    }
+    for addr in &addrs {
+        let ip = addr.ip();
+        if is_internal_ip(&ip) && !(exempt && is_loopback_ip(&ip)) {
             return Err(crate::safety::policy_deny(
                 builtin,
-                format!("access to {host} is blocked: it is this machine (SSRF protection)"),
+                format!(
+                    "access to internal address {ip} (resolved from {host}) is blocked \
+                     (SSRF protection)"
+                ),
                 "this is a security policy, not a malformed call; use a public host",
             ));
         }
     }
 
-    // Resolve hostname to IP and check if internal
-    // Use port 80 as default for resolution
-    let port = parsed.port().unwrap_or(80);
-    let socket_addrs = format!("{}:{}", host, port);
-
-    match socket_addrs.to_socket_addrs() {
-        Ok(addrs) => {
-            for addr in addrs {
-                let ip = addr.ip();
-                if is_internal_ip(&ip) {
-                    return Err(crate::safety::policy_deny(
-                        builtin,
-                        format!(
-                            "access to internal address {ip} (resolved from {host}) is blocked \
-                             (SSRF protection)"
-                        ),
-                        "this is a security policy, not a malformed call; use a public host",
-                    ));
+    Ok(CheckedHttpUrl {
+        url: url_str.to_string(),
+        host: host.to_string(),
+        port,
+        addrs: {
+            let mut ips: Vec<IpAddr> = Vec::with_capacity(addrs.len());
+            for addr in &addrs {
+                if !ips.contains(&addr.ip()) {
+                    ips.push(addr.ip());
                 }
             }
-        }
-        Err(_) => {
-            // DNS resolution failed - could be intentional
-            // Block to be safe
-            return Err(crate::safety::not_found(builtin, "resolvable host", host));
-        }
-    }
-
-    Ok(url_str.to_string())
+            ips
+        },
+        by_name,
+    })
 }
 
-/// Check if an IP address is internal/private
+/// The IPv4 address an IPv6 address carries, for the forms that embed one:
+/// IPv4-mapped (`::ffff:a.b.c.d`), IPv4-compatible (`::a.b.c.d`, deprecated),
+/// the NAT64 well-known prefix (`64:ff9b::/96`) and 6to4 (`2002::/16`).
+fn embedded_v4(v6: &Ipv6Addr) -> Option<Ipv4Addr> {
+    let s = v6.segments();
+    let v4 = |hi: u16, lo: u16| Ipv4Addr::new((hi >> 8) as u8, hi as u8, (lo >> 8) as u8, lo as u8);
+    if let Some(mapped) = v6.to_ipv4_mapped() {
+        return Some(mapped);
+    }
+    if s[..6].iter().all(|&x| x == 0) {
+        return Some(v4(s[6], s[7]));
+    }
+    if s[0] == 0x0064 && s[1] == 0xff9b && s[2..6].iter().all(|&x| x == 0) {
+        return Some(v4(s[6], s[7]));
+    }
+    if s[0] == 0x2002 {
+        return Some(v4(s[1], s[2]));
+    }
+    None
+}
+
+/// Whether an IPv4 address is on this machine, on a private network, or
+/// otherwise not a public destination.
+fn is_internal_v4(v4: &Ipv4Addr) -> bool {
+    let o = v4.octets();
+    v4.is_private()
+        || v4.is_loopback()
+        || v4.is_link_local()
+        || v4.is_broadcast()
+        || v4.is_documentation()
+        || v4.is_unspecified()
+        // AWS metadata service
+        || o == [169, 254, 169, 254]
+        // 0.0.0.0/8: "this network"
+        || o[0] == 0
+        // 100.64.0.0/10: carrier-grade NAT
+        || (o[0] == 100 && (o[1] & 0xc0) == 64)
+        // 192.0.0.0/24: IETF protocol assignments
+        || (o[0] == 192 && o[1] == 0 && o[2] == 0)
+        // 198.18.0.0/15: benchmarking
+        || (o[0] == 198 && (o[1] & 0xfe) == 18)
+        // 224.0.0.0/4 multicast and 240.0.0.0/4 reserved (with broadcast)
+        || v4.is_multicast()
+        || o[0] >= 240
+}
+
+/// Check if an IP address is internal/private. An IPv6 address that embeds an
+/// IPv4 address is internal when that address is.
 fn is_internal_ip(ip: &IpAddr) -> bool {
     match ip {
-        IpAddr::V4(v4) => {
-            v4.is_private()
-                || v4.is_loopback()
-                || v4.is_link_local()
-                || v4.is_broadcast()
-                || v4.is_documentation()
-                || v4.is_unspecified()
-                // AWS metadata service
-                || v4.octets() == [169, 254, 169, 254]
-                // Additional private ranges
-                || (v4.octets()[0] == 10)
-                || (v4.octets()[0] == 172 && v4.octets()[1] >= 16 && v4.octets()[1] <= 31)
-                || (v4.octets()[0] == 192 && v4.octets()[1] == 168)
-        }
+        IpAddr::V4(v4) => is_internal_v4(v4),
         IpAddr::V6(v6) => {
+            if embedded_v4(v6).is_some_and(|v4| is_internal_v4(&v4)) {
+                return true;
+            }
             v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_multicast()
@@ -1198,7 +1325,18 @@ fn is_internal_ip(ip: &IpAddr) -> bool {
                 || (v6.segments()[0] & 0xfe00) == 0xfc00
                 // Link-local addresses (fe80::/10)
                 || (v6.segments()[0] & 0xffc0) == 0xfe80
+                // Site-local addresses (fec0::/10, deprecated)
+                || (v6.segments()[0] & 0xffc0) == 0xfec0
         }
+    }
+}
+
+/// Whether an address is loopback, directly or in an embedded IPv4 form. Used
+/// only by the test seam.
+fn is_loopback_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback(),
+        IpAddr::V6(v6) => v6.is_loopback() || embedded_v4(v6).is_some_and(|v4| v4.is_loopback()),
     }
 }
 
@@ -1231,33 +1369,40 @@ pub fn create_secure_http_client() -> Result<Client> {
         .context("Failed to create secure HTTP client")
 }
 
-/// The blocking client for requests that follow redirects by hand. It is
-/// `create_secure_http_client` with reqwest's own redirect following switched
-/// off, so every hop is seen by [`judged_redirect`] before it is requested.
-pub fn create_hop_checked_http_client() -> Result<Client> {
+/// The blocking client for one hop of a request that follows redirects by
+/// hand. It is `create_secure_http_client` with reqwest's own redirect following
+/// switched off, so every hop is judged by [`judged_redirect`] before it is
+/// requested. When `hop` is given, the client connects a name only to the
+/// address `hop` was checked at (the pin), so the request cannot be moved by a
+/// second DNS answer.
+pub fn create_hop_client(hop: Option<&CheckedHttpUrl>) -> Result<Client> {
     crate::tls::install_provider();
-    Client::builder()
+    let mut builder = Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
         .pool_max_idle_per_host(10)
         .pool_idle_timeout(Duration::from_secs(90))
-        .redirect(reqwest::redirect::Policy::none())
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some((host, addrs)) = hop.and_then(CheckedHttpUrl::pin) {
+        builder = builder.resolve_to_addrs(host, &addrs);
+    }
+    builder
         .build()
         .context("Failed to create secure HTTP client")
 }
 
 /// The URL a redirect response sends the request to, once `guard_redirect` has
-/// judged it; `None` when the response is final. `location` is the response's
-/// Location header as sent, which may be relative to `from`, the URL that was
-/// requested. A target that is not a URL is passed to the guard as written, and
-/// the guard refuses it. Callers count the hops and apply the same ceiling as
-/// `web_curl`.
+/// judged it, with the address it was checked at; `None` when the response is
+/// final. `location` is the response's Location header as sent, which may be
+/// relative to `from`, the URL that was requested. A target that is not a URL
+/// is passed to the guard as written, and the guard refuses it. Callers count
+/// the hops and apply the same ceiling as `web_curl`.
 pub fn judged_redirect(
     builtin: &str,
     from: &str,
     status: u16,
     location: Option<&str>,
-) -> Result<Option<String>> {
+) -> Result<Option<CheckedHttpUrl>> {
     if !(300..400).contains(&status) {
         return Ok(None);
     }
@@ -1268,8 +1413,7 @@ pub fn judged_redirect(
         Ok(next) => next.to_string(),
         Err(_) => location.to_string(),
     };
-    crate::safety::guard_redirect(builtin, from, &next)?;
-    Ok(Some(next))
+    crate::safety::guard_redirect(builtin, from, &next).map(Some)
 }
 
 /// Create an HTTPS-only client (rejects HTTP)

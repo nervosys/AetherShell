@@ -24,7 +24,7 @@ use crate::{
     rlm::{run_recursive, run_recursive_with_model, RlmConfig},
     security::{
         check_file_size_limit, check_rate_limit, validate_ai_prompt, validate_hostname_or_ip,
-        validate_http_url, validate_read_path, validate_sh_allowed,
+        validate_read_path, validate_sh_allowed,
     },
     value::{Lambda, Value},
 };
@@ -4899,12 +4899,43 @@ fn bi_http_get(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
         }
     };
     guard_network("http_get", &url)?;
-    let validated_url = validate_http_url("http_get", &url)?;
-    let client = http_redirect_client()?;
-    let mut resp = client
-        .get(&validated_url)
-        .send()
-        .map_err(|e| net_io_error("http_get", "request", &e))?;
+    // Each hop is checked, and connected to at the address its check accepted,
+    // so neither the first URL nor a redirect target is resolved twice.
+    let first = crate::security::check_http_url("http_get", &url)?;
+    let validated_url = first.url.clone();
+    let mut hop = first;
+    let mut answer = None;
+    for _ in 0..=HTTP_MAX_REDIRECTS {
+        let client = crate::security::create_hop_client(Some(&hop))?;
+        let sent = client
+            .get(&hop.url)
+            .send()
+            .map_err(|e| net_io_error("http_get", "request", &e))?;
+        let location = sent
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        match crate::security::judged_redirect(
+            "http_get",
+            &hop.url,
+            sent.status().as_u16(),
+            location.as_deref(),
+        )? {
+            Some(next) => hop = next,
+            None => {
+                answer = Some(sent);
+                break;
+            }
+        }
+    }
+    let mut resp = answer.ok_or_else(|| {
+        crate::safety::budget_exceeded(
+            "http_get",
+            format!("more than {HTTP_MAX_REDIRECTS} redirects"),
+            "request the final URL directly",
+        )
+    })?;
     let status = i64::from(resp.status().as_u16());
     let mut headers_rec = BTreeMap::<String, Value>::new();
     for (k, v) in resp.headers().iter() {
@@ -40005,6 +40036,14 @@ fn web_take_hop(body: &mut Vec<u8>) -> Option<(u16, String)> {
 /// it. stdout is kept only up to `WEB_BODY_MAX`; a longer body is reported,
 /// not truncated.
 fn web_curl_once(builtin: &str, args: &[&str]) -> Result<WebRun> {
+    // The URL is the last argument. It is checked here, which every curl
+    // transfer goes through, after the approval gate and the budget. curl is
+    // told to connect to the address the check accepted, so a second DNS
+    // answer cannot send the transfer to another host.
+    let Some((url, rest)) = args.split_last() else {
+        return Err(crate::safety::arg_err(format!("{builtin}: no URL")));
+    };
+    let checked = crate::security::check_http_url(builtin, url)?;
     let mut argv = vec![
         "-sS",
         "--proto",
@@ -40012,7 +40051,12 @@ fn web_curl_once(builtin: &str, args: &[&str]) -> Result<WebRun> {
         "--max-time",
         WEB_MAX_TIME_SECS,
     ];
-    argv.extend_from_slice(args);
+    argv.extend_from_slice(rest);
+    let pin = checked.curl_resolve();
+    if let Some(pin) = pin.as_deref() {
+        argv.extend_from_slice(&["--resolve", pin]);
+    }
+    argv.push(*url);
     let limit = WEB_MAX_TIME_SECS.parse::<u64>().unwrap_or(30) + WEB_KILL_GRACE_SECS;
     let run = run_tree(
         "curl",
@@ -61087,28 +61131,6 @@ fn net_io_error(builtin: &str, what: &str, detail: impl std::fmt::Display) -> an
     })
 }
 
-/// The client http_get uses. Its timeouts are those of the secure client, and
-/// every redirect target passes the same SSRF and scheme rules as the first URL
-/// before it is followed. A refused hop ends the request with the refusal.
-fn http_redirect_client() -> Result<reqwest::blocking::Client> {
-    crate::tls::install_provider();
-    reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= HTTP_MAX_REDIRECTS {
-                return attempt.error(format!("more than {HTTP_MAX_REDIRECTS} redirects"));
-            }
-            let next = attempt.url().to_string();
-            match validate_http_url("http_get", &next) {
-                Ok(_) => attempt.follow(),
-                Err(e) => attempt.error(format!("redirect to {next} refused: {e}")),
-            }
-        }))
-        .build()
-        .context("Failed to create HTTP client")
-}
-
 /// Whether netcat's failure text says the port was closed or did not answer: a
 /// determined "not open", as opposed to netcat itself failing.
 fn nc_refusal(text: &str) -> bool {
@@ -68347,7 +68369,11 @@ fn bi_wget_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
     let mut hop_url = url.clone();
     let mut hops = 0;
     let fetched = loop {
-        let argv = [
+        let checked = match crate::security::check_http_url("wget_download", &hop_url) {
+            Ok(checked) => checked,
+            Err(e) => break Err(e),
+        };
+        let mut argv = vec![
             "-sS",
             "-f",
             "--proto",
@@ -68360,8 +68386,12 @@ fn bi_wget_download(args: Vec<Value>, input: Option<Value>) -> Result<Value> {
             output.as_str(),
             "-w",
             report.as_str(),
-            hop_url.as_str(),
         ];
+        let pin = checked.curl_resolve();
+        if let Some(pin) = pin.as_deref() {
+            argv.extend_from_slice(&["--resolve", pin]);
+        }
+        argv.push(hop_url.as_str());
         let run = match tool_run(
             "wget_download",
             "curl",

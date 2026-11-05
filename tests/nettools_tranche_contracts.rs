@@ -57,6 +57,21 @@ fn locked() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// A call in human mode, the mode in which the coded refusals below are reached.
+/// A call that reaches a loopback listener in this process. The test seam is set
+/// for this call only, under the mode lock, so the refusal tests beside it still
+/// see the real check.
+fn call_loopback(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
+    let _guard = locked();
+    std::env::remove_var("IRONSHELL_MODE");
+    std::env::remove_var("IRONSHELL_AGENT");
+    isolate();
+    std::env::set_var("IRONSHELL_TEST_ALLOW_LOOPBACK", "1");
+    let mut env = Env::new();
+    let r = builtins::call(name, args, &mut env);
+    std::env::remove_var("IRONSHELL_TEST_ALLOW_LOOPBACK");
+    r
+}
+
 fn call(name: &str, args: Vec<Value>) -> anyhow::Result<Value> {
     let _guard = locked();
     std::env::remove_var("IRONSHELL_MODE");
@@ -405,7 +420,7 @@ fn iperf3_to_a_closed_loopback_port_is_a_coded_failure() {
 #[test]
 fn wget_download_to_a_closed_loopback_port_leaves_no_file() {
     let ws = workspace();
-    let r = call(
+    let r = call_loopback(
         "wget_download",
         vec![text("http://127.0.0.1:1/x.txt"), text("closed.txt")],
     );
@@ -425,7 +440,7 @@ fn wget_download_writes_a_loopback_response_into_the_workspace() {
     let ws = workspace();
     let server = serve(vec![reply(200, "", b"hello")]);
     let url = format!("http://127.0.0.1:{}/a.txt", server.port);
-    let r = call("wget_download", vec![text(&url), text("got.txt")]);
+    let r = call_loopback("wget_download", vec![text(&url), text("got.txt")]);
     match &r {
         Ok(Value::Record(rec)) => {
             assert!(matches!(rec.get("size"), Some(Value::Int(5))));
@@ -443,7 +458,7 @@ fn wget_download_does_not_follow_a_redirect_to_a_file_url() {
     let ws = workspace();
     let server = serve(vec![reply(302, "Location: file:///etc/hosts\r\n", b"")]);
     let url = format!("http://127.0.0.1:{}/r", server.port);
-    let r = call("wget_download", vec![text(&url), text("redirected.txt")]);
+    let r = call_loopback("wget_download", vec![text(&url), text("redirected.txt")]);
     let code = code_of(&r);
     // The shell follows each hop itself and refuses a non-http one.
     assert!(
@@ -658,6 +673,9 @@ fn ae(dir: &Path, expr: &str, path_dir: Option<&Path>) -> String {
     cmd.current_dir(dir)
         .env("IRONSHELL_SESSION_DIR", dir.join("session"))
         .env("IRONSHELL_WORKSPACE", dir)
+        // The table below reaches wget_download at a loopback port; the seam
+        // lets the check pass so the missing-tool answer is what is seen.
+        .env("IRONSHELL_TEST_ALLOW_LOOPBACK", "1")
         .env_remove("IRONSHELL_MODE")
         .env_remove("IRONSHELL_AGENT")
         .env_remove("IRONSHELL_POLICY")

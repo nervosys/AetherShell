@@ -64,7 +64,9 @@ async fn registry_get(client: &reqwest::Client, url: &str) -> Result<reqwest::Re
             response.status().as_u16(),
             location,
         )? {
-            Some(next) => hop = next,
+            // The registry's own requests are not pinned (see the report): each
+            // hop is judged, and the next request goes to the URL that was judged.
+            Some(next) => hop = next.url,
             None => return Ok(response),
         }
     }
