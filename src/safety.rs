@@ -7123,7 +7123,17 @@ lazy_static! {
         r"|xox[baprs]-[A-Za-z0-9-]{10,}",                                     // Slack
         r"|AIza[0-9A-Za-z_-]{20,}",                                           // Google API key
         r"|[rs]k_(?:live|test)_[A-Za-z0-9]{16,}",                             // Stripe
+        r"|\bhf_[A-Za-z0-9]{30,}",                                            // Hugging Face
+        r"|github_pat_[A-Za-z0-9_]{22,}",                                     // GitHub fine-grained PAT
+        r"|glpat-[A-Za-z0-9_-]{20,}",                                         // GitLab PAT
     )).unwrap();
+
+    /// Secret-named URL query parameters: `?key=…`, `&token=…`. Only a `?` or `&`
+    /// before the name counts, so prose such as "the key=value syntax" is left
+    /// alone. Group 1 (the name and `=`) is kept; the value is redacted.
+    static ref URL_QUERY_SECRET_RE: regex::Regex = regex::Regex::new(
+        r#"(?i)([?&](?:api[_-]?key|apikey|access[_-]?token|access[_-]?key|token|key|secret|password|passwd|pwd)=)([^&\s#"'<>]{6,})"#
+    ).unwrap();
 
     /// URL credentials: `scheme://user:password@host` — redact only the password,
     /// keeping the scheme/user/host so the result stays diagnostic.
@@ -7177,7 +7187,10 @@ pub fn is_secret_name(name: &str) -> bool {
         "AUTH_TOKEN",
         "SESSION_KEY",
     ];
-    NEEDLES.iter().any(|needle| n.contains(needle))
+    // Suffixes, not substrings: `_AUTH` inside `GIT_AUTHOR_NAME` and `_PAT`
+    // inside `LD_LIBRARY_PATH` are not secrets.
+    const SUFFIXES: &[&str] = &["_PAT", "_CREDS", "_CREDENTIALS", "_AUTH"];
+    NEEDLES.iter().any(|needle| n.contains(needle)) || SUFFIXES.iter().any(|s| n.ends_with(s))
 }
 
 /// Whether reading the env var `name` should be replaced with an opaque handle:
@@ -7317,6 +7330,12 @@ pub fn redact_str(s: &str) -> (String, bool) {
     }
     if SECRET_ASSIGN_RE.is_match(&cur) {
         cur = SECRET_ASSIGN_RE
+            .replace_all(&cur, concat!("${1}", "[REDACTED]"))
+            .into_owned();
+        changed = true;
+    }
+    if URL_QUERY_SECRET_RE.is_match(&cur) {
+        cur = URL_QUERY_SECRET_RE
             .replace_all(&cur, concat!("${1}", "[REDACTED]"))
             .into_owned();
         changed = true;

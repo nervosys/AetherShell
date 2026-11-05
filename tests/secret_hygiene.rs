@@ -221,3 +221,49 @@ fn a_password_argument_never_reaches_the_audit_log() {
     let _ = std::fs::remove_dir_all(&dir);
     clear();
 }
+
+#[test]
+fn redaction_covers_secret_query_keys_and_more_vendor_prefixes() {
+    // Secret-named query parameters are redacted in a URL or query string.
+    for (input, secret) in [
+        ("https://maps.example/v1?key=Sekrit998877", "Sekrit998877"),
+        ("GET /api?api_key=abcdef123456&x=1", "abcdef123456"),
+        ("https://h.example/x?apikey=zz998877aabb", "zz998877aabb"),
+        (
+            "https://h.example/x?a=1&access_token=tok123456789",
+            "tok123456789",
+        ),
+        ("https://h.example/x?token=tok987654321", "tok987654321"),
+        ("https://h.example/x?secret=shh-quiet-99", "shh-quiet-99"),
+        ("https://h.example/x?password=hunter22xx", "hunter22xx"),
+    ] {
+        let (r, changed) = safety::redact_str(input);
+        assert!(changed && !r.contains(secret), "{input} -> {r}");
+        assert!(r.contains("[REDACTED]"), "{input} -> {r}");
+    }
+    // Vendor prefixes: Hugging Face, GitHub fine-grained PAT, GitLab PAT.
+    for token in [
+        "hf_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+        "github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuv",
+        "glpat-abcdefghijklmnopqrst12",
+    ] {
+        let (r, changed) = safety::redact_str(&format!("token is {token} ok"));
+        assert!(changed && !r.contains(token), "{token} -> {r}");
+    }
+    // Prose and identifiers that only look near these shapes pass through.
+    let prose = "the key=value syntax is documented; ?page=2 and hf_model_name are fine";
+    let (r, changed) = safety::redact_str(prose);
+    assert!(!changed, "ordinary text must not be redacted: {r}");
+    assert_eq!(r, prose);
+}
+
+#[test]
+fn secret_names_include_pat_creds_and_auth_suffixes_only() {
+    for yes in ["GITHUB_PAT", "CI_CREDS", "DEPLOY_CREDENTIALS", "NPM_AUTH"] {
+        assert!(safety::is_secret_name(yes), "{yes} should be a secret name");
+    }
+    // Suffix matches only: these contain `_PAT` or `_AUTH` but are not secrets.
+    for no in ["LD_LIBRARY_PATH", "GIT_AUTHOR_NAME", "SSH_AUTH_SOCK"] {
+        assert!(!safety::is_secret_name(no), "{no} must not be flagged");
+    }
+}
